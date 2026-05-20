@@ -37,7 +37,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -51,9 +51,9 @@
   events."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (rf/unregister-trace-listener! ::rec)))
+         (finally (rf/unregister-listener! ::rec)))
     @seen))
 
 (defn- errors-of

@@ -44,9 +44,9 @@
 (defn- collect-traces! []
   (let [traces (atom [])
         cb-id  (keyword (gensym "rf-wad-cb-"))]
-    (trace-tooling/register-trace-listener! cb-id (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
     {:traces traces
-     :stop!  (fn [] (trace-tooling/unregister-trace-listener! cb-id))}))
+     :stop!  (fn [] (trace-tooling/unregister-listener! cb-id))}))
 
 (defn- write-after-destroy-warnings [traces]
   (filterv (fn [ev]

@@ -289,11 +289,11 @@
         (count (.something items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (trace-tooling/register-trace-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
-      (trace-tooling/unregister-trace-listener! ::sub-err)
+      (trace-tooling/unregister-listener! ::sub-err)
       (is (some (fn [ev]
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)
@@ -451,14 +451,14 @@
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
-      (trace-tooling/register-trace-listener! ::dsih (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-listener! ::dsih (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
       (rf/reg-event-fx :nested
         (fn [_ _]
           (rf/dispatch-sync [:outer])
           {}))
       (rf/dispatch-sync [:nested])
-      (trace-tooling/unregister-trace-listener! ::dsih)
+      (trace-tooling/unregister-listener! ::dsih)
       (is (some (fn [ev]
                   (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                        (= :error (:op-type ev))))

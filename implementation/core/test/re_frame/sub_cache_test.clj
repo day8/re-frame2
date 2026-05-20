@@ -753,10 +753,10 @@
     ;; Force the cache to retain the entry by holding a ref via subscribe.
     (let [_pinned (rf/subscribe [:answer])
           traces  (atom [])]
-      (rf/register-trace-listener! ::hot-reload (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::hot-reload (fn [ev] (swap! traces conj ev)))
       ;; Re-register with a transformed body.
       (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
-      (rf/unregister-trace-listener! ::hot-reload)
+      (rf/unregister-listener! ::hot-reload)
       ;; After re-registration, the next subscribe-once sees the new fn.
       (is (= 70 (rf/subscribe-once [:answer]))
           "after re-registration the new sub body is used")

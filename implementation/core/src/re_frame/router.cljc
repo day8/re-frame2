@@ -342,7 +342,7 @@
     ;; Always-on per rf2-hqbeh / rf2-bacs4: the `:on-error` policy fn
     ;; fires through the always-on substrate so production builds with
     ;; the trace surface elided still observe the error; in parallel,
-    ;; every fn registered through `rf/register-error-emit-listener!`
+    ;; every fn registered through `rf/register-error-listener!`
     ;; receives the tight error-record. The synthesised error-event
     ;; matches the dev-side `:rf/trace-event` shape closely enough for
     ;; policy fns to discriminate on `:operation` / `:tags`. Trigger-

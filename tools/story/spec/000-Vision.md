@@ -42,7 +42,7 @@ each variant *is* a frame. Story sits on top of
 [Spec 010 — Schemas](../../../spec/010-Schemas.md): controls
 auto-derive from registered view schemas. Story sits on top of
 [Spec 009 — Instrumentation](../../../spec/009-Instrumentation.md):
-the trace panel consumes `register-trace-listener!` against the variant's
+the trace panel consumes `register-listener!` against the variant's
 frame. Story sits on top of
 [Spec 008 — Testing](../../../spec/008-Testing.md): `run-variant` is
 the test-runner ingress for stories used as tests.

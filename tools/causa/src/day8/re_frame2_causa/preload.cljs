@@ -65,7 +65,7 @@
             ;; bundles by the `:devtools/preloads` shadow-cljs gate.
             [re-frame.epoch]
             ;; rf2-qwm0a — the public-tooling listener surface
-            ;; (`register-trace-listener!` etc.) lives in
+            ;; (`register-listener!` etc.) lives in
             ;; `re-frame.trace.tooling` for production-DCE reasons.
             ;; Causa's trace-collector registration below targets the
             ;; tooling sibling directly. The preload is dev-only
@@ -93,7 +93,7 @@
 
 (defonce ^:private trace-cb-registered?
   ;; Idempotency sentinel for the trace-callback registration. Cf.
-  ;; `re-frame.trace/register-trace-listener!`: passing the same id twice
+  ;; `re-frame.trace/register-listener!`: passing the same id twice
   ;; replaces the callback. The replacement is harmless but emits a
   ;; warning trace on every reload that pollutes the dev console;
   ;; this sentinel suppresses re-registration on `:after-load`.
@@ -115,7 +115,7 @@
   it directly without `#'`-piercing into private vars."
   []
   (when (compare-and-set! trace-cb-registered? false true)
-    (trace-tooling/register-trace-listener! :rf.causa/trace-collector
+    (trace-tooling/register-listener! :rf.causa/trace-collector
                                       trace-bus/collect-trace!))
   nil)
 

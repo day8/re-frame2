@@ -32,7 +32,7 @@
   "Attach a recording listener and return its atom."
   [listener-id]
   (let [a (atom [])]
-    (rf/register-trace-listener! listener-id (fn [ev] (swap! a conj ev)))
+    (rf/register-listener! listener-id (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- warnings-of

@@ -41,10 +41,10 @@
 
 (defn- record-traces!
   "Attach a listener that captures every `:view/render` trace into an
-  atom. Returns the atom; caller is responsible for `unregister-trace-listener!`."
+  atom. Returns the atom; caller is responsible for `unregister-listener!`."
   []
   (let [recorded (atom [])]
-    (trace-tooling/register-trace-listener! ::recorder
+    (trace-tooling/register-listener! ::recorder
       (fn [ev]
         (when (= :view/render (:operation ev))
           (swap! recorded conj ev))))
@@ -80,7 +80,7 @@
         (render))
       (is (= 1 (count @traces)) "exactly one :view/render trace fired")
       (assert-trigger-shape (first @traces) :rf2-npm2p/sample)
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest view-render-trigger-rides-at-top-level
   (testing ":rf.trace/trigger-handler on :view/render is a top-level
@@ -96,7 +96,7 @@
             ":rf.trace/trigger-handler lives at top level")
         (is (not (contains? (:tags ev) :rf.trace/trigger-handler))
             ":rf.trace/trigger-handler does NOT live under :tags"))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest view-render-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on
@@ -114,7 +114,7 @@
         (is (= (:file   reg-meta) (:file coord)))
         (is (= (:line   reg-meta) (:line coord)))
         (is (= (:column reg-meta) (:column coord))))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest each-render-carries-trigger-handler
   (testing "every :view/render invocation carries the trigger-handler
@@ -130,7 +130,7 @@
       (is (= 3 (count @traces)) "three :view/render traces fired")
       (doseq [ev @traces]
         (assert-trigger-shape ev :rf2-npm2p/multi-render))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 ;; ---- programmatic registration → no coord → no trigger-handler ------------
 
@@ -151,4 +151,4 @@
         (is (some? ev) ":view/render fired")
         (is (not (contains? ev :rf.trace/trigger-handler))
             "programmatic view-registration → no coord → field omitted"))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))

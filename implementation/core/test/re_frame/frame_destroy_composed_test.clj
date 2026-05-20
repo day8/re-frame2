@@ -48,7 +48,7 @@
   (reset! flows/flows {})
   (reset! flows/last-inputs {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
   (rf/init! plain-atom/adapter)
@@ -99,13 +99,13 @@
     (let [throw-calls (atom 0)
           survivor    (atom [])]
       ;; Throwing listener — fires for every emit in the cascade.
-      (rf/register-trace-listener! ::thrower
+      (rf/register-listener! ::thrower
                              (fn [_ev]
                                (swap! throw-calls inc)
                                (throw (ex-info "tool blew during destroy" {}))))
       ;; Surviving listener — must still receive every event the
       ;; throwing listener intercepted.
-      (rf/register-trace-listener! ::survivor (fn [ev] (swap! survivor conj ev)))
+      (rf/register-listener! ::survivor (fn [ev] (swap! survivor conj ev)))
 
       ;; Destroy. Must NOT throw despite the listener exception storm.
       (is (nil? (rf/destroy-frame! :composed/scoped))
@@ -138,8 +138,8 @@
       (is (nil? (registrar/lookup :frame :composed/scoped))
           "frame is unregistered from the registrar")
 
-      (rf/unregister-trace-listener! ::thrower)
-      (rf/unregister-trace-listener! ::survivor))))
+      (rf/unregister-listener! ::thrower)
+      (rf/unregister-listener! ::survivor))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Throwing late-bound cleanup hook during the destroy cascade
@@ -286,9 +286,9 @@
                    :on-destroy [:composed/teardown]})
 
     (let [recorded (atom [])]
-      (rf/register-trace-listener! ::xfx (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! ::xfx (fn [ev] (swap! recorded conj ev)))
       (rf/destroy-frame! :composed/child)
-      (rf/unregister-trace-listener! ::xfx)
+      (rf/unregister-listener! ::xfx)
 
       ;; Sibling parent received the notification.
       (is (= :child-gone

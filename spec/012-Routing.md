@@ -570,7 +570,7 @@ The error map written to `:rf.route/error` carries two routing-domain attributio
 | `:rf.route/on-match-id` | the failing event-id | Identifies the `:on-match` event vector whose handler threw. |
 | `:rf.route/on-match-frame` | the dispatching frame-id | Identifies the frame whose `:on-match` cascade was mid-drain. |
 
-These slots ride on the structured error so downstream consumers — Causa's event lens, an off-box Sentry/Honeybadger shipper, the SSR error projection per [011](011-SSR.md), an `:on-error` handler — can identify the throw as `:on-match`-attributed **without** re-running the corpus-wide `register-error-emit-listener!` discrimination logic that the runtime uses to wire the trap. Mirrors the flow-attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-frame` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and rf2-je5p8). Tools that read `:rf.error/handler-exception` outside the routing listener's discrimination context get the same attribution the trap itself uses.
+These slots ride on the structured error so downstream consumers — Causa's event lens, an off-box Sentry/Honeybadger shipper, the SSR error projection per [011](011-SSR.md), an `:on-error` handler — can identify the throw as `:on-match`-attributed **without** re-running the corpus-wide `register-error-listener!` discrimination logic that the runtime uses to wire the trap. Mirrors the flow-attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-frame` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and rf2-je5p8). Tools that read `:rf.error/handler-exception` outside the routing listener's discrimination context get the same attribution the trap itself uses.
 
 ## Navigation tokens — stale-result suppression
 

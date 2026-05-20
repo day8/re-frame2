@@ -219,7 +219,7 @@ re-frame2's trace API uses **synchronous, event-at-a-time delivery** — every r
 The canonical listener API has one shape:
 
 ```clojure
-(rf/register-trace-listener! key callback-fn)
+(rf/register-listener! key callback-fn)
 ;; Subscribes callback-fn to receive every trace event as it is emitted.
 ;; Same key replaces any previously-registered listener under that key.
 ;; Returns the key.
@@ -230,25 +230,25 @@ The canonical listener API has one shape:
 ;;   callback-fn — invoked with one trace event per call.
 ;;                 Signature: (fn [trace-event] ...)
 
-(rf/unregister-trace-listener! key)
+(rf/unregister-listener! key)
 ;; Unsubscribes the listener registered under key. Returns nil.
 
-(rf/clear-trace-listeners!)
+(rf/clear-listeners!)
 ;; Test-time helper: drops all registered raw-trace listeners atomically.
 ;; Returns nil. Used by `re-frame.test-support/make-reset-runtime-fixture` to
 ;; restore a clean listener registry between tests; ordinary application
-;; code SHOULD use `unregister-trace-listener!` per key. The same dev-only elision
+;; code SHOULD use `unregister-listener!` per key. The same dev-only elision
 ;; rules apply (production builds drop the registry entirely).
 ```
 
 Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
 
-**Re-registration semantics.** `register-trace-listener!` called with a key already in the registry replaces the previous callback atomically — the swap from old to new happens between two emits, never mid-emit. No trace event is emitted for the replacement (the listener registry is itself dev-only metadata; mutating it does not feed the trace stream); no events delivered to the previous callback are re-delivered to the new one, and no events emitted after the swap are dropped. Hot-reload tools that re-register their listener on every code reload see exactly one stream of events with the swap point invisible to the runtime. The same semantics apply to `register-epoch-listener!` re-registration under an existing key.
+**Re-registration semantics.** `register-listener!` called with a key already in the registry replaces the previous callback atomically — the swap from old to new happens between two emits, never mid-emit. No trace event is emitted for the replacement (the listener registry is itself dev-only metadata; mutating it does not feed the trace stream); no events delivered to the previous callback are re-delivered to the new one, and no events emitted after the swap are dropped. Hot-reload tools that re-register their listener on every code reload see exactly one stream of events with the swap point invisible to the runtime. The same semantics apply to `register-epoch-listener!` re-registration under an existing key.
 
 **Worked example.** A minimal recorder that prints every error trace to the console:
 
 ```clojure
-(rf/register-trace-listener!
+(rf/register-listener!
   :my-app/error-logger
   (fn [trace-event]
     (when (= :error (:op-type trace-event))
@@ -269,7 +269,7 @@ The same pattern with `register-epoch-listener!` to log one assembled cascade pe
 
 #### `register-epoch-listener!` — assembled-epoch listener
 
-Alongside the raw trace stream, the framework exposes a parallel **assembled-epoch listener** API. Where `register-trace-listener!` delivers each raw event as it is emitted, `register-epoch-listener!` delivers one fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) per drain-settle:
+Alongside the raw trace stream, the framework exposes a parallel **assembled-epoch listener** API. Where `register-listener!` delivers each raw event as it is emitted, `register-epoch-listener!` delivers one fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) per drain-settle:
 
 ```clojure
 (rf/register-epoch-listener! key callback-fn)
@@ -289,7 +289,7 @@ Alongside the raw trace stream, the framework exposes a parallel **assembled-epo
 ;; Unsubscribes the listener registered under key.
 ```
 
-**Invocation rules** (mirrors `register-trace-listener!`):
+**Invocation rules** (mirrors `register-listener!`):
 
 - **Per drain-boundary, not per event.** The callback fires once at every drain boundary — both clean settles AND halted drains (`:halted-depth`, `:halted-destroy`; see [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes-rf2-v0jwt)). Multi-event cascades produce one record (and one callback invocation), not one per event.
 - **After commit.** The callback receives a fully-formed record with `:db-after`, `:sub-runs`, `:renders`, `:effects`, and any optional `:trace-events` populated. The record has already been appended to the frame's `epoch-history` ring buffer when the callback runs.
@@ -299,7 +299,7 @@ Alongside the raw trace stream, the framework exposes a parallel **assembled-epo
 
 **Halted cascades (rf2-v0jwt).** Listeners receive epoch records for halted drains as well as clean settles. `:outcome` on the record discriminates — `:ok`, `:halted-depth`, or `:halted-destroy`. The partial record carries whatever the runtime captured up to the halt point: `:trace-events`, `:sub-runs`, `:renders`, `:effects` reflect the cascade-so-far, and `:halt-reason` carries a structured descriptor of why the drain halted. This is the **devtools surface** for failing cascades — Causa's epoch panel, re-frame2-pair's `cascade-of`, post-mortem dashboards: all route off the same listener, and `:outcome` lets them render the failure with the right shape. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of their callback. `restore-epoch` refuses non-`:ok` records — see [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes-rf2-v0jwt).
 
-**When to use which.** `register-trace-listener!` is the right shape for tools that need fine-grained per-event activity (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the right shape for tools that route diagnostics off "what just happened in this cascade" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
+**When to use which.** `register-listener!` is the right shape for tools that need fine-grained per-event activity (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the right shape for tools that route diagnostics off "what just happened in this cascade" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
 
 The two listener APIs are independent: tools may register either, both, or neither. They share the production-elision gate but have separate listener registries; no listener of one kind can interfere with the other.
 
@@ -321,7 +321,7 @@ The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel,
 ;;     ...]
 ```
 
-Events without a `:dispatch-id` (registry-time emits, frame lifecycle, REPL evals outside a drain) collect under `:dispatch-id :ungrouped`. The returned vector is sorted by the lowest `:id` in each cascade so consumers render cascades in emission order. The projection is **pure data** — JVM and CLJS run the same code; tools wiring up post-mortem renders against `(rf/trace-buffer)` get the same output shape as live consumers reading from a `register-trace-listener!` listener.
+Events without a `:dispatch-id` (registry-time emits, frame lifecycle, REPL evals outside a drain) collect under `:dispatch-id :ungrouped`. The returned vector is sorted by the lowest `:id` in each cascade so consumers render cascades in emission order. The projection is **pure data** — JVM and CLJS run the same code; tools wiring up post-mortem renders against `(rf/trace-buffer)` get the same output shape as live consumers reading from a `register-listener!` listener.
 
 `(rf/domino-bucket trace-event)` is the underlying classifier — returns one of `#{:event :handler :fx :effect :sub :render :other}`. Tools that want custom rollups can call it directly per event and skip `group-cascades`.
 
@@ -339,7 +339,7 @@ The projection is additive: new `:op-type` values that don't fit a domino slot f
 
 ### Retain-N trace ring buffer (dev-only)
 
-In dev builds, the framework maintains a **retain-N trace ring buffer** alongside the synchronous-delivery path. The ring buffer holds the most recent N emitted trace events and is queryable. This lets pair-shaped AI tools, REPL-attached debuggers, and post-mortem dashboards read recent activity without having to be registered as a `register-trace-listener!` listener at the time the events fire.
+In dev builds, the framework maintains a **retain-N trace ring buffer** alongside the synchronous-delivery path. The ring buffer holds the most recent N emitted trace events and is queryable. This lets pair-shaped AI tools, REPL-attached debuggers, and post-mortem dashboards read recent activity without having to be registered as a `register-listener!` listener at the time the events fire.
 
 Contract:
 
@@ -376,14 +376,14 @@ Semantics:
 
 - **Ring discipline.** When the buffer is full, the oldest event is evicted as a new one is pushed. No allocation churn beyond the slot count.
 - **Same events as delivery.** Every event delivered to listeners also lands in the ring buffer. Ring-buffer events are the same maps the listeners receive.
-- **Independent of listeners.** A tool that attaches *after* events have fired can read the most-recent N from the ring buffer to bootstrap its view; a tool that wants a continuous live feed registers a `register-trace-listener!` listener as well.
+- **Independent of listeners.** A tool that attaches *after* events have fired can read the most-recent N from the ring buffer to bootstrap its view; a tool that wants a continuous live feed registers a `register-listener!` listener as well.
 - **Production elision.** The ring buffer, like the rest of the trace surface, is compile-time eliminated in production builds (per [§Production builds](#production-builds-zero-overhead-zero-code)). `(rf/trace-buffer)` returns an empty vector in production, and the buffer itself is not allocated.
 - **Depth-zero semantics.** When configured with `{:depth 0}`, the ring buffer is disabled but the surface remains live: `(rf/trace-buffer)` returns `[]`, `(rf/trace-buffer opts)` returns `[]`, and `(rf/clear-trace-buffer!)` is a no-op (returns `nil`). Synchronous-delivery to registered listeners continues to fire — only the queryable history is suppressed.
 - **Lowering depth on a populated buffer.** `(rf/configure :trace-buffer {:depth N})` applied while the buffer holds more than `N` events drops the oldest events first to fit the new depth (same eviction order as the ring discipline). Raising the depth keeps existing events and grows the slot count.
 
 Why this is a framework primitive (not a Causa-specific concern): pair-shaped tools, REPL companions, and any non-Causa consumer needs recent-history access. Locating the buffer in the framework means external tools depend on a stable framework primitive rather than on Causa's internal data structures. See [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) for the full consumption pattern.
 
-**Topology note (rf2-qwm0a).** The public-tooling surface — `register-trace-listener!` / `unregister-trace-listener!` / `clear-trace-listeners!` / `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!` / `configure` — and the buffer + listener state live in the sibling `re-frame.trace.tooling` namespace, not `re-frame.trace` itself. `re-frame.trace` carries the always-loaded hot fast path (`emit!` / `emit-error!` / `*handler-scope*`); the tooling sibling is loaded only when a test fixture, tool (Causa / Story / re-frame2-pair-mcp), or dev preload `:require`s it. The `rf/...` public Vars and the `re-frame.trace/<surface>` wrappers delegate via the `:trace.tooling/*` late-bind hooks so existing consumer call sites are unchanged. On the JVM the tooling sibling is autoloaded by `re-frame.trace` (zero bundle cost off-bundle). On CLJS the tooling sibling is omitted from production counter bundles — the hook lookups return nil and the wrappers no-op (DCE drops the body wholesale, ~2 KB raw / ~600 B gzipped saved).
+**Topology note (rf2-qwm0a).** The public-tooling surface — `register-listener!` / `unregister-listener!` / `clear-listeners!` / `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!` / `configure` — and the buffer + listener state live in the sibling `re-frame.trace.tooling` namespace, not `re-frame.trace` itself. `re-frame.trace` carries the always-loaded hot fast path (`emit!` / `emit-error!` / `*handler-scope*`); the tooling sibling is loaded only when a test fixture, tool (Causa / Story / re-frame2-pair-mcp), or dev preload `:require`s it. The `rf/...` public Vars and the `re-frame.trace/<surface>` wrappers delegate via the `:trace.tooling/*` late-bind hooks so existing consumer call sites are unchanged. On the JVM the tooling sibling is autoloaded by `re-frame.trace` (zero bundle cost off-bundle). On CLJS the tooling sibling is omitted from production counter bundles — the hook lookups return nil and the wrappers no-op (DCE drops the body wholesale, ~2 KB raw / ~600 B gzipped saved).
 
 ## Emitting trace events
 
@@ -501,11 +501,11 @@ CLJS dev builds default to `goog.DEBUG=true` — every gate stays live with no e
 
 ### User-side listener registration
 
-User-side `(rf/register-trace-listener! ...)` calls should also elide in production. Wrap them with the same predicate the framework uses:
+User-side `(rf/register-listener! ...)` calls should also elide in production. Wrap them with the same predicate the framework uses:
 
 ```clojure
 (when ^boolean re-frame.interop/debug-enabled?
-  (rf/register-trace-listener! :my/listener callback-fn))
+  (rf/register-listener! :my/listener callback-fn))
 ```
 
 In production (`goog.DEBUG=false`), `re-frame.interop/debug-enabled?` is the constant `false`, the `when` is dead, and the entire registration is elided.
@@ -537,13 +537,13 @@ Both accept the conventional false-y vocabulary case-insensitively: `false`, `0`
 
 - Trace emission (`emit!` / `emit-error!` / the queue-time `:event/dispatched` emit) is silent.
 - The retain-N trace ring buffer accumulates nothing.
-- `register-trace-listener!` listeners receive no events.
+- `register-listener!` listeners receive no events.
 - The epoch artefact (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) records no `:db-before`/`:db-after`/`:trace-events` payloads, fires no `register-epoch-listener!` listeners, and refuses `restore-epoch` / `reset-frame-db!`.
 
 **What remains live (always-on by construction).** Disabling the gate does NOT silence the production-survivable surfaces:
 
-- The `register-event-emit-listener!` substrate (per rf2-rirbq, [§Event-emit listener](#what-is-available-in-production)) keeps firing.
-- The `register-error-emit-listener!` substrate and the per-frame `:on-error` policy fn (per rf2-bacs4 / rf2-hqbeh, [§Error-emit listener](#what-is-available-in-production)) keep firing.
+- The `register-event-listener!` substrate (per rf2-rirbq, [§Event-emit listener](#what-is-available-in-production)) keeps firing.
+- The `register-error-listener!` substrate and the per-frame `:on-error` policy fn (per rf2-bacs4 / rf2-hqbeh, [§Error-emit listener](#what-is-available-in-production)) keep firing.
 - Schema validation, the registrar, and the dispatch loop itself are unaffected.
 
 Those surfaces are explicitly always-on per their owning specs — they exist precisely for the SSR / production posture and would defeat their purpose if a debug-gate flip silenced them. They run with the `:sensitive?` substrate-level enforcement described in [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces).
@@ -556,7 +556,7 @@ The motivating concern is the audit finding (rf2-vnjfg / rf2-0la4f): an SSR / he
 
 The contract above is enforced by an automated test in CI:
 
-1. `implementation/core/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-trace-listener!`, `emit-trace-event!`, the trace ring buffer (`trace-buffer` / `clear-trace-buffer!` / `(configure :trace-buffer …)`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-listener!` / `epoch-history` / `restore-epoch` / `(configure :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
+1. `implementation/core/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-listener!`, `emit-trace-event!`, the trace ring buffer (`trace-buffer` / `clear-trace-buffer!` / `(configure :trace-buffer …)`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-listener!` / `epoch-history` / `restore-epoch` / `(configure :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
 2. `implementation/shadow-cljs.edn` declares two `:advanced` builds with `re-frame.elision-probe/run` as the entry point:
    - `:elision-probe` — `:closure-defines {goog.DEBUG false}` (production)
    - `:elision-probe-control` — `:closure-defines {goog.DEBUG true}` (control)
@@ -581,7 +581,7 @@ The elision contract above is uncompromising — in a `:advanced` build with `go
 
 A `:closure-defines {goog.DEBUG false}` `:advanced` build carries no trace machinery. Concretely, the following surfaces have been DCEd and the runtime cannot reach them at all:
 
-- `register-trace-listener!` / `unregister-trace-listener!` — listener registration is a no-op because the gate around `trace/emit!` is constant-folded out. Even if user code registered a listener at boot (which it shouldn't, per [§User-side listener registration](#user-side-listener-registration)), nothing would ever invoke it.
+- `register-listener!` / `unregister-listener!` — listener registration is a no-op because the gate around `trace/emit!` is constant-folded out. Even if user code registered a listener at boot (which it shouldn't, per [§User-side listener registration](#user-side-listener-registration)), nothing would ever invoke it.
 - The retain-N trace ring buffer (`trace-buffer`, `clear-trace-buffer!`, `(configure :trace-buffer …)`) — pulling "the last N events from a prod session" is not supported. The buffer's `swap!` site is inside the same elision gate.
 - `register-epoch-listener` and the per-drain `:rf/epoch-record` assembly — epoch projection runs inside the trace surface and elides with it.
 - Every `:rf.error/*`, `:rf.warning/*`, `:rf.info/*`, `:rf.fx/*`, `:rf.ssr/*`, and `:rf.epoch/*` trace event documented in [§Error event catalogue](#error-event-catalogue). They are not emitted, not buffered, and not deliverable to any listener. (The `:on-error` per-frame slot — per [002-Frames §`:on-error`](002-Frames.md) — is a documented exception: it rides a small always-on error-emit substrate that survives `goog.DEBUG=false`. See [§What IS available in production](#what-is-available-in-production) below.)
@@ -596,26 +596,26 @@ A `:closure-defines {goog.DEBUG false}` `:advanced` build carries no trace machi
 Six surfaces survive elision and are the canonical production-debugging fallbacks:
 
 1. **The per-frame `:on-error` slot** (per [002-Frames §`:on-error`](002-Frames.md) and [§Error-handler policy](#error-handler-policy-on-error-per-frame)) — runs through a small always-on error-emit substrate (per rf2-hqbeh) that is NOT gated by `re-frame.interop/debug-enabled?`. When a registered event handler throws in CLJS prod, the runtime invokes the in-scope frame's `:on-error` policy fn with the structured error event (`:operation :rf.error/handler-exception`, `:op-type :error`, `:tags {:event-id :frame :exception …}`). The substrate covers the handler-exception path — the primary production-monitoring case (rf2-hqbeh validation criterion). The substrate does NOT carry dev-side enrichment: `:dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, and the retain-N ring buffer all remain trace-surface-only and continue to elide. Per Spec 009 §1052 policy-fn exceptions are caught inside the substrate so a buggy policy cannot break the cascade.
-2. **The event-emit listener surface** (per rf2-rirbq, `register-event-emit-listener!` / `unregister-event-emit-listener!` — see [API.md §Event-emit](API.md#event-emit-always-on-production-survivable)) — runs through a small always-on event-emit substrate (parallel to the `:on-error` substrate in #1) that is NOT gated by `re-frame.interop/debug-enabled?`. The router fans out one record per processed event after the cascade settles. The record is intentionally tight — `{:event <vector> :event-id <kw> :frame <kw> :time <millis> :outcome :ok|:error :elapsed-ms <int>}` — enough discriminator for production event observability (event-id, frame, outcome, latency); not enough for causal reconstruction (`:dispatch-id` correlation, `:parent-dispatch-id`, source-coord ride the dev-only trace surface and elide with it). The `:event` vector is passed through `re-frame.elision/elide-wire-value` ONCE before fan-out with off-box defaults (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`), so listeners can ship the wire payload to a hosted observability back-end (Datadog, Honeycomb, Sentry, …) without further shaping. Per-listener exceptions are caught inside the substrate so a buggy listener cannot break the cascade or block sibling listeners. Listener registration sites SHOULD use `^boolean re-frame.interop/debug-enabled?` as a belt-and-braces gate alongside the user's explicit config flag:
+2. **The event-emit listener surface** (per rf2-rirbq, `register-event-listener!` / `unregister-event-listener!` — see [API.md §Event-emit](API.md#event-emit-always-on-production-survivable)) — runs through a small always-on event-emit substrate (parallel to the `:on-error` substrate in #1) that is NOT gated by `re-frame.interop/debug-enabled?`. The router fans out one record per processed event after the cascade settles. The record is intentionally tight — `{:event <vector> :event-id <kw> :frame <kw> :time <millis> :outcome :ok|:error :elapsed-ms <int>}` — enough discriminator for production event observability (event-id, frame, outcome, latency); not enough for causal reconstruction (`:dispatch-id` correlation, `:parent-dispatch-id`, source-coord ride the dev-only trace surface and elide with it). The `:event` vector is passed through `re-frame.elision/elide-wire-value` ONCE before fan-out with off-box defaults (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`), so listeners can ship the wire payload to a hosted observability back-end (Datadog, Honeycomb, Sentry, …) without further shaping. Per-listener exceptions are caught inside the substrate so a buggy listener cannot break the cascade or block sibling listeners. Listener registration sites SHOULD use `^boolean re-frame.interop/debug-enabled?` as a belt-and-braces gate alongside the user's explicit config flag:
 
    ```clojure
    (when (and (= "production" (:env config))
               (not ^boolean re-frame.interop/debug-enabled?)
               (:api-key config))
-     (rf/register-event-emit-listener!
+     (rf/register-event-listener!
        :datadog/forward
        (fn [event-record]
          (datadog/track event-record))))
    ```
 
    Catches the "accidentally deployed a dev bundle with prod config" bug class.
-3. **The error-emit listener surface** (per rf2-bacs4, `register-error-emit-listener!` / `unregister-error-emit-listener!` — see [API.md §Error-emit](API.md#error-emit-always-on-production-survivable)) — sibling of #2, runs through the SAME always-on error-emit substrate as the per-frame `:on-error` slot (#1) but along an independent fan-out path. NOT gated by `re-frame.interop/debug-enabled?`. The router fans out one record per `:rf.error/*` event after the handler-exception path runs. The record is intentionally tight — `{:error <kw> :event <vector> :event-id <kw> :frame <kw> :time <millis> :exception <ex> :elapsed-ms <int>}` — enough discriminator for production error observability (failing event-id, frame, exception object, latency); not enough for causal reconstruction (`:dispatch-id`, source-coord, `:rf.trace/trigger-handler` ride the dev-only trace surface and elide with it). The `:event` vector is passed through `re-frame.elision/elide-wire-value` ONCE before fan-out with off-box defaults (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`). The two paths from the substrate are mutually isolated: a buggy listener cannot block the per-frame `:on-error` policy fn, and a buggy policy fn cannot block listeners. Listener registration sites SHOULD use `^boolean re-frame.interop/debug-enabled?` as a belt-and-braces gate alongside the user's explicit config flag, symmetric with the event-emit pattern in #2:
+3. **The error-emit listener surface** (per rf2-bacs4, `register-error-listener!` / `unregister-error-listener!` — see [API.md §Error-emit](API.md#error-emit-always-on-production-survivable)) — sibling of #2, runs through the SAME always-on error-emit substrate as the per-frame `:on-error` slot (#1) but along an independent fan-out path. NOT gated by `re-frame.interop/debug-enabled?`. The router fans out one record per `:rf.error/*` event after the handler-exception path runs. The record is intentionally tight — `{:error <kw> :event <vector> :event-id <kw> :frame <kw> :time <millis> :exception <ex> :elapsed-ms <int>}` — enough discriminator for production error observability (failing event-id, frame, exception object, latency); not enough for causal reconstruction (`:dispatch-id`, source-coord, `:rf.trace/trigger-handler` ride the dev-only trace surface and elide with it). The `:event` vector is passed through `re-frame.elision/elide-wire-value` ONCE before fan-out with off-box defaults (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`). The two paths from the substrate are mutually isolated: a buggy listener cannot block the per-frame `:on-error` policy fn, and a buggy policy fn cannot block listeners. Listener registration sites SHOULD use `^boolean re-frame.interop/debug-enabled?` as a belt-and-braces gate alongside the user's explicit config flag, symmetric with the event-emit pattern in #2:
 
    ```clojure
    (when (and (= "production" (:env config))
               (not ^boolean re-frame.interop/debug-enabled?)
               (:dsn config))
-     (rf/register-error-emit-listener!
+     (rf/register-error-listener!
        :sentry/forward
        (fn [error-record]
          (sentry/capture-exception (:exception error-record)
@@ -634,10 +634,10 @@ The prose above catalogues the surfaces in elision-framing — what disappears u
 
 The framework exposes **six observation surfaces**:
 
-1. **Raw trace listener** — `register-trace-listener!` / `unregister-trace-listener!` ([§Listener API](#the-listener-api)).
+1. **Raw trace listener** — `register-listener!` / `unregister-listener!` ([§Listener API](#the-listener-api)).
 2. **Assembled-epoch listener** — `register-epoch-listener!` / `unregister-epoch-listener!` ([§Assembled-epoch listener](#register-epoch-listener--assembled-epoch-listener), [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
-3. **Event-emit listener** — `register-event-emit-listener!` / `unregister-event-emit-listener!` ([API.md §Event-emit](API.md#event-emit-always-on-production-survivable)).
-4. **Error-emit listener** — `register-error-emit-listener!` / `unregister-error-emit-listener!` ([API.md §Error-emit](API.md#error-emit-always-on-production-survivable)).
+3. **Event-emit listener** — `register-event-listener!` / `unregister-event-listener!` ([API.md §Event-emit](API.md#event-emit-always-on-production-survivable)).
+4. **Error-emit listener** — `register-error-listener!` / `unregister-error-listener!` ([API.md §Error-emit](API.md#error-emit-always-on-production-survivable)).
 5. **Per-frame `:on-error` slot** — frame-registration metadata ([002-Frames](002-Frames.md), [§Error-handler policy](#error-handler-policy-on-error-per-frame)).
 6. **Performance API channel** — `performance.mark` / `performance.measure` brackets ([§Performance instrumentation](#performance-instrumentation)).
 
@@ -651,10 +651,10 @@ Each surface sits in exactly one of **three production postures**:
 
 | Surface | Dev (`goog.DEBUG=true`) | Nightly (`goog.DEBUG=true` + retain-N tuned) | Production (`goog.DEBUG=false`) | Posture |
 | --- | --- | --- | --- | --- |
-| 1. Raw trace listener (`register-trace-listener!`) | **live** — full structured trace stream, every `:op-type` (`:event`, `:sub/run`, `:fx`, `:error`, `:warning`, `:rf.machine/*`, `:rf.flow/*`, `:rf.fx/*`, …), dev-side enrichments (`:rf.trace/trigger-handler` source-coord, `:dispatch-id` / `:parent-dispatch-id` correlation, `:origin` tag) | **live** — same as dev; tune retain-N via `(rf/configure :trace-buffer {:depth N})` for long-tail traces | **elided** — `emit!` gate constant-folded; registration is a no-op, listener never invoked; zero allocation in bundle | dev-only DCE |
+| 1. Raw trace listener (`register-listener!`) | **live** — full structured trace stream, every `:op-type` (`:event`, `:sub/run`, `:fx`, `:error`, `:warning`, `:rf.machine/*`, `:rf.flow/*`, `:rf.fx/*`, …), dev-side enrichments (`:rf.trace/trigger-handler` source-coord, `:dispatch-id` / `:parent-dispatch-id` correlation, `:origin` tag) | **live** — same as dev; tune retain-N via `(rf/configure :trace-buffer {:depth N})` for long-tail traces | **elided** — `emit!` gate constant-folded; registration is a no-op, listener never invoked; zero allocation in bundle | dev-only DCE |
 | 2. Assembled-epoch listener (`register-epoch-listener!`) | **live** — one `:rf/epoch-record` per drain-settle (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)); `:db-before` / `:db-after` / `:trace-events` payload; `(rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})` controls retention and per-record redaction | **live** — bump `:depth` for longer post-mortem windows; `:redact-fn` runs at build-time before ring-append | **elided** — projection runs inside the trace surface and elides with it; epoch ring records nothing, listeners never fire, `restore-epoch` / `reset-frame-db!` refuse | dev-only DCE |
-| 3. Event-emit listener (`register-event-emit-listener!`) | **live** — one tight record per processed event: `{:event :event-id :frame :time :outcome :elapsed-ms}`, post-elision (per rf2-rirbq) | **live** — same record shape; no tuning knobs | **live** — survives `goog.DEBUG=false`; identical record shape and elision; per-listener exceptions isolated; consumer SHOULD belt-and-braces `(when (not ^boolean re-frame.interop/debug-enabled?) …)` registration to catch dev-bundle-with-prod-config bug class | **always-on** |
-| 4. Error-emit listener (`register-error-emit-listener!`) | **live** — one tight record per `:rf.error/*` event: `{:error :event :event-id :frame :time :exception :elapsed-ms}`, post-elision (per rf2-bacs4) | **live** — same record shape | **live** — survives `goog.DEBUG=false`; identical record shape and elision; isolated from the per-frame `:on-error` policy fn fan-out (#5); per-listener exceptions isolated | **always-on** |
+| 3. Event-emit listener (`register-event-listener!`) | **live** — one tight record per processed event: `{:event :event-id :frame :time :outcome :elapsed-ms}`, post-elision (per rf2-rirbq) | **live** — same record shape; no tuning knobs | **live** — survives `goog.DEBUG=false`; identical record shape and elision; per-listener exceptions isolated; consumer SHOULD belt-and-braces `(when (not ^boolean re-frame.interop/debug-enabled?) …)` registration to catch dev-bundle-with-prod-config bug class | **always-on** |
+| 4. Error-emit listener (`register-error-listener!`) | **live** — one tight record per `:rf.error/*` event: `{:error :event :event-id :frame :time :exception :elapsed-ms}`, post-elision (per rf2-bacs4) | **live** — same record shape | **live** — survives `goog.DEBUG=false`; identical record shape and elision; isolated from the per-frame `:on-error` policy fn fan-out (#5); per-listener exceptions isolated | **always-on** |
 | 5. Per-frame `:on-error` slot | **live** — policy fn invoked with `:operation :rf.error/handler-exception` event; return-map shape governs recovery (`{:recovery :default | :swallow | :replacement <new-event>}`) per [§Return-map contract](#return-map-contract) | **live** — same semantics; tune via the policy fn's own logic | **live** — survives `goog.DEBUG=false` (per rf2-hqbeh); handler-exception path runs through the same always-on error-emit substrate as #4 but along an independent fan-out path; policy-fn exceptions caught inside the substrate so a buggy policy cannot break the cascade | **always-on** |
 | 6. Performance API channel | **default off** — `re-frame.performance/enabled?` defaults to `false`; bracket sites elided. Apps that want timing in dev opt in via `:closure-defines {re-frame.performance/enabled? true}` and read via `performance.getEntriesByType('measure')` or DevTools Performance panel | **default off** — same as dev; opt in for nightly perf regression catches | **default off** — bracket sites DCEd. Apps that want production timing observability opt in via the same `:closure-defines` flag; brackets at the four hot paths (`:event`, `:sub`, `:fx`, `:render`) emit User-Timing measure entries readable by any `PerformanceObserver` including the host APM | **opt-in goog-define** |
 
@@ -687,7 +687,7 @@ Each posture row has a small set of runtime knobs (orthogonal to the elision gat
 
 | Posture | Knob | Effect | Surface(s) affected |
 | --- | --- | --- | --- |
-| dev-only DCE | `(rf/configure :trace-buffer {:depth N})` | Retain-N ring buffer for `register-trace-listener!` late-attach (`N=0` opts out of the buffer entirely; default 50) | #1 |
+| dev-only DCE | `(rf/configure :trace-buffer {:depth N})` | Retain-N ring buffer for `register-listener!` late-attach (`N=0` opts out of the buffer entirely; default 50) | #1 |
 | dev-only DCE | `(rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})` | Epoch ring depth, per-record trace-event budget, per-record redaction hook for sensitive payloads | #2 |
 | dev-only DCE | `(rf/configure :elision {:rf.size/threshold-bytes N})` | Per-payload size threshold for `:rf.size/large-elided` marker in trace records | #1, #2 (records ride post-elision) |
 | always-on | none — record shape is fixed by contract | Listeners receive identical record shapes in dev and prod | #3, #4, #5 |
@@ -702,7 +702,7 @@ Three of the six surfaces are designed to feed off-box (hosted) backends; the co
 
 | Surface | Off-box ready? | Record shape | Privacy guarantee |
 | --- | --- | --- | --- |
-| #1 raw trace listener | NO — dev-only; not present in production bundles. Apps SHOULD NOT ship trace records to a hosted backend in dev as a substitute for #3 / #4 (the record is much larger and carries dev-side fields irrelevant to APM) | Full structured trace event with `:tags` open bag, source-coord, `:dispatch-id` correlation | The dev-side `register-trace-listener!` runs after `:sensitive?` substrate-level scrubbing per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces). |
+| #1 raw trace listener | NO — dev-only; not present in production bundles. Apps SHOULD NOT ship trace records to a hosted backend in dev as a substitute for #3 / #4 (the record is much larger and carries dev-side fields irrelevant to APM) | Full structured trace event with `:tags` open bag, source-coord, `:dispatch-id` correlation | The dev-side `register-listener!` runs after `:sensitive?` substrate-level scrubbing per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces). |
 | #2 epoch listener | NO — dev-only; epoch records carry full `:db-before` / `:db-after` snapshots and are not sized for hosted ingestion | Assembled `:rf/epoch-record` per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) | `(rf/configure :epoch-history {:redact-fn fn})` runs at build-time before ring-append. |
 | #3 event-emit listener | YES — tight record shape, post-elision, exception-isolated. Designed for direct hosted-backend forwarding | `{:event :event-id :frame :time :outcome :elapsed-ms}` | `:event` vector passed through `re-frame.elision/elide-wire-value` once before fan-out (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`). |
 | #4 error-emit listener | YES — same posture and shape contract as #3 | `{:error :event :event-id :frame :time :exception :elapsed-ms}` | Same elision pre-fan-out as #3; `:exception` object is the JS / JVM throwable, not a serialised string. |
@@ -717,7 +717,7 @@ The dev-side integration documented at [§Composition with libraries](#compositi
 
 ```clojure
 ;; Dev: full structured trace, captured before the runtime's default recovery.
-(rf/register-trace-listener!
+(rf/register-listener!
  :sentry/forward
  (fn [trace-event]
    (when (= :error (:op-type trace-event))
@@ -733,18 +733,18 @@ The dev-side integration documented at [§Composition with libraries](#compositi
                      (str (-> trace-event :tags :failing-id))]}))))
 ```
 
-In a production CLJS build with `goog.DEBUG=false`, the `register-trace-listener!` call and its body sit under the `(when ^boolean re-frame.interop/debug-enabled? …)` user-side guard (per [§User-side listener registration](#user-side-listener-registration)) and elide entirely. The trace-listener fan-out (`:dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, the retain-N ring buffer) is dev-only. Three integration patterns survive elision:
+In a production CLJS build with `goog.DEBUG=false`, the `register-listener!` call and its body sit under the `(when ^boolean re-frame.interop/debug-enabled? …)` user-side guard (per [§User-side listener registration](#user-side-listener-registration)) and elide entirely. The trace-listener fan-out (`:dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, the retain-N ring buffer) is dev-only. Three integration patterns survive elision:
 
 - **Recommended for structured fields**: register the monitor through the per-frame `:on-error` slot (per [§Error-handler policy](#error-handler-policy-on-error-per-frame)). Per rf2-hqbeh the slot rides the always-on error-emit substrate, NOT the trace surface — registered policy fns fire under `:advanced` + `goog.DEBUG=false`. The policy fn receives the structured error event (`:operation :rf.error/handler-exception`, `:op-type :error`, `:tags {:event-id :frame :exception …}`), forwards to the monitor, and returns nil to delegate recovery to the runtime. This is the recommended production-monitor integration. The substrate covers the handler-exception path; dev-side enrichments (`:dispatch-id`, source-coord, retain-N) are not carried.
 - **Native-SDK fallback**: install the monitor's native browser SDK at the top of the bundle (`Sentry.init({...})`). It captures `window.onerror`, `window.onunhandledrejection`, and any explicit `Sentry.captureException` call wherever the app already has error-boundary plumbing. The trade-off is loss of re-frame2's structured fields — the monitor sees the bare exception, not the cascade context. Use this when the app already has wider-scope error-boundary plumbing or when handler-exception coverage alone is insufficient.
-- **Opt-in to keep the trace surface**: ship `:advanced` with `:closure-defines {goog.DEBUG true}`. The trace surface is preserved, the `register-trace-listener!` sample above runs, and the monitor receives full structured events including dev-side enrichments (`:dispatch-id`, `:rf.trace/trigger-handler`, the retain-N buffer). The cost is the trace machinery's bundle size (see [§Production-elision verification](#production-elision-verification) for the size delta — the control bundle is the reference measurement). This is the explicit escape hatch for apps where post-mortem fidelity outweighs bundle weight.
+- **Opt-in to keep the trace surface**: ship `:advanced` with `:closure-defines {goog.DEBUG true}`. The trace surface is preserved, the `register-listener!` sample above runs, and the monitor receives full structured events including dev-side enrichments (`:dispatch-id`, `:rf.trace/trigger-handler`, the retain-N buffer). The cost is the trace machinery's bundle size (see [§Production-elision verification](#production-elision-verification) for the size delta — the control bundle is the reference measurement). This is the explicit escape hatch for apps where post-mortem fidelity outweighs bundle weight.
 
 ## Hot path in dev builds
 
 Dev iteration matters; you don't want trace machinery to slow ordinary feedback loops. Two hot-path costs are present in dev:
 
 1. **Trace-event allocation** — building the trace map per emit.
-2. **Listener invocation** — invoking `register-trace-listener!` callbacks once per emitted event.
+2. **Listener invocation** — invoking `register-listener!` callbacks once per emitted event.
 
 ### Cheap-path discipline (dev builds only)
 
@@ -764,7 +764,7 @@ This is **distinct from** the trace surface above:
 |---|---|---|
 | Compile-time gate | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | `re-frame.performance/enabled?` |
 | Default | on in dev (`goog.DEBUG=true`), off in prod | **off** in both (`enabled?=false`) |
-| Consumer | `register-trace-listener!` listeners, the retain-N ring buffer, `register-epoch-listener!` | `performance.getEntriesByType('measure')`, `PerformanceObserver`, Chrome DevTools Performance |
+| Consumer | `register-listener!` listeners, the retain-N ring buffer, `register-epoch-listener!` | `performance.getEntriesByType('measure')`, `PerformanceObserver`, Chrome DevTools Performance |
 | Shape | structured trace events (open maps with `:operation` / `:op-type` / `:tags`) | `User Timing` measure entries (`name`, `startTime`, `duration`) |
 | Where it runs | both platforms (dev) | CLJS only — JVM is a no-op |
 
@@ -877,7 +877,7 @@ External tools consume re-frame2 through stable surfaces. Production builds elid
 
 | Surface | Stability |
 |---|---|
-| `register-trace-listener!` / `unregister-trace-listener!` | Preserved |
+| `register-listener!` / `unregister-listener!` | Preserved |
 | Synchronous, event-at-a-time delivery | Preserved |
 | Trace event shape (`:id`, `:operation`, `:op-type`, `:time`, `:tags`) | Preserved exactly |
 | `:op-type` discriminator vocabulary (`:event`, `:sub/run`, `:sub/create`, `:event/do-fx`, `:rf.machine/transition`, `:view/render`, `:fx`, `:warning`, `:error`, ...) | Preserved; new values additive |
@@ -910,7 +910,7 @@ All trace functionality is **dev-build only** — production builds elide the en
 | Capability (dev builds) | JVM | CLJS |
 |---|---|---|
 | Trace event emission | ✓ | ✓ |
-| `register-trace-listener!` / `unregister-trace-listener!` | ✓ | ✓ |
+| `register-listener!` / `unregister-listener!` | ✓ | ✓ |
 | `register-epoch-listener!` / `unregister-epoch-listener!` | ✓ | ✓ |
 | Trace ring buffer (`trace-buffer`) | ✓ | ✓ |
 | Hot-reload trace events | ✓ | ✓ |
@@ -1326,7 +1326,7 @@ Pattern-level: every implementation registers an equivalent set of schemas. The 
 
 ### Server error projection — public boundary
 
-For SSR specifically, the structured trace event is the **internal** record (rich, full detail, monitor-bound) and a separate **public projection** is written to the HTTP response (sanitised, client-safe). The internal trace event is **never** serialised to the client. The projection mechanism is owned by [011 §Server error projection](011-SSR.md#server-error-projection); the trace stream is unchanged by it. Tools that want full error detail subscribe via `register-trace-listener!` as usual; the response carries only the locked `:rf/public-error` shape.
+For SSR specifically, the structured trace event is the **internal** record (rich, full detail, monitor-bound) and a separate **public projection** is written to the HTTP response (sanitised, client-safe). The internal trace event is **never** serialised to the client. The projection mechanism is owned by [011 §Server error projection](011-SSR.md#server-error-projection); the trace stream is unchanged by it. Tools that want full error detail subscribe via `register-listener!` as usual; the response carries only the locked `:rf/public-error` shape.
 
 The runtime emits `:rf.error/sanitised-on-projection` (above) when the projector itself fails, so monitor dashboards see when the public boundary fell back to the generic-500 shape.
 
@@ -1341,7 +1341,7 @@ The `:recovery` field on the trace event tells consumers (dev panels, error-moni
 - `:warned-and-replaced` — the runtime emitted the warning and did its default action anyway (e.g., `:rf.ssr/hydration-mismatch` warn-and-replace mode).
 - `:logged-and-skipped` — the runtime emitted the trace and dropped the offending input; sibling inputs still apply (e.g., `:rf.error/effect-map-shape` drops the offending top-level effect-map key while `:db` / `:fx` still apply).
 
-A user-registered error-handler can intercept any error category and decide policy. The default error-handler routes everything to the trace stream and proceeds with the documented per-category recovery. Error-handler policy is registered per-frame via the `:on-error` slot in `reg-frame` metadata (per [002-Frames §`:on-error`](002-Frames.md)); for cross-frame observation, `register-trace-listener!` filtering on `:op-type :error` (or on the `:rf.error/*` `:operation` namespace) sees every error event without modifying behaviour. (The v1 process-wide `reg-event-error-handler` surface is dropped — see [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
+A user-registered error-handler can intercept any error category and decide policy. The default error-handler routes everything to the trace stream and proceeds with the documented per-category recovery. Error-handler policy is registered per-frame via the `:on-error` slot in `reg-frame` metadata (per [002-Frames §`:on-error`](002-Frames.md)); for cross-frame observation, `register-listener!` filtering on `:op-type :error` (or on the `:rf.error/*` `:operation` namespace) sees every error event without modifying behaviour. (The v1 process-wide `reg-event-error-handler` surface is dropped — see [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
 
 ### Error-handler policy (`:on-error` per frame)
 
@@ -1456,7 +1456,7 @@ Error-monitoring libraries integrate by registering an `:on-error` handler that 
      nil)})                                         ;; runtime applies default recovery
 ```
 
-Multiple monitoring concerns compose in user code (one `:on-error` handler that fans out to several services). For cross-frame observation that doesn't modify recovery, prefer `register-trace-listener!` filtered on `:op-type :error`.
+Multiple monitoring concerns compose in user code (one `:on-error` handler that fans out to several services). For cross-frame observation that doesn't modify recovery, prefer `register-listener!` filtered on `:op-type :error`.
 
 ## Notes
 
@@ -1477,7 +1477,7 @@ Tracing is the connective tissue between the runtime and every tool that observe
 
 ### Listener ordering
 
-Multiple listeners may register concurrently. **Listener-invocation order is not contract** — tools must not depend on the order in which sibling listeners receive a given event. Each listener receives the same event independently; nothing about the order in which the runtime walks the listener registry is guaranteed across builds, hosts, or registry implementations. The same rule applies to `register-trace-listener!` (per [§Subscription / consumption](#subscription--consumption) and [§Listener invocation rules](#listener-invocation-rules)) and `register-epoch-listener!` (per [`register-epoch-listener!` §Invocation rules](#register-epoch-listener--assembled-epoch-listener)).
+Multiple listeners may register concurrently. **Listener-invocation order is not contract** — tools must not depend on the order in which sibling listeners receive a given event. Each listener receives the same event independently; nothing about the order in which the runtime walks the listener registry is guaranteed across builds, hosts, or registry implementations. The same rule applies to `register-listener!` (per [§Subscription / consumption](#subscription--consumption) and [§Listener invocation rules](#listener-invocation-rules)) and `register-epoch-listener!` (per [`register-epoch-listener!` §Invocation rules](#register-epoch-listener--assembled-epoch-listener)).
 
 ### Trace allocation cost in dev when no listeners
 
@@ -1558,7 +1558,7 @@ Behaviour:
 The `:rf/trace-event` schema (per [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md#rftrace-event)) gains an optional top-level `:sensitive?` boolean. Tools branch on it directly:
 
 ```clojure
-(rf/register-trace-listener!
+(rf/register-listener!
   :my-app/remote-shipper
   (fn [trace-event]
     (when-not (:sensitive? trace-event)              ;; default off-box-ship policy
@@ -1573,11 +1573,11 @@ Filter-shape integration: `(rf/trace-buffer {:sensitive? false})` returns only t
 
 #### Listener filtering semantics
 
-Listeners installed via `register-trace-listener!` and `register-epoch-listener!` (per [§The listener API](#the-listener-api)) receive **every** trace event regardless of `:sensitive?` — the flag is a payload axis the listener inspects, not a delivery gate. Two reasons: (1) on-box developer tooling (10x, the trace panel, the in-process ring buffer) needs to see sensitive traces during local dev; (2) routing the filter into the runtime would force every consumer to opt in to seeing sensitive data and complicate the elision contract. Filtering lives in the **listener body**, not in the framework's dispatch path.
+Listeners installed via `register-listener!` and `register-epoch-listener!` (per [§The listener API](#the-listener-api)) receive **every** trace event regardless of `:sensitive?` — the flag is a payload axis the listener inspects, not a delivery gate. Two reasons: (1) on-box developer tooling (10x, the trace panel, the in-process ring buffer) needs to see sensitive traces during local dev; (2) routing the filter into the runtime would force every consumer to opt in to seeing sensitive data and complicate the elision contract. Filtering lives in the **listener body**, not in the framework's dispatch path.
 
 Framework-published listener integrations MUST default to suppressing `:sensitive? true` events:
 
-- The Sentry / Honeybadger forwarder samples at [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc) wrap their `register-trace-listener!` body in `(when-not (:sensitive? trace-event) ...)` by default. Apps that want the events shipped (rare; only when the monitor is itself the trust boundary, e.g. a self-hosted Sentry inside the same VPN) opt in by removing the guard.
+- The Sentry / Honeybadger forwarder samples at [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc) wrap their `register-listener!` body in `(when-not (:sensitive? trace-event) ...)` by default. Apps that want the events shipped (rare; only when the monitor is itself the trust boundary, e.g. a self-hosted Sentry inside the same VPN) opt in by removing the guard.
 - The re-frame2-pair server (per [Tool-Pair.md §How AI tools attach](Tool-Pair.md#how-ai-tools-attach)) MUST drop or redact `:sensitive? true` events before forwarding to the AI surface. The default policy is **drop**; apps that want sensitive cascades visible to the pair tool configure the policy explicitly.
 - The Causa-MCP server (per [Tool-Pair.md](Tool-Pair.md)) MUST default-drop `:sensitive? true` events from the cascade graph it materialises.
 

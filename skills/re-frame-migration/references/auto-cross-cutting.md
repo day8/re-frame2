@@ -103,18 +103,18 @@ Per rf2-0zlcd (pre-alpha posture: no back-compat shims), the public `re-frame.co
 
 `rf/unsubscribe` is **not** renamed: the natural target `clear-sub` is already taken by the symmetric inverse of `reg-sub` (the registrar decrement). The `un-` prefix is carved out as the singular form for the sub-cache ref-count decrement. See the [Conventions §Tear-down verb axis — Carve-out](../../../spec/Conventions.md#carve-out-unsubscribe).
 
-The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cache!` / `destroy-frame!` / `clear-trace-buffer!` / `clear-fx` / `clear-flow` / `clear-http-interceptor` / `clear-trace-listeners!`) is already on the two-verb axis and needs no rewrite.
+The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cache!` / `destroy-frame!` / `clear-trace-buffer!` / `clear-fx` / `clear-flow` / `clear-http-interceptor` / `clear-listeners!`) is already on the two-verb axis and needs no rewrite.
 
 ---
 
 ## Listener-registration verb unification (M-55)
 
-Closed mechanical rename table. Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and epoch listener APIs collapse onto the same `register-*-listener!` / `unregister-*-listener!` shape already used by `register-event-emit-listener!` / `register-error-emit-listener!`. Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
+Closed mechanical rename table. Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and epoch listener APIs collapse onto the same `register-*-listener!` / `unregister-*-listener!` shape already used by `register-event-listener!` / `register-error-listener!`. Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
 
 ```
-(rf/register-trace-cb!  ...)     → (rf/register-trace-listener!  ...)
-(rf/remove-trace-cb!    ...)     → (rf/unregister-trace-listener! ...)
-(rf/clear-trace-cbs!    ...)     → (rf/clear-trace-listeners!     ...)
+(rf/register-trace-cb!  ...)     → (rf/register-listener!  ...)
+(rf/remove-trace-cb!    ...)     → (rf/unregister-listener! ...)
+(rf/clear-trace-cbs!    ...)     → (rf/clear-listeners!     ...)
 (rf/register-epoch-cb!  ...)     → (rf/register-epoch-listener!   ...)
 (rf/remove-epoch-cb!    ...)     → (rf/unregister-epoch-listener! ...)
 (rf/clear-epoch-cbs!    ...)     → (rf/clear-epoch-listeners!     ...)
@@ -123,8 +123,8 @@ Closed mechanical rename table. Per rf2-dcyjm (the listener-registration verb-sh
 **Late-bind hook keys** (tool authors only — most apps will not touch these):
 
 ```
-:trace.tooling/register-trace-cb!  → :trace.tooling/register-trace-listener!
-:trace.tooling/remove-trace-cb!    → :trace.tooling/unregister-trace-listener!
+:trace.tooling/register-trace-cb!  → :trace.tooling/register-listener!
+:trace.tooling/remove-trace-cb!    → :trace.tooling/unregister-listener!
 :epoch/register-epoch-cb!          → :epoch/register-epoch-listener!
 :epoch/remove-epoch-cb!            → :epoch/unregister-epoch-listener!
 :epoch/clear-epoch-cbs!            → :epoch/clear-epoch-listeners!

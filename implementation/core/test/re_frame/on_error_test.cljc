@@ -12,7 +12,7 @@
       the old policy fn does NOT fire after replacement.
 
   Per rf2-bacs4 — exercise the corpus-wide
-  `register-error-emit-listener!` registry alongside the per-frame
+  `register-error-listener!` registry alongside the per-frame
   slot:
 
     - A registered listener fires per `:rf.error/*` event.
@@ -44,7 +44,7 @@
                 ;; atom that survives test re-runs. Clear before each
                 ;; test so a listener registered by one test doesn't
                 ;; leak into the next.
-                (error-emit/clear-error-emit-listeners!))}))
+                (error-emit/clear-error-listeners!))}))
 
 ;; ============================================================================
 ;; rf2-hqbeh — per-frame :on-error policy
@@ -116,7 +116,7 @@
     (is (nil? (rf/dispatch-sync [:on-error-test/no-policy-throw])))))
 
 ;; ============================================================================
-;; rf2-bacs4 — corpus-wide register-error-emit-listener!
+;; rf2-bacs4 — corpus-wide register-error-listener!
 ;; ============================================================================
 
 (deftest error-listener-fires-on-handler-exception
@@ -129,7 +129,7 @@
             programmatic registrations omit the slot rather than nil
             it; the macro-path test below sees it present)."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :err/throw
@@ -169,11 +169,11 @@
             silently dropped — no recursive emit, no propagation to
             user code."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/throws
         (fn [_record]
           (throw (ex-info "listener went boom" {}))))
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :err/throw2
@@ -191,17 +191,17 @@
             subsequent events. Re-registering under the same id
             reattaches it."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :err/throw3 (fn [_db _] (throw (ex-info "x" {}))))
       (rf/dispatch-sync [:err/throw3])
       (is (= 1 (count @seen)) "listener fired before unregister")
-      (rf/unregister-error-emit-listener! :test/recorder)
+      (rf/unregister-error-listener! :test/recorder)
       (rf/dispatch-sync [:err/throw3])
       (is (= 1 (count @seen)) "listener silent after unregister")
       ;; Re-register under the same id and dispatch again.
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:err/throw3])
@@ -219,7 +219,7 @@
           policy-saw   (atom nil)]
       (rf/reg-frame :rf/default
                     {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (reset! listener-saw record)))
       (rf/reg-event-db :err/both
@@ -245,7 +245,7 @@
     (let [listener-saw (atom nil)]
       (rf/reg-frame :rf/default
                     {:on-error (fn [_ev] (throw (ex-info "policy boom" {})))})
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (reset! listener-saw record)))
       (rf/reg-event-db :err/policy-throws
@@ -262,7 +262,7 @@
     (let [policy-saw (atom nil)]
       (rf/reg-frame :rf/default
                     {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/throws
         (fn [_record] (throw (ex-info "listener boom" {}))))
       (rf/reg-event-db :err/listener-throws
@@ -278,7 +278,7 @@
             `performance.now()` returns a float; the substrate
             rounds at the boundary so the contract holds."
     (let [seen (atom nil)]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (reset! seen record)))
       (rf/reg-event-db :err/elapsed (fn [_db _] (throw (ex-info "x" {}))))
@@ -305,7 +305,7 @@
             walker only) so off-box error observability sees the
             event taxonomy."
     (let [seen (atom nil)]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (reset! seen record)))
       (rf/reg-event-db :err/normal-throw

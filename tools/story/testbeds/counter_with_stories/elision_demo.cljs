@@ -33,7 +33,7 @@
      blob.
 
   4. **Always-on `event-emit` listener** — the demo registers a
-     console-logger via `register-event-emit-listener!`. The
+     console-logger via `register-event-listener!`. The
      listener receives one record per processed event and
      demonstrates the production-survivable substrate the chapter-22
      Datadog recipe pivots around: the listener fires under `:advanced`
@@ -189,7 +189,7 @@
 ;;   (when (and (= "production" (:env config))
 ;;              (not ^boolean re-frame.interop/debug-enabled?)
 ;;              (:api-key config))
-;;     (rf/register-event-emit-listener!
+;;     (rf/register-event-listener!
 ;;       :my-app/datadog
 ;;       (fn [record] (ship-to-datadog record))))
 ;;
@@ -219,13 +219,13 @@
   §Schema-driven boot population."
   []
   (rf/populate-elision-from-schemas!)
-  (rf/register-event-emit-listener! listener-id log-record!))
+  (rf/register-event-listener! listener-id log-record!))
 
 (defn uninstall-listener!
   "Drop the demo console listener. Used by tests to keep the suite
   from logging into the test runner's stdout."
   []
-  (rf/unregister-event-emit-listener! listener-id))
+  (rf/unregister-event-listener! listener-id))
 
 ;; ============================================================================
 ;; APP-DB ELISION INSPECTOR  (the schema-driven branch surface)

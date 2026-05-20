@@ -140,7 +140,7 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
   ;; Reset the config atom directly so :trace-events-keep / a stale

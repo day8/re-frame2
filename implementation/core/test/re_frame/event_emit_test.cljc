@@ -20,8 +20,8 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (trace/clear-trace-listeners!)
-  (event-emit/clear-event-emit-listeners!)
+  (trace/clear-listeners!)
+  (event-emit/clear-event-listeners!)
   (rf/init! plain-atom/adapter)
   (test-fn))
 
@@ -34,7 +34,7 @@
             processed event, carrying the tight {:event :event-id
             :frame :time :outcome :elapsed-ms} shape."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :evt/inc
@@ -61,7 +61,7 @@
             the handler exception internally) and the dispatch
             returns."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :evt/throw
@@ -80,11 +80,11 @@
             and silently dropped — no recursive emit, no propagation
             to user code."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/throws
         (fn [_record]
           (throw (ex-info "listener went boom" {}))))
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :evt/quiet (fn [db _] db))
@@ -103,17 +103,17 @@
             registry is a plain atom — symmetric under register /
             unregister / register."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :evt/noop (fn [db _] db))
       (rf/dispatch-sync [:evt/noop])
       (is (= 1 (count @seen)) "listener fired before unregister")
-      (rf/unregister-event-emit-listener! :test/recorder)
+      (rf/unregister-event-listener! :test/recorder)
       (rf/dispatch-sync [:evt/noop])
       (is (= 1 (count @seen)) "listener silent after unregister")
       ;; Re-register and dispatch again.
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:evt/noop])
@@ -129,17 +129,17 @@
             affect siblings."
     (let [a (atom [])
           b (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/listener-a
         (fn [record] (swap! a conj record)))
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/listener-b
         (fn [record] (swap! b conj record)))
       (rf/reg-event-db :evt/once (fn [db _] db))
       (rf/dispatch-sync [:evt/once])
       (is (= 1 (count @a)))
       (is (= 1 (count @b)))
-      (rf/unregister-event-emit-listener! :test/listener-a)
+      (rf/unregister-event-listener! :test/listener-a)
       (rf/dispatch-sync [:evt/once])
       (is (= 1 (count @a)) ":listener-a stayed silent after unregister")
       (is (= 2 (count @b)) ":listener-b still fired for the second dispatch"))))
@@ -154,7 +154,7 @@
             trace event-id counter), :source, :origin, or any other
             trace-bus key."
     (let [seen (atom nil)]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/shape
         (fn [record] (reset! seen record)))
       (rf/reg-event-db :evt/shape (fn [db _] db))
@@ -187,7 +187,7 @@
   (testing "Handlers continue to fan out — handler-meta `:sensitive?`
             no longer short-circuits the substrate."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :evt/normal

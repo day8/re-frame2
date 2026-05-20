@@ -8,7 +8,7 @@ When an agent migrating a v1 codebase needs to answer *"is this error name old o
 
 The migration touches three surfaces that hand-off to the error event stream:
 
-- **M-13** — `reg-event-error-handler` is gone. The replacements (frame-level `:on-error`, `register-trace-listener!`) consume events from the catalogue.
+- **M-13** — `reg-event-error-handler` is gone. The replacements (frame-level `:on-error`, `register-listener!`) consume events from the catalogue.
 - **M-17 / M-26** — observer-shaped interceptors / post-event callbacks become trace listeners; they filter on `:operation` / `:op-type` from the catalogue.
 - **M-23** — `re-frame.alpha` lifecycle annotations dropped; some user error-recognition code referenced old category names.
 
@@ -57,10 +57,10 @@ The full list of `:operation` values the policy may see is exactly the catalogue
 
 ## How a trace listener filters
 
-`register-trace-listener!` (M-13's process-wide-observer replacement and M-17's audit-interceptor replacement) sees every emitted trace event. Filter on `:op-type` for severity branching, `:operation` for category routing:
+`register-listener!` (M-13's process-wide-observer replacement and M-17's audit-interceptor replacement) sees every emitted trace event. Filter on `:op-type` for severity branching, `:operation` for category routing:
 
 ```clojure
-(rf/register-trace-listener!
+(rf/register-listener!
   :audit/sentry
   (fn [evt]
     (when (= :error (:op-type evt))                  ; severity branch
@@ -85,7 +85,7 @@ Specific drift to watch:
 ## When to point an author at this leaf
 
 - They're writing the `:on-error` fn for M-13 and need to know what events arrive.
-- They're writing a `register-trace-listener!` listener and ask "which categories are errors vs warnings vs informational?"
+- They're writing a `register-listener!` listener and ask "which categories are errors vs warnings vs informational?"
 - They have a `(case operation …)` shape and want a complete list of arms.
 - A test asserts on an error event's `:operation` keyword and they need the canonical name.
 

@@ -182,7 +182,7 @@ Ranked by community signal (download counts, issue activity, blog frequency) int
 1. **Interactive args + auto-derived controls.** The single biggest UX win in the entire space; story value is bounded by it. re-frame2 wins specifically because **controls auto-derive from Spec 010 Malli schemas** (spec/007 §Argtypes). No per-story `argTypes` table maintenance.
 2. **Play-style interaction + assertion vocabulary.** Story-as-test. Spec 007 names `:rf.assert/path-equals`, `:rf.assert/sub-equals`, `:rf.assert/dispatched?`, `:rf.assert/state-is`, `:rf.assert/no-warnings`, `:rf.assert/effect-emitted` — a richer set than Storybook ships because re-frame's machinery exposes more.
 3. **A11y panel (axe-core).** Cheapest win in the space — the addon is plug-in-shaped, applies to rendered DOM regardless of source framework. Ship it day one.
-4. **Trace surface per story.** Hook `register-trace-listener!` on the story's frame; render the six-domino trace inline next to the variant. **No JS tool has this**; re-frame2 has it for free.
+4. **Trace surface per story.** Hook `register-listener!` on the story's frame; render the six-domino trace inline next to the variant. **No JS tool has this**; re-frame2 has it for free.
 5. **Epoch-history scrubber.** devcards-style time-travel per variant. Pair with `restore-epoch` for "scrub back, fork forward." Unique to re-frame2.
 
 ### 3.2 Tier 2 — ship by v1.1
@@ -223,11 +223,11 @@ Hook: `frame-provider` wraps each variant in the rendered grid (Path 1 of rf2-si
 
 Every variant has a trace surface. Open the trace panel: see the six dominoes (event → handler → fx → effect → subscription → re-render) execute. This is the **debugging UX no JS tool can match** because no JS framework has the structured trace re-frame does.
 
-Hook: `register-trace-listener!` on the variant's frame; render trace events inline.
+Hook: `register-listener!` on the variant's frame; render trace events inline.
 
 ### 4.4 Tool-Pair integration
 
-`register-trace-listener!`, `epoch-history`, `restore-epoch` are all Tool-Pair primitives. The story tool wires them in:
+`register-listener!`, `epoch-history`, `restore-epoch` are all Tool-Pair primitives. The story tool wires them in:
 
 - **Trace panel.** Live six-domino events.
 - **Epoch scrubber.** `epoch-history` for the variant's frame → timeline UI; `restore-epoch` on selection.
@@ -300,7 +300,7 @@ The v1 deliverable lands the 1.1–1.3 tier-1 list plus the differentiators. Con
 |---|---|---|
 | Sidebar nav | `(rf/registrations :story)` tree on `.` | story lib |
 | Controls | `:argtypes` + Spec 010 schema | story lib |
-| Trace | `register-trace-listener!` on variant's frame | tool-pair |
+| Trace | `register-listener!` on variant's frame | tool-pair |
 | Epoch scrubber | `epoch-history` + `restore-epoch` | tool-pair |
 | A11y | axe-core on rendered DOM | a11y panel |
 | Docs (autodoc) | `:doc` + schemas + variant table | docs panel |

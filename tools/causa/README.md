@@ -131,7 +131,7 @@ Override the selector before auto-open if needed:
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-The preload registers Causa's listeners under `register-trace-listener!` and
+The preload registers Causa's listeners under `register-listener!` and
 `register-epoch-listener!`, installs the browser API/keybinding, and
 auto-opens into the layout host after `rf/init!`.
 

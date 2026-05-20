@@ -102,7 +102,7 @@ Production fx surface: `re-frame.http-managed`. Test surfaces (canned-stub fxs +
 
 | Surface | Shape |
 |---|---|
-| `rf/register-trace-listener!` / `rf/unregister-trace-listener!` / `rf/emit-trace-event!` | trace plumbing |
+| `rf/register-listener!` / `rf/unregister-listener!` / `rf/emit-trace-event!` | trace plumbing |
 | `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch` | `(frame-id epoch-id)` → bool |

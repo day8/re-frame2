@@ -96,11 +96,11 @@
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Note — this testbed historically registered an error-emit listener
-;; (`register-error-emit-listener!`) intending to flip a `:halted?`
+;; (`register-error-listener!`) intending to flip a `:halted?`
 ;; mirror when `:rf.error/drain-depth-exceeded` fired. That listener
 ;; never fired: the runtime's depth-exceeded path emits ONLY via
 ;; `trace/emit-error!`, not `error-emit/dispatch-on-error!` (the
-;; substrate `register-error-emit-listener!` subscribes to). Per
+;; substrate `register-error-listener!` subscribes to). Per
 ;; rf2-86k63 the mirror has been removed — the framework-side
 ;; observables (`:depth-reached` rolling back to 0, the `:halted-depth`
 ;; epoch record on `rf/epoch-history`) already cover the contract

@@ -21,7 +21,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx / subs are registered at namespace-load time;
   ;; clear-all! wiped them. Reload to resurrect the framework registrations.
@@ -99,7 +99,7 @@
           ;; `drain-after-destroy-does-not-npe` below.
           captured-ticks (atom [])]
       (rf/reg-event-db :tick (fn [db _] (swap! side-effects inc) db))
-      (rf/register-trace-listener! ::pending (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::pending (fn [ev] (swap! traces conj ev)))
       (with-redefs [interop/next-tick (fn [f] (swap! captured-ticks conj f) nil)]
         (rf/dispatch [:tick] {:frame :worker})
         (rf/dispatch [:tick] {:frame :worker})
@@ -114,7 +114,7 @@
       ;; gone frame, and any later attempt to dispatch traces
       ;; :rf.error/frame-destroyed.
       (rf/destroy-frame! :worker)
-      (rf/unregister-trace-listener! ::pending)
+      (rf/unregister-listener! ::pending)
 
       ;; The frame is gone.
       (is (nil? (frame/frame :worker))
@@ -123,9 +123,9 @@
       ;; :rf.error/frame-destroyed (the recovery path; events do not
       ;; silently land in a void).
       (let [t-after (atom [])]
-        (rf/register-trace-listener! ::after (fn [ev] (swap! t-after conj ev)))
+        (rf/register-listener! ::after (fn [ev] (swap! t-after conj ev)))
         (rf/dispatch-sync [:tick] {:frame :worker})
-        (rf/unregister-trace-listener! ::after)
+        (rf/unregister-listener! ::after)
         (is (some #(= :rf.error/frame-destroyed (:operation %)) @t-after)
             "post-destroy dispatch traces :rf.error/frame-destroyed")
         ;; The handler did NOT run for the post-destroy attempt — the
@@ -148,9 +148,9 @@
                 :flow/billing  {:state :collected  :data {}}})))
     (rf/dispatch-sync [:seed-machines] {:frame :ten})
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::cascade (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::cascade (fn [ev] (swap! traces conj ev)))
       (rf/destroy-frame! :ten)
-      (rf/unregister-trace-listener! ::cascade)
+      (rf/unregister-listener! ::cascade)
       (let [cascade (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
                             @traces)]
         (is (= 3 (count cascade))
@@ -254,9 +254,9 @@
 
       ;; Capture traces and destroy.
       (let [traces (atom [])]
-        (rf/register-trace-listener! ::sub-destroy (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! ::sub-destroy (fn [ev] (swap! traces conj ev)))
         (rf/destroy-frame! :live)
-        (rf/unregister-trace-listener! ::sub-destroy)
+        (rf/unregister-listener! ::sub-destroy)
         (is (= 1 @dispose-fired)
             "on-dispose hook fired exactly once when destroy walked the sub-cache")
         (is (some #(= :frame/destroyed (:operation %)) @traces)
@@ -264,11 +264,11 @@
 
       ;; Post-destroy subscribe returns nil with :replaced-with-default.
       (let [t-after (atom [])]
-        (rf/register-trace-listener! ::post (fn [ev] (swap! t-after conj ev)))
+        (rf/register-listener! ::post (fn [ev] (swap! t-after conj ev)))
         (let [r3 (rf/subscribe :live [:answer])]
           (is (nil? r3)
               "subscribe against a destroyed frame returns nil"))
-        (rf/unregister-trace-listener! ::post)
+        (rf/unregister-listener! ::post)
         (is (some (fn [ev]
                     (and (= :rf.error/frame-destroyed (:operation ev))
                          (= :replaced-with-default (:recovery ev))))
@@ -360,11 +360,11 @@
       ;; §reg-frame is atomic — :on-create runs first, then :frame/created
       ;; is emitted (the frame becomes observable to listeners).
       (let [traces (atom [])]
-        (rf/register-trace-listener! ::oc (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! ::oc (fn [ev] (swap! traces conj ev)))
         (rf/reg-frame :booted
                       {:doc       "frame with on-create"
                        :on-create [:boot {:hello "world"}]})
-        (rf/unregister-trace-listener! ::oc)
+        (rf/unregister-listener! ::oc)
 
         ;; The moment reg-frame returned, app-db must already reflect
         ;; the :on-create event's commit.
@@ -436,7 +436,7 @@
           ;; ACTIVE drain; the trigger can be anything.
           (frame/destroy-frame! :drain-int/worker)
           {}))
-      (rf/register-trace-listener! ::drain-int (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::drain-int (fn [ev] (swap! traces conj ev)))
       ;; Pre-seed the queue with 4 plain async dispatches, then sync-
       ;; drain the self-destruct AT THE FRONT — it runs first, destroys
       ;; the frame, and the remaining 4 ticks (still queued) must be
@@ -463,7 +463,7 @@
         (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
         (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
         (rf/dispatch-sync [:drain-int/self-destruct] {:frame :drain-int/worker}))
-      (rf/unregister-trace-listener! ::drain-int)
+      (rf/unregister-listener! ::drain-int)
 
       ;; The self-destruct ran first (dispatch-sync seeds at the front);
       ;; the trailing ticks did NOT run.
@@ -519,7 +519,7 @@
     (let [traces (atom [])
           captured-tick (atom [])]
       (rf/reg-event-db :cross-thread/tick (fn [db _] db))
-      (rf/register-trace-listener! ::xt (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::xt (fn [ev] (swap! traces conj ev)))
       ;; Capture the executor's tick so we can land destroy BETWEEN
       ;; the async dispatch and the actual drain.
       (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
@@ -538,7 +538,7 @@
       ;; frame-record and short-circuits without emitting
       ;; :rf.frame/drain-interrupted (the drain never started).
       (doseq [tick @captured-tick] (tick))
-      (rf/unregister-trace-listener! ::xt)
+      (rf/unregister-listener! ::xt)
       ;; The pre-existing rf2-dpny contract: NO trace at all from the
       ;; drain itself. The interrupt trace only fires when a drain
       ;; pass actually STARTED on a live frame and then detected
@@ -758,7 +758,7 @@
   ;; nil-container call must not throw and must emit the warning trace.
   (testing "replace-container! with nil container is a no-op + :rf.warning/write-after-destroy"
     (let [recorded (atom [])]
-      (rf/register-trace-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
       ;; Must not throw NPE.
       (is (nil? (adapter/replace-container! nil {:any :value}))
           "nil container is a documented no-op, not an exception")
@@ -783,7 +783,7 @@
   (testing "scheduled drain that fires after destroy is a no-op + warning, not an NPE"
     (let [captured-tick (atom nil)
           recorded      (atom [])]
-      (rf/register-trace-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
       (rf/reg-frame :race/frame {:doc "rf2-ft2b reproducer frame"})
       ;; A simple :db-writing event handler. The drain that processes
       ;; this event is what we want to land AFTER destroy.
@@ -829,7 +829,7 @@
           captured     (atom [])]
       (rf/reg-event-db :rf2-dpny/tick
                        (fn [db _] (swap! side-effects inc) db))
-      (rf/register-trace-listener! ::rf2-dpny (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::rf2-dpny (fn [ev] (swap! traces conj ev)))
 
       ;; Capture next-tick: dispatches schedule a drain, the drain
       ;; thunk goes into the atom instead of executing.
@@ -855,7 +855,7 @@
                        (catch Throwable e e)))
             "the captured drain ran without throwing"))
 
-      (rf/unregister-trace-listener! ::rf2-dpny)
+      (rf/unregister-listener! ::rf2-dpny)
 
       ;; (a) State did NOT mutate — the handler never ran.
       (is (= 0 @side-effects)
@@ -878,9 +878,9 @@
       ;;     trace :rf.error/frame-destroyed (the public contract for
       ;;     dispatching to a destroyed frame).
       (let [after-traces (atom [])]
-        (rf/register-trace-listener! ::rf2-dpny-after (fn [ev] (swap! after-traces conj ev)))
+        (rf/register-listener! ::rf2-dpny-after (fn [ev] (swap! after-traces conj ev)))
         (rf/dispatch-sync [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
-        (rf/unregister-trace-listener! ::rf2-dpny-after)
+        (rf/unregister-listener! ::rf2-dpny-after)
         (is (some #(= :rf.error/frame-destroyed (:operation %)) @after-traces)
             "post-destroy dispatch (not the drain) traces :rf.error/frame-destroyed"))
 
@@ -901,7 +901,7 @@
   ;; nil container straight into replace-container!.
   (testing "frame/get-frame-db on a destroyed frame is nil; replace-container! handles it"
     (let [recorded (atom [])]
-      (rf/register-trace-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
       (rf/reg-frame :race/destroyed-mid-write {})
       (frame/destroy-frame! :race/destroyed-mid-write)
       (let [container (frame/get-frame-db :race/destroyed-mid-write)]
@@ -1117,14 +1117,14 @@
       (is (= 42 @pinned) "sub reads the seeded value before destroy")
       (re-frame.interop/add-on-dispose! pinned
                                         (fn [] (swap! dispose-fired inc)))
-      (rf/register-trace-listener! ::rf2-r1ciy (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::rf2-r1ciy (fn [ev] (swap! traces conj ev)))
 
       ;; Destroy MUST NOT propagate the throw.
       (is (nil? (try (rf/destroy-frame! :throwy/worker)
                      (catch Throwable e e)))
           "destroy-frame! returns nil even though :on-destroy threw")
 
-      (rf/unregister-trace-listener! ::rf2-r1ciy)
+      (rf/unregister-listener! ::rf2-r1ciy)
 
       ;; (a) The :rf.error/on-destroy-handler-exception trace fired.
       (let [errs (filterv (fn [ev]
@@ -1201,9 +1201,9 @@
           (swap! on-destroy-count inc)
           (frame/destroy-frame! :reent/worker)
           {}))
-      (rf/register-trace-listener! ::reent (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::reent (fn [ev] (swap! traces conj ev)))
       (rf/destroy-frame! :reent/worker)
-      (rf/unregister-trace-listener! ::reent)
+      (rf/unregister-listener! ::reent)
 
       ;; (a) :on-destroy ran exactly once — the re-entrant inner call was a no-op.
       (is (= 1 @on-destroy-count)

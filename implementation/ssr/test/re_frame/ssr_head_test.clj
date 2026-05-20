@@ -568,7 +568,7 @@
       (late-bind/set-fn! :ssr/head-on-frame-destroyed
         (fn [_frame-id] (throw (ex-info "boom from head cleanup" {:reason :test}))))
       (try
-        (rf/register-trace-listener! ::head-clean (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! ::head-clean (fn [ev] (swap! traces conj ev)))
         ;; Drive the destroy hook directly — that's the path Mark-3
         ;; teardown takes per the late-bind chaining.
         (try (ssr-request :test/frame-id)
@@ -576,7 +576,7 @@
                ;; The hook must NOT propagate the exception — fail the
                ;; test if it does.
                (is false "on-frame-destroyed! must catch head-cleanup throws")))
-        (rf/unregister-trace-listener! ::head-clean)
+        (rf/unregister-listener! ::head-clean)
 
         (let [hits (filterv #(= :rf.ssr.head/cleanup-failed (:operation %)) @traces)]
           (is (= 1 (count hits))

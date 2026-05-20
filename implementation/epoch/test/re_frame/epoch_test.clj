@@ -50,7 +50,7 @@
   ;; flow in a subsequent test.
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
   ;; Reset the config atom directly so :trace-events-keep (rf2-iegsz)
@@ -69,7 +69,7 @@
 
 (defn- record-trace! []
   (let [recorded (atom [])]
-    (rf/register-trace-listener! ::recorder (fn [ev] (swap! recorded conj ev)))
+    (rf/register-listener! ::recorder (fn [ev] (swap! recorded conj ev)))
     recorded))
 
 (defn- has-error-op? [events op]

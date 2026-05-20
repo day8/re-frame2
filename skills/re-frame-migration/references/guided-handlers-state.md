@@ -107,7 +107,7 @@ No mechanical rewrite — the author updates the expected numbers.
 **Risk**: v1's process-wide error-handler is gone. The right replacement depends on the role the handler played:
 
 - If it was **per-frame ergonomic policy** ("when an event handler throws in this frame, route to this recovery"), it moves into the frame-level `:on-error` slot on `reg-frame` metadata.
-- If it was a **process-wide observer** (audit logging, metrics, Sentry forwarding), it moves to `register-trace-listener!` filtering on `:op-type :error`.
+- If it was a **process-wide observer** (audit logging, metrics, Sentry forwarding), it moves to `register-listener!` filtering on `:op-type :error`.
 
 A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for logging) needs both rewrites at once.
 
@@ -115,7 +115,7 @@ A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for log
 
 1. Read the handler body. If it modifies state or dispatches recovery events, that's `:on-error` policy.
 2. If it only logs / reports / metrics, that's a trace listener.
-3. If it does both, split the body — recovery to `:on-error`, observation to `register-trace-listener!`.
+3. If it does both, split the body — recovery to `:on-error`, observation to `register-listener!`.
 
 Present the categorisation; confirm with the author; apply.
 

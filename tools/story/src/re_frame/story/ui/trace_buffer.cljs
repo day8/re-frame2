@@ -144,7 +144,7 @@
   [variant-id]
   (when config/enabled?
     (let [id (listener-id variant-id)]
-      (trace-tooling/register-trace-listener! id
+      (trace-tooling/register-listener! id
         (fn [ev]
           (when (variant-event? variant-id ev)
             (if (config/suppress-sensitive? ev)
@@ -156,5 +156,5 @@
   "Tear down the trace listener for `variant-id`. Idempotent."
   [variant-id]
   (when config/enabled?
-    (trace-tooling/unregister-trace-listener! (listener-id variant-id))
+    (trace-tooling/unregister-listener! (listener-id variant-id))
     nil))

@@ -1,12 +1,12 @@
 (ns re-frame.ssr-error-projector-substrate-test
   "Per rf2-fb598: the SSR error-projection pipeline rides the always-on
-  `register-error-emit-listener!` substrate (per Spec 009 §What IS
+  `register-error-listener!` substrate (per Spec 009 §What IS
   available in production §Error-emit listener) — NOT the dev-only
-  `register-trace-listener!` surface.
+  `register-listener!` surface.
 
   Production-hardening (rf2-vnjfg — `-Dre-frame.debug=false` on the JVM)
   silences `trace/emit-error!` so any listener installed on
-  `register-trace-listener!` stops firing under that posture. The SSR
+  `register-listener!` stops firing under that posture. The SSR
   error-projector is a production-required surface — Spec 011 §Server
   error projection commits the runtime to stamping the public-error
   `:status` onto `:rf/response` whenever an exception escapes a server-
@@ -63,9 +63,9 @@
             "Spec 011 §Server error projection — the default projector
              stamps :status 500 on :rf/response even with the dev trace
              gate disabled (production-hardening posture per rf2-vnjfg).
-             Pre-rf2-fb598 the install was on register-trace-listener!, which
+             Pre-rf2-fb598 the install was on register-listener!, which
              elides under this gate; rf2-fb598 moves the install onto
-             the always-on register-error-emit-listener! substrate.")))))
+             the always-on register-error-listener! substrate.")))))
 
 (deftest ssr-error-projector-direct-substrate-install-rf2-fb598
   (testing "The error-emit listener is registered under
@@ -119,7 +119,7 @@
           registered    (some-> listeners-var deref deref keys set)]
       (is (contains? registered :re-frame.ssr/error-projection)
           "The SSR façade registers ::error-projection on the always-on
-           register-error-emit-listener! substrate at ns-load — Spec 011
+           register-error-listener! substrate at ns-load — Spec 011
            §Server error projection (rf2-fb598). The id matches the one
-           the dev-only register-trace-listener! install also uses, so the
+           the dev-only register-listener! install also uses, so the
            two surfaces are addressable as one logical projector."))))

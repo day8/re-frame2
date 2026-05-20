@@ -263,7 +263,7 @@ const ARTEFACTS = [
   // (test-support / Causa preload / Story / re-frame2-pair-mcp do, but counter
   // is the no-feature reference app). When this contract holds, the
   // tooling sibling's body is absent from the bundle entirely — the
-  // `re-frame.trace/register-trace-listener!` etc. wrappers are thin
+  // `re-frame.trace/register-listener!` etc. wrappers are thin
   // late-bind shells whose `:trace.tooling/*` lookups resolve to nil
   // and no-op. The sentinel below is a distinctive string fragment
   // from the tooling's `trace-buffer` filter-predicate body that does

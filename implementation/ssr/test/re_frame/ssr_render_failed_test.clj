@@ -35,7 +35,7 @@
             carrying the catalogued tags (Spec 009 §Error event
             catalogue)."
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::srf
+      (rf/register-listener! ::srf
                                    (fn [ev]
                                      (when (= :rf.error/ssr-render-failed
                                               (:operation ev))
@@ -94,7 +94,7 @@
                      (per Spec 009 §Error event shape) — the catalogue
                      row's locked policy")))))
         (finally
-          (rf/unregister-trace-listener! ::srf))))))
+          (rf/unregister-listener! ::srf))))))
 
 (deftest project-render-exception-noop-for-non-server-frame
   (testing "rf2-260pg: `project-render-exception!` against a non-server
@@ -102,7 +102,7 @@
             Belt-and-braces against accidentally emitting the trace from
             client-side render paths."
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::srf-client
+      (rf/register-listener! ::srf-client
                                    (fn [ev]
                                      (when (= :rf.error/ssr-render-failed
                                               (:operation ev))
@@ -119,4 +119,4 @@
               "no `:rf.error/ssr-render-failed` trace fires for a
                non-server frame"))
         (finally
-          (rf/unregister-trace-listener! ::srf-client))))))
+          (rf/unregister-listener! ::srf-client))))))

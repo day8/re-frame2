@@ -60,14 +60,14 @@
   [body-fn]
   (let [seen   (atom [])
         cb-key (keyword (str "elision-prod-" (gensym)))]
-    (trace-tooling/register-trace-listener!
+    (trace-tooling/register-listener!
       cb-key
       (fn [ev] (swap! seen conj ev)))
     (try
       (body-fn)
       @seen
       (finally
-        (trace-tooling/unregister-trace-listener! cb-key)))))
+        (trace-tooling/unregister-listener! cb-key)))))
 
 ;; ---- :rf.flow/registered elides under prod --------------------------------
 
@@ -128,7 +128,7 @@
             under prod. The cascade-level `:rf.error/flow-eval-exception`
             still flows through the always-on error-emit substrate
             (see `re-frame.flow-eval-exception-elision-prod-test` for
-            that pin); a `register-error-emit-listener!` here would
+            that pin); a `register-error-listener!` here would
             fire. We assert only on the TRACE listener, which must see
             nothing."
     (let [seen (listener-fixture

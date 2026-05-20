@@ -8,7 +8,7 @@
   emitted `:rf.machine/transition` WITHOUT `:frame`, so the epoch
   capture gate (`(when (and frame-id ...) (state/buffer-event! ...))`)
   silently dropped the event. The trace fanned out to direct trace
-  listeners (so unit tests that registered a `register-trace-listener!`
+  listeners (so unit tests that registered a `register-listener!`
   observed it) but never reached the epoch-history `:trace-events`
   slot the Causa Machine Inspector reads from. The chart 'never
   rendered' for real cascades; Causa's own unit tests sidestepped it
@@ -39,8 +39,8 @@
 (defn- record-traces!
   []
   (let [seen (atom [])]
-    (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
-    [seen #(rf/unregister-trace-listener! ::rec)]))
+    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+    [seen #(rf/unregister-listener! ::rec)]))
 
 (defn- transitions-of [evs]
   (filterv #(= :rf.machine/transition (:operation %)) evs))

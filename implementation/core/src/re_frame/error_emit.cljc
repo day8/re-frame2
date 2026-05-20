@@ -7,7 +7,7 @@
   handler-exception path):
 
     1. Corpus-wide listener registry — every fn registered through
-       [[register-error-emit-listener!]] receives a tight error-record:
+       [[register-error-listener!]] receives a tight error-record:
 
          {:error        <kw>     ;; e.g. :rf.error/handler-exception
           :event        <vector> ;; dispatched event vector (elided)
@@ -64,18 +64,18 @@
 (def ^:private registry
   (emit/make-listener-registry {:listeners listeners}))
 
-(def register-error-emit-listener!
+(def register-error-listener!
   "Register a listener `f` under `id`. Re-registering the same id
   replaces. `f` receives a single error-record map (see ns docstring
   §Record shape); its return value is ignored. Returns `id`. Per
   rf2-bacs4."
   (:register registry))
 
-(def unregister-error-emit-listener!
+(def unregister-error-listener!
   "Drop the listener registered under `id`. Returns nil."
   (:unregister registry))
 
-(def clear-error-emit-listeners!
+(def clear-error-listeners!
   "Drop every registered listener. Test-isolation only; production
   code should never call this. Returns nil."
   (:clear registry))

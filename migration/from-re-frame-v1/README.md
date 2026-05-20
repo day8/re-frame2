@@ -489,11 +489,11 @@ re-frame2's reactive substrate (per [006-ReactiveSubstrate.md](../../spec/006-Re
 
 **Type B** (semantic flag). See [§M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) for the canonical drop entry; this slot remains for stable numbering and to flag the policy-ownership concern explicitly.
 
-The v1 process-wide `reg-event-error-handler` is dropped in v2. Error policy moves into the frame-level `:on-error` slot in `reg-frame` metadata (per [009 §Error-handler policy](../../spec/009-Instrumentation.md#error-handler-policy-on-error-per-frame)); for cross-frame observation, use `register-trace-listener!` filtered on `:op-type :error`.
+The v1 process-wide `reg-event-error-handler` is dropped in v2. Error policy moves into the frame-level `:on-error` slot in `reg-frame` metadata (per [009 §Error-handler policy](../../spec/009-Instrumentation.md#error-handler-policy-on-error-per-frame)); for cross-frame observation, use `register-listener!` filtered on `:op-type :error`.
 
 **What to look for:** every `reg-event-error-handler` call site.
 
-**What to do:** flag for review; the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-trace-listener!`). Apps that stacked multiple v1 handlers must consolidate into one `:on-error` per frame plus zero or more trace-listener observers.
+**What to do:** flag for review; the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-listener!`). Apps that stacked multiple v1 handlers must consolidate into one `:on-error` per frame plus zero or more trace-listener observers.
 
 **Why:** v1's single-slot global error-handler did not compose with multi-frame architectures and was silently override-prone. Frame-level `:on-error` makes ownership explicit; the trace listener API gives observer-shaped tools the cross-frame view they need without modifying recovery.
 
@@ -629,12 +629,12 @@ re-frame2 does not ship `reg-global-interceptor` or `clear-global-interceptor`. 
 
 - **Type B — multi-frame app.** Flag every `reg-global-interceptor` call for human review. Three rewrite paths; the user picks based on intent:
   1. **Apply to each frame.** If the interceptor genuinely needs to fire for every frame's events, add it to each `reg-frame` `:interceptors` vector explicitly. (Rare; usually an architectural smell.)
-  2. **Convert to a trace listener.** If the interceptor is observer-shaped (audit logging, performance instrumentation, schema-validation-via-trace), it is the wrong tool — use `register-trace-listener!` per [009-Instrumentation](../../spec/009-Instrumentation.md). The trace stream sees every dispatch across all frames without modifying behaviour.
+  2. **Convert to a trace listener.** If the interceptor is observer-shaped (audit logging, performance instrumentation, schema-validation-via-trace), it is the wrong tool — use `register-listener!` per [009-Instrumentation](../../spec/009-Instrumentation.md). The trace stream sees every dispatch across all frames without modifying behaviour.
   3. **Restrict to default frame only.** If "global" really meant "the default frame's events" (a common single-frame habit that shouldn't apply to test/story/SSR frames), add it to `:rf/default`'s `:interceptors` only.
 
 `clear-global-interceptor` has no v2 replacement: re-register `reg-frame` with an updated `:interceptors` vector — absent-key semantics on re-registration (per [002 §Re-registration — surgical update](../../spec/002-Frames.md#re-registration--surgical-update)) clear the previous binding.
 
-**Why:** see [002 §`:interceptors`](../../spec/002-Frames.md#interceptors--add-interceptors-to-a-frames-events). Frame-as-isolated-actor is the substrate's primary commitment; process-wide interceptors firing regardless of frame violate it. The remaining cross-frame-observer use case is covered by `register-trace-listener!`. The remaining cross-frame-behaviour-modifier use case is rare and the per-frame declaration makes the intent explicit.
+**Why:** see [002 §`:interceptors`](../../spec/002-Frames.md#interceptors--add-interceptors-to-a-frames-events). Frame-as-isolated-actor is the substrate's primary commitment; process-wide interceptors firing regardless of frame violate it. The remaining cross-frame-observer use case is covered by `register-listener!`. The remaining cross-frame-behaviour-modifier use case is rare and the per-frame declaration makes the intent explicit.
 
 ---
 
@@ -1083,11 +1083,11 @@ rf/trace-api-version                             ;; version slot, never wired
 | v1 surface | v2 equivalent | Notes |
 |---|---|---|
 | `with-trace` / `merge-trace!` / `finish-trace` | `(rf/emit-trace-event! op-type operation tags)` | re-frame2's trace stream is point-event, not span-shape. Each emit is one trace event; tools assemble spans externally if needed. See [009-Instrumentation §The trace event model](../../spec/009-Instrumentation.md#the-trace-event-model). |
-| `trace-api-version` | (none — drop) | Per rf2-j7kv (Spec 009 narrowed), the version slot is unused. Tools branch on the presence of `re-frame.core/register-trace-listener!` and the `:rf/epoch-record` schema instead. |
-| `add-post-event-callback` / `remove-post-event-callback` | `(rf/register-trace-listener! key cb)` / `(rf/unregister-trace-listener! key)` | v1's per-frame post-event hook is subsumed by the trace listener API. Listeners receive every dispatched event as a trace event; filter on `:operation` for the equivalent. **Type B** — the rewrite depends on whether the callback was observer-shaped (trivial trace-listener replacement) or behaviour-modifying (rare; should move into a frame-level interceptor). |
+| `trace-api-version` | (none — drop) | Per rf2-j7kv (Spec 009 narrowed), the version slot is unused. Tools branch on the presence of `re-frame.core/register-listener!` and the `:rf/epoch-record` schema instead. |
+| `add-post-event-callback` / `remove-post-event-callback` | `(rf/register-listener! key cb)` / `(rf/unregister-listener! key)` | v1's per-frame post-event hook is subsumed by the trace listener API. Listeners receive every dispatched event as a trace event; filter on `:operation` for the equivalent. **Type B** — the rewrite depends on whether the callback was observer-shaped (trivial trace-listener replacement) or behaviour-modifying (rare; should move into a frame-level interceptor). |
 | `purge-event-queue` | (none — drop) | v2's `dispatch-sync` drains synchronously and v2's drain is run-to-completion (per [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)); the v1 affordance for "drop a stuck queue" no longer applies. Tests that need a fresh frame use `with-fresh-registrar` / `make-reset-runtime-fixture` (per [008-Testing](../../spec/008-Testing.md)). |
 | `dispatch-and-settle` | `dispatch-sync` | v2's `dispatch-sync` is settle-by-default — the call returns once the cascade has fully drained. The v1 deferred-shaped return is gone; callers that awaited the deferred can replace `(deref (dispatch-and-settle ev))` with `(dispatch-sync ev)`. The `:overrides` opt maps to `dispatch-sync`'s `:fx-overrides` / `:interceptor-overrides`. |
-| `reg-event-error-handler` | per-frame `:on-error` slot, or `(rf/register-trace-listener! key cb)` filtering on `:rf.error/*` | The single-slot global error-handler is gone (per M-13's note this was already a fragile policy). v2 layers error policy at the frame level (`:on-error` in `reg-frame` metadata) and exposes the structured error stream via the trace listener API. **Type B** — the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-trace-listener!`). |
+| `reg-event-error-handler` | per-frame `:on-error` slot, or `(rf/register-listener! key cb)` filtering on `:rf.error/*` | The single-slot global error-handler is gone (per M-13's note this was already a fragile policy). v2 layers error policy at the frame level (`:on-error` in `reg-frame` metadata) and exposes the structured error stream via the trace listener API. **Type B** — the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-listener!`). |
 | `spawn-machine` | `[:rf.machine/spawn spec]` (fx, inside an event handler's `:fx`) | The fx-id is canonical; the public fn `spawn-machine` is dropped. From outside a handler (e.g. boot-time), wrap in `(rf/dispatch-sync [:my-bootstrap-event])` whose handler returns `{:fx [[:rf.machine/spawn spec]]}`. |
 | `destroy-machine` | `[:rf.machine/destroy actor-id]` (fx, inside an event handler's `:fx`) | Same — fx-id is canonical; the public fn is dropped. |
 | `make-restore-fn` | `epoch/restore-epoch` (epoch-id-keyed; refuses halted-cascade records) + `epoch/reset-frame-db!` (value-shape replace). For the v1 snapshot+closure pattern, write it inline: `(let [snapshot (rf/get-frame-db frame-id)] (fn [] (rf/reset-frame-db! frame-id snapshot)))`. | The epoch surface is the v2 mechanism for state capture and restore. Per rf2-tdfbd (Mike decision 2026-05-19): pre-alpha posture rejects v1 helpers that have a v2 replacement. |
@@ -2033,13 +2033,13 @@ The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprec
 
 **Type A** (mechanical). Closed rename table; apply across all source files.
 
-Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and epoch listener APIs collapse onto the same shape already used by `register-event-emit-listener!` / `register-error-emit-listener!` and their `unregister-*-listener!` counterparts. v2-pre-rename codebases trip this; v1 codebases did not have a trace-listener or epoch-listener concept (the v1 equivalent was `add-post-event-callback`, which is covered by [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)). v1-→-v2 migrations land directly on the new names via M-26's rewrite.
+Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and epoch listener APIs collapse onto the same shape already used by `register-event-listener!` / `register-error-listener!` and their `unregister-*-listener!` counterparts. v2-pre-rename codebases trip this; v1 codebases did not have a trace-listener or epoch-listener concept (the v1 equivalent was `add-post-event-callback`, which is covered by [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)). v1-→-v2 migrations land directly on the new names via M-26's rewrite.
 
 | v2 pre-rename | v2 post-rename | Surface |
 |---|---|---|
-| `rf/register-trace-cb!` | `rf/register-trace-listener!` | trace listener registration (dev-only; elides under `:advanced + goog.DEBUG=false`) |
-| `rf/remove-trace-cb!` | `rf/unregister-trace-listener!` | trace listener unregistration |
-| `rf/clear-trace-cbs!` | `rf/clear-trace-listeners!` | clear all trace listeners |
+| `rf/register-trace-cb!` | `rf/register-listener!` | trace listener registration (dev-only; elides under `:advanced + goog.DEBUG=false`) |
+| `rf/remove-trace-cb!` | `rf/unregister-listener!` | trace listener unregistration |
+| `rf/clear-trace-cbs!` | `rf/clear-listeners!` | clear all trace listeners |
 | `rf/register-epoch-cb!` | `rf/register-epoch-listener!` | epoch listener registration (via `day8/re-frame2-epoch`) |
 | `rf/remove-epoch-cb!` | `rf/unregister-epoch-listener!` | epoch listener unregistration |
 | `rf/clear-epoch-cbs!` | `rf/clear-epoch-listeners!` | clear all epoch listeners |
@@ -2047,8 +2047,8 @@ Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and e
 **Late-bind hook keys** (only relevant to tool authors that publish into the framework's late-bind hook table — most apps will not touch this surface):
 
 ```
-:trace.tooling/register-trace-cb!  → :trace.tooling/register-trace-listener!
-:trace.tooling/remove-trace-cb!    → :trace.tooling/unregister-trace-listener!
+:trace.tooling/register-trace-cb!  → :trace.tooling/register-listener!
+:trace.tooling/remove-trace-cb!    → :trace.tooling/unregister-listener!
 :epoch/register-epoch-cb!          → :epoch/register-epoch-listener!
 :epoch/remove-epoch-cb!            → :epoch/unregister-epoch-listener!
 :epoch/clear-epoch-cbs!            → :epoch/clear-epoch-listeners!
@@ -2067,14 +2067,14 @@ Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and e
 
 ```clojure
 ;; after
-(rf/register-trace-listener! :my-app/audit (fn [ev] ...))
-(rf/unregister-trace-listener! :my-app/audit)
+(rf/register-listener! :my-app/audit (fn [ev] ...))
+(rf/unregister-listener! :my-app/audit)
 (rf/register-epoch-listener! :my-app/post-mortem-shipper (fn [epoch] ...))
 ```
 
 **No alias.** Per rf2-dcyjm (pre-alpha posture: no back-compat shims), the old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.
 
-**Cross-references.** [009 §The trace event model](../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API); [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) (the v1 `add-post-event-callback` → `register-trace-listener!` mapping); [M-33](#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch) (the `day8/re-frame2-epoch` artefact that hosts `register-epoch-listener!`); rf2-dcyjm Finding #2 (the parent rf2-k6xyr API-cleanup audit's listener-registration-unification decision).
+**Cross-references.** [009 §The trace event model](../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API); [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) (the v1 `add-post-event-callback` → `register-listener!` mapping); [M-33](#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch) (the `day8/re-frame2-epoch` artefact that hosts `register-epoch-listener!`); rf2-dcyjm Finding #2 (the parent rf2-k6xyr API-cleanup audit's listener-registration-unification decision).
 
 ---
 
@@ -2724,9 +2724,9 @@ Apply only when the operator wants the modernisation. `day8.re-frame/async-flow-
 
 **[http-fx-to-managed-http.md](http-fx-to-managed-http.md).**
 
-The summary: `day8.re-frame/http-fx` is a v1-era **separate add-on lib** shipping the `:http-xhrio` fx (Google Closure `XhrIo` transport behind a re-frame `reg-fx` registration). The canonical v2 successor is `:rf.http/managed` (per [014-HTTPRequests.md](../../spec/014-HTTPRequests.md), shipped in the [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) artefact `day8/re-frame2-http`): the request envelope is the same shape, but the response surface adds the eight-category closed `:rf.http/*` failure taxonomy, schema-driven Malli decode + `:accept` projection, transport-level retry-with-backoff, per-attempt timeouts with a 30s security default, abort via `:request-id`, classification ordering (status-before-decode), and a co-located reply addressing mode. Trace events (`:rf.http/retry-attempt`, per-category failure traces) integrate with the standard trace surface that 10x / Causa / `register-trace-listener!`-consumers see for free.
+The summary: `day8.re-frame/http-fx` is a v1-era **separate add-on lib** shipping the `:http-xhrio` fx (Google Closure `XhrIo` transport behind a re-frame `reg-fx` registration). The canonical v2 successor is `:rf.http/managed` (per [014-HTTPRequests.md](../../spec/014-HTTPRequests.md), shipped in the [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) artefact `day8/re-frame2-http`): the request envelope is the same shape, but the response surface adds the eight-category closed `:rf.http/*` failure taxonomy, schema-driven Malli decode + `:accept` projection, transport-level retry-with-backoff, per-attempt timeouts with a 30s security default, abort via `:request-id`, classification ordering (status-before-decode), and a co-located reply addressing mode. Trace events (`:rf.http/retry-attempt`, per-category failure traces) integrate with the standard trace surface that 10x / Causa / `register-listener!`-consumers see for free.
 
-Per-call-site escalations: per-XHR progress callbacks (out of scope for v1 managed-HTTP); custom `:format` / `:response-format` fns that aren't one of the canonical helpers; hand-rolled retry that closes over body content or app state (lift to a state machine per [O-16](#o-16-convert-day8re-frameasync-flow-fx-flows-to-reg-machine-rf2-qonq4) — semantic retry); cljs-ajax `:interceptors` chains with response-side transforms (request-side ports to [M-39](#m-39-reg-http-interceptor--clear-http-interceptor--additive-request-side-middleware-on-rfhttpmanaged), response-side splits to `:accept` or `register-trace-listener!`); `(rf/reg-fx :http-xhrio ...)` user-registrations that wrapped or overrode the lib's fx. The agent surfaces every request site and waits for operator approval.
+Per-call-site escalations: per-XHR progress callbacks (out of scope for v1 managed-HTTP); custom `:format` / `:response-format` fns that aren't one of the canonical helpers; hand-rolled retry that closes over body content or app state (lift to a state machine per [O-16](#o-16-convert-day8re-frameasync-flow-fx-flows-to-reg-machine-rf2-qonq4) — semantic retry); cljs-ajax `:interceptors` chains with response-side transforms (request-side ports to [M-39](#m-39-reg-http-interceptor--clear-http-interceptor--additive-request-side-middleware-on-rfhttpmanaged), response-side splits to `:accept` or `register-listener!`); `(rf/reg-fx :http-xhrio ...)` user-registrations that wrapped or overrode the lib's fx. The agent surfaces every request site and waits for operator approval.
 
 Apply only when the operator wants the modernisation. `day8.re-frame/http-fx` continues to work against v2 — its surface (`reg-fx`, `reg-event-fx`, `dispatch`) is preserved. Per rf2-ncsog / gh-1374.
 
@@ -2736,9 +2736,9 @@ Apply only when the operator wants the modernisation. `day8.re-frame/http-fx` co
 
 **[observability-logging-sweep.md](observability-logging-sweep.md).**
 
-The summary: [M-13](#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-17](#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) hand the operator a per-call-site decision for `reg-event-error-handler` and `reg-global-interceptor` hits — "this was an observer; convert to `register-trace-listener!`." What those rules leave on the floor is the **security and operational consequence** of the conversion: v1 audit-loggers hooked the dispatch envelope and saw the whole event vector (passwords, tokens, PII); the v2-canonical `register-trace-listener!` listener receives the same payload under `:tags :event-v` and ships it to wherever the listener's body forwards (Sentry, SIEM, log file). This rule is the dedicated sweep that turns the post-M-13 / post-M-17 observer set into a v2-canonical set with privacy + oversize defenses composed at every egress.
+The summary: [M-13](#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-17](#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) hand the operator a per-call-site decision for `reg-event-error-handler` and `reg-global-interceptor` hits — "this was an observer; convert to `register-listener!`." What those rules leave on the floor is the **security and operational consequence** of the conversion: v1 audit-loggers hooked the dispatch envelope and saw the whole event vector (passwords, tokens, PII); the v2-canonical `register-listener!` listener receives the same payload under `:tags :event-v` and ships it to wherever the listener's body forwards (Sentry, SIEM, log file). This rule is the dedicated sweep that turns the post-M-13 / post-M-17 observer set into a v2-canonical set with privacy + oversize defenses composed at every egress.
 
-Four sections in the companion doc: **(1) Discovery** — grep patterns for every observer surface plus a four-way classification (observer-off-box / observer-local / behaviour-modifying / misclassified-handler-body). **(2) Sensitive-key checklist** — closed floor set (`password`, `token`, `secret`, `jwt`, `sudo`, `auth-uri`, `user-id`, `email`, `phone`, `ssn`, `cc`, `card`) with case-insensitive substring matching and recursive `postwalk` discipline. **(3) Size-cap pattern + register-trace-listener! for dropped count** — `cap-or-elide` body that runs the framework wire-elision walker, plus a `[:audit/dropped-counter-inc ...]` dispatch so operators see when the cap fires. **(4) Reference mediation interceptor** — the canonical body for cross-frame observers (`register-trace-listener!`, Shape A), assembled-epoch observers (`register-epoch-listener!`, Shape B), and behaviour-modifying interceptors (point at [M-17](#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors)'s per-frame `:interceptors`, Shape C).
+Four sections in the companion doc: **(1) Discovery** — grep patterns for every observer surface plus a four-way classification (observer-off-box / observer-local / behaviour-modifying / misclassified-handler-body). **(2) Sensitive-key checklist** — closed floor set (`password`, `token`, `secret`, `jwt`, `sudo`, `auth-uri`, `user-id`, `email`, `phone`, `ssn`, `cc`, `card`) with case-insensitive substring matching and recursive `postwalk` discipline. **(3) Size-cap pattern + register-listener! for dropped count** — `cap-or-elide` body that runs the framework wire-elision walker, plus a `[:audit/dropped-counter-inc ...]` dispatch so operators see when the cap fires. **(4) Reference mediation interceptor** — the canonical body for cross-frame observers (`register-listener!`, Shape A), assembled-epoch observers (`register-epoch-listener!`, Shape B), and behaviour-modifying interceptors (point at [M-17](#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors)'s per-frame `:interceptors`, Shape C).
 
 The follow-on per rewrite is a schema-annotation pass — every sensitive key the agent found that **does** appear in a registered schema gets a proposed `{:sensitive? true}` annotation (per [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling) and [009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The schema declaration is strictly stronger than per-listener explicit drops — it covers every consumer (trace listeners, error monitors, MCP servers, hosted dashboards) uniformly and the framework's always-on substrates honour it before fan-out.
 

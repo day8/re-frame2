@@ -26,11 +26,11 @@
   [f]
   (let [traces (atom [])
         cb-id  (gensym "::capture-")]
-    (rf/register-trace-listener! cb-id (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
     (try
       (f)
       (finally
-        (rf/unregister-trace-listener! cb-id)))
+        (rf/unregister-listener! cb-id)))
     @traces))
 
 (defn- traces-of [traces op]

@@ -96,7 +96,7 @@
             ;; Per rf2-qwm0a: the public-tooling listener + buffer
             ;; surface lives in `re-frame.trace.tooling` (split off
             ;; from `re-frame.trace` for production CLJS bundle DCE).
-            ;; Test fixtures need `clear-trace-listeners!` between scenarios;
+            ;; Test fixtures need `clear-listeners!` between scenarios;
             ;; we reach it through the tooling sibling directly.
             [re-frame.trace.tooling :as trace-tooling]
             ;; Clear the always-on event-emit listener registry on each
@@ -324,8 +324,8 @@
          (run-reset-hooks! :pre-dispose)
          (adapter/dispose-adapter!)
          (run-reset-hooks! :post-dispose)
-         (trace-tooling/clear-trace-listeners!)
-         (event-emit/clear-event-emit-listeners!)
+         (trace-tooling/clear-listeners!)
+         (event-emit/clear-event-listeners!)
          (when adapter
            (adapter/install-adapter! adapter)
            (frame/ensure-default-frame!))

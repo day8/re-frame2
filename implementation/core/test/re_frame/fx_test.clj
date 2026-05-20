@@ -43,10 +43,10 @@
 
 (defn- collect-traces!
   "Register a trace listener under `id`, returning the atom that
-  accumulates events. Tests must (rf/unregister-trace-listener! id) to detach."
+  accumulates events. Tests must (rf/unregister-listener! id) to detach."
   [id]
   (let [acc (atom [])]
-    (rf/register-trace-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- 1. Source-order ordering across mixed effect types -------------------
@@ -239,7 +239,7 @@
           {:fx [[:fx-test/boom  {:reason :first}]
                 [:fx-test/after {:reason :sibling}]]}))
       (rf/dispatch-sync [:fx-test/with-bad-fx])
-      (rf/unregister-trace-listener! ::fx-exc)
+      (rf/unregister-listener! ::fx-exc)
       ;; Sibling fx ran — recovery is :isolated.
       (is (= [{:reason :sibling}] @fired)
           "the :fx after the throwing entry still fires (Spec 002 rule 4)")
@@ -278,7 +278,7 @@
           {:fx [[:fx-test/never-registered  {:k 1}]
                 [:fx-test/sibling           {:k 2}]]}))
       (rf/dispatch-sync [:fx-test/missing])
-      (rf/unregister-trace-listener! ::no-such)
+      (rf/unregister-listener! ::no-such)
       ;; Sibling still fires — the unknown fx-id did not halt the walk.
       (is (= [{:k 2}] @fired)
           "the next :fx entry still fires after an unknown fx-id")
@@ -310,7 +310,7 @@
       (rf/reg-event-fx :fx-test/save
         (fn [_ _] {:fx [[:fx-test/local-storage {:k "key" :v "val"}]]}))
       (rf/dispatch-sync [:fx-test/save])
-      (rf/unregister-trace-listener! ::plat)
+      (rf/unregister-listener! ::plat)
       (is (false? @fired?)
           "the client-only handler did NOT run on the JVM (:server)")
       (let [skip-traces (filter #(= :rf.fx/skipped-on-platform (:operation %))
@@ -353,7 +353,7 @@
           ;; Legacy v1 shape — top-level :dispatch.
           {:dispatch [:fx-test/sentinel]}))
       (rf/dispatch-sync [:fx-test/legacy-dispatch])
-      (rf/unregister-trace-listener! ::shape)
+      (rf/unregister-listener! ::shape)
       ;; The legacy top-level :dispatch is NOT performed (silently
       ;; routing it would defeat the M-8 migration).
       (is (false? @fired?)
@@ -423,7 +423,7 @@
       (rf/dispatch-sync [:test.634y/run])
       (is (= 2 @counter)
           "after re-registration, the fx fires again — clear-fx is idempotent and reversible")
-      (rf/unregister-trace-listener! ::clear-fx))))
+      (rf/unregister-listener! ::clear-fx))))
 
 (deftest clear-fx-idempotent-on-unknown-id
   (testing "clear-fx against an un-registered fx-id is a no-op (idempotent)"
@@ -451,7 +451,7 @@
            :dispatch [:fx-test/never-runs]
            :http {:url "/api"}}))
       (rf/dispatch-sync [:fx-test/multi-legacy])
-      (rf/unregister-trace-listener! ::shape-multi)
+      (rf/unregister-listener! ::shape-multi)
       ;; The legitimate :fx entry still ran — policing didn't halt the cascade.
       (is (= [{:k :legit}] @fired)
           "the legal :fx entry still fires after policing rejects sibling top-level keys")
@@ -553,7 +553,7 @@
       (rf/dispatch-sync
         [:fx-test/issue-traced]
         {:fx-overrides {:fx-test/http-traced (fn [_ _] :ok)}})
-      (rf/unregister-trace-listener! ::fn-override-trace)
+      (rf/unregister-listener! ::fn-override-trace)
       (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
         (is (= 1 (count applied))
             "exactly one :rf.fx/override-applied trace for the fn-value override")
@@ -615,7 +615,7 @@
           (is (= [[:fx-test/do-fx-shape {:k 1}]] (:fx tags))
               ":fx vector matches what the handler returned"))
         (finally
-          (rf/unregister-trace-listener! ::do-fx-shape))))))
+          (rf/unregister-listener! ::do-fx-shape))))))
 
 (deftest event-do-fx-stamps-when-only-fx-returned
   (testing "reg-event-fx returning {:fx [...]} only (no :db slot) stamps
@@ -635,7 +635,7 @@
           (is (= [[:fx-test/no-db-fx {}]] (:fx tags))
               ":fx vector matches what the handler returned"))
         (finally
-          (rf/unregister-trace-listener! ::no-db))))))
+          (rf/unregister-listener! ::no-db))))))
 
 (deftest event-do-fx-stamp-rides-under-tags
   (testing ":fx and :db-present? are payload-shaped slots — they ride
@@ -659,7 +659,7 @@
           (is (not (contains? dof :db-present?))
               ":db-present? is NOT at top level"))
         (finally
-          (rf/unregister-trace-listener! ::top-level))))))
+          (rf/unregister-listener! ::top-level))))))
 
 ;; ---- rf2-jhhqt: :coeffects stamp on :event/do-fx -------------------------
 ;;
@@ -700,7 +700,7 @@
           (is (not (contains? cofx :event)) "framework :event NOT stamped")
           (is (not (contains? cofx :frame)) "framework :frame NOT stamped"))
         (finally
-          (rf/unregister-trace-listener! ::user-cofx))))))
+          (rf/unregister-listener! ::user-cofx))))))
 
 (deftest event-do-fx-coeffects-stamp-absent-when-no-user-cofx
   (testing "a handler with no inject-cofx has its :event/do-fx fire
@@ -719,4 +719,4 @@
           (is (not (contains? tags :coeffects))
               ":coeffects key ABSENT on :tags when no user cofx injected"))
         (finally
-          (rf/unregister-trace-listener! ::no-cofx))))))
+          (rf/unregister-listener! ::no-cofx))))))

@@ -38,7 +38,7 @@
             so production-monitoring integrations (Datadog, Honeycomb,
             ...) still observe every dispatched event."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod/inc
@@ -62,7 +62,7 @@
             success/failure discriminator so monitoring pipelines can
             distinguish the two without needing the trace surface."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod/throw
@@ -80,11 +80,11 @@
             mode contract from `re-frame.event-emit-test`; pinned here
             so the prod-build behaviour is locked too."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :prod/throws
         (fn [_record]
           (throw (ex-info "listener went boom" {}))))
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :prod/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod/quiet (fn [db _] db))
@@ -104,7 +104,7 @@
   (testing "Every handler delivers records to listeners under prod —
             handler-meta `:sensitive?` no longer drops records."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod/normal

@@ -307,7 +307,7 @@ generated `(reg-variant ...)` form:
 
 The recorder consumes Story's existing trace-bus listener primitive
 (per [`003-Render-Shell.md`](003-Render-Shell.md) §Trace bus + the
-`re-frame.trace/register-trace-listener!` API per Spec 009 §Listener
+`re-frame.trace/register-listener!` API per Spec 009 §Listener
 contract). One process-wide callback installed at shell mount; per
 emit it short-circuits when no recording is in flight, so leaving it
 installed is free.
@@ -810,7 +810,7 @@ phase-2 SOTA adds that are cheap.
 | 4. External visual-regression integration via `snapshot-identity` hook | Stage 3 |
 | 5. Three-level args + auto-derived controls from Spec 010 schemas | Stages 2, 4 |
 | 6. `force-fx-stub` — universal-fx mocking primitive (replaces the Storybook addon parade; see §`force-fx-stub`) | Stage 2 |
-| 7. Six-domino trace panel per variant via `register-trace-listener!` | Stage 6 |
+| 7. Six-domino trace panel per variant via `register-listener!` | Stage 6 |
 | 8. Causa epoch panel embedded as `reg-story-panel` | Stage 6 |
 | 9. Story portability — `run-variant` returns `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` | Stage 3 |
 | 10. EDN-first variant artefact (no `:render` fn-slot, round-trippable) | Stage 2 |

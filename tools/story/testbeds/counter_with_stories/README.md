@@ -66,7 +66,7 @@ README markets as a headline feature:
 
 The example also registers a console-logging
 [`event-emit` listener](../../../../docs/guide/22-trace-to-datadog.md)
-at boot via `rf/register-event-emit-listener!`. Every dispatched
+at boot via `rf/register-event-listener!`. Every dispatched
 event prints one tight record (`{:event :event-id :frame :time
 :outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog
 recipe forwards in production. The substrate is **always-on**: it

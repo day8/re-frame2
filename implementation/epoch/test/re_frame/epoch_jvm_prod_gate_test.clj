@@ -34,7 +34,7 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
@@ -194,7 +194,7 @@
             `interop/debug-enabled?` gate would break visibly."
     (with-redefs [interop/debug-enabled? false]
       (let [warnings (atom [])]
-        (rf/register-trace-listener! ::warn-watch
+        (rf/register-listener! ::warn-watch
                                (fn [ev]
                                  (when (= :warning (:op-type ev))
                                    (swap! warnings conj ev))))
@@ -212,7 +212,7 @@
           (is (empty? redact-warns)
               ":rf.warning/epoch-redact-fn-exception never fires —
                maybe-redact is unreachable under the disabled gate"))
-        (rf/unregister-trace-listener! ::warn-watch)
+        (rf/unregister-listener! ::warn-watch)
         (rf/configure :epoch-history {:redact-fn nil})))))
 
 (deftest redact-fn-slot-survives-default-gate-as-sanity

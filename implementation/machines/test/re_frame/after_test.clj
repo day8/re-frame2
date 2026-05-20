@@ -83,7 +83,7 @@
               :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :a/single m)
-      (rf/register-trace-listener! ::s (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::s (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/single [:fetch]])
       (let [s (snapshot :a/single)]
         (is (= :loading (:state s)))
@@ -96,7 +96,7 @@
       (rf/dispatch-sync [:a/single [:rf.machine.timer/after-elapsed 5000 1]])
       (is (= :timeout (:state (snapshot :a/single)))
           "matching-epoch firing transitions :loading → :timeout")
-      (rf/unregister-trace-listener! ::s))))
+      (rf/unregister-listener! ::s))))
 
 ;; ---- multi-stage :after — warn at 5s, fail at 30s -------------------------
 
@@ -147,7 +147,7 @@
               :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :a/guard m)
-      (rf/register-trace-listener! ::g (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::g (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/guard [:fetch]])
       (let [epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch])]
         ;; 5s fires; guard :slow? returns false → suppressed.
@@ -165,7 +165,7 @@
         (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 30000 epoch]])
         (is (= :timeout (:state (snapshot :a/guard)))
             "sibling :after timer continues and transitions on its own"))
-      (rf/unregister-trace-listener! ::g))))
+      (rf/unregister-listener! ::g))))
 
 ;; ---- no-invoke variant (splash screen) -----------------------------------
 
@@ -203,7 +203,7 @@
       (rf/dispatch-sync [:a/race [:fetch]])
       (rf/dispatch-sync [:a/race [:loaded]])
       (is (= :ready (:state (snapshot :a/race))))
-      (rf/register-trace-listener! ::r (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::r (fn [ev] (swap! traces conj ev)))
       ;; Stale firing from epoch 1 (the :loading visit).
       (rf/dispatch-sync [:a/race [:rf.machine.timer/after-elapsed 5000 1]])
       (is (= :ready (:state (snapshot :a/race)))
@@ -212,7 +212,7 @@
                        (= 5000 (:delay (:tags %))))
                  @traces)
           ":stale-after trace emitted")
-      (rf/unregister-trace-listener! ::r))))
+      (rf/unregister-listener! ::r))))
 
 ;; ---- fn-form delay (computed once at entry) -------------------------------
 
@@ -283,7 +283,7 @@
           listener (fn [ev] (swap! captured conj ev))
           delay-fn (fn [_ctx]
                      (throw (ex-info "fn-form delay blew up" {:where :test})))]
-      (re-frame.trace/register-trace-listener! ::after-fn-trace listener)
+      (re-frame.trace/register-listener! ::after-fn-trace listener)
       (try
         (rf/reg-machine :a/throws
                         {:initial :idle
@@ -307,7 +307,7 @@
             (is (= :no-clock-configured (:recovery first-err))
                 ":recovery hoisted to the envelope top-level")))
         (finally
-          (re-frame.trace/unregister-trace-listener! ::after-fn-trace))))))
+          (re-frame.trace/unregister-listener! ::after-fn-trace))))))
 
 ;; ---- sub-cache ref-count balance on bad-delay early-return (rf2-fva6c.1) ---
 
@@ -340,9 +340,9 @@
                 :timeout {}}}
             traces (atom [])]
         (rf/reg-machine :a/sub-bad m)
-        (rf/register-trace-listener! ::no-clock (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! ::no-clock (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:a/sub-bad [:go]])
-        (rf/unregister-trace-listener! ::no-clock)
+        (rf/unregister-listener! ::no-clock)
         (is (some (fn [ev]
                     (and (= :rf.warning/no-clock-configured (:operation ev))
                          (= :sub (-> ev :tags :delay-source))))
@@ -438,7 +438,7 @@
           throwing-reaction (reify clojure.lang.IDeref
                               (deref [_]
                                 (throw (ex-info throw-msg {:where :test}))))]
-      (re-frame.trace/register-trace-listener! ::after-sub-trace listener)
+      (re-frame.trace/register-listener! ::after-sub-trace listener)
       (try
         (rf/reg-sub :s/well-formed (fn [_db _] 1000))
         (rf/reg-machine
@@ -471,7 +471,7 @@
             (is (= :no-clock-configured (:recovery first-err))
                 ":recovery :no-clock-configured hoisted to top-level")))
         (finally
-          (re-frame.trace/unregister-trace-listener! ::after-sub-trace))))))
+          (re-frame.trace/unregister-listener! ::after-sub-trace))))))
 
 (deftest after-sub-vec-watch-failure-surfaces-trace
   (testing "rf2-t4uo0 — sub-vec :after where add-watch on the reaction
@@ -499,7 +499,7 @@
                            (throw (ex-info "add-watch blew up on after-watch"
                                            {:where :test :key key}))
                            (real-add target key f)))]
-      (re-frame.trace/register-trace-listener! ::after-watch-trace listener)
+      (re-frame.trace/register-listener! ::after-watch-trace listener)
       (try
         ;; A well-behaved sub returning a positive delay — subscribe
         ;; succeeds, deref returns 1000 (so the bad-delay branch
@@ -537,4 +537,4 @@
                  timer still scheduled, just without dynamic-delay
                  re-resolution")))
         (finally
-          (re-frame.trace/unregister-trace-listener! ::after-watch-trace))))))
+          (re-frame.trace/unregister-listener! ::after-watch-trace))))))

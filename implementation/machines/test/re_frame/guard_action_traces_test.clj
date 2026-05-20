@@ -43,9 +43,9 @@
   the captured trace vec."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (rf/unregister-trace-listener! ::rec)))
+         (finally (rf/unregister-listener! ::rec)))
     @seen))
 
 (defn- ops [evs op]

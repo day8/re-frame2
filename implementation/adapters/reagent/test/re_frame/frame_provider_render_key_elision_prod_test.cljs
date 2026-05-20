@@ -58,7 +58,7 @@
             renders. The wrapper still calls the user fn — only the
             trace metadata elides."
     (let [seen (atom [])]
-      (trace-tooling/register-trace-listener!
+      (trace-tooling/register-listener!
         ::prod-view-listener
         (fn [ev] (swap! seen conj ev)))
       (rf/reg-view* :prod-frame-provider/sample
@@ -70,7 +70,7 @@
       (is (empty? @seen)
           "no trace events delivered — :view/render elides under
            :advanced + goog.DEBUG=false")
-      (trace-tooling/unregister-trace-listener! ::prod-view-listener))))
+      (trace-tooling/unregister-listener! ::prod-view-listener))))
 
 ;; ---- current-render-key still binds under prod ---------------------------
 

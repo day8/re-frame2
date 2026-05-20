@@ -37,7 +37,7 @@
             does under plain-atom (the JVM-tier reproducer in
             frame-lifecycle-test)."
     (let [recorded (atom [])]
-      (trace-tooling/register-trace-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (trace-tooling/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
       (is (nil? (substrate-adapter/replace-container! nil {:any :value}))
           "nil container is a documented no-op, not an exception")
       (let [warns (filterv (fn [ev]
@@ -47,7 +47,7 @@
                            @recorded)]
         (is (= 1 (count warns))
             "exactly one :rf.warning/write-after-destroy trace fired"))
-      (trace-tooling/unregister-trace-listener! ::rec))))
+      (trace-tooling/unregister-listener! ::rec))))
 
 (deftest write-after-destroy-emits-warning-helix
   (testing "rf2-k2fs0: a write through a destroyed frame's nil container
@@ -56,7 +56,7 @@
             (frame-lifecycle-test) but with the Helix adapter installed —
             the contract is substrate-agnostic."
     (let [recorded (atom [])]
-      (trace-tooling/register-trace-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (trace-tooling/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
       (rf/reg-frame :helix-rf2-k2fs0/race-frame
                     {:doc "rf2-k2fs0 Helix-side reproducer frame"})
       ;; Tear the frame down; subsequent frame/get-frame-db returns nil.
@@ -75,4 +75,4 @@
                            @recorded)]
         (is (pos? (count warns))
             ":rf.warning/write-after-destroy fired for the post-destroy write"))
-      (trace-tooling/unregister-trace-listener! ::rec))))
+      (trace-tooling/unregister-listener! ::rec))))

@@ -119,7 +119,7 @@ All three are catalogued in [`009 §Error event catalogue`](../../../../spec/009
 | `:rf.ssr/schema-digest-mismatch` | payload `:rf/schema-digest` ≠ client `:schemas/app-schemas-digest` | `:op-type :error` |
 | `:rf.ssr/compatibility-check-skipped` | no hook registered for the relevant probe | `:op-type :warn` |
 
-These are **trace** events — DCE-eligible in CLJS production builds. To ship them off-box, wire `register-error-emit-listener!` per [`production-observability.md`](production-observability.md); the error-emit substrate carries `:rf.ssr/*` records through to production.
+These are **trace** events — DCE-eligible in CLJS production builds. To ship them off-box, wire `register-error-listener!` per [`production-observability.md`](production-observability.md); the error-emit substrate carries `:rf.ssr/*` records through to production.
 
 ## Common gotchas
 

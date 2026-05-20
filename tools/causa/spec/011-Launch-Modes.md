@@ -253,7 +253,7 @@ single source of truth.
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-The preload registers Causa's listeners under `register-trace-listener!`
+The preload registers Causa's listeners under `register-listener!`
 and `register-epoch-listener!`, installs the browser API/keybinding, then
 auto-opens into the configured layout host once `rf/init!` has
 installed a substrate adapter.
@@ -377,7 +377,7 @@ available. The lifecycle is normative.
 1. Register Causa's `:rf.causa/*` handlers (subs / events / fxs)
    against the `:rf/causa` frame.
 2. Register the trace collector via
-   [`re-frame.trace/register-trace-listener!`](../../../spec/009-Instrumentation.md)
+   [`re-frame.trace/register-listener!`](../../../spec/009-Instrumentation.md)
    under `:rf.causa/trace-collector`.
 3. Register the epoch collector via `rf/register-epoch-listener!` under
    `:rf.causa/epoch-collector` (no-op when the
@@ -568,7 +568,7 @@ each listener sees events in the runtime's emit order; no
 re-ordering occurs between framework emit and the collector body.
 Ordering *across* sibling listeners (other tools that register
 their own `register-epoch-listener!` callbacks alongside Causa) is **not
-contract** — the same rule that applies to `register-trace-listener!`
+contract** — the same rule that applies to `register-listener!`
 applies here. Causa's handler MUST NOT depend on the relative
 order of Causa's invocation versus any other tool's.
 

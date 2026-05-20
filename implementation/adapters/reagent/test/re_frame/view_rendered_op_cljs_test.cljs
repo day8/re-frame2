@@ -35,10 +35,10 @@
 (defn- record-traces!
   "Attach a listener that captures every `:rf.view/rendered` trace into
   an atom. Returns the atom; caller is responsible for
-  `unregister-trace-listener!`."
+  `unregister-listener!`."
   []
   (let [recorded (atom [])]
-    (trace-tooling/register-trace-listener! ::recorder
+    (trace-tooling/register-listener! ::recorder
       (fn [ev]
         (when (= :rf.view/rendered (:operation ev))
           (swap! recorded conj ev))))
@@ -48,7 +48,7 @@
   "Variant that captures multiple ops into a per-op map of vectors."
   [op-set]
   (let [recorded (atom {})]
-    (trace-tooling/register-trace-listener! ::recorder
+    (trace-tooling/register-listener! ::recorder
       (fn [ev]
         (when (contains? op-set (:operation ev))
           (swap! recorded update (:operation ev) (fnil conj []) ev))))
@@ -68,7 +68,7 @@
         (render))
       (is (= 3 (count (:view/render @observed))) "three :view/render emits")
       (is (= 3 (count (:rf.view/rendered @observed))) "three :rf.view/rendered emits")
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-carries-view-id-and-frame
   (testing ":rf.view/rendered carries :view-id, :frame and :render-key
@@ -85,7 +85,7 @@
         (is (vector? (:render-key t)) ":render-key is a tuple")
         (is (= :rf2-25zo2/shape (first (:render-key t)))
             ":render-key's first slot is the view-id"))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-carries-cause-event-id-in-cascade
   (testing ":rf.view/rendered emitted inside a cascade carries
@@ -114,7 +114,7 @@
           (is (= :rf2-25zo2/render-during-cascade
                  (get-in ev [:tags :cause-event-id]))
               ":cause-event-id matches the dispatching event-id")))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-carries-cause-subs-in-cascade
   (testing ":rf.view/rendered emitted inside a cascade carries
@@ -147,7 +147,7 @@
             (is (vector? subs) ":cause-subs is a vector")
             (is (some #{:rf2-25zo2/n} subs)
                 ":cause-subs contains the sub-id that ran upstream of the render"))))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-omits-attribution-when-no-cascade
   (testing "a render outside any cascade (e.g. headless direct invocation
@@ -166,4 +166,4 @@
             ":cause-event-id omitted when no cascade is in flight")
         (is (not (contains? t :cause-subs))
             ":cause-subs omitted when no cascade is in flight"))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))

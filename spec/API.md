@@ -423,8 +423,8 @@ Per [009 §What IS available in production](009-Instrumentation.md#what-is-avail
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `register-event-emit-listener!` | Fn | `(register-event-emit-listener! id listener-fn)` — `listener-fn` receives one event-record per processed event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
-| `unregister-event-emit-listener!` | Fn | `(unregister-event-emit-listener! id)` → nil | v1 | 009 |
+| `register-event-listener!` | Fn | `(register-event-listener! id listener-fn)` — `listener-fn` receives one event-record per processed event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
+| `unregister-event-listener!` | Fn | `(unregister-event-listener! id)` → nil | v1 | 009 |
 
 ## Error-emit (always-on, production-survivable)
 
@@ -434,8 +434,8 @@ Per [009 §What IS available in production](009-Instrumentation.md#what-is-avail
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `register-error-emit-listener!` | Fn | `(register-error-emit-listener! id listener-fn)` — `listener-fn` receives one error-record per `:rf.error/*` event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
-| `unregister-error-emit-listener!` | Fn | `(unregister-error-emit-listener! id)` → nil | v1 | 009 |
+| `register-error-listener!` | Fn | `(register-error-listener! id listener-fn)` — `listener-fn` receives one error-record per `:rf.error/*` event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
+| `unregister-error-listener!` | Fn | `(unregister-error-listener! id)` → nil | v1 | 009 |
 
 ## Tracing
 
@@ -443,8 +443,8 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `register-trace-listener!` | Fn | `(register-trace-listener! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | 009 |
-| `unregister-trace-listener!` | Fn | `(unregister-trace-listener! key)` → nil | v1 (dev-only) | 009 |
+| `register-listener!` | Fn | `(register-listener! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | 009 |
+| `unregister-listener!` | Fn | `(unregister-listener! key)` → nil | v1 (dev-only) | 009 |
 | `emit-trace-event!` | Fn | `(emit-trace-event! op-type operation tags)` → nil | v1 (dev-only) | 009 |
 | `re-frame.interop/debug-enabled?` | Var | `^boolean`. **CLJS**: alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM**: a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. Set BEFORE `re-frame.interop` loads. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly — per [009 §JVM builds](009-Instrumentation.md#jvm-builds) and [Security §Production gates](Security.md#production-gates). | v1 | 009 |
 | `re-frame.performance/enabled?` | Var | `^boolean` `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. See [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation) and [Tool-Pair §Performance API consumption](Tool-Pair.md#performance-api-consumption) | v1 | 009 |
@@ -642,7 +642,7 @@ Removed in v2 (see [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-
 
 **Frame-destroy teardown.** `destroy-frame!` releases every per-frame piece of flow state (registry slot, `last-inputs` rows, registrar entries for ids the destroyed frame was last owner of) per [Spec 013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). Sibling frames' state is preserved.
 
-**Flow-eval failures in production.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `:on-error` policy fns and `register-error-emit-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is NOT trace-only. Per [Spec 013 §Failure semantics](013-Flows.md#failure-semantics) rule 4 and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code).
+**Flow-eval failures in production.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `:on-error` policy fns and `register-error-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is NOT trace-only. Per [Spec 013 §Failure semantics](013-Flows.md#failure-semantics) rule 4 and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code).
 
 Reserved fx-ids for runtime flow management via `:fx`:
 
@@ -779,11 +779,11 @@ See [007-Stories.md](007-Stories.md).
 | `frame-dispatcher` (proposed earlier) | Use `dispatcher` (captures current frame at call time; safe to call during render and from async callbacks) | 002 |
 | `bound-dispatcher` / `bound-subscriber` (proposed earlier) | Cut as pure aliases for `dispatcher` / `subscriber` (rf2-knz3l). The verb-form names already imply capture-at-call-time semantics | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle (see [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) | 009 |
-| `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-listener!` / `unregister-trace-listener!` | 009 |
-| `register-trace-listener` / `unregister-trace-listener` (no-bang, proposed earlier) | Renamed to `register-trace-listener!` / `unregister-trace-listener!` (bang form matches the side-effecting nature of listener registration) | 009 |
+| `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-listener!` / `unregister-listener!` | 009 |
+| `register-trace-listener` / `unregister-trace-listener` (no-bang, proposed earlier) | Renamed to `register-listener!` / `unregister-listener!` (bang form matches the side-effecting nature of listener registration) | 009 |
 | Bare `[:my-view "args"]` keyword-tagged hiccup | Use the Var form `[my-view "args"]` (canonical) or `[(rf/view :my-view) "args"]` for late-binding by id | 004 |
 | `h` macro (proposed earlier) | Removed (rf2-n4um). Use the Var form `[my-view "args"]` or `[(rf/view :my-view) "args"]` | 004 |
-| `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-trace-listener!`. | MIGRATION M-17 |
+| `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-listener!`. | MIGRATION M-17 |
 | `clear-global-interceptor` | No replacement needed — re-register `reg-frame` with an updated `:interceptors` vector (absent-key semantics clear it). | MIGRATION M-17 |
 | `reg-sub-raw` | Use `reg-sub` (app-db reads), Pattern-AsyncEffect (non-app-db sources), state machines (lifecycle), or the [006](006-ReactiveSubstrate.md) adapter contract (bridging external reactivity). | MIGRATION M-18 |
 | `re-frame.alpha/reg` | Per-kind macros: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow`. | MIGRATION M-23 |

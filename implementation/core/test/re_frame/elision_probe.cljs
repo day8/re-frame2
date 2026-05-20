@@ -14,7 +14,7 @@
 
   Surfaces exercised:
 
-  - `register-trace-listener!` / `unregister-trace-listener!` / `emit-trace-event!`
+  - `register-listener!` / `unregister-listener!` / `emit-trace-event!`
     (Spec 009 §Emitting trace events)
   - `reg-app-schema` + `validate-*!` (Spec 010 §Production builds)
   - `register!` / `unregister!` / `clear-kind!` registrar trace emit
@@ -56,9 +56,9 @@
 (defn ^:export touch-trace! []
   ;; Reach into every documented trace API so :advanced keeps the surface
   ;; alive and we're testing the *body* gates, not surface-pruning.
-  (trace-tooling/register-trace-listener! ::probe (fn [_ev] nil))
+  (trace-tooling/register-listener! ::probe (fn [_ev] nil))
   (rf/emit-trace-event! :event :rf.probe/touched {:source :probe})
-  (trace-tooling/unregister-trace-listener! ::probe)
+  (trace-tooling/unregister-listener! ::probe)
   ;; rf2-smee — trace ring buffer (Spec 009 §Retain-N).  These public
   ;; entry points must elide their bodies in production.
   (trace-tooling/configure-trace-buffer! {:depth 50})

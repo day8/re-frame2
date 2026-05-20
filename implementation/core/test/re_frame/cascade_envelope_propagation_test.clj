@@ -26,7 +26,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -91,7 +91,7 @@
     ;; Capture parent and child envelopes via the trace stream — every
     ;; :event/dispatched event surfaces :origin / :source on :tags.
     (let [seen (atom [])]
-      (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event-fx :test/parent
           (fn [_ _]
@@ -117,7 +117,7 @@
               ":origin :test propagated through the cascade")
           (is (= :unit-test (:source child-ev))
               ":source :unit-test propagated through the cascade"))
-        (finally (rf/unregister-trace-listener! ::rec))))))
+        (finally (rf/unregister-listener! ::rec))))))
 
 ;; ---- :envelope exposed on fx-handler ctx (rf2-4jci1.4) -------------------
 

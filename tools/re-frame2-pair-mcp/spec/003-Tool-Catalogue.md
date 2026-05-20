@@ -2,7 +2,7 @@
 
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > each MCP tool below routes through one or more of the Tool-Pair
-> primitives (`get-frame-db`, `epoch-history`, `register-trace-listener!`,
+> primitives (`get-frame-db`, `epoch-history`, `register-listener!`,
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 

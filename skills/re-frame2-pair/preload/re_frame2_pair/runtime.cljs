@@ -9,7 +9,7 @@
 ;;;;
 ;;;; Design invariants (see docs/initial-spec.md):
 ;;;;   - All trace and epoch reads consume re-frame2's public Tool-Pair
-;;;;     surfaces (`re-frame.core/register-trace-listener!`, `trace-buffer`,
+;;;;     surfaces (`re-frame.core/register-listener!`, `trace-buffer`,
 ;;;;     `register-epoch-listener!`, `epoch-history`, `restore-epoch`). No
 ;;;;     reaching into private namespaces.
 ;;;;   - Exactly one trace listener (`:re-frame2-pair`) and one epoch
@@ -58,7 +58,7 @@
             ;; tooling sibling here is bundle-isolation-safe (the
             ;; preload is dev-only).
             [re-frame.subs.tooling :as subs-tooling]
-            ;; rf2-qwm0a: register-trace-listener! / trace-buffer (and the rest of
+            ;; rf2-qwm0a: register-listener! / trace-buffer (and the rest of
             ;; the listener + ring-buffer surface) live in
             ;; re-frame.trace.tooling, not re-frame.trace. CLJS deliberately
             ;; omits `rf/<name>` aliases for these so production counter
@@ -636,7 +636,7 @@
 (defonce ^:private last-trace-id (atom 0))
 
 ;; The legacy `last-trace-id` cursor and the streaming dispatch both
-;; ride the same `register-trace-listener!` slot — combined into
+;; ride the same `register-listener!` slot — combined into
 ;; `on-trace-streaming` below (rf2-hq49). The legacy `on-trace` was
 ;; inlined into the streaming listener.
 
@@ -650,7 +650,7 @@
    safe to install unconditionally — `last-trace-event-id` keeps
    working through it."
   []
-  (trace-tooling/register-trace-listener! :re-frame2-pair on-trace-streaming))
+  (trace-tooling/register-listener! :re-frame2-pair on-trace-streaming))
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
@@ -1034,7 +1034,7 @@
                                         default-max-buffered-bytes)}]
       ;; Make sure the upgraded listeners are wired (idempotent — same
       ;; id, replaces the basic listeners installed by `health`).
-      (trace-tooling/register-trace-listener! :re-frame2-pair on-trace-streaming)
+      (trace-tooling/register-listener! :re-frame2-pair on-trace-streaming)
       (rf/register-epoch-listener! :re-frame2-pair-epoch on-epoch-streaming)
       (swap! subscriptions assoc sub-id sub)
       {:ok? true :sub-id sub-id :topic topic :filter (:filter sub)})))

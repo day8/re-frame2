@@ -50,12 +50,12 @@
   [body-fn]
   (let [captured (atom [])
         k        ::collect]
-    (trace-tooling/register-trace-listener!
+    (trace-tooling/register-listener!
       k
       (fn [ev] (swap! captured conj ev)))
     (try (body-fn)
          (finally
-           (trace-tooling/unregister-trace-listener! k)))
+           (trace-tooling/unregister-listener! k)))
     @captured))
 
 ;; ---- :rf.sub/skip ---------------------------------------------------------

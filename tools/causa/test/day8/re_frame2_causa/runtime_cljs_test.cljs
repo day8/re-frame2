@@ -209,12 +209,12 @@
             must not leave residue.
 
             We exercise the side-effect-free property by asserting the
-            framework's `register-trace-listener!` was not called with any
+            framework's `register-listener!` was not called with any
             runtime-owned id — the runtime has no such id reservation."
     (runtime/health)
     (runtime/health)
     ;; No listener-side state to inspect — the contract is that the
-    ;; runtime does not call register-trace-listener! / register-epoch-listener!
+    ;; runtime does not call register-listener! / register-epoch-listener!
     ;; from `health`. The lint here is the source-side absence; the
     ;; runtime test suite asserts behaviour, and the absence of a
     ;; per-test-listener-id reservation is the absence of an effect.

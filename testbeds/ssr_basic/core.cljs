@@ -81,7 +81,7 @@
   ;; HOT PATH — wire the trace bus to a window-side mirror so a
   ;; Playwright assertion can inspect the hydration trace stream
   ;; without poking at internal cljs vars.
-  (trace-tooling/register-trace-listener! ::ssr-basic-listener
+  (trace-tooling/register-listener! ::ssr-basic-listener
     (fn [ev]
       (let [op (:operation ev)]
         (when (and op

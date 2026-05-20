@@ -27,7 +27,7 @@
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   (test-fn))
 
@@ -39,7 +39,7 @@
   "Attach a recording listener and return its atom."
   [listener-id]
   (let [a (atom [])]
-    (rf/register-trace-listener! listener-id (fn [ev] (swap! a conj ev)))
+    (rf/register-listener! listener-id (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- cross-frame-warnings

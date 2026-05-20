@@ -159,7 +159,7 @@ Option 2 is for the rare case where you want to disable Causa in a specific dev 
 Causa is **dev-only** by construction. Under `:advanced` compilation with `goog.DEBUG=false`:
 
 - The preload entry, by Closure DCE rules, is reachable only through dev-build paths; production builds don't `:require` it.
-- The framework's trace bus is gated on `re-frame.interop/debug-enabled?`. With `goog.DEBUG=false`, every `register-trace-listener!` registration is elided at the source.
+- The framework's trace bus is gated on `re-frame.interop/debug-enabled?`. With `goog.DEBUG=false`, every `register-listener!` registration is elided at the source.
 - Source-coord stamping (`data-rf2-source-coord` on every rendered element) is gated on the same `debug-enabled?`. The rendered HTML in a production bundle carries no source-coord bytes.
 
 A CI gate at [`implementation/scripts/check-bundle-isolation.cjs`](https://github.com/day8/re-frame2/blob/main/implementation/scripts/check-bundle-isolation.cjs) greps the plain `examples/counter` production bundle for Causa-internal sentinel strings; any hit is a PR-failing regression. The elision holds whether you remember to remove the preload or not.

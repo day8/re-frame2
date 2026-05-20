@@ -301,7 +301,7 @@
 
 (defn collect-trace!
   "Append a trace event to Causa's ring buffer. Registered with
-  `(rf/register-trace-listener! :rf.causa/trace-collector ...)` at preload
+  `(rf/register-listener! :rf.causa/trace-collector ...)` at preload
   time. Production builds elide the call (the framework's trace
   emission is gated on `interop/debug-enabled?` and never invokes the
   callback).
