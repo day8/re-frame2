@@ -57,7 +57,8 @@
   reg-fx replacement."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
-            [re-frame.core :as rf]))
+            [re-frame.core :as rf]
+            [day8.re-frame2-causa.export.cascade :as export-cascade]))
 
 ;; ---- encode / decode ----------------------------------------------------
 
@@ -273,7 +274,56 @@
   ;; copy button's label off this slot ("Copy" → "Copied!" → reset).
   (rf/reg-sub :rf.causa/share-copy-status
     (fn [db _query]
-      (get db :share/copy-status :idle))))
+      (get db :share/copy-status :idle)))
+
+  ;; ---- per-cascade structured export (rf2-0us27) -----------------------
+  ;;
+  ;; The export is a pure projection of the currently-focused cascade
+  ;; into a JVM-serialisable EDN map (`day8.re-frame2-causa.export.
+  ;; cascade/project-cascade`). It rides the same modal as the share-
+  ;; URL because conceptually both are "share a snapshot of my Causa
+  ;; context"; the modal renders the URL + an export button row.
+  ;;
+  ;; The composite picks the focused cascade by `:dispatch-id` /
+  ;; `:frame` off the spine (`:rf.causa/focus`), pairs it with the
+  ;; matching epoch record from `:rf.causa/epoch-history`, and feeds
+  ;; both into the pure projection. Pre-focus / empty-buffer returns
+  ;; nil; the modal toggles its export buttons off in that state.
+  (rf/reg-sub :rf.causa/cascade-export
+    :<- [:rf.causa/event-detail]
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/focus]
+    (fn [[event-detail history focus] _query]
+      (let [{:keys [selected-cascade selected-dispatch-id]} event-detail
+            epoch-id (:epoch-id focus)
+            epoch    (when epoch-id
+                       (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
+                             history))]
+        (when (and selected-cascade selected-dispatch-id)
+          (export-cascade/project-cascade
+            selected-cascade
+            {:epoch epoch})))))
+
+  ;; The EDN string the modal exposes — pre-rendered so the modal can
+  ;; show a preview / size hint live. nil when no cascade is focused.
+  (rf/reg-sub :rf.causa/cascade-export-edn
+    :<- [:rf.causa/cascade-export]
+    (fn [export _query]
+      (when export
+        (export-cascade/to-edn-string export))))
+
+  ;; Convenience: is there anything to export right now? Drives the
+  ;; export-button's `:disabled` slot in the modal.
+  (rf/reg-sub :rf.causa/cascade-export-available?
+    :<- [:rf.causa/cascade-export]
+    (fn [export _query]
+      (boolean export)))
+
+  ;; Export-action status — `:idle | :copied | :downloaded | :failed`.
+  ;; Mirrors `:share-copy-status` but for the cascade-export buttons.
+  (rf/reg-sub :rf.causa/cascade-export-status
+    (fn [db _query]
+      (get db :share/cascade-export-status :idle))))
 
 ;; ---- effects ------------------------------------------------------------
 
@@ -291,10 +341,31 @@
   (when (and js/navigator (.-clipboard js/navigator))
     (.writeText (.-clipboard js/navigator) (str text))))
 
+(defn download-text-file!
+  "Browser-side text-file download via a Blob + transient <a> click.
+  CLJS-only. Tests `with-redefs` this to capture the (filename, text)
+  pair without touching the DOM. Returns true on a successful
+  best-effort dispatch, false otherwise."
+  [filename text]
+  (try
+    (when (and js/document js/window)
+      (let [blob (js/Blob. #js [(str text)] #js {:type "text/plain;charset=utf-8"})
+            url  (.createObjectURL (.-URL js/window) blob)
+            a    (.createElement js/document "a")]
+        (set! (.-href a) url)
+        (set! (.-download a) (str filename))
+        (.appendChild (.-body js/document) a)
+        (.click a)
+        (.removeChild (.-body js/document) a)
+        (.revokeObjectURL (.-URL js/window) url)
+        true))
+    (catch :default _ false)))
+
 (defn install-fxs!
   "Register the share-specific fxs. The clipboard fx itself reuses
   the shared `:rf.causa.fx/copy-to-clipboard` fx already registered
-  by app_db_diff_events.cljs; this install only adds the new-tab fx."
+  by app_db_diff_events.cljs; this install only adds the new-tab +
+  download fxs."
   []
   ;; Open a URL in a new browser tab. Wrapped as an fx so the test
   ;; rig can stub `:rf.causa.fx/open-in-new-tab` instead of touching
@@ -302,7 +373,14 @@
   (rf/reg-fx :rf.causa.fx/open-in-new-tab
     (fn [url]
       (when (and url js/window)
-        (.open js/window (str url) "_blank")))))
+        (.open js/window (str url) "_blank"))))
+
+  ;; Save a text payload to disk via a transient anchor + Blob URL.
+  ;; rf2-0us27 — used by the cascade-export download button.
+  ;; Wrapped as an fx so tests can stub the side-effect.
+  (rf/reg-fx :rf.causa.fx/download-text-file
+    (fn [{:keys [filename text]}]
+      (download-text-file! filename text))))
 
 ;; ---- events -------------------------------------------------------------
 
@@ -378,6 +456,81 @@
                       (some? position)    (assoc :position position)))
             url   (current-share-url state)]
         {:fx [[:rf.causa.fx/open-in-new-tab url]]})))
+
+  ;; ---- per-cascade structured export events (rf2-0us27) -------------
+  ;;
+  ;; Two surfaces against the same projection: copy the EDN to clipboard
+  ;; or download it as a file. Both fire-and-forget; the status slot
+  ;; flips on success / failure and resets to `:idle` after a short
+  ;; delay so the button label reverts.
+  (rf/reg-event-db :rf.causa/cascade-export-status
+    (fn [db [_ status]]
+      (assoc db :share/cascade-export-status (or status :idle))))
+
+  ;; rf2-0us27 — Copy the focused cascade's export EDN to clipboard.
+  ;; Reads the composite the same way share-url does: subscribe-at-fire
+  ;; rather than rely on the modal's in-flight render. Stashes the
+  ;; rendered EDN under `:share/last-cascade-export` for test inspection
+  ;; and flips `:share/cascade-export-status` to drive the button label.
+  (rf/reg-event-fx :rf.causa/copy-cascade-export-to-clipboard
+    (fn [{:keys [db]} _event]
+      (let [;; Build the export by reading the same sub the modal does.
+            ;; The sub is layer-2 over `:rf.causa/event-detail` /
+            ;; `:rf.causa/epoch-history` / `:rf.causa/focus` so the
+            ;; value is the same value the modal renders.
+            export @(rf/subscribe [:rf.causa/cascade-export])
+            edn    (when export (export-cascade/to-edn-string export))]
+        (if (not edn)
+          {:db (assoc db :share/cascade-export-status :failed)}
+          (let [p (copy-to-clipboard! edn)]
+            (when p
+              (.then p
+                     (fn [_]
+                       (rf/dispatch [:rf.causa/cascade-export-status :copied]
+                                    {:frame :rf/causa})
+                       (js/setTimeout
+                         (fn []
+                           (rf/dispatch [:rf.causa/cascade-export-status :idle]
+                                        {:frame :rf/causa}))
+                         1500))
+                     (fn [_]
+                       (rf/dispatch [:rf.causa/cascade-export-status :failed]
+                                    {:frame :rf/causa}))))
+            {:db (assoc db :share/last-cascade-export edn)})))))
+
+  ;; rf2-0us27 — Download the focused cascade's export EDN as a file.
+  ;; Routes through the `:rf.causa.fx/download-text-file` fx so tests
+  ;; can `with-redefs` the side effect away. Same status-slot wiring as
+  ;; the copy event so the button reverts to idle on resolve.
+  (rf/reg-event-fx :rf.causa/download-cascade-export
+    (fn [{:keys [db]} _event]
+      (let [export   @(rf/subscribe [:rf.causa/cascade-export])
+            edn      (when export (export-cascade/to-edn-string export))
+            ts       (try (.toISOString (js/Date.)) (catch :default _ nil))
+            filename (when export
+                       (export-cascade/suggested-filename
+                         {:dispatch-id (:dispatch-id export)
+                          :exported-at ts}))]
+        (if (or (not edn) (not filename))
+          {:db (assoc db :share/cascade-export-status :failed)}
+          (do
+            ;; Status flip rides setTimeouts (mirroring the copy-URL path)
+            ;; so the button reverts after the user has seen "Downloaded!".
+            (js/setTimeout
+              (fn []
+                (rf/dispatch [:rf.causa/cascade-export-status :downloaded]
+                             {:frame :rf/causa}))
+              0)
+            (js/setTimeout
+              (fn []
+                (rf/dispatch [:rf.causa/cascade-export-status :idle]
+                             {:frame :rf/causa}))
+              1500)
+            {:db (assoc db
+                        :share/last-cascade-export      edn
+                        :share/last-cascade-export-name filename)
+             :fx [[:rf.causa.fx/download-text-file
+                   {:filename filename :text edn}]]})))))
 
   ;; Restore Causa state from a decoded share-state map. Drives the
   ;; per-slot reducers so the same code-paths that handle interactive

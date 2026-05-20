@@ -168,6 +168,75 @@
                   :cursor "pointer"}}
    "Open in new tab"])
 
+;; ---- per-cascade structured export (rf2-0us27) -----------------------
+;;
+;; Two action buttons against the same projection — `:rf.causa/
+;; cascade-export`. Both short-circuit (rendered grey + disabled) when
+;; no cascade is focused. Status labels mirror the URL-copy buttons
+;; so the modal's affordances feel consistent.
+
+(defn- cascade-export-copy-button
+  [available? status]
+  (let [copied?     (= :copied status)
+        failed?     (= :failed status)
+        downloaded? (= :downloaded status)
+        label       (cond
+                      copied?     "Copied!"
+                      downloaded? "Downloaded!"
+                      failed?     "Export failed"
+                      :else       "Copy cascade EDN")
+        tone        (cond
+                      copied?     (:green tokens)
+                      downloaded? (:green tokens)
+                      failed?     (:red tokens)
+                      (not available?) (:bg-2 tokens)
+                      :else       (:accent-violet tokens))]
+    [:button
+     {:data-testid "rf-causa-share-modal-export-cascade-copy"
+      :data-status (name (or status :idle))
+      :disabled    (not available?)
+      :title       (if available?
+                     "Copy the focused cascade as a structured EDN document"
+                     "Focus a cascade in the L2 list to enable export")
+      :on-click    (fn [_]
+                     (when available?
+                       (rf/dispatch
+                         [:rf.causa/copy-cascade-export-to-clipboard]
+                         {:frame :rf/causa})))
+      :style       {:background tone
+                    :border "none"
+                    :color (if available? (:bg-0 tokens) (:text-tertiary tokens))
+                    :font-family sans-stack
+                    :font-size "12px"
+                    :font-weight 600
+                    :padding "8px 16px"
+                    :border-radius "4px"
+                    :cursor (if available? "pointer" "not-allowed")
+                    :min-width "160px"}}
+     label]))
+
+(defn- cascade-export-download-button
+  [available?]
+  [:button
+   {:data-testid "rf-causa-share-modal-export-cascade-download"
+    :disabled    (not available?)
+    :title       (if available?
+                   "Save the focused cascade EDN to disk"
+                   "Focus a cascade in the L2 list to enable export")
+    :on-click    (fn [_]
+                   (when available?
+                     (rf/dispatch [:rf.causa/download-cascade-export]
+                                  {:frame :rf/causa})))
+    :style       {:background "transparent"
+                  :border (str "1px solid " (:border-default tokens))
+                  :color (if available? (:text-primary tokens) (:text-tertiary tokens))
+                  :font-family sans-stack
+                  :font-size "12px"
+                  :padding "8px 14px"
+                  :border-radius "4px"
+                  :cursor (if available? "pointer" "not-allowed")}}
+   "Download .edn"])
+
 (defn- reset-button
   []
   [:button
@@ -231,9 +300,11 @@
 (defn share-dialog
   "The Share dialog body. Pure hiccup."
   []
-  (let [share-state @(rf/subscribe [:rf.causa/share-state])
-        share-url   @(rf/subscribe [:rf.causa/share-url])
-        copy-status @(rf/subscribe [:rf.causa/share-copy-status])]
+  (let [share-state    @(rf/subscribe [:rf.causa/share-state])
+        share-url      @(rf/subscribe [:rf.causa/share-url])
+        copy-status    @(rf/subscribe [:rf.causa/share-copy-status])
+        export-avail?  @(rf/subscribe [:rf.causa/cascade-export-available?])
+        export-status  @(rf/subscribe [:rf.causa/cascade-export-status])]
     [:div (merge
             ;; rf2-7389r — WAI-ARIA dialog contract + focus capture on
             ;; mount so keyboard users land inside the modal (audit
@@ -258,7 +329,25 @@
                     :flex-wrap "wrap"}}
       (copy-button copy-status)
       (open-in-new-tab-button)
-      (reset-button)]]))
+      (reset-button)]
+     ;; rf2-0us27 — per-cascade structured export row. Sits below the
+     ;; URL-share row because conceptually it's a separate share unit
+     ;; (a snapshot of the focused cascade vs the current Causa view).
+     [:div {:data-testid "rf-causa-share-modal-export-cascade-row"
+            :style {:display "flex"
+                    :align-items "center"
+                    :gap "8px"
+                    :flex-wrap "wrap"
+                    :margin-top "4px"
+                    :padding-top "10px"
+                    :border-top (str "1px solid " (:border-subtle tokens))}}
+      [:span {:style {:color (:text-tertiary tokens)
+                      :font-family mono-stack
+                      :font-size "11px"
+                      :margin-right "4px"}}
+       "Per-cascade export"]
+      (cascade-export-copy-button export-avail? export-status)
+      (cascade-export-download-button export-avail?)]]))
 
 (rf/reg-view Modal
   "The Share modal. Renders only when `:rf.causa/share-modal-open?`

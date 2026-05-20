@@ -335,3 +335,95 @@
         (is (< (:z-index style) 1000))
         (is (= "absolute"
                (:data-rf-causa-modal-positioning (second backdrop))))))))
+
+;; ---- per-cascade structured export (rf2-0us27) -------------------------
+;;
+;; The share/install! family also registers the cascade-export surface:
+;; a sub family that projects `:rf.causa/event-detail` →
+;; `day8.re-frame2-causa.export.cascade/project-cascade`, an event-fx
+;; for clipboard copy, and an event-fx + fx for file download.
+;;
+;; These tests prove the wiring exists and short-circuits cleanly when
+;; no cascade is focused. The pure projection itself has dedicated
+;; coverage in `export.cascade-cljs-test.cljc`.
+
+(deftest install-registers-cascade-export-handlers
+  (testing "register-causa-handlers! installs every rf2-0us27 cascade-
+            export handler"
+    (registry/register-causa-handlers!)
+    (is (some? (registrar/handler :sub :rf.causa/cascade-export)))
+    (is (some? (registrar/handler :sub :rf.causa/cascade-export-edn)))
+    (is (some? (registrar/handler :sub :rf.causa/cascade-export-available?)))
+    (is (some? (registrar/handler :sub :rf.causa/cascade-export-status)))
+    (is (some? (registrar/handler :event :rf.causa/cascade-export-status)))
+    (is (some? (registrar/handler :event :rf.causa/copy-cascade-export-to-clipboard)))
+    (is (some? (registrar/handler :event :rf.causa/download-cascade-export)))
+    (is (some? (registrar/handler :fx :rf.causa.fx/download-text-file)))))
+
+(deftest cascade-export-unavailable-when-no-cascade-focused
+  (setup-causa-frame!)
+  (rf/with-frame :rf/causa
+    (is (false? @(rf/subscribe [:rf.causa/cascade-export-available?]))
+        "with an empty trace buffer there is no cascade to export")
+    (is (nil? @(rf/subscribe [:rf.causa/cascade-export]))
+        "the projection is nil when no cascade is selected")
+    (is (nil? @(rf/subscribe [:rf.causa/cascade-export-edn]))
+        "the EDN string is nil when no cascade is selected")))
+
+(deftest copy-cascade-export-no-op-without-cascade
+  (testing "the copy event flips status to :failed (rather than
+            throwing) when no cascade is focused"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (let [captured (atom :unset)]
+        (with-redefs [share/copy-to-clipboard! (fn [t] (reset! captured t) nil)]
+          (rf/dispatch-sync [:rf.causa/copy-cascade-export-to-clipboard]))
+        (is (= :unset @captured)
+            "no clipboard call when nothing to export")
+        (is (= :failed @(rf/subscribe [:rf.causa/cascade-export-status]))
+            "status flips to :failed so the modal can show the user")))))
+
+(deftest download-cascade-export-no-op-without-cascade
+  (testing "the download event flips status to :failed without
+            firing the file-save fx"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (let [captured (atom :unset)]
+        (with-redefs [share/download-text-file! (fn [_ _] (reset! captured :fired))]
+          (rf/dispatch-sync [:rf.causa/download-cascade-export]))
+        (is (= :unset @captured)
+            "the download fx does not fire when nothing to export")
+        (is (= :failed @(rf/subscribe [:rf.causa/cascade-export-status])))))))
+
+(deftest cascade-export-status-transitions
+  (setup-causa-frame!)
+  (rf/with-frame :rf/causa
+    (is (= :idle @(rf/subscribe [:rf.causa/cascade-export-status]))
+        "default status is :idle")
+    (rf/dispatch-sync [:rf.causa/cascade-export-status :copied])
+    (is (= :copied @(rf/subscribe [:rf.causa/cascade-export-status])))
+    (rf/dispatch-sync [:rf.causa/cascade-export-status :downloaded])
+    (is (= :downloaded @(rf/subscribe [:rf.causa/cascade-export-status])))
+    (rf/dispatch-sync [:rf.causa/cascade-export-status :idle])
+    (is (= :idle @(rf/subscribe [:rf.causa/cascade-export-status])))))
+
+(deftest cascade-export-row-renders-in-share-modal
+  (testing "the modal body renders the per-cascade export row"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/share-modal-open]))
+    (rf/with-frame :rf/causa
+      (let [tree (share-modal/Modal)
+            row  (find-by-testid tree "rf-causa-share-modal-export-cascade-row")
+            copy (find-by-testid tree "rf-causa-share-modal-export-cascade-copy")
+            dl   (find-by-testid tree "rf-causa-share-modal-export-cascade-download")]
+        (is (some? row)
+            "export row mounts inside the share dialog")
+        (is (some? copy)
+            "the cascade-copy button is in the tree")
+        (is (some? dl)
+            "the cascade-download button is in the tree")
+        (is (true? (:disabled (second copy)))
+            "the copy button is disabled when no cascade is available")
+        (is (true? (:disabled (second dl)))
+            "the download button is disabled when no cascade is available")))))

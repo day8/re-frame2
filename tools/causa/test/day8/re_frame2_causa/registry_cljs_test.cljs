@@ -324,6 +324,12 @@
    :rf.causa/share-modal-open?
    :rf.causa/share-state
    :rf.causa/share-url
+   ;; rf2-0us27 — Per-cascade structured export subs. Co-located with
+   ;; the share/* family — same modal, same install! call.
+   :rf.causa/cascade-export
+   :rf.causa/cascade-export-available?
+   :rf.causa/cascade-export-edn
+   :rf.causa/cascade-export-status
    :rf.causa/suppressed-sensitive-count
    :rf.causa/target-frame
    :rf.causa/target-frame-db
@@ -581,6 +587,11 @@
    :rf.causa/share-copy-status
    :rf.causa/share-modal-close
    :rf.causa/share-modal-open
+   ;; rf2-0us27 — Per-cascade structured export events. Lives under
+   ;; the share/* family because it rides the same modal as URL share.
+   :rf.causa/cascade-export-status
+   :rf.causa/copy-cascade-export-to-clipboard
+   :rf.causa/download-cascade-export
    ;; rf2-r4nao — Static Machines Sim sub-mode events (rehost from
    ;; rf2-v869p Phase 2; ns moved from :rf.causa/sim-* to
    ;; :rf.causa.static.machines/sim-*).
@@ -615,6 +626,8 @@
    :rf.causa.fx/copy-to-clipboard
    ;; rf2-nqw0v Phase 5 — Share affordance: new-tab open fx.
    :rf.causa.fx/open-in-new-tab
+   ;; rf2-0us27 — Per-cascade structured export: text-file download fx.
+   :rf.causa.fx/download-text-file
    ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
    ;; filter-specific prefix because the localStorage write is bound
    ;; to the filter-mutating events (add-filter / remove-filter /
