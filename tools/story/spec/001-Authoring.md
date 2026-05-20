@@ -160,7 +160,9 @@ Body:
 ```clojure
 {:doc       "..."
  :layout    :grid | :prose | :variants-grid | :tabs | :custom
- :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs
+ :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs (explicit list)
+ :for       <story-id>                            ; for :variants-grid only — auto-enumerate
+ :columns   <integer>                             ; for :grid / :variants-grid — column count
  :content   [{:type :prose :body "md..."} ...]    ; for :prose
  :render    <view-id>                              ; for :custom (a registered view)
  :modes     #{<mode-id> ...}                       ; future-reserved — see below
@@ -171,6 +173,41 @@ The `:variants-grid` layout (per Phase 2 SOTA refinement) renders
 every variant of a single parent story side-by-side; it differs from
 `:grid` (which renders an explicit `:variants` list) by enumerating
 variants from the registry.
+
+#### `:variants-grid` — explicit `:variants` vs auto-enumerated `:for` (rf2-pgccv)
+
+`:variants-grid` accepts the variant set via **one** of two slots —
+they are alternatives, not co-equals. Declaring both raises
+`:rf.error/workspace-shape` at registration.
+
+| Slot | Shape | Behaviour |
+|---|---|---|
+| `:variants` | `[<variant-id> ...]` (explicit vector) | Renders exactly the listed variants in declared order. Use when you want a curated subset, or to interleave variants from sibling stories. |
+| `:for` | `<story-id>` (single keyword) | Auto-enumerates every registered variant of the named parent story, in registration order. Use when you want "all variants of this story, no maintenance." New variants added to the story appear automatically without touching the workspace body. |
+
+Equivalent to the Storybook 8 contrast between an explicit `subcomponents`
+list and an auto-enumerated `*` glob — Story names the two paths
+explicitly so the authoring intent is in the body.
+
+```clojure
+;; Explicit list — cherry-pick three of the counter's eight variants:
+(story/reg-workspace :Workspace.counter/curated
+  {:layout   :variants-grid
+   :variants [:story.counter/empty
+              :story.counter/at-five
+              :story.counter/overflow]
+   :columns  3})
+
+;; Auto-enumerate — every variant of :story.counter, in registration order:
+(story/reg-workspace :Workspace.counter/auto-grid
+  {:layout  :variants-grid
+   :for     :story.counter
+   :columns 2})
+```
+
+Other layouts (`:grid`, `:tabs`) take `:variants` only — they have no
+single parent-story to enumerate against. `:prose` and `:custom`
+ignore both slots.
 
 #### Workspace `:modes` slot — future-reserved (v1) (rf2-q5e36)
 
@@ -291,6 +328,48 @@ unmount and §Loader teardown contract) is the better surface — the
 actor's `:exit` action captures the cleanup, and the state-machine
 runtime owns the destroy walk. `:teardown` on `:frame-setup` is the
 lightweight option for resources that need exactly one cancel event.
+
+#### Composition order — the `:fx-override` asymmetry (rf2-a6l59)
+
+A variant's effective decorator stack is the **story-level**
+decorators followed by the **variant-level** decorators (declared
+order in both cases). The three decorator kinds compose differently
+under that stack, and the asymmetry is deliberate but easy to trip
+on if you arrive expecting a single rule:
+
+| Kind | Composition rule | Intuition |
+|---|---|---|
+| `:hiccup` | **Outermost wraps innermost.** Story decorators are outer; variant decorators are inner. Walked LIFO so the *last* decorator declared on the variant ends up *closest* to the rendered view. | "Wrap" is geometric — story-level theme provider sits outside the variant-level layout-debug overlay. |
+| `:frame-setup` | **Declared order** (story decorators then variant decorators). Each runs its `:init` events / `:app-db-patch` against the variant's frame in turn; later writes overlay earlier ones at the same path. | First in, last write. Variant-level setup overrides story-level setup at the path level. |
+| `:fx-override` | **Declared order, but collisions on `:fx-id` resolve LAST-WINS.** Story decorators register first; variant decorators register second; if both target the same `:fx-id` the variant-level override wins. | The innermost decorator is closest to the variant's intent and should override outer stubs. |
+
+The asymmetry: `:hiccup` reads as **"outermost wraps innermost"**
+(story first, geometrically outside), while `:fx-override` reads as
+**"innermost overrides outermost"** (variant last, semantically wins).
+A reader who internalises the wrapping rule for `:hiccup` will be
+briefly surprised by `:fx-override`'s inversion. Both rules are the
+right call for their kind — wrapping nests, overrides last-write —
+but the inversion is worth naming because the same author can hit
+both in the same variant body.
+
+```clojure
+;; Story-level :fx-override registered first (the "base mock");
+;; variant-level :fx-override registered second wins on collision.
+(story/reg-story :story.checkout/flow
+  {:decorators [[:force-fx-stub :http/managed
+                 {:response {:status 200 :body {:items []}}}]]})
+
+(story/reg-variant :story.checkout/flow/server-error
+  {:decorators [[:force-fx-stub :http/managed                       ;; SAME :fx-id
+                 {:response {:status 500 :body :rf.http/failed}}]]})
+;;                                                  ^^^^^^^^^^^^
+;;                                                  variant-level wins
+```
+
+For collisions on `:hiccup` decorator ids the registry is keyed by
+id, so two decorators with the same id raise `:rf.error/decorator-id-collision`
+at registration — id collisions are an authoring bug, not a
+composition rule.
 
 ### `(reg-story-panel id metadata)`
 
@@ -418,6 +497,162 @@ variant). Each `(variant × mode)` cell has an independent
 `snapshot-identity` — see [`002-Runtime.md`](002-Runtime.md) §Snapshot
 identity.
 
+## Controls — schema-derived, zero-`:argtypes` (rf2-b87h2)
+
+The controls panel is **auto-derived** from the view's registered
+Malli schema. The schema-on-the-view IS the source of truth — the
+authoring story is "register your view with a schema; controls
+appear." Author-supplied `:argtypes` exists for the edge cases where
+the schema doesn't say enough; in most stories it is empty.
+
+This is the largest authoring win Story carries over Storybook: where
+Storybook authors write per-story `argTypes: { size: { control: {
+type: 'range', min: 0, max: 100 } } }`, Story authors write
+`[:int {:min 0 :max 100}]` once on the view and **all** stories of
+that view get the slider for free.
+
+### The mapping
+
+| Schema fragment | Auto-derived control | Notes |
+|---|---|---|
+| `:string` | text input | |
+| `:int` (optional `[:int {:min :max}]`) | number input or slider | Slider when both `:min` and `:max` are bounded. |
+| `:double` (optional `[:double {:min :max}]`) | number input or slider | As above. |
+| `:boolean` | toggle | |
+| `:keyword` | text input | Keyword-coercion at edit time. |
+| `[:enum a b c]` | select | Options are the enum members in declared order. |
+| `[:map [k1 s1] [k2 s2] ...]` | labelled group of nested rows | One row per key, recursive on each `s_i`. |
+| `[:vector X]` | repeater (rows + `[+]` / `[-]`) | Adds seed a default from `X` (text → "", number → 0, etc.). |
+| `[:set X]` | repeater (deduplicated) | As above; round-trips through `set`. |
+| `[:tuple X Y ...]` | fixed-arity row (no `[+]` / `[-]`) | One row per declared position. |
+
+The full collection-recursion contract — including how editing
+position `i` writes through to `[:cell-overrides variant-id arg-key i]`
+— lives in [§Schema-derivation pipeline](#schema-derivation-pipeline)
+below. That section is the technical reference; this one is what a
+new author needs to know to write their first controlled variant.
+
+### Worked example
+
+```clojure
+;; Author writes one schema on the view:
+(rf/reg-view :app.ui/button
+  [:map
+   [:label    :string]
+   [:variant  [:enum :primary :secondary :danger]]
+   [:size     [:int {:min 8 :max 64}]]
+   [:disabled? :boolean]]
+  (fn [args] [:button.btn {:class (str "btn-" (name (:variant args)))} (:label args)]))
+
+;; Every story of the view gets controls for free — no :argtypes:
+(story/reg-story :story.ui.button
+  {:doc       "Primary action button."
+   :component :app.ui/button
+   :args      {:label "Click me" :variant :primary :size 16 :disabled? false}})
+```
+
+The reader's controls panel shows:
+
+- `:label` → text input
+- `:variant` → select `[:primary :secondary :danger]`
+- `:size` → slider 8–64 (because both bounds are present)
+- `:disabled?` → toggle
+
+No `:argtypes` was written. Author-supplied `:argtypes` overrides the
+auto-derivation key-by-key when needed (e.g. force a free-form text
+input for a keyword-typed arg).
+
+### When to write `:argtypes` (the edge cases)
+
+`:argtypes` is for the cases the schema can't say enough:
+
+- The view has no registered schema (legacy code).
+- The author wants a different widget than the auto-derivation picks
+  (e.g. a stepper instead of a slider for a bounded `:int`).
+- The arg is computed from multiple schema fields and needs a custom
+  label / grouping.
+
+In all other cases, push the constraint up to the view's schema and
+let Story derive the control. The schema is the single source of
+truth; `:argtypes` is the override channel.
+
+See [§Schema-derivation pipeline](#schema-derivation-pipeline) for
+the full walker + override contract.
+
+## Stateful variants — every variant IS a frame (rf2-wqdq1)
+
+Stateful stories — "this variant shows the counter at 5" or "this
+variant shows the form mid-submission" — are the canonical case
+Storybook handles with `useArgs()` / `useState` inside a render fn,
+hitting the well-known hooks-inside-stories re-render limitation.
+Story's answer is structurally different: **every variant is mounted
+in its own isolated re-frame frame**, so there is no shared mutable
+state between variants and no hooks-inside-stories problem.
+
+This means "stateful variants" in Story is not a separate authoring
+mode — it's the default. You drive state with `:events` (setup) and
+`:play` (post-render), and you read it with subs (the canvas renders
+against the variant's frame) or assertions (which read through
+`:rf.assert/sub-equals` etc.).
+
+### The contract
+
+- **Per-variant frame allocation.** Every `(variant × mode × cell)`
+  triple is mounted in a unique frame; subs / events / fx within that
+  cell run against that frame's `app-db`. See
+  [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation.
+- **No cross-cell bleed.** Two cells of the same variant in a
+  `:variants-grid` workspace each get their own frame. Incrementing
+  the counter in cell A does not affect cell B.
+- **No render fn, no hooks limitation.** The view is a registered
+  `reg-view`; the variant body is pure data. There is no place to
+  call a hook and no place for a hook to break.
+
+### Worked example — counter at three different states
+
+```clojure
+(rf/reg-view :app.ui/counter
+  (fn [_]
+    (let [n @(rf/subscribe [:counter/value])]
+      [:div
+       [:button {:on-click #(rf/dispatch [:counter/decrement])} "−"]
+       [:span.value n]
+       [:button {:on-click #(rf/dispatch [:counter/increment])} "+"]])))
+
+(story/reg-story :story.counter
+  {:component :app.ui/counter
+   :variants {:empty    {:events [[:counter/initialise]]}
+              :at-five  {:events [[:counter/initialise]
+                                  [:counter/set 5]]}
+              :driven   {:events [[:counter/initialise]]
+                         :play   [[:counter/increment]
+                                  [:counter/increment]
+                                  [:counter/increment]
+                                  [:rf.assert/sub-equals [:counter/value] 3]]}}})
+```
+
+Three variants, three independent app-dbs. Mount the
+`:Workspace.counter/auto-grid` workspace and all three render
+side-by-side, each cell starting fresh.
+
+### Storybook contrast
+
+| Storybook pattern | Story counterpart |
+|---|---|
+| `render: (args) => { const [a, setA] = useArgs(); ... }` | `:play` body dispatching events into the variant's frame |
+| `useState(...)` inside the render fn | The view's subs read from the per-variant frame's `app-db` |
+| Hooks-inside-stories re-render gotcha | None — there is no render fn |
+| One global app instance, decorator-wrapped per story | Per-variant frame; no global shared state |
+
+The structural win: **two cells of the same variant in a grid are
+independent by construction**, with no opt-in needed. The cost: the
+mental model is "frames, not hooks" — if you arrive from Storybook
+expecting a render fn, the first chapter to read is this one.
+
+See [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation
+for the runtime contract, and the worked example in
+[§Play + assertions](#play--assertions) below for a full play body.
+
 ## Authoring grammar — worked examples
 
 Worked examples illustrating every aspect of the authoring grammar.
@@ -474,6 +709,9 @@ Story tool emits controls automatically:
 - `:disabled?` → `:boolean`
 
 Author writes zero `:argtypes` unless overriding the auto-derivation.
+See [§Controls — schema-derived, zero-`:argtypes`](#controls--schema-derived-zero-argtypes-rf2-b87h2)
+for the full schema → control mapping table and override-channel
+discussion.
 
 ### Decorators and `:args->events`
 
