@@ -35,7 +35,7 @@
 ;; mock-socket entries are still in the table and
 ;; `send-server-push!` ends up delivering N copies of every push.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter
      :init-fn (fn []
                 (websocket.core/register-all!)

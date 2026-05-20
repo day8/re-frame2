@@ -51,7 +51,7 @@
   (config/reset-settings!))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 

@@ -54,7 +54,7 @@
   (runtime/reset-for-test!))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn runtime-init!}))
 
@@ -178,7 +178,7 @@
 (deftest get-app-db-no-frame-resolved
   (testing "with no frames registered, `get-app-db` surfaces a
             structured `:no-frame-resolved` refusal rather than crashing"
-    ;; The fixture's reset-runtime-fixture-factory leaves :rf/default in place;
+    ;; The fixture's make-reset-runtime-fixture leaves :rf/default in place;
     ;; force ambiguity by destroying it.
     (frame/destroy-frame! :rf/default)
     (let [result (runtime/get-app-db)]

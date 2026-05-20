@@ -34,7 +34,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter
      :init-fn (fn []
                 ;; Per rf2-bacs4: clear the listener registry between
@@ -52,7 +52,7 @@
             integrations still observe the failure."
     (let [seen (atom [])]
       ;; Re-register :rf/default with an :on-error policy. The fixture
-      ;; reset-runtime-fixture-factory installs :rf/default with no policy; we
+      ;; make-reset-runtime-fixture installs :rf/default with no policy; we
       ;; re-register to attach one. Per Spec 002 §Re-registration —
       ;; surgical update, the existing app-db / sub-cache survive.
       (rf/reg-frame :rf/default

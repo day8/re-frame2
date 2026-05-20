@@ -49,7 +49,7 @@
             [re-frame.epoch :as epoch]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- settle! commits no record under prod --------------------------------

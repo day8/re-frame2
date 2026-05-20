@@ -16,7 +16,7 @@
   (some? (th/find-by-testid tree testid)))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest reactive-panel-mounts-with-root-testid
   (testing "rf2-wyvf2 — the panel root surfaces `rf-causa-reactive`

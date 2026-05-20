@@ -30,7 +30,7 @@
             [realworld.core-test :as core-t]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 ;; Each fixture is a plain `defn` (preserves original signature; the

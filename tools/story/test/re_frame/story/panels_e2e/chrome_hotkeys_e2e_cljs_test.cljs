@@ -41,7 +41,7 @@
             [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; The `dispatch!` fn is private — bind through the var so the test
 ;; reaches the same dispatcher the `keydown` capture listener routes to.

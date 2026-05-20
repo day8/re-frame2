@@ -251,7 +251,7 @@
 
   Test fixtures and REPL-driven reloads call this between scenarios
   to ensure the cache is empty before re-subscribing. Test code
-  generally prefers `reset-runtime-fixture-factory` (per `test_support`) which
+  generally prefers `make-reset-runtime-fixture` (per `test_support`) which
   bundles cache-clearing with registrar / frame state reset.
 
   Zero-arity targets `:rf/default`; one-arity targets the named frame.

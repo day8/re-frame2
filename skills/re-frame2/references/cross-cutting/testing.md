@@ -19,17 +19,17 @@ Everything you need — fixtures, helpers — lives under `re-frame.test-support
 
 ```clojure
 (use-fixtures :each
-  (ts/reset-runtime-fixture-factory {:adapter reagent-adapter/adapter}))
+  (ts/make-reset-runtime-fixture {:adapter reagent-adapter/adapter}))
 ```
 
-`reset-runtime-fixture-factory` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event-db` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
+`make-reset-runtime-fixture` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event-db` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
 
 JVM tests pass the plain-atom adapter:
 
 ```clojure
 (:require [re-frame.substrate.plain-atom :as plain-atom])
 
-(use-fixtures :each (ts/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
 
 Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (e.g. `[:app-schema]` to start each test with an empty schema slate while preserving the snapshot on exit).
@@ -72,7 +72,7 @@ Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opt
 ```clojure
 (rf/with-frame :stories
   (rf/dispatch-sync [:counter/inc])
-  (ts/assert-state [:n] 1))
+  (ts/assert-path-equals [:n] 1))
 
 (rf/with-frame [f :stories]      ;; bind a symbol AND the dynamic var
   (is (= :stories f))
@@ -81,17 +81,20 @@ Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opt
 
 On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as rf])`, or `:require-macros [re-frame.core :refer [with-frame]]`. On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.
 
-## Asserting state: `assert-state` and `get-frame-db`
+## Asserting state: `assert-path-equals` / `assert-db-equals` and `get-frame-db`
 
-Two shapes:
+Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story event-family (rf2-8j9m6):
 
 ```clojure
-(ts/assert-state {:n 0})           ;; full-db match against current frame
-(ts/assert-state [:n] 7)           ;; path match — equivalent to (= 7 (get-in db [:n]))
-(ts/assert-state [:n] 7 {:frame :stories})   ;; trailing opts pins the frame
+(ts/assert-db-equals   {:n 0})                          ;; full-db match against current frame
+(ts/assert-path-equals [:n] 7)                          ;; path match — equivalent to (= 7 (get-in db [:n]))
+(ts/assert-path-equals [:n] 7 {:frame :stories})        ;; trailing opts pins the frame
+(ts/assert-db-equals   {:n 0} {:frame :stories})        ;; same for the full-db form
 ```
 
-Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an `assert-state`:
+`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:play` blocks; the shared name root is deliberate so a reader navigating between the two surfaces does not need a translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
+
+Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an assertion:
 
 ```clojure
 (rf/get-frame-db :rf/default)              ;; whole app-db, any frame
@@ -161,7 +164,7 @@ For `:rf.http/managed`, install per-call stubs around the body:
   {[:get "/api/items"] {:reply :ok :body {:items [...]}}
    [:post "/api/cart"] {:reply :failure :status 500}}
   (rf/dispatch-sync [:cart/fetch])
-  (ts/assert-state [:cart :status] :ready))
+  (ts/assert-path-equals [:cart :status] :ready))
 ```
 
 For arbitrary fx, override the registered handler from inside the test — the fixture rolls the registration back on the way out:
@@ -200,7 +203,7 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 ## Checklist before declaring a test done
 
 - The ns uses `re-frame.test-support` and `re-frame.core` only — no reach into internal namespaces.
-- A `:each` `reset-runtime-fixture-factory` is installed with the right `:adapter`.
+- A `:each` `make-reset-runtime-fixture` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `sub-machine` / `machine-has-tag?` or `(get-in db [:rf/machines id])` — not internal machine namespaces.

@@ -17,7 +17,7 @@ Specific files the leaves lean on:
 - `implementation/core/src/re_frame/fx.cljc` — `do-fx`, `:fx-overrides` resolution (id-redirect + fn-value branches), per-call vs per-frame merge.
 - `implementation/core/src/re_frame/events.cljc` + `router.cljc` — event-state cycle, effect-shape policing.
 - `implementation/core/src/re_frame/subs.cljc` — sub graph, layered subs, dynamic args.
-- `implementation/core/src/re_frame/test_support.cljc` — `reset-runtime-fixture-factory`, `dispatch-sequence`, `assert-state`, `compute-sub`, `subscribe-once`.
+- `implementation/core/src/re_frame/test_support.cljc` — `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals` / `assert-db-equals`, `compute-sub`, `subscribe-once`.
 - `implementation/core/src/re_frame/substrate/plain_atom.cljc` — JVM-side adapter.
 - `implementation/reagent/src/re_frame/adapter/reagent.cljs` — `frame-provider`, plain-Reagent-fn warning.
 - `implementation/machines/src/re_frame/machines.cljc` — `reg-machine`, `:spawn`, parallel regions, tags.
@@ -45,7 +45,7 @@ Used for *why*, not *what*. The leaves cite EPs by name for design rationale (fr
 - `spec/001-Registration.md` — registry kind taxonomy; reserved-namespace rule (cardinal rule L6 / L7).
 - `spec/002-Frames.md` — `:fx-overrides` value shapes, frame-resolution chain, preset expansion.
 - `spec/005-StateMachines.md` — `:spawn`, parallel regions, tags, cancellation cascade.
-- `spec/008-Testing.md` — the `reset-runtime-fixture-factory` contract, test-frame conventions.
+- `spec/008-Testing.md` — the `make-reset-runtime-fixture` contract, test-frame conventions.
 - `spec/009-Instrumentation.md` — `:rf/op` vocabulary, `:rf.error/*` shape, error-handler policy.
 - `spec/010-Schemas.md` — `reg-app-schema`, boundary validation, Malli integration.
 - `spec/014-HTTPRequests.md` — `:rf.http/managed`, failure categories, async cascade.

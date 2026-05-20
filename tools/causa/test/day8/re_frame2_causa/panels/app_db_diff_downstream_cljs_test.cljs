@@ -28,7 +28,7 @@
              :as app-db-subs]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn (fn []
                 (reset! app-db-subs/diff-cache {})

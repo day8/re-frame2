@@ -56,17 +56,22 @@
   - [[snapshot-registrar]] — capture the current registrar state.
   - [[restore-registrar!]] — restore the registrar to a captured snapshot.
   - [[with-fresh-registrar]] — bracket a thunk with snapshot + restore.
-  - [[reset-runtime-fixture-factory]] — `clojure.test`/`cljs.test` `:each`
+  - [[make-reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
     per-process state held by frames / flows (when the flows artefact
     is loaded, rf2-tfw3) / adapter / machine counters / trace
     listeners.
 
-  ### Test-flavoured helpers (rf2-0l3s / rf2-hkr5)
+  ### Test-flavoured helpers (rf2-0l3s / rf2-hkr5 / rf2-8j9m6)
   - [[dispatch-sequence]] — fire a vector of events synchronously,
     optionally observing intermediate state via `:after-each`.
-  - [[assert-state]] — assert against the current frame's app-db (full
-    db or `path` form); failure is reported via `clojure.test/is`.
+  - [[assert-path-equals]] — assert `(= expected (get-in app-db path))`
+    against the resolved frame; failure reports via `clojure.test/is`.
+    Mirrors the `:rf.assert/path-equals` event (Story `:play` blocks);
+    same name root so a reader who knows one surface navigates the other.
+  - [[assert-db-equals]] — assert `(= expected-db app-db)` against the
+    resolved frame; failure reports via `clojure.test/is`. Companion
+    full-db form (no event analog).
 
   ### Deterministic-wait helpers (rf2-ka3n6 / rf2-fun38)
   - [[poll-until]] — bounded-deadline poll for `(pred)` to return
@@ -159,7 +164,7 @@
 ;; ---- full per-test runtime reset ------------------------------------------
 
 (def ^:private reset-hook-table
-  "Late-bind hook keys fired by `reset-runtime-fixture-factory` to drop per-process
+  "Late-bind hook keys fired by `make-reset-runtime-fixture` to drop per-process
   test state — one row per optional artefact. Each entry pairs the hook key
   with a `:phase` (when it fires relative to `adapter/dispose-adapter!`) and
   the design bead that introduced the artefact. The driver
@@ -232,7 +237,7 @@
             (f)))
         (filter #(= phase (:phase %)) reset-hook-table)))
 
-(defn reset-runtime-fixture-factory
+(defn make-reset-runtime-fixture
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
   per-process re-frame runtime around each test.
 
@@ -283,7 +288,7 @@
   Example (CLJS):
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture-factory
+        (test-support/make-reset-runtime-fixture
           {:adapter reagent-adapter/adapter}))
 
   Example with example-app collision avoidance — schemas tests want a
@@ -291,16 +296,16 @@
   registrations:
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture-factory
+        (test-support/make-reset-runtime-fixture
           {:adapter     reagent-adapter/adapter
            :clear-kinds [:app-schema]}))
 
   Example (JVM, default plain-atom adapter):
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture-factory
+        (test-support/make-reset-runtime-fixture
           {:adapter plain-atom/adapter}))"
-  ([] (reset-runtime-fixture-factory {}))
+  ([] (make-reset-runtime-fixture {}))
   ([{:keys [adapter init-fn clear-kinds]}]
    (fn [test-fn]
      ;; Late-bind: when the schemas artefact is loaded, snap and restore
@@ -352,7 +357,7 @@
 ;; Per Spec 008 §Built-in test-runner namespace, both live under
 ;; re-frame.test-support so users `(:require [re-frame.test-support :as t])`
 ;; once and reach the full testing surface — including dispatch-sequence
-;; and assert-state — without an additional require.
+;; and the assert-*-equals fn-family — without an additional require.
 
 (defn- resolve-frame
   "Frame-resolution chain shared by the helpers below:
@@ -408,23 +413,15 @@
          (after-each (frame/frame-app-db-value frame-id) ev)))
      (frame/frame-app-db-value frame-id))))
 
-(defn assert-state
-  "Assert against the resolved frame's `app-db`. Mismatch is reported
-  via `clojure.test/is` — the failure carries the actual value so the
-  diagnostic is one line.
+(defn assert-path-equals
+  "Assert `(= expected-val (get-in app-db path))` against the resolved
+  frame's `app-db`. Mismatch is reported via `clojure.test/is` — the
+  failure carries the actual value so the diagnostic is one line.
 
-  Two call shapes:
+  Call shapes:
 
-    (assert-state expected-db)
-    ;; full-db form: (= expected-db (frame-app-db-value frame))
-
-    (assert-state path expected-val)
-    ;; path form:    (= expected-val (get-in (frame-app-db-value frame) path))
-
-  Both shapes accept a trailing options map:
-
-    (assert-state expected-db {:frame :test/foo})
-    (assert-state path expected-val {:frame :test/foo})
+    (assert-path-equals path expected-val)
+    (assert-path-equals path expected-val {:frame :test/foo})
 
   Frame-resolution chain matches `dispatch-sequence`: `:frame` opt →
   `(current-frame)` → `:rf/default`.
@@ -433,31 +430,15 @@
   `clojure.test` failure has already been reported in either case, so
   callers rarely care about the boolean.
 
-  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s decision."
-  ([expected-db]
-   (assert-state expected-db nil))
-  ([path-or-expected expected-or-opts]
-   ;; Disambiguate by shape of the second arg:
-   ;; - if path-or-expected is a vector (path), the second arg is the
-   ;;   expected value;
-   ;; - otherwise the second arg, if a map, is opts (full-db form).
-   (cond
-     (and (vector? path-or-expected)
-          (not (map? expected-or-opts)))
-     (assert-state path-or-expected expected-or-opts nil)
+  Mirrors the `:rf.assert/path-equals` event used inside Story `:play`
+  blocks (per Spec 007 §Play functions). The fn-side and the event-side
+  share the same name root so a reader navigating between the two
+  surfaces does not need a translation table.
 
-     :else
-     (let [opts        (or expected-or-opts {})
-           frame-id    (resolve-frame opts)
-           actual      (frame/frame-app-db-value frame-id)
-           expected-db path-or-expected
-           pass?       (= expected-db actual)]
-       (ctest/do-report
-         {:type     (if pass? :pass :fail)
-          :message  (str "assert-state full-db mismatch on frame " frame-id)
-          :expected expected-db
-          :actual   actual})
-       pass?)))
+  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s / rf2-8j9m6
+  decisions."
+  ([path expected-val]
+   (assert-path-equals path expected-val nil))
   ([path expected-val opts]
    (let [opts     (or opts {})
          frame-id (resolve-frame opts)
@@ -465,9 +446,46 @@
          pass?    (= expected-val actual)]
      (ctest/do-report
        {:type     (if pass? :pass :fail)
-        :message  (str "assert-state mismatch at path " (pr-str path)
+        :message  (str "assert-path-equals mismatch at path " (pr-str path)
                        " on frame " frame-id)
         :expected expected-val
+        :actual   actual})
+     pass?)))
+
+(defn assert-db-equals
+  "Assert `(= expected-db (frame-app-db-value frame))` against the
+  resolved frame's `app-db`. Mismatch is reported via `clojure.test/is`
+  — the failure carries the actual value so the diagnostic is one line.
+
+  Call shapes:
+
+    (assert-db-equals expected-db)
+    (assert-db-equals expected-db {:frame :test/foo})
+
+  Frame-resolution chain matches `dispatch-sequence`: `:frame` opt →
+  `(current-frame)` → `:rf/default`.
+
+  Returns `true` when the assertion passes, `false` otherwise — the
+  `clojure.test` failure has already been reported in either case, so
+  callers rarely care about the boolean.
+
+  No `:rf.assert/*` event analog exists for the full-db form (the event
+  family is path-keyed); `assert-db-equals` is the companion fn-only
+  shape carried alongside `assert-path-equals`.
+
+  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s / rf2-8j9m6
+  decisions."
+  ([expected-db]
+   (assert-db-equals expected-db nil))
+  ([expected-db opts]
+   (let [opts     (or opts {})
+         frame-id (resolve-frame opts)
+         actual   (frame/frame-app-db-value frame-id)
+         pass?    (= expected-db actual)]
+     (ctest/do-report
+       {:type     (if pass? :pass :fail)
+        :message  (str "assert-db-equals full-db mismatch on frame " frame-id)
+        :expected expected-db
         :actual   actual})
      pass?)))
 

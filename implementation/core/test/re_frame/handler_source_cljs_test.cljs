@@ -17,7 +17,7 @@
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]))
 
-(use-fixtures :each (test-support/reset-runtime-fixture-factory))
+(use-fixtures :each (test-support/make-reset-runtime-fixture))
 
 (deftest reg-event-db-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event-db stamps :rf.handler/source under DEBUG=true"

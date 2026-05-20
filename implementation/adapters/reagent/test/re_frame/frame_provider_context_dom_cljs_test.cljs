@@ -81,7 +81,7 @@
             [re-frame.views]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- browser gate ----------------------------------------------------------

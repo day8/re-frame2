@@ -336,7 +336,7 @@
 
 ;; ---- test-support snapshot / restore -------------------------------------
 ;;
-;; Consumed by re-frame.test-support's reset-runtime-fixture-factory via the
+;; Consumed by re-frame.test-support's make-reset-runtime-fixture via the
 ;; `:schemas/{snapshot-by-frame,restore-by-frame!,clear-by-frame!}`
 ;; late-bind hooks. The fixture captures and restores the per-frame
 ;; registry around each test; when the schemas artefact is not on the
@@ -354,7 +354,7 @@
 
 (defn clear-schemas-by-frame!
   "Reset the per-frame schema registry to `{}`. Used by test fixtures
-  and by `reset-runtime-fixture-factory`'s `:clear-kinds [:app-schema]` path."
+  and by `make-reset-runtime-fixture`'s `:clear-kinds [:app-schema]` path."
   []
   (reset! schemas-by-frame {}))
 

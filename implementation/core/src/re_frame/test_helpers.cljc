@@ -5,8 +5,9 @@
   ## See also — `re-frame.test-support` (rf2-v7kjq)
 
   Sibling namespace covering the **runtime-state assertion axis** —
-  registrar snapshot/restore, the `reset-runtime-fixture-factory`
-  per-process `:each` fixture, `dispatch-sequence`, `assert-state`,
+  registrar snapshot/restore, the `make-reset-runtime-fixture`
+  per-process `:each` fixture, `dispatch-sequence`, the `assert-*-equals`
+  fn-family (mirrors the `:rf.assert/*` Story event-family),
   bounded-deadline `poll-until`.
 
   This namespace owns the **view-tree assertion axis**: call the view-fn
@@ -509,7 +510,7 @@
                         body: `(reg-event-db ...)` / `(reg-sub ...)` /
                         `(reg-view ...)` calls that the test relies on.
                         Registrations land in the global registrar; pair
-                        this fixture with `re-frame.test-support/reset-runtime-fixture-factory`
+                        this fixture with `re-frame.test-support/make-reset-runtime-fixture`
                         (or `with-fresh-registrar`) to roll them back
                         between tests.
        :root-view       view fn (a hiccup-returning function). Stashed in

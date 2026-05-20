@@ -14,7 +14,7 @@
             [day8.re-frame2-causa.diff.section-grouping :as sg]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter}))
 
 ;; ---- helpers -----------------------------------------------------------

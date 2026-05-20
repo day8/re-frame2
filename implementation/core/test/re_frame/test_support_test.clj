@@ -1,17 +1,18 @@
 (ns re-frame.test-support-test
   "Coverage for the public test-flavoured helpers landed under rf2-0l3s
-  (resolves rf2-hkr5):
+  (resolves rf2-hkr5; renamed under rf2-8j9m6):
 
     - dispatch-sequence
-    - assert-state
+    - assert-path-equals
+    - assert-db-equals
 
   Plus rf2-j9phb (TE-R2.2): explicit hook-cascade coverage for
-  `reset-runtime-fixture-factory` — pins that every row in the late-bind
+  `make-reset-runtime-fixture` — pins that every row in the late-bind
   reset-hook-table is fired exactly once per fixture invocation, so a
   future refactor that drops a row breaks loudly rather than silently.
 
   The fixture machinery (snapshot-registrar / with-fresh-registrar /
-  reset-runtime-fixture-factory) is exercised transitively by the rest of the
+  make-reset-runtime-fixture) is exercised transitively by the rest of the
   test suite — these tests pin the helper *signatures* and the
   per-helper contract in Spec 008 §Built-in test-runner namespace."
   (:require [clojure.test :refer [deftest is testing use-fixtures
@@ -107,36 +108,36 @@
       (is (= {:n 0} (rf/get-frame-db :rf/default))
           ":rf/default is unaffected"))))
 
-;; ---- assert-state ---------------------------------------------------------
+;; ---- assert-path-equals + assert-db-equals (rf2-8j9m6) --------------------
 
-(deftest assert-state-path-form-pass
+(deftest assert-path-equals-pass
   (register-counter-handlers!)
   (rf/dispatch-sync [:counter/init])
   (rf/dispatch-sync [:counter/add 7])
   (let [outcomes (record-reports
-                   (fn [] (ts/assert-state [:n] 7)))]
+                   (fn [] (ts/assert-path-equals [:n] 7)))]
     (is (= [:pass] outcomes)
-        "matching path form fires a clojure.test :pass")))
+        "matching path/value pair fires a clojure.test :pass")))
 
-(deftest assert-state-path-form-fail
+(deftest assert-path-equals-fail
   (register-counter-handlers!)
   (rf/dispatch-sync [:counter/init])
   (let [outcomes (record-reports
-                   (fn [] (ts/assert-state [:n] 99)))]
+                   (fn [] (ts/assert-path-equals [:n] 99)))]
     (is (= [:fail] outcomes)
-        "mismatching path form fires a clojure.test :fail")))
+        "mismatching path/value pair fires a clojure.test :fail")))
 
-(deftest assert-state-full-db-form
+(deftest assert-db-equals-pass-and-fail
   (register-counter-handlers!)
   (rf/dispatch-sync [:counter/init])
   (let [pass-outcomes (record-reports
-                        (fn [] (ts/assert-state {:n 0})))
+                        (fn [] (ts/assert-db-equals {:n 0})))
         fail-outcomes (record-reports
-                        (fn [] (ts/assert-state {:n 42})))]
+                        (fn [] (ts/assert-db-equals {:n 42})))]
     (is (= [:pass] pass-outcomes))
     (is (= [:fail] fail-outcomes))))
 
-(deftest assert-state-frame-opt
+(deftest assert-path-equals-frame-opt
   (testing ":frame opt selects which frame's app-db is asserted against"
     (register-counter-handlers!)
     (rf/dispatch-sync [:counter/init])
@@ -144,12 +145,25 @@
     (rf/dispatch-sync [:counter/add 3] {:frame :test-support/assert-frame})
     (let [outcomes (record-reports
                      (fn []
-                       (ts/assert-state [:n] 3 {:frame :test-support/assert-frame})
-                       (ts/assert-state [:n] 0 {:frame :rf/default})))]
+                       (ts/assert-path-equals [:n] 3 {:frame :test-support/assert-frame})
+                       (ts/assert-path-equals [:n] 0 {:frame :rf/default})))]
       (is (= [:pass :pass] outcomes)
           ":rf/default and the named frame each carry their own state"))))
 
-;; ---- rf2-j9phb (TE-R2.2) — reset-runtime-fixture-factory hook-cascade coverage ----
+(deftest assert-db-equals-frame-opt
+  (testing ":frame opt also selects the frame for the full-db form"
+    (register-counter-handlers!)
+    (rf/dispatch-sync [:counter/init])
+    (rf/reg-frame :test-support/assert-db-frame {:on-create [:counter/init]})
+    (rf/dispatch-sync [:counter/add 4] {:frame :test-support/assert-db-frame})
+    (let [outcomes (record-reports
+                     (fn []
+                       (ts/assert-db-equals {:n 4} {:frame :test-support/assert-db-frame})
+                       (ts/assert-db-equals {:n 0} {:frame :rf/default})))]
+      (is (= [:pass :pass] outcomes)
+          "full-db assertion respects :frame opt"))))
+
+;; ---- rf2-j9phb (TE-R2.2) — make-reset-runtime-fixture hook-cascade coverage ----
 ;;
 ;; The fixture's per-test reset drives an inline table
 ;; (`test_support.cljc/reset-hook-table`) of nine late-bind hook keys
@@ -205,7 +219,7 @@
    :epoch/clear-epoch-listeners!          1
    :adapter/clear-warn-once-caches! 1})
 
-(deftest reset-runtime-fixture-factory-fires-every-hook-the-documented-number-of-times
+(deftest make-reset-runtime-fixture-fires-every-hook-the-documented-number-of-times
   (testing "every row in reset-hook-table fires the documented number of
             times per fixture call — once for most, twice for
             `:flows/reset-flows!` (pre-test + finally symmetry per the
@@ -230,7 +244,7 @@
         (late-bind/set-fn! :schemas/restore-by-frame! (fn [_snap] nil))
         (late-bind/set-fn! :schemas/snapshot-by-frame (fn [] nil))
 
-        (let [fixture (ts/reset-runtime-fixture-factory {:adapter plain-atom/adapter})]
+        (let [fixture (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter})]
           (fixture (fn [] :ran)))
 
         (doseq [[k expected] reset-hook-expected-counts]
@@ -246,7 +260,7 @@
           (when orig-restore
             (late-bind/set-fn! :schemas/restore-by-frame! orig-restore)))))))
 
-(deftest reset-runtime-fixture-factory-pre-dispose-fires-before-adapter-dispose
+(deftest make-reset-runtime-fixture-pre-dispose-fires-before-adapter-dispose
   (testing "the `:pre-dispose` phase fires BEFORE adapter dispose and
             the `:post-dispose` phase fires AFTER — phase ordering is
             load-bearing per the fixture docstring"
@@ -270,7 +284,7 @@
         ;; `:pre` and `:post` interleave the way the docstring
         ;; describes — `:epoch/clear-history!` runs AFTER the first
         ;; flows reset and BEFORE the finally flows reset.
-        (let [fixture (ts/reset-runtime-fixture-factory {:adapter plain-atom/adapter})]
+        (let [fixture (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter})]
           (fixture (fn [] :ran)))
         ;; Expected: pre (flows pre-dispose) → post (epoch post-dispose) →
         ;; pre (flows finally).

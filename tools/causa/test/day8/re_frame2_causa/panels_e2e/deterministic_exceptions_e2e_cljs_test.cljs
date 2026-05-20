@@ -44,7 +44,7 @@
              :as throws]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- has-error?
   "True iff the trace buffer contains at least one event whose

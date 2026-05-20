@@ -20,7 +20,7 @@
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest leaf-install-registers-events-and-fxs
   (events/install!)
