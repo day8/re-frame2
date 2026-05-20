@@ -3,8 +3,21 @@
 Sources of truth: per-panel specs under
 [`tools/causa/spec/`](../../../tools/causa/spec/) (one `00N-*.md` per
 hero panel); [`007-UX-IA.md`](../../../tools/causa/spec/007-UX-IA.md)
-for chrome and sidebar grammar. Sidebar order is set in `shell.cljs`
-(`sidebar-items`).
+for chrome and sidebar grammar; the per-panel content design lives in
+[`021-Dynamic-Panel-Designs.md`](../../../tools/causa/spec/021-Dynamic-Panel-Designs.md).
+Sidebar order is set in `shell.cljs` (`sidebar-items`).
+
+> **DRIFT NOTE (rf2-mbwqs sweep, 2026-05-20).** The 8-panel hero
+> rebuild (Event / Reactive / App-db / Trace / Issues / Machines /
+> Routing / Time-travel) lands new layouts and renames. The
+> Subscriptions panel is now folded into **Reactive** (the L4 display
+> label was renamed `Views` → `Reactive` per spec/021 §11.5; the tab
+> key + spec doc continue to use `:views` / `012-Views.md` for
+> stability). Several rows below still describe Subscriptions as
+> separate and label the Reactive surface as "Views". The follow-on
+> bead rewrites this leaf against spec/021 and the post-rebuild
+> sidebar grammar; meanwhile, cite spec/021 §3 + spec/012-Views for
+> Reactive panel semantics when a user asks.
 
 ## Sidebar groups + badges
 
@@ -64,17 +77,25 @@ last moved", "what's in the `:rf/route` slot right now?"
 
 Spec: [`004-App-DB-Diff.md`](../../../tools/causa/spec/004-App-DB-Diff.md).
 
-### Subscriptions
+### Reactive *(formerly "Subscriptions" / "Views")*
 
-Registered subs + their invalidation chains + cache status +
-last-recomputed values. The invalidation-chain affordance recomputes
-live as upstream slots move (`:cart/total` ← `:cart/items` ←
-`[:cart :items]`).
+> Renamed per spec/021 §11.5 (`Views` → `Reactive`). Tab key stays
+> `:views`; spec doc stays `012-Views.md`. The historical
+> "Subscriptions" surface is now folded into this panel — subs appear
+> inline in the cascade tree.
+
+Renders the focused epoch's reactive cascade as a DAG: subs recompute
++ views re-render (Spec 009 ops 7–8). Inline values, invalidation
+chains, cache status. The cross-panel propagation §10.5 wires
+App-db ↔ Reactive so clicking a changed path in App-db scrolls
+Reactive to the downstream subs.
 
 **Open when:** "why didn't my view update?", "trace the recompute
-chain for sub X", "is this sub cached or did it recompute?"
+chain for sub X", "is this sub cached or did it recompute?",
+"which views re-rendered this epoch?"
 
-Spec: [`012-Views.md`](../../../tools/causa/spec/012-Views.md) (subs nest under views per the rewrite).
+Spec: [`021-Dynamic-Panel-Designs.md` §3](../../../tools/causa/spec/021-Dynamic-Panel-Designs.md) (canonical content design)
++ [`012-Views.md`](../../../tools/causa/spec/012-Views.md) (panel surface).
 
 ### Effects *(fx)*
 
