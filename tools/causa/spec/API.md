@@ -194,7 +194,7 @@ authoritative list.
 | Namespace | Source | Public surfaces |
 |---|---|---|
 | `day8.re-frame2-causa.core` | `core.cljs` | The 12 canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
-| `day8.re-frame2-causa.panels.*` | `panels/*.cljs` | The 9 `Panel` reg-views — `event-detail/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `machines-canvas.panel/Panel`, `routing/Panel`, `issues-ribbon/Panel`, `chrome-a11y.panel/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 9 tabs). |
+| `day8.re-frame2-causa.panels.*` | `panels/*.cljs` | The 8 `Panel` reg-views — `event-detail/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `machines-canvas.panel/Panel`, `routing/Panel`, `issues-ribbon/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 8 tabs). rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). |
 | `day8.re-frame2-causa.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-causa.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Causa's preload and wants to take the chord back. |
 | `day8.re-frame2-causa.runtime` | `runtime.cljs` | The Causa ↔ MCP read-and-mutate seam. The accessor surface this namespace exposes is enumerated normatively in §Runtime accessor surface below. Tool clients (`tools/re-frame2-pair-mcp/` today) evaluate forms addressed at this namespace via `eval-cljs`. |
@@ -245,15 +245,14 @@ day8.re-frame2-causa.panels.machine-inspector/Panel
 day8.re-frame2-causa.panels.machines-canvas.panel/Panel
 day8.re-frame2-causa.panels.routing/Panel
 day8.re-frame2-causa.panels.issues-ribbon/Panel
-day8.re-frame2-causa.panels.chrome-a11y.panel/Panel
 ```
 
 (rf2-qy0nu — the 8-panel dead-code sweep removed `causality-graph`,
 `time-travel`, `effects`, `flows`, `routes`, `performance`, `schema-
 violation-timeline`, `hydration-debugger`, and `mcp-server`. The
 4-layer shell switches over the L3 tab ids in
-[`018-Event-Spine.md`](./018-Event-Spine.md) §The 9 tabs — these
-nine are the surviving `Panel` exports. The L4 display label for
+[`018-Event-Spine.md`](./018-Event-Spine.md) §The 8 tabs — these
+eight are the surviving `Panel` exports. The L4 display label for
 `reactive-panel/Panel` is **Reactive** (per `spec/021 §11.5`); the
 panel-registry key stays `:views` for the smaller diff — the
 namespace `panels.reactive-panel` is the post-rf2-wyvf2 spelling
@@ -261,13 +260,16 @@ namespace `panels.reactive-panel` is the post-rf2-wyvf2 spelling
 `routing/Panel` is the **Runtime** routing tab — the topology-plus-
 overlay verb per `spec/021 §7`; the Static-mode browse-all +
 Simulate-URL verb lives at `static.routes.panel/Panel` (not part of
-the Runtime canonical nine — Static-mode L4 sub-tabs live under
+the Runtime canonical eight — Static-mode L4 sub-tabs live under
 `day8.re-frame2-causa.static.*` and are enumerated separately in
-§Static-mode Panel reg-views below per the canonical 9 framing of
-`spec/018-Event-Spine.md` §The 9 tabs).
-`chrome-a11y.panel/Panel` is the **dogfood** L4 tab that runs
-axe-core scoped to `#rf-causa-root` — Causa's own chrome — mirroring
-Story's `chrome-a11y` panel (PR #1695); added per rf2-yxw57.)
+§Static-mode Panel reg-views below per the canonical 8 framing of
+`spec/018-Event-Spine.md` §The 8 tabs).
+(rf2-4v67l — `chrome-a11y.panel/Panel` was removed. A11y dogfooding
+is properly Story's domain, where it already lives as
+`re-frame.story.ui.chrome-a11y` (rf2-18t6p) — a sibling to the
+variant a11y scanner `re-frame.story.ui.a11y` (rf2-qgms1). A
+duplicate Causa panel was noise that flagged the Causa events-list
+as a problem.))
 
 These `Panel` components are the leaves the shell composes — they
 are NOT a host-facing single-panel embed surface. Hosts that want to

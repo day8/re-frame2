@@ -64,7 +64,6 @@
             [day8.re-frame2-causa.panels.app-db-segment-inspector
              :as app-db-segment-inspector]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
-            [day8.re-frame2-causa.panels.chrome-a11y.panel :as chrome-a11y-panel]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
@@ -731,14 +730,13 @@
     (static-flows-panel/install!)
     (reactive-panel/install!)
     (trace/install!)
-    ;; Chrome A11y tab (rf2-5r2yj) — Runtime L4 tab that runs axe-core
-    ;; scoped to `#rf-causa-root` (Causa's own chrome). Mirror of
-    ;; Story's chrome-a11y panel (PR #1695). No app-db registrations —
-    ;; the panel's state lives in module-level `r/atom`s because the
-    ;; data has no other consumer; the install! only adds the L4 tab
-    ;; entry. Sits at order 8 (after Issues at 7) — both tabs occupy
-    ;; the diagnostics group at the right end of the tab strip.
-    (chrome-a11y-panel/install!)
+    ;; (rf2-4v67l — Mike-direction) The Causa Chrome A11y dogfood panel
+    ;; was removed in favour of Story's already-shipped chrome-a11y
+    ;; panel (rf2-18t6p · `tools/story/src/re_frame/story/ui/
+    ;; chrome_a11y.cljs`) + Story's variant a11y scanner (rf2-qgms1 ·
+    ;; `tools/story/src/re_frame/story/ui/a11y.cljs`). A11y dogfooding
+    ;; is Story's domain; a duplicate Causa panel was noise that flagged
+    ;; the Causa events-list as a problem.
     ;; Static Events sub-tab (rf2-o5f5f.6) — browse every registered
     ;; event handler (reg-event-db / reg-event-fx / reg-event-ctx) +
     ;; interceptor chain + hermetic single-step simulate. Reads

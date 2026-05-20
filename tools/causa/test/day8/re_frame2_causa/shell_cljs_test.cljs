@@ -267,26 +267,27 @@
 (def ^:private expected-tab-ids
   "Authoritative tab inventory per spec/018 §5 The 8 tabs (Routing
   promoted to its own L3 tab per rf2-nrbs9; Machines Canvas promoted
-  per rf2-mkpnb; Chrome A11y added per rf2-5r2yj — the dogfood axe-
-  core panel mirrors Story's chrome-a11y from #1695 and sits in the
-  diagnostics group at the right end of the strip)."
-  [:event :app-db :views :trace :machines :machines-canvas :routing :issues :chrome-a11y])
+  per rf2-mkpnb). (rf2-4v67l — Chrome A11y was removed in favour of
+  Story's already-shipped chrome-a11y dogfood per rf2-18t6p; a11y
+  dogfooding is properly Story's domain.)"
+  [:event :app-db :views :trace :machines :machines-canvas :routing :issues])
 
 (deftest tab-bar-renders-seven-tabs
-  (testing "spec/018 §5 + rf2-5r2yj — nine tabs (Event / App-db / Views /
-            Trace / Machines / Machines Canvas / Routing / Issues /
-            Chrome A11y)"
+  (testing "spec/018 §5 — eight tabs (Event / App-db / Views / Trace /
+            Machines / Machines Canvas / Routing / Issues). rf2-4v67l
+            removed the Chrome A11y dogfood in favour of Story's
+            shipped panel."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             tabs (find-all-by-testid-prefix tree "rf-causa-tab-")]
         ;; Need to filter out the L4 detail panel and tab-bar root.
-        (is (= 9 (count (filter (fn [n]
+        (is (= 8 (count (filter (fn [n]
                                   (let [t (:data-testid (second n))]
                                     (some #(= t (str "rf-causa-tab-" (name %)))
                                           expected-tab-ids)))
                                 tabs)))
-            "9 tab buttons render")
+            "8 tab buttons render")
         (doseq [tab-id expected-tab-ids]
           (is (some? (find-by-testid tree (str "rf-causa-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))
