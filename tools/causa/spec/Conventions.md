@@ -141,6 +141,63 @@ through downstream "handler not found" failures.
 The umbrella `register-causa-handlers!` path remains the integration
 contract; per-leaf smoke tests are the unit contract.
 
+### Panel naming — generic `Panel` is the convention (rf2-qiek0)
+
+> **Every panel exports a single public `Panel` reg-view; do NOT
+> rename to verbose `EventDetailPanel`-style.**
+
+Each panel's facade owns one public reg-view named exactly `Panel`
+(`day8.re-frame2-causa.panels.event-detail/Panel`,
+`day8.re-frame2-causa.panels.app-db-diff/Panel`, etc. — per
+[`API.md`](./API.md) §Panel reg-views). A reader audit
+(`ai/findings/2026-05-20-tools-causa-api-review.md` Finding #12)
+flagged `Panel` as a generic React idiom (Material UI Panel, Ant
+Design Panel) and asked whether the CLJS-side surface should rename
+to match the JS-side `EventDetailPanel`-style names. The decision
+locks the bare-`Panel` convention.
+
+**Why bare `Panel` wins.**
+
+1. **Panels are addressed by tab-key, not class name.** The 4-layer
+   shell switches over the 6 L3 tab ids enumerated in
+   [`018-Event-Spine.md`](./018-Event-Spine.md) §5
+   (`:event` · `:reactive` · `:trace` · `:machines` · `:routing` ·
+   `:issues`) per
+   [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md).
+   The reg-view symbol name is internal plumbing; the tab-key is the
+   addressable identity.
+
+2. **The namespace already establishes context.** A consumer reading
+   `day8.re-frame2-causa.panels.event-detail/Panel` sees the
+   qualifying context in the namespace segment; renaming the var to
+   `EventDetailPanel` doubles the context and adds ceremony without
+   buying clarity.
+
+3. **Host-side collision is a non-issue.** Hosts that mount Causa
+   embed the **full shell** per
+   [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell
+   embed contract — there is no host-facing single-panel embed
+   surface. The `Panel` symbol is not in the host's import graph;
+   collision with Material UI Panel or Ant Design Panel cannot
+   occur.
+
+4. **JS-side names are an adapter concern.** The JS surface camelCases
+   what CLJS kebab-cases (per [`API.md`](./API.md) §Public JS API);
+   `EventDetailPanel` on the JS side is the adapter's idiom, not a
+   CLJS-side spelling the convention propagates.
+
+5. **The split is consistent across all six panels.** Renaming one
+   would force renaming all six; the per-panel facade shape (per
+   §Panel facade + leaf split above) is uniform precisely because
+   the leaf-view symbol name is uniform.
+
+**Consequence.** New panels added under
+`tools/causa/src/day8/re_frame2_causa/panels/<panel>/` MUST follow
+the convention: a single public reg-view named `Panel` in the
+facade, no verbose `<Panel>Panel` rename. Hosts addressing a panel
+do so via tab-key dispatch (the shell's `case`), never by importing
+the `Panel` symbol directly.
+
 ## Mount conventions
 
 Conventions for `mount.cljs` — Causa's DOM-side mount machinery. The
