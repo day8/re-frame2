@@ -289,6 +289,63 @@
           (try (.add cl klass) (catch :default _ nil))))))
   nil)
 
+;; ---- use-system-colors? (rf2-846h2) -------------------------------------
+;;
+;; Opt-in toggle that activates the same system-token chrome the
+;; `@media (forced-colors: active)` block paints, even when the OS
+;; HCM is OFF. The attribute `data-rf-force-colors="active"` is
+;; stamped on the shell root + `<html>`; `theme/global-styles/motion-
+;; css` pairs the `@media` selector with a sibling that matches the
+;; attribute, so the same rules fire either way.
+;;
+;; ## Why an attribute and not a class
+;;
+;; The CSS contract is "either media query OR descendant of an
+;; element carrying the attribute" — the attribute selector composes
+;; cleanly with the existing per-element `data-testid` predicates
+;; without forcing every rule onto a single class. `data-rf-force-
+;; colors` reads as a tristate signal ("active" | absent) which
+;; mirrors the `(forced-colors: active)` media-query semantics
+;; exactly; expanding the attribute to other states (e.g. a future
+;; "none" override) lands by parsing the value rather than juggling
+;; class names.
+
+(def force-colors-attribute
+  "Attribute name the toggle stamps on the shell root + `<html>` to
+  activate the system-token chrome on demand. Sibling-selectors in
+  `theme/global-styles/motion-css` match `[data-rf-force-colors=
+  \"active\"]` and `[data-rf-force-colors=\"active\"] *` so the same
+  rules the `@media (forced-colors: active)` block paints also fire
+  under operator opt-in."
+  "data-rf-force-colors")
+
+(def force-colors-active-value
+  "The single value the `data-rf-force-colors` attribute carries when
+  the toggle is on. Sibling-selectors in motion-css match this exact
+  value; future states (e.g. an explicit `\"none\"` override) would
+  extend the enumeration."
+  "active")
+
+(defn apply-use-system-colors!
+  "Stamp / clear `data-rf-force-colors=\"active\"` on the Causa shell
+  root AND `<html>` so the sibling selectors in
+  `theme/global-styles/motion-css` fire even when the OS HCM is OFF.
+
+  `on?` truthy stamps the attribute; falsey removes it. Idempotent —
+  repeated calls leave the DOM in the same state. No-op when neither
+  the shell root nor `<html>` is present (test runtimes without a
+  `document`)."
+  [on?]
+  (let [active? (boolean on?)]
+    (doseq [el [(shell-root-element) (html-root-element)]
+            :when el]
+      (try
+        (if active?
+          (.setAttribute el force-colors-attribute force-colors-active-value)
+          (.removeAttribute el force-colors-attribute))
+        (catch :default _ nil))))
+  nil)
+
 ;; ---- panel width (rf2-x8h9y resize handle) ------------------------------
 
 (def panel-width-css-var
@@ -494,6 +551,15 @@
     ;; seam); `:always` / `:never` write the override class.
     (apply-reduced-motion-override!
       (get-in s [:general :reduced-motion-override]))
+    ;; rf2-846h2 — restore the persisted "Use system colors" toggle so
+    ;; the user's saved opt-in survives reload BEFORE first paint. The
+    ;; default `false` writes nothing (the attribute stays absent; the
+    ;; OS HCM detection alone drives the chrome); `true` stamps the
+    ;; `data-rf-force-colors="active"` attribute so the sibling
+    ;; selectors in `theme/global-styles/motion-css` paint the system-
+    ;; token chrome.
+    (apply-use-system-colors!
+      (get-in s [:general :use-system-colors?]))
     ;; rf2-x8h9y — restore the persisted panel width so the user's
     ;; saved drag survives reload BEFORE first paint. No-op-safe
     ;; pre-mount (writes to `<html>` only when the layout host hasn't

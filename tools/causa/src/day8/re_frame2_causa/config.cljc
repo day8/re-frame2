@@ -781,7 +781,18 @@
                ;; body class which `theme/global-styles/motion-css`
                ;; reads to override the media-query-derived
                ;; `--rf-causa-motion-scale`.
-               :reduced-motion-override :os}
+               :reduced-motion-override :os
+               ;; rf2-846h2 — user-side opt-in for the system-colors
+               ;; (Windows HCM) rendering path even when the OS HCM is
+               ;; OFF. Default `false`. When `true`, the shell root +
+               ;; `<html>` carry `data-rf-force-colors="active"`; the
+               ;; `@media (forced-colors: active)` block in
+               ;; `theme/global-styles/motion-css` is paired with a
+               ;; sibling selector that fires on the attribute too,
+               ;; so authors can preview / live in the system-token
+               ;; chrome on demand. Additive to the OS detection —
+               ;; both paths produce the same painted chrome.
+               :use-system-colors?      false}
    :theme     :dark                                  ; :dark | :light
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:retained-epochs                    200

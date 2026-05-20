@@ -125,6 +125,15 @@
         (and (= section :general) (= key :reduced-motion-override))
         (effects/apply-reduced-motion-override! value)
 
+        ;; rf2-846h2 — "Use system colors" opt-in. Stamps / clears
+        ;; `data-rf-force-colors="active"` on the shell root + `<html>`
+        ;; so the sibling selectors in `theme/global-styles/motion-css`
+        ;; paint the same system-token chrome the `@media (forced-
+        ;; colors: active)` block paints under OS HCM. Boolean enum;
+        ;; the apply-fn handles truthy / falsey directly.
+        (and (= section :general) (= key :use-system-colors?))
+        (effects/apply-use-system-colors! value)
+
         ;; Auto-open-on-error toggle — install the sub-watcher on
         ;; flip-on, detach on flip-off. The install is also attempted
         ;; from `mount/ensure-causa-frame!` so the persisted-true case

@@ -106,6 +106,163 @@
   (reset! run-state :idle)
   nil)
 
+;; ---- Use-system-colors? toggle (rf2-846h2) ------------------------------
+;;
+;; Operator-controlled opt-in for the same system-token chrome the
+;; `@media (forced-colors: active)` block in `theme/motion.cljc` paints
+;; under Windows HCM. When the toggle is on, the chrome root carries
+;; `data-rf-force-colors="active"` and the sibling selectors in motion-
+;; css fire — identical chrome to the OS HCM path, without flipping the
+;; OS-level switch. Default OFF; the OS HCM detection still works
+;; either way.
+;;
+;; ## Why the Chrome A11y panel
+;;
+;; Story has no Settings panel surface; the closest accessibility-
+;; focused surface is the Chrome A11y panel which already carries an
+;; opt-in toggle (the axe-core CDN consent) and persists state through
+;; localStorage. Co-locating the system-colors toggle here means the
+;; user finds both accessibility knobs in the same surface.
+;;
+;; ## Persistence
+;;
+;; The toggle survives reload via `localStorage` under
+;; `force-colors-opt-in-key`. The pattern mirrors `a11y/cdn-opt-in-key`
+;; (same module): in-memory ratom for the live read, persisted string
+;; for the round-trip across reloads. Browsers that block localStorage
+;; (private mode, embedded contexts, file://) degrade to in-memory-only
+;; — the toggle still works for the session, just doesn't survive
+;; reload.
+
+(def ^:const force-colors-opt-in-key
+  "localStorage key under which the dev's 'Use system colors' opt-in
+  lives. A string `\"true\"` means the toggle is on; absent / any
+  other value means the toggle is off."
+  "rf.story.a11y/force-colors-opt-in")
+
+(def ^:const force-colors-attribute
+  "Attribute name the toggle stamps on the chrome root + `<html>` to
+  activate the system-token chrome on demand. Sibling-selectors in
+  `theme/motion.cljc` match
+  `[data-rf-force-colors=\"active\"]` so the same rules the `@media
+  (forced-colors: active)` block paints also fire under operator
+  opt-in."
+  "data-rf-force-colors")
+
+(def ^:const force-colors-active-value
+  "The single value the `data-rf-force-colors` attribute carries when
+  the toggle is on. Sibling-selectors in motion.cljc match this exact
+  value; future states (e.g. an explicit `\"none\"` override) would
+  extend the enumeration."
+  "active")
+
+(defonce
+  ^{:doc "In-memory mirror of the persisted 'Use system colors' opt-in.
+         Initialised from `localStorage` on first read; falls back to
+         this when the host environment lacks `localStorage` (node-
+         runtime tests, strict-CSP browsers with storage blocked).
+         Wrapped in an `r/atom` so the panel re-renders when the
+         toggle flips."}
+  force-colors-opt-in-atom
+  (r/atom false))
+
+(defonce ^:private force-colors-opt-in-bootstrapped? (atom false))
+
+(defn- read-storage-force-colors
+  "Best-effort read from `localStorage`. Returns true iff the key
+  exists with value `\"true\"`; returns nil (NOT false) on any error,
+  so the in-memory atom stays authoritative when storage is blocked."
+  []
+  (try
+    (let [ls (.-localStorage js/globalThis)]
+      (when ls
+        (= "true" (.getItem ls force-colors-opt-in-key))))
+    (catch :default _ nil)))
+
+(defn- write-storage-force-colors!
+  "Best-effort write to `localStorage`. Silently no-ops if storage is
+  unavailable. The in-memory atom is always written by the caller;
+  this is purely for persistence across reloads."
+  [on?]
+  (try
+    (let [ls (.-localStorage js/globalThis)]
+      (when ls
+        (if on?
+          (.setItem ls force-colors-opt-in-key "true")
+          (.removeItem ls force-colors-opt-in-key))))
+    (catch :default _ nil))
+  nil)
+
+(defn- html-root-element
+  "The `<html>` element. Always present in a real browser; nil under
+  Node test runtimes that don't simulate a document."
+  []
+  (try
+    (when-let [doc (.-document js/globalThis)]
+      (.-documentElement doc))
+    (catch :default _ nil)))
+
+(defn apply-force-colors-attribute!
+  "Stamp / clear `data-rf-force-colors=\"active\"` on the Story chrome
+  root AND `<html>` so the sibling selectors in `theme/motion.cljc`
+  fire even when the OS HCM is OFF.
+
+  `on?` truthy stamps the attribute; falsey removes it. Idempotent —
+  repeated calls leave the DOM in the same state. No-op when neither
+  the chrome root nor `<html>` is present (test runtimes without a
+  `document` or before the shell mounts)."
+  [on?]
+  (let [active? (boolean on?)]
+    (doseq [el [(find-chrome-root) (html-root-element)]
+            :when el]
+      (try
+        (if active?
+          (.setAttribute el force-colors-attribute force-colors-active-value)
+          (.removeAttribute el force-colors-attribute))
+        (catch :default _ nil))))
+  nil)
+
+(defn force-colors-opt-in?
+  "Read the dev's 'Use system colors' opt-in. Returns true iff the
+  toggle is on in this session. On first call the value is
+  bootstrapped from `localStorage` (so a prior session's choice
+  survives reload); subsequent calls read the in-memory atom."
+  []
+  (when-not @force-colors-opt-in-bootstrapped?
+    (when-let [stored (read-storage-force-colors)]
+      (reset! force-colors-opt-in-atom stored))
+    (reset! force-colors-opt-in-bootstrapped? true))
+  @force-colors-opt-in-atom)
+
+(defn set-force-colors-opt-in!
+  "Persist the dev's 'Use system colors' opt-in. `on?` truthy stamps
+  the chrome attribute and writes `\"true\"` to `localStorage`;
+  falsey clears both. The in-memory atom always reflects the choice;
+  the `localStorage` write is best-effort (no-op when storage is
+  blocked).
+
+  Also stamps / clears the attribute on the live DOM so the change
+  takes effect immediately — no reload required. The matching
+  bootstrap on shell mount (`bootstrap-force-colors!`) re-applies
+  the persisted state before first paint."
+  [on?]
+  (let [v (boolean on?)]
+    (reset! force-colors-opt-in-atom v)
+    (reset! force-colors-opt-in-bootstrapped? true)
+    (write-storage-force-colors! v)
+    (apply-force-colors-attribute! v))
+  nil)
+
+(defn bootstrap-force-colors!
+  "Restore the persisted 'Use system colors' opt-in by stamping /
+  clearing `data-rf-force-colors=\"active\"` on the live chrome root +
+  `<html>`. Idempotent — safe to call on every shell mount + on the
+  first lookup of the in-memory atom. Intended caller: `shell.cljs`
+  after the chrome root is in the DOM but before first paint settles."
+  []
+  (apply-force-colors-attribute! (force-colors-opt-in?))
+  nil)
+
 ;; ---- running axe ---------------------------------------------------------
 
 (def ^:const chrome-frame-id
@@ -234,6 +391,50 @@
                          (run-axe!))}
     "enable axe-core + scan"]])
 
+(defn- force-colors-toggle
+  "rf2-846h2 — 'Use system colors' opt-in toggle. Renders a checkbox
+  + hint inside the Chrome A11y panel so the operator can preview /
+  live in the system-token chrome on demand. Mirrors the in-memory
+  ratom so the checkbox state stays in lockstep with the live
+  attribute."
+  []
+  (let [on? (force-colors-opt-in?)]
+    [:div {:data-test "story-chrome-a11y-use-system-colors"
+           :style     {:padding "8px 0 4px 0"
+                       :border-top "1px dashed #444"
+                       :margin-top "8px"
+                       :color (:text-primary colors/tokens)}}
+     [:label {:style {:display     "flex"
+                      :align-items "center"
+                      :gap         "8px"
+                      :cursor      "pointer"
+                      :font-size   (:caption typography/type-scale)}}
+      [:input {:data-test "story-chrome-a11y-use-system-colors-input"
+               :type      "checkbox"
+               :checked   (boolean on?)
+               :on-change (fn [^js e]
+                            (set-force-colors-opt-in!
+                              (boolean (.. e -target -checked))))}]
+      [:span "Use system colors"]]
+     [:div {:style {:font-size   (:micro typography/type-scale)
+                    :line-height "1.4"
+                    :color       (:text-secondary colors/tokens)
+                    :margin-top  "4px"}}
+      "Render the Story chrome using your OS' high-contrast palette ("
+      [:code {:style {:color (:info colors/tokens)}} "Highlight"]
+      ", "
+      [:code {:style {:color (:info colors/tokens)}} "CanvasText"]
+      ", "
+      [:code {:style {:color (:info colors/tokens)}} "Mark"]
+      ", "
+      [:code {:style {:color (:info colors/tokens)}} "GrayText"]
+      ") — the same chrome Windows High Contrast Mode paints, on "
+      "demand without flipping the OS-level switch. Default OFF; the "
+      "OS HCM detection still works either way. Persists across "
+      "reloads in "
+      [:code {:style {:color (:info colors/tokens)}} "localStorage"]
+      "."]]))
+
 (defn panel
   "The chrome-a11y panel. Renders into a `:right`-placement slot per
   the panel-registration contract. The `_variant-id` arg is accepted
@@ -286,7 +487,11 @@
        :else
        [:div {:data-test "story-chrome-a11y-violations"}
         (for [[i v] (map-indexed vector vs)]
-          ^{:key i} [a11y/violation-row v])])]))
+          ^{:key i} [a11y/violation-row v])])
+     ;; rf2-846h2 — 'Use system colors' toggle rendered at the foot of
+     ;; the panel so the operator-controlled HCM preview shares the
+     ;; same accessibility surface as the axe-core consent + run knobs.
+     [force-colors-toggle]]))
 
 ;; ---- panel registration --------------------------------------------------
 
@@ -305,7 +510,14 @@
   alongside the variant a11y panel (rf2-18t6p).
 
   Idempotent. Production builds with `:rf.story/enabled?` false skip
-  registration via the `config/enabled?` gate."
+  registration via the `config/enabled?` gate.
+
+  rf2-846h2 — also schedules a one-tick `bootstrap-force-colors!`
+  so the persisted 'Use system colors' opt-in re-applies to the live
+  DOM as soon as the chrome root mounts. The setTimeout matches the
+  recorder-dom / element-inspector shape in `shell.cljs` so the
+  React tree has committed `[data-rf-story-root]` before the
+  attribute write tries to find it."
   []
   (when config/enabled?
     (rf/reg-view* panel-render-id (fn [variant-id] [panel variant-id]))
@@ -314,4 +526,9 @@
       {:doc       "axe-core accessibility scanner scoped to the Story chrome root."
        :title     "Chrome a11y"
        :placement :right
-       :render    panel-render-id})))
+       :render    panel-render-id})
+    (when (exists? js/setTimeout)
+      (js/setTimeout
+        (fn []
+          (try (bootstrap-force-colors!) (catch :default _ nil)))
+        0))))
