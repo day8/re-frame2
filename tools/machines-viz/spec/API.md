@@ -87,7 +87,7 @@ For the selected machine, the chart shows:
 - **`:spawn` / `:spawn-all` spawned children.** Per
   `:show-invoke-all?`, render as a horizontal row of mini-machines
   with the join-condition label below. Per
-  [Causa 003 §`:spawn-all` viz](../../causa/spec/003-Machine-Inspector.md#invoke-all-viz).
+  [Causa 003 §`:spawn-all` viz](../../causa/spec/003-Machine-Inspector.md#spawn-all-viz).
 - **`:after` countdown rings.** A filling arc on the source state
   while a timer is scheduled; updates at 60Hz when the chart is
   visible (per [DESIGN-RATIONALE Lock #8](./DESIGN-RATIONALE.md)).
