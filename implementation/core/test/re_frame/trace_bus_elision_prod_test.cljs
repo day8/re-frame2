@@ -32,7 +32,7 @@
             [re-frame.trace.tooling :as trace-tooling]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- ring buffer is empty under prod -------------------------------------

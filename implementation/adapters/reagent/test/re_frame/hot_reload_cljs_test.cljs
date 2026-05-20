@@ -18,7 +18,7 @@
   renders bump the v2 counter.
 
   Fixture: per rf2-am9d this file uses the shared
-  `re-frame.test-support/reset-runtime-fixture`, which snapshots the
+  `re-frame.test-support/reset-runtime-fixture-factory`, which snapshots the
   registrar before each test and restores it after. Snapshot/restore
   preserves ns-load-time framework / example registrations (notably
   routing's framework events and nine-states.core's view set) — those
@@ -33,7 +33,7 @@
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- (4) :view re-register flips the next render to the new body --------

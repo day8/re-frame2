@@ -136,7 +136,7 @@ registered id with the example's name**:
 
 The same applies to schemas, machines, frames, and any other registry
 the example writes to. The wrapper test namespaces install a
-`test-support/reset-runtime-fixture` per-test fixture, so each test
+`test-support/reset-runtime-fixture-factory` per-test fixture, so each test
 runs against a fresh frame — but the *registrations* themselves are
 shared across the whole bundle. Prefix discipline is what keeps them
 non-overlapping.
@@ -154,7 +154,7 @@ A new example added to the `test:browser` surface needs:
    `implementation/adapters/<substrate>/test/re_frame/<example>_cljs_test.cljs`
    ending in `-cljs-test` so the `:browser-test` build picks it up via
    its `ns-regexp`. The wrapper installs
-   `test-support/reset-runtime-fixture` and drives the example's
+   `test-support/reset-runtime-fixture-factory` and drives the example's
    headless fixtures (defined under `examples/<substrate>/<example>/test/`).
 4. **A shadow-cljs source-path entry** in
    [`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn)

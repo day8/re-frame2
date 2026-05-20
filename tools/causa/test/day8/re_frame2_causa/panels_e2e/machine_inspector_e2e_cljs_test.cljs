@@ -31,7 +31,7 @@
             [day8.re-frame2-causa.test-helpers.host-fixtures.deep-machine :as deep-machine]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (deftest causa-registered-machines-includes-host-machine
   (testing ":rf.causa/registered-machines reflects host's reg-machine call"

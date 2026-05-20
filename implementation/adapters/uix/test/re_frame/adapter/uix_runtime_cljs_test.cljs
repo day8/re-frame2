@@ -33,7 +33,7 @@
   (:require-macros [re-frame.core :refer [with-frame bound-fn]]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter uix-adapter/adapter}))
 
 ;; ---- shared dispatch + sub --------------------------------------------------

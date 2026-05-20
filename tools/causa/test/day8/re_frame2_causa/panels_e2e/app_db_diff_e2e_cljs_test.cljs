@@ -25,7 +25,7 @@
             [day8.re-frame2-causa.test-helpers.host-fixtures.counter :as counter]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (deftest causa-epoch-history-grows-after-host-dispatch
   (testing ":rf.causa/epoch-history grows from 0 → 1 → 2 over host dispatches"

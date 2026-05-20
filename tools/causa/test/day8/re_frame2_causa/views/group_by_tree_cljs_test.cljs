@@ -17,7 +17,7 @@
             [day8.re-frame2-causa.views.group-by-tree :as gbt]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 ;; ---- helpers ------------------------------------------------------------
 

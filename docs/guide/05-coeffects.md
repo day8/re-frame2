@@ -367,4 +367,4 @@ The rule of thumb: **cofx for values the world can hand back instantly** (`js/Da
 
 - [06 — Views and frames](06-views-and-frames.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
 - [07 — Interceptors](07-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
-- [13 — Testing](13-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
+- [13 — Testing](13-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture-factory`) and the per-frame / per-call override surface that complements cofx re-registration.

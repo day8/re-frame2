@@ -195,7 +195,7 @@ The canonical listener API has one shape:
 
 (rf/clear-trace-listeners!)
 ;; Test-time helper: drops all registered raw-trace listeners atomically.
-;; Returns nil. Used by `re-frame.test-support/reset-runtime-fixture` to
+;; Returns nil. Used by `re-frame.test-support/reset-runtime-fixture-factory` to
 ;; restore a clean listener registry between tests; ordinary application
 ;; code SHOULD use `unregister-trace-listener!` per key. The same dev-only elision
 ;; rules apply (production builds drop the registry entirely).

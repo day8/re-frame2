@@ -93,7 +93,7 @@
 ;; The four hooks below are framework-internal: their consumers are
 ;; `re-frame.router/run-flows!` (post-commit drain step), `re-frame.frame/
 ;; destroy-frame!` (per-frame teardown cascade), and `re-frame.test-
-;; support/reset-runtime-fixture` (test-fixture reset bracket). None of
+;; support/reset-runtime-fixture-factory` (test-fixture reset bracket). None of
 ;; these surface to user-facing `rf/...` fns, so the absent-artefact
 ;; semantics is "graceful no-op", not "raise a typed ex-info".
 ;;
@@ -131,7 +131,7 @@
     (with-hook-as-nil :flows/reset-last-inputs!
       (fn []
         (let [ran? (atom false)
-              fix  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter})]
+              fix  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter})]
           (fix (fn [] (reset! ran? true)))
           (is @ran? "fixture invoked the test-fn without throwing on the absent hook"))))))
 
@@ -139,14 +139,14 @@
   (testing "test-support's reset-runtime fixture no-ops when :flows/reset-flows! hook is nil"
     ;; Consumer is `re-frame.test-support`'s reset-hook-table (row for
     ;; `:flows/reset-flows!`) plus the `finally` branch in
-    ;; `reset-runtime-fixture` that calls the same hook. Both paths
+    ;; `reset-runtime-fixture-factory` that calls the same hook. Both paths
     ;; reach the hook through `late-bind/get-fn` and short-circuit on
     ;; nil — proven by driving a full fixture cycle with the hook
     ;; cleared.
     (with-hook-as-nil :flows/reset-flows!
       (fn []
         (let [ran? (atom false)
-              fix  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter})]
+              fix  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter})]
           (fix (fn [] (reset! ran? true)))
           (is @ran? "fixture invoked the test-fn without throwing on the absent hook"))))))
 

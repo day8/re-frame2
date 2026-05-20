@@ -29,7 +29,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter helix-adapter/adapter}))
 
 (defn- react-element-source-coord

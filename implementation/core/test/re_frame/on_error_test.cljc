@@ -37,7 +37,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
      :init-fn (fn []
                 ;; Per rf2-bacs4: the listener registry is a `defonce`

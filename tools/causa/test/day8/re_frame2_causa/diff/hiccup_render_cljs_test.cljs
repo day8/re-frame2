@@ -11,7 +11,7 @@
             [day8.re-frame2-causa.diff.hiccup-render :as hd-render]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter}))
 
 ;; ---- helpers -----------------------------------------------------------

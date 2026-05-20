@@ -35,7 +35,7 @@
             [day8.re-frame2-causa.panels :as causa-panels]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 ;; ---- direct slot honoured ----------------------------------------------
 

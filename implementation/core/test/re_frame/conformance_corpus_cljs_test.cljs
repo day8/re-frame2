@@ -199,7 +199,7 @@
 ;;
 ;;  * `baseline-trace-listeners` is captured at NS-LOAD. The SSR
 ;;    artefact registers its `error-projection-listener` at ns-load
-;;    time; `test-support/reset-runtime-fixture` (used by many other
+;;    time; `test-support/reset-runtime-fixture-factory` (used by many other
 ;;    CLJS test namespaces' `use-fixtures :each` blocks) calls
 ;;    `(trace/clear-trace-listeners!)`, so by the time our deftest runs the
 ;;    listener registry is already empty. Capturing at ns-load is

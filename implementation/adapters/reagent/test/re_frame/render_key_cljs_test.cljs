@@ -26,7 +26,7 @@
             [re-frame.views :as views]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------

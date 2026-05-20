@@ -51,11 +51,11 @@
 ;; The `:node-test` build has no DOM and no Reagent reactive context —
 ;; the plain-atom adapter is the right substrate for epoch coverage
 ;; (matches the JVM test fixture in `re-frame.epoch-test`). Per
-;; `test-support/reset-runtime-fixture` (rf2-am9d): the registrar is
+;; `test-support/reset-runtime-fixture-factory` (rf2-am9d): the registrar is
 ;; snapshot/restored around each test so framework / example
 ;; registrations survive cross-ns CLJS test runs.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
      :init-fn (fn []
                 ;; Per the JVM fixture (epoch_test.clj): reset epoch

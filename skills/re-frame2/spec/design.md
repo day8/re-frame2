@@ -71,7 +71,7 @@ Per Mike's standing memory rule "Findings is local-only" — design exploration 
 - The `reg-*` family — `reg-event-{db,fx,ctx}`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
 - The canonical patterns — RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection.
 - Frames, regions, tags, machine snapshots, the event-state cycle.
-- Test-authoring (`reset-runtime-fixture`, `dispatch-sync`, `compute-sub`, `with-frame`).
+- Test-authoring (`reset-runtime-fixture-factory`, `dispatch-sync`, `compute-sub`, `with-frame`).
 
 ### Out of scope
 

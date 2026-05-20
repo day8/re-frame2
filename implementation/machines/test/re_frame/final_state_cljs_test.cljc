@@ -23,7 +23,7 @@
   The file is named `*-cljs-test.cljc` so it's discovered by both
   cognitect.test-runner (JVM) and shadow-cljs (CLJS). The JVM path
   initialises the plain-atom substrate via `rf/init!`; the CLJS path
-  attaches the Reagent substrate via `reset-runtime-fixture`."
+  attaches the Reagent substrate via `reset-runtime-fixture-factory`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -40,7 +40,7 @@
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 

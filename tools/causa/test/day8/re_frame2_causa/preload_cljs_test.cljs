@@ -56,7 +56,7 @@
 ;; The fixture below adds an `init-fn` that flips Causa's defonce
 ;; sentinels back and clears Causa's per-process trace buffer. Each
 ;; test starts from the same baseline; framework state is preserved
-;; via snapshot/restore from `reset-runtime-fixture`.
+;; via snapshot/restore from `reset-runtime-fixture-factory`.
 
 (defn- causa-init! []
   (preload/reset-for-test!)
@@ -64,7 +64,7 @@
   (trace-bus/clear-buffer!))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 

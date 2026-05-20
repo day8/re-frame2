@@ -37,7 +37,7 @@
              :as mf]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (deftest direct-A-and-B-stay-isolated
   (testing "inc-A bumps A only; inc-B bumps B only; log stays empty"

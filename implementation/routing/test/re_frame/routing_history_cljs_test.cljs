@@ -182,7 +182,7 @@
 
 (use-fixtures :each
   with-window-stub-fixture
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter
      :init-fn routing/reset-counters!}))
 

@@ -191,7 +191,7 @@
   (testing "dispose-adapter! on an installed Reagent adapter with no live
   frames is a no-op (no throw)"
     ;; Pre-dispose: drop every frame, then dispose. This is the post-
-    ;; reset-runtime-fixture shape: the fixture resets frames BEFORE
+    ;; reset-runtime-fixture-factory shape: the fixture resets frames BEFORE
     ;; calling dispose-adapter!, so dispose-adapter! sees an empty
     ;; registry.
     (reset! frame/frames {})

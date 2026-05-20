@@ -42,7 +42,7 @@
             [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (defn- register-modes! []
   (story/reg-mode :Mode.theme/dark

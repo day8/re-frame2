@@ -102,7 +102,7 @@
 
 (def clear-warned-non-dom-roots!
   "Reset the warn-once cache for non-DOM-root warnings. Tests use this
-  between cases (via `reset-runtime-fixture` and the chained
+  between cases (via `reset-runtime-fixture-factory` and the chained
   `:adapter/clear-warn-once-caches!` hook) so a sibling test's
   first-encounter warning cannot silently swallow a later test's same-id
   warning. Per rf2-4edk."

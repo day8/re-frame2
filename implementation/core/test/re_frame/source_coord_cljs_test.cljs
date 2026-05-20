@@ -13,7 +13,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
-(use-fixtures :each (test-support/reset-runtime-fixture
+(use-fixtures :each (test-support/reset-runtime-fixture-factory
                       {:adapter plain-atom/adapter}))
 
 (defn- record-traces

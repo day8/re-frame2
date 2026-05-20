@@ -1,6 +1,22 @@
 (ns re-frame.http-test-support
   "Test-support namespace for the managed-HTTP artefact (Spec 014).
 
+  ## NOT the stubbing-macro home (rf2-fu71w)
+
+  This namespace is the **registration gate** for the two canned-stub fxs
+  (`:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`).
+  Loading the namespace as a side effect registers those two fxs.
+
+  The actual stubbing macros — `with-managed-request-stubs`,
+  `with-managed-request-stubs*`, `install-managed-request-stubs!`,
+  `uninstall-managed-request-stubs!` — live in `re-frame.http-managed`,
+  NOT here. A test author reaching for \"the HTTP stub helper\" wants
+  `re-frame.http-managed`; this namespace is required only when the
+  canned-stub fx ids need to be reachable through `:fx-overrides`. See
+  [Spec 008 §HTTP test surfaces](../../../../../spec/008-Testing.md#http-test-surfaces--two-namespaces-rf2-fu71w)
+  and [Spec API.md rows 283–286](../../../../../spec/API.md) for the
+  full surface split.
+
   ## Why this namespace exists (rf2-cdmle, follow-up to rf2-zk08x)
 
   The two canonical canned-stub fxs

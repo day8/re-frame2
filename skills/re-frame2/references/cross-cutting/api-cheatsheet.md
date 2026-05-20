@@ -73,7 +73,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `ts/reset-runtime-fixture` | `(opts?)` → fixture-fn for `(use-fixtures :each ...)` |
+| `ts/reset-runtime-fixture-factory` | `(opts?)` → fixture-fn for `(use-fixtures :each ...)` |
 | `ts/with-fresh-registrar` | `(body-fn)` — registrar snapshot/restore bracket |
 | `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore |
 | `ts/dispatch-sequence` | `(events)` / `(events opts)` — sync-drain each, `:after-each` hook |

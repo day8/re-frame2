@@ -232,7 +232,7 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; `reset-runtime-fixture` installs `plain-atom/adapter` and snapshots
+;; `reset-runtime-fixture-factory` installs `plain-atom/adapter` and snapshots
 ;; the registrar — same pattern preload_cljs_test.cljs uses. The
 ;; per-test cleanup also resets the mount-state defonce so a failing
 ;; transition test doesn't poison neighbours via stale singleton state.
@@ -250,7 +250,7 @@
   (reset-mount-state!))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 

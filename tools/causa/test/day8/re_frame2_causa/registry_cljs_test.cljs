@@ -76,7 +76,7 @@
   (config/set-project-root! nil))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 

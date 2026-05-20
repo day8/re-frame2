@@ -91,7 +91,7 @@
            [java.util.concurrent.atomic AtomicLong]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 ;; Per-thread iteration count. Kept at the rf2-ynk7 / rf2-35rgj standard
 ;; 5000 so CI stays under ~60s wall-clock with the default thread count.

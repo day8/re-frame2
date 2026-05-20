@@ -1431,7 +1431,7 @@
     ;; Capture an empty snapshot.
     (let [empty-snap (schemas/snapshot-schemas-by-frame)]
       (is (= {} empty-snap)
-          "fresh atom is empty (reset-runtime-fixture cleared it)")
+          "fresh atom is empty (reset-runtime-fixture-factory cleared it)")
       ;; Now register some schemas.
       (rf/reg-app-schema [:transient] [:int])
       (is (seq @schemas/schemas-by-frame)

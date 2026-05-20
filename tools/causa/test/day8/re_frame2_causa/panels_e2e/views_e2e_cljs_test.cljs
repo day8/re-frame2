@@ -22,7 +22,7 @@
             [day8.re-frame2-causa.test-helpers.host-fixtures.counter :as counter]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (deftest causa-views-data-resolves-shape
   (testing ":rf.causa/views-data composes through every :<- layer"

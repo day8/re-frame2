@@ -72,7 +72,7 @@
             [re-frame.story.ui.url-state :as url-state]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 ;; ---- helpers: extract shell's `:reagent-render` -------------------------
 ;;

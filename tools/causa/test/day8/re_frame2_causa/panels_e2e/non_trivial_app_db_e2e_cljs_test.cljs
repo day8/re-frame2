@@ -32,7 +32,7 @@
              :as nt]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (def ^:private mutation-events
   "The 6-click sequence the Playwright scenario walked through. Each
