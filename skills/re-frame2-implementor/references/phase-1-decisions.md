@@ -103,7 +103,7 @@ The [Implementor-Checklist](https://day8.github.io/re-frame2/spec/Implementor-Ch
 
 **Optional (declare yes/no for each).**
 
-- **Q1 — State machines** ([EP 005](https://day8.github.io/re-frame2/spec/005-StateMachines/)). Substantial. The CLJS reference claims hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` + own-state + spawn/destroy + cross-actor `:fx` + declarative `:invoke` + spawn-and-join + `:system-id`. Smaller ports claim less.
+- **Q1 — State machines** ([EP 005](https://day8.github.io/re-frame2/spec/005-StateMachines/)). Substantial. The CLJS reference claims hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` + own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join + `:system-id`. Smaller ports claim less.
 - **Q2 — Routing** ([EP 012](https://day8.github.io/re-frame2/spec/012-Routing/)). `reg-route`, `match-url`, navigation tokens.
 - **Q3 — SSR** ([EP 011](https://day8.github.io/re-frame2/spec/011-SSR/)). `:platforms` metadata, `render-to-string`, hydration-mismatch detection.
 - **Q4 — Schemas** ([EP 010](https://day8.github.io/re-frame2/spec/010-Schemas/)). Three answers, not two: *yes-runtime-schema*, *yes-via-host-types*, *no*.

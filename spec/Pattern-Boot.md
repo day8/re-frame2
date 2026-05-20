@@ -56,7 +56,7 @@ Use this form when the boot graph is **3 steps or fewer**, has **no error states
 
 Once the boot graph has more than a few steps, error states, retries, or visible progress, the chained-events form scatters boot logic across N unrelated event handlers — invisible as a sequence. The canonical form is **a single state machine that owns the boot sequence**.
 
-The boot machine composes the locked machine substrate: hierarchical states for grouping phases, machine-scoped `:guards` / `:actions` (per [005 §Registration — the machine IS the event handler](005-StateMachines.md)), `:invoke` for spawning each phase's async work (per [005 §Declarative `:invoke`](005-StateMachines.md#declarative-invoke-sugar-over-spawn)), `:after` for retry backoff (per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — no new substrate.
+The boot machine composes the locked machine substrate: hierarchical states for grouping phases, machine-scoped `:guards` / `:actions` (per [005 §Registration — the machine IS the event handler](005-StateMachines.md)), `:spawn` for spawning each phase's async work (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)), `:after` for retry backoff (per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — no new substrate.
 
 ### Standard boot states
 
@@ -71,7 +71,7 @@ The boot machine composes the locked machine substrate: hierarchical states for 
 | `:auth-failed` / `:profile-failed` / `:network-error` / `:fatal-error` | Per-phase or terminal error states. |
 | `:retrying-auth` / `:retrying-profile` | Recovery states with `:after` backoff before re-attempt. |
 
-Each phase uses `:invoke` to spawn the async work; transitions on success or failure; entry actions update the progress UI; the whole sequence is one inspectable, testable, traceable state machine.
+Each phase uses `:spawn` to spawn the async work; transitions on success or failure; entry actions update the progress UI; the whole sequence is one inspectable, testable, traceable state machine.
 
 ### Worked example — six-state boot
 
@@ -126,13 +126,13 @@ Each phase uses `:invoke` to spawn the async work; transitions on success or fai
 
      :states
      {;; :configuring runs an explicit Pattern-AsyncEffect instance: the boot
-      ;; machine :invokes a child :http/get actor whose :data carries the URL.
+      ;; machine :spawns a child :http/get actor whose :data carries the URL.
       ;; The actor fetches /config and :dispatch-replys :succeeded with the body;
       ;; :record-config writes it into the boot machine's :data for downstream
       ;; states to thread into their own work.
       :configuring
       {:entry  :set-phase
-       :invoke {:machine-id :http/get
+       :spawn {:machine-id :http/get
                 :data       {:url "/config"}
                 :on-spawn   (fn [d id] (assoc d :pending id))}
        :on     {:succeeded {:target :authenticating
@@ -141,10 +141,10 @@ Each phase uses `:invoke` to spawn the async work; transitions on success or fai
                             :action :record-error}}}
 
       ;; Subsequent states read from :data :config and thread the values into
-      ;; the next phase's :invoke spawn-spec or dispatched event.
+      ;; the next phase's :spawn spawn-spec or dispatched event.
       :authenticating
       {:entry  :set-phase
-       :invoke {:machine-id :auth/restore-session
+       :spawn {:machine-id :auth/restore-session
                 ;; Spawn-spec :data fn — read the auth URL out of the boot
                 ;; machine's :data :config (per Pattern-AsyncEffect mechanism 2).
                 :data       (fn [{:keys [data]} _]
@@ -162,7 +162,7 @@ Each phase uses `:invoke` to spawn the async work; transitions on success or fai
 
       :loading-profile
       {:entry  :set-phase
-       :invoke {:machine-id :http/get
+       :spawn {:machine-id :http/get
                 ;; Read the profile URL from the loaded config rather than
                 ;; hardcoding it — the boot machine threads host config in
                 ;; via the spawn-spec :data fn.
@@ -209,7 +209,7 @@ The pattern, distilled to a worked sketch:
 
 ```clojure
 ;; ---------- Transport retry — :rf.http/managed handles 5xx + network ----------
-;; This is the call site the machine's :invoke spawns. The :retry slot owns
+;; This is the call site the machine's :spawn spawns. The :retry slot owns
 ;; "after a 503, wait backoff(N) and try again." That decision is mechanical:
 ;; failure category + attempt count. No state, no other request, no body
 ;; matching — pure transport retry.
@@ -261,7 +261,7 @@ The pattern, distilled to a worked sketch:
 
      :states
      {:loading-me
-      {:invoke {:src ::fetch-me
+      {:spawn {:src ::fetch-me
                 :data (fn [{:keys [data]} _] {:token (:token data)})}
        :on    {:succeeded {:target :authenticated :action :record-user}
                :failed    [{:guard  :got-401?
@@ -271,7 +271,7 @@ The pattern, distilled to a worked sketch:
                             :action :record-error}]}}
 
       :refreshing
-      {:invoke {:src ::refresh-token}
+      {:spawn {:src ::refresh-token}
        :on    {:succeeded {:target :loading-me                    ;; semantic retry
                            :action :record-token}
                :failed    {:target :login                         ;; refresh failed → fatal
@@ -285,7 +285,7 @@ The boundary is teachable in three sentences:
 
 1. **`:rf.http/managed` `:retry` retries the same request when nothing else has to change.** Same URL, same headers, same body, same auth — only the wait time and the attempt counter differ. Transport-level.
 2. **The state machine retries when something has to change first** — refreshing a token, waiting for another request, conditioning on the response body, conditioning on app state. Semantic-level.
-3. **They compose.** The machine's `:invoke` spawns a managed request that itself retries 5xx; once that loop terminates (success or exhaustion), the machine sees a single `:succeeded` / `:failed` event and transitions accordingly. No call site has to choose one layer or the other — every non-trivial request configures both.
+3. **They compose.** The machine's `:spawn` spawns a managed request that itself retries 5xx; once that loop terminates (success or exhaustion), the machine sees a single `:succeeded` / `:failed` event and transitions accordingly. No call site has to choose one layer or the other — every non-trivial request configures both.
 
 #### Refresh-vs-init distinction
 
@@ -340,7 +340,7 @@ The progress UI reads from the same snapshot the machine writes — no parallel 
 
 The boot machine is the canonical seam between **host-supplied static config** (a `/config` endpoint, build-time env vars, a host session restored from cookies) and **the running app's dynamic state**. The shape:
 
-1. The `:configuring` state runs a Pattern-AsyncEffect instance — `:invoke`-spawn an `:http/get` (or read from a host singleton) that lands the config map into the boot machine's `:data`.
+1. The `:configuring` state runs a Pattern-AsyncEffect instance — `:spawn`-spawn an `:http/get` (or read from a host singleton) that lands the config map into the boot machine's `:data`.
 2. Subsequent states read values from `:data :config` and thread them into the next phase's spawn-spec `:data` fn (mechanism 2 in [Pattern-AsyncEffect §Parameter passing across the boundary](Pattern-AsyncEffect.md#parameter-passing-across-the-boundary)) or into a dispatched event payload (mechanism 1) for machines outside the boot hierarchy.
 3. The running app then carries the same values forward — they live in `app-db` once and flow to readers via subs, or to spawned/dispatched machines via the same two mechanisms.
 
@@ -395,13 +395,13 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 - **[Pattern-AsyncEffect](Pattern-AsyncEffect.md)** — each boot phase is an instance of the generic async pattern. The boot machine sequences them.
 - **[Pattern-StaleDetection](Pattern-StaleDetection.md)** — if the user navigates or reloads during boot, in-flight replies need stale-detection. Boot state machines naturally provide the epoch via state transitions; stale replies are ignored when the boot has advanced or completed.
 - **[Pattern-RemoteData](Pattern-RemoteData.md)** — profile / config / feature-flag fetches are concrete instances; the boot machine drives them and reads their slices to decide success / failure.
-- **[Pattern-Forms](Pattern-Forms.md)** — if boot includes a "set up your account" step, a form composes at that state via `:invoke` of a form-owning child machine.
-- **[Pattern-WebSocket](Pattern-WebSocket.md)** — "establish real-time connection" is often a late boot phase; the connection machine is `:invoke`d from a boot state.
+- **[Pattern-Forms](Pattern-Forms.md)** — if boot includes a "set up your account" step, a form composes at that state via `:spawn` of a form-owning child machine.
+- **[Pattern-WebSocket](Pattern-WebSocket.md)** — "establish real-time connection" is often a late boot phase; the connection machine is `:spawn`d from a boot state.
 
 ## Cross-references
 
 - [002-Frames §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) — `:on-create` is the canonical entry point for boot.
-- [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:invoke` / `:after` mechanics.
+- [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:spawn` / `:after` mechanics.
 - [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
 - [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — the retry-ownership rule the auth-machine worked example illustrates.

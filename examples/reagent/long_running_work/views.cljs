@@ -101,12 +101,12 @@
 
                   - Start: dispatches [:work/flow [:start]] — parent
                            transitions :idle → :working, spawns 3
-                           children via :invoke-all.
+                           children via :spawn-all.
                   - Cancel: dispatches [:work/flow [:cancel]] — parent
                            transitions :working → :cancelled, the
                            exit cascade emits :rf.machine/destroy for
                            every surviving child (per the
-                           :invoke-all desugared :exit).
+                           :spawn-all desugared :exit).
                   - Reset: dispatches [:work/flow [:reset]] — returns
                            the parent to :idle with cleared :progress."}
           controls []
@@ -138,7 +138,7 @@
                   hook for the unmount cascade: on unmount, it
                   dispatches [:work/flow [:cancel]] into the parent
                   machine. The parent's :working state's :cancel
-                  transition exits :working, the :invoke-all
+                  transition exits :working, the :spawn-all
                   desugared :exit fires :rf.machine/destroy for every
                   surviving child, and the work goes away cleanly.
 
@@ -199,7 +199,7 @@
               :font-family "sans-serif"}}
      [:h1 "re-frame2 — Pattern-LongRunningWork"]
      [:p "Demonstrates "
-      [:code ":invoke-all"]
+      [:code ":spawn-all"]
       ": one parent coordinator, N parallel workers, declarative
        spawn-and-join with cooperative cancellation."]
      [:button {:data-testid "toggle-bench"

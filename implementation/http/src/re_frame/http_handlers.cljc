@@ -107,7 +107,7 @@
         ;; actor-id alongside :request-id. The destroy cascade then has
         ;; a key to walk on actor-destroy. Detection is structural —
         ;; we look up the id in the frame's [:rf/spawned ...] runtime
-        ;; registry (per Spec 005 §Declarative :invoke); ordinary event
+        ;; registry (per Spec 005 §Declarative :spawn); ordinary event
         ;; handlers' dispatches yield nil and are not tracked.
         actor-id     (registry/compute-actor-id frame origin-event)
         ;; rf2-bma05 — compute the effective :sensitive? flag once and

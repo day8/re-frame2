@@ -110,7 +110,7 @@ For a parallel machine the snapshot's `:state` is a **map** keyed by region-name
 - **Region names are keywords.** `:regions {:data {...} :form {...}}` — not strings, not symbols. Validated at registration (`machines.cljc:1750`).
 - **No nested parallel regions in v1.** A region body declaring its own `:type :parallel` throws `:rf.error/machine-parallel-nested-not-supported` (`machines.cljc:1758`).
 - **Broadcast is to every region.** One event-keyword goes to every region's `:on` table; regions whose tables don't list that event are no-ops for that dispatch. Don't broadcast a region-private event with a generic name — namespace it (`:form/submit-valid`, not `:submit-valid`) to make the per-region intent visible.
-- **`:after` and `:invoke` are scoped per region.** Each region carries its own `:after`-epoch counter at `[:data :rf/after-epoch-by-region <region-name>]` — a sibling region's transition does NOT invalidate this region's in-flight `:after` timers (`machines.cljc:362`, Spec 005 §Per-region `:always` / `:after` / `:invoke` scoping).
+- **`:after` and `:spawn` are scoped per region.** Each region carries its own `:after`-epoch counter at `[:data :rf/after-epoch-by-region <region-name>]` — a sibling region's transition does NOT invalidate this region's in-flight `:after` timers (`machines.cljc:362`, Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping).
 
 ## When to reach for parallel regions vs N machines
 

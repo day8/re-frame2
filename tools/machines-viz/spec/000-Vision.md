@@ -71,7 +71,7 @@ says so explicitly (`re-frame2-native; no Stately analogue`).
 re-frame2 ships state machines (Spec 005) as a first-class registry.
 A registered machine's transition table is data; its runtime
 snapshot lives at `[:rf/machines <id>]`; its lifecycle, transitions,
-microsteps, `:after` timers, and `:invoke-all` joins all emit
+microsteps, `:after` timers, and `:spawn-all` joins all emit
 structured trace events (Spec 009). Visualising a machine is a
 direct projection of those substrates — no new runtime surface
 required.
@@ -122,7 +122,7 @@ exports:
    description / Notion. The emitter is lossy by design — `:after`
    target edges render but countdown rings are omitted, parallel
    regions render as independent region trees without broadcast
-   macrostep semantics, and `:invoke-all` rows are omitted (Mermaid
+   macrostep semantics, and `:spawn-all` rows are omitted (Mermaid
    stateDiagram-v2 doesn't model those runtime semantics). The loss
    is flagged in a `%% comment` at the top of the output. Per
    [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
@@ -152,7 +152,7 @@ exports:
   / PR description / Notion. The emitter is **lossy by design**:
   `:after` target edges render but rings are omitted, parallel
   region broadcast macrosteps are flattened to independent region
-  trees, and `:invoke-all` rows are omitted. The loss is flagged in
+  trees, and `:spawn-all` rows are omitted. The loss is flagged in
   a `%% comment` at the top of the output. The share-URL viewer is
   the interactive complement that renders the full topology; the
   Mermaid emitter is the static-paste affordance.
@@ -184,7 +184,7 @@ must tell."
 | **`:rf.machine/transition` trace events** (Spec 009) | Edges glow on the matching event; the chart animates the from→to transition. |
 | **`:rf.machine.microstep/transition`** | Microstep-granular replay within an `:always`-driven cascade; intermediate states render with a "microstep" badge. |
 | **`:rf.machine.timer/*` events** | `:after`-bearing states render a countdown ring; the ring fills at 60Hz when the panel is visible. |
-| **`:rf.machine.invoke-all/*` events** | Parallel-child rows render with per-child state plus the join-condition label (`:all` / `:any` / `{:n N}` / `{:fn ...}`). |
+| **`:rf.machine.spawn-all/*` events** | Parallel-child rows render with per-child state plus the join-condition label (`:all` / `:any` / `{:n N}` / `{:fn ...}`). |
 | **`:rf.machine/spawned` + `-destroyed`** | Dynamic actors appear / disappear in the parent chart's "spawned" tray; gensym'd ids surface with `:system-id` aliases parenthesised. |
 | **State-tags** (Spec 005 §State tags) | Tag-membership coloured rings on state nodes; tags listed in the node tooltip. |
 | **Source-coord stamping** (Spec 001) | Every state, transition, guard, and action carries a source-coord chip — click jumps to the registration. |
@@ -281,7 +281,7 @@ text-to-SVG via the Mermaid DSL):
    markdown code block pasted into a GitHub README, a PR
    description, a Notion doc, or a re-frame2-pair chat reply
    when the user isn't in a running-app session. Lossy by design
-   (`:after` rings, `:invoke-all` rows, parallel-region macrostep
+   (`:after` rings, `:spawn-all` rows, parallel-region macrostep
    semantics absent). Per
    [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
 
@@ -290,7 +290,7 @@ text-to-SVG via the Mermaid DSL):
 `MachineChart` component + the ELK + hand-rolled-SVG renderer; the
 fourth shares the model but emits Mermaid DSL instead of SVG. The
 shared model is the lever — features that arrive on the
-interactive surfaces (state tags, `:invoke-all` join condition
+interactive surfaces (state tags, `:spawn-all` join condition
 labels, source-coord chips) cascade automatically; nothing is
 re-derived per surface.
 
@@ -424,7 +424,7 @@ Stately's commercial model doesn't optimise for that surface
 because their utility lever is the editor, not the embed. re-frame2
 already shipped the Mermaid emitter (per rf2-deo2i and the rf2-yamkm
 relocation); the static surface is essentially free value over the
-shared model. Lossy by design (`:after` rings + `:invoke-all` rows
+shared model. Lossy by design (`:after` rings + `:spawn-all` rows
 absent — flagged inline in the output's `%% comment`); the
 interactive surfaces carry the lossless cases.
 
@@ -447,7 +447,7 @@ chart consumes the registered shape directly. Converting to JSON
 would lose keyword types, set-vs-vector distinctions, and the
 namespaced-keys idiom — all of which the chart wants to render
 (state tags, fully-qualified guard / action names, the
-`:rf.machine.invoke-all/...` namespace conventions). Same EDN-first
+`:rf.machine.spawn-all/...` namespace conventions). Same EDN-first
 posture re-frame2 takes across the wire (transit on the share-URL,
 EDN on every registry surface).
 
@@ -490,7 +490,7 @@ renders the chart and highlights.
 chart subscribes to the existing trace bus
 ([`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md))
 for `:rf.machine/transition`, `:rf.machine.microstep/transition`,
-`:rf.machine.timer/*`, and `:rf.machine.invoke-all/*` events; live
+`:rf.machine.timer/*`, and `:rf.machine.spawn-all/*` events; live
 highlighting is a `swap!` on a local atom triggered by trace
 callbacks. **Diverge.**
 
@@ -555,12 +555,12 @@ surface Causa and Story require to ship their panels.
 - Mermaid `stateDiagram-v2` exporter (per
   [`API.md`](./API.md) §Mermaid `stateDiagram-v2`) — the
   Markdown-paste affordance. Lossy by design (`:after` rings +
-  `:invoke-all` rows omitted; flagged inline). Per
+  `:spawn-all` rows omitted; flagged inline). Per
   [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
-- Compound / parallel / `:after` / `:invoke-all` / `:final?`
+- Compound / parallel / `:after` / `:spawn-all` / `:final?`
   rendering as specified in
   [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
-  §What the panel shows + §`:invoke-all` viz + §Performance.
+  §What the panel shows + §`:spawn-all` viz + §Performance.
 - Source-coord chips on every clickable element (the host wires
   the editor URL handler via `:on-state-click` /
   `:on-transition-click`).
@@ -641,7 +641,7 @@ Where Machines-Viz **wins** against the peer set (per
 `ai/findings/sweep-tools-vs-sota-2026-05-13.md` §machines-viz):
 
 - `:after` countdown rings + microstep replay (no peer has both).
-- `:invoke-all` join visualisation with the join-condition label
+- `:spawn-all` join visualisation with the join-condition label
   (`:all` / `:any` / `{:n N}` / `{:fn ...}`).
 - Live trace integration tied to the Spec 009 bus.
 - Source-coord per node — every state, transition, guard, action
@@ -665,6 +665,6 @@ Where Machines-Viz **defers** to peers:
 - [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) — the locks; questions, options, picks (Lock #1 = component-not-product).
 - [`API.md`](./API.md) — the consolidated public surface (`MachineChart` contract, viewer page URL, share-URL encoding).
 - [`tools/causa/spec/000-Vision.md`](../../causa/spec/000-Vision.md) — Causa's Vision; the sibling observability surface that embeds `MachineChart` as the Machines tab.
-- [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md) — Causa's embedding-side spec; the source of truth for transition-history ribbon, source-coord integration, `:invoke-all` viz, share-affordance UX.
+- [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md) — Causa's embedding-side spec; the source of truth for transition-history ribbon, source-coord integration, `:spawn-all` viz, share-affordance UX.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the registry + authoring surface Machines-Viz visualises.
 - [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md) — the trace bus the live-highlight + active-state transport consumes.

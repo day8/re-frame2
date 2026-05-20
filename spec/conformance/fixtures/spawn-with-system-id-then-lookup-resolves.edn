@@ -27,7 +27,7 @@
                  :data    {}
                  :states
                  {:idle    {:on {:start :working}}
-                  :working {:invoke {:machine-id :worker/proc
+                  :working {:spawn {:machine-id :worker/proc
                                      :system-id  :worker
                                      :on-spawn   :auth/record-actor}}}}}
   :machine-action

@@ -74,7 +74,7 @@ If the project's dev deps hold `day8.re-frame/re-frame-10x` (the v1 devtools pan
 
 **Phase 4 — Verify.** The **author** recompiles, re-runs unit tests, and smoke-tests boot / dispatch / sub / hot-reload. The skill prints the exact compile / test commands for the author's project shape (e.g. `shadow-cljs compile app`, `clj -M:test`, the npm script), waits for the author to paste the output, and only then proceeds. If a step fails, find the rule, apply it, ask the author to re-verify. The skill never executes build/test commands — see cardinal rule 10.
 
-**Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:invoke-all`, etc.). Never auto-applied as part of a routine migration. (O-5 was promoted to M-51 under rf2-j9cm2 — binary fx is now required, not opt-in.)
+**Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:spawn-all`, etc.). Never auto-applied as part of a routine migration. (O-5 was promoted to M-51 under rf2-j9cm2 — binary fx is now required, not opt-in.)
 
 **Phase 6 — Report.** Produce the migration report per `MIGRATION.md` Part 2 §"Output format for your report". → [`references/output-format.md`](references/output-format.md) — the format restated with one filled-in example.
 

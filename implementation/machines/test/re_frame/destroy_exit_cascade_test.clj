@@ -2,17 +2,17 @@
   "Per rf2-nahfm — every destroy path runs the child's active configuration
   `:exit` cascade BEFORE teardown. Pre-rf2-nahfm the four destroy entry-
   points each cleared the actor's snapshot WITHOUT firing the `:exit`
-  actions Spec 005 §Declarative `:invoke` §Composition with explicit
+  actions Spec 005 §Declarative `:spawn` §Composition with explicit
   `:entry` / `:exit` and §Final states §Composition with `:entry` /
   `:exit` promise.
 
   The four destroy paths exercised here:
     1. Explicit `[:rf.machine/destroy actor-id]` fx (keyword form)
        fired from an action.
-    2. Declarative `:invoke` exit-cascade destroy (tracked-map form,
+    2. Declarative `:spawn` exit-cascade destroy (tracked-map form,
        fired by `apply-transition-once` when the exit cascade crosses
-       an `:invoke`-bearing state).
-    3. `:invoke-all` per-child teardown (parent cascade tears children
+       a `:spawn`-bearing state).
+    3. `:spawn-all` per-child teardown (parent cascade tears children
        down through `destroy-invoke-all-children!`).
     4. Final-state auto-destroy (child enters `:final?`; `finalize-
        machine` runs the cascade).
@@ -60,10 +60,10 @@
       (is (= 1 @exit-fired)
           ":exit fired exactly once during explicit destroy"))))
 
-;; ---- (2) declarative :invoke exit-cascade destroy ------------------------
+;; ---- (2) declarative :spawn exit-cascade destroy ------------------------
 
 (deftest exit-fires-on-invoke-exit-cascade-destroy
-  (testing "parent's :invoke exit cascade fires the child's active :exit"
+  (testing "parent's :spawn exit cascade fires the child's active :exit"
     (let [exit-fired   (atom 0)
           last-data    (atom nil)
           _ (rf/reg-machine :ne/invoke-child
@@ -78,24 +78,24 @@
                :data    {}
                :states
                {:idle    {:on {:start :working}}
-                :working {:invoke {:machine-id :ne/invoke-child}
+                :working {:spawn {:machine-id :ne/invoke-child}
                           :on     {:stop :idle}}}})]
       (rf/dispatch-sync [:ne/invoke-parent [:start]])     ;; spawns child
       (is (zero? @exit-fired) "no :exit yet — child still alive")
       (rf/dispatch-sync [:ne/invoke-parent [:stop]])      ;; parent exits :working → child destroyed
       (is (= 1 @exit-fired)
           "child's :exit fired exactly once during the parent's exit cascade")
-      ;; The spawn pipeline stamps :rf/parent-id / :rf/invoke-id /
+      ;; The spawn pipeline stamps :rf/parent-id / :rf/spawn-id /
       ;; :rf/self-id onto the spawned child's :data; the user-supplied
       ;; :counter slot is the bit we care about. Asserting on the
       ;; full :data would couple this test to the spawn-stamp shape.
       (is (= 0 (:counter @last-data))
           "child's :exit saw its live snapshot's :data (incl :counter) before teardown"))))
 
-;; ---- (3) :invoke-all per-child teardown ----------------------------------
+;; ---- (3) :spawn-all per-child teardown ----------------------------------
 
 (deftest exit-fires-on-invoke-all-children-teardown
-  (testing ":invoke-all parent exit fires every child's active :exit"
+  (testing ":spawn-all parent exit fires every child's active :exit"
     (let [exits  (atom [])
           _ (rf/reg-machine :ne/ia-child
               {:initial :working
@@ -109,7 +109,7 @@
               {:initial :hydrating
                :data    {}
                :states
-               {:hydrating {:invoke-all
+               {:hydrating {:spawn-all
                             {:children
                              [{:id :a :machine-id :ne/ia-child}
                               {:id :b :machine-id :ne/ia-child}]
@@ -151,7 +151,7 @@
               {:initial :working
                :data    {}
                :states
-               {:working {:invoke {:machine-id :ne/final-child
+               {:working {:spawn {:machine-id :ne/final-child
                                    :on-done    (fn [data result]
                                                  (assoc data :received result))}}}})]
       (rf/dispatch-sync [:ne/final-parent [:rf.machine/spawned]])

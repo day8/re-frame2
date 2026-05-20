@@ -341,12 +341,12 @@
               (stamp! (conj node-path :entry) e))
             (when-let [e (:exit node)]
               (stamp! (conj node-path :exit) e))
-            ;; :invoke {:on-spawn ...}
-            (when-let [inv (:invoke node)]
-              (stamp! (conj node-path :invoke) inv)
+            ;; :spawn {:on-spawn ...}
+            (when-let [inv (:spawn node)]
+              (stamp! (conj node-path :spawn) inv)
               (when (map? inv)
                 (when-let [os (:on-spawn inv)]
-                  (stamp! (conj node-path :invoke :on-spawn) os))))
+                  (stamp! (conj node-path :spawn :on-spawn) os))))
             ;; :on transitions — map of event-id → transition-or-vector
             (when-let [on-map (:on node)]
               (when (map? on-map)

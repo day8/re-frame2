@@ -14,15 +14,15 @@ initialisation graph. The boot sequence is:
        └────────────────┴──► :failed
 ```
 
-- `:configuring` — a single `:invoke`d child loader fetches
+- `:configuring` — a single `:spawn`d child loader fetches
   `/api/config.json` via `:rf.http/managed`. On success, the boot
   machine advances to `:loading-deps`; on failure, to `:failed`.
-- `:loading-deps` — `:invoke-all` fans out THREE parallel child
+- `:loading-deps` — `:spawn-all` fans out THREE parallel child
   loaders (routes, feature flags, initial user). The parent reaches
   the next state only when EVERY child reports done (`:join :all`).
   Any child failure routes to `:failed` immediately
   (`:on-any-failed`), cancelling the surviving siblings via the
-  standard `:invoke-all` cancel-on-decision cascade.
+  standard `:spawn-all` cancel-on-decision cascade.
 - `:hydrating` — promotes the staged child payloads from
   `[:boot/staging ...]` into the canonical top-level slices
   (`:config`, `:flags`, `:user`, `:routes`), self-transitions to
@@ -41,10 +41,10 @@ initialisation graph. The boot sequence is:
    sequence. The view tree only renders the main app once the
    boot machine reaches `:ready`.
 
-2. **`:invoke-all` for parallel dependencies.** Three of the four
+2. **`:spawn-all` for parallel dependencies.** Three of the four
    loads are independent (routes / flags / user); the canonical
-   shape is `:invoke-all` with `:join :all`, not three sequential
-   `:invoke`s. The parent reaches `:hydrating` once the join
+   shape is `:spawn-all` with `:join :all`, not three sequential
+   `:spawn`s. The parent reaches `:hydrating` once the join
    resolves; any single failure short-circuits to `:failed`.
 
 3. **One reusable child machine, four instances.** The
@@ -54,7 +54,7 @@ initialisation graph. The boot sequence is:
 
 4. **Staging slot for child-to-parent data flow.** Per Spec 005,
    the runtime intercepts `:on-child-done` / `:on-child-error` for
-   `:invoke-all` join bookkeeping — these events are NOT fed into
+   `:spawn-all` join bookkeeping — these events are NOT fed into
    the parent's `:on` lookup. The canonical Pattern-Boot shape
    for threading loaded payloads from children to the parent is a
    staging slot in app-db (`[:boot/staging <child-id>]`): each
@@ -98,7 +98,7 @@ boot.spec.cjs           — Playwright smoke
 - [`spec/Pattern-Boot.md`](../../../spec/Pattern-Boot.md) — the
   normative pattern doc.
 - [`spec/005-StateMachines.md` §Spawn-and-join via
-  `:invoke-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-invoke-all) —
+  `:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all) —
   the substrate the boot machine uses for the parallel dependency
   phase.
 - [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) —

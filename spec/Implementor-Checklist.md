@@ -44,9 +44,9 @@ For each row, the implementor declares **yes** (the implementation supports the 
 
 #### Q1. State machines?
 
-The FSM/actor substrate from [005](005-StateMachines.md) — transition tables, `create-machine-handler`, the `:rf/machines` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support, declarative `:invoke`. Substantial work. The pattern remains useful without machines (events / subs / fx / app-db / views are self-sufficient); many small frameworks ship without machines initially.
+The FSM/actor substrate from [005](005-StateMachines.md) — transition tables, `create-machine-handler`, the `:rf/machines` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support, declarative `:spawn`. Substantial work. The pattern remains useful without machines (events / subs / fx / app-db / views are self-sufficient); many small frameworks ship without machines initially.
 
-**Declaring yes implies** picking an FSM-richness capability list and an actor-model capability list per [005 §Capability matrix](005-StateMachines.md#capability-matrix). The CLJS reference claims flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions`, plus own-state + spawn/destroy + cross-actor `:fx` + declarative `:invoke` + spawn-and-join (`:invoke-all`) + `:system-id`. Smaller ports can claim less; conformance grades against the claimed list.
+**Declaring yes implies** picking an FSM-richness capability list and an actor-model capability list per [005 §Capability matrix](005-StateMachines.md#capability-matrix). The CLJS reference claims flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions`, plus own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`) + `:system-id`. Smaller ports can claim less; conformance grades against the claimed list.
 
 **Gate:** does the application surface include state-bearing flows that the events+subs+fx triad makes awkward (auth flows, multi-step wizards, drag-and-drop, timer-driven transitions)?
 
@@ -94,7 +94,7 @@ Self-grading against the AI-first principles per [AI-Audit.md](AI-Audit.md). The
 
 Conformance fixtures are capability-tagged (per [conformance/README §Capability tagging](conformance/README.md#capability-tagging)). The harness runs every fixture whose capabilities are a subset of the implementation's claimed list and skips the rest. The score is `passed / claimed-applicable` — an honest accounting of "what works for what was claimed."
 
-A flat-FSM-only port that declares **Q1 yes (flat FSM only)**, **Q2 no**, **Q3 no**, **Q4 yes-via-host-types**, **Q5 no**, **Q6 yes**, **Q7 no** has a clear scope: the corpus runs all `:core/*` fixtures, the `:fsm/flat` fixtures, and the `:actor/own-state` + `:actor/spawn-destroy` fixtures. Routing, SSR, hierarchical FSM, `:fsm/eventless-always`, `:fsm/delayed-after`, `:invoke`, and stories fixtures are reported as not-exercised.
+A flat-FSM-only port that declares **Q1 yes (flat FSM only)**, **Q2 no**, **Q3 no**, **Q4 yes-via-host-types**, **Q5 no**, **Q6 yes**, **Q7 no** has a clear scope: the corpus runs all `:core/*` fixtures, the `:fsm/flat` fixtures, and the `:actor/own-state` + `:actor/spawn-destroy` fixtures. Routing, SSR, hierarchical FSM, `:fsm/eventless-always`, `:fsm/delayed-after`, `:spawn`, and stories fixtures are reported as not-exercised.
 
 ---
 
@@ -440,7 +440,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** Per [005 §Capability matrix](005-StateMachines.md#capability-matrix). The implementor declares hierarchical compound support yes/no; CLJS reference claims yes.
 - **Options by host.** Per [005](005-StateMachines.md).
-- **Reference-impl picks.** CLJS supports hierarchical compound, `:always`, `:after`, declarative `:invoke`.
+- **Reference-impl picks.** CLJS supports hierarchical compound, `:always`, `:after`, declarative `:spawn`.
 - **Trade-offs.** Hierarchical states add transition-resolution complexity (LCA-based exit cascades). Smaller ports can declare flat-FSM only.
 
 ### Tool-Pair (if Q6 is yes)

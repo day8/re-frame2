@@ -3,7 +3,7 @@
 
    The example demonstrates Pattern-Boot: a single boot state machine
    owns the initialisation graph. Three parallel sub-fetches (config,
-   feature flags, initial user) run via `:invoke-all`; the boot
+   feature flags, initial user) run via `:spawn-all`; the boot
    machine reaches `:ready` only when every child reports done. The
    schemas describe the wire shape returned by each mocked endpoint
    and the boot-machine snapshot itself."
@@ -55,7 +55,7 @@
 (def Routes
   "Application route table. In a real app this might be hard-coded;
    here we fetch it so the boot graph has four parallel dependencies
-   to demonstrate `:invoke-all`."
+   to demonstrate `:spawn-all`."
   [:vector
    [:map
     [:id   :keyword]
@@ -98,7 +98,7 @@
 
 (def BootStagingSlice
   "Shape of `[:boot/staging]` — the per-child hand-off slot the
-   `:invoke-all` children write into and the parent's
+   `:spawn-all` children write into and the parent's
    `:enter-hydrating` action reads from. Each key is optional because
    the slot is filled incrementally as children complete; once the
    join resolves all four keys carry their per-child payloads."
@@ -119,7 +119,7 @@
 
 (rf/reg-app-schema [:rf/machines :app/boot] [:maybe BootSnapshot])
 
-;; The :invoke-all children stage their payloads into [:boot/staging]
+;; The :spawn-all children stage their payloads into [:boot/staging]
 ;; before signalling completion to the parent. The :enter-hydrating
 ;; action reads the staging slot and promotes each payload into the
 ;; canonical top-level slot below. Registered here so the staging

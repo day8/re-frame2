@@ -1,12 +1,12 @@
 ;; Conformance fixture: machine/final-state-child-fires-on-done
 ;;
 ;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key)
-;; and rf2-gn80. A child machine spawned by a parent's `:invoke` declares
+;; and rf2-gn80. A child machine spawned by a parent's `:spawn` declares
 ;; a leaf with `:final? true`. When the child enters that leaf:
 ;;
 ;;   1. The runtime extracts `result` from the child's `:data` slot
 ;;      named by the final state's `:output-key`.
-;;   2. The parent's `:invoke :on-done (fn [data result] new-data)`
+;;   2. The parent's `:spawn :on-done (fn [data result] new-data)`
 ;;      fires synchronously against the parent's `:data`.
 ;;   3. The child is auto-destroyed (snapshot + handler + spawn-registry
 ;;      slot + system-id reverse-index all cleared).

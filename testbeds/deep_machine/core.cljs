@@ -17,10 +17,10 @@
       before the snapshot commits.
     - **`:after`** (delayed transitions) on the `:health` region —
       `:warming` auto-transitions to `:ready` after 200ms.
-    - **`:invoke`** (single child actor) on the deep leaf
+    - **`:spawn`** (single child actor) on the deep leaf
       `:leaf-a` — spawns a `:helper/tick` child whose lifecycle is
       bound to the leaf's; on leaf exit the desugared destroy fires.
-    - **`:invoke-all`** (parallel children + join) on `:phase-b` —
+    - **`:spawn-all`** (parallel children + join) on `:phase-b` —
       three `:helper/job` workers spawn in parallel; each child
       dispatches the parent's `:on-child-done` keyword from its
       terminal `:done` `:entry`; on the third the runtime fires
@@ -40,11 +40,11 @@
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ----------------------------------------------------------------------------
-;; Child machines (singletons reused for :invoke / :invoke-all)
+;; Child machines (singletons reused for :spawn / :spawn-all)
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Two minimal child machines. They exist solely so the parent can
-;; declare `:invoke` and `:invoke-all` against well-formed
+;; declare `:spawn` and `:spawn-all` against well-formed
 ;; `:machine-id`s. Each child's body is intentionally trivial —
 ;; the load-bearing thing the testbed shows is the parent's
 ;; spawn/destroy/join shape, not what the children compute.
@@ -70,14 +70,14 @@
     ;; Terminal action: dispatch the parent's :on-child-done keyword.
     ;; Per Spec 005 §Child completion protocol the event shape is
     ;;   [<parent-id> [<on-child-done-keyword> <child-id> & extra]]
-    ;; The runtime stamps :rf/parent-id and :rf/invoke-all-child-id
+    ;; The runtime stamps :rf/parent-id and :rf/spawn-all-child-id
     ;; into each spawned child's :data at allocate-time, so the child
     ;; reads them out for the dispatch-back. The parent's
     ;; create-machine-handler intercepts the event and updates the
     ;; join state at [:rf/spawned :deep/main [:work :phase-b]].
     (fn action-dispatch-child-done [data _event]
       {:fx [[:dispatch [(:rf/parent-id data)
-                        [:helper/child-done (:rf/invoke-all-child-id data)]]]]})}
+                        [:helper/child-done (:rf/spawn-all-child-id data)]]]]})}
 
    :states
    {:running
@@ -100,7 +100,7 @@
 ;; Two parallel regions:
 ;;
 ;;   :work    — five-deep compound hierarchy with :always cascade,
-;;              :invoke at the deepest leaf, and :invoke-all on
+;;              :spawn at the deepest leaf, and :spawn-all on
 ;;              :phase-b. The :always cascade settles before commit.
 ;;
 ;;   :health  — flat region with :after-driven transition. Provides
@@ -139,14 +139,14 @@
       {:data (assoc data :phase-b-all-finished? true)})}
 
    :regions
-   {;; ---- :work region — 5-deep compound + :always + :invoke + :invoke-all ----
+   {;; ---- :work region — 5-deep compound + :always + :spawn + :spawn-all ----
     :work
     {:initial :idle
      :states
      {:idle
       ;; Region-root leaf. :work/go descends into :phase-a (five
       ;; compound levels unwind in one transition); :work/spawn
-      ;; sidesteps into the :invoke-all-bearing :phase-b.
+      ;; sidesteps into the :spawn-all-bearing :phase-b.
       {:tags #{:work/idle}
        :on   {:work/go    :phase-a
               :work/spawn :phase-b}}
@@ -177,7 +177,7 @@
               ;; path on entry:
               ;;   [:work :phase-a :sub-a :nested-a :deep-a :leaf-a]
               ;;
-              ;; Carries the :invoke declaration — the desugared
+              ;; Carries the :spawn declaration — the desugared
               ;; entry/exit fx spawn / destroy the :helper/tick
               ;; child. A consumer that walks `[:rf/spawned
               ;; :deep/main [:work :phase-a :sub-a :nested-a :deep-a
@@ -191,7 +191,7 @@
               ;; fires on leaf exit.
               {:tags   #{:work/leaf-a :work/deepest}
                :entry  :bump-tick
-               :invoke {:machine-id :helper/tick
+               :spawn {:machine-id :helper/tick
                         :data       (fn [_snap _ev] {:ticked? false})}
                :on    {:work/done {:target :resolving
                                    :action :mark-phase-a-ran}}}}}}}}}}}
@@ -214,7 +214,7 @@
 
       :phase-b
       ;; Sibling of :phase-a, NOT nested under it. Hosts the
-      ;; :invoke-all — three :helper/job children spawn in
+      ;; :spawn-all — three :helper/job children spawn in
       ;; parallel; each child dispatches the parent's
       ;; `:on-child-done` keyword (`:helper/child-done`) from its
       ;; terminal `:done` `:entry`. The runtime intercepts these
@@ -226,13 +226,13 @@
       ;; routes to `:done-b`.
       ;;
       ;; A consumer that watches the trace stream after :work/spawn
-      ;; sees one :rf.machine.invoke-all/started plus three
+      ;; sees one :rf.machine.spawn-all/started plus three
       ;; :rf.machine/spawn fxs in source order; the children's
       ;; terminal states dispatch :helper/child-done back to the
-      ;; parent; after the third, :rf.machine.invoke-all/all-completed
+      ;; parent; after the third, :rf.machine.spawn-all/all-completed
       ;; fires and `[:helper/all-finished]` lands.
       {:tags #{:work/phase-b}
-       :invoke-all
+       :spawn-all
        {:children        [{:id :j1 :machine-id :helper/job :data {:id :j1}}
                           {:id :j2 :machine-id :helper/job :data {:id :j2}}
                           {:id :j3 :machine-id :helper/job :data {:id :j3}}]
@@ -328,13 +328,13 @@
      [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap}}
       [:button {:data-testid "work-go"
                 :on-click #(dispatch [:deep/main [:work/go]])}
-       "1 · :work/go  (descend 5 levels — :invoke spawns)"]
+       "1 · :work/go  (descend 5 levels — :spawn spawns)"]
       [:button {:data-testid "work-done"
                 :on-click #(dispatch [:deep/main [:work/done]])}
-       "2 · :work/done  (:always cascade → :done-a; :invoke destroys)"]
+       "2 · :work/done  (:always cascade → :done-a; :spawn destroys)"]
       [:button {:data-testid "work-spawn"
                 :on-click #(dispatch [:deep/main [:work/spawn]])}
-       "3 · :work/spawn  (:invoke-all — 3 children)"]
+       "3 · :work/spawn  (:spawn-all — 3 children)"]
       [:button {:data-testid "helper-finish-j1"
                 :on-click #(dispatch [:helper/job [:helper.job/finish] :j1])}
        "4a · finish j1"]

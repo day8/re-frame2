@@ -73,7 +73,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 22 | **M-3** | Dispatch ordering — run-to-completion drain. Type B; flag every `:dispatch` inside a handler and every test asserting queue / intermediate-render shape. |
 | 23 | **M-6** | Drain-depth limit. Most codebases unaffected; runtime-error-triggered. |
 | 24 | **M-12** | Sub-cache invalidation changes render counts. Type B; flag render-count assertions. |
-| 25 | **M-44** | `:timeout-ms` removed from `:invoke` / `:invoke-all`. Use parent state's `:after` timer. |
+| 25 | **M-44** | `:timeout-ms` removed from `:spawn` / `:spawn-all`. Use parent state's `:after` timer. |
 
 ### Group 7 — Private-state / lifecycle / handler dropouts
 

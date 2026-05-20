@@ -11,7 +11,7 @@
 {:fixture/id           :machine/spawn-without-system-id-leaves-index-empty
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/system-id}
- :fixture/doc          "An :invoke that omits :system-id does not allocate [:rf/system-ids] in the spawning frame's app-db."
+ :fixture/doc          "An :spawn that omits :system-id does not allocate [:rf/system-ids] in the spawning frame's app-db."
 
  :fixture/registry
  {:event {:sup/flow {}}
@@ -21,7 +21,7 @@
                  :data    {}
                  :states
                  {:idle    {:on {:start :working}}
-                  :working {:invoke {:machine-id :worker/proc
+                  :working {:spawn {:machine-id :worker/proc
                                      :on-spawn   :auth/record-actor}}}}}
   :machine-action
   {:auth/record-actor {}}}

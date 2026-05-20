@@ -163,24 +163,24 @@
 ;; ---- (2c) machine-invoke adapter ---------------------------------------
 
 (deftest machine-invoke-adapter-spawn-record
-  (let [args   {:machine-id :auth/main :invoke-id :inv-1
+  (let [args   {:machine-id :auth/main :spawn-id :inv-1
                 :data {:user-id 42}}
         fx-ev  (fx-handled :rf.machine/spawn args)
         spawn  (surface-ev :rf.machine.lifecycle/spawned
-                           {:invoke-id :inv-1 :machine-id :auth/main
+                           {:spawn-id :inv-1 :machine-id :auth/main
                             :state :idle})
         rec    (h/machine-invoke-adapter fx-ev [spawn])]
     (is (= :machine-invoke (:surface rec)))
     (is (= :ok (:status rec)))
     (is (= :inv-1 (:correlation-id rec)))
-    (is (= {:invoke-id :inv-1 :machine-id :auth/main :state :idle}
+    (is (= {:spawn-id :inv-1 :machine-id :auth/main :state :idle}
            (:res rec)))))
 
 (deftest machine-invoke-adapter-failure
   (let [fx-ev (fx-handled :rf.machine/spawn
-                          {:machine-id :auth/main :invoke-id :inv-2})
+                          {:machine-id :auth/main :spawn-id :inv-2})
         fail  (surface-ev :rf.machine/invoke-failed
-                          {:invoke-id :inv-2 :reason :no-such-machine})
+                          {:spawn-id :inv-2 :reason :no-such-machine})
         rec   (h/machine-invoke-adapter fx-ev [fail])]
     (is (= :error (:status rec)))
     (is (= :rf.machine/invoke-failed (-> rec :failure :kind)))))

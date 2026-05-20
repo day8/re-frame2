@@ -11,7 +11,7 @@
 
   Shape: `{<frame-id> [<actor-id-1> <actor-id-2> ...]}` — a vector used
   as an append-only stack. Spawn appends; explicit destroy (single
-  actor, `:invoke-all` per-child, final-state auto-destroy) removes;
+  actor, `:spawn-all` per-child, final-state auto-destroy) removes;
   frame destroy walks the vector in reverse and clears the entry.
 
   Process-side (defonce atom) rather than app-db slot — the channel is

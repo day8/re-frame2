@@ -5,7 +5,7 @@
 
 ## Why this doc exists
 
-A pattern is visible in re-frame2 across five existing capability surfaces: [`:rf.http/managed`](014-HTTPRequests.md), [`:rf.ws/*`](Pattern-WebSocket.md), state-machine [`:invoke` / `:invoke-all`](005-StateMachines.md), [`:rf.server/*`](011-SSR.md), and [`:rf.flow/*`](013-Flows.md). Each Spec describes its own surface in detail; this doc names the **shared shape** so the architectural concept stops living implicitly in five places and starts being citeable as a single concept with a single anchor.
+A pattern is visible in re-frame2 across five existing capability surfaces: [`:rf.http/managed`](014-HTTPRequests.md), [`:rf.ws/*`](Pattern-WebSocket.md), state-machine [`:spawn` / `:spawn-all`](005-StateMachines.md), [`:rf.server/*`](011-SSR.md), and [`:rf.flow/*`](013-Flows.md). Each Spec describes its own surface in detail; this doc names the **shared shape** so the architectural concept stops living implicitly in five places and starts being citeable as a single concept with a single anchor.
 
 **A managed external effect is an effect whose entire interaction lifecycle — issuance, observability, failure classification, retry, abort, teardown, and reply addressing — is owned by the framework, not by the calling event handler.** The handler returns *data* describing what it wants; the framework owns *how* the interaction unfolds across time.
 
@@ -78,9 +78,9 @@ Single-request / single-reply HTTP. Args map shape: `:request`, `:decode`, `:acc
 
 Long-lived connection lifecycle as a state machine that owns the socket actor. Connection states: `:disconnected` / `:active{:connecting, :authenticating, :connected}` / `:reconnecting` / `:failed`. Subscription state and queued sends survive reconnects via the machine's `:data`. The connection epoch (the socket-actor's gensym'd id) gates stale replies — events from a replaced socket fail the check and surface as `:rf.ws/stale-socket`.
 
-### `:invoke` / `:invoke-all` — state-machine actors ([Spec 005](005-StateMachines.md))
+### `:spawn` / `:spawn-all` — state-machine actors ([Spec 005](005-StateMachines.md))
 
-Declarative actor spawn anchored on a state node. The framework owns the actor's lifetime: spawned on entry, destroyed on exit (or when an ancestor's `:invoke` boundary closes). `:invoke-all` parallel-fans children with a join condition. Reply addressing uses the carry-the-id-back-to-the-parent idiom; stale replies (from an actor whose owning state has already exited) are dropped.
+Declarative actor spawn anchored on a state node. The framework owns the actor's lifetime: spawned on entry, destroyed on exit (or when an ancestor's `:spawn` boundary closes). `:spawn-all` parallel-fans children with a join condition. Reply addressing uses the carry-the-id-back-to-the-parent idiom; stale replies (from an actor whose owning state has already exited) are dropped.
 
 ### `:rf.server/*` — SSR per-request fxs ([Spec 011](011-SSR.md))
 

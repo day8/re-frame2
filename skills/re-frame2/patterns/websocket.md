@@ -2,7 +2,7 @@
 
 Long-lived bidirectional connection lifecycle (WebSocket / SSE / WebRTC peer) modelled as a state machine that owns the socket actor.
 
-`:rf.ws/*` is one instance of the **managed external effect** umbrella — alongside `:rf.http/managed`, state-machine `:invoke`, `:rf.server/*`, and `:rf.flow/*`. The connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under `:rf.ws/*`, trace-bus observability, wire-value elision) is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the eight-property shared contract; the rest of this leaf is WebSocket-specific.
+`:rf.ws/*` is one instance of the **managed external effect** umbrella — alongside `:rf.http/managed`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. The connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under `:rf.ws/*`, trace-bus observability, wire-value elision) is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the eight-property shared contract; the rest of this leaf is WebSocket-specific.
 
 > **Status of the worked example:** `examples/reagent/websocket/` is in flight via rf2-yf97. Until it lands, the canonical declaration below is the source of truth.
 
@@ -19,7 +19,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 | Feature | Role |
 |---|---|
 | Hierarchical compound state | `:active` parents `:connecting` / `:authenticating` / `:connected`; **the socket actor's lifetime is anchored on the parent**, so it outlives leaf transitions. |
-| `:invoke` (declarative spawn) | `:active` invokes a `:websocket/socket` child owning the JS `WebSocket`. Exiting `:active` destroys it; re-entering spawns a fresh one. |
+| `:spawn` (declarative spawn) | `:active` invokes a `:websocket/socket` child owning the JS `WebSocket`. Exiting `:active` destroys it; re-entering spawns a fresh one. |
 | `:after` (fn-form delay) | Exponential backoff timer in `:reconnecting`, computed at entry from `:retries` and `:base-ms`. |
 | `:always` | Max-retries guard on `:reconnecting` entry; queue-flush guard on `:connected` entry. |
 | Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/send`, `:ws/refresh-token` declared once on `:active`, inherited by every leaf. |
@@ -83,7 +83,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
        ;; The actor receives only :url + :cred-ref; it resolves the bearer
        ;; via a client-only cofx inside its own JS context, then opens the
        ;; socket. The bearer never re-enters dispatch.
-       :invoke  {:machine-id :websocket/socket
+       :spawn  {:machine-id :websocket/socket
                  :data       (fn [snap _] {:url      (-> snap :data :url)
                                            :cred-ref (-> snap :data :cred-ref)})
                  :on-spawn   (fn [data id] (assoc data :socket-id id))}
@@ -141,15 +141,15 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 
 **Subscription protocol.** Topics live in `:data :subscriptions`. `:on-connected` re-issues subscribes on entry — subscriptions survive reconnects automatically.
 
-**Re-authentication on reconnect.** *Proactive*: auth machine refreshes the bearer (storing it host-side), then dispatches `[:ws/connection [:ws/rotate-cred new-cred-ref]]` carrying only the opaque ref — the bearer itself does not cross the dispatch boundary. Next `:active` entry's `:invoke :data` fn picks up the fresh ref and the spawning actor re-resolves via the client-only cofx. *Reactive*: reconnect into `:authenticating` fails with `:ws/auth-failed`, lands in `:failed`; auth machine observes via `sub-machine`, refreshes, dispatches a fresh `:ws/connect` carrying the new `:cred-ref`. Either way, no bearer in machine `:data`, no bearer in dispatch payloads.
+**Re-authentication on reconnect.** *Proactive*: auth machine refreshes the bearer (storing it host-side), then dispatches `[:ws/connection [:ws/rotate-cred new-cred-ref]]` carrying only the opaque ref — the bearer itself does not cross the dispatch boundary. Next `:active` entry's `:spawn :data` fn picks up the fresh ref and the spawning actor re-resolves via the client-only cofx. *Reactive*: reconnect into `:authenticating` fails with `:ws/auth-failed`, lands in `:failed`; auth machine observes via `sub-machine`, refreshes, dispatches a fresh `:ws/connect` carrying the new `:cred-ref`. Either way, no bearer in machine `:data`, no bearer in dispatch payloads.
 
-**SSR.** No-ops server-side: `:invoke` spawn fx is `:platforms #{:client}`; `:after` timers don't schedule under SSR.
+**SSR.** No-ops server-side: `:spawn` spawn fx is `:platforms #{:client}`; `:after` timers don't schedule under SSR.
 
-**Final-state termination (`:final?` / `:on-done`).** Restricted to the *child* role. When the WS machine is `:invoke`'d by an outer session machine, mark a terminal-failed branch (e.g. `:permanently-failed`, distinct from recoverable `:failed`) `:final? true` — parent receives clean unrecoverable signal via `:on-done` with optional `:output-key`. Child heartbeat / handshake machines reaching `:expired` / `:handshake-failed` can similarly use `:final?` instead of dispatching custom outbound events. The top-level connection machine itself stays recoverable. See `../references/state-machines/invoke.md` §Final states.
+**Final-state termination (`:final?` / `:on-done`).** Restricted to the *child* role. When the WS machine is `:spawn`'d by an outer session machine, mark a terminal-failed branch (e.g. `:permanently-failed`, distinct from recoverable `:failed`) `:final? true` — parent receives clean unrecoverable signal via `:on-done` with optional `:output-key`. Child heartbeat / handshake machines reaching `:expired` / `:handshake-failed` can similarly use `:final?` instead of dispatching custom outbound events. The top-level connection machine itself stays recoverable. See `../references/state-machines/invoke.md` §Final states.
 
 ## Anti-patterns
 
-- **Anchoring `:invoke` on `:connecting` instead of `:active`.** Destroys the socket on transition to `:authenticating`. Lifetime MUST span all three leaves.
+- **Anchoring `:spawn` on `:connecting` instead of `:active`.** Destroys the socket on transition to `:authenticating`. Lifetime MUST span all three leaves.
 - **Storing the `WebSocket` JS object in `app-db`.** Not a value, not serialisable, won't survive snapshot replay. Actor owns it host-side; only the actor id appears in `:data`.
 - **Storing a raw bearer / `auth-token` / cookie / refresh token in machine `:data`.** Same reasoning as the WebSocket JS object plus a privacy one: `:data` is framework-inspectable, so anything held there is liable to land in app-db snapshots, trace emissions, recorder fixtures, and pair tooling — places the dev does not inspect character-by-character. Use the opaque-`:cred-ref` shape above; the bearer lives host-side, resolved at actor spawn via a client-only cofx, and never re-enters dispatch.
 - **Routing a refresh bearer through dispatch without schema `:sensitive?` or handler metadata.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), gate it at the privacy seam in [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md).
@@ -165,7 +165,7 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 ## Pointers
 
 - Full pattern doc, request-reply correlation worked example, SSR composition → SKILL-REDIRECT.md → *Pattern — WebSocket*.
-- State-machine substrate (`:invoke`, `:after`, `:always`, hierarchical) → SKILL-REDIRECT.md → *EP — State machines (005)*.
+- State-machine substrate (`:spawn`, `:after`, `:always`, hierarchical) → SKILL-REDIRECT.md → *EP — State machines (005)*.
 - `:final?` / `:on-done` / `:output-key` → `../references/state-machines/invoke.md` §Final states.
 - Connection-epoch idiom → SKILL-REDIRECT.md → *Pattern — Stale detection*.
 

@@ -64,7 +64,7 @@
 (defn fail
   "Build a failure Result carrying `info` (a diagnostic map describing
   which action / `:data`-fn threw, with keys like `:action-ref`,
-  `:exception`, `:invoke-id`, `:decl-path`, `:transition`, `:state-path`)."
+  `:exception`, `:spawn-id`, `:decl-path`, `:transition`, `:state-path`)."
   [info]
   {::tag :fail ::info info})
 

@@ -175,7 +175,7 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 **Read.** [`spec/005-StateMachines.md`](https://day8.github.io/re-frame2/spec/005-StateMachines/) — the spec's largest EP (~2,900 lines). Plan one full session on the read alone before implementing.
 
-**Contract.** `reg-machine`, transition tables, `create-machine-handler`, `:rf/machines` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support per D3 Q1's sub-capability list, declarative `:invoke`.
+**Contract.** `reg-machine`, transition tables, `create-machine-handler`, `:rf/machines` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support per D3 Q1's sub-capability list, declarative `:spawn`.
 
 **Capability sub-decisions.** D3 Q1 declared yes/no for each of: `:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`. Implement only the claimed sub-capabilities; the conformance corpus runs the matching fixture subset.
 

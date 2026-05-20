@@ -2,9 +2,9 @@
 
 Application boot as a chained-async sequence — the canonical state-machine shape for "read config → authenticate → load profile → hydrate → resolve route → ready".
 
-Boot is a composition of two **managed external effect** surfaces: state-machine `:invoke` (the per-phase actors) and `:rf.http/managed` (the per-phase fetches). Both surfaces inherit the eight-property umbrella contract — framework-owned lifecycle, structured failure taxonomy, retry/abort/teardown semantics, trace-bus observability — which is what lets the boot machine reason about per-phase failure uniformly. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names how to *sequence* the phases.
+Boot is a composition of two **managed external effect** surfaces: state-machine `:spawn` (the per-phase actors) and `:rf.http/managed` (the per-phase fetches). Both surfaces inherit the eight-property umbrella contract — framework-owned lifecycle, structured failure taxonomy, retry/abort/teardown semantics, trace-bus observability — which is what lets the boot machine reason about per-phase failure uniformly. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names how to *sequence* the phases.
 
-> **Worked example:** `examples/reagent/boot/` ships the canonical machine — `:configuring → :loading-deps → :hydrating → :ready` with one `:invoke`'d loader and a fan-out `:invoke-all` parallel-load step.
+> **Worked example:** `examples/reagent/boot/` ships the canonical machine — `:configuring → :loading-deps → :hydrating → :ready` with one `:spawn`'d loader and a fan-out `:spawn-all` parallel-load step.
 
 ## When to use this pattern
 
@@ -17,7 +17,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 | Feature | Role |
 |---|---|
 | `reg-frame` `:on-create` | Atomic entry point — fires `[:app/boot [:rf/start]]` exactly once per frame creation; survives hot-reload. |
-| `:invoke` per phase | Each phase spawns its async work (`:rf.http/managed` or a domain child like `:auth/restore-session`) and transitions on `:succeeded` / `:failed`. |
+| `:spawn` per phase | Each phase spawns its async work (`:rf.http/managed` or a domain child like `:auth/restore-session`) and transitions on `:succeeded` / `:failed`. |
 | Consolidated `:entry` action | Per Spec 005, `:entry` is one fn or one registered id — never a vector. To update `:data` AND dispatch, write one action returning `{:data ..., :fx ...}`. |
 | `:after` (numeric delay) | Retry-with-backoff between failed phase and re-attempt. |
 | Machine snapshot in `app-db` | Boot UI reads `:state` and `:data :phase` via subs — one writer, one signal. |
@@ -56,14 +56,14 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
      :states
      {:configuring
       {:entry  :phase-configuring
-       :invoke {:machine-id :rf.http/managed
+       :spawn {:machine-id :rf.http/managed
                 :data       {:request {:method :get :url "/config"} :decode :json}}
        :on     {:succeeded {:target :authenticating :action :record-config}
                 :failed    {:target :fatal-error    :action :record-error}}}
 
       :authenticating
       {:entry  :phase-auth
-       :invoke {:machine-id :auth/restore-session
+       :spawn {:machine-id :auth/restore-session
                 :data       (fn [{:keys [data]} _] {:auth-url (-> data :config :auth-url)})}
        :on     {:succeeded {:target :loading-profile}
                 :failed    [{:guard :under-retry-limit? :target :retrying-auth :action :bump-attempt}
@@ -73,7 +73,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 
       :loading-profile
       {:entry  :phase-profile
-       :invoke {:machine-id :rf.http/managed
+       :spawn {:machine-id :rf.http/managed
                 :data       (fn [{:keys [data]} _]
                               {:request {:method :get :url (-> data :config :profile-url)}
                                :decode  :json})}
@@ -126,7 +126,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 **Re-boot.** Dispatch a wildcard parent event: `:auth.session/expired {:target :authenticating}`. Most apps reload the page on session expiry.
 
-**Final-state handoff (`:final?` / `:on-done`).** When boot is `:invoke`'d by an outer coordinator (SSR shell, embedding host, test harness), mark `:ready` as `:final?` — parent receives `:on-done` synchronously, with optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (canonical above) must NOT use `:final?` — auto-destroy takes the snapshot and the `[:app.boot/*]` subs with it. Keep `:ready` as ordinary terminal (`:meta {:terminal? true}`) when the app subscribes to the boot snapshot post-handoff. See `../references/state-machines/invoke.md` §Final states.
+**Final-state handoff (`:final?` / `:on-done`).** When boot is `:spawn`'d by an outer coordinator (SSR shell, embedding host, test harness), mark `:ready` as `:final?` — parent receives `:on-done` synchronously, with optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (canonical above) must NOT use `:final?` — auto-destroy takes the snapshot and the `[:app.boot/*]` subs with it. Keep `:ready` as ordinary terminal (`:meta {:terminal? true}`) when the app subscribes to the boot snapshot post-handoff. See `../references/state-machines/invoke.md` §Final states.
 
 **Parameters — the canonical seam.** The boot machine is the ONLY place that reads host globals (`/config` endpoint, build-time env vars, restored session). Once captured into `:data :config`, downstream phases thread values forward via Pattern-AsyncEffect (event payload or spawn-spec `:data` fn). Downstream machines never reach into a global.
 
@@ -141,7 +141,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 ## Worked example
 
-`examples/reagent/boot/` — canonical Pattern-Boot. `:app/boot` cycles `:configuring → :loading-deps → :hydrating → :ready` (`:failed` terminal sibling). `:configuring` `:invoke`s one `:boot/loader` for `/config`; `:loading-deps` fans out three parallel loaders via `:invoke-all`; `:hydrating` applies staged payloads via one `:enter-hydrating` action and self-transitions to `:ready`. See `examples/reagent/boot/boot.cljs` + `schema.cljs`. A narrower single-purpose-flow instance lives at `examples/reagent/login/core.cljs`.
+`examples/reagent/boot/` — canonical Pattern-Boot. `:app/boot` cycles `:configuring → :loading-deps → :hydrating → :ready` (`:failed` terminal sibling). `:configuring` `:spawn`s one `:boot/loader` for `/config`; `:loading-deps` fans out three parallel loaders via `:spawn-all`; `:hydrating` applies staged payloads via one `:enter-hydrating` action and self-transitions to `:ready`. See `examples/reagent/boot/boot.cljs` + `schema.cljs`. A narrower single-purpose-flow instance lives at `examples/reagent/login/core.cljs`.
 
 ## Pointers
 

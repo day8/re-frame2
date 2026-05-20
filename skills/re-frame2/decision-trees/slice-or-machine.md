@@ -35,7 +35,7 @@ Examples:
 
 - A WebSocket connection cycling `:disconnected → :connecting → :authenticating → :connected → :reconnecting → :failed`. Each phase has distinct entry actions (open socket / send auth / subscribe to topics / wait on backoff) and distinct allowed events.
 - An app boot that reads config, then authenticates, then loads profile, then resolves the route. Each step depends on the previous; failure semantics are phase-specific.
-- A login flow whose `:submitting` state spawns an HTTP `:invoke` whose success transitions to `:authed` and whose failure transitions to `:incorrect` with a retry counter.
+- A login flow whose `:submitting` state spawns an HTTP `:spawn` whose success transitions to `:authed` and whose failure transitions to `:incorrect` with a retry counter.
 
 If yes → **machine**. A slice can't enforce "you can't fire `:auth-ok` while in `:disconnected`"; a machine's transition table does.
 
@@ -49,7 +49,7 @@ Examples:
 - A WebSocket reconnect-backoff timer that must not fire after the user manually re-connected.
 - A long-running batch job whose mid-flight chunks must stop processing when the user navigates away.
 
-If yes → **machine**. Machine snapshots advance `:rf/after-epoch` on every state entry; in-flight `:after` timers and `:invoke` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](../../../spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
+If yes → **machine**. Machine snapshots advance `:rf/after-epoch` on every state entry; in-flight `:after` timers and `:spawn` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](../../../spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
 
 ### Tell 3 — terminal-state matters
 
@@ -125,7 +125,7 @@ If the example contradicts the leaf you'd pick from this tree, **the example win
 - [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) — how to author `reg-machine` (states / initial / guards / actions).
 - [`../references/state-machines/regions.md`](../references/state-machines/regions.md) — single-region and `:type :parallel` regions.
 - [`../references/state-machines/tags.md`](../references/state-machines/tags.md) — `:tags` on states + `machine-has-tag?` query.
-- [`../references/state-machines/invoke.md`](../references/state-machines/invoke.md) — `:invoke` and `:invoke-all` for child machines.
+- [`../references/state-machines/spawn.md`](../references/state-machines/spawn.md) — `:spawn` and `:spawn-all` for child machines.
 - [`../references/state-machines/cancellation.md`](../references/state-machines/cancellation.md) — the actor-destroy cascade.
 - [`../references/fundamentals/events.md`](../references/fundamentals/events.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.
 - [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) — `reg-app-schema` at boundaries.

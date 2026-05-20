@@ -555,12 +555,12 @@
           {:initial :idle
            :data    {}
            :states  {:idle    {:on    {:start :working}}
-                     :working {:invoke {:machine-id :worker
+                     :working {:spawn {:machine-id :worker
                                         :id-prefix  :worker
                                         :start      [:begin]
                                         :on-spawn   :record}
                                :on    {:done :idle}}}
-           ;; Per Spec 005 §Declarative :invoke (rf2-een2 / rf2-smba):
+           ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
            :on-spawn-actions {:record (fn [data _id] data)}}
           handler (rf/create-machine-handler machine)]

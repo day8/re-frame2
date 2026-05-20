@@ -70,7 +70,7 @@
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
                        ;; rf2-wvkn — cancellation-cascade tests need the
-                       ;; machines artefact at test-time so an :invoke
+                       ;; machines artefact at test-time so a :spawn
                        ;; spawn can drive the abort path. Production builds
                        ;; do not depend on machines (the artefact graph
                        ;; is unchanged); machines is test-only here.

@@ -138,7 +138,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | `re-frame-pair` runtime AI companion (Layer 2 of the AI surface) | encouraged | v1 deliverable | yes — host's REPL/inspector + protocol mapping | yes |
 | `re-frame-pair-improver` Claude skill (Layer 3 of the AI surface) | — | v1 deliverable | not host-specific | — |
 | **FSM-richness capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` | yes — host picks its claimed list from the matrix in [005 §Capability matrix](005-StateMachines.md#capability-matrix) | — |
-| **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:invoke` + spawn-and-join (`:invoke-all`) + `:system-id` | yes — host picks its claimed list | — |
+| **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`) + `:system-id` | yes — host picks its claimed list | — |
 | **Parallel regions** (FSM-richness) — `:type :parallel` with a `:regions` map; orthogonal axes of one feature sharing one `:data` blob; per rf2-l67o | yes | yes (claimed as `:fsm/parallel-regions` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
 | **History states** (FSM-richness) — out of v1 scope; substitute is snapshot-as-value capture | post-v1 | not claimed | not claimed | — |
 
@@ -328,7 +328,7 @@ The conformance corpus is graded against this: a fixture that doesn't pass *beca
 Goal 6 anticipates a richer FSM substrate than v1's flat-machine grammar. Two orthogonal axes shape the capability surface:
 
 - **FSM-richness axis** — what grammar features the transition table supports (flat states; hierarchical/compound states; eventless `:always`; delayed `:after`; parallel regions; history states; etc.).
-- **Actor-model axis** — what actor semantics the runtime offers (own state + message ports; imperative spawn / destroy; cross-actor send via `:fx`; declarative `:invoke`; SCXML compatibility; etc.).
+- **Actor-model axis** — what actor semantics the runtime offers (own state + message ports; imperative spawn / destroy; cross-actor send via `:fx`; declarative `:spawn`; SCXML compatibility; etc.).
 
 The pattern admits a wide capability surface across both axes. **Implementations declare which capabilities they support, and conformance is graded against the claimed list** — a port targeting flat-FSM + actor-spawn is fully conformant for that capability set; a port claiming hierarchical states must pass the hierarchical-states fixtures too.
 
@@ -341,7 +341,7 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - **Eventless `:always`** — transitions that fire as soon as a guard becomes true.
 - **Delayed `:after`** — transitions that fire after a time delay (timing semantics need care for SSR/testing).
 - **State tags** (`:fsm/tags`) — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union; `:rf/machine-has-tag?` framework sub. Per rf2-ee0d (Nine States Stage 1).
-- **Parallel regions** (`:fsm/parallel-regions`) — `:type :parallel` machines with multiple concurrent regions sharing one `:data` blob; per-region scoping for `:invoke` / `:after` / `:always`; transitions broadcast across regions; tags union across regions. Per rf2-l67o (Nine States Stage 2). The N-machines-per-region substitute remains valid when regions are conceptually independent features — see [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features).
+- **Parallel regions** (`:fsm/parallel-regions`) — `:type :parallel` machines with multiple concurrent regions sharing one `:data` blob; per-region scoping for `:spawn` / `:after` / `:always`; transitions broadcast across regions; tags union across regions. Per rf2-l67o (Nine States Stage 2). The N-machines-per-region substitute remains valid when regions are conceptually independent features — see [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features).
 
 **FSM-richness — v1 SKIPS, with documented substitutes:**
 
@@ -352,8 +352,8 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - Own state + message ports — ✓ specced.
 - Imperative spawn / destroy — ✓ specced.
 - Cross-actor send via `:fx` — ✓ specced.
-- **Declarative `:invoke`** (sugar over spawn) — runtime translates a state's `:invoke` into entry/exit actions that spawn / destroy a child actor. No new mechanics; pure sugar.
-- **Spawn-and-join via `:invoke-all`** — sugar over N parallel `:invoke`s with `:all` / `:any` / `{:n N}` / `{:fn ...}` join condition; cancel-on-decision default. Per rf2-6vmw.
+- **Declarative `:spawn`** (sugar over spawn) — runtime translates a state's `:spawn` into entry/exit actions that spawn / destroy a child actor. No new mechanics; pure sugar.
+- **Spawn-and-join via `:spawn-all`** — sugar over N parallel `:spawn`s with `:all` / `:any` / `{:n N}` / `{:fn ...}` join condition; cancel-on-decision default. Per rf2-6vmw.
 - **`:system-id` named-machine addressing** — per-frame reverse index from user-supplied `:system-id` to actor id; `(rf/machine-by-system-id sid)` resolves. Per rf2-suue / rf2-ecv4.
 
 **Actor-model — out of v1 scope (possibly never):**

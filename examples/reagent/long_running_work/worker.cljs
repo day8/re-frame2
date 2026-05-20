@@ -2,8 +2,8 @@
   "The worker + parent-coordinator machines for the long-running-work
    example.
 
-   Pattern-LongRunningWork's `:invoke-all`-shape: the parent coordinator
-   spawns N children via :invoke-all; each child processes its own shard
+   Pattern-LongRunningWork's `:spawn-all`-shape: the parent coordinator
+   spawns N children via :spawn-all; each child processes its own shard
    cooperatively (yielding to the browser between chunks via `:after`);
    children dispatch `:progress` events back to the parent for UI; on
    completion each child dispatches the parent's `:on-child-done`
@@ -58,7 +58,7 @@
   "The parent coordinator machine's registered id. Children hard-code
    this in their dispatch-back so they can address the parent without
    any per-child plumbing. Per Spec 005 §Child completion protocol:
-   for static `:invoke-all` declarations the parent-id is a literal
+   for static `:spawn-all` declarations the parent-id is a literal
    in the parent's source, so the child simply hard-codes it."
   :work/flow)
 
@@ -207,7 +207,7 @@
 ;; THE PARENT COORDINATOR — :work/flow
 ;; ============================================================================
 ;;
-;; Three children, one parent, one declarative :invoke-all entry. The
+;; Three children, one parent, one declarative :spawn-all entry. The
 ;; parent has no per-child bookkeeping in :data beyond the aggregated
 ;; :progress map (the user wants to see it; the runtime doesn't read
 ;; it). The :children / :done / :failed / :resolved? join-state map
@@ -224,7 +224,7 @@
 
 (def flow-machine
   {:doc "Parent coordinator. Spawns one :work/processor per shard via
-         :invoke-all; joins on :all; cancels mid-flight on :cancel
+         :spawn-all; joins on :all; cancels mid-flight on :cancel
          or on the parent's :working state being exited by any means
          (including user-driven unmount → :cancel dispatch from the
          component's :will-unmount cleanup)."
@@ -275,11 +275,11 @@
             :reset {:target :idle    :action :reset-progress}}}
 
     :working
-    ;; The :invoke-all-bearing state. On entry the runtime emits one
-    ;; :rf.machine/invoke-all-init fx (seeds the join-state map) plus
+    ;; The :spawn-all-bearing state. On entry the runtime emits one
+    ;; :rf.machine/spawn-all-init fx (seeds the join-state map) plus
     ;; N :rf.machine/spawn fxs (one per child). On exit (by ANY
     ;; transition including :cancel / :work/all-done), the runtime
-    ;; emits a single :rf.machine/destroy fx carrying :rf/invoke-all
+    ;; emits a single :rf.machine/destroy fx carrying :rf/spawn-all
     ;; true; the destroy fx handler reads the join-state's :children
     ;; map and tears each surviving child down.
     ;;
@@ -287,10 +287,10 @@
     ;; a self-transition (same target :working) with an action that
     ;; updates :data :progress. Because :progress is NOT the parent's
     ;; :on-child-done / :on-child-error keyword, it is NOT intercepted
-    ;; by the :invoke-all join machinery — the runtime feeds it
+    ;; by the :spawn-all join machinery — the runtime feeds it
     ;; straight into the parent's :on lookup.
     {:tags #{:flow/working}
-     :invoke-all
+     :spawn-all
      {:children [{:id :s1 :machine-id :work/processor
                   :data {:shard :s1 :total items-per-shard :processed 0 :tick-ms default-tick-ms}}
                  {:id :s2 :machine-id :work/processor
@@ -309,7 +309,7 @@
       :on-any-failed    [:work/any-failed]}
      :on    {;; Progress reports — INTERNAL self-transition (no :target):
              ;; the action runs but :exit / :entry do NOT fire, so the
-             ;; :invoke-all entry cascade does not re-spawn children and
+             ;; :spawn-all entry cascade does not re-spawn children and
              ;; the exit cascade does not tear them down. Per Spec 005
              ;; §Transitions §Internal vs external self-transitions: omit
              ;; :target for internal-self.
@@ -321,8 +321,8 @@
              :work/all-done   {:target :complete  :action :stamp-outcome}
              :work/any-failed {:target :error     :action :stamp-outcome}
              ;; Cooperative user-driven cancellation. The transition
-             ;; exits :working; the desugared :invoke-all exit fires
-             ;; one :rf.machine/destroy fx with :rf/invoke-all true;
+             ;; exits :working; the desugared :spawn-all exit fires
+             ;; one :rf.machine/destroy fx with :rf/spawn-all true;
              ;; the destroy fx handler tears down every surviving
              ;; child.
              :cancel          {:target :cancelled :action :stamp-outcome}}}
@@ -394,8 +394,8 @@
 
 (rf/reg-sub :work/spawn-registry-children
   {:doc "Read the runtime-owned :children map under the parent's
-         :invoke-all slot. Used by the headless tests to assert
-         the spawn cascade fired. Returns nil when no :invoke-all
+         :spawn-all slot. Used by the headless tests to assert
+         the spawn cascade fired. Returns nil when no :spawn-all
          is active (i.e. before :start or after the cascade has
          torn it down)."}
   (fn sub-work-spawn-registry-children [db _]

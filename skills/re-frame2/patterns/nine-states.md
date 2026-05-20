@@ -2,7 +2,7 @@
 
 A page-level rendering convention that makes every legal UI state explicit and testable. The page's render axes are modelled as **parallel regions** of a single `reg-machine`, each region's states carry **tags**, and one **selector sub** consults a **render-priority** table to pick the single render-model keyword the root view's `case` branches on.
 
-NineStates is the **rendering layer** that sits over the lifecycles produced by **managed external effects**. The `:data` region typically advances on replies from `:rf.http/managed`, `:rf.ws/*`, or an `:invoke`'d loader; the umbrella's framework-owned reply addressing and structured failure taxonomy is what makes the tag set (`:loading`, `:loaded`, `:error`, …) reliable enough to drive a priority table. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the underlying contract; this leaf names how a page renders across the lifecycle's cardinality.
+NineStates is the **rendering layer** that sits over the lifecycles produced by **managed external effects**. The `:data` region typically advances on replies from `:rf.http/managed`, `:rf.ws/*`, or a `:spawn`'d loader; the umbrella's framework-owned reply addressing and structured failure taxonomy is what makes the tag set (`:loading`, `:loaded`, `:error`, …) reliable enough to drive a priority table. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the underlying contract; this leaf names how a page renders across the lifecycle's cardinality.
 
 ## When to load this leaf
 
@@ -13,7 +13,7 @@ The prompt mentions: "nine states", "empty / one / some / too-many", "loading vs
 The pattern composes four primitives. Knowing which feature does what is the load-bearing knowledge — the pattern itself is just discipline.
 
 - **`:type :parallel` on a `reg-machine`** — declares the machine has independent **regions** active simultaneously. The snapshot's `:state` is a map keyed by region name. Use one region per orthogonal axis (typically `:data`, `:form`, `:mode`).
-- **`:regions {...}`** — each region is a full state-tree (`:initial`, `:states`, optional `:always` / `:after` / `:invoke`). Transitions are **broadcast** to every region; the run-to-completion drain settles every region before commit.
+- **`:regions {...}`** — each region is a full state-tree (`:initial`, `:states`, optional `:always` / `:after` / `:spawn`). Transitions are **broadcast** to every region; the run-to-completion drain settles every region before commit.
 - **Shared `:data`** — one `:data` map on the machine, read and written by every region. Region keys never collide; the regions slice into the same blob.
 - **`:tags #{...}` on states** — every state may declare a set of tag keywords. The runtime maintains `(:tags snapshot)` as the union across every active region's active state's tags.
 - **`:rf/machine-has-tag?` framework sub** — answers `(rf/machine-has-tag? :machine-id :some/tag)` as a plain boolean reaction, so views can ask tag-shaped questions without naming any state-keyword.

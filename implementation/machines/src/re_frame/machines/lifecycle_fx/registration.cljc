@@ -8,7 +8,7 @@
 
     - `validate-machine!` — every registration-time check (extracted to
       `re-frame.machines.lifecycle-fx.validation`: parallel shape,
-      `:invoke-all` shape, dropped `:timeout-ms` slots, guard/action
+      `:spawn-all` shape, dropped `:timeout-ms` slots, guard/action
       ref resolution, final-state shape).
     - `parallel/build-initial-snapshot` (rf2-fgqs4) — initial-state
       cascade, `:data` / `:meta` / `:rf/spawn-counter` seeding, tag union
@@ -382,7 +382,7 @@
   ;; computation reaches through `:initial` / `:states` / `:regions`;
   ;; running it at registration time would force every registered spec
   ;; (including the stub child machines the conformance corpus declares
-  ;; without `:initial` for `:invoke` targets, and any spec whose
+  ;; without `:initial` for `:spawn` targets, and any spec whose
   ;; `:initial` derives from a fn-form computed at dispatch time) to
   ;; satisfy the snapshot shape at reg-machine call time. The original
   ;; (pre-split) implementation deferred this work; preserve that.

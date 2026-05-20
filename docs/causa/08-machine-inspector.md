@@ -39,7 +39,7 @@ re-frame2's machines support a strict superset of XState's surface (modulo XStat
 
 ## The Invokes column
 
-Machines can `:invoke` actors — HTTP requests, WebSocket lifecycles, child machines. The Invokes column on the right of the panel lists every active invoke for the current machine state: actor id, status (running / resolved / errored / aborted), elapsed time, the result value when settled.
+Machines ca `:spawn` actors — HTTP requests, WebSocket lifecycles, child machines. The Invokes column on the right of the panel lists every active invoke for the current machine state: actor id, status (running / resolved / errored / aborted), elapsed time, the result value when settled.
 
 When the machine transitions out of the state that owns an invoke, the runtime aborts the actor and emits a `:rf.machine/invoke-aborted` trace event; the column reflects the abort immediately.
 

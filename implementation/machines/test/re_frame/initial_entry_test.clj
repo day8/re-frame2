@@ -2,7 +2,7 @@
   "Per rf2-0z73. Verifies whether a machine's **initial-state `:entry`
   actions** fire when the machine first comes into existence — both for
   top-level singleton machines (registered via `reg-machine`) and for
-  spawned actors (via declarative `:invoke` or imperative
+  spawned actors (via declarative `:spawn` or imperative
   `[:rf.machine/spawn ...]`).
 
   Surfaced from rf2-yf97 (the websocket example) and the
@@ -19,8 +19,8 @@
       first dispatched event arrives. The initial state's `:entry`
       action should fire as part of bringing the machine to life.
 
-   2. **Spawned actor via declarative `:invoke`** — parent enters an
-      `:invoke`-bearing state; the spawn fx allocates the child, seeds
+   2. **Spawned actor via declarative `:spawn`** — parent enters an
+      `:spawn`-bearing state; the spawn fx allocates the child, seeds
       its snapshot at `[:rf/machines <spawned-id>]`. The child's initial
       state's `:entry` action should fire as the spawn cascade runs.
 
@@ -91,7 +91,7 @@
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
-                   :working {:invoke {:machine-id :rf2-0z73/child}
+                   :working {:spawn {:machine-id :rf2-0z73/child}
                              :on    {:done :idle}}}}]
       (rf/reg-machine :rf2-0z73/child  child)
       (rf/reg-machine :rf2-0z73/parent parent)
@@ -192,17 +192,17 @@
               ":exception slot is populated"))))))
 
 (deftest initial-entry-throw-skips-invoke-and-after-on-failing-state
-  (testing "when :entry throws on the initial state, its sibling :invoke and
+  (testing "when :entry throws on the initial state, its sibling :spawn and
             :after declarations do NOT fire — the cascade halt is total"
     (let [spawn-fired? (atom false)
           calls        (atom [])
-          ;; Spawn fx — would fire if :invoke ran. We register our own
+          ;; Spawn fx — would fire if :spawn ran. We register our own
           ;; observer to detect it without depending on a real child.
           child-spec   {:initial :idle
                         :states  {:idle {}}}]
       (rf/reg-machine :rf2-dd3b/spy-child child-spec)
       ;; Hook the :rf.machine/spawn fx so we can observe if it fires.
-      ;; Per Spec 005 §spawn-fx the runtime emits this when an :invoke
+      ;; Per Spec 005 §spawn-fx the runtime emits this when a :spawn
       ;; slot is declared on the entering state.
       (let [orig (registrar/lookup :fx :rf.machine/spawn)]
         (rf/reg-fx :rf.machine/spawn
@@ -216,7 +216,7 @@
                                         (throw (ex-info "boom" {})))}
                     :states
                     {:a {:entry  :throws
-                         :invoke {:machine-id :rf2-dd3b/spy-child}
+                         :spawn {:machine-id :rf2-dd3b/spy-child}
                          :after  {1000 :b}}
                      :b {}}}]
           (rf/reg-machine :rf2-dd3b/skip spec)
@@ -225,7 +225,7 @@
           (is (= [:throws-entered] @calls))
           ;; The spawn fx was NOT fired — the cascade halted before fx flowed.
           (is (false? @spawn-fired?)
-              ":invoke's spawn fx did not fire when :entry threw on the same state")
+              ":spawn's spawn fx did not fire when :entry threw on the same state")
           ;; And the snapshot was not committed — there is no machine record.
           (is (nil? (get-in (rf/get-frame-db :rf/default)
                             [:rf/machines :rf2-dd3b/skip]))

@@ -1,10 +1,10 @@
 ;; Conformance fixture: machine/spawn-on-spawn-callback
 ;;
 ;; The :on-spawn callback receives the just-allocated actor-id. Per
-;; [005 §Declarative :invoke (sugar over spawn)]
-;; (../../005-StateMachines.md#declarative-invoke-sugar-over-spawn): when the
+;; [005 §Declarative :spawn (sugar over spawn)]
+;; (../../005-StateMachines.md#declarative-spawn): when the
 ;; runtime processes a :rf.machine/spawn fx (whether from declarative
-;; :invoke desugar or an action's hand-emitted :rf.machine/spawn), it
+;; :spawn desugar or an action's hand-emitted :rf.machine/spawn), it
 ;; allocates a deterministic actor id and threads (data, spawned-id)
 ;; through the user-supplied :on-spawn
 ;; callback. The callback returns an updated :data map — typically recording
@@ -17,7 +17,7 @@
 ;; transition, :data carries :born-with-id :http/post#1 — proving the
 ;; callback ran AND received the right actor-id argument.
 ;;
-;; Companion to `invoke-spawn-on-entry-destroy-on-exit.edn`, which exercises
+;; Companion to `spawn-on-entry-destroy-on-exit.edn`, which exercises
 ;; the full spawn/destroy lifecycle; this fixture's narrower claim is "the
 ;; callback's actor-id parameter is the just-allocated id."
 
@@ -54,7 +54,7 @@
      {:on {:go :working}}
 
      :working
-     {:invoke {:machine-id :http/post
+     {:spawn {:machine-id :http/post
                :data       {:url "/api/x"}
                :on-spawn   :supervisor/record-actor-id
                :start      [:begin]}}}}
@@ -75,4 +75,4 @@
                                               :start         [:begin]
                                               :rf/spawned-id :http/post#1
                                               :rf/parent-id  :rf/transition-pure
-                                              :rf/invoke-id  [:working]}]]}]}
+                                              :rf/spawn-id  [:working]}]]}]}

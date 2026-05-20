@@ -1,16 +1,16 @@
-;; Conformance fixture: machine/invoke-all-join-all-completes
+;; Conformance fixture: machine/spawn-all-join-all-completes
 ;;
-;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw). Verify that
-;; entering an :invoke-all-bearing state with `:join :all` emits:
-;;   1. One :rf.machine/invoke-all-init fx that seeds the join state at
+;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify that
+;; entering a :spawn-all-bearing state with `:join :all` emits:
+;;   1. One :rf.machine/spawn-all-init fx that seeds the join state at
 ;;      [:rf/spawned <parent> <invoke-id>].
 ;;   2. N :rf.machine/spawn fxs (one per child), each carrying the
-;;      runtime-stamped :rf/parent-id, :rf/invoke-all-id (the prefix-path
-;;      of the :invoke-all-bearing state), and :rf/invoke-all-child-id
+;;      runtime-stamped :rf/parent-id, :rf/spawn-all-id (the prefix-path
+;;      of the :spawn-all-bearing state), and :rf/spawn-all-child-id
 ;;      (the user-supplied :id).
 ;;
 ;; The fixture exercises the desugared shape directly via :machine-transition
-;; calls. The :rf.machine/invoke-all-init / :rf.machine/spawn fxs the
+;; calls. The :rf.machine/spawn-all-init / :rf.machine/spawn fxs the
 ;; runtime emits are observable at the same level as any other fx.
 ;;
 ;; Pure-call machine-transition (the conformance harness's runner) carries
@@ -22,10 +22,10 @@
 ;; snapshot starts without the slot; each child spawn bumps its own
 ;; machine-id slot so the three children land at #1 each.
 
-{:fixture/id           :machine/invoke-all-join-all-completes
+{:fixture/id           :machine/spawn-all-join-all-completes
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/spawn-and-join}
- :fixture/doc          "Declarative :invoke-all spawn-and-join with :join :all desugars to entry-cascade :rf.machine/invoke-all-init + N :rf.machine/spawn fxs at registration time. Verifies the entry-side fx emission for the auth-flow worked example shape (3 parallel children)."
+ :fixture/doc          "Declarative :spawn-all spawn-and-join with :join :all desugars to entry-cascade :rf.machine/spawn-all-init + N :rf.machine/spawn fxs at registration time. Verifies the entry-side fx emission for the auth-flow worked example shape (3 parallel children)."
 
  :fixture/registry
  {:machine
@@ -34,7 +34,7 @@
    :load-user-profile  {:doc "Stub child — :rf.machine/spawn target"}}}
 
  :fixture/calls
- ;; Entering :hydrating: 1 invoke-all-init fx + 3 spawn fxs.
+ ;; Entering :hydrating: 1 spawn-all-init fx + 3 spawn fxs.
  [{:call         :machine-transition
    :definition
    {:initial :idle
@@ -44,7 +44,7 @@
      {:on {:start :hydrating}}
 
      :hydrating
-     {:invoke-all
+     {:spawn-all
       {:children         [{:id :cfg  :machine-id :load-config}
                           {:id :flag :machine-id :load-feature-flags}
                           {:id :user :machine-id :load-user-profile}]
@@ -70,9 +70,9 @@
    ;; allocation is deterministic via the snapshot's `:rf/spawn-counter`
    ;; (per machine-id) per rf2-gr8q; each spawn-id is `:<machine-id>#1`
    ;; because each :machine-id has its own counter slot starting from 0.
-   [[:rf.machine/invoke-all-init
+   [[:rf.machine/spawn-all-init
      {:rf/parent-id :rf/transition-pure
-      :rf/invoke-id [:hydrating]
+      :rf/spawn-id [:hydrating]
       :join-state   {:children  {:cfg  :load-config#1
                                  :flag :load-feature-flags#1
                                  :user :load-user-profile#1}
@@ -87,28 +87,28 @@
                                  :on-child-error   :asset/failed
                                  :on-all-complete  [:hydrate/done]
                                  :on-any-failed    [:hydrate/failed]}
-                     :invoke-id [:hydrating]}}]
+                     :spawn-id [:hydrating]}}]
     ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
-    ;; on :rf/invoke-all-child-id instead.
+    ;; on :rf/spawn-all-child-id instead.
     [:rf.machine/spawn
      {:machine-id              :load-config
       :id-prefix               :load-config
       :rf/spawned-id           :load-config#1
       :rf/parent-id            :rf/transition-pure
-      :rf/invoke-all-id        [:hydrating]
-      :rf/invoke-all-child-id  :cfg}]
+      :rf/spawn-all-id        [:hydrating]
+      :rf/spawn-all-child-id  :cfg}]
     [:rf.machine/spawn
      {:machine-id              :load-feature-flags
       :id-prefix               :load-feature-flags
       :rf/spawned-id           :load-feature-flags#1
       :rf/parent-id            :rf/transition-pure
-      :rf/invoke-all-id        [:hydrating]
-      :rf/invoke-all-child-id  :flag}]
+      :rf/spawn-all-id        [:hydrating]
+      :rf/spawn-all-child-id  :flag}]
     [:rf.machine/spawn
      {:machine-id              :load-user-profile
       :id-prefix               :load-user-profile
       :rf/spawned-id           :load-user-profile#1
       :rf/parent-id            :rf/transition-pure
-      :rf/invoke-all-id        [:hydrating]
-      :rf/invoke-all-child-id  :user}]]}]}
+      :rf/spawn-all-id        [:hydrating]
+      :rf/spawn-all-child-id  :user}]]}]}

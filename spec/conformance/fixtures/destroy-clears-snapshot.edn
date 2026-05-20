@@ -3,7 +3,7 @@
 ;; Imperative destroy from an action. Per [005 §Capability matrix §Actor-model
 ;; axis, "Imperative spawn / destroy"](../../005-StateMachines.md#capability-matrix):
 ;; an action can return :fx [[:rf.machine/destroy actor-id]] to imperatively tear
-;; down a child actor — the same fx the declarative :invoke desugar emits on
+;; down a child actor — the same fx the declarative :spawn desugar emits on
 ;; state-exit.
 ;;
 ;; This fixture exercises the action-emitted form. The runtime adapter is

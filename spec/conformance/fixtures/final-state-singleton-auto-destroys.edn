@@ -34,7 +34,7 @@
  [;; (1) Transition into a :final? leaf. The post-transition snapshot's
   ;; :state IS the terminal leaf — verifies that the transition target
   ;; resolution respects `:final?` (which constrains the state-node's
-  ;; shape — no :states / :initial / :on / :after / :always / :invoke).
+  ;; shape — no :states / :initial / :on / :after / :always / :spawn).
   {:call         :machine-transition
    :definition
    {:initial :running

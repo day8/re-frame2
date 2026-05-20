@@ -182,7 +182,7 @@ Do **not** flatten the axes into a single page-local enum like `:ui-state :nothi
 
 ### 2. Declare one parallel machine with one region per axis
 
-A `:type :parallel` machine (per [§Parallel regions](005-StateMachines.md#parallel-regions)) takes a `:regions` map keyed by region name. Each region is a full state-tree (its own `:initial`, `:states`, optional `:always` / `:after` / `:invoke`). All regions are active simultaneously when the machine is active; the snapshot's `:state` is a **map** of region-name → that region's state value; transitions are **broadcast** across regions; the run-to-completion drain settles every region before commit.
+A `:type :parallel` machine (per [§Parallel regions](005-StateMachines.md#parallel-regions)) takes a `:regions` map keyed by region name. Each region is a full state-tree (its own `:initial`, `:states`, optional `:always` / `:after` / `:spawn`). All regions are active simultaneously when the machine is active; the snapshot's `:state` is a **map** of region-name → that region's state value; transitions are **broadcast** across regions; the run-to-completion drain settles every region before commit.
 
 Regions share a single `:data` blob — they coordinate axes of one feature, so they read and write the same underlying data, just sliced differently. If your axes are conceptually separate features (multiple tabs each with their own state, an audio/video player whose two regions share nothing but the play/pause event, encapsulated `:data`), you don't want parallel regions — you want **N separate machines** colocated in app-db. See [005-StateMachines.md §When to reach for parallel regions](005-StateMachines.md#when-to-reach-for-parallel-regions) and [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) for the redirect.
 
@@ -270,7 +270,7 @@ The mapping is direct: the events the `:data` region listens for (`:fetch-starte
 | `:empty` / `:one` / `:some` / `:too-many` | Resolution settled into a cardinality bucket. | Guard-selected by `(count (:items data))` against `too-many-threshold`; first match wins. |
 | `:error` | One of the eight `:rf.http/*` failure categories surfaced after retries exhausted. | The failure map at `[:data :error]` is the standard 014 shape: `{:kind :rf.http/* ...kind-tags...}`. |
 
-The same shape works whether the fx is dispatched directly (`:fx [[:rf.http/managed ...]]`) or threaded through `:rf.http/managed`'s child-invokable wrapper (`:invoke {:machine-id :rf.http/managed ...}` per [014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper)). The reply lands at an event id, the event id broadcasts `:fetch-succeeded` / `:fetch-failed` into the page machine, and the region picks the bucket.
+The same shape works whether the fx is dispatched directly (`:fx [[:rf.http/managed ...]]`) or threaded through `:rf.http/managed`'s child-invokable wrapper (`:spawn {:machine-id :rf.http/managed ...}` per [014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper)). The reply lands at an event id, the event id broadcasts `:fetch-succeeded` / `:fetch-failed` into the page machine, and the region picks the bucket.
 
 ### Worked transition table
 
@@ -323,12 +323,12 @@ If the API returns a richer success shape (a struct with `:total-count`, `:items
 
 ### Cancellation cascade
 
-The `:data` region's `:loading` state usually has an `:invoke` of `:rf.http/managed`'s machine wrapper when the request's lifetime should be bound to the region's. With that wiring, navigating away mid-fetch causes the parent's state to exit, which destroys the wrapper actor, which fires the late-bind `:http/abort-on-actor-destroy` hook (per [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — rf2-wvkn). The in-flight HTTP request is cancelled with `:reason :actor-destroyed`; the `:rf.http/aborted-on-actor-destroy` trace fires.
+The `:data` region's `:loading` state usually has a `:spawn` of `:rf.http/managed`'s machine wrapper when the request's lifetime should be bound to the region's. With that wiring, navigating away mid-fetch causes the parent's state to exit, which destroys the wrapper actor, which fires the late-bind `:http/abort-on-actor-destroy` hook (per [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — rf2-wvkn). The in-flight HTTP request is cancelled with `:reason :actor-destroyed`; the `:rf.http/aborted-on-actor-destroy` trace fires.
 
 ```clojure
 :loading
 {:tags  #{:data/loading :data/transient}
- :invoke {:machine-id :rf.http/managed
+ :spawn {:machine-id :rf.http/managed
           :data       {:request    {:method :get :url "/api/counters"}
                        :decode     CounterListResponse
                        :request-id :counter/load}}
@@ -339,7 +339,7 @@ The `:data` region's `:loading` state usually has an `:invoke` of `:rf.http/mana
 
 `:reset` from a bucket — fired by a navigation handler or an explicit user gesture — exits `:loading`, the wrapper is destroyed, and the in-flight request is aborted. No `:rf.http/managed-abort` call needed; the lifetime binding handles it.
 
-Pages that issue managed HTTP from an event handler directly (the `:fx [[:rf.http/managed ...]]` form above, not the `:invoke` form) don't get the actor-destroy cascade — per [014 §Direct dispatches from event handlers — NOT covered](014-HTTPRequests.md#direct-dispatches-from-event-handlers--not-covered), only requests issued from inside a spawned actor are subject to actor-destroy cancellation. Apps that want navigation-mid-fetch cancellation in that case have two options: lift the call into the `:invoke` form above, or issue an explicit `[:rf.http/managed-abort :counter/load]` from the navigation handler against the same `:request-id`.
+Pages that issue managed HTTP from an event handler directly (the `:fx [[:rf.http/managed ...]]` form above, not the `:spawn` form) don't get the actor-destroy cascade — per [014 §Direct dispatches from event handlers — NOT covered](014-HTTPRequests.md#direct-dispatches-from-event-handlers--not-covered), only requests issued from inside a spawned actor are subject to actor-destroy cancellation. Apps that want navigation-mid-fetch cancellation in that case have two options: lift the call into the `:spawn` form above, or issue an explicit `[:rf.http/managed-abort :counter/load]` from the navigation handler against the same `:request-id`.
 
 ### Stale-detection
 

@@ -108,7 +108,7 @@ The whole sequence is one logical operation, but each chunk is processed within 
 
 `:chunk-size` shown above is the canonical example of a per-invocation parameter: declared as a default in `:data`, overridable via the dispatched event's opts map. The receiving action reads `(:chunk-size opts 100)` so callers who want the default omit opts; callers who want a smaller (or larger) batch supply it. The same shape covers `:max-attempts`, throttle windows, and any other knob a caller might want to tune per job.
 
-For the full menu of parameter-passing mechanisms — event payload (used here), spawn-spec `:data` fn (used when the batch machine is `:invoke`d from a parent), and boot-time host config — see [Pattern-AsyncEffect §Parameter passing across the boundary](Pattern-AsyncEffect.md#parameter-passing-across-the-boundary).
+For the full menu of parameter-passing mechanisms — event payload (used here), spawn-spec `:data` fn (used when the batch machine is `:spawn`d from a parent), and boot-time host config — see [Pattern-AsyncEffect §Parameter passing across the boundary](Pattern-AsyncEffect.md#parameter-passing-across-the-boundary).
 
 ## Cancellation
 

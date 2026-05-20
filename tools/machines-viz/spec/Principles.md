@@ -132,7 +132,7 @@ Forbidden in a share payload:
 - User-input data (no form values, no inputs the user typed).
 - Conversation buffers (no AI-co-pilot history).
 - Cross-machine state unless the sharer's chart explicitly includes
-  it via `:invoke-all`.
+  it via `:spawn-all`.
 - Any data from any panel other than the machine chart.
 
 The principle exists because the framework's runtime carries
@@ -230,7 +230,7 @@ looping:
   when the chart is visible; backgrounded charts pause the fill.
   This is a *fill-progressing* surface, not a looping animation —
   the ring drains once per timer and then sits at its end-state.
-- `:invoke-all` join completes: one ~400ms row-collapse animation.
+- `:spawn-all` join completes: one ~400ms row-collapse animation.
 
 No looping animations, full stop. No "look at me I'm running"
 continuous strobes. Every animation respects
@@ -270,7 +270,7 @@ Every coloured marker pairs with a shape, icon, or text:
 - `:after` countdown ring: amber arc + the countdown-clock icon +
   the remaining-ms text.
 - `:final?` state: doubled border + a "✓" glyph.
-- `:invoke-all` failed child: red fill + an "!" badge + "failed"
+- `:spawn-all` failed child: red fill + an "!" badge + "failed"
   label.
 - Stale microstep node: grey + dashed border + "(microstep)" text.
 

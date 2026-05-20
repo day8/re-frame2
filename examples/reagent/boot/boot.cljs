@@ -5,9 +5,9 @@
    four states:
 
      :configuring   → fetch the mock /config endpoint via a single
-                      `:invoke`d child loader machine.
+                      `:spawn`d child loader machine.
      :loading-deps  → fan out THREE parallel child loads (routes,
-                      feature flags, initial user) via `:invoke-all`;
+                      feature flags, initial user) via `:spawn-all`;
                       the parent reaches the next state only when
                       EVERY child reports done.
      :hydrating     → applies the four loaded payloads into top-level
@@ -31,7 +31,7 @@
    Each child fetches via `:rf.http/managed` and, on success, writes
    its payload into the boot machine's staging slot at
    `[:boot/staging <staging-key>]` before dispatching the canonical
-   `:invoke-all` child-completion event back to the parent's
+   `:spawn-all` child-completion event back to the parent's
    `:on-child-done` slot.
 
    Why a staging slot rather than threading payloads through the
@@ -40,7 +40,7 @@
    ONLY — they are not fed into the parent's `:on` lookup. The
    join-resolution event the runtime synthesises
    (`:on-all-complete [:boot/deps-ready]`) carries no per-child
-   payload. So the canonical Pattern-Boot shape for an `:invoke-all`
+   payload. So the canonical Pattern-Boot shape for a `:spawn-all`
    that needs to thread loaded data into the parent is: each child
    writes its result into a known app-db slice, the parent reads
    that slice on the join-resolved transition. This keeps the
@@ -88,7 +88,7 @@
 ;; The reusable child machine. One spec, four instances. Each
 ;; instance carries its own `:data` map (`:parent-id`, `:child-id`,
 ;; `:staging-key`, `:url`) planted by the parent's per-child
-;; `:invoke` / `:invoke-all`-child `:data` slot (fn-form per
+;; `:spawn` / `:spawn-all`-child `:data` slot (fn-form per
 ;; Spec 005 §Spec-spec keys). The child machine spawns in `:idle`
 ;; and the runtime-synthesised `:rf.machine/spawned` event
 ;; transitions it to `:loading`, which fires the entry-cascade's
@@ -122,7 +122,7 @@
     :dispatch-done
     ;; Terminal-state entry. First write the loaded payload into
     ;; [:boot/staging <staging-key>], then fire the canonical
-    ;; `:invoke-all` child-completion event back to the parent's
+    ;; `:spawn-all` child-completion event back to the parent's
     ;; :on-child-done slot. The runtime intercepts the second
     ;; dispatch for join bookkeeping.
     (fn [data _]
@@ -195,16 +195,16 @@
    :states
    {;; ---- :idle — the parking spot before the boot kicks off -------------
     ;; Per the standard re-frame2 state-machine convention (see the
-    ;; `:invoke-all` conformance fixtures), a machine's initial state
+    ;; `:spawn-all` conformance fixtures), a machine's initial state
     ;; is `:idle` and the first work-event transitions it onward. Here
     ;; the `:rf/start` event the dispatched-on-app-boot fires moves
-    ;; :idle → :configuring, which fires the :invoke entry-cascade.
+    ;; :idle → :configuring, which fires the :spawn entry-cascade.
     :idle
     {:on {:rf/start :configuring}}
 
-    ;; ---- :configuring — a single :invoke fetches /config -----------------
+    ;; ---- :configuring — a single :spawn fetches /config -----------------
     :configuring
-    {:invoke {:machine-id :boot/loader
+    {:spawn {:machine-id :boot/loader
               ;; Per Spec 005 §Spec-spec keys, `:data` admits a
               ;; function form `(fn [snap ev] data)` so the child's
               ;; initial :data can depend on the parent's snapshot at
@@ -221,9 +221,9 @@
               :boot/asset-failed {:target :failed
                                   :action :record-failure}}}
 
-    ;; ---- :loading-deps — :invoke-all fans out THREE parallel children ---
+    ;; ---- :loading-deps — :spawn-all fans out THREE parallel children ---
     :loading-deps
-    {:invoke-all
+    {:spawn-all
      {:children
       ;; Each child is the same :boot/loader machine, distinguished
       ;; only by its :data slot. The :data fn-form reads the

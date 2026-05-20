@@ -55,7 +55,7 @@ unrecognised keys at registration time).
 | `:read-only?` | no | `false` | If `true`, all `:on-*` callbacks are no-op'd regardless of what the host passes. The viewer page sets this. |
 | `:show-microsteps?` | no | `true` | Whether intermediate `:always` microstep nodes are rendered. |
 | `:show-after-rings?` | no | `true` | Whether `:after` countdown rings render on the source states. |
-| `:show-invoke-all?` | no | `true` | Whether `:invoke-all` children render as a row of mini-machines (vs. a collapsed single icon). |
+| `:show-invoke-all?` | no | `true` | Whether `:spawn-all` children render as a row of mini-machines (vs. a collapsed single icon). |
 | `:show-spawned?` | no | `true` | Whether dynamically `:rf.machine/spawn`-ed children appear in the parent's spawn-tray. |
 | `:height` | no | `nil` (flex) | Fixed height in pixels. Useful for uniform-ribbon layouts. |
 | `:width` | no | `nil` (flex) | Fixed width in pixels. |
@@ -84,10 +84,10 @@ For the selected machine, the chart shows:
   animation; backgrounded charts pause it.
 - **Tooltips.** Hover a state for its tags + entry/exit actions;
   hover an edge for its guard + action functions.
-- **`:invoke` / `:invoke-all` spawned children.** Per
+- **`:spawn` / `:spawn-all` spawned children.** Per
   `:show-invoke-all?`, render as a horizontal row of mini-machines
   with the join-condition label below. Per
-  [Causa 003 §`:invoke-all` viz](../../causa/spec/003-Machine-Inspector.md#invoke-all-viz).
+  [Causa 003 §`:spawn-all` viz](../../causa/spec/003-Machine-Inspector.md#spawn-all-viz).
 - **`:after` countdown rings.** A filling arc on the source state
   while a timer is scheduled; updates at 60Hz when the chart is
   visible (per [DESIGN-RATIONALE Lock #8](./DESIGN-RATIONALE.md)).
@@ -121,7 +121,7 @@ introduce new registries.
 | `:rf.machine/transition` trace events | Edge glow on the matching transition. |
 | `:rf.machine.microstep/transition` events | Microstep flashes. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | `:after` countdown ring scheduling. |
-| `:rf.machine.invoke-all/started` / `-all-completed` / `-some-completed` / `-any-failed` | `:invoke-all` row updates. |
+| `:rf.machine.spawn-all/started` / `-all-completed` / `-some-completed` / `-any-failed` | `:spawn-all` row updates. |
 | `:rf.machine/spawned` / `-destroyed` | Spawn-tray contents on the parent. |
 | `:rf.machine/done` | `:final?` entry highlight before auto-destroy. |
 | `:rf.machine/system-id-bound` / `-released` | Aliased addressing in the spawn-tray (gensym shows `:gensym-42 (:auth/main)`). |
@@ -220,7 +220,7 @@ exist so that coupling never lands.
   tint + bolder stroke; pulse retired 2026-05-20 per rf2-2sez0),
   transition edge glow, microstep flash, `:after` countdown ring
   progress,
-  `:invoke-all` row state, spawn-tray contents, timer state, and
+  `:spawn-all` row state, spawn-tray contents, timer state, and
   every other per-trace decoration. Derived from `[:rf/machines <id>]`
   plus the `:rf.machine/*` trace bus. This plane is **decorative**:
   changing it MUST NOT touch the topology plane.
@@ -278,7 +278,7 @@ No other code path may invalidate layout. In particular:
 
 - `:rf.machine/transition`, `:rf.machine.microstep/transition`,
   `:rf.machine.timer/scheduled` / `-fired` / `-stale-after`,
-  `:rf.machine.invoke-all/*`, `:rf.machine/spawned` / `-destroyed`,
+  `:rf.machine.spawn-all/*`, `:rf.machine/spawned` / `-destroyed`,
   `:rf.machine/done`, `:rf.machine/system-id-bound` / `-released`
   trace events MUST NOT reach the layout pipeline.
 - A `[:rf/machines <id>]` snapshot deref MUST NOT reach the layout
@@ -486,7 +486,7 @@ data are structurally excluded:
   [:map
    [:machine-id  keyword?]              ;; the registered machine's id
    [:frame-id    keyword?]              ;; the registered machine's frame
-   [:definition  MachineDefinition]     ;; the topology (states, transitions, guards, actions, :invoke, :invoke-all, :after)
+   [:definition  MachineDefinition]     ;; the topology (states, transitions, guards, actions, :spawn, :spawn-all, :after)
    [:snapshot   {:optional true}        ;; the current-state name at share time — name ONLY, no :data
     [:map {:closed true}
      [:state    keyword?]]]])           ;; the registered state-id; nothing else permitted in :snapshot
@@ -638,7 +638,7 @@ The following data does **not** survive the round-trip:
   countdown-ring vocabulary. The timer's `:target` edge still
   renders (as a plain event-less edge), but the countdown semantics
   are lost.
-- `:invoke-all` rows of mini-machines — Mermaid has no
+- `:spawn-all` rows of mini-machines — Mermaid has no
   spawn-and-join row grammar that maps cleanly; the row is omitted
   entirely.
 - Parallel-region broadcast macrosteps — regions render, but Mermaid

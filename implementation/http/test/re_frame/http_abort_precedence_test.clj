@@ -269,11 +269,11 @@
                                      :on-success [:reply/recorder]}]]})}
            :states  {:idle    {:on {:start :running}}
                      :running {:entry :fire}}})
-        ;; Parent: :invoke spawns the child, :cancel transitions out.
+        ;; Parent: :spawn spawns the child, :cancel transitions out.
         (rf/reg-machine :sup/race
           {:initial :idle
            :states  {:idle    {:on {:start :working}}
-                     :working {:invoke {:machine-id :worker/race
+                     :working {:spawn {:machine-id :worker/race
                                         :start      [:start]}
                                :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/race [:start]])

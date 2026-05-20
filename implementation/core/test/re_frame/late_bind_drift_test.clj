@@ -7,7 +7,7 @@
   Pre-rf2-n2j0 the directory lived in an 85-line `^:doc` metadata
   string on the `hooks` atom in `re-frame.late_bind.cljc`. The
   metadata silently drifted: keys were published with no entry
-  (`:trace/emit!`, `:routing/route-link`, `:machines/invoke-all-init-fx`,
+  (`:trace/emit!`, `:routing/route-link`, `:machines/spawn-all-init-fx`,
   `:epoch/reset-frame-db!`, `:schemas/reg-app-schemas`,
   `:http/register-managed-machine!`, and several `:machines/after-*`
   effect handlers), and entries claimed producers that never landed

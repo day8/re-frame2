@@ -317,7 +317,7 @@ Three near-neighbours flows are *not*:
 | Concept | Difference |
 |---|---|
 | **Subscription** ([006](006-ReactiveSubstrate.md)) | Subs live in the sub-cache; consumed by views. Flows live in `app-db`; consumed by everything (handlers, other flows, schemas, SSR payload). When the value is part of the application's *state*, use a flow; when it's part of view rendering only, use a sub. |
-| **State machine** ([005](005-StateMachines.md)) | Machines have transitions, hierarchical states, `:always`/`:after`/`:invoke`, snapshots at `[:rf/machines <id>]`. Flows have one pure function and one output path. Use a machine when there are discrete states; use a flow when the value is a pure function of inputs. |
+| **State machine** ([005](005-StateMachines.md)) | Machines have transitions, hierarchical states, `:always`/`:after`/`:spawn`, snapshots at `[:rf/machines <id>]`. Flows have one pure function and one output path. Use a machine when there are discrete states; use a flow when the value is a pure function of inputs. |
 | **`on-changes` interceptor** (v1) | `on-changes` is wired into specific events' interceptor chains. Flows are registered against a frame and toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`. The compute-on-change semantics are identical; the registration shape and lifecycle are different. |
 
 Flows are also explicitly *not*:

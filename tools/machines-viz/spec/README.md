@@ -23,7 +23,7 @@ implementation work picks up; this scaffold is intentionally
 **API + locks first, capability detail later**. Until the
 capability docs land, [Causa 003](../../causa/spec/003-Machine-Inspector.md)
 is the source of truth for unmigrated content (transition-history
-ribbon UX, source-coord wiring, `:invoke-all` row layout details).
+ribbon UX, source-coord wiring, `:spawn-all` row layout details).
 
 ## Status
 

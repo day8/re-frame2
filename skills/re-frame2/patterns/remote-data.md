@@ -2,7 +2,7 @@
 
 The standard request-lifecycle convention. A 5-key slice (or one machine region) tracks **status / data / error / loaded-at / attempt**, and four events drive the lifecycle (**load / loaded / load-failed / reset**). The load-bearing distinction is `:loading` (truly empty, first fetch) vs `:fetching` (revalidate with existing data) — they look identical to a careless UI but feel very different to a user.
 
-RemoteData is the **app-side** lifecycle slice that sits on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any framework-owned surface (`:rf.ws/*` request-reply messages, state-machine `:invoke`'d loaders, `:rf.server/*` per-request fxs). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names what the *receiving* state looks like once the umbrella's reply lands.
+RemoteData is the **app-side** lifecycle slice that sits on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any framework-owned surface (`:rf.ws/*` request-reply messages, state-machine `:spawn`'d loaders, `:rf.server/*` per-request fxs). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names what the *receiving* state looks like once the umbrella's reply lands.
 
 ## When to load this leaf
 
@@ -71,7 +71,7 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
 
 ## Canonical declaration — `:data-region` machine form
 
-Used when the lifecycle is *part of* a larger page's machine (the page already has a `:type :parallel` machine with `:form` / `:mode` axes — see `patterns/nine-states.md`), or when the lifecycle plus a per-region cancellation/`:invoke` are wanted. Lifted from `examples/reagent/realworld/tags.cljs`:
+Used when the lifecycle is *part of* a larger page's machine (the page already has a `:type :parallel` machine with `:form` / `:mode` axes — see `patterns/nine-states.md`), or when the lifecycle plus a per-region cancellation/`:spawn` are wanted. Lifted from `examples/reagent/realworld/tags.cljs`:
 
 ```clojure
 (rf/reg-machine :realworld/tags

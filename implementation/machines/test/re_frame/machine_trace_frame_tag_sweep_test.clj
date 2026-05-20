@@ -261,7 +261,7 @@
       {:initial :idle
        :data    {}
        :states  {:idle    {:on {:start :working}}
-                 :working {:invoke {:machine-id :ko8jb/child-od
+                 :working {:spawn {:machine-id :ko8jb/child-od
                                     :on-done    (fn [_d _r]
                                                   (throw (ex-info "boom" {})))}}}})
     (let [traces (record-traces!
@@ -275,14 +275,14 @@
                                              [:working]])]
                        (rf/dispatch-sync [child-id [:finish]]))))
           ev    (first (filter
-                         #(= :rf.invoke/on-done (get-in % [:tags :action-id]))
+                         #(= :rf.spawn/on-done (get-in % [:tags :action-id]))
                          (of-op traces :rf.error/machine-action-exception)))]
       (is (some? ev)
-          ":rf.error/machine-action-exception with :action-id :rf.invoke/on-done fired")
+          ":rf.error/machine-action-exception with :action-id :rf.spawn/on-done fired")
       (is (= :rf/default (frame-tag ev))
           ":frame tag stamped on the on-done-throw error"))))
 
-;; ---- join.cljc :rf.machine.invoke-all/all-completed -----------------------
+;; ---- join.cljc :rf.machine.spawn-all/all-completed -----------------------
 
 (defn- mk-child-spec
   "Return a child spec that dispatches `done-event-kw` /
@@ -307,13 +307,13 @@
              :failed  {}}})
 
 (deftest invoke-all-all-completed-tag-carries-frame
-  (testing ":rf.machine.invoke-all/all-completed carries `:frame` tag
+  (testing ":rf.machine.spawn-all/all-completed carries `:frame` tag
    (rf2-ko8jb — frame-id plumbed into emit-resolution-traces!)"
     (let [child  (mk-child-spec :ko8jb/parent-all :asset/loaded :asset/failed)
           parent {:initial :idle
                   :states  {:idle      {:on {:start :hydrating}}
                             :hydrating
-                            {:invoke-all
+                            {:spawn-all
                              {:children        [{:id :a :machine-id :ko8jb/ca-a
                                                   :start [:set-id :a]}
                                                  {:id :b :machine-id :ko8jb/ca-b
@@ -336,21 +336,21 @@
                                    [:hydrating] :children])]
                   (rf/dispatch-sync [(:a ids) [:go]])
                   (rf/dispatch-sync [(:b ids) [:go]]))))
-            ev (first-of-op traces :rf.machine.invoke-all/all-completed)]
-        (is (some? ev) ":rf.machine.invoke-all/all-completed fired")
+            ev (first-of-op traces :rf.machine.spawn-all/all-completed)]
+        (is (some? ev) ":rf.machine.spawn-all/all-completed fired")
         (is (= :rf/default (frame-tag ev))
             ":frame tag stamped on join resolution trace")))))
 
-;; ---- join.cljc :rf.error/machine-invoke-all-bad-child-id ------------------
+;; ---- join.cljc :rf.error/machine-spawn-all-bad-child-id ------------------
 
 (deftest invoke-all-bad-child-id-tag-carries-frame
-  (testing ":rf.error/machine-invoke-all-bad-child-id carries `:frame` tag
+  (testing ":rf.error/machine-spawn-all-bad-child-id carries `:frame` tag
    (rf2-ko8jb — `(:rf/frame machine)` resolved at interceptor entry)"
     (let [child  (mk-child-spec :ko8jb/parent-bc :asset/loaded :asset/failed)
           parent {:initial :idle
                   :states  {:idle      {:on {:start :hydrating}}
                             :hydrating
-                            {:invoke-all
+                            {:spawn-all
                              {:children        [{:id :a :machine-id :ko8jb/cbc
                                                   :start [:set-id :a]}]
                               :join            :all
@@ -366,11 +366,11 @@
               (fn []
                 (rf/dispatch-sync [:ko8jb/parent-bc [:start]])
                 ;; Inject a forged child-id the join-state never knew about
-                ;; — triggers :rf.error/machine-invoke-all-bad-child-id.
+                ;; — triggers :rf.error/machine-spawn-all-bad-child-id.
                 (rf/dispatch-sync [:ko8jb/parent-bc
                                    [:asset/loaded :forged/never-spawned]])))
-            ev (first-of-op traces :rf.error/machine-invoke-all-bad-child-id)]
-        (is (some? ev) ":rf.error/machine-invoke-all-bad-child-id fired")
+            ev (first-of-op traces :rf.error/machine-spawn-all-bad-child-id)]
+        (is (some? ev) ":rf.error/machine-spawn-all-bad-child-id fired")
         (is (= :rf/default (frame-tag ev))
             ":frame tag stamped on bad-child-id error")))))
 

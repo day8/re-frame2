@@ -770,7 +770,7 @@
           {:initial :idle
            :states
            {:idle    {:on {:start :working}}
-            :working {:invoke {:machine-id :kyl7/worker
+            :working {:spawn {:machine-id :kyl7/worker
                                :start      [:start]}}}})
         (rf/dispatch-sync [:kyl7/sup [:start]])
 

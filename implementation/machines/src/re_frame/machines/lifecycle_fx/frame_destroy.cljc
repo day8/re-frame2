@@ -7,7 +7,7 @@
     1. Walk every active machine on the frame in **reverse-creation
        order** (most recently spawned disposes first).
     2. Run each machine's `:exit` cascade BEFORE clearing its snapshot
-       (the same Spec 005 §Declarative `:invoke` §Composition rule
+       (the same Spec 005 §Declarative `:spawn` §Composition rule
        enforced by `:rf.machine/destroy` — leaf-to-root exit, side
        effects fire against the live snapshot).
     3. Abort that actor's in-flight `:rf.http/managed` requests

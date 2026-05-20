@@ -48,7 +48,7 @@
    [:base-ms        :int]
    [:max-backoff-ms :int]
    ;; The currently-live socket actor's id (gensym'd by the runtime at
-   ;; :invoke time; cleared on exit from :active). Pattern-StaleDetection's
+   ;; :spawn time; cleared on exit from :active). Pattern-StaleDetection's
    ;; connection-epoch idiom — the live socket-id IS the epoch.
    [:socket-id      [:maybe :any]]
    [:subscriptions  [:set :any]]
@@ -61,7 +61,7 @@
    ;; receives them — only spawned actors do.
    [:rf/self-id     {:optional true} :any]
    [:rf/parent-id   {:optional true} :any]
-   [:rf/invoke-id   {:optional true} :any]])
+   [:rf/spawn-id   {:optional true} :any]])
 
 ;; ============================================================================
 ;; CONNECTION MACHINE SNAPSHOT SHAPE

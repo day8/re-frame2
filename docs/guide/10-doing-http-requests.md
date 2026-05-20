@@ -6,7 +6,7 @@ This chapter is the human-track for managed HTTP. We'll use the counter from cha
 
 ## What `:rf.http/managed` is
 
-`:rf.http/managed` is **the canonical managed external effect for HTTP** — the first instance, today, of a single contract shape every framework-owned async surface in re-frame2 conforms to (WebSockets, state-machine `:invoke`, SSR per-request fxs, managed flows). This chapter is the human-facing walkthrough of the HTTP instance.
+`:rf.http/managed` is **the canonical managed external effect for HTTP** — the first instance, today, of a single contract shape every framework-owned async surface in re-frame2 conforms to (WebSockets, state-machine `:spawn`, SSR per-request fxs, managed flows). This chapter is the human-facing walkthrough of the HTTP instance.
 
 A registered fx whose args map describes an HTTP request *as data*, and whose runtime side issues the request, decodes the body, runs retry-with-backoff if you asked for it, classifies failures into a closed set of `:rf.http/*` categories, and dispatches the reply back into the runtime.
 

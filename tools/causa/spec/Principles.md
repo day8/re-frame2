@@ -52,7 +52,7 @@ feedback) applied to tools: tools observe what the framework emits
 and present it; they do not invent new substrates.
 
 Concretely: when the implementation surfaces a spec gap (e.g., "I
-want to render `:invoke-all` join state but the trace events are
+want to render `:spawn-all` join state but the trace events are
 missing a `:child-ids` tag"), file a `bd` bead against the spec.
 Don't silently work around.
 

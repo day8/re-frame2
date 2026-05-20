@@ -43,7 +43,7 @@
     :body  "## The dominoes\n\n1. **Event** dispatch\n2. **Event** handler\n3. **Effects** application\n4. **Query** layer (subs)\n5. **View** layer\n6. **Re-render**\n\nThe re-frame2 spec lives in *spec/*.\n\nEach domino is *pure* in isolation. Only domino 3 touches the world."}
    {:id    :patterns
     :title "Patterns"
-    :body  "### Patterns shipped with re-frame2\n\n- Pattern-Boot — application initialisation as a state machine.\n- Pattern-WebSocket — connection machine with backoff + queue-flush.\n- Pattern-LongRunningWork — :invoke-all spawn-and-join.\n- Pattern-Managed-HTTP — declarative HTTP with cancellation.\n\nEach has a worked example under `examples/reagent/`."}])
+    :body  "### Patterns shipped with re-frame2\n\n- Pattern-Boot — application initialisation as a state machine.\n- Pattern-WebSocket — connection machine with backoff + queue-flush.\n- Pattern-LongRunningWork — :spawn-all spawn-and-join.\n- Pattern-Managed-HTTP — declarative HTTP with cancellation.\n\nEach has a worked example under `examples/reagent/`."}])
 
 ;; ============================================================================
 ;; EVENTS  (CP-1)

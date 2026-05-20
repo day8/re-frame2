@@ -1380,22 +1380,22 @@ Every namespace that calls `rf/epoch-history` / `rf/restore-epoch` / `rf/registe
 
 **Type B** (flag for human review — only when the user-defined machine relied on the old "the runtime reads `:data :pending`" assumption that pre-rf2-t07u prose hinted at; the snapshot shape and the user-facing `:on-spawn` callback signature are unchanged).
 
-Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:invoke` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` instead of reading the spawned id back out of the parent's `:data` (the v1-spec-prose claim was that the runtime "tracks which key the user's `:on-spawn` wrote" — concretely the implementation was reading `(get-in snapshot [:data :pending])`). Two consequences:
+Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:spawn` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` instead of reading the spawned id back out of the parent's `:data` (the v1-spec-prose claim was that the runtime "tracks which key the user's `:on-spawn` wrote" — concretely the implementation was reading `(get-in snapshot [:data :pending])`). Two consequences:
 
 1. **`:on-spawn` becomes purely advisory.** Users may still record the spawned id in their own `:data` (so other transitions can address the child by name), but the runtime no longer requires it for the destroy-side resolution. Apps that omit `:on-spawn` entirely now correctly destroy the spawned child on state-exit.
-2. **The destroy fx accepts a richer arg shape.** Inside a machine action's `:fx`, `[:rf.machine/destroy actor-id]` (the legacy / imperative form, hand-emitted by user actions) still works unchanged. The declarative-`:invoke` desugar now emits `[:rf.machine/destroy {:rf/parent-id ... :rf/invoke-id ...}]` and the fx handler resolves the actor id from the registry slot at fx-call time.
+2. **The destroy fx accepts a richer arg shape.** Inside a machine action's `:fx`, `[:rf.machine/destroy actor-id]` (the legacy / imperative form, hand-emitted by user actions) still works unchanged. The declarative-`:spawn` desugar now emits `[:rf.machine/destroy {:rf/parent-id ... :rf/spawn-id ...}]` and the fx handler resolves the actor id from the registry slot at fx-call time.
 
 **What to look for** in the codebase:
 
-- Machine specs that declared `:invoke` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-alpha these were broken by definition; the rf2-t07u change makes them correct without user-side rewrite.
+- Machine specs that declared `:spawn` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-alpha these were broken by definition; the rf2-t07u change makes them correct without user-side rewrite.
 - Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (e.g. `:exit (fn [data _] {:fx [[:rf.machine/destroy (:pending data)]]})`) — these continue to work unchanged (the keyword form of the destroy fx is preserved).
 - User-supplied `:exit` action bodies that read `(get-in db [:rf/machines (:pending data)])` to peek at the child's last snapshot before the auto-destroy fires — these continue to work unchanged. The composition rule ([§Composition with explicit `:entry` / `:exit`](../../spec/005-StateMachines.md#composition-with-explicit-entry--exit)) is unchanged: the user's `:exit` action runs BEFORE the auto-destroy, so the snapshot is still readable through the parent's recorded id.
 
-**What to do.** Type B because the rewrite depends on intent: an `:invoke` without `:on-spawn` was silently broken pre-rf2-t07u (the actor leaked); after rf2-t07u it works correctly. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (e.g. tests asserting `:rf/machines` has a stale entry after exit) needs explicit triage.
+**What to do.** Type B because the rewrite depends on intent: a `:spawn` without `:on-spawn` was silently broken pre-rf2-t07u (the actor leaked); after rf2-t07u it works correctly. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (e.g. tests asserting `:rf/machines` has a stale entry after exit) needs explicit triage.
 
-**Public API** (in `re-frame.core` and the `reg-machine` / `:invoke` surface) is unchanged — `:on-spawn` callback signature is `(fn [data spawned-id] new-data)` exactly as before. The change is to the **runtime semantics** of where the spawn-id is stored: the user's `:data` is now user territory, and the runtime owns `[:rf/spawned ...]`.
+**Public API** (in `re-frame.core` and the `reg-machine` / `:spawn` surface) is unchanged — `:on-spawn` callback signature is `(fn [data spawned-id] new-data)` exactly as before. The change is to the **runtime semantics** of where the spawn-id is stored: the user's `:data` is now user territory, and the runtime owns `[:rf/spawned ...]`.
 
-**Why:** the v1 prose contract conflated user data flow (where the user wants the id recorded for their own bookkeeping) with runtime mechanics (how the runtime locates the spawn for destroy). Splitting them — runtime-owned `[:rf/spawned ...]` + advisory user `:on-spawn` — fixes the silent-leak bug, removes the runtime's reliance on a particular `:data` slot key, and makes `:invoke` declarations correct-by-default. Per [005 §Declarative `:invoke` (sugar over spawn) §Desugaring rules](../../spec/005-StateMachines.md#desugaring-rules) and [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys).
+**Why:** the v1 prose contract conflated user data flow (where the user wants the id recorded for their own bookkeeping) with runtime mechanics (how the runtime locates the spawn for destroy). Splitting them — runtime-owned `[:rf/spawned ...]` + advisory user `:on-spawn` — fixes the silent-leak bug, removes the runtime's reliance on a particular `:data` slot key, and makes `:spawn` declarations correct-by-default. Per [005 §Declarative `:spawn` §Desugaring rules](../../spec/005-StateMachines.md#desugaring-rules) and [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys).
 
 ---
 
@@ -1403,7 +1403,7 @@ Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:
 
 **Type A** (mechanical, name-rename).
 
-Per [rf2-m83v](#), the actor-lifecycle fx-ids registered by `re-frame.machines` (Spec 005) are renamed to the framework-canonical `:rf.<feature>/...` form. The bare unqualified pair (`:spawn` / `:destroy-machine`) is dropped — they are no longer registered, and using them in `:fx` raises `:rf.error/no-such-fx`. The new pair (`:rf.machine/spawn` / `:rf.machine/destroy`) is the single canonical surface; it is emitted by the `:invoke` desugar and may be authored by hand inside any event handler's `:fx` (machine actions and ordinary handlers alike). Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) and [Conventions §Reserved fx-ids](../../spec/Conventions.md#reserved-fx-ids).
+Per [rf2-m83v](#), the actor-lifecycle fx-ids registered by `re-frame.machines` (Spec 005) are renamed to the framework-canonical `:rf.<feature>/...` form. The bare unqualified pair (`:spawn` / `:destroy-machine`) is dropped — they are no longer registered, and using them in `:fx` raises `:rf.error/no-such-fx`. The new pair (`:rf.machine/spawn` / `:rf.machine/destroy`) is the single canonical surface; it is emitted by the `:spawn` desugar and may be authored by hand inside any event handler's `:fx` (machine actions and ordinary handlers alike). Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) and [Conventions §Reserved fx-ids](../../spec/Conventions.md#reserved-fx-ids).
 
 **What to look for** in the codebase:
 
@@ -1426,9 +1426,9 @@ Per [rf2-m83v](#), the actor-lifecycle fx-ids registered by `re-frame.machines` 
       [:rf.machine/destroy actor-id]]}
 ```
 
-The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Schemas §Standard fx-args schemas](../../spec/Spec-Schemas.md#standard-fx-args-schemas)) stays exactly as it was. (Composes with [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-): the rf2-t07u runtime registry uses the new fx-id name; the destroy-fx arg shape — keyword `actor-id` for imperative or `{:rf/parent-id ... :rf/invoke-id ...}` for declarative — is orthogonal to this rename.)
+The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Schemas §Standard fx-args schemas](../../spec/Spec-Schemas.md#standard-fx-args-schemas)) stays exactly as it was. (Composes with [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-): the rf2-t07u runtime registry uses the new fx-id name; the destroy-fx arg shape — keyword `actor-id` for imperative or `{:rf/parent-id ... :rf/spawn-id ...}` for declarative — is orthogonal to this rename.)
 
-**Why:** the bare names were inherited from a transitional design where the machine handler routed the fxs locally. Once `re-frame.machines` started registering them via the standard `reg-fx` path so the `:invoke` desugar (and the [§Top-level boot-time spawn](../../spec/005-StateMachines.md#top-level-boot-time-spawn-rare) worked example) could emit them from any event handler's `:fx`, the framework-canonical `:rf.<feature>/...` namespace was the right home; the bare unqualified pair drifted from the [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) rule and the L1116 worked example raised `:rf.error/no-such-fx` on a literal copy. Per [rf2-m83v](#) (audit-derived; pre-alpha and back-compat-free, so the bare names are dropped rather than aliased).
+**Why:** the bare names were inherited from a transitional design where the machine handler routed the fxs locally. Once `re-frame.machines` started registering them via the standard `reg-fx` path so the `:spawn` desugar (and the [§Top-level boot-time spawn](../../spec/005-StateMachines.md#top-level-boot-time-spawn-rare) worked example) could emit them from any event handler's `:fx`, the framework-canonical `:rf.<feature>/...` namespace was the right home; the bare unqualified pair drifted from the [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) rule and the L1116 worked example raised `:rf.error/no-such-fx` on a literal copy. Per [rf2-m83v](#) (audit-derived; pre-alpha and back-compat-free, so the bare names are dropped rather than aliased).
 
 ---
 
@@ -1614,45 +1614,45 @@ The migration message string carries the migration target inline so a stack-trac
 ## Type-tag summary
 
 - **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading per rf2-6y3q), **M-41** (subscribe + dispatch consult the React-context tier; runtime gap closed per rf2-d4sf — additive, no rewrite), **M-47** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes).
-- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:invoke` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts).
+- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:spawn` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts).
 
 Per [000-Vision §C1](../../spec/000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
 
 ---
 
-### M-43. `:invoke-all` spawn-and-join is added — additive, no user-side action
+### M-43. `:spawn-all` spawn-and-join is added — additive, no user-side action
 
 **Type B — additive feature** (no rewrite needed; the spec adds a new state-node key but no existing behaviour changes).
 
-Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:invoke-all`](../../spec/005-StateMachines.md#spawn-and-join-via-invoke-all), the v1 spec adds a new state-node key `:invoke-all` for first-class spawn-and-join (parallel-region state-machines). It is sugar over N parallel `:invoke`s plus a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`); the runtime owns the join state at `[:rf/spawned <parent-id> <invoke-id> :join]` and dispatches one of three parent events (`:on-all-complete` / `:on-some-complete` / `:on-any-failed`) when the join condition resolves. Cancel-on-decision is the default — when the join resolves, surviving siblings are torn down via the standard `:rf.machine/destroy` exit-cascade machinery (matching Dash8/rf8 boot-page-reload semantics).
+Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all), the v1 spec adds a new state-node key `:spawn-all` for first-class spawn-and-join (parallel-region state-machines). It is sugar over N parallel `:spawn`s plus a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`); the runtime owns the join state at `[:rf/spawned <parent-id> <invoke-id> :join]` and dispatches one of three parent events (`:on-all-complete` / `:on-some-complete` / `:on-any-failed`) when the join condition resolves. Cancel-on-decision is the default — when the join resolves, surviving siblings are torn down via the standard `:rf.machine/destroy` exit-cascade machinery (matching Dash8/rf8 boot-page-reload semantics).
 
-**No user-side migration.** `:invoke-all` is a new key; existing transition tables are unaffected. Codebases that hand-rolled spawn-and-join via siblings + counter + `:always` (the awkward-but-possible substitute the pre-rf2-6vmw spec called out in [findings/boot-as-statemachine-dash8-rf8.md §M1](#)) **may** rewrite to `:invoke-all` for the readability win — see [O-15 below](#o-15-replace-hand-rolled-spawn-and-join-with-invoke-all-rf2-6vmw) for the opt-in modernisation.
+**No user-side migration.** `:spawn-all` is a new key; existing transition tables are unaffected. Codebases that hand-rolled spawn-and-join via siblings + counter + `:always` (the awkward-but-possible substitute the pre-rf2-6vmw spec called out in [findings/boot-as-statemachine-dash8-rf8.md §M1](#)) **may** rewrite to `:spawn-all` for the readability win — see [O-15 below](#o-15-replace-hand-rolled-spawn-and-join-with-spawn-all-rf2-6vmw) for the opt-in modernisation.
 
-**`:rf/spawned` shape extension.** The reserved app-db slot at `[:rf/spawned <parent-id> <invoke-id>]` previously held a single `<spawned-id>` keyword; for `:invoke-all` it holds a join-bookkeeping map `{:children {<child-id> <spawned-id> ...} :done #{...} :failed #{...} :resolved? bool :spec ...}`. Reads at the destroy-resolution call site disambiguate by value type (`map?` vs `keyword?`); the shape is open and the existing `:invoke` slot shape is unchanged. Per [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys) and [Spec-Schemas §`:rf/spawned`](../../spec/Spec-Schemas.md#rfspawned-reserved-app-db-key).
+**`:rf/spawned` shape extension.** The reserved app-db slot at `[:rf/spawned <parent-id> <invoke-id>]` previously held a single `<spawned-id>` keyword; for `:spawn-all` it holds a join-bookkeeping map `{:children {<child-id> <spawned-id> ...} :done #{...} :failed #{...} :resolved? bool :spec ...}`. Reads at the destroy-resolution call site disambiguate by value type (`map?` vs `keyword?`); the shape is open and the existing `:spawn` slot shape is unchanged. Per [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys) and [Spec-Schemas §`:rf/spawned`](../../spec/Spec-Schemas.md#rfspawned-reserved-app-db-key).
 
-**New trace events.** The 009 trace vocabulary picks up four `:invoke-all` lifecycle events (`:rf.machine.invoke-all/started` / `*/all-completed` / `*/some-completed` / `*/any-failed`) plus `:rf.machine.invoke/cancelled-on-join-resolution` for per-sibling cancellation. Observers that filter by exact `:operation` keyword learn to recognise the new ones; observers that filter by `:op-type :machine` see them automatically. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
+**New trace events.** The 009 trace vocabulary picks up four `:spawn-all` lifecycle events (`:rf.machine.spawn-all/started` / `*/all-completed` / `*/some-completed` / `*/any-failed`) plus `:rf.machine.spawn/cancelled-on-join-resolution` for per-sibling cancellation. Observers that filter by exact `:operation` keyword learn to recognise the new ones; observers that filter by `:op-type :machine` see them automatically. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
 
-**New error categories.** `create-machine-handler` rejects malformed `:invoke-all` slots at registration time with `:rf.error/machine-invoke-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id` or `:definition`), `:rf.error/machine-invoke-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-invoke-all-with-invoke` (a state declares both `:invoke` and `:invoke-all`). All registration-time; the runtime never sees a malformed `:invoke-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
+**New error categories.** `create-machine-handler` rejects malformed `:spawn-all` slots at registration time with `:rf.error/machine-spawn-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id` or `:definition`), `:rf.error/machine-spawn-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-spawn-all-with-spawn` (a state declares both `:spawn` and `:spawn-all`). All registration-time; the runtime never sees a malformed `:spawn-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
 
-**What to do.** Nothing for compatibility; this is purely additive. Apps wanting spawn-and-join sugar adopt `:invoke-all` per the Spec 005 worked example (auth + hydrate flow). The `:actor/spawn-and-join` capability in [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:invoke-all` at registration with `:rf.error/machine-grammar-not-in-v1`.
+**What to do.** Nothing for compatibility; this is purely additive. Apps wanting spawn-and-join sugar adopt `:spawn-all` per the Spec 005 worked example (auth + hydrate flow). The `:actor/spawn-and-join` capability in [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:spawn-all` at registration with `:rf.error/machine-grammar-not-in-v1`.
 
-**Why:** the boot-as-state-machine pattern dominates real apps (Day8 Dashboard fans out 7 hydrate dispatches; rf8 fans out 4 inner asset loads). The substrate-level substitute (separate machines + cross-actor dispatch) was awkward-but-possible; every author writing a non-trivial boot reinvented the bucket-bookkeeping. `:invoke-all` removes the boilerplate. Per [findings/boot-as-statemachine-dash8-rf8.md §7 Recommendations](#) — top-priority readability win.
+**Why:** the boot-as-state-machine pattern dominates real apps (Day8 Dashboard fans out 7 hydrate dispatches; rf8 fans out 4 inner asset loads). The substrate-level substitute (separate machines + cross-actor dispatch) was awkward-but-possible; every author writing a non-trivial boot reinvented the bucket-bookkeeping. `:spawn-all` removes the boilerplate. Per [findings/boot-as-statemachine-dash8-rf8.md §7 Recommendations](#) — top-priority readability win.
 
 ---
 
-### M-44. `:timeout-ms` REMOVED from `:invoke` / `:invoke-all` — use parent state's `:after`
+### M-44. `:timeout-ms` REMOVED from `:spawn` / `:spawn-all` — use parent state's `:after`
 
-**Type A — pre-1.0 spec lock; mechanical rewrite where the slot was used.** The v1 spec is pre-release; no back-compat constraint applies. Codebases that adopted the never-shipped `:timeout-ms` / `:on-timeout` slots on `:invoke` / `:invoke-all` rewrite mechanically to the parent state's `:after` map.
+**Type A — pre-1.0 spec lock; mechanical rewrite where the slot was used.** The v1 spec is pre-release; no back-compat constraint applies. Codebases that adopted the never-shipped `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all` rewrite mechanically to the parent state's `:after` map.
 
-Per rf2-3y3y, the pre-release `:invoke` / `:invoke-all` `:timeout-ms` slot is **dropped** in favour of the canonical `:after` primitive on the parent state. The motivating use case (a boot machine wanting "the auth phase completes in 30 s total, including retries") is fully served by `:after` on the `:invoke`-bearing state — the timer is anchored to **state entry**, so the wall-clock spans the child's retries; when the timer fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy`. Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. See [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) for the resolved design.
+Per rf2-3y3y, the pre-release `:spawn` / `:spawn-all` `:timeout-ms` slot is **dropped** in favour of the canonical `:after` primitive on the parent state. The motivating use case (a boot machine wanting "the auth phase completes in 30 s total, including retries") is fully served by `:after` on the `:spawn`-bearing state — the timer is anchored to **state entry**, so the wall-clock spans the child's retries; when the timer fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy`. Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. See [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) for the resolved design.
 
-**Migration recipe.** Lift the `:timeout-ms` value into the `:invoke`-bearing state's `:after` map; the `:on-timeout` event vector becomes the `:after` transition's target (or, if the target is already named in `:on`, just a transition keyword sugar):
+**Migration recipe.** Lift the `:timeout-ms` value into the `:spawn`-bearing state's `:after` map; the `:on-timeout` event vector becomes the `:after` transition's target (or, if the target is already named in `:on`, just a transition keyword sugar):
 
 Before (the never-shipped pre-rf2-3y3y form):
 
 ```clojure
 {:authenticating
- {:invoke {:machine-id :auth-flow
+ {:spawn {:machine-id :auth-flow
            :timeout-ms 30000
            :on-spawn   :record-auth
            :on-timeout [:auth-timed-out]}
@@ -1664,19 +1664,19 @@ After (the canonical rf2-3y3y form):
 
 ```clojure
 {:authenticating
- {:invoke {:machine-id :auth-flow
+ {:spawn {:machine-id :auth-flow
            :on-spawn  :record-auth}
   :after  {30000 :auth-failed}                 ;; wall-clock guard — spans retries
   :on     {:auth/succeeded :authenticated}}}
 ```
 
-Symmetric for `:invoke-all`:
+Symmetric for `:spawn-all`:
 
 Before:
 
 ```clojure
 {:hydrating
- {:invoke-all {:children       [...]
+ {:spawn-all {:children       [...]
                :join           :all
                :on-child-done  :asset/loaded
                :on-child-error :asset/failed
@@ -1691,7 +1691,7 @@ After:
 
 ```clojure
 {:hydrating
- {:invoke-all {:children       [...]
+ {:spawn-all {:children       [...]
                :join           :all
                :on-child-done  :asset/loaded
                :on-child-error :asset/failed
@@ -1700,23 +1700,23 @@ After:
   :on        {:hydrate/done :ready}}}
 ```
 
-The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren) terminating, the parent transitions out of the `:invoke`-bearing state; the standard `:exit` cascade (auto-generated by `:invoke` / `:invoke-all`'s desugaring per [005 §Desugaring rules](../../spec/005-StateMachines.md#desugaring-rules)) destroys the spawned child(ren); per [rf2-wvkn]'s in-flight-abort contract once it lands, the destroy cascade further aborts in-flight `:rf.http/managed` requests inside the children — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
+The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren) terminating, the parent transitions out of the `:spawn`-bearing state; the standard `:exit` cascade (auto-generated by `:spawn` / `:spawn-all`'s desugaring per [005 §Desugaring rules](../../spec/005-StateMachines.md#desugaring-rules)) destroys the spawned child(ren); per [rf2-wvkn]'s in-flight-abort contract once it lands, the destroy cascade further aborts in-flight `:rf.http/managed` requests inside the children — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
 
-**Retired trace event.** The pre-rf2-3y3y `:rf.machine.invoke/timed-out` trace event is retired alongside the slot. Observers wanting "this `:invoke`-bearing state's wall-clock guard fired" consume `:rf.machine.timer/fired` on the `:invoke`-bearing state's `:after` entry — same semantic, uniform substrate. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
+**Retired trace event.** The pre-rf2-3y3y `:rf.machine.spawn/timed-out` trace event is retired alongside the slot. Observers wanting "this `:spawn`-bearing state's wall-clock guard fired" consume `:rf.machine.timer/fired` on the `:spawn`-bearing state's `:after` entry — same semantic, uniform substrate. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
 
-**Retired error categories.** The pre-rf2-3y3y `:rf.error/machine-invoke-timeout-without-on-timeout` / `:rf.error/machine-invoke-on-timeout-without-timeout` / `:rf.error/machine-invoke-timeout-not-positive` registration-time error categories are retired. The `:after` slot's existing validation (`pos-int?` / subscription-vector / fn delay; transition-spec value) covers the same shape constraints from a different angle; an invalid `:after` shape surfaces as the standard transition-table validation error per [Spec-Schemas §`:rf/transition-table`](../../spec/Spec-Schemas.md#rftransition-table).
+**Retired error categories.** The pre-rf2-3y3y `:rf.error/machine-spawn-timeout-without-on-timeout` / `:rf.error/machine-spawn-on-timeout-without-timeout` / `:rf.error/machine-spawn-timeout-not-positive` registration-time error categories are retired. The `:after` slot's existing validation (`pos-int?` / subscription-vector / fn delay; transition-spec value) covers the same shape constraints from a different angle; an invalid `:after` shape surfaces as the standard transition-table validation error per [Spec-Schemas §`:rf/transition-table`](../../spec/Spec-Schemas.md#rftransition-table).
 
-**Retired capability axis.** The `:actor/timeout` capability is retired from [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix). The `:fsm/delayed-after` capability subsumes it — a port that claims `:fsm/delayed-after` already supports state-level wall-clock-timeout semantics for both pure timed-transition states and `:invoke`-bearing states.
+**Retired capability axis.** The `:actor/timeout` capability is retired from [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix). The `:fsm/delayed-after` capability subsumes it — a port that claims `:fsm/delayed-after` already supports state-level wall-clock-timeout semantics for both pure timed-transition states and `:spawn`-bearing states.
 
 **What to do.** If a codebase adopted the pre-release `:timeout-ms` slot, run the mechanical rewrite above. The `:after` primitive itself is unchanged from the pre-rf2-3y3y shape on the value side; the new delay forms (subscription vector — `[:sub-id & args]`) are additive and need not be adopted during the migration. Apps that did not adopt `:timeout-ms` are unaffected.
 
-**Why:** the boot-as-state-machine pattern needs phase-level wall-clock guards that span retries (auth, hydrate). The pre-rf2-3y3y design proposed `:timeout-ms` at the call site; the rf2-3y3y design observes that state-level `:after` is **already** the canonical primitive for "after N ms in this state, do X" and the `:invoke`-bearing case composes via the standard exit cascade per [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins). One primitive, not two. Per boot-as-state-machine §M3 (rf2-1lop) the M3 finding's resolution is now "use the parent state's `:after`".
+**Why:** the boot-as-state-machine pattern needs phase-level wall-clock guards that span retries (auth, hydrate). The pre-rf2-3y3y design proposed `:timeout-ms` at the call site; the rf2-3y3y design observes that state-level `:after` is **already** the canonical primitive for "after N ms in this state, do X" and the `:spawn`-bearing case composes via the standard exit cascade per [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins). One primitive, not two. Per boot-as-state-machine §M3 (rf2-1lop) the M3 finding's resolution is now "use the parent state's `:after`".
 
-**Cross-references.** [005 §Delayed `:after` transitions](../../spec/005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar (including the new subscription-vector delay form); [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) for the dropped-slot record.
+**Cross-references.** [005 §Delayed `:after` transitions](../../spec/005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar (including the new subscription-vector delay form); [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) for the dropped-slot record.
 
 ### M-45. `:rf.http/managed` requests issued from spawned actors abort on actor-destroy (additive)
 
-Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destroyed (parent state exit, parent's `:after` firing, `:invoke-all` cancel-on-decision, frame destroy), in-flight `:rf.http/managed` requests the actor had issued continued running until they completed naturally. Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) and [Spec 014 §Abort on actor destroy](../../spec/014-HTTPRequests.md#abort-on-actor-destroy), the runtime now aborts those requests automatically on actor-destroy.
+Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destroyed (parent state exit, parent's `:after` firing, `:spawn-all` cancel-on-decision, frame destroy), in-flight `:rf.http/managed` requests the actor had issued continued running until they completed naturally. Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) and [Spec 014 §Abort on actor destroy](../../spec/014-HTTPRequests.md#abort-on-actor-destroy), the runtime now aborts those requests automatically on actor-destroy.
 
 **Direction.** Additive — no user-side change required. Apps that previously threaded `:rf.http/managed-abort` calls through `:exit` actions or relied on the request's reply landing on a destroyed actor (no observer; benign no-op) continue to work. Apps that wrote bespoke abort-on-exit logic can simplify.
 
@@ -1728,12 +1728,12 @@ Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destro
 
 ### M-46. `:rf.http/managed` ships as a child-invokable machine in addition to the fx (additive)
 
-Pre-release framing: per [rf2-ijm7](#), `:rf.http/managed` is now ALSO registered as a state machine under the same id — usable directly via `:invoke {:machine-id :rf.http/managed :data {:request {...}}}` from a parent machine's state node. The fx form is unchanged and remains the canonical surface for event-handler-issued requests.
+Pre-release framing: per [rf2-ijm7](#), `:rf.http/managed` is now ALSO registered as a state machine under the same id — usable directly via `:spawn {:machine-id :rf.http/managed :data {:request {...}}}` from a parent machine's state node. The fx form is unchanged and remains the canonical surface for event-handler-issued requests.
 
 **Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in the boot-as-state-machine study, rf2-ijm7) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
 
 **Related additive changes (same bead, same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data` (rf2-ijm7)](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7) and [§Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7):
-- Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id` (the latter two only for declarative-`:invoke` spawns) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
+- Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` (the latter two only for declarative-`:spawn` spawns) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
 - Spawns without an explicit `:start` now receive a synthetic `[:rf.machine/spawned]` event as their first event. Machines that don't handle it see a no-op; the existing `:start` form continues to work and overrides the synthetic event.
 
 **Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data` (rf2-ijm7)](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7).
@@ -2078,6 +2078,75 @@ Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and e
 
 ---
 
+### M-56. Machine vocabulary divergence — `:invoke` → `:spawn` + `:invoke-all` → `:spawn-all` (rf2-5r4q2)
+
+**Type A** (mechanical). Closed rename table; apply across machine specs, snapshot-internal references, trace listeners, error catalogues.
+
+Per rf2-5r4q2 the declarative child-actor key on a state node is renamed **`:invoke` → `:spawn`** (and **`:invoke-all` → `:spawn-all`** for the parallel-fanout-and-join sugar). v1 codebases that adopted the xstate-shaped `:invoke` slot trip this; the same slot for v1 → v2 migrators reads as `:spawn` on first encounter.
+
+The rename is a **deliberate divergence** from xstate vocabulary — see [005 §Deliberate name divergence — `:spawn`](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) for the rationale. The convergence with xstate names is otherwise high (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`); the rename targets the single most semantically-loaded surface where xstate-trained AI agents otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. The new name also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn`.
+
+| v1 / v2-pre-rename | v2 post-rename | Surface |
+|---|---|---|
+| `:invoke` (state-node key) | `:spawn` | declarative spawn-on-entry / destroy-on-exit child actor (per Spec 005 §Declarative `:spawn`) |
+| `:invoke-all` (state-node key) | `:spawn-all` | declarative spawn-and-join of N parallel child actors (per Spec 005 §Spawn-and-join via `:spawn-all`) |
+| `:invoke-id` (per-spawn explicit-id spec key) | `:spawn-id` | explicit actor-id alternative to gensym, under `:spawn` / `:spawn-all` |
+| `:rf/invoke-id` (reserved snapshot-internal) | `:rf/spawn-id` | runtime-stamped prefix-path of the `:spawn`-bearing state node, inside spawned actor's `:data` |
+| `:rf/invoke-all-id` (reserved snapshot-internal) | `:rf/spawn-all-id` | runtime-stamped prefix-path of the `:spawn-all`-bearing state node |
+| `:rf/invoke-all-child-id` (reserved snapshot-internal) | `:rf/spawn-all-child-id` | runtime-stamped child-id for `:spawn-all` children |
+| `:rf.machine.invoke-all/started` | `:rf.machine.spawn-all/started` | trace op |
+| `:rf.machine.invoke-all/all-completed` | `:rf.machine.spawn-all/all-completed` | trace op |
+| `:rf.machine.invoke-all/some-completed` | `:rf.machine.spawn-all/some-completed` | trace op |
+| `:rf.machine.invoke-all/any-failed` | `:rf.machine.spawn-all/any-failed` | trace op |
+| `:rf.machine.invoke-all/late-completion` | `:rf.machine.spawn-all/late-completion` | trace op |
+| `:rf.machine.invoke/cancelled-on-join-resolution` | `:rf.machine.spawn/cancelled-on-join-resolution` | trace op |
+| `:rf.machine/invoke-all-init` | `:rf.machine/spawn-all-init` | internal fx-id (machine artefact only) |
+| `:rf.error/machine-invoke-all-bad-shape` | `:rf.error/machine-spawn-all-bad-shape` | registration-time error category |
+| `:rf.error/machine-invoke-all-duplicate-id` | `:rf.error/machine-spawn-all-duplicate-id` | registration-time error category |
+| `:rf.error/machine-invoke-all-with-invoke` | `:rf.error/machine-spawn-all-with-spawn` | registration-time error category (`:spawn` and `:spawn-all` mutually exclusive on a state) |
+| `:rf.error/invoke-timeout-ms-removed` | `:rf.error/spawn-timeout-ms-removed` | registration-time error (per M-44) |
+| `:rf.invoke/*` (generated action namespace) | `:rf.spawn/*` | desugared entry/exit action ids generated by `create-machine-handler` |
+
+**Detect.** v1 codebases adopting `:invoke` / `:invoke-all` state-node keys, and any code reading the snapshot-internal `:rf/invoke-*` keys or filtering trace events on `:rf.machine.invoke*/*`.
+
+```clojure
+;; before
+{:initial :idle
+ :states  {:loading {:invoke    {:machine-id :http/post
+                                 :on-spawn   :record-id}
+                     :on        {:loaded :ready}}}}
+
+{:initial :fan-out
+ :states  {:fan-out {:invoke-all {:children [{:id :a :machine-id :loader/a}
+                                              {:id :b :machine-id :loader/b}]
+                                  :join     :all
+                                  :on-all-complete :rendered}}}}
+```
+
+**Rewrite.**
+
+```clojure
+;; after
+{:initial :idle
+ :states  {:loading {:spawn     {:machine-id :http/post
+                                 :on-spawn   :record-id}
+                     :on        {:loaded :ready}}}}
+
+{:initial :fan-out
+ :states  {:fan-out {:spawn-all {:children [{:id :a :machine-id :loader/a}
+                                             {:id :b :machine-id :loader/b}]
+                                 :join     :all
+                                 :on-all-complete :rendered}}}}
+```
+
+**Mechanical sweep.** A repository-wide text rename over the table above will land the change. Order longer keys before shorter (`:invoke-all` before `:invoke`, `:rf/invoke-all-id` before `:rf/invoke-id`); the `:rf.machine.invoke-all/` and `:rf.machine.invoke/` trace-op prefixes rewrite to `:rf.machine.spawn-all/` and `:rf.machine.spawn/` respectively (the new prefix sits in the `:rf.machine.*` namespace and does NOT collide with the existing `:rf.machine/spawn` fx-id since they live in different namespaces).
+
+**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — `create-machine-handler` does not accept `:invoke` / `:invoke-all` and will treat them as unknown state-node keys.
+
+**Cross-references.** [005 §Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn) (the canonical surface); [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all); [005 §Deliberate name divergence — `:spawn` (NOT `:invoke`)](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) (the rationale); [CP-5-MachineGuide §Lessons from xstate](../../spec/CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) (where the divergence sits in the broader xstate-comparison table); [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-) (the parent runtime-owned spawn-id tracking change this rename now aligns names with); [M-43](#m-43-spawn-all-spawn-and-join-is-added--additive-no-user-side-action) (the original `:invoke-all` add — supplanted by this rename); [M-44](#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) (the `:timeout-ms` retirement — same surface, prior step).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.
@@ -2183,7 +2252,7 @@ This entry is preserved as a pointer for users searching for `:dispatch-n` migra
 
 re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md#named-addressing-via-system-id) and rf2-suue / rf2-ecv4, a spawn whose args carry `:system-id` binds a name in the per-frame `[:rf/system-ids]` reverse index, lookable up via `(rf/machine-by-system-id sid)`. Adoption is purely **opt-in**:
 
-- `:system-id` is an additive key on `[:rf.machine/spawn ...]` and on `:invoke` slots; existing spawns / invokes continue to work unchanged.
+- `:system-id` is an additive key on `[:rf.machine/spawn ...]` and on `:spawn` slots; existing spawns / invokes continue to work unchanged.
 - `[:rf/system-ids]` is a runtime-managed reserved app-db slot (allocated lazily); user code that doesn't bind any `:system-id`s never sees the slot appear.
 - The `(rf/machine-by-system-id sid)` and `(rf/dispatch-to-system sid event)` surfaces resolve through the late-bind hook table, so the surface is silent on builds that don't ship `day8/re-frame2-machines`.
 
@@ -2290,9 +2359,9 @@ re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Rea
 
 The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
 
-### O-15. Replace hand-rolled spawn-and-join with `:invoke-all` (rf2-6vmw)
+### O-15. Replace hand-rolled spawn-and-join with `:spawn-all` (rf2-6vmw)
 
-Codebases that hand-rolled spawn-and-join in machine specs — N siblings + counter set in `:data` + `:always` guards over a `:seen-all-of?`-style predicate — can rewrite to the first-class `:invoke-all` slot from [005 §Spawn-and-join via `:invoke-all`](../../spec/005-StateMachines.md#spawn-and-join-via-invoke-all). The hand-rolled form was the recommended substitute pre-rf2-6vmw (per [findings/boot-as-statemachine-dash8-rf8.md §M1](#)); the substrate didn't have a primitive for it. With rf2-6vmw the primitive exists; the hand-rolled form continues to work but `:invoke-all` is the preferred shape for new code.
+Codebases that hand-rolled spawn-and-join in machine specs — N siblings + counter set in `:data` + `:always` guards over a `:seen-all-of?`-style predicate — can rewrite to the first-class `:spawn-all` slot from [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all). The hand-rolled form was the recommended substitute pre-rf2-6vmw (per [findings/boot-as-statemachine-dash8-rf8.md §M1](#)); the substrate didn't have a primitive for it. With rf2-6vmw the primitive exists; the hand-rolled form continues to work but `:spawn-all` is the preferred shape for new code.
 
 **Transformation:**
 
@@ -2309,15 +2378,15 @@ Codebases that hand-rolled spawn-and-join in machine specs — N siblings + coun
            :bucket/failed {:action :record-bucket-failed}}
   :always [{:guard :all-buckets-done? :target :ready}
            {:guard :any-bucket-failed? :target :error}]
-  :invoke {:machine-id :load-config       :on-spawn :record-cfg}
-  :invoke {:machine-id :load-feature-flags :on-spawn :record-flag}
-  ...}}                                                ;; :invoke is singular — this doesn't even compile pre-rf2-6vmw
+  :spawn {:machine-id :load-config       :on-spawn :record-cfg}
+  :spawn {:machine-id :load-feature-flags :on-spawn :record-flag}
+  ...}}                                                ;; :spawn is singular — this doesn't even compile pre-rf2-6vmw
 ```
 
 ```clojure
-;; after — first-class :invoke-all
+;; after — first-class :spawn-all
 {:hydrating
- {:invoke-all
+ {:spawn-all
   {:children         [{:id :cfg  :machine-id :load-config}
                       {:id :flag :machine-id :load-feature-flags}
                       {:id :user :machine-id :load-user-profile}
@@ -2333,7 +2402,7 @@ Codebases that hand-rolled spawn-and-join in machine specs — N siblings + coun
 
 Drops: the counter sets in `:data`, the `:record-bucket-*` actions, the `:all-buckets-done?` / `:any-bucket-failed?` guards, the `:always` block, and the parent's `:on` entries for `:bucket/*`. The runtime owns all of them at `[:rf/spawned <parent> [:hydrating] :join]`. Cancel-on-decision (default `true`) handles the surviving-siblings teardown the hand-rolled form had to leave to chance.
 
-Apply only when the user wants the modernisation. Hand-rolled spawn-and-join continues to work indefinitely; the agent does NOT auto-rewrite — the `:invoke-all` shape is structurally different (vector of children vs siblings) and the transformation requires understanding which child completion events are which. Per rf2-6vmw.
+Apply only when the user wants the modernisation. Hand-rolled spawn-and-join continues to work indefinitely; the agent does NOT auto-rewrite — the `:spawn-all` shape is structurally different (vector of children vs siblings) and the transformation requires understanding which child completion events are which. Per rf2-6vmw.
 
 ### O-16. Convert `day8.re-frame/async-flow-fx` flows to `reg-machine` (rf2-qonq4)
 
@@ -2341,7 +2410,7 @@ Apply only when the user wants the modernisation. Hand-rolled spawn-and-join con
 
 **[async-flow-fx-to-reg-machine.md](async-flow-fx-to-reg-machine.md).**
 
-The summary: `day8.re-frame/async-flow-fx` (latest 0.4.0) is a v1-era **separate add-on lib** — not the in-tree `on-changes` interceptor that [M-21](#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors) drops — that ships a rule-engine for orchestrating multi-step asynchronous boot / wizard / init sequences. The canonical v2 successor is `reg-machine` (per [005-StateMachines.md](../../spec/005-StateMachines.md), shipped in the [M-28](#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) artefact `day8/re-frame2-machines`): each flow becomes a machine whose `:states` model the workflow phases, whose `:on` maps consume the same HTTP-completion events the flow's `:when :events` watched for, and whose `:final?` states correspond to the flow's `:halt?` termination. The parallel-fetch pattern (`:seen-all-of?` over N success events) lowers to `:invoke-all` with `:join :all`. Machine snapshots live at `[:rf/machines <id>]` in `app-db`, inheriting revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility that the v1 add-on did not offer.
+The summary: `day8.re-frame/async-flow-fx` (latest 0.4.0) is a v1-era **separate add-on lib** — not the in-tree `on-changes` interceptor that [M-21](#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors) drops — that ships a rule-engine for orchestrating multi-step asynchronous boot / wizard / init sequences. The canonical v2 successor is `reg-machine` (per [005-StateMachines.md](../../spec/005-StateMachines.md), shipped in the [M-28](#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) artefact `day8/re-frame2-machines`): each flow becomes a machine whose `:states` model the workflow phases, whose `:on` maps consume the same HTTP-completion events the flow's `:when :events` watched for, and whose `:final?` states correspond to the flow's `:halt?` termination. The parallel-fetch pattern (`:seen-all-of?` over N success events) lowers to `:spawn-all` with `:join :all`. Machine snapshots live at `[:rf/machines <id>]` in `app-db`, inheriting revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility that the v1 add-on did not offer.
 
 Per-call-site escalations: `:halt-fns?` predicates closing over state outside the machine's `:data` (Spec 005 §Strict encapsulation locks actions and guards to `:data` only); `:events` declared as a predicate fn rather than keyword(s); rule-sets built at runtime; flows whose `:db-path` is read by other code. The agent surfaces every flow and waits for operator approval.
 

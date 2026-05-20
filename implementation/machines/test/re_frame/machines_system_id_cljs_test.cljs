@@ -31,14 +31,14 @@
                  :data    {:hits 0}
                  :actions {:bump (fn [data _] {:data {:hits (inc (:hits data))}})}
                  :states  {:running {:on {:ping {:action :bump}}}}}
-          ;; A parent that spawns the child with a :system-id under :invoke.
+          ;; A parent that spawns the child with a :system-id under :spawn.
           parent {:initial :idle
                   :on-spawn-actions
                   {:auth/record-actor (fn [data actor-id]
                                         (assoc data :pending actor-id))}
                   :states
                   {:idle      {:on {:start :working}}
-                   :working   {:invoke {:machine-id :worker/proc
+                   :working   {:spawn {:machine-id :worker/proc
                                         :system-id  :worker
                                         :on-spawn   :auth/record-actor}
                                :on    {:done :idle}}}}]
@@ -82,7 +82,7 @@
                   {:auth/record-actor (fn [data id] (assoc data :pending id))}
                   :states
                   {:idle    {:on {:go :running}}
-                   :running {:invoke {:machine-id :notifier/proc
+                   :running {:spawn {:machine-id :notifier/proc
                                       :system-id  :notifier
                                       :on-spawn   :auth/record-actor}}}}]
       (rf/reg-machine :notifier/proc child)

@@ -104,7 +104,7 @@ implementation/
 
   machines/                  day8/re-frame2-machines — state machines (Spec 005, rf2-xbtj).
     deps.edn                 :local/root dep on ../core.
-    src/re_frame/machines.cljc     Hierarchical FSM, :always, :after, :invoke / spawn / destroy.
+    src/re_frame/machines.cljc     Hierarchical FSM, :always, :after, :spawn / spawn / destroy.
     test/re_frame/                 CLJS machine tests.
 
   routing/                   day8/re-frame2-routing — routing (Spec 012, rf2-k682).
@@ -147,7 +147,7 @@ implementation/
 | 002 Frames | Done | dispatch/envelope, drain/depth-limit, frame/{lifecycle,multi-instance}, fx/{db-first,ordering-source-order,override-by-id} |
 | 003 — | Reserved (no `003-*.md`; held open per [`spec/README.md`](../spec/README.md) for future cross-frame composition work) | — |
 | 004 Views | Done (JVM-runnable + CLJS via Reagent) | covered via reg-view in SSR fixtures |
-| 005 State Machines | Done | machine/transition, hierarchical-{compound,cross-level,parent-fallthrough}, always-{single-microstep,depth-exceeded}, after-{single-delay,stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit |
+| 005 State Machines | Done | machine/transition, hierarchical-{compound,cross-level,parent-fallthrough}, always-{single-microstep,depth-exceeded}, after-{single-delay,stale-detection,hierarchy}, spawn-on-entry-destroy-on-exit |
 | 006 Reactive Substrate | Done (Reagent + plain-atom; UIx + Helix smoke-tested) | sub/chain |
 | 007 Stories | Out of scope for the CLJS reference (no canonical implementation; the spec defines the Story / Variant / Workspace contract for tooling consumers) | — |
 | 008 Testing | Done | dispatch-sync, conformance harness |

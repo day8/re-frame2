@@ -5,7 +5,7 @@
    This file plays two roles:
 
    1. **Socket actor (`:websocket/socket`).** The spawned child the
-      connection machine `:invoke`s on entry to `:active`. The actor
+      connection machine `:spawn`s on entry to `:active`. The actor
       is itself a state machine — its `:open` state translates `:send`
       events into wire-level writes and forwards inbound server
       messages back to the parent connection machine. Pattern-WebSocket
@@ -210,7 +210,7 @@
 ;; A small two-state machine. `:opening` opens the host-side socket on
 ;; entry, transitions to `:open` once the transport reports ready, and
 ;; stays there for the lifetime of the connection. The parent's
-;; `:invoke` destroys this actor on any exit from `:active`, which
+;; `:spawn` destroys this actor on any exit from `:active`, which
 ;; takes care of cleanup.
 ;;
 ;; The actor uses the runtime-stamped `:rf/self-id` to address

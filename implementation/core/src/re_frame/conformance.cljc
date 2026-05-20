@@ -432,7 +432,7 @@
 (defn realise-on-spawn-handler
   "DSL → an on-spawn callback fn. Signature: (data, spawned-id) → new-data.
 
-  Per Spec 005 §Declarative :invoke (sugar over spawn): the on-spawn
+  Per Spec 005 §Declarative :spawn (sugar over spawn): the on-spawn
   callback receives the parent machine's :data and the just-allocated
   actor id; it returns an updated :data map. The runtime patches the
   result back into the snapshot at :data.

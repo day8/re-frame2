@@ -267,7 +267,7 @@ Each machine instance has a `:data` slot (analogous to XState's `context`) — g
    :large     [[:data :audit-trail]]}
   {:initial :idle
    :states  {:idle           {:on {:log-in :authenticating}}
-            :authenticating {:invoke {:src :auth/fetch-jwt
+            :authenticating {:spawn {:src :auth/fetch-jwt
                                        :on-done :authenticated}}
             :authenticated  {:on {:log-out :idle}}}})
 

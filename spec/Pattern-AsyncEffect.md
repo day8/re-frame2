@@ -108,11 +108,11 @@ This is the right answer when the parameter is **chosen at dispatch time** by us
 
 ### Mechanism 2 — Via the spawn-spec `:data` fn
 
-When a machine is **spawned by a parent** (per [005 §Declarative `:invoke`](005-StateMachines.md#declarative-invoke-sugar-over-spawn) or `spawn-from-action`), the spawn-spec's `:data` slot accepts a function that closes over the parent's snapshot and returns the child's initial `:data`. The parent already holds the URL, the token, the user id; the spawn-spec `:data` fn derives the child's starting state from it without going through a dispatch.
+When a machine is **spawned by a parent** (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) or `spawn-from-action`), the spawn-spec's `:data` slot accepts a function that closes over the parent's snapshot and returns the child's initial `:data`. The parent already holds the URL, the token, the user id; the spawn-spec `:data` fn derives the child's starting state from it without going through a dispatch.
 
 ```clojure
 ;; Parent boot machine spawns the WebSocket connection child.
-:invoke {:machine-id :ws/socket
+:spawn {:machine-id :ws/socket
          :data       (fn [{:keys [data]} _]
                        {:url        (-> data :config :ws-url)
                         :auth-token (-> data :session :token)
@@ -206,10 +206,10 @@ Pattern-RemoteData is the specific case of Pattern-AsyncEffect for HTTP requests
 
 - **Pattern-RemoteData** — the request-lifecycle slice (`:idle / :loading / :fetching / :loaded / :error`) layered on the HTTP instance of this shape. See [Pattern-RemoteData.md](Pattern-RemoteData.md).
 - **Pattern-StaleDetection** — when the dispatcher of a Pattern-AsyncEffect interaction may have moved on by the time the reply arrives, compose with the epoch idiom. The reply event carries an epoch captured at dispatch time; the receiving handler suppresses on mismatch. See [Pattern-StaleDetection.md](Pattern-StaleDetection.md).
-- **Pattern-WebSocket** — long-lived connection lifecycle is *not* an instance of this pattern; it's state-machine-shaped, with an `:invoke`-spawned actor owning the connection. Individual messages over an open WebSocket *do* fit Pattern-AsyncEffect (the connection-actor is the fx; messages are replies). See [Pattern-WebSocket.md](Pattern-WebSocket.md).
+- **Pattern-WebSocket** — long-lived connection lifecycle is *not* an instance of this pattern; it's state-machine-shaped, with a `:spawn`-spawned actor owning the connection. Individual messages over an open WebSocket *do* fit Pattern-AsyncEffect (the connection-actor is the fx; messages are replies). See [Pattern-WebSocket.md](Pattern-WebSocket.md).
 - **Pattern-Boot** — application boot is a *sequence* of Pattern-AsyncEffect interactions chained by dependency. See [Pattern-Boot.md](Pattern-Boot.md).
 - **Pattern-LongRunningWork** — for CPU-bound work that *can* be offloaded, this pattern is the preferred answer (Web Worker via Pattern-AsyncEffect). For work that *must* run on the main thread, see [Pattern-LongRunningWork.md](Pattern-LongRunningWork.md) for the chunked-state-machine alternative.
-- **`:invoke`** ([005 §Declarative `:invoke`](005-StateMachines.md#declarative-invoke-sugar-over-spawn)) — when the async work is owned by a state machine state, `:invoke` declares the spawn-on-entry / destroy-on-exit binding. The child machine internally still uses Pattern-AsyncEffect for its own external calls.
+- **`:spawn`** ([005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) — when the async work is owned by a state machine state, `:spawn` declares the spawn-on-entry / destroy-on-exit binding. The child machine internally still uses Pattern-AsyncEffect for its own external calls.
 
 ## Anti-patterns
 

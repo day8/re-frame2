@@ -43,7 +43,7 @@ one tool over.
 The Machines tab is the **single most distinctive Causa surface** because
 re-frame2's machine substrate (Spec 005) carries the richest runtime
 behaviour in the framework — cancellation cascades, `:after` timers,
-`:invoke-all` joins, microstep loops, hierarchical state transitions,
+`:spawn-all` joins, microstep loops, hierarchical state transitions,
 parallel regions, supervision trees. Causa is the only place these
 contracts become legible. Bug-class motivation for each major feature in
 [§The bug catalogue](#the-bug-catalogue) below; see also
@@ -510,7 +510,7 @@ range input for keyboard-accessibility and OS-native drag semantics).
 
 Causa renders the supervision tree. The framework contract behind it:
 
-- **Invoke auto-cleanup** — `:invoke`d actors are state-scoped; leaving
+- **Invoke auto-cleanup** — `:spawn`d actors are state-scoped; leaving
   the invoking state destroys the child. Stately/XState semantics.
 - **Spawn explicit destroy** — `[:rf.machine/spawn]` returns an
   instance id; explicit `[:rf.machine/destroy <id>]` to clean up.
@@ -525,7 +525,7 @@ Causa surfaces this in:
 - **Recent-deaths buffer** — 10s after destroy, the row red-fades and
   disappears; arc is preserved in `recently-destroyed` sub-list (last
   10 entries) for 30s; still reachable from time-travel.
-- **`:invoke-all` inline children** — render as decorated rows beneath
+- **`:spawn-all` inline children** — render as decorated rows beneath
   the invoking state, per Spec 005.
 
 ## Selection and switching
@@ -572,7 +572,7 @@ Per Spec 005 and Spec 009:
 | `:rf.machine/transition` traces | Build the transition-history ribbon. |
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | Drive `:after` countdown rings. |
-| `:rf.machine.invoke-all/*` traces | Render `:invoke-all` join state (started, all-completed, some-completed, any-failed). |
+| `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). |
 | `:rf.machine/spawned` / `-destroyed` | Render spawn/destroy lifecycle in the parent's chart. |
 | `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. |
 | `:rf.machine/system-id-bound` / `-released` | Surface `:system-id` reverse-index activity in a sidebar. |
@@ -600,9 +600,9 @@ coord with an inline `(?)` annotation that hovers a tooltip ("This
 coord is the handler's; the dispatch was synthesised by `:auth/main`
 at state `:authing`.")
 
-## `:invoke-all` viz
+## `:spawn-all` viz
 
-When a state declares `:invoke-all`, the chart shows the N parallel
+When a state declares `:spawn-all`, the chart shows the N parallel
 children as a horizontal row of mini-machines, each with their own
 state. The join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`)
 renders as a label below the row.
@@ -883,7 +883,7 @@ full countdown-ring system + retro-replay (Phase 2 per
 
 ### M.3 — Cancellation cascade ambiguity
 
-**Bug class:** Parent state exits; child's `:invoke` destroyed; child had
+**Bug class:** Parent state exits; child's `:spawn` destroyed; child had
 N in-flight HTTP requests; each aborts. The author sees a flurry of
 `:rf.http/aborted-on-actor-destroy` traces in the Trace firehose and one
 `:rf.machine.lifecycle/destroyed`. They cannot reconstruct which abort
@@ -913,7 +913,7 @@ cleanup ran).
 **v1 ships:** scattered Trace rows. **Future:** the cascade-grouping
 projection + the detail panel (Phase 3).
 
-### M.4 — `:invoke-all` never joins
+### M.4 — `:spawn-all` never joins
 
 **Bug class:** N children spawned; join condition is `:all` (or `:any` /
 `{:n M}` / `{:fn ...}`); some complete, some don't, the parent stays
@@ -921,17 +921,17 @@ stuck. Author wants per-child status, what each is doing right now, the
 join-state map (`:done #{:cfg :flag} :failed #{} :resolved? false`), and
 whether `:on-any-failed` is wired.
 
-**Example bug:** You entered `:hydrating` which declares `:invoke-all
+**Example bug:** You entered `:hydrating` which declares `:spawn-all
 {:children {:cfg ... :flag ... :user ... :dash ...} :join :all}`. Two
 children completed in <200ms; two are still "running" 2 seconds in. The
 machine hasn't advanced.
 
 **Insight Causa provides:** When the focused machine is in an
-`:invoke-all`-bearing state, the metadata rail shows a **dedicated join
+`:spawn-all`-bearing state, the metadata rail shows a **dedicated join
 card**:
 
 ```
-┌─ :invoke-all  ·  invoke-id [:hydrating :invoke-all] ─────────────┐
+┌─ :spawn-all  ·  invoke-id [:hydrating :spawn-all] ─────────────┐
 │ Join condition: :all                                              │
 │ Resolved: ✗   (waiting for 2 of 4)                                │
 │  ✓ :cfg     :load-config#1         done @ +124ms                  │
@@ -947,9 +947,9 @@ card**:
 Each running child row: click → pivots to that child's machine instance.
 Each done/failed: click → opens the per-child completion event.
 
-**Affordance:** `:invoke-all` join inspector card (M-C4).
+**Affordance:** `:spawn-all` join inspector card (M-C4).
 
-**v1 ships:** the `:invoke-all` viz row (children rendered inline; basic
+**v1 ships:** the `:spawn-all` viz row (children rendered inline; basic
 `done?` / `failed?` colouring). **Future:** the full join inspector card
 with click-to-pivot.
 

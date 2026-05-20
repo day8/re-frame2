@@ -22,7 +22,7 @@
 
   ## Five surfaces, one template
 
-  The same renderer handles HTTP, WebSocket, machine-`:invoke`, SSR
+  The same renderer handles HTTP, WebSocket, machine-`:spawn`, SSR
   `:rf.server/*`, and `:rf.flow/*` records. Per-surface variation lives
   in the helpers ns (`panels/managed_fx_helpers`); this ns is purely a
   hiccup folder over the record shape.

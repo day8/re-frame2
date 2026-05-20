@@ -289,7 +289,7 @@
 (defn refresh-token-test []
   ;; :ws/refresh-token works from every state — :disconnected,
   ;; :active/*, :reconnecting, :failed. The next :active entry's
-  ;; :invoke :data fn reads the refreshed token.
+  ;; :spawn :data fn reads the refreshed token.
   (with-sync-mock!
     (fn []
       (with-frame [f (new-frame)]

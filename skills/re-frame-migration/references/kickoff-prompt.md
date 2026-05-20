@@ -51,7 +51,7 @@ Steps:
 
 Two common amendments the author may add:
 
-**"Also modernise."** Append: *"After Phase 4 verifies clean, walk the `O-N` rules in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) and apply the ones that match this codebase: rich registration metadata (O-1), `reg-view` adoption (O-2), Malli schemas at the boundaries (O-3), `:invoke-all` (O-15) if there's hand-rolled spawn-and-join, framework keyword consolidation (M-20 has an opt-in half). Same Type A / Type B rules — Type B asks first. Stop after each O-rule and let me decide whether to keep the change or revert."*
+**"Also modernise."** Append: *"After Phase 4 verifies clean, walk the `O-N` rules in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) and apply the ones that match this codebase: rich registration metadata (O-1), `reg-view` adoption (O-2), Malli schemas at the boundaries (O-3), `:spawn-all` (O-15) if there's hand-rolled spawn-and-join, framework keyword consolidation (M-20 has an opt-in half). Same Type A / Type B rules — Type B asks first. Stop after each O-rule and let me decide whether to keep the change or revert."*
 
 **"Migrate in feature-branch slices."** Append: *"Land each rule-group as its own commit with the M-rule ids in the message. Don't squash. I want the history to read as `M-0`, `M-1+M-5 (mechanical sweep)`, `M-3 (Type B, approved)`, `M-22 (Type B, approved)`, `M-21 mechanical pass`, etc. Each commit should leave the project compiling — break the migration into compilable bisects."*
 

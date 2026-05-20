@@ -9,8 +9,8 @@
   ## Why the narrow surface
 
   The full deep-machine testbed declares parallel regions,
-  hierarchical compound 5-deep, `:always`, `:after`, `:invoke`,
-  `:invoke-all` — every Spec 005 grammar surface. That's important
+  hierarchical compound 5-deep, `:always`, `:after`, `:spawn`,
+  `:spawn-all` — every Spec 005 grammar surface. That's important
   for visual diff coverage; for the e2e helper's bug-catching
   contract (does the `:frame` tag survive into Causa's epoch
   capture?) a single flat transition is enough.

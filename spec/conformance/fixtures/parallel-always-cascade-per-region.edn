@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/parallel-always-cascade-per-region
 ;;
-;; Per [005 §Per-region `:always` / `:after` / `:invoke` scoping]
-;; (../../005-StateMachines.md#per-region-always--after--invoke-scoping):
+;; Per [005 §Per-region `:always` / `:after` / `:spawn` scoping]
+;; (../../005-StateMachines.md#per-region-always--after--spawn-scoping):
 ;; the macrostep's `:always` microstep loop runs PER REGION. After a
 ;; region's event-driven transition, that region's new state's `:always`
 ;; entries are checked; matching guards fire transitions in that

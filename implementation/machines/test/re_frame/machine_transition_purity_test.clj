@@ -35,13 +35,13 @@
             [re-frame.machines.result :as result]))
 
 (def auth-flow-spec
-  "A tiny declarative-`:invoke` machine. On `[:submit]` from `:idle` it
-  transitions to `:authenticating`, an :invoke-bearing state that emits
+  "A tiny declarative-`:spawn` machine. On `[:submit]` from `:idle` it
+  transitions to `:authenticating`, a :spawn-bearing state that emits
   one `:rf.machine/spawn` fx for an `:http/post` child."
   {:initial :idle
    :data    {}
    :states  {:idle           {:on {:submit :authenticating}}
-             :authenticating {:invoke {:machine-id :http/post
+             :authenticating {:spawn {:machine-id :http/post
                                        :data       {:url "/api/login"}
                                        :start      [:begin]}
                               :on    {:auth/succeeded :authenticated
@@ -67,7 +67,7 @@
       ;;   - `:rf/spawned-id` is `:http/post#1` (allocator deterministic)
       ;;   - `:rf/parent-id` is `:rf/transition-pure` (sentinel for the
       ;;     pure-call surface)
-      ;;   - `:rf/invoke-id` is the state-path the spawn issued from
+      ;;   - `:rf/spawn-id` is the state-path the spawn issued from
       ;;     (`[:authenticating]`)
       (is (= 1 (count fx1))
           "exactly one effect emitted by the :submit transition")
@@ -78,7 +78,7 @@
             "the spawned-id is allocated deterministically as :http/post#1")
         (is (= :rf/transition-pure (:rf/parent-id args))
             "parent-id sentinel for the pure-call surface is :rf/transition-pure")
-        (is (= [:authenticating] (:rf/invoke-id args))
+        (is (= [:authenticating] (:rf/spawn-id args))
             "invoke-id is the state-path the spawn issued from"))
       ;; Snapshot: the load-bearing contract is that `:state` advanced and
       ;; the in-snapshot counter bumped to 1 for the `:http/post` slot.
@@ -121,11 +121,11 @@
           "the returned snapshot's counter is at 4"))))
 
 (deftest invoke-all-counter-bumps-per-child
-  (testing ":invoke-all spawns N children — each child of the same machine-id bumps the same counter slot"
+  (testing ":spawn-all spawns N children — each child of the same machine-id bumps the same counter slot"
     (let [spec {:initial :idle
                 :data    {}
                 :states  {:idle      {:on {:start :working}}
-                          :working   {:invoke-all
+                          :working   {:spawn-all
                                       {:children [{:id :a :machine-id :worker}
                                                   {:id :b :machine-id :worker}
                                                   {:id :c :machine-id :worker}]
