@@ -683,6 +683,137 @@ and Causa 003 §Accessibility. v1.0 ships without it; the embedding
 host's transition-history ribbon + machine picker carry the
 accessible surface in the meantime.
 
+## SCXML import / export (v1.1, rf2-6urjd)
+
+SCXML is the W3C standard for statecharts. Round-tripping through
+SCXML lets re-frame2 machines be shared with non-CLJS tooling —
+external workflow systems, Erlang `gen_statem`-derived tools,
+Stately's importers, the xstate-visualizer. Same pure-data posture
+as the Mermaid emitter: a machine definition in, an XML string out;
+and the inverse on the read side.
+
+```clojure
+(:require [day8.re-frame2-machines-viz.scxml :as scxml])
+
+(scxml/spec->scxml machine-spec)
+;; => "<?xml version=\"1.0\" ...?>\n<scxml ...>...</scxml>"
+
+(scxml/scxml->spec scxml-string)
+;; => the parsed machine spec
+```
+
+### Round-trip
+
+```clojure
+(= machine-spec (-> machine-spec scxml/spec->scxml scxml/scxml->spec))
+```
+
+holds for the supported subset.
+
+### Supported grammar subset
+
+| Re-frame2 | SCXML mapping |
+|---|---|
+| `:initial`                            | `<scxml initial="...">` |
+| `:states` (flat)                      | `<state id="...">` |
+| `:states` (compound)                  | nested `<state>` with `initial` |
+| `:final? true`                        | `<final id="...">` |
+| `:on {:event :target}`                | `<transition event="event" target="target"/>` |
+| `:on {:event {:target ... :guard G}}` | `<transition cond="G" .../>` |
+| `:after {ms :target}`                 | `<transition event="after.ms" target="target"/>` |
+| `:always [...]`                       | `<transition target="..."/>` (eventless) |
+| `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
+| Namespaced ids (`:auth/login`)        | `auth.login` (dot-separated; SCXML id grammar) |
+| Vector-path targets                   | dot-joined `parent.child.grandchild` |
+
+### Not supported (lossy or omitted)
+
+- `:spawn-all` rows — omitted; the parent state renders without
+  spawn affordances.
+- `:tags` — re-frame2-specific; not part of W3C SCXML.
+- `:action`s and guard FN bodies — only the *names* survive
+  (SCXML `cond="name"` for guards; entry/exit `<script>` would
+  require evaluation context, so names are preserved as XML
+  comments on imports/exports).
+- Source-coord metadata — stripped at export time (same posture as
+  share-URL encoding; see [Principles §No session data in shares](./Principles.md)).
+
+### Error modes
+
+| `:reason` | Meaning |
+|---|---|
+| `:scxml/invalid-spec` | Input spec missing `:initial` / `:states` (or `:type :parallel` / `:regions`). |
+| `:scxml/parse-error`  | Input XML is malformed or missing the `<scxml>` root. |
+
+## AI-generate-a-machine (v1.1, rf2-1bncf)
+
+A pure library fn that takes a natural-language prompt and returns
+a normalised re-frame2 machine spec. The LLM call is pluggable —
+the fn accepts an injected `:resolver` so callers wire in whichever
+LLM bridge fits their environment (Anthropic API / OpenAI API /
+local Ollama / Causa's chat seam / re-frame2-pair-mcp).
+
+```clojure
+(:require [day8.re-frame2-machines-viz.ai-generate :as ai])
+
+(ai/generate-machine "a login flow with idle, loading, success and error states"
+                     {:resolver (fn [prompt] (call-anthropic prompt))})
+;; => {:initial :idle
+;;     :states  {:idle    {:on {:login :loading}}
+;;               :loading {:on {:ok :success :err :failed}}
+;;               :success {:final? true}
+;;               :failed  {:final? true}}}
+```
+
+### Contract
+
+- `(generate-machine user-prompt opts)` returns the validated spec
+  the same shape `reg-machine` accepts and `(rf/machine-meta id)`
+  returns.
+- `opts` recognises:
+  - `:resolver` — `(fn [prompt-string] llm-response-string)`. Required.
+    The namespace ships no default LLM bridge — production callers
+    inject one, tests inject a stub returning canned EDN.
+
+### Two-layer design
+
+The implementation separates the I/O boundary (the injected
+resolver) from the parse/validate step (this ns). The fn:
+
+1. Composes `system-prompt + user-prompt` into a single string via
+   `ai/build-prompt` (the canonical system prompt lives at
+   `ai/system-prompt`, exposed as a Var for audit / multi-turn
+   composition).
+2. Hands the prompt to `:resolver` and waits for a string response.
+3. Strips fenced code blocks (```clojure / ```edn / bare) tolerantly,
+   so the LLM may emit prose around the EDN form.
+4. Parses the EDN form and validates it carries `:initial` + non-
+   empty `:states` (or `:type :parallel` + non-empty `:regions`).
+
+### Reserved namespaces
+
+Generated machines use re-frame2's normal id conventions — feature-
+prefixed keywords (`:auth/idle`, `:cart/loading`), hyphenated bare
+names (`:idle`, `:loading-failed`). The system prompt asks the LLM
+to follow them; the parser does not enforce them (an LLM that
+emits `:loadingFailed` produces a working spec the caller can
+clean up or accept as-is).
+
+### Error modes
+
+| `:reason` | Meaning |
+|---|---|
+| `:ai-generate/no-resolver`  | `:resolver` opt was not provided. |
+| `:ai-generate/parse-failed` | Resolver output could not be parsed as EDN. |
+| `:ai-generate/invalid-spec` | Parsed value was not a valid machine shape. |
+
+### Determinism
+
+The fn itself is deterministic given a deterministic resolver. LLM
+resolvers are not deterministic by default; for reproducible tests
+inject a stub mapping known prompts to canned EDN responses (see
+the AI-generate test ns for examples).
+
 ## Public CLJS API surface — summary
 
 ```clojure
@@ -690,6 +821,11 @@ day8.re-frame2-machines-viz.chart/MachineChart    ; component
 day8.re-frame2-machines-viz.share/encode-share-url
 day8.re-frame2-machines-viz.share/decode-share-url
 day8.re-frame2-machines-viz.mermaid/emit          ; pure fn — definition → string
+day8.re-frame2-machines-viz.scxml/spec->scxml     ; v1.1 — pure fn
+day8.re-frame2-machines-viz.scxml/scxml->spec     ; v1.1 — pure fn
+day8.re-frame2-machines-viz.ai-generate/generate-machine ; v1.1 — pluggable LLM seam
+day8.re-frame2-machines-viz.ai-generate/build-prompt     ; v1.1 — prompt composer
+day8.re-frame2-machines-viz.ai-generate/system-prompt    ; v1.1 — Var
 day8.re-frame2-machines-viz.export/chart-as-png!
 day8.re-frame2-machines-viz.export/chart-as-svg
 day8.re-frame2-machines-viz.export/chart-as-mermaid
@@ -702,7 +838,8 @@ day8.re-frame2-machines-viz.export/copy-share-url-to-clipboard!
 
 No global state, no init function. The component is referentially
 transparent over its props; the share / export functions are pure
-(modulo the clipboard).
+(modulo the clipboard). The v1.1 SCXML + AI-generate surfaces are
+pure-data and JVM-callable.
 
 ## See also
 
