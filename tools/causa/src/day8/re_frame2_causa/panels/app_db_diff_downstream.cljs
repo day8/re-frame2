@@ -59,6 +59,7 @@
   dismissal via Esc (handled by the trigger's `:on-key-down`)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
+            [day8.re-frame2-causa.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-causa.panels.shared.sub-input-paths :as sip]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -67,18 +68,34 @@
 
 (defn- focused-cascade-sub-runs+renders
   "Read the focused epoch's `:sub-runs` + `:renders` slots, falling
-  back to head when no focus resolved. Mirrors `views-focused-cascade-
-  pair` but only needs the current cascade (not the prior). Returns
-  `{:sub-runs [...] :renders [...]}`; both vectors default to `[]`."
-  [history focus]
-  (let [history       (vec history)
-        focus-eid     (:epoch-id focus)
-        idx           (or (when focus-eid
-                            (some (fn [[i r]]
-                                    (when (= focus-eid (:epoch-id r)) i))
-                                  (map-indexed vector history)))
-                          (when (seq history) (dec (count history))))
-        current       (when idx (nth history idx nil))]
+  back to head when no focus resolved OR the focused :epoch-id has
+  aged out of the history ring buffer. Mirrors `views-focused-
+  cascade-pair` but only needs the current cascade (not the prior).
+  Returns `{:sub-runs [...] :renders [...]}`; both vectors default
+  to `[]`.
+
+  ## Head-fallback semantics at this call site
+
+  Unlike the Issues panel (which distinguishes `:focused` from
+  `:epoch-evicted` so the view paints the canonical evicted
+  placeholder), the downstream-subs popover treats a stale focus
+  the same as a cold start: show whatever's at the head so the
+  popover stays useful when the selected epoch ages out. The
+  shared resolver (`panels.shared.focus-resolver`) is the strict
+  variant — `nil` focus falls back to head but a stale focus
+  returns nil. We add the second-level fallback here so this call
+  site's permissive semantic is preserved.
+
+  Per rf2-o9suo the algebra is centralised in the shared resolver;
+  this fn picks the semantic its caller wants on top."
+  [history focus-map]
+  (let [focus-eid (:epoch-id focus-map)
+        current   (or (focus/find-epoch-record focus-eid history)
+                      ;; Stale focus → head-fallback. The shared
+                      ;; resolver returns nil for :epoch-evicted; this
+                      ;; call site degrades to the head record so the
+                      ;; popover stays useful.
+                      (focus/find-epoch-record nil history))]
     {:sub-runs (or (:sub-runs current) [])
      :renders  (or (:renders  current) [])}))
 
