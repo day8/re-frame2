@@ -125,7 +125,7 @@
               chart   (th/find-by-attr tree :data-testid
                                        "rf-causa-static-machines-topology-chart")
               g-nodes (th/find-by-attr-prefix tree :data-testid
-                                              "rf-causa-chart-")]
+                                              "rf-mv-chart-")]
           (is (some? panel)
               "Static Machines L4 panel did not mount — :rf.causa/mode :static + default :machines sub-tab should yield the panel")
           (is (pos? (count rows))
@@ -137,7 +137,7 @@
               (str "Topology SVG has zero <g> layout nodes — machines-viz "
                    "shim integrity regression per rf2-o9arp. (machines-viz "
                    "mints :g hiccup carrying :data-testid prefix "
-                   "'rf-causa-chart-' for compounds / nodes / edges / "
+                   "'rf-mv-chart-' for compounds / nodes / edges / "
                    "viewport.)")))))))
 
 (deftest static-machines-sub-strip-default-states

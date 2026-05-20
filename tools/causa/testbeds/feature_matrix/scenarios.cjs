@@ -1438,17 +1438,17 @@ async function runDeepMachine(page, state) {
           root.querySelectorAll('[data-testid="rf-causa-machine-canvas-host"]'),
         );
         const svgs = Array.from(
-          root.querySelectorAll('[data-testid="rf-causa-chart-svg"]'),
+          root.querySelectorAll('[data-testid="rf-mv-chart-svg"]'),
         );
         const firstSvg = svgs[0] || null;
         // The chart-svg primitive emits node groups under a
-        // `rf-causa-chart-nodes` container (machines-viz chart/svg.cljc).
+        // `rf-mv-chart-nodes` container (machines-viz chart/svg.cljc).
         // A non-zero count is the canonical proof that ELK layout
         // produced positions + the machines-viz <g> emitters ran. We
         // also fall back to counting all child <g> as a loose lower
         // bound in case the testid is renamed in a future tweak.
         const nodeGroupContainer = firstSvg
-          ? firstSvg.querySelector('[data-testid="rf-causa-chart-nodes"]')
+          ? firstSvg.querySelector('[data-testid="rf-mv-chart-nodes"]')
           : null;
         const nodeGroupCount = nodeGroupContainer
           ? nodeGroupContainer.querySelectorAll('g').length

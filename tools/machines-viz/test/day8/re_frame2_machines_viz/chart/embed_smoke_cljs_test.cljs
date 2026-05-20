@@ -124,7 +124,7 @@
       (is (= :svg (first tree))
           "the embed mount produces an SVG root (NOT the empty-state
            div fallback — the registered machine HAS states)")
-      (is (some? (find-by-testid tree "rf-causa-chart-svg"))
+      (is (some? (find-by-testid tree "rf-mv-chart-svg"))
           "the canonical root data-testid is present"))))
 
 (deftest embed-smoke-non-trivial-node-and-edge-count
@@ -134,8 +134,8 @@
     (rf/reg-machine embed-machine-id fixture-machine)
     (let [definition (rf/machine-meta embed-machine-id)
           tree       (chart-svg/render-from-definition definition)
-          nodes      (find-all-by-testid-prefix tree "rf-causa-chart-node-")
-          edges      (find-all-by-testid-prefix tree "rf-causa-chart-edge-")]
+          nodes      (find-all-by-testid-prefix tree "rf-mv-chart-node-")
+          edges      (find-all-by-testid-prefix tree "rf-mv-chart-edge-")]
       (is (= 4 (count nodes))
           "four registered states -> four chart nodes")
       (is (= 3 (count edges))
@@ -149,16 +149,16 @@
     (rf/reg-machine embed-machine-id fixture-machine)
     (let [definition (rf/machine-meta embed-machine-id)
           tree       (chart-svg/render-from-definition definition)]
-      (is (some? (find-by-testid tree "rf-causa-chart-initial-marker"))
+      (is (some? (find-by-testid tree "rf-mv-chart-initial-marker"))
           "initial-state marker is rendered for the :initial slot")
       ;; The final glyph "✓" sits inside the node group; we assert
       ;; both final states emit their node groups (the doubled-ring
       ;; rect is wrapped by the node <g>).
       (let [final-a (find-by-testid tree
-                      (str "rf-causa-chart-node-"
+                      (str "rf-mv-chart-node-"
                            (layout/highlight-id :authenticated)))
             final-b (find-by-testid tree
-                      (str "rf-causa-chart-node-"
+                      (str "rf-mv-chart-node-"
                            (layout/highlight-id :failed)))]
         (is (some? final-a)
             ":authenticated final state node is rendered")
@@ -195,7 +195,7 @@
                        {:on-state-click (fn [path] (swap! seen conj path))})
           node       (find-by-testid
                        tree
-                       (str "rf-causa-chart-node-"
+                       (str "rf-mv-chart-node-"
                             (layout/highlight-id :verifying)))
           click-fn   (:on-click (second node))]
       (is (some? click-fn)

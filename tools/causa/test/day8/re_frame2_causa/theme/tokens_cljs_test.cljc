@@ -19,7 +19,9 @@
     consumers paste into their `animation-duration` slot."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-causa.theme.tokens :as t]))
+            [clojure.set :as set]
+            [day8.re-frame2-causa.theme.tokens :as t]
+            [day8.re-frame2-machines-viz.theme.tokens :as mv]))
 
 ;; ---- palette consistency -----------------------------------------------
 
@@ -369,3 +371,65 @@
                                 (:bg-1 t/tokens))]
       (is (>= ratio 7.0)
           (str ":text-primary must remain >= 7:1 (AAA), got " ratio)))))
+
+;; ---- rf2-z7ms8 — Causa ↔ machines-viz palette drift CI gate ------------
+
+(deftest causa-and-machines-viz-dark-palettes-match-key-set
+  (testing "rf2-z7ms8 — the machines-viz dark-palette must expose
+            EVERY key Causa's dark-palette does (it's an explicit
+            mirror). Asserting the key-set rather than equality lets
+            Causa's dark-palette grow (e.g. new utility tokens) without
+            forcing machines-viz to re-publish — only the SHARED keys
+            must agree on value (see the next test)."
+    (let [causa-keys (set (keys t/dark-palette))
+          mv-keys    (set (keys mv/dark-palette))]
+      (is (= causa-keys mv-keys)
+          (str "key drift: causa-only "
+               (vec (sort (set/difference causa-keys mv-keys)))
+               " vs machines-viz-only "
+               (vec (sort (set/difference mv-keys causa-keys))))))))
+
+(deftest causa-and-machines-viz-dark-palettes-match-values
+  (testing "rf2-z7ms8 — for every key SHARED between the two
+            dark-palettes the HEX values must agree. machines-viz
+            mirrors Causa at the values level (per the doc-string in
+            tools/machines-viz/src/.../theme/tokens.cljc) so the chart
+            renders identically whether embedded by Causa, Story, the
+            read-only viewer, or a user dev shell. A drift here is a
+            silent visual-fidelity bug — the chart paints a different
+            colour than the surrounding panel chrome."
+    (let [shared (set/intersection (set (keys t/dark-palette))
+                                           (set (keys mv/dark-palette)))]
+      (doseq [k shared]
+        (is (= (get t/dark-palette  k)
+               (get mv/dark-palette k))
+            (str "dark-palette drift on " k
+                 ": causa=" (pr-str (get t/dark-palette k))
+                 " vs machines-viz=" (pr-str (get mv/dark-palette k))))))))
+
+(deftest causa-and-machines-viz-light-palettes-match-values
+  (testing "rf2-z7ms8 + rf2-usord — same drift gate for the light
+            palette: every key shared between the two light-palettes
+            must agree on hex value. Asserting shared-key equality
+            (rather than full set equality) lets each side carry extra
+            theme-internal entries without forcing the other to
+            mirror them."
+    (let [shared (set/intersection (set (keys t/light-palette))
+                                           (set (keys mv/light-palette)))]
+      (is (seq shared)
+          "the light palettes share at least the canonical 7-axis token
+           set (no empty-intersection footgun)")
+      (doseq [k shared]
+        (is (= (get t/light-palette  k)
+               (get mv/light-palette k))
+            (str "light-palette drift on " k
+                 ": causa=" (pr-str (get t/light-palette k))
+                 " vs machines-viz=" (pr-str (get mv/light-palette k))))))))
+
+(deftest causa-and-machines-viz-mono-and-sans-stacks-match
+  (testing "rf2-z7ms8 — the font stacks are part of the shared visual
+            contract. Drift here lands the chart's labels on a
+            different face than the surrounding chrome — visually
+            obvious, structurally silent."
+    (is (= t/mono-stack mv/mono-stack))
+    (is (= t/sans-stack mv/sans-stack))))

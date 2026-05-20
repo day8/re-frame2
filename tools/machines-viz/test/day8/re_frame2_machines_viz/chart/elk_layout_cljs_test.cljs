@@ -288,6 +288,95 @@
       (is (every? integer? (map :x (:nodes got))))
       (is (every? integer? (map :y (:nodes got)))))))
 
+;; ---- rf2-ikdi3 — :layout-options host override -------------------------
+
+(deftest ->elk-graph-host-layout-options-override-defaults
+  (testing "rf2-ikdi3 — a host can pass a `layout-options` map (3-arg
+            arity) and the keys merge ON TOP of the canonical defaults
+            so the host tightens / widens / swaps individual knobs."
+    (let [tight (elk-layout/->elk-graph
+                  small-machine :tb
+                  {"elk.spacing.nodeNode"                      "20"
+                   "elk.layered.spacing.nodeNodeBetweenLayers" "40"})]
+      ;; Overridden knobs reflect the host's values.
+      (is (= "20" (get-in tight [:layoutOptions "elk.spacing.nodeNode"])))
+      (is (= "40" (get-in tight [:layoutOptions
+                                 "elk.layered.spacing.nodeNodeBetweenLayers"])))
+      ;; Un-overridden knobs keep their defaults.
+      (is (= "SPLINES" (get-in tight [:layoutOptions "elk.edgeRouting"])))
+      (is (= "layered" (get-in tight [:layoutOptions "elk.algorithm"]))))))
+
+(deftest ->elk-graph-direction-arg-wins-over-options-map
+  (testing "rf2-ikdi3 — the `direction` arg is the authoritative axis
+            source; even when the host passes `elk.direction` in the
+            options map, the `direction` arg wins so the substrate
+            adapter's `:direction` prop stays the single truth."
+    (let [g (elk-layout/->elk-graph
+              small-machine :lr
+              {"elk.direction" "DOWN"})]
+      ;; :lr should map to "RIGHT" regardless of the options-map
+      ;; attempting to force "DOWN".
+      (is (= "RIGHT" (get-in g [:layoutOptions "elk.direction"]))))))
+
+(deftest default-layout-options-catalogues-canonical-knobs
+  (testing "rf2-ikdi3 — `default-layout-options` is the public source
+            of truth for the chart's ELK knob defaults; downstream
+            hosts can read it to display + tune knobs through their
+            own UI."
+    (is (= "layered" (get elk-layout/default-layout-options "elk.algorithm")))
+    (is (= "SPLINES" (get elk-layout/default-layout-options "elk.edgeRouting")))
+    (is (contains? elk-layout/default-layout-options "elk.spacing.nodeNode"))))
+
+;; ---- rf2-ikdi3 — :layout-engine prop -----------------------------------
+
+(deftest layout-or-fallback-engine-layered-bypasses-elk
+  (testing "rf2-ikdi3 — `:layout-engine :layered` forces the layered
+            fallback even when ELK has cached a layout. Hosts that need
+            deterministic layout (Causa's screenshot tests) reach for
+            this knob to lock the visual output across test runs."
+    (elk-layout/reset-elk-state-for-test!)
+    (elk-layout/reset-cache-for-test!)
+    (let [layered (elk-layout/layout-or-fallback small-machine :tb nil :layered)]
+      (is (sequential? (:nodes layered)))
+      (is (= 4 (count (:nodes layered))))
+      ;; layered engine puts nodes at integer y-coordinates rounded
+      ;; per its BFS-rank algorithm.
+      (is (every? integer? (map :y (:nodes layered)))))))
+
+(deftest layout-or-fallback-engine-elk-returns-nil-on-cache-miss
+  (testing "rf2-ikdi3 — `:layout-engine :elk` NEVER falls back. On a
+            cache miss it returns nil so the host can choose 'show
+            nothing' or 'wait + retry' rather than rendering the
+            inferior fallback engine."
+    (elk-layout/reset-elk-state-for-test!)
+    (elk-layout/reset-cache-for-test!)
+    (is (nil? (elk-layout/layout-or-fallback small-machine :tb nil :elk)))))
+
+(deftest layout-or-fallback-engine-auto-is-historical-behaviour
+  (testing "rf2-ikdi3 — `:auto` (the default when no engine arg is
+            passed) reproduces the pre-ikdi3 behaviour: cached ELK
+            when available, layered fallback otherwise."
+    (elk-layout/reset-elk-state-for-test!)
+    (elk-layout/reset-cache-for-test!)
+    (let [auto   (elk-layout/layout-or-fallback small-machine :tb nil :auto)
+          legacy (elk-layout/layout-or-fallback small-machine :tb)]
+      (is (= (count (:nodes auto)) (count (:nodes legacy))))
+      (is (sequential? (:nodes auto))))))
+
+;; ---- rf2-ikdi3 — cache keys on layout-options --------------------------
+
+(deftest cached-layout-key-includes-layout-options
+  (testing "rf2-ikdi3 — the cache key threads `layout-options` so a
+            host that toggles density (nodeNode 32 → 20) gets a fresh
+            ELK pass rather than stale positions from the previous
+            knob value."
+    (elk-layout/reset-cache-for-test!)
+    ;; A direct cache miss with no options:
+    (is (nil? (elk-layout/cached-layout small-machine :tb)))
+    ;; Different options-map = different cache key.
+    (is (nil? (elk-layout/cached-layout small-machine :tb
+                                        {"elk.spacing.nodeNode" "20"})))))
+
 (deftest cached-layout-returns-nil-on-miss
   (elk-layout/reset-cache-for-test!)
   (is (nil? (elk-layout/cached-layout small-machine :tb))))
