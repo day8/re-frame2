@@ -24,6 +24,7 @@
 - **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — WHY each major call was made; the seven rf2-m6tu §6 decisions plus Phase-2 SOTA additions and IMPL-SPEC-emergent calls.
 - **[Tutorial-Playwright.md](Tutorial-Playwright.md)** — Tutorial-shaped Playwright e2e starter recipe: navigate to a variant by URL hash, wait for the canvas, assert against `[data-test=...]`, capture screenshots keyed by `snapshot-identity` (rf2-6qqry).
 - **[Tutorial-Embed.md](Tutorial-Embed.md)** — Tutorial-shaped embed recipe: `variant-share-url` + `?embed=1` chrome-hide flag → iframe-ready URLs for docs sites and READMEs. Local-SVG QR-share popover (no third-party egress, rf2-20w5i) (rf2-dafym).
+- **[Migration-Audit.md](Migration-Audit.md)** — Playwright → CLJS migration manifest: every `*.spec.cjs` driven by the per-PR Story/Causa Playwright gates, every assertion classified A/B/C, per-spec migration target files, and post-migration gate-posture recommendation (rf2-tglku audit phase).
 - **[findings/](findings/)** — Feature-set research and SOTA refinement working substrate; audit lineage, not normative.
 
 ## How to use
