@@ -516,7 +516,7 @@ Body:
  :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs (explicit list)
  :for       <story-id>                            ; for :variants-grid only — auto-enumerate
  :columns   <integer>                             ; for :grid / :variants-grid — column count
- :content   [{:type :prose :body "md..."} ...]    ; for :prose
+ :content   [{:type :prose :body "md..."} ...]    ; for :prose; bodies render as markdown — see spec/008 §Markdown rendering
  :render    <view-id>                              ; for :custom (a registered view)
  :modes     #{<mode-id> ...}                       ; future-reserved — see below
  :isolation :isolated | :shared}                   ; rf2-gqid4 — :variants-grid only

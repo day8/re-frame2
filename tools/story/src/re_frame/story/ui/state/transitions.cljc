@@ -16,14 +16,33 @@
 ;; ---- selection / filters -------------------------------------------------
 
 (defn select-variant
-  "Set the focused variant id (or nil to deselect)."
+  "Set the focused variant id (or nil to deselect). Clears
+  `:selected-story` — variant focus is mutually exclusive with the
+  story-rollup view (rf2-8j7wg)."
   [state variant-id]
-  (assoc state :selected-variant variant-id))
+  (-> state
+      (assoc :selected-variant variant-id)
+      (cond-> variant-id (assoc :selected-story nil))))
 
 (defn select-workspace
-  "Set the focused workspace id (or nil to deselect)."
+  "Set the focused workspace id (or nil to deselect). Clears
+  `:selected-story` — workspace focus and the story-rollup view are
+  mutually exclusive shell modes (rf2-8j7wg)."
   [state workspace-id]
-  (assoc state :selected-workspace workspace-id))
+  (-> state
+      (assoc :selected-workspace workspace-id)
+      (cond-> workspace-id (assoc :selected-story nil))))
+
+(defn select-story
+  "Set the focused parent-story id (or nil to deselect). Mutually
+  exclusive with `:selected-variant` + `:selected-workspace` — clicking
+  a story HEADER swaps the main pane to the rollup docs view per
+  rf2-8j7wg (audit C-4)."
+  [state story-id]
+  (-> state
+      (assoc :selected-story story-id)
+      (cond-> story-id (-> (assoc :selected-variant   nil)
+                           (assoc :selected-workspace nil)))))
 
 (defn toggle-tag-filter
   "Flip `tag` in the `:tag-filter` set."

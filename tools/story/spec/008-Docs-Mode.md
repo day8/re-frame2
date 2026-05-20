@@ -95,6 +95,40 @@ authoring decision per spec/001). The docs pane bridges that:
 If no `:prose` workspace mentions the variant the section is omitted
 entirely (no empty-state placeholder — keeps the page clean).
 
+#### Markdown rendering (rf2-wl7yr, audit C-2)
+
+Prose bodies render as **markdown** — not `pre-wrap` plain text.
+`re-frame.story.ui.markdown/parse` lifts each `:body` string into a
+hiccup tree the docs pane drops into the prose-block container.
+Supported syntax (a CommonMark subset, no MDX / JSX):
+
+- `#` … `######` headings (h1-h6)
+- paragraphs (blank-line-separated)
+- `**bold**`, `*italic*`, `_italic_`
+- inline `` `code` ``
+- fenced code blocks (` ``` `; optional language tag becomes
+  `data-lang` on the `<pre>`)
+- bullet lists (`- item` or `* item`)
+- numbered lists (`1. item`)
+- `[label](url)` links — `javascript:` URLs are scrubbed to `#`;
+  anchors emit `target="_blank"` + `rel="noopener noreferrer"`
+- `> blockquote` lines
+- trailing-two-space hard breaks (CommonMark §6.7)
+
+Deliberately NOT supported (security / scope):
+
+- raw HTML / `<script>` passthrough (literal text only)
+- images (`![](url)`) — no `:src` attribute means no XSS surface
+- reference-style links / footnotes / strikethrough / tables — keeps
+  the parser inline and dep-free
+- MDX / JSX — Story v1 stays plain markdown
+
+The parser is a single-pass pure CLJC function: JVM-testable, and
+runs identically in JVM and CLJS targets. The same renderer is used
+in `:prose`-layout workspaces (`re-frame.story.ui.workspace`'s
+`prose-block`) so authors get consistent markdown rendering across
+both surfaces.
+
 ### 3. Args
 
 A three-column table — `key | default | doc` — sorted by arg-key.
@@ -201,23 +235,79 @@ for table content + variant ids, system-ui for prose. The pane
 scrolls inside the `<main>` landmark; the strip sits above it
 (owned by the mode-tabs primitive).
 
+## Per-story rollup docs page (rf2-8j7wg, audit C-4)
+
+Storybook ships `Component.docs` — a parent-level docs page that
+aggregates every variant's docs sections under one scrollable pane.
+Story v1 ships the equivalent: click a story header in the sidebar
+and the main pane swaps to `re-frame.story.ui.docs/docs-rollup-view`,
+which renders:
+
+```
+┌────────────────────────────────────────────────────┐
+│  :story.counter                          (h1)      │
+│  3 variants                                        │
+│  A counter component with inc/dec/reset actions.   │
+├────────────────────────────────────────────────────┤
+│  :story.counter/empty                    (h2)      │
+│  [prose / args / decorators / parameters / tags]   │
+├────────────────────────────────────────────────────┤
+│  :story.counter/at-five                  (h2)      │
+│  [prose / args / decorators / parameters / tags]   │
+├────────────────────────────────────────────────────┤
+│  :story.counter/overflow                 (h2)      │
+│  [prose / args / decorators / parameters / tags]   │
+└────────────────────────────────────────────────────┘
+```
+
+State plumbing:
+
+- Shell-state slot `:selected-story` (parent-story id, or nil).
+- Transition `state/select-story` sets the slot AND clears
+  `:selected-variant` + `:selected-workspace` (mutually exclusive
+  panes).
+- Symmetrically, `select-variant` / `select-workspace` clear
+  `:selected-story` when given a non-nil id — clicking INTO a leaf
+  dismisses the rollup. Deselect (`nil`) preserves the rollup.
+
+Surface:
+
+```clojure
+(re-frame.story.ui.docs/docs-rollup-view story-id)
+  ; → [:section {:data-test "story-docs-rollup" ...}
+  ;     <header>
+  ;     <rollup-variant-block> × N]
+
+(re-frame.story.ui.docs/variant-ids-for-story story-id)
+  ; → [<variant-id> ...] — sorted variant set, pure data → data
+```
+
+Test selectors:
+
+| Selector                                                  | What                                       |
+|-----------------------------------------------------------|--------------------------------------------|
+| `[data-test="story-docs-rollup"]`                         | The rollup pane root.                      |
+| `[data-story-id="..."]` (on the root)                     | The parent-story id.                       |
+| `[data-test="story-docs-rollup-header"]`                  | Header (h1 + variant count + doc blurb).   |
+| `[data-test="story-docs-rollup-doc-blurb"]`               | Parent story's `:doc` blurb (when set).    |
+| `[data-test="story-docs-rollup-variant"]`                 | One variant's docs block in the stack.     |
+| `[data-variant-id="..."]` (on each block)                 | The variant id.                            |
+| `[data-test="story-docs-rollup-empty"]`                   | Empty-state when no variants registered.   |
+| `[data-test="story-sidebar-story-row"]`                   | The clickable story header in the sidebar. |
+
 ## Out of scope at v1
 
 - **Per-variant `:prose` slot.** Adding `:prose` to the variant
   schema is its own EDN-shape change — the docs pane piggybacks on
   workspaces for v1, which keeps the schema closed.
-- **MDX rendering.** The prose body renders as `pre-wrap` plain
-  text. Markdown → hiccup is a separate concern; if a project wants
-  rich rendering it registers a `reg-story-panel` with a custom
-  view. The docs pane's role is to present what's registered, not
-  to introduce a Markdown dependency.
+- **MDX / JSX.** The prose body renders as plain markdown (see
+  §Markdown rendering above); MDX-style component embeddings are not
+  supported. If a project needs JSX-style interpolation it registers
+  a `reg-story-panel` with a custom view. The docs pane stays pure
+  markdown.
 - **Editable docs.** Read-only is the contract; v2 may add an inline
   notes affordance but it would be a new shell-state slot, not a
   mutation of the variant body.
-- **Storybook-style story-level docs pages.** Each variant has its
-  own docs pane in v1 — the parent-story-level rollup
-  (Storybook's `Component.docs`) is a v2 surface. Workspaces already
-  cover the multi-variant rollup use-case.
 
 ## Foundational status
 

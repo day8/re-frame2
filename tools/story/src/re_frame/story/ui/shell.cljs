@@ -656,6 +656,7 @@
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)
         ws-id      (:selected-workspace shell)
+        story-id   (:selected-story shell)
         vis        (:panel-visibility shell)
         mode-tab   (when variant-id
                      (state/active-mode-tab shell variant-id))]
@@ -684,6 +685,11 @@
                     ;; are NOT framed (they're shell chrome, not the
                     ;; variant render surface).
                     [framed-canvas])
+       ;; rf2-8j7wg (audit C-4) — per-story rollup docs page. The
+       ;; sidebar's story-header rows dispatch `select-story` which
+       ;; lands here. Variant + workspace selection take precedence
+       ;; (the user navigated FROM the rollup into a leaf).
+       story-id [docs/docs-rollup-view story-id]
        :else
        [:div {:style {:padding "32px"
                       :color (:text-tertiary colors/tokens)

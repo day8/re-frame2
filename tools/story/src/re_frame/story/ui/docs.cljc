@@ -49,6 +49,7 @@
   never invoke it — closure DCEs the lot."
   (:require [re-frame.story.predicates :as pred]
             [re-frame.story.registrar  :as registrar]
+            [re-frame.story.ui.markdown :as md]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.story.args :as args]
                        [re-frame.story.decorators :as decorators]
@@ -213,8 +214,7 @@
                       :background       (:bg-2 colors/tokens)
                       :border-left      "3px solid #0e639c"
                       :color            (:text-primary colors/tokens)
-                      :font-family      sans-stack
-                      :white-space      "pre-wrap"}
+                      :font-family      sans-stack}
       :prose-source  {:color            (:text-secondary colors/tokens)
                       :font-family      mono-stack
                       :font-size        (:micro typography/type-scale)
@@ -337,7 +337,9 @@
             [:div {:data-test "story-docs-prose-block"}
              [:div {:style (:prose-source styles)}
               (str "from " workspace-id)]
-             [:div {:style (:prose-block styles)} body]])]))))
+             [:div {:style     (:prose-block styles)
+                    :data-test "story-docs-prose-rendered"}
+              (md/parse body)]])]))))
 
 #?(:cljs
    (defn- args-section
@@ -635,3 +637,86 @@
          [:section {:id "docs-parameters"} [parameters-section variant-id]]
          [:section {:id "docs-tags"} [tags-section variant-id]]]
         [toc-pane variant-id]])))
+
+;; ---- per-story rollup docs page (rf2-8j7wg, audit C-4) -----------------
+;;
+;; Storybook ships `Component.docs` — a parent-level docs page that
+;; aggregates every variant's docs. Story v1 had no equivalent (spec/008
+;; line 217-220 listed it as v2 scope). The rollup view fills that
+;; gap: click a story header in the sidebar → see ALL variants' docs
+;; sections stacked in one scrollable pane, with the parent story's
+;; `:doc` blurb at the top.
+
+(defn variant-ids-for-story
+  "Pure data → data: return the sorted vector of variant ids registered
+  under `story-id`. The sort gives the rollup page a stable order even
+  when hot-reload re-registers variants in non-source-order."
+  [story-id]
+  (vec (sort (registrar/variants-of story-id))))
+
+#?(:cljs
+   (defn- rollup-header
+     "Top of the rollup page — story id as h1, the story's :doc blurb,
+     a count of variants."
+     [story-id variant-ids]
+     (let [sb   (registrar/handler-meta :story story-id)
+           sdoc (:doc sb)]
+       [:div {:data-test "story-docs-rollup-header"}
+        [:h1 {:style (:h1 styles)}
+         (str story-id)]
+        [:div {:style (:sub styles)}
+         (str (count variant-ids)
+              " variant" (when (not= 1 (count variant-ids)) "s"))]
+        (when (seq sdoc)
+          [:div {:style (:doc-blurb styles)
+                 :data-test "story-docs-rollup-doc-blurb"}
+           sdoc])])))
+
+#?(:cljs
+   (defn- rollup-variant-block
+     "Render one variant's docs sections in the rollup. Mirrors
+     `docs-view` minus the per-variant `<h1>` (each variant gets an h2
+     instead — the rollup's h1 is the story id at the top)."
+     [variant-id]
+     [:div {:style     (merge (:section styles)
+                              {:padding-top "16px"
+                               :border-top  "1px solid #444"})
+            :data-test "story-docs-rollup-variant"
+            :data-variant-id (str variant-id)}
+      [:h2 {:style (merge (:h1 styles)
+                          {:font-size (:body typography/type-scale)
+                           :margin-top "0"})}
+       (str variant-id)]
+      [prose-section     variant-id]
+      [args-section      variant-id]
+      [decorators-section variant-id]
+      [parameters-section variant-id]
+      [tags-section       variant-id]]))
+
+#?(:cljs
+   (defn docs-rollup-view
+     "Top-level rollup docs pane for `story-id` (rf2-8j7wg, audit C-4).
+
+     Aggregates every registered variant of `story-id` into a single
+     scrollable pane: the parent story header at the top, then one
+     `rollup-variant-block` per variant in id-sorted order.
+
+     Mounted by the shell's `main-pane` when `(:selected-story shell)`
+     is non-nil and the user hasn't selected a variant or workspace.
+     Renders nothing when `story-id` is nil — defensive against a
+     stale shell state slot."
+     [story-id]
+     (when story-id
+       (let [vids (variant-ids-for-story story-id)]
+         [:section {:style     (:wrap styles)
+                    :data-test "story-docs-rollup"
+                    :data-story-id (str story-id)
+                    :aria-label "Story documentation rollup"}
+          [rollup-header story-id vids]
+          (if (empty? vids)
+            [:div {:style     (:empty styles)
+                   :data-test "story-docs-rollup-empty"}
+             "no variants registered under this story"]
+            (for [vid vids]
+              ^{:key vid}
+              [rollup-variant-block vid]))]))))
