@@ -23,7 +23,7 @@
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
   Public surface re-exported from the sub-namespaces:
-    - `reg-machine*`, `create-machine-handler` —
+    - `reg-machine*`, `make-machine-handler` —
       `re-frame.machines.lifecycle-fx.registration`
     - `machine-transition` — `re-frame.machines.parallel` (the public
       dispatch; flat / compound delegates to
@@ -67,7 +67,7 @@
 ;; state, deterministic from its (machine snapshot event) arguments.
 
 (def reg-machine*           registration/reg-machine*)
-(def create-machine-handler registration/create-machine-handler)
+(def make-machine-handler registration/make-machine-handler)
 (def spawn-fx               spawn/spawn-fx)
 (def invoke-all-init-fx     spawn/invoke-all-init-fx)
 (def destroy-machine-fx     destroy/destroy-machine-fx)
@@ -230,7 +230,7 @@
 ;; runtime always reaches through this hook to the plain-fn surface.
 
 (late-bind/set-fn! :machines/reg-machine            reg-machine*)
-(late-bind/set-fn! :machines/create-machine-handler create-machine-handler)
+(late-bind/set-fn! :machines/make-machine-handler make-machine-handler)
 (late-bind/set-fn! :machines/machine-transition     machine-transition)
 (late-bind/set-fn! :machines/machines               machines)
 (late-bind/set-fn! :machines/machine-meta           machine-meta)

@@ -144,7 +144,7 @@ For the full grammar see [005 §Delayed `:after` transitions](../../../spec/005-
 Entering `:fetching` spawns a `:http/protocol` actor; leaving `:fetching` destroys it. The child's lifetime is bound to the parent state's occupancy. If you write the spawn-and-destroy by hand, it looks like:
 
 ```clojure
-;; what create-machine-handler desugars the :spawn into:
+;; what make-machine-handler desugars the :spawn into:
 {:fetching
  {:entry (fn [data _]
            {:fx [[:rf.machine/spawn {:machine-id :http/protocol

@@ -1,7 +1,7 @@
 (ns re-frame.machines.lifecycle-fx.registration
   "Registration boundary: handler factory + `reg-machine*` (rf2-f9tu).
 
-  `create-machine-handler` is the event-fx handler factory beneath the
+  `make-machine-handler` is the event-fx handler factory beneath the
   `reg-machine` macro; `reg-machine*` is the plain-fn surface used by
   the late-bind table and by REPL workflows. Per rf2-f9tu the factory
   is decomposed into:
@@ -88,7 +88,7 @@
 
 ;; ---- 4-step pipeline (rf2-2zzyg) ------------------------------------------
 ;;
-;; The handler-fn returned by `create-machine-handler` decomposes into four
+;; The handler-fn returned by `make-machine-handler` decomposes into four
 ;; named pure-fn steps, each ≤ 30 LoC, that read onto Spec 005 §Drain
 ;; semantics §Level 3 directly:
 ;;
@@ -106,7 +106,7 @@
 ;;      build new-db, route to `finalize-machine` if `finished?`.
 ;;
 ;; The intercept-invoke-all-event short-circuit is the visible top-level
-;; branch in `create-machine-handler` itself — it must short-circuit before
+;; branch in `make-machine-handler` itself — it must short-circuit before
 ;; boot / step / commit run.
 
 ;; ---- snapshot/definition compatibility (rf2-fasdp) ------------------------
@@ -353,7 +353,7 @@
         {:db new-db
          :fx merged-fx}))))
 
-(defn create-machine-handler
+(defn make-machine-handler
   "Returns a function suitable for registration with `reg-event-fx`.
 
   Per Spec 005 §Registration — the machine IS the event handler. The
@@ -426,7 +426,7 @@
 (defn reg-machine*
   "Plain-fn surface beneath the `reg-machine` macro. Registers a machine
   as an event handler under `machine-id`. Equivalent to
-  `(reg-event-fx machine-id (create-machine-handler machine))`.
+  `(reg-event-fx machine-id (make-machine-handler machine))`.
 
   Per Spec 005 §reg-machine vs reg-machine*: the macro `reg-machine`
   walks the literal spec form at expansion time and stamps per-element
@@ -452,7 +452,7 @@
   ;; map and its attached cache atom, so no separate invalidation step
   ;; is needed.
   (let [machine    (parallel/install-region-cache machine)
-        handler-fn (create-machine-handler machine)]
+        handler-fn (make-machine-handler machine)]
     (events/reg-event-fx machine-id
                          {:rf/machine? true
                           :rf/machine  machine}

@@ -37,7 +37,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 ```clojure
 (rf/reg-event-fx :ws/connection
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :disconnected
      ;; NOTE :cred-ref is an opaque pointer; the bearer is fetched
      ;; client-side at actor spawn via the :rf.cred/fetch cofx.

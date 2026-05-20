@@ -41,7 +41,7 @@
             [re-frame.schemas]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/create-machine-handler
+            ;; registers its late-bind hooks so rf/make-machine-handler
             ;; (called below at ns-load) and the `:rf/machine` framework
             ;; sub resolve.
             [re-frame.machines]
@@ -182,7 +182,7 @@
 
 (rf/reg-event-fx :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     ;; Per Spec 005 §Where snapshots live: the spec map does NOT carry
     ;; :id; the machine's id is the surrounding reg-event-fx id.
     {:initial :idle
@@ -270,7 +270,7 @@
 ;; ============================================================================
 ;;
 ;; The machine handler (registered above as :auth.login/flow via reg-event-fx
-;; + create-machine-handler) is self-initialising: its `:initial` state and
+;; + make-machine-handler) is self-initialising: its `:initial` state and
 ;; `:data` seed [:rf/machines :auth.login/flow] when the machine first runs.
 ;; No separate :initialise event is required (per [005 §Restore semantics]).
 ;;

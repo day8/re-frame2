@@ -51,7 +51,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/machine-by-system-id` | `(system-id)` / `(... frame-id)` |
 | `rf/dispatch-to-system` | `(system-id event)` / `(... frame-id)` |
 | `rf/machine-transition` | `(machine snapshot event)` → `[snapshot' fx]` pure |
-| `rf/create-machine-handler` | `(machine)` → event-fx handler |
+| `rf/make-machine-handler` | `(machine)` → event-fx handler |
 
 ## Routing — `day8/re-frame2-routing`
 

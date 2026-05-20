@@ -508,7 +508,7 @@
     ;; bodies declared under :fixture/handlers :machine-action /
     ;; :machine-guard. We realise those bodies once here and merge them
     ;; into the spec before calling re-frame.machines/reg-machine, which
-    ;; in turn calls reg-event-fx with create-machine-handler. From this
+    ;; in turn calls reg-event-fx with make-machine-handler. From this
     ;; point dispatching [machine-id <inner-event>] runs through the full
     ;; runtime path, so :rf.error/machine-action-exception (Cross-Spec
     ;; §11/§17) and the post-commit :fx walk (Cross-Spec §12) become
@@ -838,7 +838,7 @@
                                         ;; Per rf2-msd4: machine actions can
                                         ;; throw to exercise Cross-Spec §11
                                         ;; (machine-action-exception). The
-                                        ;; runtime's create-machine-handler
+                                        ;; runtime's make-machine-handler
                                         ;; catches the throw, halts the cascade
                                         ;; atomically, and emits
                                         ;; :rf.error/machine-action-exception

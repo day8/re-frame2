@@ -24,7 +24,7 @@
   | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | the Ring host-adapter (default-html-shell, streaming-prefix/suffix, trusted-shell hooks per Spec 011). |
   | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!, `at-boundary` (per [§Schemas](#schemas)). |
   | `re-frame.http` | `day8/re-frame2-http` | the verb helpers `get` / `post` / `put` / `delete` / `patch` / `head` / `options` (per [§HTTP requests](#http-requests-spec-014)). |
-  | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `create-machine-handler`, `machine-transition`, `sub-machine`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
+  | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `make-machine-handler`, `machine-transition`, `sub-machine`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
   | `re-frame.epoch` | `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch`, `reset-frame-db!`, `register-epoch-listener!`, `unregister-epoch-listener!`, `(rf/configure :epoch-history ...)`. Re-exported through `re-frame.core` via late-bind hooks — `(:require [re-frame.epoch])` at boot before consuming the surfaces through `re-frame.core` (per [Tool-Pair §Time-travel — Artefact home](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). |
   | `re-frame.adapter.uix` / `re-frame.adapter.helix` | `day8/re-frame2-uix` / `day8/re-frame2-helix` | UIx- and Helix-specific surfaces (per [§UIx adapter](#uix-adapter-spec-006-rf2-3yij) / [§Helix adapter](#helix-adapter-spec-006-rf2-2qit)). |
 
@@ -102,6 +102,18 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
 
 **Canonical `event` / `query-v` shape (best practice).** `[<id>]` (trivial), `[<id> <single-scalar>]` (single-arg), `[<id> {<k> <v>}]` (multi-arg → single map payload). Variadic `[<id> a b c]` is tolerated by the runtime for v1-migration and caller convenience; the linter nudges new code toward the map form. Full rationale and cross-refs: [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice).
+
+### `dispatch-*` family taxonomy
+
+Per audit-of-audits (rf2-cthfn) state-machines #10, the `dispatch-*` family has two sub-shapes that look alike on first read but answer different questions. Both *are* dispatch operations — the family-prefix is honest — but they sit in different sub-families.
+
+**Stamping-pair sub-family** (`dispatch` / `dispatch-sync` macros + `dispatch*` / `dispatch-sync*` fn variants).
+The pair-shape question is **"do you want call-site stamping or not?"** The macro form captures `:rf.trace/call-site` from the surrounding source position (rf2-ts1a) so tooling can navigate from a trace event back to the originating expression. The `*` fn-form skips the stamping — needed for HoF composition (`(map dispatch* events)`) where a macro can't sit inside the higher-order call. Both shapes route through the same dispatcher; only the trace stamping differs.
+
+**Named-target sugar sub-family** (`dispatch-to-system`, per [005 §Cross-machine messaging by name](005-StateMachines.md)).
+This question is **"do you have a `:system-id` instead of a target machine-id?"** `dispatch-to-system` is sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))` — it dispatches just like the macros, but it resolves the target through the per-frame `[:rf/system-ids]` reverse index first. It is **not** outside the dispatch family; it's a named-addressing sugar built on top of `dispatch`. The hyphen-after-`dispatch` reads as "dispatch with extra routing logic on top," not "different kind of dispatch."
+
+The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, so the same `:rf.trace/call-site` stamping fires (call-site at the `dispatch-to-system` invocation, since that's the macro the user wrote). When future named-addressing variants land (per actor-model patterns) they slot into the same sub-family; new call-site-stamping variants slot into the same pair.
 
 ---
 
@@ -696,13 +708,13 @@ The configure-keys vocabulary is fixed-and-additive (Spec-ulation): existing key
 
 ## Machines
 
-Split between the v1 machine-as-event-handler foundation and the post-v1 `re-frame.machines` scaffolding library — see [005-StateMachines.md §Disposition](005-StateMachines.md#disposition). The machine *is* the event handler: a machine is registered as one `reg-event-fx` whose body comes from `create-machine-handler`.
+Split between the v1 machine-as-event-handler foundation and the post-v1 `re-frame.machines` scaffolding library — see [005-StateMachines.md §Disposition](005-StateMachines.md#disposition). The machine *is* the event handler: a machine is registered as one `reg-event-fx` whose body comes from `make-machine-handler`.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `reg-machine` | M | `(reg-machine machine-id machine-spec)` — registers a machine as an event handler. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` (rf2-8bp3). | v1 | 005 |
 | `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` — plain-fn surface beneath the macro. No source-coord walking. | v1 | 005 |
-| `create-machine-handler` | Fn | `(create-machine-handler spec)` → event-handler fn | v1 | 005 |
+| `make-machine-handler` | Fn | `(make-machine-handler spec)` → event-handler fn | v1 | 005 |
 | `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | 005 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | 005 |
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | 005 |

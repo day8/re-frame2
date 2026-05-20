@@ -29,7 +29,7 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact) and are re-exported under `re-frame.core`. See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
 
-The older `reg-event-fx + create-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
+The older `reg-event-fx + make-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
 
 ## The inline-fn escape hatch
 
@@ -78,7 +78,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `create-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf/machines <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
+v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf/machines <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 
@@ -118,7 +118,7 @@ The media-player example uses two genuinely independent regions (audio and video
 
 (rf/reg-event-fx :media/audio
   {:doc "Audio region — playing / paused."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :paused
      :data    {:position 0}
      :states
@@ -136,7 +136,7 @@ The media-player example uses two genuinely independent regions (audio and video
 
 (rf/reg-event-fx :media/video
   {:doc "Video region — visible / hidden."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :hidden
      :data    {}
      :states
@@ -191,7 +191,7 @@ xstate needs history states because its runtime lacks first-class snapshot-as-va
 ;; the substate the user was on (e.g., :browsing.cart vs :browsing.search).
 ;; The two helper actions are declared in the machine's :actions map:
 
-(rf/create-machine-handler
+(rf/make-machine-handler
   {:actions
    {:capture-browsing-position
     ;; Stash the current browsing-state into :data so we can restore it later.
@@ -245,7 +245,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | `:context` for extended state | `:data` | Avoid the triply-overloaded "context" name; align with `gen_statem` vocabulary |
 | Compound guards as `{and: [...]}` data | One fn or one named registered compound | Imperative composition is fns; named compounds carry semantic content |
 | Action-vector `[a1 a2 a3]` per slot | One fn or one named registered compound | Same reason as guards |
-| `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the `create-machine-handler` spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
+| `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the `make-machine-handler` spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
 | `[:assign {...}]` action data form | Action returns `{:data {...}}` | Symmetric with `reg-event-fx`'s `{:db :fx}`; one fewer DSL to parse |
 | `invoke` (state-node spawn key) | `:spawn` (and `:spawn-all` for parallel-fanout-and-join) | Deliberate name divergence (rf2-5r4q2). Convergence is high enough on other keys (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`) that AI agents trained on xstate would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the most semantically-loaded slot breaks the convergence trap and aligns the declarative key with the existing imperative `:rf.machine/spawn` fx. See [005 §Deliberate name divergence — `:spawn`](005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2). |
 

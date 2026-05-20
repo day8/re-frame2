@@ -34,7 +34,7 @@
       "expectations": [
         "Skill skills/re-frame2/ is invoked.",
         "The agent reads patterns/websocket.md (or the equivalent canonical pattern leaf), not just SKILL.md.",
-        "The output uses reg-machine (or create-machine-handler) — not a plain reg-event-db slice — to model the connection lifecycle.",
+        "The output uses reg-machine (or make-machine-handler) — not a plain reg-event-db slice — to model the connection lifecycle.",
         "The output declares an :active parent compound state with leaf states (:connecting, :authenticating or similar, :connected) so the socket actor's lifetime spans the parent.",
         "The output uses :spawn to anchor the socket actor on the parent state, not on a single leaf.",
         "The output models :reconnecting with backoff via :after (delay) and bumps a retry counter in :data.",

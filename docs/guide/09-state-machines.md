@@ -164,14 +164,14 @@ Registering a transition table as an event handler is one line:
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-This is exactly `(reg-event-fx :auth.login/flow (create-machine-handler login-flow))`. The machine's id is `:auth.login/flow`; the snapshot lives at `[:rf/machines :auth.login/flow]` in `app-db`. **You don't pick a path — there is one canonical path.** `create-machine-handler` returns a regular `reg-event-fx`-shaped handler whose body does "look up the snapshot, call `machine-transition`, write back, return the action effects." `machine-transition` is pure, so all the testing and tooling guarantees of regular events apply.
+This is exactly `(reg-event-fx :auth.login/flow (make-machine-handler login-flow))`. The machine's id is `:auth.login/flow`; the snapshot lives at `[:rf/machines :auth.login/flow]` in `app-db`. **You don't pick a path — there is one canonical path.** `make-machine-handler` returns a regular `reg-event-fx`-shaped handler whose body does "look up the snapshot, call `machine-transition`, write back, return the action effects." `machine-transition` is pure, so all the testing and tooling guarantees of regular events apply.
 
 If you need `:doc` or `:interceptors`, use the longer form:
 
 ```clojure
 (rf/reg-event-fx :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
-  (rf/create-machine-handler login-flow))
+  (rf/make-machine-handler login-flow))
 ```
 
 `reg-machine` is a **macro**. At expansion it walks the literal spec form and stamps a dev-only coord index under `:rf.machine/source-coords` — what lets pair-tools jump from a clicked transition arrow in a state-diagram visualisation back to the source line. Production builds elide it.
@@ -492,7 +492,7 @@ For most apps you do not call these directly. The declarative `:spawn` slot on a
   }}
 ```
 
-`:spawn` is **registration-time sugar.** `create-machine-handler` rewrites every `:spawn` into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy`. The runtime sees only the desugared form — no new mechanics, no new lifecycle event. The spawned actor-id is tracked internally at `[:rf/spawned <parent-id> <invoke-id>]` — **you don't track it yourself**; the runtime reads it back on exit to emit the destroy fx with the right id.
+`:spawn` is **registration-time sugar.** `make-machine-handler` rewrites every `:spawn` into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy`. The runtime sees only the desugared form — no new mechanics, no new lifecycle event. The spawned actor-id is tracked internally at `[:rf/spawned <parent-id> <invoke-id>]` — **you don't track it yourself**; the runtime reads it back on exit to emit the destroy fx with the right id.
 
 ### Naming machines across the frame: `:system-id`
 

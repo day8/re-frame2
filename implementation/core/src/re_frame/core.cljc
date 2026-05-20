@@ -830,8 +830,8 @@
 
 (def ^{:doc "Build an event-fx handler from a machine spec. Per Spec 005
   §Registration. Implementation ships in `day8/re-frame2-machines`.
-  Late-bound via `:machines/create-machine-handler`."}
-  create-machine-handler rf-machines/create-machine-handler)
+  Late-bound via `:machines/make-machine-handler`."}
+  make-machine-handler rf-machines/make-machine-handler)
 
 (def ^{:doc "Pure `(machine, snapshot, event) -> [snapshot fx]`. Per
   Spec 005 §Drain semantics §Level 3. **Pure / JVM-runnable testing
@@ -840,7 +840,7 @@
   returns the next snapshot + the effects to interpret. The
   conformance corpus and JVM unit-test suites consume `machine-transition`
   directly; CLJS handler bodies normally reach the same engine via
-  `create-machine-handler` and `dispatch`. Implementation ships in
+  `make-machine-handler` and `dispatch`. Implementation ships in
   `day8/re-frame2-machines`. Late-bound via
   `:machines/machine-transition`. Per rf2-7t1a6."}
   machine-transition     rf-machines/machine-transition)

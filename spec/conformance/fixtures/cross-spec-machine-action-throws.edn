@@ -25,7 +25,7 @@
  :fixture/doc          "Cross-Spec #11 Machine action throws. The action's exception is caught by the machine handler; the cascade halts atomically. No snapshot commit, no :db effect, generic :rf.error/handler-exception does NOT also fire — only the machine-scoped :rf.error/machine-action-exception."
 
  :fixture/registry
- {:event {:test/m {:doc "Machine-as-event-handler. Dispatches go through create-machine-handler."}}
+ {:event {:test/m {:doc "Machine-as-event-handler. Dispatches go through make-machine-handler."}}
   :machine-action
   {:boom {:doc "Action body throws — exercises Cross-Spec §11."}}
   ;; The machine spec is registered via re-frame.machines/reg-machine —

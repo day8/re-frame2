@@ -2,7 +2,7 @@
   "Registration-time validators for the machine grammar (rf2-f9tu).
 
   Pure leaf functions called from
-  `re-frame.machines.lifecycle-fx.registration/create-machine-handler` at
+  `re-frame.machines.lifecycle-fx.registration/make-machine-handler` at
   the top of its body. Each validator throws an `ex-info` keyed on a
   `:rf.error/machine-*` taxonomy member; consumers (the `reg-machine`
   macro, the registrar, Causa) inspect the `ex-data`. The validators
@@ -234,7 +234,7 @@
 
 (defn validate-machine!
   "Run every registration-time check the machine grammar requires (rf2-f9tu).
-  Composed at the top of `create-machine-handler` so the registered handler
+  Composed at the top of `make-machine-handler` so the registered handler
   fn's body is exclusively about request processing.
 
   Per Spec 005 §Parallel regions (rf2-l67o / Stage 2): `:type :parallel`

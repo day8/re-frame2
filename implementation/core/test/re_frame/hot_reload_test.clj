@@ -177,7 +177,7 @@
     ;; populated. We use a machine handler so the snapshot lands at
     ;; [:rf/machines :traffic-light] per Spec 005.
     (rf/reg-event-fx :traffic-light
-      (rf/create-machine-handler
+      (rf/make-machine-handler
         {:initial :red
          :data    {:ticks 0}
          :actions {:tick-action

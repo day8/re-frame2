@@ -21,10 +21,10 @@
    :maven         "day8/re-frame2-machines"
    :require-ns    "re-frame.machines"})
 
-(defwrapper create-machine-handler
+(defwrapper make-machine-handler
   "Build an event-fx handler from a machine spec. Per Spec 005
-  §Registration. Late-bound via :machines/create-machine-handler."
-  {:hook :machines/create-machine-handler :artefact machines-artefact :on-absent :throw}
+  §Registration. Late-bound via :machines/make-machine-handler."
+  {:hook :machines/make-machine-handler :artefact machines-artefact :on-absent :throw}
   ([machine] :delegate))
 
 (defwrapper machine-transition
@@ -121,7 +121,13 @@
   "Subscribe to a machine's snapshot. Sugar over (subscribe [:rf/machine
   machine-id]). Returns a reaction whose value is the snapshot
   {:state <kw> :data <map>} or nil if the machine is not yet
-  initialised. Per Spec 005 §Subscribing to machines via sub-machine."
+  initialised.
+
+  The `sub-` prefix is re-frame's subscription-family verb (sibling of
+  `subscribe`, `subscribe-once`, `subscriber`). It does NOT denote a
+  child-machine relationship — declarative child-machine binding uses
+  `:spawn` per rf2-5r4q2. Per audit-of-audits (rf2-cthfn) state-machines
+  #11 and Spec 005 §Subscribing to machines via sub-machine."
   [machine-id]
   (subs/subscribe [:rf/machine machine-id]))
 

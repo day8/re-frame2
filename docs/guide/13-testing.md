@@ -270,10 +270,10 @@ Three levels of machine testing, in order of unit-cost:
     (is (= :locked-out (:state s)))))
 ```
 
-**Level 2 — unregistered handler fn.** `(rf/create-machine-handler login-flow)` returns a regular event-handler fn. Call it directly with a synthetic cofx map:
+**Level 2 — unregistered handler fn.** `(rf/make-machine-handler login-flow)` returns a regular event-handler fn. Call it directly with a synthetic cofx map:
 
 ```clojure
-(let [handler (rf/create-machine-handler login-flow)
+(let [handler (rf/make-machine-handler login-flow)
       result  (handler {:db {:rf/machines {:auth.login/flow {:state :idle :data {}}}}}
                        [:auth.login/flow [:auth.login/submit {...}]])]
   (is (= :submitting (get-in result [:db :rf/machines :auth.login/flow :state]))))

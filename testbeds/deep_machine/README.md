@@ -49,7 +49,7 @@ destroy / join shape, not what the children compute.
   `:work/reset` cycles it. A future surface can layer the final-state
   contract.
 - **No nested parallel regions.** Per [spec/005 §Parallel regions]
-  v1 explicitly disallows nesting; `create-machine-handler` would
+  v1 explicitly disallows nesting; `make-machine-handler` would
   reject this at registration. The five-deep compound on `:work`
   + the top-level parallel split between `:work` and `:health` is
   the depth ceiling under the v1 grammar.

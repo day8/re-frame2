@@ -1130,11 +1130,11 @@ CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot 
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `create-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
+Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/reg-machine`, `re-frame.core/create-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, `re-frame.core/machine-meta`, or `re-frame.core/sub-machine`.
+- Any call to `re-frame.core/reg-machine`, `re-frame.core/make-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, `re-frame.core/machine-meta`, or `re-frame.core/sub-machine`.
 - Any subscription to the framework-shipped `:rf/machine` reg-sub (e.g. `(rf/subscribe [:rf/machine machine-id])`).
 - A direct `(:require [re-frame.machines])` clause.
 
@@ -1147,9 +1147,9 @@ Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strat
         day8/re-frame2-machines {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
-Every namespace that calls `rf/reg-machine` / `rf/create-machine-handler` / `rf/machine-transition` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
+Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/machine-transition` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
 
-**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/create-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)`, `(rf/sub-machine ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
+**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/make-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)`, `(rf/sub-machine ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-xbtj](#).
 
@@ -1632,7 +1632,7 @@ Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:spawn-all`](../../spec/005-Sta
 
 **New trace events.** The 009 trace vocabulary picks up four `:spawn-all` lifecycle events (`:rf.machine.spawn-all/started` / `*/all-completed` / `*/some-completed` / `*/any-failed`) plus `:rf.machine.spawn/cancelled-on-join-resolution` for per-sibling cancellation. Observers that filter by exact `:operation` keyword learn to recognise the new ones; observers that filter by `:op-type :machine` see them automatically. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
 
-**New error categories.** `create-machine-handler` rejects malformed `:spawn-all` slots at registration time with `:rf.error/machine-spawn-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id` or `:definition`), `:rf.error/machine-spawn-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-spawn-all-with-spawn` (a state declares both `:spawn` and `:spawn-all`). All registration-time; the runtime never sees a malformed `:spawn-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
+**New error categories.** `make-machine-handler` rejects malformed `:spawn-all` slots at registration time with `:rf.error/machine-spawn-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id` or `:definition`), `:rf.error/machine-spawn-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-spawn-all-with-spawn` (a state declares both `:spawn` and `:spawn-all`). All registration-time; the runtime never sees a malformed `:spawn-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
 
 **What to do.** Nothing for compatibility; this is purely additive. Apps wanting spawn-and-join sugar adopt `:spawn-all` per the Spec 005 worked example (auth + hydrate flow). The `:actor/spawn-and-join` capability in [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:spawn-all` at registration with `:rf.error/machine-grammar-not-in-v1`.
 
@@ -2105,7 +2105,7 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 | `:rf.error/machine-invoke-all-duplicate-id` | `:rf.error/machine-spawn-all-duplicate-id` | registration-time error category |
 | `:rf.error/machine-invoke-all-with-invoke` | `:rf.error/machine-spawn-all-with-spawn` | registration-time error category (`:spawn` and `:spawn-all` mutually exclusive on a state) |
 | `:rf.error/invoke-timeout-ms-removed` | `:rf.error/spawn-timeout-ms-removed` | registration-time error (per M-44) |
-| `:rf.invoke/*` (generated action namespace) | `:rf.spawn/*` | desugared entry/exit action ids generated by `create-machine-handler` |
+| `:rf.invoke/*` (generated action namespace) | `:rf.spawn/*` | desugared entry/exit action ids generated by `make-machine-handler` |
 
 **Detect.** v1 codebases adopting `:invoke` / `:invoke-all` state-node keys, and any code reading the snapshot-internal `:rf/invoke-*` keys or filtering trace events on `:rf.machine.invoke*/*`.
 
@@ -2141,9 +2141,36 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 
 **Mechanical sweep.** A repository-wide text rename over the table above will land the change. Order longer keys before shorter (`:invoke-all` before `:invoke`, `:rf/invoke-all-id` before `:rf/invoke-id`); the `:rf.machine.invoke-all/` and `:rf.machine.invoke/` trace-op prefixes rewrite to `:rf.machine.spawn-all/` and `:rf.machine.spawn/` respectively (the new prefix sits in the `:rf.machine.*` namespace and does NOT collide with the existing `:rf.machine/spawn` fx-id since they live in different namespaces).
 
-**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — `create-machine-handler` does not accept `:invoke` / `:invoke-all` and will treat them as unknown state-node keys.
+**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — `make-machine-handler` does not accept `:invoke` / `:invoke-all` and will treat them as unknown state-node keys.
 
 **Cross-references.** [005 §Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn) (the canonical surface); [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all); [005 §Deliberate name divergence — `:spawn` (NOT `:invoke`)](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) (the rationale); [CP-5-MachineGuide §Lessons from xstate](../../spec/CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) (where the divergence sits in the broader xstate-comparison table); [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-) (the parent runtime-owned spawn-id tracking change this rename now aligns names with); [M-43](#m-43-spawn-all-spawn-and-join-is-added--additive-no-user-side-action) (the original `:invoke-all` add — supplanted by this rename); [M-44](#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) (the `:timeout-ms` retirement — same surface, prior step).
+
+---
+
+### M-57. Machine-handler builder verb unification — `create-machine-handler` → `make-machine-handler` (rf2-g0bbk)
+
+**Type A** (mechanical). Single-symbol global rename.
+
+Per rf2-g0bbk (audit-of-audits state-machines #12) the machine-handler builder is renamed from `create-machine-handler` to `make-machine-handler` to align with the `make-*` verb already used by the sibling `make-frame`. `create-*` was the lone outlier in the public-API surface; the new name slots into the existing factory-verb convention.
+
+| Old | New | Surface |
+|---|---|---|
+| `re-frame.core/create-machine-handler` | `re-frame.core/make-machine-handler` | the public builder fn |
+| `:machines/create-machine-handler` | `:machines/make-machine-handler` | the late-bind hook key |
+
+**Detect.** v2-pre-rename codebases trip this. v1 had no machine substrate; v1-→-v2 migrations land directly on the new name.
+
+```clojure
+;; before
+(def my-handler (rf/create-machine-handler my-machine-spec))
+
+;; after
+(def my-handler (rf/make-machine-handler my-machine-spec))
+```
+
+**No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
+
+**Cross-references.** [005-StateMachines §Registration](../../spec/005-StateMachines.md); [API.md §State machines](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue).
 
 ---
 

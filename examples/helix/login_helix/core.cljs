@@ -107,7 +107,7 @@
 
 (rf/reg-event-fx :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :idle
      :data    {:attempts 0 :error nil}
 

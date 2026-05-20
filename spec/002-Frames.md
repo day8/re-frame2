@@ -925,7 +925,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; :dispatch-later — schedule via interop/set-timeout!; the timer fires a
 ;;                   fresh dispatch later, re-engaging the drain loop.
 ;; :db             — handled inline in process-event! step 2; not seen here.
-;; :raise          — machine-internal; routed by create-machine-handler to
+;; :raise          — machine-internal; routed by make-machine-handler to
 ;;                   its local raise-queue BEFORE :fx reaches do-fx (see
 ;;                   machine pseudocode below).
 ;; :rf.machine/spawn / :rf.machine/destroy — registered globally by
@@ -970,7 +970,7 @@ For machine events, `process-event!` step 1 lands inside the machine handler, wh
 ;; ============================================================================
 ;; MACHINE EVENT — Level-3 cascade (called from process-event! step 1)
 ;; ============================================================================
-;; create-machine-handler returns this as a regular event handler. From the
+;; make-machine-handler returns this as a regular event handler. From the
 ;; outer drain's perspective, it returns an effects-map like any other handler.
 
 (defn machine-event-handler [machine-def]
@@ -1026,7 +1026,7 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 | `process-event!` step 3 | `do-fx`; per-frame and per-call `:fx-overrides` (per [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)) |
 | Trace emission | [009 §Core fields](009-Instrumentation.md#core-fields-required-on-every-event); error events use the `:rf.error/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) |
 | Error trapping (`raise!` calls) | The structured-error contract per [009 §Error contract](009-Instrumentation.md#error-contract); the per-frame `:on-error` slot fires the user-defined projector |
-| Machine cascade | [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event); `:raise` is routed by `create-machine-handler` *before* `:fx` reaches `do-fx`; `:rf.machine/spawn` / `:rf.machine/destroy` reach `do-fx` like any other fx (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) |
+| Machine cascade | [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event); `:raise` is routed by `make-machine-handler` *before* `:fx` reaches `do-fx`; `:rf.machine/spawn` / `:rf.machine/destroy` reach `do-fx` like any other fx (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) |
 
 #### Edge cases worth pinning
 
@@ -1166,10 +1166,10 @@ The drain semantics above were motivated by actor-style machine composition. The
 
 Machines therefore reuse the existing event registry, dispatch pipeline, and effect substrate. Co-locating machine snapshots in `app-db` (rather than in a parallel substrate) is what makes machine state inherit [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) for free; spawn-time registrations live in the **frame-local** tier of the two-tier registry (per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The two tiers — **central** (process-global, shared across frames; populated by namespace-load `reg-*` calls) and **frame-local** (per-frame, populated by spawn-time registrations and reverted by atomic rollback) — are defined in [000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility). The foundation hooks defined here are:
 
-- A registered event handler whose body comes from `create-machine-handler` *is* the machine. Tools filter by the `:rf/machine?` metadata exposed in `(handler-meta :event <id>)` to enumerate machines.
+- A registered event handler whose body comes from `make-machine-handler` *is* the machine. Tools filter by the `:rf/machine?` metadata exposed in `(handler-meta :event <id>)` to enumerate machines.
 - Snapshots live at the **reserved per-frame path `[:rf/machines <machine-id>]`** in each frame's `app-db` (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)). The shape is `{:state ... :data ...}`: `:state` is the discrete FSM-keyword; `:data` is the machine's extended state (the term used in FSM literature and `gen_statem`; xstate calls it "context"). **Per-frame isolation is automatic** — each frame's `app-db` has its own `:rf/machines` map, so the same machine id can exist in multiple frames without collision; their snapshots live in each frame's own `[:rf/machines]`. Because `:rf/machine` reads from the active frame's `app-db`, per-frame isolation extends transparently to subscription reads as well.
 - Reads happen through the framework-registered parametric sub `:rf/machine` (or its `sub-machine` wrapper). `@(rf/sub-machine <machine-id>)` resolves on the surrounding frame and reads from that frame's `[:rf/machines <id>]`. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
-- Two thin helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(create-machine-handler spec) → fn` (a *pure factory* — no registration side effects, no global-state lookups, no self-id capture; the returned fn is suitable as a `reg-event-fx` body).
+- Two thin helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(make-machine-handler spec) → fn` (a *pure factory* — no registration side effects, no global-state lookups, no self-id capture; the returned fn is suitable as a `reg-event-fx` body).
 - One reserved machine-internal fx-id (`:raise`) the machine handler routes locally inside the action's returned `:fx` vector; the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` are registered globally and reach the standard `do-fx` resolver like any other fx.
 - Inspection trace events with `:source :machine` (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, etc.) ride the standard trace stream.
 - Composition via ordinary `dispatch`. Run-to-completion drain guarantees deterministic settling within a frame.
