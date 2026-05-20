@@ -1,5 +1,5 @@
 (ns day8.re-frame2-causa.panels.app-db-diff-downstream
-  "App-DB panel — downstream-subs overlay (rf2-op9v2).
+  "App-DB panel — downstream-subs overlay (rf2-op9v2 → rf2-gblq6).
 
   Per `tools/causa/spec/021-Dynamic-Panel-Designs.md` §4.4 — hover (or
   click) any changed app-db path → popover lists subs and views
@@ -8,21 +8,20 @@
   navigates to the Reactive panel (tab key `:views`, rebadged
   'Reactive' per rf2-wyvf2 / PR #1741).
 
-  ## MVP (rf2-op9v2)
+  ## Path-filtering (rf2-gblq6)
 
-  The cascade aggregate `:rf.cascade/captured` (#1729) carries
-  per-cascade `:subs-recomputed` / `:subs-skipped` / `:views-rendered`
-  vectors but does NOT yet carry per-sub `:input-paths` attribution.
-  Without that, filtering 'subs depending on path X' surgically is not
-  possible from the trace stream alone — the registry-side input-paths
-  lookup would be needed.
+  rf2-op9v2 (PR #1747) shipped the popover as MVP — full cascade, no
+  path filter. rf2-gblq6 (this rev) adds the registry-side walk
+  (`panels.shared.sub-input-paths`) and filters the popover to subs
+  whose static `:<-` chain depends on the hovered path. Subs with
+  unknown attribution (cycle, missing upstream) fall through the
+  conservative-include branch so the popover never lies by omission.
 
-  The MVP therefore renders the FULL cascade — every sub that ran
-  (recomputed or skipped) + every view that rendered this cascade — in
-  every per-path popover. A follow-on bead (rf2-op9v2-followup) will
-  refine the list to path-specific subs once the substrate carries
-  input-paths in the cascade aggregate (or once an additional registry
-  walk is wired in).
+  See `panels.shared.sub-input-paths` for the resolver contract — the
+  walk reports layer-1 leaves the sub composes over; the path-match
+  heuristic compares keyword-segment overlap of those leaves against
+  the hovered path-vec (matches the spec §4.4 example `[:cart :state]`
+  ↔ `:cart/state`).
 
   Data source: the focused epoch's `:sub-runs` + `:renders` projections
   on the epoch record (the same slots the Reactive panel reads —
@@ -60,6 +59,7 @@
   dismissal via Esc (handled by the trigger's `:on-key-down`)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
+            [day8.re-frame2-causa.panels.shared.sub-input-paths :as sip]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -97,27 +97,47 @@
     :<- [:rf.causa.app-db/popover-slot]
     (fn [slot _] (:path slot)))
 
-  ;; Downstream subs / views for the focused cascade. MVP (rf2-op9v2):
-  ;; returns ALL subs + views in the focused cascade — the popover
-  ;; renders the same list for every changed path. A follow-on bead
-  ;; will narrow the list to subs that actually read the hovered path
-  ;; once input-paths attribution lands in the substrate.
+  ;; Downstream subs / views for the focused cascade — path-filtered
+  ;; via the registry-side input-paths walk (rf2-gblq6).
   ;;
-  ;; The sub takes a `:path` query arg slot today only so future
-  ;; refinement is a body-only change (no caller migration).
+  ;; Algorithm:
+  ;;   1. Read every sub-id that ran in the cascade (recomputed +
+  ;;      skipped).
+  ;;   2. For each sub-id, walk the registry via
+  ;;      `sip/resolve-input-paths` to get its layer-1 leaves.
+  ;;   3. Keep the sub in the popover when `sip/sub-touches-path?`
+  ;;      returns truthy — nil (unknown) ⇒ include, empty ⇒ exclude,
+  ;;      keyword-segment overlap ⇒ include.
+  ;;
+  ;; Views are filtered transitively: a view appears when its
+  ;; `:triggered-by` sub passes the same filter (or when the view's
+  ;; render-key includes a sub-id segment overlapping the path).
   (rf/reg-sub :rf.causa/app-db-downstream-for-path
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/focus]
-    (fn [[history focus] [_query _path]]
+    (fn [[history focus] [_query path]]
       (let [{:keys [sub-runs renders]}
-            (focused-cascade-sub-runs+renders history focus)]
-        {:subs-recomputed (vec (filter :recomputed? sub-runs))
-         :subs-skipped    (vec (remove :recomputed? sub-runs))
-         :views-rendered  (vec renders)
-         ;; rf2-op9v2 MVP marker — drives the 'showing full cascade'
-         ;; affordance in the popover so the operator knows the list
-         ;; is not yet path-filtered.
-         :path-filtered?  false}))))
+            (focused-cascade-sub-runs+renders history focus)
+            registry      (sip/sub-meta-map)
+            touches-path? (fn [sub-id]
+                            (sip/sub-touches-path?
+                              (sip/resolve-input-paths sub-id registry)
+                              path))
+            kept-sub-runs (filter #(touches-path? (:sub-id %)) sub-runs)
+            kept-sub-ids  (into #{} (map :sub-id) kept-sub-runs)
+            kept-renders  (filter
+                            (fn [{:keys [triggered-by]}]
+                              (or (nil? triggered-by)
+                                  (contains? kept-sub-ids triggered-by)
+                                  (touches-path? triggered-by)))
+                            renders)]
+        {:subs-recomputed (vec (filter :recomputed? kept-sub-runs))
+         :subs-skipped    (vec (remove :recomputed? kept-sub-runs))
+         :views-rendered  (vec kept-renders)
+         ;; rf2-gblq6 — popover is now truly path-filtered. The MVP-
+         ;; note affordance (`rf-causa-app-db-popover-mvp-note`) is
+         ;; removed downstream in `popover-body`.
+         :path-filtered?  true}))))
 
 ;; ---- events ------------------------------------------------------------
 
@@ -241,7 +261,7 @@
   "Render the popover contents — subs list (recomputed first, then
   skipped) + views list + ⤴ footer affordance."
   [path]
-  (let [{:keys [subs-recomputed subs-skipped views-rendered path-filtered?]}
+  (let [{:keys [subs-recomputed subs-skipped views-rendered]}
         @(rf/subscribe [:rf.causa/app-db-downstream-for-path path])
         any-content? (or (seq subs-recomputed)
                          (seq subs-skipped)
@@ -278,21 +298,6 @@
                       :font-family mono-stack
                       :text-transform "none"}}
        (f/format-edn (vec path))]]
-     (when-not path-filtered?
-       ;; rf2-op9v2 MVP affordance — make the 'not yet path-filtered'
-       ;; state explicit so operators don't think the cascade ran the
-       ;; full list against this specific path. Removed once the
-       ;; follow-on bead lands input-paths attribution.
-       [:div {:data-testid "rf-causa-app-db-popover-mvp-note"
-              :style {:padding     "4px 8px"
-                      :background  (:bg-3 tokens)
-                      :color       (:text-tertiary tokens)
-                      :font-family sans-stack
-                      :font-size   "10px"
-                      :font-style  "italic"
-                      :border-bottom (str "1px solid "
-                                          (:border-subtle tokens))}}
-        "Showing full cascade — path-filtered list pending (rf2-op9v2)"])
      (cond
        (not any-content?)
        [:div {:data-testid "rf-causa-app-db-popover-empty"
