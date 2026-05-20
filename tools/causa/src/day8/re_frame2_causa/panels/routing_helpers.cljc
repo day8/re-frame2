@@ -436,6 +436,177 @@
      :sim-url       sim-url
      :sim-result    sim-result}))
 
+;; ---- topology projection (rf2-3kjlo) -----------------------------------
+;;
+;; The Routing panel renders a topology-plus-overlay shape per spec/021 §7:
+;; the FULL routing tree is always visible (registered routes nested by
+;; their `:parent` meta) and the focused epoch's nav-token activity
+;; overlays as a `:to` / `:from` / `:here` marker on the relevant nodes.
+;;
+;; The projection produces a vector of `{:row :depth :children}` entries
+;; suitable for textual `├─ └─ │` tree rendering (per §7.1 density note —
+;; most route trees are shallow ≤ 4 levels, so the textual tree is denser
+;; than xyflow). `:parent`-less routes become tree roots; orphaned
+;; `:parent` references (parent route-id not in the registrar) also
+;; become roots so the projection never drops a row.
+
+(defn- children-by-parent
+  "Group `rows` (already projected by `project-routes`) by their
+  `:parent` route-id. Returns `{<parent-id-or-nil> [row ...]}` with
+  children stable-sorted by `:path` so the tree renders deterministic."
+  [rows]
+  (->> rows
+       (group-by :parent)
+       (reduce-kv (fn [acc parent kids]
+                    (assoc acc parent (vec (sort-by :path kids))))
+                  {})))
+
+(defn- rooted?
+  "A row is a tree root when its `:parent` is nil OR when the parent
+  reference points to a route-id that is not in the registrar. The
+  second branch keeps orphaned children visible — the projection
+  promises every row appears exactly once."
+  [row registered-ids]
+  (or (nil? (:parent row))
+      (not (contains? registered-ids (:parent row)))))
+
+(defn project-topology
+  "Project the registered-routes map into a depth-decorated topology
+  vector — the data shape the Routing panel's tree-render consumes.
+
+  Returns `[{:row <row-from-project-routes>
+             :depth <int>           ;; 0 for roots, +1 per :parent hop
+             :last-at-depth? <bool> ;; true when this row is the last
+                                    ;; sibling at its depth (used by
+                                    ;; the view to pick `└─` vs `├─`)
+             } ...]`
+
+  Routes with `:parent` references that resolve to a registered
+  route-id nest beneath that route; routes without a parent (or with
+  an orphan parent) render at depth 0. Within each parent's children,
+  rows are sorted by `:path` so the topology is deterministic.
+
+  Cycles in the `:parent` graph (e.g. A → B → A) are protected against
+  via a `visited` set — a row that would re-enter the walk is skipped
+  at the second visit. The first visit wins; the second occurrence
+  drops out so the projection terminates and rows still appear exactly
+  once."
+  [routes-map]
+  (let [rows           (project-routes routes-map)
+        registered-ids (set (map :route-id rows))
+        kids           (children-by-parent rows)
+        roots          (->> rows
+                            (filter #(rooted? % registered-ids))
+                            (sort-by :path)
+                            vec)
+        walk (fn walk [row depth visited last-sibling?]
+               (let [id (:route-id row)]
+                 (if (contains? visited id)
+                   ;; Cycle protection — drop the re-entry.
+                   []
+                   (let [visited' (conj visited id)
+                         children (get kids id [])
+                         last-idx (dec (count children))
+                         child-rows
+                         (->> children
+                              (map-indexed
+                                (fn [i child]
+                                  (walk child (inc depth) visited'
+                                        (= i last-idx))))
+                              (reduce into []))]
+                     (into [{:row            row
+                             :depth          depth
+                             :last-at-depth? (boolean last-sibling?)}]
+                           child-rows)))))
+        last-root-idx (dec (count roots))]
+    (->> roots
+         (map-indexed
+           (fn [i root]
+             (walk root 0 #{} (= i last-root-idx))))
+         (reduce into []))))
+
+;; ---- per-epoch routing-activity projection (rf2-3kjlo) ------------------
+;;
+;; The "This epoch" block (per spec/021 §7.2) reads four short lines:
+;;
+;;     Phase     :on-match
+;;     From      /
+;;     To        /cart
+;;     Match     {:route :cart}
+;;     Events    [:rf/url-changed] [:cart/route-entered]
+;;
+;; The phase derives from the trace-event mix in the focused cascade:
+;;   - cascade carries :rf.route.nav-token/allocated → :on-match
+;;     (a navigation actually landed this epoch)
+;;   - cascade carries :rf.route/navigation-blocked → :navigation-blocked
+;;   - cascade carries :rf.route/fragment-changed → :fragment-changed
+;;   - otherwise → nil (no routing activity this epoch)
+;;
+;; The phase + from/to + matched-params + the event-vector list go into
+;; the "This epoch" block; when the projection returns nil for everything
+;; the view renders the "No route activity in this epoch." caption per
+;; spec §7.2 empty-state branch.
+
+(def ^:private routing-phase-ops
+  "Trace operations that indicate a routing-related phase. Order is
+  significant: nav-token/allocated wins (the actual on-match), then
+  navigation-blocked, then fragment-changed. The first match wins."
+  [[:rf.route.nav-token/allocated :on-match]
+   [:rf.route/navigation-blocked  :navigation-blocked]
+   [:rf.route/fragment-changed    :fragment-changed]])
+
+(defn- cascade-event-vectors
+  "Collect raw event vectors from a cascade. The cascade's top-level
+  `:event` slot is the root event; the `:effects` and `:other` buckets
+  may carry `:event/dispatched` trace records whose `:tags :event`
+  carries downstream event vectors. Returns a vector of event vectors
+  in insertion order, de-duplicated by identity."
+  [cascade]
+  (when cascade
+    (let [root       (:event cascade)
+          downstream (->> (cascade-trace-events cascade)
+                          (keep (fn [ev]
+                                  (when (and (map? ev)
+                                             (= :event/dispatched
+                                                (:operation ev)))
+                                    (get-in ev [:tags :event])))))
+          all        (cond->> downstream
+                       root (cons root))]
+      (->> all
+           (filter some?)
+           distinct
+           vec))))
+
+(defn epoch-routing-activity
+  "Derive a `{:phase :events :match}` map describing what the focused
+  cascade did to the route system this epoch. Returns nil when the
+  cascade is nil OR carries no routing-related trace events (the
+  view's 'No route activity' branch).
+
+  `:phase` is one of `#{:on-match :navigation-blocked :fragment-changed}`
+  per the trace-event mix.
+  `:events` is the cascade's event-vector list (root + downstream
+  dispatches), useful for the spec §7.2 'Events' row.
+  `:match` is the matched params map when phase is `:on-match` —
+  read off the framework's slice after the navigate handler wrote it.
+
+  The view layer renders this alongside the topology overlay; both
+  read off the same focused-cascade so they stay in sync."
+  [cascade current-slice]
+  (when cascade
+    (let [trace-evs (cascade-trace-events cascade)
+          phase    (some (fn [[op phase-kw]]
+                           (when (some #(and (map? %)
+                                             (= op (:operation %)))
+                                       trace-evs)
+                             phase-kw))
+                         routing-phase-ops)]
+      (when phase
+        {:phase  phase
+         :events (cascade-event-vectors cascade)
+         :match  (when (= :on-match phase)
+                   (:params current-slice))}))))
+
 ;; ---- composite projection ----------------------------------------------
 
 (defn project-data
@@ -473,3 +644,52 @@
       :query         query
       :sim-url       sim-url
       :sim-result    sim-result})))
+
+;; ---- topology-plus-overlay composite (rf2-3kjlo) -----------------------
+
+(defn project-topology-data
+  "The view-facing composite for the Routing panel's topology-plus-overlay
+  shape (per spec/021 §7).
+
+  Returns:
+
+      {:silent?    <bool>                 ;; true when no routes registered
+       :topology   [{:row :depth :last-at-depth? :marker} ...]
+                                          ;; the full route tree, depth-decorated
+       :current    <route-slice>          ;; the active :rf/route slice
+       :from-id    <route-id-or-nil>      ;; nav origin this epoch
+       :to-id      <route-id-or-nil>      ;; nav destination this epoch
+       :navigated? <bool>                 ;; true iff focused cascade navigated
+       :activity   <map-or-nil>}          ;; per-epoch routing activity
+                                          ;; (phase + events + match);
+                                          ;; nil ⇒ \"no route activity in this
+                                          ;; epoch\" branch per spec §7.2
+
+  The topology is always the FULL tree — overlays land via `:marker`
+  on the matching rows (`:to` for the destination, `:from` for the
+  origin, `:here` for the current route when no navigation happened
+  this epoch). The view paints the topology unconditionally so the
+  operator's mental map of the registered routes stays stable across
+  epoch focus changes."
+  [routes-map current-slice focused-cascade]
+  (let [topology       (project-topology routes-map)
+        silent?        (empty? topology)
+        nav            (from-to-from-cascade focused-cascade current-slice)
+        marker-input   (assoc nav :current-id (:id current-slice))
+        decorated      (mapv (fn [{:keys [row] :as entry}]
+                               (let [marked-row (first
+                                                  (assign-markers
+                                                    [row]
+                                                    marker-input))]
+                                 (assoc entry
+                                        :row    marked-row
+                                        :marker (:marker marked-row))))
+                             topology)
+        activity       (epoch-routing-activity focused-cascade current-slice)]
+    {:silent?    silent?
+     :topology   decorated
+     :current    current-slice
+     :from-id    (:from-id nav)
+     :to-id      (:to-id nav)
+     :navigated? (:navigated? nav)
+     :activity   activity}))
