@@ -51,6 +51,7 @@
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
             [day8.re-frame2-causa.panels.machine-after-rings :as after-rings]
+            [day8.re-frame2-causa.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-causa.share :as share]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -373,26 +374,85 @@
                            (:from-state rec) "-"
                            (:to-state rec))}))))))
 
+(defn- blank-state-section
+  "One per-machine section rendered in the blank state (Case B per
+  spec/021 §6.2 + §17.4.1). The Topology view receives the full
+  `:epoch-history` so it can walk back to the most-recent transition
+  for this machine, and the live `:snapshot-state` keyword so it can
+  fall back to the snapshot's `:state` when the buffer has no
+  transition for this machine at all. Both args flow into
+  `topology-view`'s 4-source precedence chain (rf2-dbi87)."
+  [{:keys [machine-id definition snapshot-state epoch-history]}]
+  [:section {:data-testid (str "rf-causa-machine-inspector-blank-section-"
+                               (when machine-id (subs (str machine-id) 1)))
+             :data-machine-id (str machine-id)
+             :style {:margin "12px"
+                     :border (str "1px solid " (:border-default tokens))
+                     :border-radius "4px"
+                     :background (:bg-2 tokens)}}
+   [:header {:style {:padding "10px 12px"
+                     :display "flex"
+                     :align-items "center"
+                     :gap "10px"
+                     :border-bottom (str "1px solid " (:border-subtle tokens))
+                     :background (:bg-3 tokens)
+                     :font-family mono-stack
+                     :font-size "12px"
+                     :color (:text-primary tokens)}}
+    [:strong {:style {:color (:accent-violet tokens)}}
+     (h/format-machine-id machine-id)]
+    [:span {:style {:color (:text-tertiary tokens)
+                    :font-family sans-stack
+                    :font-size "11px"
+                    :margin-left "auto"}}
+     "no activity this epoch · current ●"]]
+   [:div {:style {:padding "12px"
+                  :background (:bg-1 tokens)}}
+    [topology-view/Topology
+     {:machine-id     machine-id
+      :definition     definition
+      :epoch-history  epoch-history
+      :snapshot-state snapshot-state
+      :height         "260px"
+      :testid         (str "rf-causa-machine-inspector-blank-topology-"
+                           (when machine-id (subs (str machine-id) 1)))}]]])
+
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
-  cascade. The Runtime Machines panel is event-driven only — silent
-  when there is nothing to surface."
+  cascade — Case B per spec/021 §6.2 + §17.4.1 (rf2-dbi87). The
+  panel renders one section per registered machine, each carrying
+  the full topology with the most-recent-known state annotated as
+  `:current`. Resolution of the current-state ● flows through
+  `topology-view`'s 4-source precedence chain (explicit > focused-
+  epoch traces > epoch-history walk-back > live snapshot state).
+
+  Snapshot resolution honours the test override (`:rf.causa/machine-
+  snapshots-override`) ahead of the live snapshot sub — same shape as
+  the `:rf.causa/machine-inspector-data` composite — so view tests
+  can seed snapshot state without writing to the target frame's
+  `:rf/machines` slot."
   []
-  [:div {:data-testid "rf-causa-machine-inspector-blank"
-         :style {:padding "16px"
-                 :color (:text-tertiary tokens)
-                 :font-family sans-stack
-                 :font-size "13px"
-                 :flex 1
-                 :display "flex"
-                 :flex-direction "column"
-                 :align-items "center"
-                 :justify-content "center"
-                 :text-align "center"}}
-   [:p {:style {:margin "0 0 6px 0" :font-size "14px"}}
-    "No machine activity in the focused event."]
-   [:p {:style {:margin 0 :font-size "12px" :color (:text-tertiary tokens)}}
-    "Select an event that triggered a transition to inspect machines."]])
+  (let [machines           @(rf/subscribe [:rf.causa/registered-machines])
+        definitions        @(rf/subscribe [:rf.causa/machine-definitions])
+        live-snapshots     @(rf/subscribe [:rf.causa/machine-snapshots])
+        snapshots-override @(rf/subscribe [:rf.causa/machine-snapshots-override])
+        snapshots          (or snapshots-override live-snapshots {})
+        epoch-history      @(rf/subscribe [:rf.causa/epoch-history])
+        rows               (->> (or machines [])
+                                (map (fn [id]
+                                       {:machine-id     id
+                                        :definition     (get definitions id)
+                                        :snapshot-state (get-in snapshots [id :state])
+                                        :epoch-history  epoch-history}))
+                                (sort-by (comp str :machine-id))
+                                vec)]
+    (into [:div {:data-testid "rf-causa-machine-inspector-blank"
+                 :data-section-count (str (count rows))
+                 :style {:display "flex"
+                         :flex-direction "column"}}]
+          (for [{:keys [machine-id] :as row} rows]
+            ^{:key (str machine-id)}
+            (blank-state-section row)))))
 
 ;; ---- empty state (no machines registered at all) -----------------------
 

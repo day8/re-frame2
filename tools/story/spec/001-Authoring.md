@@ -54,15 +54,21 @@ branch and don't recurse. Subsequent `reg-*` calls (after the gate
 has flipped) are a single `deref` + `nil` check — negligible on the
 hot path.
 
-### Explicit call still works (no-op overlap)
+### Explicit call is legacy (rf2-y8gag — audit D-2)
 
-Authors who DO call `(story/install-canonical-vocabulary!)` at boot
-(the v1 documented path, still supported for clarity-of-intent in
-host `app.core`) hit the same idempotent installer chain. Whether
-the chain runs from auto-install or from an explicit call, the
-side-table ends up in the same shape. Calling it BOTH ways — the
-explicit boot call AND letting auto-install fire — also lands on
-identical state.
+`re-frame.story/install-canonical-vocabulary!` is still public and
+idempotent — calling it explicitly hits the same installer chain —
+but **no authoring or example code calls it any more**. Per the
+audit-D-2 cleanup (rf2-y8gag) the explicit call has been removed
+from every canonical example testbed (`tools/story/testbeds/...`),
+the `tools/template/` scaffold emissions, the `docs/story/` tutorial
+set, and the `skills/re-frame2/references/` reference doc. New code
+should rely on the auto-install path; the explicit entry stays
+available only as a literal-boot affordance for hosts that want one
+and as a JVM-test diagnostic that asserts a known starting state
+without running a `reg-*` call. Calling it BOTH ways — explicit
+boot AND letting auto-install fire — still lands on identical
+state.
 
 ### Test fixtures — `clear-all!` resets the gate
 
@@ -84,14 +90,230 @@ namespaces (`:dev` / `:docs` / etc. — un-namespaced; `:rf.story/*`
 for the framework-owned bodies); authors cannot legitimately "want a
 different `:dev`" so there's no surprise factor from auto-installing
 a vocabulary the author chose to omit. The implicit boot is the
-right default; the explicit call remains available for hosts that
-prefer the literal boot step.
+right default; the explicit call remains available only for hosts
+that want a literal boot step.
 
 The auto-install hook is wired via the `re-frame.story.late-bind`
 shim (`:ensure-canonical-installed` key) to avoid a circular require
 between `re-frame.story.registrar` (consumer) and
 `re-frame.story.canonical` (producer). Same pattern Story uses for
 `:tap-stub-event` / `:drop-assertion-accumulators`.
+
+## Mental model — the three pillars (rf2-kemcu + rf2-adtmk + rf2-x6u3l)
+
+Before the registration-macro reference, the three concepts that
+land Story in a single picture. Every later slot on every later
+macro feeds into one of these three pillars:
+
+| Pillar | The Storybook reader's question | Story's answer | Headline section |
+|---|---|---|---|
+| **Args** | "What inputs does this variant exercise?" | One EDN map per layer; five layers compose by deep-merge; the merged map IS the variant's parameter surface | [§Args — the typed parameter surface](#args--the-typed-parameter-surface-rf2-kemcu) |
+| **Frame** | "How do I write a stateful story without tripping the hooks-inside-stories rule?" | Every variant IS a frame; per-variant `app-db`; no shared mutable state; no render fn, no hooks to break | [§Frame-as-isolation — the stateful-stories answer](#frame-as-isolation--the-stateful-stories-answer-rf2-adtmk-i-1) |
+| **Schema** | "How do I declare controls?" | Author writes the view's Malli schema once; controls auto-derive; `:argtypes` is the override channel, almost never needed | [§Schema → controls — THE controls story](#schema--controls--the-controls-story-rf2-x6u3l-i-2) |
+
+The three pillars compose: a variant's effective Args feed the
+controls panel (whose widget shapes derive from the view's schema)
+and the per-variant frame is what the Args drive against. Storybook
+ships these as three independent feature sets (`args` / `useArgs` /
+`argTypes`); Story ships them as a single coherent model where each
+pillar reinforces the others.
+
+### Args — the typed parameter surface (rf2-kemcu)
+
+Args are the typed parameter surface for stories — one map describes
+the variant's inputs, drives the controls panel, gates visual-
+regression keys, and feeds the MCP write surface. The args map is
+the **central concept**, not one slot among many; every other slot
+on the variant body either feeds args (`:argtypes`, `:args->events`)
+or runs against the frame the args drive.
+
+The five-layer precedence diagram, in strict later-wins order:
+
+```
+1. global args      ← (story/configure! {:rf.story/global-args {...}})       — boot
+2. story args       ← :args on the parent (reg-story)                        — story default
+3. mode args        ← active :mode's :args (reg-mode)                        — saved tuple
+4. variant args     ← :args on the variant (reg-variant)                     — per-scenario
+5. cell-overrides   ← controls-panel edits at runtime (:story/set-arg)       — live edit
+                     ↓
+              effective args (deep-merge, vectors replaced)
+                     ↓
+              the variant's view renders against this map,
+              against its own frame, with its own app-db.
+```
+
+Deep-merge for nested maps; override-by-replacement for vectors.
+This matches Storybook's convention and is the contract every
+authoring helper depends on. The canonical lookup is
+`(get-effective-args variant-id {:mode ... :overrides ...})` per
+[`002-Runtime.md`](002-Runtime.md) §Args resolution precedence.
+
+Why five layers? Each layer scopes a different authoring intent.
+Global args ride boot configuration (themes, locales, feature
+flags); story args set the parent default; mode args pivot the
+entire variant-grid against a chrome-level toggle (light/dark,
+desktop/mobile, `en`/`fr`); variant args carry the per-scenario
+override that names the story (the "at-five" in `:story.counter/at-
+five`); cell-overrides give the reader a knob without mutating
+source. Five layers; five distinct authoring intents; one merged
+map.
+
+```clojure
+;; A counter story exercising every layer:
+
+;; 1. Global (set once at boot)
+(story/configure! {:rf.story/global-args {:theme :light :locale :en}})
+
+;; 2. Story default
+(story/reg-story :story.counter
+  {:component :app.ui/counter
+   :args      {:label "Count" :max 100}})
+
+;; 3. Mode args (saved tuple — the toolbar toggles into this)
+(story/reg-mode :Mode.app/dark-large
+  {:args {:theme :dark :size :large}})
+
+;; 4. Variant override
+(story/reg-variant :story.counter/at-five
+  {:events [[:counter/initialise 5]]
+   :args   {:label "Count from 5"}})
+
+;; 5. The reader edits :max in the controls panel → cell-override.
+;;    Effective args at that moment:
+;;    {:theme :dark :locale :en :size :large
+;;     :label "Count from 5" :max <whatever-they-typed>}
+```
+
+Read the table above as the **five points of leverage** an author
+has over a story's parameter surface; reach for the lowest-numbered
+layer that scopes the change you want.
+
+Cross-references: [§Schema → controls — THE controls story](#schema--controls--the-controls-story-rf2-x6u3l-i-2)
+below for how the merged args feed the controls panel.
+[`002-Runtime.md`](002-Runtime.md) §Args resolution precedence
+for the runtime lookup contract.
+
+### Frame-as-isolation — the stateful-stories answer (rf2-adtmk, I-1)
+
+A Storybook reader landing on Story asks the natural question:
+"How do I write a stateful story?" In Storybook the answer is
+`useArgs()` + the Args panel + a render fn — with the well-known
+hooks-inside-stories re-render gotcha and one global app instance
+that decorators wrap per-story.
+
+**Story's answer is structurally different.** Every variant is
+mounted in its own isolated re-frame frame; every `(variant × mode ×
+cell)` triple gets a fresh `app-db`. There is no shared mutable
+state to coordinate around, no render fn to host a hook, no hooks
+gotcha to trip on. Stateful stories aren't a separate authoring
+mode in Story — they are the default.
+
+| Storybook concept | The well-known limitation | Story's structural answer |
+|---|---|---|
+| One global app instance | Cross-story state bleed; decorators reset by convention | Per-variant frame; no shared `app-db`; bleed is impossible by construction |
+| `useArgs()` inside a render fn | Hooks-inside-stories re-render gotcha | No render fn — the view is a registered `reg-view`; the variant body is pure data |
+| `useState(...)` for ephemeral UI state | Lives in React tree, not in app state | Per-variant `app-db` IS the state — read it with subs, write it with events |
+| Cross-cell coordination | Authors invent shared globals or rely on decorator order | Two cells of the same variant in a `:variants-grid` are independent by construction |
+
+This is the headline payoff of being a re-frame native — frames are
+the existing isolation primitive; Story just allocates one per
+variant.
+
+```clojure
+;; Three independent stateful cells, one declaration:
+(story/reg-story :story.counter
+  {:component :app.ui/counter
+   :variants  {:empty   {:events [[:counter/initialise 0]]}
+               :at-five {:events [[:counter/initialise 5]]}
+               :driven  {:events [[:counter/initialise 0]]
+                         :play-script
+                         [[:dispatch-sync [:counter/increment]]
+                          [:dispatch-sync [:counter/increment]]
+                          [:dispatch-sync [:counter/increment]]
+                          [:dispatch-sync [:rf.assert/sub-equals
+                                           [:counter/value] 3]]]}}})
+
+;; Mount :Workspace.counter/auto-grid (a :variants-grid workspace).
+;; Three cells render side-by-side, each in its own frame:
+;;   - cell A has :count 0 in its app-db
+;;   - cell B has :count 5 in its app-db
+;;   - cell C has :count 3 in its app-db (after :play-script settles)
+;; Incrementing cell A does not affect B or C. No opt-in needed.
+```
+
+See [§Stateful variants — every variant IS a frame](#stateful-variants--every-variant-is-a-frame-rf2-wqdq1)
+below for the full contract and Storybook contrast table, and
+[`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation
+for the runtime mechanics.
+
+### Schema → controls — THE controls story (rf2-x6u3l, I-2)
+
+A Storybook reader who lands on Story expects to write `argTypes:
+{ size: { control: { type: 'range', min: 0, max: 100 } } }` and
+similar for every controllable arg. **Story's answer is shorter.**
+
+The view's Malli schema is the source of truth for control widgets.
+Write `[:int {:min 0 :max 100}]` once on the view's `:rf/schema` and
+**every** story of that view gets the slider. No `:argtypes`
+plumbing per-story, no per-control widget wiring, no parallel-vocab
+maintenance burden.
+
+| Storybook | Story | Note |
+|---|---|---|
+| `argTypes: { size: { control: { type: 'range', min: 0, max: 100 } } }` per story | `[:int {:min 0 :max 100}]` on the view's schema, once | Story authors don't write `:argtypes` for typed args |
+| `argTypes: { variant: { control: { type: 'select', options: ['primary','secondary','danger'] } } }` per story | `[:enum :primary :secondary :danger]` on the view's schema | Enum members ARE the select options |
+| `argTypes: { disabled: { control: 'boolean' } }` | `:boolean` on the view's schema | Trivial; Story's schema already says it |
+| `argTypes: { tags: { control: { type: 'object' } } }` (no widget for nested edit) | `[:vector :string]` → repeater rows; `[:map [k v] ...]` → labelled group; `[:tuple X Y]` → fixed-arity row | Story's schema-walker recurses into collections — see [§Schema-derivation pipeline](#schema-derivation-pipeline) |
+
+The headline mapping (more in [§Schema-derivation pipeline](#schema-derivation-pipeline) below):
+
+| Schema fragment | Auto-derived control |
+|---|---|
+| `:string` | text input |
+| `:int` / `:double` with `:min :max` | slider |
+| `:int` / `:double` without bounds | number input |
+| `:boolean` | toggle |
+| `[:enum a b c]` | select |
+| `[:map ...]` | labelled group, recursive |
+| `[:vector X]` / `[:set X]` | repeater (rows + `[+]` / `[-]`) |
+| `[:tuple X Y ...]` | fixed-arity row |
+
+The contract: push every typed constraint up to the view's
+`:rf/schema` and the controls panel renders the right widget for
+free. `:argtypes` on the story or variant body is the override
+channel for the cases the schema can't say enough — see the [edge
+cases](#when-to-write-argtypes-the-edge-cases) below.
+
+```clojure
+;; Author writes ONE schema on the view:
+(rf/reg-view :app.ui/button
+  [:map
+   [:label    :string]
+   [:variant  [:enum :primary :secondary :danger]]
+   [:size     [:int {:min 8 :max 64}]]
+   [:disabled? :boolean]]
+  (fn [args] [:button.btn ...]))
+
+;; Every story of the view gets controls for free:
+(story/reg-story :story.ui.button
+  {:component :app.ui/button
+   :args      {:label "Click me" :variant :primary :size 16 :disabled? false}})
+;;
+;; controls panel:
+;;   :label     → text input
+;;   :variant   → select [:primary :secondary :danger]
+;;   :size      → slider 8–64
+;;   :disabled? → toggle
+;;
+;; No :argtypes was written. The view's schema said enough.
+```
+
+Cross-references: [§Controls — schema-derived, zero-`:argtypes`](#controls--schema-derived-zero-argtypes-rf2-b87h2)
+below for the full mapping + worked example.
+[§Schema-derivation pipeline](#schema-derivation-pipeline) for the
+walker contract.
+[`spec/Spec-Schemas.md`](../../../spec/Spec-Schemas.md) for the
+framework's schema registry.
 
 ## Registration macros (all DCE under `:advanced`)
 
@@ -630,6 +852,11 @@ identity.
 
 ## Controls — schema-derived, zero-`:argtypes` (rf2-b87h2)
 
+> Full reference for the headline branded above in [§Schema →
+> controls — THE controls story](#schema--controls--the-controls-story-rf2-x6u3l-i-2).
+> That section is the marketing/contrast pitch; this one is the
+> technical mapping.
+
 The controls panel is **auto-derived** from the view's registered
 Malli schema. The schema-on-the-view IS the source of truth — the
 authoring story is "register your view with a schema; controls
@@ -711,6 +938,12 @@ See [§Schema-derivation pipeline](#schema-derivation-pipeline) for
 the full walker + override contract.
 
 ## Stateful variants — every variant IS a frame (rf2-wqdq1)
+
+> Full reference for the headline branded above in [§Frame-as-
+> isolation — the stateful-stories answer](#frame-as-isolation--the-stateful-stories-answer-rf2-adtmk-i-1).
+> That section is the marketing/contrast pitch with the Storybook
+> answer side-by-side; this one is the runtime contract and worked
+> examples.
 
 Stateful stories — "this variant shows the counter at 5" or "this
 variant shows the form mid-submission" — are the canonical case
