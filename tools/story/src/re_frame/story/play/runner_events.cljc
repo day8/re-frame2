@@ -247,39 +247,85 @@
 
 ;; ---- step executors ------------------------------------------------------
 
+(declare read-frame-db)
+
+(defn- assertion-count
+  "Count of records currently in the frame's `:rf.story/assertions`. Tolerant."
+  [frame-id]
+  (count (:rf.story/assertions (read-frame-db frame-id))))
+
+(defn- failed-since
+  "Records appended to `:rf.story/assertions` since `prev-count` that
+  have `:passed? false`. Used to bridge handler-recorded assertion
+  failures (e.g. `:dispatch-sync [:rf.assert/path-equals ...]`) back
+  into the runner's step-result stream so the play's terminal status
+  reflects the failure."
+  [frame-id prev-count]
+  (let [all (vec (:rf.story/assertions (read-frame-db frame-id)))]
+    (filterv (fn [r] (false? (:passed? r)))
+             (subvec all (min prev-count (count all))))))
+
+(defn- dispatch-step-result
+  "Build the step result for a (possibly-assertion-bearing) :dispatch /
+  :dispatch-sync. If new failed assertions appeared in the frame's
+  `:rf.story/assertions` since `prev` (typically because the
+  dispatched event was a `:rf.assert/*` whose reg-event-fx handler
+  recorded a `:passed? false` record), surface them as a step-fail.
+  Otherwise step-skip (no assertion contribution to pass/fail)."
+  [frame-id prev idx step]
+  (let [failed (failed-since frame-id prev)]
+    (if (seq failed)
+      (let [rec (first failed)
+            msg (or (:message rec)
+                    (str (:id rec) " " (pr-str (:payload rec))
+                         " failed (expected " (pr-str (:expected rec))
+                         ", actual " (pr-str (:actual rec)) ")"))]
+        (runner/step-fail idx step
+                          {:expected (:expected rec)
+                           :actual   (:actual rec)
+                           :message  msg}))
+      (runner/step-skip idx step))))
+
 (defn- exec-dispatch!
-  "Execute a `:dispatch` step. Returns a no-assertion step-result.
+  "Execute a `:dispatch` step. Returns a step-result.
 
   Drains any handler-exception trace events captured by the play
   listener into `:rf.story/assertions` so the test-mode pane + Causa
   assertions panel see the failure (rf2-z2dq8). The re-frame router
   catches handler exceptions and emits `:rf.error/handler-exception`
   rather than re-throwing, so the local catch fires only for
-  exceptions that escape the interceptor chain entirely."
+  exceptions that escape the interceptor chain entirely.
+
+  Bridges handler-recorded `:rf.assert/*` failures into the runner's
+  step-result stream — a `:rf.assert/*` event whose handler records
+  `:passed? false` becomes a runner-visible step-fail so the play's
+  terminal status flips to `:fail`."
   [frame-id idx step]
   (let [evec   (runner/step-event step)
+        prev   (assertion-count frame-id)
         result (try
                  (rf/dispatch* evec {:frame frame-id})
-                 (runner/step-skip idx step)
+                 nil
                  (catch #?(:clj Throwable :cljs :default) e
                    (runner/step-exception idx step
                                           #?(:clj  (.getMessage ^Throwable e)
                                              :cljs (str e)))))]
     (play/drain-pending-exceptions! frame-id :phase-4-play)
-    result))
+    (or result (dispatch-step-result frame-id prev idx step))))
 
 (defn- exec-dispatch-sync!
   [frame-id idx step]
   (let [evec   (runner/step-event step)
+        prev   (assertion-count frame-id)
         result (try
                  (rf/dispatch-sync* evec {:frame frame-id})
-                 (runner/step-skip idx step)
+                 nil
                  (catch #?(:clj Throwable :cljs :default) e
                    (runner/step-exception idx step
                                           #?(:clj  (.getMessage ^Throwable e)
                                              :cljs (str e)))))]
     (play/drain-pending-exceptions! frame-id :phase-4-play)
-    result))
+    (or result (dispatch-step-result frame-id prev idx step))))
 
 (defn- read-frame-db
   "Read the app-db for `frame-id`. Tolerant — returns nil if the frame
