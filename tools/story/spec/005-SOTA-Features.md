@@ -395,6 +395,57 @@ back to the user's stories namespace. That bead is filed separately
 as a P2 follow-up; this spec locks the recorder's runtime contract
 so the MCP side can build against a stable surface.
 
+#### Recorder sub-system map (rf2-oaxgh)
+
+The `re-frame.story.recorder` namespace is **a facade over five
+cohesive sub-systems** plus parallel namespaces under
+`re-frame.story.recorder.*` for the DOM-capture layer and the
+`:play-script` v2 export pipeline. MCP tool builders, hot-reload
+tooling, and bespoke test integrations consume specific sub-systems;
+this section documents the boundary so a power user reads the right
+ns rather than scanning the facade alone.
+
+The six sub-systems and their public boundaries:
+
+| Sub-system | Lives in | Public surface | Audience |
+|---|---|---|---|
+| Trace-listener install + capture loop | `re-frame.story.recorder` | `install-trace-listener!` / `remove-trace-listener!` / `trace-listener` callback + `record-event!` (called by the listener). Filter chain per `recordable-event?`. | `chrome-shell` (one process-wide install at shell mount); `mcp-tool` (drives `record-event!` directly to bypass the trace bus). |
+| Recorder atom + state machine | `re-frame.story.recorder` | `start-recording!` / `stop-recording!` / `toggle!` / `clear!` / `recording?` / `current-state`. Holds `{:recording? :variant-id :events :started-ms}`. | `user-app` (facade re-exports); `mcp-tool`. |
+| Mid-recording assertion picker | `re-frame.story.recorder` | `assertion-vocabulary` (the seven canonical `:rf.assert/*` ids + payload field specs); `make-assertion` (pure: build the event vector); `append-assertion` (pure: state → state); `insert-assertion!` (impure: write through the atom). | `chrome-shell` (the picker modal); `mcp-tool` (write-time assertion authoring without the modal). |
+| DOM-capture entries | `re-frame.story.recorder.dom-capture` (CLJS-only) | `install!` / `remove!` (capture-phase listener pair); `record-dom-event!` (write through the atom with `:dom/click` / `:dom/type` / `:dom/submit` shapes); `dom-event?` / `dom-event-kinds` (pure predicates). | `chrome-shell` (paired with the trace-listener install at mount). |
+| Review-dialog | `re-frame.story.recorder` + `re-frame.story.review-dialog` | `open-dialog` / `close-dialog` / `initial-dialog-state`. State-only — the rendering lives in `re-frame.story.ui.recorder-export-dialog`. | `chrome-shell` (the modal that opens on stop). |
+| Legacy `:play` snippet codegen | `re-frame.story.recorder` | `gen-play-snippet` (pure: events + opts → EDN string). Re-exported on the facade as `story/gen-play-snippet`. | `user-app` (the copy-and-paste form); `mcp-tool` (the structured-output payload for `record-as-variant`). |
+| `:play-script` v2 export (experimental) | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The richer DSL that translates `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps. v2 status — `gen-play-snippet` is the only v1 public export per Finding #10 of [`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md); the `:play-script` translator's status is documented separately under rf2-hbfko. | `chrome-shell` (when v2 lands); `mcp-tool`. |
+
+Three architectural observations follow from the map:
+
+1. **The recorder atom is the single point of coupling.** The trace-
+   listener, the DOM-capture layer, the assertion picker, and the
+   review-dialog all write to the same `{:recording? :variant-id
+   :events :started-ms}` map. Sub-systems that don't need atom access
+   (`gen-play-snippet`, `recordable-event?`, `make-assertion`,
+   `assertion-vocabulary`) are pure data → data; CLJ-testable on the
+   JVM without a process-wide install.
+2. **The facade exposes the headline entries only** (six surfaces:
+   `start-recording!` / `stop-recording!` / `clear-recording!` /
+   `recording?` / `recorder-state` / `gen-play-snippet`). MCP tool
+   builders and hot-reload tooling that need the assertion-picker or
+   the DOM-capture entries `:require` `re-frame.story.recorder`
+   directly — the sub-ns IS the contract for the power-user surface.
+3. **The `:play-script` v2 path is parallel, not a replacement.**
+   `gen-play-snippet` emits the canonical v1 `:play` body (a vector
+   of event vectors). The `:play-script` v2 surface (when it lands)
+   emits a richer DSL alongside; both round-trip through the
+   recorder's `:events` capture. The split is documented under
+   rf2-hbfko (`:play-script` export status).
+
+The sub-system map is **not a refactor target** — each sub-system is
+small (the recorder ns is ~825 lines total; the `play-export` family
+adds ~750 lines across four files), and the atom-as-coupling-point
+is intentional (the recorder is a single piece of UX, not five
+independent features). The map exists so consumers know which
+sub-system to `:require` for a specific contract.
+
 ### Save current canvas state as variant (rf2-one3t)
 
 Storybook 9's second story-from-UI surface (per the SB9 parity audit
