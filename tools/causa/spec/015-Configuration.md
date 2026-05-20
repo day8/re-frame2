@@ -488,6 +488,68 @@ the panels that drive them; this doc enumerates only the
 configuration-derived slot (`:suppressed-counters`) because it is the
 visible bridge between `configure!` and the reactive surface.
 
+## `configure!` vs `init!` vs persisted Settings — ownership rule (rf2-g2a5v)
+
+> **`configure!` is for STATIC config given at boot. `init!` is the
+> LIFECYCLE hook. Persisted Settings are USER-MUTABLE overrides
+> loaded at boot. The three surfaces compose in a fixed merge order.**
+
+Causa carries three parallel host-facing config surfaces. A reader
+audit (`ai/findings/2026-05-20-tools-causa-api-review.md` Finding #2)
+flagged that `:theme`, `:density`, and `:default-frame` overlapped
+across all three with no documented disambiguation rule. The
+ownership rule below locks the contract for pre-alpha and forward.
+
+**Per-surface role.**
+
+| Surface | Role | Mutability | Lifetime |
+|---|---|---|---|
+| `(causa-config/configure! {…})` | Static boot config — defaults, feature flags, host-environment wiring (editor target, project root, layout-host selector, auto-open, keybinding enabled, static-mode flag, filter seed, …). | Host-code-mutable at boot; immutable from the user's perspective. | Process-global atoms; one set of values per host load. |
+| `(causa/init! opts)` | Lifecycle hook — called by host app code to bring Causa up (alternative to `:preloads`). The `opts` map carries per-instance panel-state wiring (Settings shape inputs such as `:theme`, `:density`, `:default-frame`, `:ai-provider`, `:buffer-depths`). Idempotent. | Host-code-driven; once-per-load. | Per-mount lifecycle. |
+| Persisted Settings (`localStorage` slot `day8.re-frame2-causa/settings/v1`) | User-mutable overrides — the Settings popup is the canonical UI; persists `:theme`, `:density`, `:ai-provider`, `:buffer-depths`, `:default-frame`, `:sidebar-mode`, `:launcher-pill`, `:keybindings` per [`API.md`](./API.md) §Settings keys. | User-mutable via the Settings popup; round-trips through localStorage. | Survives reload until corrupted or cleared. |
+
+**Merge order (lowest precedence first):**
+
+```
+hardcoded defaults  <  configure! overrides  <  persisted Settings overrides
+```
+
+`init!` receives the **merged** config. Concretely:
+
+1. Causa's compiled-in defaults seed every knob.
+2. `configure!` writes overlay onto the process-global atoms before
+   `init!` runs (or any `:preloads`-driven mount). Hosts that want a
+   non-default starting value for a Settings-shape key (e.g. an
+   embed that forces `:theme :high-contrast`) MAY pass it through
+   `configure!`; the value lands as the new default for any user
+   who has not yet mutated that key via the Settings popup.
+3. The persisted Settings shape, loaded from localStorage on boot,
+   then overlays whichever keys the user has previously mutated. A
+   user toggling `:theme :light` once continues to see Light on
+   every subsequent reload regardless of what the host wrote via
+   `configure!`.
+4. `init!` reads the fully-merged config when it wires the panel's
+   per-instance state machine; `init! opts` is the last-mile shape
+   passed to that wiring (test harnesses, Story testbeds, and
+   embedding hosts that need to inject a specific shape at mount
+   time without round-tripping through atoms).
+
+**Consequence.** A key like `:theme` legally appears on all three
+surfaces — that is by design, not by accident. The host's
+`configure!` call sets the boot-time default; the Settings popup
+gives the user override authority; `init! opts` is the last-mile
+injection seam for harnesses that want to pin a shape per mount.
+Hosts that need pure static behaviour (no user mutation) leave the
+Settings popup's relevant tab out of their build via the panel
+inventory, or refuse persistence at the harness layer; the merge
+order does not change.
+
+The same rule applies symmetrically to every overlapping key today
+(`:density`, `:default-frame`, `:ai-provider`, `:buffer-depths`).
+Future host-facing knobs added to `configure!` MUST declare whether
+they participate in the persisted Settings shape; knobs that do
+inherit this merge order automatically.
+
 ## Reserved keys
 
 The following keys are **reserved** for future `configure!` extension.
@@ -497,9 +559,10 @@ MAY assign them semantics.
 - `:density`, `:default-frame`, `:ai-provider`, `:buffer-depths`,
   `:sidebar-mode`, `:launcher-pill`, `:keybindings` — all currently
   owned by `(causa/init! opts)` and the persisted Settings shape per
-  [`API.md`](./API.md). A future consolidation MAY migrate them
-  through `configure!`; until then, set them via the per-instance /
-  per-localStorage paths.
+  [`API.md`](./API.md), and read via the merge order above. A future
+  consolidation MAY migrate them through `configure!` (so the host's
+  boot-time overlay slot becomes the canonical write site); until
+  then, set them via the per-instance / per-localStorage paths.
 
 Note: `:theme` is **no longer reserved** — it now lives inside the
 `:rf.causa/settings` map (see above) and is reachable via the Settings

@@ -741,8 +741,69 @@ major bumps with it.
   Removed per `rf2-sbfb7`; full-shell embedding lives at
   [`008-Embedding-Contract.md`](./008-Embedding-Contract.md).
 
+## `open!` / `open-overlay!` / `popout!` — distinct verbs by design (rf2-sa4fr)
+
+> **The three open verbs name distinct surfaces. Do NOT rename
+> for mode-symmetry.**
+
+Causa's mount facade exposes three open verbs (per §Canonical:
+`day8.re-frame2-causa.core` above):
+
+| Verb | Surface | Notes |
+|---|---|---|
+| `open!` | Inline mount (default) | Mounts the full shell true-inline into the host's normal-flow layout host (`[data-rf-causa-host]` per [`011-Launch-Modes.md`](./011-Launch-Modes.md)). The default landing posture per rf2-eehov. |
+| `open-overlay!` | Modal overlay | Transient, ESC-closeable; mounts above the host without affecting layout. The legacy overlay path retained for hosts that explicitly prefer it. |
+| `popout!` | New window | Same-browser pop-out; the shell mounts into its own document context (own React root, own theme cascade, own keybinding). |
+
+A reader audit (`ai/findings/2026-05-20-tools-causa-api-review.md`
+Finding #13) flagged the name pair `open!` / `open-overlay!` as
+suggesting "default vs overlay" while `popout!` reads as its own
+verb, and asked whether a mode-symmetric triplet
+(`open-inline!` / `open-overlay!` / `open-popout!`) would read
+better. The decision keeps the current names.
+
+**Why distinct verbs win.**
+
+1. **The three verbs convey distinct surfaces, not modal variants of
+   one shape.** Inline-vs-overlay-vs-window is a kind-of-mount axis,
+   not a mode axis. A mode-symmetric triplet would imply the three
+   landed equivalently in the host's layout — they do not. `open!`
+   participates in the host's flex layout; `open-overlay!` floats
+   above it; `popout!` leaves the host's document entirely.
+
+2. **Bare `open!` IS the canonical default.** The asymmetry telegraphs
+   the rank — `open!` is what 95% of host code reaches for; the
+   prefixed siblings are the explicit opt-ins. Renaming `open!` to
+   `open-inline!` would flatten the rank signal and force every host
+   onto the longer spelling for the common case.
+
+3. **Mode-symmetric renames double the vocabulary without reducing
+   surface.** Causa ships a Static-mode chrome alongside the default
+   Runtime chrome (per §Static mode above and
+   [`007-UX-IA.md`](./007-UX-IA.md) §Mode bifurcation rule). A
+   mode-symmetric naming pass would require parallel triplets per
+   mode (or a mode arg threaded through every open verb); the
+   current shape avoids this entirely — mode is orthogonal to which
+   surface the shell mounts into.
+
+4. **The browser-global JS mirror already uses the same spellings.**
+   `window.day8.re_frame2_causa.{open_BANG_, open_overlay_BANG_,
+   popout_BANG_}` (per §Wider public surface above); renaming the
+   CLJS surface would force a parallel JS-side rename and a deprecation
+   shim Pre-alpha posture forbids.
+
+**Consequence.** The three verbs are stable across patch and minor
+releases; no `open-inline!` alias is shipped, and the bare `open!` is
+not deprecated. Future surfaces that mount differently (a hypothetical
+new-tab launcher, an `iframe!`-style host embed) MUST follow the same
+pattern — pick a distinct verb that names its surface, not a
+mode-symmetric variant of an existing one.
+
 ## Resolved decisions
 
 | Decision | Bead | Outcome |
 |---|---|---|
 | Keep or delete `dock!` / `undock!` / `mount-inline-panel!` / `unmount-inline-panel!` debug surfaces | `rf2-sbfb7` | "A — delete both" (Mike, 2026-05-17). Pre-alpha posture: no back-compat shims; the true-inline default + `popout!` cover the dock use case, full-shell embedding (008-Embedding-Contract) covers Causa-as-Story-RHS. |
+| `configure!` vs `init!` vs persisted Settings — ownership rule | `rf2-g2a5v` | "`configure!` = static boot config; `init!` = lifecycle hook; persisted Settings = user-mutable overrides. Merge order: defaults < `configure!` < Settings. `init!` receives the merged config." Full rule in [`015-Configuration.md`](./015-Configuration.md) §`configure!` vs `init!` vs persisted Settings — ownership rule (rf2-g2a5v). |
+| Panel naming — bare `Panel` vs `EventDetailPanel`-style | `rf2-qiek0` | "Keep bare `Panel`." Panels are addressed by tab-key per `018-Event-Spine.md` §5, not by class name; the namespace already establishes context; host-side collision is a non-issue (full-shell embedding, no host-facing single-panel embed surface). Full rule in [`Conventions.md`](./Conventions.md) §Panel naming — generic `Panel` is the convention (rf2-qiek0). |
+| Rename `open!` / `open-overlay!` / `popout!` for mode-symmetry | `rf2-sa4fr` | "Keep current names — distinct verbs ARE the convention." The three verbs name distinct surfaces (inline · modal · window), not modal variants of one shape; bare `open!` IS the canonical default; mode-symmetric renames would double the vocabulary without reducing surface. Full rule in §`open!` / `open-overlay!` / `popout!` — distinct verbs by design (rf2-sa4fr) above. |
