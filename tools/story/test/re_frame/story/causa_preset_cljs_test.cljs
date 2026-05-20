@@ -15,7 +15,7 @@
   ## Coverage
 
   - `disable-keybinding!` (rf2-q7who.1): writes
-    `{:launch.keybinding/enabled? false}` into Causa's config slot via
+    `{:rf.causa/keybinding-enabled? false}` into Causa's config slot via
     its `configure!` surface. Verified directly against Causa's
     config-atom in the node-test build (Causa's source path is on the
     test classpath) and via a shimmed `configure!` fn that captures
@@ -37,7 +37,7 @@
 ;; ---- disable-keybinding! -------------------------------------------------
 
 (deftest disable-keybinding-lands-on-causa-config-slot
-  (testing "disable-keybinding! writes false into Causa's :launch.keybinding/enabled? slot"
+  (testing "disable-keybinding! writes false into Causa's :rf.causa/keybinding-enabled? slot"
     ;; The node-test build has tools/causa/src on the classpath, so
     ;; `day8.re-frame2-causa.config` is loaded and `disable-keybinding!`
     ;; can drive the real `configure!`. Seed the slot with the default
@@ -69,7 +69,7 @@
                         shim-configure!))]
         (is (true? (causa-preset/disable-keybinding!))
             "returns true when the configure! call landed")
-        (is (= {:launch.keybinding/enabled? false} @captured)
+        (is (= {:rf.causa/keybinding-enabled? false} @captured)
             "configure! is called with exactly the keybinding-disable slot")))))
 
 ;; ---- detach-keybinding! (rf2-ycrt2) --------------------------------------

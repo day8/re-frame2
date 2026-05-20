@@ -281,7 +281,7 @@ The RHS stacks four regions vertically:
    watcher seam in [`shell.cljs`](../src/re_frame/story/ui/shell.cljs)
    calls `causa-preset/wire-cross-host!` on every variant-selection
    edge to bridge Story's configuration into Causa's slots
-   (`:project-root`, `:launch.keybinding/enabled?`, listener
+   (`:rf.causa/project-root`, `:rf.causa/keybinding-enabled?`, listener
    detach) — but does NOT mount Causa; the embed's panel-host owns
    the mount lifecycle. See §Mount lifecycle for the full sequencing.
 
@@ -405,7 +405,7 @@ mount anything:
    `day8.re-frame2-causa.config/configure!` so Causa's source-
    coord chips resolve against the same on-disk root Story uses
    (rf2-r1uod, symmetric to shop's rf2-6jyf6).
-2. **`:launch.keybinding/enabled? false`** — flip Causa's
+2. **`:rf.causa/keybinding-enabled? false`** — flip Causa's
    keybinding config slot so Story's `Cmd/Ctrl+K` reaches Story's
    own command palette without Causa's global capture-phase
    listener swallowing the key (rf2-q7who.1).

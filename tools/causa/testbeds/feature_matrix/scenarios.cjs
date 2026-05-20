@@ -1921,7 +1921,12 @@ async function runConfigurePartialUpdate(page, state) {
     if (typeof cfg.configure_BANG_ !== 'function') {
       return { ok: false, reason: 'configure_BANG_ missing' };
     }
-    const kw = (n) => cljs.keyword(n);
+    // Two-arg keyword constructor: kw(ns, n) → :ns/n. Required for the
+    // rf2-xea9u rename: every configure! key now lives under :rf.causa/*
+    // or :rf.privacy/* (cross-tool privacy).
+    const kw = (ns, n) => (cljs.keyword.call
+      ? cljs.keyword.call(null, ns, n)
+      : cljs.keyword(ns, n));
     const eq = cljs._EQ_;
     const issues = [];
 
@@ -1934,50 +1939,50 @@ async function runConfigurePartialUpdate(page, state) {
 
     // Multi-key configure — every slot round-trips in one call.
     const opts1 = cljs.PersistentArrayMap.fromArray([
-      kw('editor'),                kw('idea'),
-      kw('project-root'),          '/tmp/probe-multi-key',
-      kw('layout/host-selector'),  '#rf2-qd5r6-probe-host',
-      kw('launch/auto-open?'),     false,
-      kw('trace/show-sensitive?'), true,
+      kw('rf.causa', 'editor'),                cljs.keyword('idea'),
+      kw('rf.causa', 'project-root'),          '/tmp/probe-multi-key',
+      kw('rf.causa', 'layout-host-selector'),  '#rf2-qd5r6-probe-host',
+      kw('rf.causa', 'auto-open?'),            false,
+      kw('rf.privacy', 'show-sensitive?'),     true,
     ], true, false);
     cfg.configure_BANG_(opts1);
 
-    if (!eq(cfg.get_editor(), kw('idea'))) {
-      issues.push(`:editor after multi-key configure expected :idea; got ${cljs.pr_str(cfg.get_editor())}`);
+    if (!eq(cfg.get_editor(), cljs.keyword('idea'))) {
+      issues.push(`:rf.causa/editor after multi-key configure expected :idea; got ${cljs.pr_str(cfg.get_editor())}`);
     }
     if (cfg.get_project_root() !== '/tmp/probe-multi-key') {
-      issues.push(`:project-root expected '/tmp/probe-multi-key'; got ${cfg.get_project_root()}`);
+      issues.push(`:rf.causa/project-root expected '/tmp/probe-multi-key'; got ${cfg.get_project_root()}`);
     }
     if (cfg.get_layout_host_selector() !== '#rf2-qd5r6-probe-host') {
-      issues.push(`:layout/host-selector expected probe host; got ${cfg.get_layout_host_selector()}`);
+      issues.push(`:rf.causa/layout-host-selector expected probe host; got ${cfg.get_layout_host_selector()}`);
     }
     if (cfg.auto_open_enabled_QMARK_() !== false) {
-      issues.push(`:launch/auto-open? expected false; got ${cfg.auto_open_enabled_QMARK_()}`);
+      issues.push(`:rf.causa/auto-open? expected false; got ${cfg.auto_open_enabled_QMARK_()}`);
     }
     if (cfg.get_show_sensitive() !== true) {
-      issues.push(`:trace/show-sensitive? expected true; got ${cfg.get_show_sensitive()}`);
+      issues.push(`:rf.privacy/show-sensitive? expected true; got ${cfg.get_show_sensitive()}`);
     }
 
-    // Partial-update — second configure with ONLY :editor leaves
-    // every other slot untouched.
+    // Partial-update — second configure with ONLY :rf.causa/editor
+    // leaves every other slot untouched.
     const opts2 = cljs.PersistentArrayMap.fromArray([
-      kw('editor'), kw('zed'),
+      kw('rf.causa', 'editor'), cljs.keyword('zed'),
     ], true, false);
     cfg.configure_BANG_(opts2);
-    if (!eq(cfg.get_editor(), kw('zed'))) {
-      issues.push(`:editor after partial configure expected :zed; got ${cljs.pr_str(cfg.get_editor())}`);
+    if (!eq(cfg.get_editor(), cljs.keyword('zed'))) {
+      issues.push(`:rf.causa/editor after partial configure expected :zed; got ${cljs.pr_str(cfg.get_editor())}`);
     }
     if (cfg.get_project_root() !== '/tmp/probe-multi-key') {
-      issues.push(`:project-root regressed on partial configure; got ${cfg.get_project_root()}`);
+      issues.push(`:rf.causa/project-root regressed on partial configure; got ${cfg.get_project_root()}`);
     }
     if (cfg.get_layout_host_selector() !== '#rf2-qd5r6-probe-host') {
-      issues.push(`:layout/host-selector regressed on partial configure; got ${cfg.get_layout_host_selector()}`);
+      issues.push(`:rf.causa/layout-host-selector regressed on partial configure; got ${cfg.get_layout_host_selector()}`);
     }
     if (cfg.auto_open_enabled_QMARK_() !== false) {
-      issues.push(`:launch/auto-open? regressed on partial configure; got ${cfg.auto_open_enabled_QMARK_()}`);
+      issues.push(`:rf.causa/auto-open? regressed on partial configure; got ${cfg.auto_open_enabled_QMARK_()}`);
     }
     if (cfg.get_show_sensitive() !== true) {
-      issues.push(`:trace/show-sensitive? regressed on partial configure; got ${cfg.get_show_sensitive()}`);
+      issues.push(`:rf.privacy/show-sensitive? regressed on partial configure; got ${cfg.get_show_sensitive()}`);
     }
 
     // set-auto-open!(null) round-trips to the default true.
@@ -2022,13 +2027,13 @@ async function runConfigurePartialUpdate(page, state) {
 // rf2-n39g2 — Static-mode browser scenario.
 //
 // Static mode shipped under #1565 + #1568 + #1569 (rf2-o5f5f.1 / .2 / .3)
-// and is gated behind `:experimental/static-mode?` (default `false`).
+// and is gated behind `:rf.causa/static-mode?` (default `false`).
 // Before this scenario the feature-matrix carried zero browser coverage
 // for the highest-user-visible Causa surface to land in the recent
 // cluster. This scenario:
 //
 //   1. Opts into Static mode at runtime via `configure!` (the
-//      `{:experimental/static-mode? true}` opt — exposed on
+//      `{:rf.causa/static-mode? true}` opt — exposed on
 //      `window.day8.re_frame2_causa.config`).
 //   2. Asserts the Runtime baseline — mode pill present with `runtime`
 //      segment selected (aria-checked=true), L2 spine event-list
@@ -2076,7 +2081,7 @@ async function runStaticModeChromeAndChord(page, state) {
       ? cljs.keyword.call(null, ns, n)
       : cljs.keyword(ns, n);
     const opts = cljs.PersistentArrayMap.fromArray([
-      kw('experimental', 'static-mode?'), true,
+      kw('rf.causa', 'static-mode?'), true,
     ], true, false);
     cfg.configure_BANG_(opts);
     return {
@@ -2092,7 +2097,7 @@ async function runStaticModeChromeAndChord(page, state) {
   await openCausa(page);
 
   // ---- (1) Runtime baseline -----------------------------------------
-  // The mode pill renders only when `:experimental/static-mode?` is on
+  // The mode pill renders only when `:rf.causa/static-mode?` is on
   // (see `surface-composer` in `shell.cljs` — the runtime-chrome
   // surface includes the pill only when the flag is live). With the
   // opt-in above the pill must be present and the Runtime segment must
@@ -2351,7 +2356,7 @@ async function runStaticModeChromeAndChord(page, state) {
       ? cljs.keyword.call(null, ns, n)
       : cljs.keyword(ns, n);
     const opts = cljs.PersistentArrayMap.fromArray([
-      kw('experimental', 'static-mode?'), true,
+      kw('rf.causa', 'static-mode?'), true,
     ], true, false);
     cfg.configure_BANG_(opts);
     return {

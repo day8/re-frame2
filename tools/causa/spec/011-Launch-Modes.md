@@ -78,7 +78,7 @@ Hosts may override the selector before Causa opens:
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:layout/host-selector "#devtools-causa"})
+(causa-config/configure! {:rf.causa/layout-host-selector "#devtools-causa"})
 ```
 
 ### Resizing the inline host
@@ -157,7 +157,7 @@ mechanisms, both writing the same `flex-basis` slot:
    (arrow keys for fine resize, Shift for coarse, Home/End for
    clamps, Enter/Space to reset), width clamps to `[320px, 90vw]`,
    persists across reloads via
-   `configure! :settings :general :panel-width-px`, double-click to
+   `configure! :rf.causa/settings :general :panel-width-px`, double-click to
    reset. This is the path for "I want a bit more room for the
    event-detail panel right now."
 
@@ -264,7 +264,7 @@ suppress only the default page-load open before `rf/init!`:
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:launch/auto-open? false})
+(causa-config/configure! {:rf.causa/auto-open? false})
 ```
 
 This does not disable Causa. The collectors, browser API, keybinding,
@@ -288,7 +288,7 @@ Remove the `:preloads` entry, or:
 | Action | How |
 |---|---|
 | Auto-open | Page load after `rf/init!`, when `[data-rf-causa-host]` exists |
-| Suppress auto-open on tool-only pages | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!` |
+| Suppress auto-open on tool-only pages | `(causa-config/configure! {:rf.causa/auto-open? false})` before `rf/init!` |
 | Hide/show | `Ctrl+Shift+C` |
 | Legacy overlay debug mode | `window.day8.re_frame2_causa.open_overlay_BANG_()` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
@@ -385,7 +385,7 @@ available. The lifecycle is normative.
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
 5. Schedule default true-inline auto-open once the substrate adapter
-   is ready, unless `:launch/auto-open?` is false before the probe
+   is ready, unless `:rf.causa/auto-open?` is false before the probe
    observes readiness.
 
 The preload MUST NOT mount the shell synchronously during namespace

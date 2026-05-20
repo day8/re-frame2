@@ -43,14 +43,14 @@
     (is (= :vscode (config/get-editor)))))
 
 (deftest configure-passes-editor-through
-  (testing "configure! routes :editor through set-editor!"
-    (config/configure! {:editor :cursor})
+  (testing "configure! routes :rf.causa/editor through set-editor!"
+    (config/configure! {:rf.causa/editor :cursor})
     (is (= :cursor (config/get-editor)))
-    (config/configure! {:editor :idea})
+    (config/configure! {:rf.causa/editor :idea})
     (is (= :idea (config/get-editor)))))
 
 (deftest configure-without-editor-leaves-preference
-  (testing "configure! without :editor leaves the preference unchanged"
+  (testing "configure! without :rf.causa/editor leaves the preference unchanged"
     (config/set-editor! :cursor)
     (config/configure! {})
     (is (= :cursor (config/get-editor)))))
@@ -73,19 +73,19 @@
     (is (true? (config/auto-open-enabled?)))))
 
 (deftest configure-passes-auto-open-through
-  (testing "configure! routes :launch/auto-open? through set-auto-open!"
-    (config/configure! {:launch/auto-open? false})
+  (testing "configure! routes :rf.causa/auto-open? through set-auto-open!"
+    (config/configure! {:rf.causa/auto-open? false})
     (is (false? (config/auto-open-enabled?)))
-    (config/configure! {:launch/auto-open? true})
+    (config/configure! {:rf.causa/auto-open? true})
     (is (true? (config/auto-open-enabled?)))))
 
 (deftest configure-without-auto-open-leaves-preference
-  (testing "configure! without :launch/auto-open? leaves the flag unchanged"
+  (testing "configure! without :rf.causa/auto-open? leaves the flag unchanged"
     (config/set-auto-open! false)
-    (config/configure! {:editor :cursor})
+    (config/configure! {:rf.causa/editor :cursor})
     (is (false? (config/auto-open-enabled?)))))
 
-;; ---- :experimental/static-mode? flag (rf2-o5f5f.1) ----------------------
+;; ---- :rf.causa/static-mode? flag (rf2-o5f5f.1) -------------------------
 
 (deftest static-mode-default-is-false
   (testing "default — static-mode? is OFF so the Runtime chrome
@@ -110,19 +110,19 @@
     (is (false? (config/static-mode-enabled?)))))
 
 (deftest configure-passes-static-mode-through
-  (testing "configure! routes :experimental/static-mode? through
+  (testing "configure! routes :rf.causa/static-mode? through
             set-static-mode-enabled!"
-    (config/configure! {:experimental/static-mode? true})
+    (config/configure! {:rf.causa/static-mode? true})
     (is (true? (config/static-mode-enabled?)))
-    (config/configure! {:experimental/static-mode? false})
+    (config/configure! {:rf.causa/static-mode? false})
     (is (false? (config/static-mode-enabled?)))
     (config/set-static-mode-enabled! nil)))
 
 (deftest configure-without-static-mode-leaves-flag
-  (testing "configure! without :experimental/static-mode? leaves the
+  (testing "configure! without :rf.causa/static-mode? leaves the
             flag unchanged"
     (config/set-static-mode-enabled! true)
-    (config/configure! {:editor :cursor})
+    (config/configure! {:rf.causa/editor :cursor})
     (is (true? (config/static-mode-enabled?)))
     (config/set-static-mode-enabled! nil)))
 
@@ -179,21 +179,21 @@
     (is (nil? (config/get-project-root)))))
 
 (deftest configure-passes-project-root-through
-  (testing "configure! routes :project-root through set-project-root!"
-    (config/configure! {:project-root "C:/Users/me/code/my-app"})
+  (testing "configure! routes :rf.causa/project-root through set-project-root!"
+    (config/configure! {:rf.causa/project-root "C:/Users/me/code/my-app"})
     (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
-    (config/configure! {:project-root "/abs/code"})
+    (config/configure! {:rf.causa/project-root "/abs/code"})
     (is (= "/abs/code" (config/get-project-root)))
     (testing "explicit nil clears the slot"
-      (config/configure! {:project-root nil})
+      (config/configure! {:rf.causa/project-root nil})
       (is (nil? (config/get-project-root))))))
 
 (deftest configure-without-project-root-leaves-slot-untouched
-  (testing "configure! with no :project-root key leaves the slot unchanged
-            (lets hosts call configure! multiple times for unrelated
-            keys without clobbering the project-root)"
+  (testing "configure! with no :rf.causa/project-root key leaves the slot
+            unchanged (lets hosts call configure! multiple times for
+            unrelated keys without clobbering the project-root)"
     (config/set-project-root! "/abs/code")
-    (config/configure! {:editor :cursor})
+    (config/configure! {:rf.causa/editor :cursor})
     (is (= "/abs/code" (config/get-project-root)))))
 
 (deftest editor-uri-prepends-project-root
@@ -237,12 +237,12 @@
 
 (deftest configure-passes-filters-through
   (let [seed {:in [{:pattern :auth/*}] :out []}]
-    (config/configure! {:filters seed})
+    (config/configure! {:rf.causa/filters seed})
     (is (= seed (config/get-filter-seed)))))
 
 (deftest configure-without-filters-leaves-seed-untouched
   (config/set-filter-seed! {:in [{:pattern :seeded}] :out []})
-  (config/configure! {:editor :cursor})
+  (config/configure! {:rf.causa/editor :cursor})
   (is (= {:in [{:pattern :seeded}] :out []}
          (config/get-filter-seed))))
 
@@ -261,13 +261,13 @@
       "nil resets to the default"))
 
 (deftest configure-passes-filters-storage-key-through
-  (config/configure! {:filters/storage-key "story.testbed.a.filters"})
+  (config/configure! {:rf.causa/filters-storage-key "story.testbed.a.filters"})
   (is (= "story.testbed.a.filters"
          (config/get-filters-storage-key))))
 
 (deftest configure-without-storage-key-leaves-key-untouched
   (config/set-filters-storage-key! "myhost.filters")
-  (config/configure! {:editor :cursor})
+  (config/configure! {:rf.causa/editor :cursor})
   (is (= "myhost.filters" (config/get-filters-storage-key))))
 
 ;; ---- panel-width (rf2-x8h9y resize handle) -----------------------------

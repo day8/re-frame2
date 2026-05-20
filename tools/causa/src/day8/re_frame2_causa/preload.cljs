@@ -13,7 +13,7 @@
      `re-frame2-causa.keybinding`.
   4. Auto-opens the full shell into the host app's normal-flow
      `[data-rf-causa-host]` layout host once the substrate adapter is
-     ready, unless the host configured `:launch/auto-open? false`
+     ready, unless the host configured `:rf.causa/auto-open? false`
      before adapter readiness. Missing host is reported via
      `console.error` and the inspectable Causa status API; startup is
      not blocked.

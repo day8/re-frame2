@@ -121,7 +121,7 @@
         (or (get db :trace-buffer) (trace-bus/buffer))))
 
     ;; Total count of :sensitive? trace events the collector has
-    ;; suppressed under the current `:trace/show-sensitive?` setting
+    ;; suppressed under the current `:rf.privacy/show-sensitive?` setting
     ;; (rf2-azls9). The shell's bottom-rail renders a `[● REDACTED N]`
     ;; hint when this is positive so the user sees why the buffer is
     ;; shorter than the runtime's actual emit count.

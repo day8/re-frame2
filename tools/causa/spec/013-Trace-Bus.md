@@ -132,16 +132,16 @@ before any buffer push:
 1. If `:sensitive?` is **absent or `false`**, the event is pushed
    unchanged.
 2. If `:sensitive?` is **`true`** AND the
-   `:trace/show-sensitive?` flag is `false` (the default), the event
+   `:rf.privacy/show-sensitive?` flag is `false` (the default), the event
    MUST be **dropped** before the buffer push. The collector MUST
    bump a per-frame suppressed-events counter (keyed by the event's
    `:tags :frame`, or `:global` when no frame scope is present) so the
    shell's bottom rail can surface a `[● REDACTED N]` indicator.
-3. If `:sensitive?` is `true` AND the `:trace/show-sensitive?` flag is
+3. If `:sensitive?` is `true` AND the `:rf.privacy/show-sensitive?` flag is
    `true`, the event is pushed unchanged.
 
 The flag is read **at the head of the collector body** on every event,
-so toggling it via `(causa-config/configure! {:trace/show-sensitive?
+so toggling it via `(causa-config/configure! {:rf.privacy/show-sensitive?
 true})` takes effect on the next trace event without re-registering
 the listener. The default is `false` — suppress sensitive events.
 
@@ -239,7 +239,7 @@ the same UX without the layering hazards.
   zero-loss alternative; the trace bus is the late-attach affordance.
 - **Causa-side filtering of `:sensitive?` events being reversible
   from the buffer.** Once dropped, the event is gone; flipping
-  `:trace/show-sensitive?` from `false` to `true` only affects
+  `:rf.privacy/show-sensitive?` from `false` to `true` only affects
   *future* events. Suppressed events are counted, not retained. (See
   the redaction-indicator follow-on bead for the design contract on
   whether this is the right trade.)
@@ -281,7 +281,7 @@ vocabulary. The privacy gate operates at *push time*, not at
 consumer-side filter time — by the time a panel reads the buffer,
 sensitive events have already been dropped (under the default
 configuration). Consumers needing the raw cascade flip
-`:trace/show-sensitive?` and re-drive the runtime.
+`:rf.privacy/show-sensitive?` and re-drive the runtime.
 
 Unrecognised filter keys MUST be ignored (forward-compat: panels
 may probe new axes the framework gains in future spec amendments;
@@ -322,7 +322,7 @@ The buffer's runtime knobs are owned by
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `:trace/show-sensitive?` | boolean | `false` | When `false`, the collector drops events carrying `:sensitive? true` and bumps the suppressed counter. When `true`, every event passes through unchanged. |
+| `:rf.privacy/show-sensitive?` | boolean | `false` | When `false`, the collector drops events carrying `:sensitive? true` and bumps the suppressed counter. When `true`, every event passes through unchanged. |
 | `:buffer-depths {:trace N}` | number | `1000` | Maximum buffer capacity. Zero disables accumulation. |
 
 Both keys are read on every push (no listener re-registration is
@@ -331,7 +331,7 @@ host pattern:
 
 ```clojure
 (causa-config/configure!
-  {:trace/show-sensitive? true       ;; debugging redaction policy
+  {:rf.privacy/show-sensitive? true       ;; debugging redaction policy
    :buffer-depths         {:trace 5000}})
 ```
 

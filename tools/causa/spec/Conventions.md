@@ -272,8 +272,8 @@ namespacing convention (see [`015-Configuration.md`](./015-Configuration.md)
 (`set-layout-host-selector!` at 23 chars, `set-filters-storage-key!` at
 22) are the necessary cost of clarity; abbreviation is forbidden —
 `set-lhs!` reads as line-noise. The compact spelling already lives at
-the `configure!` key (`:layout/host-selector` is the user-facing
-surface; the setter is internal-host helper).
+the `configure!` key (`:rf.causa/layout-host-selector` is the
+user-facing surface; the setter is internal-host helper).
 
 ### Cross-references
 

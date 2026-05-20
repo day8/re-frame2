@@ -75,7 +75,7 @@
 
 (deftest open-chip-supports-custom-template
   (testing ":custom template via Causa configure!"
-    (config/configure! {:editor {:custom "zed://file/{path}:{line}"}})
+    (config/configure! {:rf.causa/editor {:custom "zed://file/{path}:{line}"}})
     (is (= "zed://file/src/x.cljs:5"
            (:href (second (open-in-editor/open-chip
                             {:file "src/x.cljs" :line 5 :column 2}))))))
@@ -108,30 +108,30 @@
     ;; editor-uri/editor-uri already gates javascript:/data:/vbscript:
     ;; — for these the chip is nil regardless of the allowlist. Verify
     ;; those cases still hide.
-    (config/configure! {:editor {:custom "javascript:alert(1)"}})
+    (config/configure! {:rf.causa/editor {:custom "javascript:alert(1)"}})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
 
-    (config/configure! {:editor {:custom "data:text/html,xxx"}})
+    (config/configure! {:rf.causa/editor {:custom "data:text/html,xxx"}})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
 
     ;; http: is NOT in editor-uri's reject list — the allowlist is
     ;; the seam that catches it.
-    (config/configure! {:editor {:custom "http://evil.example/{path}"}})
+    (config/configure! {:rf.causa/editor {:custom "http://evil.example/{path}"}})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
 
     ;; Same for https:
-    (config/configure! {:editor {:custom "https://evil.example/{path}"}})
+    (config/configure! {:rf.causa/editor {:custom "https://evil.example/{path}"}})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))))
 
 (deftest open-chip-renders-when-custom-template-resolves-to-safe-scheme
   (testing "open-chip renders normally when the resolved URI's scheme
             is in `editor-uri/allowed-editor-uri-schemes`"
-    (config/configure! {:editor {:custom "subl://open?path={path}&line={line}"}})
+    (config/configure! {:rf.causa/editor {:custom "subl://open?path={path}&line={line}"}})
     (let [hiccup (open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
       (is (vector? hiccup))
       (is (= "subl://open?path=src/x.cljs&line=5" (:href (second hiccup)))))
 
-    (config/configure! {:editor {:custom "emacsclient://{path}"}})
+    (config/configure! {:rf.causa/editor {:custom "emacsclient://{path}"}})
     (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))))
 
 ;; ---- project-root prefix (rf2-5m5n2) ------------------------------------
@@ -208,9 +208,9 @@
              (:href (second hiccup)))))))
 
 (deftest open-chip-configure-passes-project-root-through
-  (testing "configure! routes :project-root through set-project-root!
+  (testing "configure! routes :rf.causa/project-root through set-project-root!
             on the CLJS side (mirror of Story's rf2-zfy1e config matrix)"
-    (config/configure! {:project-root "C:/Users/me/code/my-app"})
+    (config/configure! {:rf.causa/project-root "C:/Users/me/code/my-app"})
     (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
     (let [hiccup (open-in-editor/open-chip
                    {:file "src/x.cljs" :line 1 :column 1})]
@@ -339,7 +339,7 @@
             pins the contract even though the editor-uri gate fires
             first."
     (setup!)
-    (config/configure! {:editor {:custom "javascript:alert(1)"}})
+    (config/configure! {:rf.causa/editor {:custom "javascript:alert(1)"}})
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/open-in-editor
                          {:file "src/x.cljs" :line 1}])
@@ -354,7 +354,7 @@
             (http: is NOT in the editor-uri-side reject list, so this
             is the seam that catches it)"
     (setup!)
-    (config/configure! {:editor {:custom "http://evil.example/{path}"}})
+    (config/configure! {:rf.causa/editor {:custom "http://evil.example/{path}"}})
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/open-in-editor
                          {:file "src/x.cljs" :line 1}])

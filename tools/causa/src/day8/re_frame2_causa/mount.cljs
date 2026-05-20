@@ -162,7 +162,7 @@
      :message  (str "Causa default launch requires an app-provided true-inline "
                     "layout host matching " selector ". Add a right-side host "
                     "to your normal app layout, or configure "
-                    ":layout/host-selector before the preload opens.")
+                    ":rf.causa/layout-host-selector before the preload opens.")
      :snippet  config/default-layout-host-snippet}))
 
 (defn- report-diagnostic! [diagnostic]

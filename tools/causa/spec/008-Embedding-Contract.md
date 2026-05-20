@@ -58,11 +58,11 @@ shortcuts (typically `Cmd/Ctrl+K` for the host's command palette) are
 not swallowed by Causa's capture-phase listener:
 
 ```clojure
-(causa-config/configure! {:launch.keybinding/enabled? false})
+(causa-config/configure! {:rf.causa/keybinding-enabled? false})
 ```
 
 The slot is documented in [`015-Configuration.md`](./015-Configuration.md)
-§`:launch.keybinding/enabled?`. Per rf2-4eyik (rf2-q7who Thread A —
+§`:rf.causa/keybinding-enabled?`. Per rf2-4eyik (rf2-q7who Thread A —
 embed-contract gap discovered via rf2-drprn). With the slot at `false`
 Causa's `keybinding/attach!` short-circuits and no global listener
 lands on `js/document`; the host's own bindings reach their handlers
@@ -79,7 +79,7 @@ variant-selection time) MUST additionally call
 `day8.re-frame2-causa.keybinding/detach!` AFTER the slot flip:
 
 ```clojure
-(causa-config/configure! {:launch.keybinding/enabled? false})
+(causa-config/configure! {:rf.causa/keybinding-enabled? false})
 (causa-keybinding/detach!)
 ```
 

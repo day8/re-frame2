@@ -163,7 +163,7 @@ radio that lives in both modes — it's the toggle, not the indicator)
 or by the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord. The mode
 choice persists to localStorage under `causa.mode` and survives
 reload. Static is currently gated behind the
-`:experimental/static-mode?` config flag (default off); it flips to
+`:rf.causa/static-mode?` config flag (default off); it flips to
 default-on once the placeholder Static sub-tabs fill out.
 
 The five canonical questions remain the Runtime bar. Static carries

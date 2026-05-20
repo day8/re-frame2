@@ -207,19 +207,23 @@
 ;; sessions that want to flip one knob without writing the full map.
 
 (def configure!
-  "Top-level Causa configuration. Accepts:
+  "Top-level Causa configuration. Every key lives under the
+  `:rf.causa/*` reserved namespace (per rf2-xea9u — the `:rf.<tool>/*`
+  convention for re-frame2 tools' boot-time config). Cross-tool keys
+  live under their own reserved namespace (e.g.
+  `:rf.privacy/show-sensitive?` is read by Causa AND Story).
 
-    `{:editor <kw>}`                 — 'Open in editor' preference.
-    `{:layout/host-selector <css>}`  — true-inline layout host selector.
-    `{:launch/auto-open? <bool>}`    — default true-inline auto-open.
-    `{:trace/show-sensitive? <bool>}` — `:sensitive?` trace-event gate.
+    `{:rf.causa/editor <kw>}`                — 'Open in editor' preference.
+    `{:rf.causa/layout-host-selector <css>}` — true-inline layout host selector.
+    `{:rf.causa/auto-open? <bool>}`          — default true-inline auto-open.
+    `{:rf.privacy/show-sensitive? <bool>}`   — cross-tool `:sensitive?` trace gate.
 
   Future phases extend with theme / buffer keys. Hosts typically call
   once at boot, before Causa auto-opens. Returns nothing."
   config/configure!)
 
 (def set-auto-open!
-  "Replace the `:launch/auto-open?` flag. When `true` (default), the
+  "Replace the `:rf.causa/auto-open?` flag. When `true` (default), the
   dev preload auto-opens Causa into the configured inline host after
   substrate readiness. `false` suppresses only that automatic launch;
   explicit open!/toggle! calls keep the normal host diagnostic."
@@ -232,8 +236,8 @@
   config/set-editor!)
 
 (def set-show-sensitive!
-  "Replace the `:trace/show-sensitive?` flag. When `false` (default),
-  Causa's trace collector drops `:sensitive? true` events; when `true`,
-  every event reaches the buffer. `nil` resets to the default
-  (`false`)."
+  "Replace the cross-tool `:rf.privacy/show-sensitive?` flag. When
+  `false` (default), Causa's trace collector drops `:sensitive? true`
+  events; when `true`, every event reaches the buffer. `nil` resets
+  to the default (`false`)."
   config/set-show-sensitive!)

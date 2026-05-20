@@ -425,7 +425,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest surface-composer-defaults-to-runtime-when-flag-off
-  (testing "with :experimental/static-mode? OFF (default), the composer
+  (testing "with :rf.causa/static-mode? OFF (default), the composer
             ALWAYS renders Runtime chrome — even when the mode slot
             says :static. The pre-bead byte-identical surface."
     (causa-setup!)
@@ -443,7 +443,7 @@
             "Static surface does NOT mount with flag off")))))
 
 (deftest surface-composer-renders-static-when-mode-static-and-flag-on
-  (testing "with :experimental/static-mode? ON + mode :static, the
+  (testing "with :rf.causa/static-mode? ON + mode :static, the
             composer renders the Static surface"
     (causa-setup!)
     (config/set-static-mode-enabled! true)
@@ -458,7 +458,7 @@
             "Runtime L2 event list does NOT mount")))))
 
 (deftest surface-composer-renders-runtime-when-mode-runtime-and-flag-on
-  (testing "with :experimental/static-mode? ON + mode :runtime, the
+  (testing "with :rf.causa/static-mode? ON + mode :runtime, the
             composer still renders the Runtime chrome"
     (causa-setup!)
     (config/set-static-mode-enabled! true)
@@ -472,7 +472,7 @@
 
 (deftest ribbon-mounts-mode-pill-only-when-flag-on
   (testing "the Runtime ribbon mounts the mode pill ONLY when
-            :experimental/static-mode? is ON"
+            :rf.causa/static-mode? is ON"
     (causa-setup!)
     ;; flag OFF
     (config/set-static-mode-enabled! false)

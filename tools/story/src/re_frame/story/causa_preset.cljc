@@ -226,10 +226,12 @@
      (when (and config/enabled? (causa-config-available?))
        (when-let [root (config/get-project-root)]
          (when-let [configure! (resolve-fn 'day8.re-frame2-causa.config/configure!)]
-           (safe-call! "config/configure!" configure! {:project-root root})
+           ;; rf2-xea9u — Causa's configure! keys live under :rf.causa/*
+           ;; per the :rf.<tool>/* convention.
+           (safe-call! "config/configure!" configure! {:rf.causa/project-root root})
            root)))))
 
-;; ---- :launch.keybinding/enabled? bridge (rf2-q7who.1) -------------------
+;; ---- :rf.causa/keybinding-enabled? bridge (rf2-q7who.1) -----------------
 ;;
 ;; Causa standalone attaches a window-level capture-phase `keydown`
 ;; listener that handles `Ctrl+Shift+C` (shell toggle), `Cmd/Ctrl+K`
@@ -240,7 +242,7 @@
 ;; `stopPropagation()` on every key it consumes.
 ;;
 ;; The fix: when Story drives Causa as RHS (the always-on RHS panel,
-;; rf2-sgdd3), set `:launch.keybinding/enabled? false` on Causa's
+;; rf2-sgdd3), set `:rf.causa/keybinding-enabled? false` on Causa's
 ;; config slot so Causa's `keybinding/attach!` short-circuits. Story's
 ;; Cmd/Ctrl+K reaches its own command palette; Causa is still
 ;; mountable / dispatchable / inspectable via every other surface
@@ -252,21 +254,22 @@
 ;; Causa (no Story) is unaffected — only Story-driven mounts disable
 ;; the listener.
 ;;
-;; Per rf2-4eyik (the sibling bead that shipped the config slot):
-;; "Hosts MUST set this BEFORE the Causa preload runs". Setting it
-;; from `ensure-causa-mounted!` means the slot lands at variant-
-;; selection time, after the preload's `keybinding/attach!` has
-;; already fired with the default `true`. The Causa-side bead is
-;; the slot owner; preload-time sequencing (e.g. a Story preload that
-;; sets the slot before Causa's preload runs) is the follow-on shape
-;; for live runtime collision removal. This wire-up is the in-source
+;; Per rf2-4eyik (the sibling bead that shipped the config slot) +
+;; rf2-xea9u (the :rf.causa/* configure! rename): "Hosts MUST set
+;; this BEFORE the Causa preload runs". Setting it from
+;; `ensure-causa-mounted!` means the slot lands at variant-selection
+;; time, after the preload's `keybinding/attach!` has already fired
+;; with the default `true`. The Causa-side bead is the slot owner;
+;; preload-time sequencing (e.g. a Story preload that sets the slot
+;; before Causa's preload runs) is the follow-on shape for live
+;; runtime collision removal. This wire-up is the in-source
 ;; declaration of intent — every embed surface that drives Causa
 ;; through `ensure-causa-mounted!` sets the slot, so downstream
 ;; load-order fixes have a single canonical site to honour.
 
 #?(:cljs
    (defn disable-keybinding!
-     "Set Causa's `:launch.keybinding/enabled?` config slot to `false`
+     "Set Causa's `:rf.causa/keybinding-enabled?` config slot to `false`
      via `day8.re-frame2-causa.config/configure!`. Returns `true` when
      the call landed, or `nil` when Causa's `configure!` is not on the
      classpath (preload absent).
@@ -274,8 +277,9 @@
      Called by `ensure-causa-mounted!` so Story-driven Causa-as-RHS
      mounts never have Causa swallow the host's global keybindings
      (typically `Cmd/Ctrl+K` for Story's command palette). Per
-     rf2-q7who.1 (rf2-4eyik sibling on the Causa side). Idempotent —
-     writing `false` over an existing `false` is a plain reset!.
+     rf2-q7who.1 (rf2-4eyik sibling on the Causa side) + rf2-xea9u
+     (:rf.causa/* configure! rename). Idempotent — writing `false`
+     over an existing `false` is a plain reset!.
 
      Sequencing: `disable-keybinding!` flips the slot (intent
      declaration); rf2-ycrt2's `detach-keybinding!` removes the
@@ -285,12 +289,12 @@
      []
      (when (and config/enabled? (causa-config-available?))
        (when-let [configure! (resolve-fn 'day8.re-frame2-causa.config/configure!)]
-         (safe-call! "config/configure!" configure! {:launch.keybinding/enabled? false})
+         (safe-call! "config/configure!" configure! {:rf.causa/keybinding-enabled? false})
          true))))
 
 ;; ---- keybinding/detach! bridge (rf2-ycrt2 — rf2-q7who.1 follow-on) -------
 ;;
-;; `disable-keybinding!` above flips Causa's `:launch.keybinding/enabled?`
+;; `disable-keybinding!` above flips Causa's `:rf.causa/keybinding-enabled?`
 ;; slot to `false`, but that slot is only read at attach time (by
 ;; `keybinding/attach!`). Causa's preload runs BEFORE Story's mount-time
 ;; bridge fires — so by the time `disable-keybinding!` flips the slot,

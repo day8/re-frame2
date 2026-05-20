@@ -199,7 +199,7 @@
 
   Keybindings (rf2-ttnst) v1 is READ-ONLY — a table of every chord
   the global listener captures, plus a master 'Handle keys?' toggle
-  (alias for `:launch.keybinding/enabled?`). Rebind UI is the v1.1
+  (alias for `:rf.causa/keybinding-enabled?`). Rebind UI is the v1.1
   follow-on.
 
   Buffer (rf2-ttnst) surfaces the trace-buffer / epoch-buffer /
@@ -666,7 +666,7 @@
 ;; thing.
 ;;
 ;; The 'Handle keys?' master toggle aliases the
-;; `:launch.keybinding/enabled?` config slot (rf2-4eyik) — flipping
+;; `:rf.causa/keybinding-enabled?` config slot (rf2-4eyik) — flipping
 ;; it false disables the global listener until next page-load. The
 ;; effect is global; the popup is just the surface.
 
@@ -730,7 +730,7 @@
 
 (defn- keybindings-section []
   ;; The Handle-keys? master toggle reads the
-  ;; `:launch.keybinding/enabled?` atom directly — it's process
+  ;; `:rf.causa/keybinding-enabled?` atom directly — it's process
   ;; global, not under `:settings`. The dispatch flips the atom via
   ;; the setter. NB: the underlying setter only suppresses ATTACH;
   ;; a host that pre-attached the listener needs to also call
@@ -760,7 +760,7 @@
        "unimpeded. May require a page reload to fully detach. "
        "(Setting: " [:code {:style {:font-family mono-stack
                                     :color (:text-tertiary tokens)}}
-                     ":launch.keybinding/enabled?"] ")"]]
+                     ":rf.causa/keybinding-enabled?"] ")"]]
 
      ;; Read-only chord table. v1.1 will add rebind UI; for now
      ;; the catalogue is enough to discover the bindings.

@@ -60,8 +60,10 @@
   ## Persistence shape
 
   localStorage key `re-frame2.causa.frame-switcher.v1` (per-instance
-  overridable via `causa-config/configure! {:frame-switcher/storage-key
-  …}`). Value is a one-key EDN map `{:frame :rf/cart-frame}` — wrapping
+  overridable via the direct setter `frame-switcher/set-storage-key!`;
+  a future `configure! :rf.causa/frame-switcher-storage-key` plumb
+  is straightforward but not wired today). Value is a one-key EDN map
+  `{:frame :rf/cart-frame}` — wrapping
   a bare keyword would force callers to handle 'literal nil means no
   selection' vs 'no entry means no selection' separately; the map
   envelope keeps room for future fields (e.g. last-N-frames history,
@@ -126,8 +128,9 @@
 
 (def default-storage-key
   "Default localStorage key Causa writes the frame-switcher selection
-  under. Hosts override via `(causa-config/configure! {:frame-
-  switcher/storage-key …})` for per-instance isolation (Story testbeds
+  under. Hosts override via the direct setter
+  `frame-switcher/set-storage-key!` for per-instance isolation
+  (Story testbeds
   use this so per-scenario picks don't leak between scenarios)."
   "re-frame2.causa.frame-switcher.v1")
 

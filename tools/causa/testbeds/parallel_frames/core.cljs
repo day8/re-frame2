@@ -496,7 +496,7 @@
   ;; Configure Causa BEFORE `rf/init!` so the preload's auto-open
   ;; reads the right project-root on its first paint of any chip.
   ;; (rf2-6jyf6 — see the same configure! call in the shop testbed.)
-  (causa-config/configure! {:project-root (resolve-project-root)})
+  (causa-config/configure! {:rf.causa/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Register the two frames. Each `:on-create` seeds its own app-db
   ;; synchronously (rf2-gxgmt — the clock-tick chain is no longer
