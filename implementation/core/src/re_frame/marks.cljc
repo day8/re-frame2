@@ -2,8 +2,11 @@
   "Data-classification path-marks for sensitive + large values per Spec 015.
 
   This namespace owns:
-    - `reg-marks` — the dedicated registration kind for declaring
-      path-marks against an `app-db` (frame-scoped).
+    - `add-marks` / `set-marks` — the dedicated registration kinds for
+      declaring path-marks against an `app-db` (frame-scoped).
+      `add-marks` merges into the existing frame mark-set; `set-marks`
+      replaces the frame mark-set wholesale. Both take the same
+      `{path mark, ...}` shape — symmetric path-keyed form.
     - Per-registration mark tables — a per-(kind, id) index of
       `{:sensitive [paths] :large [paths] :sensitive? bool :large? bool}`
       stashed at registration time so emit-time consumers can resolve
@@ -44,9 +47,9 @@
 ;; `reg-flow` reg-paths). Read at emit time by the projection helpers.
 ;;
 ;; The table is process-scoped (mirrors `re-frame.registrar`'s shape) —
-;; declarations bind to (kind, id), not to (frame, kind, id). `reg-marks`
-;; is the exception — it is frame-scoped and writes into the per-frame
-;; elision registry.
+;; declarations bind to (kind, id), not to (frame, kind, id). `add-marks`
+;; / `set-marks` are the exception — they are frame-scoped and write
+;; into the per-frame elision registry.
 
 (defonce ^:private kind->id->marks
   (atom {}))
@@ -96,9 +99,8 @@
     (if (nil? marks)
       ;; Clear any prior marks for this (kind, id) on re-registration
       ;; without marks — the new registration's declaration set should
-      ;; supersede the old one in full (Spec 015 §reg-marks: "second
-      ;; call against the same id wins"). The same rule generalises
-      ;; from `reg-marks` to every reg-* site.
+      ;; supersede the old one in full. The same rule generalises
+      ;; from `set-marks` to every reg-* site.
       (swap! kind->id->marks update kind dissoc id)
       (swap! kind->id->marks assoc-in [kind id] marks)))
   nil)
@@ -119,20 +121,35 @@
   (reset! kind->id->marks {})
   nil)
 
-;; ---- reg-marks API -------------------------------------------------------
+;; ---- add-marks / set-marks API ------------------------------------------
 ;;
-;; The dedicated registration kind for declaring path-marks against an
-;; `app-db`. Frame-scoped per Spec 015 §reg-marks. Writes through the
-;; existing `[:rf/elision :sensitive-declarations]` /
-;; `[:rf/elision :declarations]` registry slots so the schema-first
-;; elision walker (`re-frame.elision/elide-wire-value`) sees the
-;; declarations without a second lookup path.
+;; Two dedicated registration kinds for declaring path-marks against an
+;; `app-db`. Frame-scoped per Spec 015. Both write through the existing
+;; `[:rf/elision :sensitive-declarations]` / `[:rf/elision :declarations]`
+;; registry slots so the schema-first elision walker
+;; (`re-frame.elision/elide-wire-value`) sees the declarations without a
+;; second lookup path.
 ;;
-;; Per Spec 015 §reg-marks: a second `reg-marks` call against the same
-;; frame REPLACES the previous declaration set (NOT merge). This drops
-;; the prior `:reg-marks`-sourced entries and overlays the new ones;
-;; schema-sourced entries are preserved (they are not owned by
-;; `reg-marks` and live alongside).
+;; Author-facing shape (path-keyed, symmetric between the two fns):
+;;
+;;   (rf/add-marks :rf/default
+;;     {[:user :ssn]   :sensitive
+;;      [:auth :token] :sensitive
+;;      [:docs :csv]   :large})
+;;
+;; - `add-marks` MERGES the supplied paths into the frame's existing
+;;   marks set. Paths the caller does NOT mention keep their prior
+;;   state. Author-facing repeat-call semantics: additive.
+;;
+;; - `set-marks` REPLACES the frame's marks set wholesale. Paths the
+;;   caller does NOT mention are CLEARED (only the supplied paths
+;;   survive). Author-facing repeat-call semantics: declarative.
+;;
+;; Both honour last-write-wins semantics when called against the same
+;; frame and overlap with each other. Schema-sourced entries (carrying
+;; `:source :schema`) are always preserved — they are not owned by
+;; this namespace and live alongside per Spec 015 §Relationship with
+;; schema-attached marks.
 
 (defn- swap-app-db!
   "Mutate the frame's app-db through the substrate adapter. The mark-
@@ -144,65 +161,92 @@
           new-db (f old-db)]
       (adapter/replace-container! container new-db))))
 
-(defn- without-reg-marks-sourced
-  "Drop entries whose `:source` is `:reg-marks` from a declaration map.
-  Used by `reg-marks` to clear the prior call's contributions before
-  overlaying the new ones — schema-sourced entries survive."
+(defn- without-marks-sourced
+  "Drop entries whose `:source` is `:marks` from a declaration map.
+  Used by `set-marks` to clear the prior `add-marks` / `set-marks`
+  contributions before overlaying the new ones — schema-sourced
+  entries survive."
   [decls]
   (when decls
     (reduce-kv (fn [acc path decl]
-                 (if (= :reg-marks (:source decl))
+                 (if (= :marks (:source decl))
                    acc
                    (assoc acc path decl)))
                {}
                decls)))
 
-(defn- overlay-reg-marks
-  "Build the new declaration map for one registry slot: drop the prior
-  `:reg-marks`-sourced entries, then assoc the new paths with
-  `{:source :reg-marks}`."
+(defn- split-by-mark
+  "Partition `{path mark}` map into `[sensitive-paths large-paths]`.
+  Any unknown mark value is silently dropped (best-effort — the
+  declaration is non-validating)."
+  [path->mark]
+  (reduce-kv (fn [[s l] path mark]
+               (case mark
+                 :sensitive [(conj s (vec path)) l]
+                 :large     [s (conj l (vec path))]
+                 [s l]))
+             [[] []]
+             path->mark))
+
+(defn- assoc-paths
+  "Add `paths` to `existing` declaration map with `{:source :marks}`."
   [existing paths]
-  (let [carry (without-reg-marks-sourced existing)]
-    (reduce (fn [acc path]
-              (assoc acc (vec path) {:source :reg-marks}))
-            carry
-            paths)))
+  (reduce (fn [acc path]
+            (assoc acc (vec path) {:source :marks}))
+          (or existing {})
+          paths))
 
-(defn reg-marks
-  "Declare path-marks against the `app-db` of `frame-id`. Per Spec 015
-  §reg-marks (app-db, per frame).
+(defn- write-marks!
+  "Apply the new `sensitive-decls` / `large-decls` maps to the frame's
+  app-db elision registry, preserving the rest of the `:rf/elision`
+  slot. Empty maps drop the slot key entirely. If the resulting
+  `:rf/elision` map is empty, the key is dissoc'd."
+  [frame-id sensitive-decls large-decls]
+  (swap-app-db! frame-id
+    (fn [db]
+      (let [reg     (get db :rf/elision)
+            new-reg (cond-> (or reg {})
+                      (seq sensitive-decls)   (assoc :sensitive-declarations sensitive-decls)
+                      (empty? sensitive-decls) (dissoc :sensitive-declarations)
+                      (seq large-decls)       (assoc :declarations large-decls)
+                      (empty? large-decls)    (dissoc :declarations))]
+        (if (seq new-reg)
+          (assoc db :rf/elision new-reg)
+          (dissoc db :rf/elision))))))
 
-  `metadata` is a map with optional `:sensitive` and `:large` keys; each
-  is a vector of `get-in`-shaped paths into `app-db`. A second call
-  against the same frame REPLACES the previous declaration set in full
-  (per Spec 015 §reg-marks: 'a second `reg-marks` call against the same
-  frame wins'). Schema-attached marks (via `reg-app-schema` with
-  `:sensitive?` / `:large?` slot metadata) are preserved — the two
-  declaration sources union at lookup time per Spec 015 §Relationship
-  with schema-attached marks.
+(defn add-marks
+  "Additively merge path-marks into the `app-db` mark-set of `frame-id`.
+  Per Spec 015 §App-db marks (per frame).
 
-      (rf/reg-marks :rf/default
-        {:sensitive [[:user :ssn]
-                     [:auth :token]
-                     [:auth :refresh-token]]
-         :large     [[:docs :csv-upload]
-                     [:logs :history-buffer]]})
+  `path->mark` is a map from `get-in`-shaped path vectors to mark
+  keywords (`:sensitive` or `:large`). Paths supplied here MERGE into
+  the frame's existing marks — paths NOT mentioned keep their prior
+  state. Repeat calls accumulate.
 
-  Returns `frame-id`.
+      (rf/add-marks :rf/default
+        {[:user :ssn]   :sensitive
+         [:auth :token] :sensitive
+         [:docs :csv]   :large})
 
-  `reg-marks` is a pure declaration — it does NOT mutate `app-db`,
-  does NOT install an interceptor, and does NOT change any handler's
-  view of the data. The declaration only feeds the mark-lookup table
-  the observation surfaces (trace bus, Causa, MCP, third-party log
-  sinks) consult at emission time."
-  [frame-id {:keys [sensitive large] :as _metadata}]
-  (let [sens (coerce-paths sensitive)
-        lrg  (coerce-paths large)]
+  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
+  does NOT install an interceptor, does NOT change any handler's view
+  of the data. The declaration only feeds the mark-lookup table the
+  observation surfaces (trace bus, Causa, MCP, third-party log sinks)
+  consult at emission time.
+
+  Schema-attached marks (via `reg-app-schema` with `:sensitive?` /
+  `:large?` slot metadata) are preserved — the two declaration sources
+  union at lookup time per Spec 015 §Relationship with schema-attached
+  marks. Use `set-marks` for replace-semantics, or call `add-marks`
+  with a path mapped to a different mark to last-write-wins overwrite
+  that path's mark."
+  [frame-id path->mark]
+  (let [[sens-paths large-paths] (split-by-mark path->mark)]
     (swap-app-db! frame-id
       (fn [db]
         (let [reg     (get db :rf/elision)
-              new-s   (overlay-reg-marks (get reg :sensitive-declarations) sens)
-              new-l   (overlay-reg-marks (get reg :declarations) lrg)
+              new-s   (assoc-paths (get reg :sensitive-declarations) sens-paths)
+              new-l   (assoc-paths (get reg :declarations) large-paths)
               new-reg (cond-> (or reg {})
                         (seq new-s) (assoc :sensitive-declarations new-s)
                         (empty? new-s) (dissoc :sensitive-declarations)
@@ -210,19 +254,65 @@
                         (empty? new-l) (dissoc :declarations))]
           (if (seq new-reg)
             (assoc db :rf/elision new-reg)
-            (dissoc db :rf/elision)))))
-    frame-id))
+            (dissoc db :rf/elision))))))
+  frame-id)
 
-(defn clear-reg-marks!
-  "Drop every `reg-marks`-sourced declaration for `frame-id`. Schema-
-  sourced declarations are preserved. Returns nil. Test-isolation
-  only; production code rarely needs this."
+(defn set-marks
+  "Replace the `app-db` mark-set of `frame-id` with `path->mark`.
+  Per Spec 015 §App-db marks (per frame).
+
+  `path->mark` is a map from `get-in`-shaped path vectors to mark
+  keywords (`:sensitive` or `:large`). Paths supplied here REPLACE the
+  frame's prior marks set wholesale — paths NOT mentioned are CLEARED.
+
+      (rf/set-marks :rf/default
+        {[:user :ssn]   :sensitive
+         [:auth :token] :sensitive
+         [:docs :csv]   :large})
+
+  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
+  does NOT install an interceptor, does NOT change any handler's view
+  of the data. The declaration only feeds the mark-lookup table the
+  observation surfaces (trace bus, Causa, MCP, third-party log sinks)
+  consult at emission time.
+
+  Schema-attached marks (via `reg-app-schema` with `:sensitive?` /
+  `:large?` slot metadata) are preserved — only the `:source :marks`
+  entries are dropped. The two declaration sources union at lookup
+  time per Spec 015 §Relationship with schema-attached marks.
+
+  Use `add-marks` for additive-merge semantics."
+  [frame-id path->mark]
+  (let [[sens-paths large-paths] (split-by-mark path->mark)]
+    (swap-app-db! frame-id
+      (fn [db]
+        (let [reg     (get db :rf/elision)
+              ;; Drop prior :marks-sourced entries first (schema-sourced survive),
+              ;; then assoc the new paths.
+              carry-s (without-marks-sourced (get reg :sensitive-declarations))
+              carry-l (without-marks-sourced (get reg :declarations))
+              new-s   (assoc-paths carry-s sens-paths)
+              new-l   (assoc-paths carry-l large-paths)
+              new-reg (cond-> (or reg {})
+                        (seq new-s) (assoc :sensitive-declarations new-s)
+                        (empty? new-s) (dissoc :sensitive-declarations)
+                        (seq new-l) (assoc :declarations new-l)
+                        (empty? new-l) (dissoc :declarations))]
+          (if (seq new-reg)
+            (assoc db :rf/elision new-reg)
+            (dissoc db :rf/elision))))))
+  frame-id)
+
+(defn clear-app-db-marks!
+  "Drop every `add-marks` / `set-marks`-sourced declaration for
+  `frame-id`. Schema-sourced declarations are preserved. Returns nil.
+  Test-isolation only; production code rarely needs this."
   [frame-id]
   (swap-app-db! frame-id
     (fn [db]
       (let [reg     (get db :rf/elision)
-            new-s   (without-reg-marks-sourced (:sensitive-declarations reg))
-            new-l   (without-reg-marks-sourced (:declarations reg))
+            new-s   (without-marks-sourced (:sensitive-declarations reg))
+            new-l   (without-marks-sourced (:declarations reg))
             new-reg (cond-> {}
                       (seq new-s) (assoc :sensitive-declarations new-s)
                       (seq new-l) (assoc :declarations new-l))]
@@ -273,7 +363,7 @@
 (defn- large-marker
   "Mirror of `re-frame.elision/->marker`'s shape — inlined so this ns
   carries no dependency on elision's privates. Carries `:reason
-  :reg-marks` so consumers can discriminate per-registration marks
+  :marks` so consumers can discriminate per-registration marks
   from schema-driven marks."
   [v path]
   (let [p (vec path)]
@@ -281,7 +371,7 @@
      {:path   p
       :bytes  (->bytes v)
       :type   (value-type v)
-      :reason :reg-marks
+      :reason :marks
       :handle [:rf.elision/at p]}}))
 
 (defn- walk-with-marks
@@ -642,4 +732,5 @@
 (late-bind/set-fn! :marks/mark-sub-output!    mark-sub-output!)
 (late-bind/set-fn! :marks/clear-marks!        clear-marks!)
 (late-bind/set-fn! :marks/clear-sub-output-marks! clear-sub-output-marks!)
-(late-bind/set-fn! :marks/reg-marks           reg-marks)
+(late-bind/set-fn! :marks/add-marks           add-marks)
+(late-bind/set-fn! :marks/set-marks           set-marks)

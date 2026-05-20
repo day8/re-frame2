@@ -469,8 +469,9 @@ module.exports = {
     // present and gates on `(privacy/sensitive? ev)`, but there is no
     // longer a mechanism that flips that bit on the `:event/dispatched`
     // trace event the recorder listens for. The replacement classification
-    // surface (reg-marks) lands in a separate impl PR; the browser-side
-    // assertion will be rewritten there once a triggering mechanism exists.
+    // surface (add-marks / set-marks) lands in a separate impl PR; the
+    // browser-side assertion will be rewritten there once a triggering
+    // mechanism exists.
 
     await scenario(page, 'a11y-known-good-and-known-bad-fixtures', async () => {
       await setMode(page, 'dev');

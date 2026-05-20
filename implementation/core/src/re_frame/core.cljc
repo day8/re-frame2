@@ -502,27 +502,49 @@
 
 ;; ---- data classification (Spec 015) -------------------------------------
 
-(def ^{:doc "Declare path-marks against `app-db` for a frame, per Spec 015
-  §reg-marks. `metadata` is a map of optional `:sensitive [paths]` and
-  `:large [paths]` keys; each path is a `get-in`-shaped vector. A second
-  call against the same frame REPLACES the previous declaration set
-  (schema-attached marks are preserved — the two sources union per
-  Spec 015 §Relationship with schema-attached marks). The declaration
+(def ^{:doc "Additively merge path-marks into `app-db` for a frame, per
+  Spec 015 §App-db marks (per frame). `path->mark` is a map from
+  `get-in`-shaped path vectors to mark keywords (`:sensitive` or
+  `:large`). Paths supplied here MERGE into the frame's existing marks
+  — paths NOT mentioned keep their prior state. Repeat calls accumulate.
+  Schema-attached marks are preserved — the two sources union per
+  Spec 015 §Relationship with schema-attached marks. The declaration
   feeds the mark-lookup table the observation surfaces (trace bus,
   Causa, MCP, third-party log sinks) consult at emission time — real
   values flow through the application unchanged.
 
   Example:
 
-      (rf/reg-marks :rf/default
-        {:sensitive [[:user :ssn]
-                     [:auth :token]]
-         :large     [[:docs :csv-upload]]})
+      (rf/add-marks :rf/default
+        {[:user :ssn]   :sensitive
+         [:auth :token] :sensitive
+         [:docs :csv]   :large})
 
   Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
   does NOT install an interceptor, does NOT change any handler's view
-  of the data."}
-  reg-marks marks/reg-marks)
+  of the data. Use `set-marks` for replace-semantics."}
+  add-marks marks/add-marks)
+
+(def ^{:doc "Replace the `app-db` mark-set for a frame with `path->mark`,
+  per Spec 015 §App-db marks (per frame). `path->mark` is a map from
+  `get-in`-shaped path vectors to mark keywords (`:sensitive` or
+  `:large`). Paths supplied here REPLACE the frame's prior marks set
+  wholesale — paths NOT mentioned are CLEARED. Schema-attached marks
+  are preserved — only `:marks`-sourced entries are dropped. The two
+  declaration sources union at lookup time per Spec 015 §Relationship
+  with schema-attached marks.
+
+  Example:
+
+      (rf/set-marks :rf/default
+        {[:user :ssn]   :sensitive
+         [:auth :token] :sensitive
+         [:docs :csv]   :large})
+
+  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
+  does NOT install an interceptor, does NOT change any handler's view
+  of the data. Use `add-marks` for additive-merge semantics."}
+  set-marks marks/set-marks)
 
 ;; ---- clearing ------------------------------------------------------------
 

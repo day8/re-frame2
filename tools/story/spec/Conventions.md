@@ -126,9 +126,9 @@ Per [016-Design-Tokens.md](016-Design-Tokens.md), chrome consumers consume **des
 
 The bans are in the linter / CI rules, not just doc'd — see [016-Design-Tokens.md](016-Design-Tokens.md) §Token contract. Third-party Story panel authors honour the same contract: panels that ship in user repos use the same token namespaces so light / dark / future themes apply uniformly.
 
-## Privacy primitive — `reg-marks` re-export
+## Privacy primitives — `add-marks` / `set-marks` re-export
 
-Per [framework spec/015](../../../spec/015-Data-Classification.md), `reg-marks` declares per-frame path-marks (`:sensitive`, `:large`) against `app-db`. Variant bodies use it to declare path-marks scoped to a single variant's frame:
+Per [framework spec/015](../../../spec/015-Data-Classification.md), `add-marks` and `set-marks` declare per-frame path-marks (`:sensitive`, `:large`) against `app-db`. Variant bodies use them to declare path-marks scoped to a single variant's frame:
 
 ```clojure
 (story/reg-variant :story.auth/login-form
@@ -136,12 +136,12 @@ Per [framework spec/015](../../../spec/015-Data-Classification.md), `reg-marks` 
    :args {:user/email "ada@example.com"
           :user/password "•••••"}})
 
-(story/reg-marks :story.auth/login-form
-  {:sensitive [[:user :password]
-               [:auth :token]]})
+(story/add-marks :story.auth/login-form
+  {[:user :password] :sensitive
+   [:auth :token]    :sensitive})
 ```
 
-`story/reg-marks` is a re-export of `re-frame.core/reg-marks` (no fork; same primitive, same data model, same per-frame semantics). The re-export lives on the Story facade purely for **discoverability** — authors scanning `re-frame.story`'s public surface for privacy primitives find one without chasing cross-references into `re-frame.core`. See [framework Conventions §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes) for the principle that canonical devtools re-export framework primitives where ergonomic.
+`story/add-marks` and `story/set-marks` are re-exports of `re-frame.core/add-marks` / `re-frame.core/set-marks` (no fork; same primitives, same data model, same per-frame semantics). `add-marks` merges additively; `set-marks` replaces the frame mark-set wholesale. The re-exports live on the Story facade purely for **discoverability** — authors scanning `re-frame.story`'s public surface for privacy primitives find them without chasing cross-references into `re-frame.core`. See [framework Conventions §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes) for the principle that canonical devtools re-export framework primitives where ergonomic.
 
 ## Cross-references
 

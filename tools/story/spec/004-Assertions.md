@@ -138,9 +138,9 @@ The rules:
 1. **`:actual` / `:expected` / `:payload` pass through
    `re-frame.elision/elide-wire-value` before landing in
    `:assertions`.** If a variant declared per-frame marks via
-   `(re-frame.core/reg-marks <variant-id> {:sensitive [[paths]] ...})`
-   (per
-   [spec/015 §2. App-db (per frame) — `reg-marks`](../../../spec/015-Data-Classification.md#2-app-db-per-frame--reg-marks)),
+   `(re-frame.core/add-marks <variant-id> {path mark, ...})` or
+   `(re-frame.core/set-marks <variant-id> {path mark, ...})` (per
+   [spec/015 §2. App-db marks (per frame)](../../../spec/015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks)),
    then a `:rf.assert/path-equals [:auth :token] :rf/redacted` lookup
    against a path-marked-sensitive slot records `:actual :rf/redacted`,
    NOT the raw value. Same posture for `:rf.assert/sub-equals` against
@@ -151,11 +151,11 @@ The rules:
    pin the redaction contract: a passing
    `:rf.assert/path-equals [:auth :token] :rf/redacted` proves the
    observation surface saw a sentinel, NOT the secret.
-3. **Cross-frame isolation holds.** A variant's reg-marks declaration
-   scopes to its own frame; an adjacent variant in a side-by-side
-   pane sees only its own declared marks (per
-   [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation
-   + spec/015 §reg-marks scoping).
+3. **Cross-frame isolation holds.** A variant's `add-marks` /
+   `set-marks` declaration scopes to its own frame; an adjacent
+   variant in a side-by-side pane sees only its own declared marks
+   (per [`002-Runtime.md`](002-Runtime.md) §Per-variant frame
+   allocation + spec/015 §App-db marks scoping).
 4. **Display contract — same posture as Causa.** The `:test` mode
    pane and the `[data-test="story-test-row-detail"]` disclosure
    render `:rf/redacted` per spec/015 §Display contract. A disclosure

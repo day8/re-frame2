@@ -18,12 +18,12 @@ The framework's stance is the [Spec 015 §Out of scope](../../../spec/015-Data-C
 
 ## What the trace event looks like
 
-Walk through a concrete example. You've marked `[:user :email]` sensitive via `reg-marks`:
+Walk through a concrete example. You've marked `[:user :email]` sensitive via `set-marks`:
 
 ```clojure
-(rf/reg-marks :rf/default
-  {:sensitive [[:user :email]
-               [:user :password-hash]]})
+(rf/set-marks :rf/default
+  {[:user :email]         :sensitive
+   [:user :password-hash] :sensitive})
 ```
 
 Your login handler reads the email and throws if the credentials don't validate:

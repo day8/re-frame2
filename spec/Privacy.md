@@ -52,7 +52,7 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `:sensitive` | reg-meta key | Vector of paths into the registration's primary data shape (event arg-map, fx-input map, cofx-injection, machine snapshot, sub output, flow output) | [015 §Seven first-class marking sites](015-Data-Classification.md#the-seven-first-class-marking-sites) |
 | `:large` | reg-meta key | Symmetric to `:sensitive` — paths to slots elided with `:rf.size/large-elided` | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub) |
 | `:sensitive?` / `:large?` | reg-meta key (`reg-sub`, `reg-flow`) | Whole-output override (`true` = force-mark, `false` = opt out of propagation) | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub), [015 §7](015-Data-Classification.md#7-flows--reg-flow) |
-| `reg-marks` | registration kind | Frame-scoped declaration of path-marks against `app-db`. `(rf/reg-marks frame-id {:sensitive [paths] :large [paths]})`. Replaces on re-call. | [015 §2](015-Data-Classification.md#2-app-db-per-frame--reg-marks) |
+| `add-marks` / `set-marks` | registration kinds | Frame-scoped declarations of path-marks against `app-db`. `(rf/add-marks frame-id {path mark, ...})` merges additively; `(rf/set-marks frame-id {path mark, ...})` replaces wholesale. | [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks) |
 | `redact-interceptor` | interceptor factory | `(rf/redact-interceptor paths)` → positional interceptor. Overwrites named event-payload keys with `:rf/redacted` on the **trace surface** before the handler runs; handler body itself sees the unredacted value via `:event` coeffect. | [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) |
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries `:sensitive? true` at the top level. The framework-published predicate every forwarder composes against. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
 | `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **single normative emission site** for `:rf/redacted` + `:rf.size/large-elided`. Consumed by every off-box egress. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
@@ -118,7 +118,7 @@ Same surfaces, regrouped by **where the author declares the mark**. This is the 
 - `{:sensitive? true}` on an app-schema slot → `populate-sensitive-from-schemas!` → `[:rf/elision :sensitive-declarations]` at boot
 - `{:large? true}` on an app-schema slot → `populate-elision-from-schemas!` → `[:rf/elision :declarations]` at boot
 
-The two hydrators are idempotent and no-op when the schemas artefact is absent. Schema-derived entries carry `:source :schema` so they survive a `reg-marks` re-call (per [015 §Relationship with schema-attached marks](015-Data-Classification.md#relationship-with-schema-attached-marks)).
+The two hydrators are idempotent and no-op when the schemas artefact is absent. Schema-derived entries carry `:source :schema` so they survive an `add-marks` / `set-marks` re-call (per [015 §Relationship with schema-attached marks](015-Data-Classification.md#relationship-with-schema-attached-marks)).
 
 ### Per-registration declarative (Spec 015 path-marks)
 
@@ -135,7 +135,10 @@ Every `reg-*` accepts `:sensitive` / `:large` (vectors of paths) plus, for subs 
 
 ### App-db declarative (dedicated registration kind)
 
-- `(rf/reg-marks frame-id {:sensitive [paths] :large [paths]})` — frame-scoped, replaces on re-call. Writes through `[:rf/elision :sensitive-declarations]` + `[:rf/elision :declarations]` keyed by absolute path with `:source :reg-marks` (so it survives schema re-hydration; schema-sourced entries survive a `reg-marks` re-call). Per [015 §2](015-Data-Classification.md#2-app-db-per-frame--reg-marks).
+- `(rf/add-marks frame-id {path mark, ...})` — frame-scoped, additively merges into the frame's existing mark-set.
+- `(rf/set-marks frame-id {path mark, ...})` — frame-scoped, wholesale replaces the frame's mark-set.
+
+Both write through `[:rf/elision :sensitive-declarations]` + `[:rf/elision :declarations]` keyed by absolute path with `:source :marks` (so they survive schema re-hydration; schema-sourced entries survive an `add-marks` / `set-marks` re-call). Per [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks).
 
 ### Imperative — HTTP denylists
 
@@ -241,7 +244,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 │       records (which the on-box `epoch-history` reader still surfaces).     │
 │     - `elide-wire-value` walks tree-typed payloads; consults the per-frame  │
 │       [:rf/elision :declarations] + [:rf/elision :sensitive-declarations]   │
-│       (which carries BOTH schema-sourced and reg-marks-sourced entries —    │
+│       (which carries BOTH schema-sourced and app-db-marks-sourced entries — │
 │       union at lookup time).                                                │
 │     - Composition rule: sensitive drop WINS over large elision when both    │
 │       apply at the same path (the size marker would otherwise leak :path /  │
@@ -265,7 +268,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 
 ### Rule summary
 
-- **Composition is additive at every site.** A path declared via `reg-marks` AND `:sensitive?` on the schema both redact at the same observation surface — they union.
+- **Composition is additive at every site.** A path declared via `add-marks` / `set-marks` AND `:sensitive?` on the schema both redact at the same observation surface — they union.
 - **Sensitive wins over large at the same path.** [015 §`:rf/redacted {:bytes N}`](015-Data-Classification.md#rfredacted-bytes-n--sensitive--large-composed) and [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The sensitive drop suppresses the size marker because the marker carries `:path` / `:bytes` / `:digest` which would themselves leak.
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md), rf2-02vzz.
 - **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect.
@@ -329,13 +332,13 @@ The walker also emits a top-level `:rf.epoch/redacted-modified-paths-count` on `
 Finding #8's canonical question: *"I have a `:password` field in `app-db` and a `:token` header on an HTTP request — what do I declare where to keep both out of off-box egress?"*
 
 ```clojure
-;; 1. Declare the app-db path-mark — either via reg-marks OR via schema.
+;; 1. Declare the app-db path-mark — either via add-marks / set-marks OR via schema.
 ;;
 ;;    Option A (path-mark, declarative, no schema required):
-(rf/reg-marks :rf/default
-  {:sensitive [[:auth :password]
-               [:auth :token]
-               [:user :ssn]]})
+(rf/set-marks :rf/default
+  {[:auth :password] :sensitive
+   [:auth :token]    :sensitive
+   [:user :ssn]      :sensitive})
 
 ;;    Option B (schema-attached, when the app already runs schemas):
 (rf/reg-app-schema [:auth]
@@ -375,10 +378,10 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 (rf/reg-event-fx :auth/log-in-success
   {:sensitive [[:jwt] [:refresh-token]]}
   (fn [{:keys [db]} [_ {:keys [jwt refresh-token user]}]]
-    ;; Writing the JWT into app-db [:auth :token] — the reg-marks
+    ;; Writing the JWT into app-db [:auth :token] — the set-marks
     ;; declaration on step 1 means downstream Causa renders the path
     ;; as :rf/redacted. The propagation rule in Spec 015 also marks
-    ;; the destination path even without the explicit reg-marks call.
+    ;; the destination path even without the explicit set-marks call.
     {:db (-> db
              (assoc-in [:auth :token] jwt)
              (assoc-in [:auth :refresh-token] refresh-token)
@@ -412,7 +415,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | Handler body (`:auth/log-in`) | Real password value in `:event` coeffect (via the regular handler arg) |
 | Trace bus `:event/dispatched` | `[:auth/log-in {:email "..." :password :rf/redacted :totp-code :rf/redacted}]`, top-level `:sensitive? true` |
 | Trace bus `:rf.fx/handled` for `:rf.http/managed` | `:fx-args` body and params scrubbed (per-call `:sensitive? true`); `:headers` `X-MyApp-Session` value `:rf/redacted` (denylist hit) |
-| Trace bus `:event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (reg-marks + schema path-mark, plus event-arg propagation from `:auth/log-in-success`) |
+| Trace bus `:event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (set-marks + schema path-mark, plus event-arg propagation from `:auth/log-in-success`) |
 | Causa App-DB Diff panel | Same as above (Causa consults the same registry) |
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots; `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
 | Off-box log shipper (Datadog/Sentry) | Drops the whole `:event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
@@ -455,7 +458,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 
 ### Primary contract owners
 
-- [015-Data-Classification](015-Data-Classification.md) — the design spec for path-marked `:sensitive` / `:large` declarations and `reg-marks`. The Spec; this doc is the cross-artefact index.
+- [015-Data-Classification](015-Data-Classification.md) — the design spec for path-marked `:sensitive` / `:large` declarations and `add-marks` / `set-marks`. The Spec; this doc is the cross-artefact index.
 - [009-Instrumentation §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the canonical trace-surface privacy posture: `:sensitive?` top-level stamp, consumer-side default-drop, the always-on error-emit substrate's posture.
 - [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the size-elision peer of sensitive marking.
 - [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination-rf2-nwv63) — schema-attached marks that boot-hydrate into the elision registry.

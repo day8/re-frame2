@@ -16,14 +16,19 @@
   ##
   ## The data-classification spec (`spec/015-Data-Classification.md`,
   ## shipped via PR #1386 / rf2-t2rpu) defines `:rf/redacted` + the
-  ## seven first-class marking sites, of which `reg-marks` per-frame
-  ## is the API the assertion path would consume. The implementation
-  ## ships **half the substrate**:
+  ## seven first-class marking sites, of which `add-marks` / `set-marks`
+  ## per-frame is the API the assertion path would consume. The
+  ## implementation ships **most of the substrate**:
   ##
   ##   - `implementation/core/src/re_frame/elision.cljc` carries
   ##     `populate-sensitive-from-schemas!` + `elide-wire-value` —
   ##     the wire-egress projection that substitutes `:rf/redacted`
   ##     at schema-declared sensitive paths.
+  ##
+  ##   - `re-frame.core/add-marks` and `re-frame.core/set-marks` (the
+  ##     dedicated per-frame marking API named in spec/015 §App-db
+  ##     marks) ship — split from the original `reg-marks` per
+  ##     rf2-5g3zq (add merges, set replaces).
   ##
   ## What is MISSING for assertion-redaction to work end-to-end:
   ##
@@ -32,20 +37,15 @@
   ##     `(get-in db path)` and stamp the result raw onto `:actual`.
   ##     No projection through `elision/elide-wire-value` happens.
   ##
-  ##   - `re-frame.core/reg-marks` (the dedicated per-frame marking
-  ##     API named in spec/015 §API surface) does NOT yet exist; only
-  ##     the schema-derived path (`populate-sensitive-from-schemas!`)
-  ##     populates the `[:rf/elision :sensitive-declarations]` slot.
-  ##
   ## Per Mike's directive ('5 + 1 documented skip if substrate isn't
   ## ready'), this file ships the contract-on-paper as a CLJS test
-  ## that aspires-to-pass once the substrate lands. The test BODY
-  ## documents what the projection MUST look like; the assertion is
-  ## guarded by an `is (true? true)` placeholder so the file compiles
-  ## and the test suite stays green.
+  ## that aspires-to-pass once the assertion-evaluator integration
+  ## lands. The test BODY documents what the projection MUST look
+  ## like; the assertion is guarded by an `is (true? true)`
+  ## placeholder so the file compiles and the test suite stays green.
   ##
   ## When the assertion-evaluator is wired through `elide-wire-value`
-  ## (or a `reg-marks`-aware projection), drop the `(is true)`
+  ## (or a `marks`-aware projection), drop the `(is true)`
   ## placeholder and uncomment the actual assertion. Existing
   ## scaffolding (the schema seed + the fixture variant) is correct."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
@@ -88,7 +88,7 @@
 ;;   Given a variant whose play emits
 ;;     [:rf.assert/path-equals [:auth :token] :rf/redacted]
 ;;   against a frame whose `:auth :token` slot is marked sensitive
-;;   (via `reg-marks` per-frame OR a schema entry with
+;;   (via `add-marks` / `set-marks` per-frame OR a schema entry with
 ;;   `{:sensitive? true}`), the recorded assertion's `:actual` slot
 ;;   MUST be `:rf/redacted`, NOT the raw token string.
 ;;
@@ -153,8 +153,9 @@
                   "PLACEHOLDER: assertion-redaction substrate not yet
                    wired. See rf2-shy6n + the namespace docstring.
                    Replace with the (is (= :rf/redacted (:actual ...)))
-                   assertion when reg-marks lands and the assertion
-                   evaluator routes through elide-wire-value.")
+                   assertion when the assertion evaluator routes
+                   through elide-wire-value (the add-marks / set-marks
+                   per-frame API has shipped).")
               (story/destroy-variant! :story.redaction.path-equals/probe)
               (done)))))))
 
