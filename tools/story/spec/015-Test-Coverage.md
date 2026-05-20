@@ -376,8 +376,8 @@ binds each matrix row to its probe; this section provides the inverse
 mapping — given an `assert*` fn, which spec section + matrix row does
 it exercise? — so a reader hunting "where is the user-contract for
 feature X" can pivot through either axis (rf2-w3apf follow-on,
-[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
-Finding #11).
+Finding #11 of the rf2-u6o12 audit at
+`ai/findings/2026-05-20-tools-story-api-review.md` (local-only)).
 
 The bi-directional cross-reference exists in code (every helper has a
 matching matrix row above, and many matrix rows above name the helper

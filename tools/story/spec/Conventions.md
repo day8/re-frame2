@@ -58,9 +58,8 @@ Each macro elides to `nil` under `:advanced` builds via the `re-frame.story.conf
 family — every other registration kind is two tokens (`reg-story`,
 `reg-variant`, `reg-workspace`, `reg-decorator`, `reg-tag`, `reg-mode`).
 The longer name has been examined and intentionally retained
-(rf2-u1w4w follow-on,
-[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
-Finding #2):
+(rf2-u1w4w follow-on, Finding #2 of the rf2-u6o12 audit at
+`ai/findings/2026-05-20-tools-story-api-review.md` (local-only)):
 
 - **The registry kind is `:story-panel`** (per [`API.md` §Registry queries](API.md#registry-queries)
   — `(registrations :story-panel)` / `(ids :story-panel)` /
