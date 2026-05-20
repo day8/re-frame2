@@ -738,23 +738,15 @@
    :asset-path "."
    :modules    {:main {:init-fn counter-with-stories.core/run}}}
 
-  ;; Causa-as-Story-RHS smoke testbed (rf2-drprn). Minimal Story shell
-  ;; (one story, one variant) with the Causa preload wired, used by
-  ;; tools/story/testbeds/causa_rhs_smoke/spec.cjs to exercise the four
-  ;; Causa-side replacement scenarios for the Story RHS panels retired
-  ;; in PR #1478 (rf2-sgdd3). Lives separately from
-  ;; :examples/counter-with-stories because adding the Causa preload to
-  ;; that build surfaces real embedding collisions (Story <nav> vs
-  ;; Causa <nav> tab bar, Story Ctrl+K vs Causa Ctrl+K palette,
-  ;; getByText('Schema') matching Causa's frame picker option for the
-  ;; schema-invalid variant). Under-featuring this testbed sidesteps
-  ;; all three.
-  :examples/causa-rhs-smoke
-  {:target     :browser
-   :output-dir "out/examples/causa-rhs-smoke"
-   :asset-path "."
-   :modules    {:main {:init-fn causa-rhs-smoke.core/run}}
-   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+  ;; (removed rf2-9jfo1.2) :examples/causa-rhs-smoke build target —
+  ;; the original Playwright `spec.cjs` was deleted by rf2-piucm in
+  ;; favour of the CLJS e2e at
+  ;; `tools/story/test/re_frame/story/panels_e2e/causa_embed_e2e_cljs_test.cljs`,
+  ;; which exercises the Causa-as-RHS embed contract at hiccup level
+  ;; (sub-second per surface). The events-only loader-body example
+  ;; that the testbed's single variant pinned now lives inside
+  ;; `tools/story/testbeds/counter_with_stories/` as the
+  ;; `:story.counter/events-only-loaded` variant.
 
   ;; Login-form testbed (rf2-0sg12) — the Story tutorial's five-state
   ;; login-form scenario as runnable variants. Hash-routed: `#/`
@@ -920,18 +912,13 @@
    :modules    {:main {:init-fn large-dispatcher.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}
 
-  ;; rf2-kzcim Tier 4 — known-bad-a11y testbed (Story-mode surface
-  ;; with one parent story + two variants — known-bad packs five
-  ;; deliberate axe-core violations; known-good has zero. Verifies
-  ;; the a11y panel scopes axe-core to data-rf-story-variant-root
-  ;; per rf2-qgms1 PR #1080 — flags variant body only, never Story
-  ;; chrome).
-  :testbeds/known-bad-a11y
-  {:target     :browser
-   :output-dir "out/testbeds/known-bad-a11y"
-   :asset-path "."
-   :modules    {:main {:init-fn known-bad-a11y.core/run}}
-   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+  ;; (removed rf2-9jfo1.1) known-bad-a11y testbed — the a11y-panel
+  ;; scope contract (rf2-qgms1 / PR #1080) is now exercised inside
+  ;; `tools/story/testbeds/counter_with_stories/` via the
+  ;; `:story.counter-matrix/a11y-known-bad` + `/a11y-known-good`
+  ;; variants, driven by `tools/story/test/story_browser_scenarios.cjs`.
+  ;; The standalone testbed was a zero-consumer orphan once the
+  ;; counter_with_stories variants subsumed its coverage.
 
   ;; rf2-ik4io — ssr-basic testbed (SSR hydration baseline). The static
   ;; index.html bakes pre-rendered HTML + a :rf/hydration-payload script

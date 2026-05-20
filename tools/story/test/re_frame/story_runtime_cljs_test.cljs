@@ -91,8 +91,10 @@
 ;; contract: dispatching the new `:mount-ready` event drives the
 ;; lifecycle from `:pre-mount` directly to `:ready` on CLJS too, so
 ;; the canvas's loading skeleton (rf2-0s4p1) reads `:ready` post-
-;; allocate and never engages for events-only variants like the
-;; causa-rhs-smoke testbed's `:story.counter/loaded`.
+;; allocate and never engages for events-only variants like
+;; counter_with_stories' `:story.counter/events-only-loaded` (the
+;; canonical events-only loader-body shape preserved from the retired
+;; causa-rhs-smoke testbed per rf2-9jfo1.2).
 
 (deftest cljs-events-only-fast-path-to-ready
   (testing "rf2-043cm — events-only variant lands :ready directly on
@@ -119,11 +121,13 @@
 
 (deftest cljs-events-only-classifier
   (testing "rf2-043cm — `loaders/events-only-variant?` classifies the
-            causa-rhs-smoke testbed variant shape on CLJS"
+            canonical events-only loader-body shape on CLJS"
     (is (true?  (loaders/events-only-variant? {:events [[:counter/initialise 5]]}
                                               {:hiccup [] :frame-setup []
                                                :fx-override [] :errors []}))
-        "the causa-rhs-smoke `:story.counter/loaded` body shape → events-only")
+        "the counter_with_stories `:story.counter/events-only-loaded`
+         body shape (preserved from the retired causa-rhs-smoke
+         testbed per rf2-9jfo1.2) → events-only")
     (is (false? (loaders/events-only-variant? {:loaders [[:l]]} {}))
         ":loaders disqualifies")
     (is (false? (loaders/events-only-variant? {:loaders-complete-when :p?} {}))

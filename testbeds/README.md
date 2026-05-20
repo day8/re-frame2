@@ -22,7 +22,6 @@ testbeds/
   drain_depth_trigger/     <-- handler that recursively dispatches itself; configurable depth ceiling
   non_trivial_app_db/      <-- 55-leaf app-db nested 5 deep; six diff shapes one per button
   large_dispatcher/        <-- four nomination paths for :rf.size/large-elided (auto / declared / fx / schema)
-  known_bad_a11y/          <-- Story-mode surface; bad+good variants verify the a11y panel scope (rf2-qgms1)
 ```
 
 Per-surface conventions (every testbed in this directory follows them):
@@ -47,7 +46,6 @@ shadow-cljs watch testbeds/long-flow-w-failure
 shadow-cljs watch testbeds/drain-depth-trigger
 shadow-cljs watch testbeds/non-trivial-app-db
 shadow-cljs watch testbeds/large-dispatcher
-shadow-cljs watch testbeds/known-bad-a11y
 ```
 
 Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed index.html served from `implementation/out/testbeds/<name>/`). The Causa preload is wired on every testbed build (mirroring the examples convention) so the trace panel and dev-tools are live on each surface.
@@ -65,7 +63,6 @@ Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed
 | `drain_depth_trigger/` | Partial epoch record (drain-halt) shows up with non-`:ok` outcome (`:halted-depth`, rf2-v0jwt); the failed cascade's N `:event/dispatched` traces leading up to the halt are visible; the post-halt second drain (the in-app listener's flip) reads cleanly on the next epoch | Recorder captures the Start click + halt deterministically; replay reproduces the same N-deep cascade + rollback shape | `:rf.error/drain-depth-exceeded` event arrives over the wire with `:depth`, `:queue-size`, `:last-event` carried verbatim; the post-rollback `app-db` snapshot reads back to the pre-drain shape via `get-path` |
 | `non_trivial_app_db/` | Six distinct `:event/db-changed` shapes per click against a 55-leaf app-db nested 5 deep; diff renderer drills into vector indices and 5-level subtrees; time-travel scrubs preserve every depth | Snapshot identity reproducible across runs — the deterministic 6-click sequence produces a bit-identical snapshot on replay; variants mounting this surface verify the chrome doesn't choke on realistic app-db | Snapshot-restore round-trip preserves all 55 leaves; `get-path` resolves at every depth without elision (no slot is `:large?`) |
 | `large_dispatcher/` | `:large?` value arrives as `:rf.size/large-elided` marker — schemas are the only nomination path so all three declared buttons (B / C / D) emit `:source :schema`; Button A (un-schema'd large value) does NOT emit a marker but fires the `:rf.warning/large-value-unschema'd` advisory once on first emit | Recorder captures the click deterministically; replay reproduces the same elision marker on each emit | The marker's `:handle` shape is `get-path`-callable; the wire-cap budget stays under 5K-token cap regardless of payload size |
-| `known_bad_a11y/` | n/a (Causa doesn't consume a11y output) | A11y panel surfaces violations on `:story.a11y/known-bad` (≥5) and reports 0 on `:story.a11y/known-good` — the pairwise contract that proves axe-core's scan is scoped to the variant root per rf2-qgms1 / PR #1080 | n/a (the a11y contract is Story-local) |
 
 ## Tier roadmap (rf2-kzcim)
 
@@ -87,9 +84,9 @@ Tier 3 — devtools edge cases:
 - ✅ `non_trivial_app_db/`
 - ✅ `large_dispatcher/`
 
-Tier 4 — a11y:
+Tier 4 — a11y (retired rf2-9jfo1.1):
 
-- ✅ `known_bad_a11y/`
+- The pairwise a11y-known-bad / known-good contract (rf2-qgms1 / PR #1080) is now exercised inside `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` and `:story.counter-matrix/a11y-known-good` variants. The shared-testbeds standalone surface has been retired.
 
 ## Cross-references
 
@@ -102,5 +99,5 @@ Tier 4 — a11y:
 - [`spec/002-Frames.md` §Run-to-completion](../spec/002-Frames.md) — the depth-bounded drain rule 3 the `drain_depth_trigger/` surface forces the runtime to hit.
 - [`spec/009-Instrumentation.md` §Size elision in traces](../spec/009-Instrumentation.md) — the three nomination paths + `:rf.size/large-elided` marker shape the `large_dispatcher/` surface exercises four buttons against.
 - [`spec/Spec-Schemas.md` §`:rf/epoch-record` Outcomes](../spec/Spec-Schemas.md) — the `:halted-depth` outcome key the `drain_depth_trigger/` surface produces (rf2-v0jwt).
-- **rf2-qgms1 / PR #1080** — the a11y-panel scope fix the `known_bad_a11y/` surface regression-tests against (axe-core's `context` parameter scopes the scan to `data-rf-story-variant-root`).
+- **rf2-qgms1 / PR #1080** — the a11y-panel scope fix; regression coverage now lives in `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` / `/a11y-known-good` variant pair (axe-core's `context` parameter scopes the scan to `data-rf-story-variant-root`).
 - [`spec/Ownership.md`](../spec/Ownership.md) — where every contract surface this directory exercises is owned.

@@ -85,7 +85,7 @@ spec can iterate the dropdown values and assert each emits its expected
 
 **Story (18)**:
 - Recorder captures click → records `:play` → replays identically. The canned-stub seam is deterministic; the live `:success` outcome may be skipped from a recorder replay (or stub-overridden) depending on the recording mode.
-- A11y panel surfaces violations on known-bad variant — out of scope here; covered by Tier-4's `known-bad-a11y/`.
+- A11y panel surfaces violations on known-bad variant — out of scope here; covered by `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` / `/a11y-known-good` variants (rf2-9jfo1.1 retired the standalone Tier-4 surface).
 
 ## Running
 

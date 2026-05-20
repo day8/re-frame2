@@ -9,13 +9,17 @@ around, with the seven Story authoring macros wired up end-to-end:
 - `reg-decorator`   — `:counter-with-stories/log-decorator`
 - `reg-story-panel` — `:Panel.counter-with-stories/notes`
 - `reg-story`       — `:story.counter`
-- `reg-variant`     — four variants (empty / loaded / clicked-three-times / save-stubbed)
+- `reg-variant`     — five variants (empty / loaded / clicked-three-times / save-stubbed / events-only-loaded)
 - `reg-workspace`   — `:Workspace.counter/all-states` (`:grid`) + `:Workspace.counter/auto-grid` (`:variants-grid`)
 
-The four variants exercise three of the seven canonical
+The four canonical variants exercise three of the seven canonical
 `:rf.assert/*` events (`path-equals`, `sub-equals`, `dispatched?`,
 `effect-emitted`) plus the built-in `force-fx-stub` decorator for
-the save-flow variant.
+the save-flow variant. The fifth variant, `events-only-loaded`, was
+folded in from the retired `causa_rhs_smoke` testbed per rf2-9jfo1.2 —
+it pins the canonical events-only loader-body shape (no `:loaders`,
+no `:loaders-complete-when`, no `:frame-setup` decorators) that takes
+the rf2-043cm `:pre-mount → :ready` lifecycle fast-path.
 
 ## File layout
 

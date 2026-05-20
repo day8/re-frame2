@@ -101,14 +101,17 @@
   (testing "the parent story registered"
     (is (story/registered? :story :story.counter))))
 
-(deftest example-four-variants-registered
-  (testing "all four canonical variants registered, parent is :story.counter"
+(deftest example-five-variants-registered
+  (testing "the five canonical variants registered on :story.counter
+            (four authoring shapes + the rf2-9jfo1.2 events-only loader-
+            body shape folded in from the retired causa_rhs_smoke testbed)"
     (let [vs (story/variants-of :story.counter)]
       (is (contains? vs :story.counter/empty))
       (is (contains? vs :story.counter/loaded))
       (is (contains? vs :story.counter/clicked-three-times))
       (is (contains? vs :story.counter/save-stubbed))
-      (is (= 4 (count vs))))))
+      (is (contains? vs :story.counter/events-only-loaded))
+      (is (= 5 (count vs))))))
 
 (deftest diagnostic-variants-registered
   (testing "the diagnostics story exposes deterministic failure surfaces"
