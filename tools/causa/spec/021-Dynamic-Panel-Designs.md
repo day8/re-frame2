@@ -1,6 +1,10 @@
-# 021-Runtime-Panel-Designs
+# 021-Dynamic-Panel-Designs
 
-Worker design doc for the Causa **Runtime L4 panel redesign** (rf2-dur6w).
+Worker design doc for the Causa **Dynamic L4 panel redesign** (rf2-dur6w).
+(File previously titled "Runtime Panel Designs" — renamed to track the
+locked Static/Dynamic linguistic pairing per the polished super-prompt.
+"Dynamic" = what's happening across epochs; "Static" = what's registered
+before any event fires.)
 Co-drafted by Mike + mayor; this doc is the implementer's reference
 for the **per-panel content layout**, **shared data-display renderer**,
 **locked decisions**, and **substrate gaps** that the redesign implies.
@@ -17,6 +21,46 @@ Cross-refs:
 - [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) — 5 idioms × 4 areas
 
 Owner: tools/causa.
+
+---
+
+## §0 Design principle: information density is binding
+
+Quoted verbatim from the canonical super-prompt (B.0):
+
+> Each L4 panel surfaces a lot of data per focused epoch. The design MUST
+> embrace this density, not minimize it.
+>
+> - Developers debugging dynamics need to **see a lot at a glance** —
+>   pipeline stages + values + paths + cause attributions all together.
+> - Dispersing the same info across many panels or hiding it behind clicks
+>   forces context-switching that breaks the debug flow.
+> - Insight emerges from co-visibility of related details — that's the
+>   "x-ray glasses with HUD" promise.
+>
+> Design for **competent developers comfortable with high information
+> density**. Think trader workstation, not consumer app. Tight spacing,
+> small font, every pixel earning its place.
+
+**What this binds, mechanically:**
+
+| Do | Don't |
+|---|---|
+| Dense default views; only the **deepest** data nesting gets lazy-tree collapse (§10) | Hide information behind "Show details" toggles by default |
+| Inline annotations (`← changed from :idle` · `(input unchanged · skipped)`) | Defer to expand-to-see when the data could be shown inline |
+| Use color, weight, and inline annotations to LAYER info without spreading | Generous whitespace idiomatic in consumer apps |
+| Co-visible related details on one surface (pipeline stages + values + paths together) | Cross-panel scatter for things the operator wants to see together |
+
+**Density baseline (resolved via tokens):** body 13px / mono 12px /
+line-height 1.35, per `theme/tokens/type-scale` — already runs ~1px
+below the spec's cosy baseline because Causa is an info-dense dev
+surface. JetBrains Mono throughout per Causa convention (§007). Every
+per-panel section below carries an explicit **density note** restating
+this in-context — they are reminders, not exceptions.
+
+This principle is binding on every panel; subsequent design decisions
+(default-expanded steps in §2, inline diff annotation over side-by-side
+in §10, footer-collapsed unchanged subs in §3.4) all derive from it.
 
 ---
 
@@ -119,6 +163,13 @@ by switching focus.
 
 End-to-end mutation pipeline for the focused epoch.
 
+**Density note** (per §0). Workstation feel: all six steps render
+default-expanded; the pipeline IS the punch and hiding it behind
+"Show details" would undercut the lens. Target ~28-40 lines visible at
+default density on a 1080p screen (the cosy case in §2.2 lands at ~36
+lines including arrows). Per-step collapse stays available via header
+click for the operator who wants to focus, but is opt-out, not default.
+
 ### §2.2 Layout — one-way pipeline with explicit arrows
 
 The 8 steps form a one-way pipeline. The Event panel MUST present it as
@@ -216,7 +267,7 @@ Sparse case (focused epoch is a noisy timer with no effects):
 | Step 5 fx settlement | Switch to **Trace** panel, scrolled to settlement op; if `:http/managed`, badge offers the wire-trace popover |
 | Step 6 flow row | Switch to **App-db** panel, scrolled to the path that flow wrote |
 | "db committed" marker | Switch to **App-db** panel (focused-epoch diff view) |
-| Right-click any value | Data-display contextual menu (§8) |
+| Click any path segment in step 2/4 value | Cross-panel propagation per §10.5 (App-db ↔ Reactive); no other value interactions |
 
 ### §2.5 Film-strip back/forward
 
@@ -243,10 +294,33 @@ symmetrically with `Event`, accurately captures the contents (subs +
 views), and re-aligns the panel name with the perspective split. (See
 §9.1.)
 
+**Density note** (per §0). The cascade tree renders inline with full
+attribution (`caused-by ← sub ← path`) on each leaf — no expand-to-see.
+Unchanged subs are the **only** thing hidden by default (footer
+disclosure per §3.4) because they're coverage signal, not signal-of-
+the-moment. Target ~24-32 lines visible at default density; cascades
+deeper than 4 levels rare enough that vertical scroll is acceptable.
+
 ### §3.2 Layout — DAG visualised as indented cascade
 
 The reactive cascade is a DAG (§A.3 super-prompt). The Reactive panel
 renders it depth-first with explicit indentation showing sub-of-sub layering.
+
+**Cascade scope — flows are NOT in the reactive cascade.** The cascade
+is strictly **db-paths → subs → views**. Flows mutate state — they
+belong to the handling pipeline (step 6) — and they may **feed** the
+cascade by writing db-paths the subs are watching, but they don't
+participate in the read-only subs/views flow. Quoted from the
+super-prompt (A.3):
+
+> The Reactive panel renders the cascade (subs + views); the Event panel
+> renders flows (alongside other handling steps).
+
+This is binding for the DAG diagram below: the only nodes are db-paths
+(seed), subs (intermediate), and views (leaf). No flow node ever
+appears as a branch of the cascade. The L2 row's `🌊 flow-recomputed`
+badge surfaces flows as a cross-epoch signal; per-epoch flow detail
+lives in Event panel step 6.
 
 Dense case (focused epoch ripples through several subs into multiple
 views):
@@ -348,8 +422,7 @@ the "I want to see what DIDN'T fire" affordance.
 |---|---|
 | Sub row | Switch to **App-db**, scrolled + highlighted to that sub's input path |
 | View row | Open-in-editor at view file:line |
-| `caused-by ← sub ← path` chip | Each chip is clickable; "path" jumps to App-db panel at that path |
-| Right-click view row | Filter-IN on view-render origin (stretch, B.5) |
+| `caused-by ← sub ← path` chip | Each chip is clickable; "path" jumps to App-db panel at that path (cross-panel propagation per §10.5) |
 
 ### §3.7 Film-strip
 
@@ -366,6 +439,14 @@ filter "next epoch with view re-render" (skip the silent epochs).
 
 App-db is the bridge between Event (writes) and Reactive (reads). It
 anchors the cascade's seed paths.
+
+**Density note** (per §0). The DIFF zone shows changed paths only —
+narrow, dense, scannable. The STATE zone uses the shared lazy-tree
+renderer with App-db's own depth heuristic (depth-3-collapsed by
+default — see §10.4) so a 5-level-deep production db doesn't blow the
+viewport. The hover popover (§4.4) is the canonical example of a
+**hover affordance** in Causa: never replacing inline content, always
+augmenting. Lines-per-screen target ~30-50 depending on db shape.
 
 ### §4.2 Layout
 
@@ -443,10 +524,8 @@ current db. Same render shape — no second mode.
 
 | Click | Navigates to |
 |---|---|
-| Changed-path row | Highlights the same path in the STATE zone below |
-| Path segment | Open segment-inspector at path-prefix (existing affordance §004) |
-| Hover overlay `⤴` | Switch to **Reactive**, scrolled to the listed views |
-| Right-click path | "Show epoch that last changed this path" (uses film-strip nav semantics — stretch) |
+| Changed-path row | Cross-panel propagation per §10.5: switches to **Reactive** and highlights subs + views downstream of that path. Same gesture as clicking any path segment in the renderer. |
+| Hover overlay `⤴` | Switch to **Reactive**, scrolled to the listed views (same destination as the path-row click; the `⤴` is the explicit affordance label on the hover popover) |
 
 ### §4.8 Film-strip
 
@@ -465,6 +544,13 @@ tracing.
 
 Per-epoch raw trace ops ordered by emission time. The underlying stream
 that Event + Reactive summarise. NOT aggregate across epochs (per §1.2).
+
+**Density note** (per §0). Each op renders as a single mono row —
+`#id  +Xms   op-kw   inline-summary` — so a 30-op epoch reads as a
+30-line scroll. Per-row payload expansion via click reuses the shared
+data-display renderer (§10) with depth-2-expanded default. Filter chips
+(`[op-type ▾] [tag ▾]`) are panel-local + always visible — no
+"Show filters" toggle. Lines-per-screen target ~30-60.
 
 ### §5.2 Layout
 
@@ -528,9 +614,82 @@ Causa comes to a time-step debugger replay UX.
 Topology-plus-overlay: full machine topology base, focused-epoch effect
 overlaid.
 
+**Density note** (per §0). Per-machine canvases are sized to fit their
+own topology — small machines render compact (~120-180px tall); large
+nested machines auto-fit to the available viewport via xyflow's
+`fitView`. Multiple machines stack vertically (no horizontal split) so
+the operator scans them like cards on a workstation. Guards, actions,
+and cancellation cascade chips render below each canvas as dense text
+rows — no extra modal or popout. The List view-mode fallback (§6.2)
+trades the canvas for an even denser flat textual list.
+
+### §6.0 Implementation — xyflow path (B) LOCKED
+
+Per B.4.1 of the polished super-prompt, the Machines panel's render
+engine is **locked to path (B): xyflow + custom Causa-palette styling.**
+Path (A) (embed Stately's `@statelyai/inspect`) is rejected for bundle
+weight + loss of palette control; path (C) (native Reagent) is rejected
+for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
+
+| Decision | Value |
+|---|---|
+| Library | **xyflow** (the new name for react-flow). https://reactflow.dev/ |
+| Visual reference | **Stately's visualizer playground** — https://stately.ai/viz (we recreate this look in Causa's palette; we do NOT import Stately UI) |
+| State-machine model reference | xstate — https://github.com/statelyai/xstate (model only; re-frame2's machine vocab stays its own per rf2-5r4q2) |
+| License | MIT |
+| Bundle cost | ~50-80KB gzipped depending on which xyflow submodules are imported |
+| Mount mechanic | xyflow is a React component; Causa is Reagent. Use Reagent's React-component interop (`reagent/adapt-react-class` or `[:>` syntax) to mount xyflow inside the Causa Machines-panel Reagent component. |
+| Adapter layer | ~100 LoC CLJS — one-way walker from re-frame2 machine spec → xyflow's node/edge JSON. Lives at `tools/causa/src/day8/re_frame2_causa/machines/xyflow_adapter.cljs` (new ns implied by this design). |
+
+**Visual conventions to recreate (Stately reference, Causa palette):**
+
+| Convention | xyflow implementation |
+|---|---|
+| Nested state containment | xyflow's group/parent-node mechanic. Parent state renders as a containing rect; child states are nested xyflow nodes whose `parentNode` references the parent. |
+| Transition edge animation | xyflow's `animated: true` edge prop. Color via Causa palette (`:accent-violet` for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
+| Current-state highlight pulse | Custom node CSS class that applies the `pulse` keyframe (~1.2s ease-in-out; CSS-variable interpolated through `--rf-causa-motion-scale` so `prefers-reduced-motion` collapses it). Pulse outline color = `:green` (the panel-domain accent). |
+| Auto-layout | xyflow's built-in `getLayoutedElements` helper (dagre algorithm). One-shot layout on first render; cached per machine-id; recomputed only when topology changes. |
+| Zoom + pan + fit | xyflow's built-in `Controls` component (re-styled to match Causa's button chrome). Default zoom: fit-on-mount with 20px padding. `[− 100% +] [Fit][Reset]` chrome already shown in the existing mockups maps 1:1 to xyflow's `Controls`. |
+| Label-on-edge transitions | xyflow's `label` prop on edges; rendered inline on the edge, not in a side legend. Font: JetBrains Mono 10px (`:micro` size). |
+| Parallel-state side-by-side | Parallel-region containers render as sibling group-nodes with a dashed border (`:border-default` at `dash-array: 4 4`). Inner states laid out independently per region. |
+| Final states | Thick border ring (2px solid `:green` outer + 1px solid `:bg-2` inner gap, recreating Stately's double-ring convention). |
+
+**Causa palette token mapping into xyflow style props** (per
+rf2-z7ms8 — the operator must immediately recognise this as a Causa
+panel, not a generic xyflow diagram):
+
+```clojure
+;; Sketch — applied via xyflow nodes' :style and edges' :style props.
+{:state-node {:background (:bg-2 tokens)            ; "#1B1E24"
+              :border     (str "1px solid " (:border-default tokens))
+              :color      (:text-primary tokens)    ; "#E8EAF0"
+              :font-family mono-stack
+              :font-size  (:body-tight type-scale)}
+ :state-node-current {:border (str "2px solid " (:green tokens))
+                      :animation "rf-causa-machine-pulse 1.2s ease-in-out infinite"}
+ :state-node-final   {:border (str "2px solid " (:green tokens))
+                      :box-shadow (str "inset 0 0 0 1px " (:bg-2 tokens))}
+ :region-container   {:background "transparent"
+                      :border (str "1px dashed " (:border-default tokens))}
+ :edge-registered    {:stroke (:text-tertiary tokens) :stroke-width 1}
+ :edge-fired-this-epoch {:stroke (:accent-violet tokens) :stroke-width 2
+                         :animated true}
+ :edge-label         {:fill (:text-secondary tokens)
+                      :font-family mono-stack
+                      :font-size (:micro type-scale)}}
+```
+
+The integration scope is **read-only render**: re-frame2's machine spec
+is the source of truth; the xyflow JSON is a view-only projection
+recomputed when topology or focused-epoch changes. xyflow's interactive
+editing affordances (drag-to-create-edge, etc.) are disabled.
+
 ### §6.2 Layout
 
-Three cases (per existing §003 + the refined topology-plus-overlay rule):
+Three cases (per existing §003 + the refined topology-plus-overlay rule).
+**Each case renders inside an xyflow canvas as described in §6.0** — the
+ASCII below is what the operator sees once xyflow has laid out + styled
+the nodes and edges with Causa palette tokens.
 
 **Case A — no machines registered:**
 ```
@@ -579,7 +738,47 @@ edge, `:after`-rings, action chips) is absent.
 ```
 
 Per §003, the interactive chart adapter (zoom / pan / fit / Canvas|List
-view-mode) wraps each per-machine canvas — preserved unchanged.
+view-mode) wraps each per-machine canvas. **The Canvas mode is the
+xyflow surface described in §6.0**; the List view-mode is a flat
+xyflow-free fallback for accessibility / low-power devices (preserved
+from §003 — unchanged here).
+
+**Focused-epoch overlay applied to xyflow rendering:**
+
+Mock of Case C with the overlay applied (the operator's actual visual):
+
+```
+┌─ MACHINES · epoch #42 ─────────────────────────────[◀ Prev] [Next ▶]─┐
+│ Stripe: green (:green)                                               │
+│                                                                      │
+│ :rf.machine.cart/lifecycle   :populated → :submitting                │
+│ ┌─[xyflow canvas]────────────────────────────[− 100% +] [Fit][Reset]│
+│ │                                                                   │
+│ │   ┌────────┐ registered  ┌────────────┐ fired this epoch  ┌──────│
+│ │   │ :empty │ ─ ─ ─ ─ ─ ▷ │ :populated │ ══════ animate ══▶│:subm │
+│ │   └────────┘             └────────────┘   :submit          │itti │
+│ │                                                            │ ng  │
+│ │                                                            └─◉───│
+│ │                                                              ↑   │
+│ │                                                          current │
+│ │                                                          (pulse) │
+│ │                                                                   │
+│ │     fired-edge: stroke :accent-violet · 2px · animated            │
+│ │     registered edge: stroke :text-tertiary · 1px · dashed         │
+│ │     current node:  2px :green border · 1.2s pulse                 │
+│ │                                                                   │
+│ └────────────────────────────────────────────────────────────────────┘
+│ Guards    ✓ :cart-non-empty?                                         │
+│ Actions   ✓ :clear-form  ✓ :set-submitting-state                     │
+│ Cancellation cascade (none)                                          │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+Layout direction: **left-to-right by default** (matches typical state-
+machine convention; xyflow's dagre layout option `rankdir: 'LR'`).
+Operator can flip to top-to-bottom via Settings → View → Machines layout
+direction (deferred to follow-on bead). Default zoom: fit-on-mount with
+20px padding around the bounding box of all nodes.
 
 ### §6.3 Queries
 
@@ -614,6 +813,14 @@ when no machine is highlighted.
 > **"What did this event do to my routes?"**
 
 Same topology-plus-overlay pattern as Machines.
+
+**Density note** (per §0). Most route trees are shallow (≤ 4 levels) so
+the tree renders inline as text with `├─ └─ │` box-drawing — no canvas
+needed. The "This epoch" block below the tree renders four short rows
+(`Phase / From / To / Match / Events`) — dense, scannable, no expand-to-
+see. Routing CAN escalate to xyflow if a future bead surfaces a route
+tree large enough to demand auto-layout; until then, the textual tree
+is denser AND simpler. Lines-per-screen target ~16-30.
 
 ### §7.2 Layout
 
@@ -672,6 +879,14 @@ MVP chronological; stretch "next route activity" (skip silent epochs).
 
 Per-epoch errors, warnings, schema violations, a11y violations.
 
+**Density note** (per §0). Issues are rare per epoch but high-signal —
+each renders as a 4-6 row block (severity · op-key · message · path ·
+ex-data) with the ex-data laid out via the shared data-display renderer
+(§10) at depth-2-expanded. No expand-to-see-message — the whole issue
+block reads inline so the operator sees the punch at a glance. Empty
+state is a single line. Lines-per-screen target ~6-24 (it's variable;
+the panel is fine being shorter than its peers).
+
 ### §8.2 Layout
 
 Dense case:
@@ -726,6 +941,11 @@ Causa's own chrome accessibility dogfood, per §007 / rf2-5r2yj. Spine-
 independent — same shape pre- and post-redesign. No further work in this
 spec.
 
+**Density note** (per §0). Existing panel already lives at the
+workstation density bar — the audit-list layout (one row per violation,
+inline severity + rule-id + affected element + remediation hint) is the
+template every other panel's empty/dense state follows. Untouched here.
+
 ---
 
 ## §10 Shared data-display renderer
@@ -754,9 +974,13 @@ everywhere.
    mono. Aids EDN-shape recognition without color-noise.
 
 4. **Clickable paths** — every key/path-segment is a click target.
-   Clicking propagates cross-panel: select a path in App-db → Reactive
-   highlights downstream subs + views. Right-click for "blame /
-   show epoch that last changed this path."
+   **The only interaction on a clickable path is cross-panel propagation
+   (App-db ↔ Reactive).** Clicking a path in App-db highlights the
+   downstream subs + views in Reactive; clicking a `caused-by ← sub ← path`
+   chip in Reactive jumps to that path in App-db. **No** blame popover, **no**
+   "show epoch that last changed this path," **no** copy-path, **no**
+   copy-value. These were considered and explicitly stripped — they
+   create more noise than value (per the polished super-prompt B.9).
 
 ### §10.2 Visual language (mockup)
 
@@ -830,21 +1054,38 @@ because event payloads are typically shallow + small).
 
 Per-node operator override (sticky): clicking expand/collapse persists
 to `:rf.causa.data-display/expansion {<path>}` so the operator's
-disclosure choices survive epoch navigation. Reset via right-click →
-"Collapse all" / "Expand all to default."
+disclosure choices survive epoch navigation. **No right-click reset**
+(per §10.5 — right-click context menus are explicitly out). Reset by
+navigating to a new focused epoch (the sticky override is per-epoch +
+path, so a new epoch's tree starts from the default heuristic) or via
+the panel-local "Reset expansion" affordance in the Settings menu
+(deferred follow-on).
 
 ### §10.5 Interaction model
 
+Deliberately tiny — the renderer ships exactly **one** path-related
+interaction. Per the polished super-prompt B.9, blame popovers, copy-path,
+copy-value, "show epoch that last changed this," and right-click context
+menus are explicitly OUT. Operator learns one gesture; applies it everywhere.
+
 | Gesture | Effect |
 |---|---|
-| **Click node header** (▸ / ▾) | Toggle expand/collapse |
-| **Click key** | Open segment-inspector popover at path-prefix (existing §004 affordance) |
-| **Click path segment** | Highlight same path in App-db panel; if cross-panel, switch and scroll |
-| **Right-click value** | Context menu: Copy value · Copy path · Show epoch that last changed this · Filter-IN on path |
-| **Hover changed-row** | Tooltip: "Changed in epoch #42 by `[:checkout/submit …]`" |
-| **Keyboard `Space`** on focused row | Toggle expand/collapse |
-| **Keyboard `c`** on focused row | Copy value to clipboard |
-| **Keyboard `p`** on focused row | Copy path to clipboard |
+| **Click node header** (▸ / ▾) | Toggle expand/collapse (lazy disclosure only — not navigation) |
+| **Click path segment** | Cross-panel propagation: in App-db → switch to Reactive and highlight subs + views downstream of that path. In Reactive (`caused-by ← sub ← path` chip) → switch to App-db and scroll to that path. **This is the only path-click semantic.** |
+| **Hover changed-row** | Subtle background shift only (no popover). The annotation `← changed from <prior>` is already rendered inline; hover does not reveal additional metadata. |
+| **Keyboard `Space`** on focused row | Toggle expand/collapse (same as click on node header) |
+| **Keyboard `Enter`** on focused row whose value is a path | Cross-panel propagation (same as click on path segment) |
+
+**Explicitly NOT supported (per locked decision):**
+
+- Right-click context menus on values
+- "Copy value" / "Copy path" keyboard shortcuts
+- "Show epoch that last changed this path" blame popover
+- "Filter-IN on path" affordance from the renderer
+- Hover popovers disclosing change history
+
+These were on earlier drafts and have been removed. Future beads that
+re-propose them must re-open the B.9 lock with the mayor first.
 
 ### §10.6 Cross-panel data-display consistency
 
@@ -1105,13 +1346,461 @@ real beads after approving this doc.
 
 - [`000-Vision.md`](000-Vision.md) — the canonical "what Causa is"
 - [`002-Time-Travel.md`](002-Time-Travel.md) — Rewind affordance (§1.3 referenced)
-- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — Machines panel current behaviour (§6 extends)
+- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — Machines panel current behaviour (§6 extends; §6.0 + §17.4 add xyflow integration)
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — App-db diff (§4 extends with overlay)
-- [`007-UX-IA.md`](007-UX-IA.md) — palette tokens, spacing, density (§10 reuses)
+- [`007-UX-IA.md`](007-UX-IA.md) — palette tokens, spacing, density (§10 + §17.1 reuse and extend)
 - [`012-Views.md`](012-Views.md) — Views panel current behaviour (§3 rebuilds as Reactive)
 - [`013-Trace-Bus.md`](013-Trace-Bus.md) — trace-op contract (§12 extends)
-- [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — `:rf.causa/*` ids; new ids implied by §13 land here
+- [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — `:rf.causa/*` ids; new ids implied by §13 + §17.5 land here
 - [`018-Event-Spine.md`](018-Event-Spine.md) — `:rf.causa/focus` (every §-scoped panel binds to this)
 - [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) — 5×4 matrix; §6 / §7 are matrix entries
-- `ai/prompts/causa-interface-adjustments.md` — canonical super-prompt (local-only)
+- `ai/prompts/causa-interface-adjustments.md` — canonical super-prompt (local-only); the source of truth for the §0 information-density binding, the §6.0 xyflow path-B lock, the §10.5 data-renderer interaction strip-out, and the §17 UI-design pass
 - `ai/findings/2026-05-20-causa-runtime-information-architecture.md` — earlier exploratory analysis (local-only)
+
+---
+
+## §17 Visual + interaction refinements (UI-design pass)
+
+This section is the **critic-worker pass** layered on top of §1-§16.
+The earlier sections nailed the **structural design** (what each panel
+shows, how panels link, the IA). §17 layers in the **visual + interaction
+quality** — palette token mapping, interaction-state matrices, animation
+timings, iconography, the Machines panel xyflow mockup with the Causa
+palette integration spec, and the follow-on bead candidates that drop
+out of the visual pass.
+
+§17 is binding alongside §1-§16: implementation beads MUST cite both
+the structural section (which content lives where) AND the §17
+subsection that governs its visual presentation.
+
+### §17.1 Visual language spec
+
+#### §17.1.1 Spacing scale
+
+Density is binding (§0); spacing reinforces it. Causa uses a 4-px base
+grid — every gap / pad value is a multiple of 4. This grid is already
+implicit across the existing panels; §17.1.1 catalogues it so per-panel
+implementations stop guessing.
+
+| Token (proposed) | Pixels | Use |
+|---|---|---|
+| `:gap-0` | 0 | Adjacent inline glyphs (e.g. diff-glyph + value) |
+| `:gap-1` | 4px | Tight inline gap (icon → label inside a chip) |
+| `:gap-2` | 8px | Between sibling rows in dense tables; between fields in a header row |
+| `:gap-3` | 12px | Between major sections inside a panel (e.g. pipeline-step blocks in §2.2) |
+| `:gap-4` | 16px | Panel inner padding (top/right/bottom/left) |
+| `:gap-5` | 20px | Between distinct cards / canvases (e.g. between per-machine canvases in §6) |
+| `:gap-6` | 24px | Between zones inside a panel (DIFF zone ↔ STATE zone in §4.2) |
+
+Padding inside cards (e.g. the canvas frame around each per-machine
+xyflow render) is `:gap-3` (12px) — workstation density, not consumer
+breathing room.
+
+Catalogued as a follow-on bead candidate (§17.5) — currently the
+spacing values are scattered as inline `:padding "10px"` and
+`:margin "8px 0"` literals across the panels.
+
+#### §17.1.2 Typography hierarchy
+
+Per Causa convention (§007 + `theme/tokens/type-scale`): **JetBrains Mono throughout** for chrome, labels, prose, AND data — Causa is a single
+voice. Inter is reserved for a few high-chrome surfaces (Settings, About);
+the L4 panels are mono-uniform.
+
+The type-scale already exists (`theme/tokens/type-scale`). The §17 binding
+is **which size goes where**:
+
+| Surface | Size token | Px @ 13px default | Weight |
+|---|---|---|---|
+| Panel `<h1>` (e.g. `EVENT · :checkout/submit · epoch #42`) | `:display` | ~14px | 600 (semibold) |
+| Section headers (e.g. `[1] DISPATCH`, `[7] SUBS RECOMPUTED`) | `:body` | 13px | 600 |
+| Step sub-header keys (e.g. `Event`, `Origin`, `Call-site`) | `:body-tight` | 12px | 500 (medium) |
+| Step values (the actual data) | `:mono-body` | 12px | 400 |
+| Inline annotations (`← changed from :idle`, `(input unchanged · skipped)`) | `:caption` | ~11px | 400 |
+| Edge labels in xyflow canvases (§6) | `:micro` | ~10px | 400 |
+| Metadata (`14:32:01.231`, file:line, `+0.2ms` trace timing) | `:caption` | ~11px | 400 italic |
+| L2 row text (origin prefix · event-id · badges) | `:body-tight` | 12px | 400/600 mix |
+
+The display face (Fraunces — `:display-stack` in tokens) is **NOT**
+used inside Dynamic-mode panels; Fraunces is reserved for Static-mode
+landing-page header surfaces (the audit-trail divergence Causa
+deliberately drew per rf2-5kfxe.9). The L4 surfaces are mono.
+
+#### §17.1.3 Palette token mapping (per rf2-z7ms8)
+
+Confirming + amending the structural worker's picks. All hex resolves
+through `theme/tokens` (dark) / theme-CSS-variables (light + HCM).
+
+| Role | Token (dark hex) | Confirmed / amended |
+|---|---|---|
+| **Keyword accent** (data values · the only colored type) | `:accent-violet` (`#7C5CFF`) | ✅ confirmed (per §10.3 + §007 panel-domain mapping) |
+| **Changed-value highlight** (left-margin marker + accent color) | `:accent-violet` + glyph from cascade-gutter (§007: `+` green / `-` red / `~` yellow / `◴` violet) | ✅ confirmed — gutter glyph is the structural signal; accent-violet is the row tint |
+| **Dim-for-unchanged values** | `:text-tertiary` (`#8990A0`) | ✅ confirmed (already lifted to AA-passing 4.7:1 per rf2-0fr6v) |
+| **Settled-success** (fx settled, no error) | `:green` (`#4ADE80`) | ✅ |
+| **Settled-error** (fx settled with error · issues panel ERROR) | `:red` (`#F87171`) for ink; `:red-deep` (`#a83a3a`) for button fills | ✅ |
+| **In-flight** (fx still running, e.g. `⏳ #h-142`) | `:yellow` (`#FBBF24`) — matches §007 perf-scale "medium / in-progress" tone | ✅ amend (structural draft was ambiguous; lock to `:yellow`) |
+| **Stale** (epoch evicted from buffer; placeholder text) | `:text-tertiary` on `:bg-2` | ✅ |
+| **Border subtle** (between adjacent rows in a list) | `:border-subtle` (`#232730`) | ✅ |
+| **Border default** (around cards / canvases) | `:border-default` (`#2F3441`) | ✅ |
+| **Border strong** (focused-row outline before focus-ring overlay) | `#444B5B` (per §007) | ✅ |
+| **Background — panel canvas** | `:bg-2` (`#1B1E24`) | ✅ |
+| **Background — hover row** | `:bg-active` (`#2A2F3D`) | ✅ |
+| **Background — popover** | `:bg-3` (`#232730`) | ✅ |
+| **L4 panel header stripe** | `theme/tokens/panel-accent` table (§007): Event violet · App-db cyan · Reactive cyan · Trace orange · Machines green · Routing yellow · Issues red · Chrome A11y red | ✅ |
+| **Cross-panel arrow / `⤴` link** | `:accent-violet` 600-weight | ✅ |
+| **Film-strip back/forward chevron** | `:text-secondary` default · `:text-primary` on hover | ✅ |
+
+Under Windows High-Contrast Mode (`@media (forced-colors: active)`),
+the existing global_styles forced-colors block (§007 / rf2-wxepo)
+remaps these as: `Highlight` for focus rings + active rows + the mode
+stripe + in-flight markers; `CanvasText` for primary text + neutral
+borders + settled-success; `LinkText` for warning / route highlight;
+`ButtonText` for chevrons / dismiss / icon ink. New panel content
+inherits this remap **for free** as long as it uses the same token
+keys; the panel implementer does not write `@media (forced-colors:
+active)` rules.
+
+#### §17.1.4 Border / divider treatment
+
+A clean visual rule: **borders mark architectural boundaries; dividers
+DO NOT mark within-section continuation.** This keeps the panel from
+becoming a grid of boxes.
+
+| Where borders appear | Where they DON'T |
+|---|---|
+| Around the L4 panel itself (`:bg-2` on `:bg-1`, 1px `:border-default`) | Between sibling rows in a dense list (use `:gap-1` vertical rhythm only) |
+| Around each xyflow canvas (1px `:border-default`) | Between pipeline steps in §2.2 (the arrow `▼` IS the divider) |
+| Between DIFF zone and STATE zone in App-db (1px `:border-subtle`, full width) | Inside the data-display tree (indentation IS the structure) |
+| Around hover popovers (1px `:border-default` + 4px shadow) | Between cells of an inline KV row (whitespace alone) |
+| Around xyflow group/parent nodes (1px solid; 1px dashed for parallel-region containers) | Between L4 tabs (the L3 tab strip handles this) |
+
+The "`──────`" full-width separators in the ASCII mockups (e.g.
+`━━━ db committed ━━━` in §2.2) render as **1px `:border-subtle`** in
+HTML, not as text characters. The `━` characters in the ASCII are
+narrative shorthand for the operator to visualise.
+
+#### §17.1.5 Iconography
+
+The mockups in §1-§9 already pick these. §17.1.5 binds them.
+
+**L2 row badges (per §1.1.1 + B.1.1):**
+
+| Glyph | Meaning | Token (text color) |
+|---|---|---|
+| ⚠ | Issue (error or warning) emitted this epoch | `:red` |
+| ◆ | State machine transition this epoch | `:green` |
+| 🌐 | Route navigation this epoch | `:yellow` |
+| ⚡ | HTTP request lifecycle touched | `:orange` |
+| 💧 | SSR hydration phase | `:cyan` |
+| 🌊 | A flow recomputed | `:accent-violet` |
+| ⏲ | Timer-triggered dispatch | `:text-tertiary` |
+
+Emoji glyphs are deliberate (consistent with existing Causa
+convention). Under HCM, the `@media (forced-colors: active)` block
+strips the color; the glyph alone carries the signal — colour is never
+alone (§007).
+
+**Per-panel header icons** (rendered to the LEFT of the panel `<h1>`,
+8px to the left of the accent stripe):
+
+| Panel | Icon (Unicode glyph) | Token |
+|---|---|---|
+| Event | ⚡ | `:accent-violet` |
+| Reactive | ◉ | `:cyan` |
+| App-db | ◐ | `:cyan` |
+| Trace | ⬢ | `:orange` |
+| Machines | ◆ | `:green` |
+| Routing | 🌐 | `:yellow` |
+| Issues | ⚠ | `:red` |
+| Chrome A11y | ✦ | `:red` |
+
+**Film-strip back/forward buttons** (rendered in every L4 panel header):
+
+- `◀ Prev` — left-pointing triangle glyph, 12px JetBrains Mono, hover
+  state shifts color from `:text-secondary` to `:text-primary`
+- `Next ▶` — mirror of the above
+- Both buttons render as 28×20px hit targets (minimum 24×24 for AA
+  target-size; 28×20 with 4px vertical padding for the operator's
+  fingertip target)
+
+**Cross-panel arrows / link affordances:**
+
+- `⤴` (return arrow) — used in hover popovers to indicate
+  "jump to this panel." `:accent-violet`, 12px.
+- `↳` (turn-down arrow) — used in pipeline-step source links + cause
+  attribution chips. `:text-tertiary`, 11px.
+- `→` (right arrow) — used as a transition glyph in machine-state
+  rows (`:populated → :submitting`). `:text-primary`, mono inline.
+
+**Tree-disclosure glyphs** (data-display renderer · §10.2):
+
+- `▾` expanded · `▸` collapsed — both `:text-secondary`, 11px
+- `·` leaf-row indent — `:text-tertiary`, 11px
+
+### §17.2 Interaction-state matrix per panel
+
+Every interactive element (row, button, chip, tree-node, edge, etc.)
+has a defined state per the matrix below. The matrix is **panel-
+uniform** — a hover-state on an Event row looks the same as a
+hover-state on a Trace row, with only the panel-domain accent
+swapped.
+
+| State | Visual change | Notes |
+|---|---|---|
+| **Default** | No mod; sits at panel base color (`:bg-2`) | The 90% case |
+| **Hover** | Background shifts to `:bg-active` (`#2A2F3D`); transition `120ms ease-out` | NO tooltip pop on hover (per the "co-visible over expand-to-see" principle) — exceptions: the App-db hover popover (§4.4) and the long-keyword 200ms-delayed tooltip (§007) |
+| **Focus** | Background as hover + 2px focus-ring outline color `#FBBF24` (the global focus-visible amber from rf2-fxde5); outline-offset 2px; under HCM remaps to `Highlight` | The focus-ring is the existing global Causa convention — panels inherit it for free. NEVER suppress `:focus-visible` per-panel. |
+| **Pressed** | Background as hover, transformed `translateY(1px)` for the duration of the click (~60ms); visual feedback only — no layout shift | Applied to film-strip buttons + clickable rows |
+| **Disabled** | Foreground at `:text-tertiary`; cursor `not-allowed`; tabindex removed | E.g. "Next ▶" at end of L2 spine; "Open in editor" when source unavailable |
+| **Loading** | Skeleton row at `:bg-active` opacity 0.6 with a 1.2s `pulse` animation (interpolated through `--rf-causa-motion-scale` so reduced-motion collapses it) | Used during trace-bus subscription warmup; should be brief (<200ms) |
+| **Empty** | Panel-specific empty-state string in `:text-tertiary` at panel-center | Already specified per-panel in §1-§9 mockups (e.g. "No issues in this epoch.") |
+| **Error** | Red banner at top of panel (`:red-deep` background, `:white` text, `:gap-2` padding); panel content greys out below at 0.5 opacity | E.g. "Trace bus disconnected — reload to reconnect." Distinct from `Issues` panel content (which IS the panel's purpose, not an error) |
+
+**Focus-ring spec (binding):**
+- Color: `#FBBF24` (the global focus-visible amber from
+  `theme/global_styles` lines 467-469)
+- Width: 2px
+- Offset: 2px (per the documented high-contrast hit threshold)
+- HCM remap: `Highlight` (per the `@media (forced-colors: active)`
+  block at lines 519-528 of `theme/global_styles.cljs`)
+- NEVER suppress `:focus-visible` — palette / search inputs that need
+  to suppress the default UA outline MUST re-enable the Causa
+  focus-visible outline (per the existing convention at lines 454-460)
+
+**Animation timings (binding):**
+
+| Animation | Duration | Easing |
+|---|---|---|
+| Interaction feedback (hover, focus, press) | **≤ 200ms** (typical 120-180ms) | `ease-out` |
+| Panel switch / tab transition | ≤ 400ms — currently 180ms cross-fade (`theme/motion :fade-duration-ms`) | `ease-in-out` |
+| Diff flash on changed value | 400ms (`theme/motion :flash-duration-ms`) | `ease-out` |
+| Machine-state current-state pulse (§6) | 1.2s | `ease-in-out infinite` |
+| xyflow edge "fired this epoch" animation | xyflow built-in (≈ 1s loop) | xyflow default |
+
+All durations multiply through `var(--rf-causa-motion-scale, 1)` so
+`prefers-reduced-motion: reduce` collapses them via the existing
+`theme/global_styles motion-css` mechanic. Per-panel implementations
+MUST use `theme/tokens/duration-css` to build their `animation-duration`
+strings — never hard-code ms.
+
+### §17.3 Density choices per panel
+
+Restating + tightening the per-panel density notes (§2-§9) into one
+table the implementer reads at panel-build time:
+
+| Panel | Default lines-per-screen | Default expansion |
+|---|---|---|
+| Event (§2) | ~28-40 visible | Steps 1-6 ALL expanded (the pipeline IS the punch); collapse-all keyboard `[` toggles all |
+| Reactive (§3) | ~24-32 visible | Cascade tree fully expanded; unchanged subs collapsed under footer `[Show N unchanged subs ▾]` |
+| App-db (§4) | ~30-50 visible | DIFF zone: changed paths fully expanded. STATE zone: depth-3-collapsed per §10.4 |
+| Trace (§5) | ~30-60 visible | Each op row collapsed (single line); per-row expand reveals payload via §10 renderer at depth-2-expanded |
+| Machines (§6) | ~16-36 (xyflow auto-fit) | Each per-machine canvas auto-fit-on-mount; guards/actions/cancellation lists all expanded |
+| Routing (§7) | ~16-30 | Route tree fully expanded (max depth typically ≤ 4); "This epoch" block always expanded |
+| Issues (§8) | ~6-24 (variable) | Each issue block fully expanded (severity + op-key + message + path + ex-data); ex-data tree depth-2-expanded |
+| Chrome A11y (§9) | unchanged | unchanged |
+
+Per-panel implementations MUST NOT add a "Compact / Cosy / Comfy"
+density toggle inside the panel — the global `--rf-causa-font-size`
+knob (Settings → General → Density) is the single density surface
+across all panels. Per-panel "default expanded" choices are deliberate
+to the lens, not operator-overrideable.
+
+### §17.4 Machines panel — detailed xyflow integration
+
+This subsection sits alongside §6.0; §6.0 documents WHAT we're
+building, §17.4 documents WHAT IT LOOKS LIKE — the polished mockup
+operators will see.
+
+#### §17.4.1 Focused-epoch overlay applied — polished mockup
+
+```
+┌─ MACHINES · epoch #42 ──────────────────────────[◀ Prev] [Next ▶] ─┐
+│  ◆  (panel header icon, :green)                                     │
+│  ──────────────────────────────────────────────────────             │
+│   :rf.machine.cart/lifecycle    :populated → :submitting            │
+│  ┌──[xyflow canvas]──────────────────────[− 100% +][Fit][Reset]──┐ │
+│  │                                                                │ │
+│  │   ╭───────╮  registered   ╭───────────╮  fired  ╭──────────╮  │ │
+│  │   │:empty │ ╴ ╴ ╴ ╴ ╴ ╴▷ │:populated │ ═════▶ │:submitting│  │ │
+│  │   ╰───────╯                ╰───────────╯  :submit ╰─────◉───╯  │ │
+│  │                              (last seen)            ↑ current   │ │
+│  │                                                     (pulses)    │ │
+│  │                                                                  │ │
+│  │   ╭──────────╮                                                  │ │
+│  │   │ :settled │ (registered; no path from current)               │ │
+│  │   ╰═════════╯  (final · double-ring)                            │ │
+│  │                                                                  │ │
+│  │   Edge stroke palette:                                          │ │
+│  │     ─── registered, not fired this epoch   :text-tertiary, 1px  │ │
+│  │     ═══ fired this epoch (animated)        :accent-violet, 2px  │ │
+│  │     ╶ ╶ registered, no path traversed       :border-default     │ │
+│  │                                                                  │ │
+│  │   Node fill:                                                    │ │
+│  │     ╭─╮ standard state                     :bg-2 + :border-def  │ │
+│  │     ╭═╮ final state                        :bg-2 + 2px :green   │ │
+│  │     ╭◉╮ current state                      :bg-2 + 2px :green   │ │
+│  │            + 1.2s pulse animation                                │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│   Guards    ✓ :cart-non-empty?                                      │
+│   Actions   ✓ :clear-form  ✓ :set-submitting-state                  │
+│   Cancellation cascade  (none)                                      │
+│                                                                     │
+│   :rf.machine.checkout/flow   (no activity this epoch)              │
+│  ┌──[xyflow canvas]────────────────────────────────────────────────┐│
+│  │   ╭─────╮  ╭─────────╮  ╭──────────╮                            ││
+│  │   │:idle│  │:authing │  │:settled  │                            ││
+│  │   ╰──◉──╯  ╰─────────╯  ╰══════════╯                            ││
+│  │   (current)             (final)                                  ││
+│  └──────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### §17.4.2 Node-shape conventions
+
+| Shape | Meaning | xyflow `data.kind` |
+|---|---|---|
+| Rounded rect (`border-radius: 6px`) | Standard state | `:standard` |
+| Rounded rect + 2px solid `:green` outer + 1px `:bg-2` inner gap (double-ring) | Final state | `:final` |
+| Rounded rect + 2px solid `:green` + 1.2s pulse | Current state (most recent visit) | `:current` |
+| Rounded rect with dashed border (`1px dashed :border-default`) | Parallel-region container | `:region` |
+
+#### §17.4.3 Edge styles
+
+| Style | Stroke | Width | Animated | Meaning |
+|---|---|---|---|---|
+| `--` (dashed `:text-tertiary`) | `:text-tertiary` | 1px | no | Registered transition, not fired this epoch |
+| `──` (solid `:text-tertiary`) | `:text-tertiary` | 1px | no | Same as above, but represents the most-recent traversal in the buffer |
+| `══` (thick + animated) | `:accent-violet` | 2px | yes | Transition fired this epoch (the overlay) |
+
+Edge label: `:micro` (`~10px`) JetBrains Mono in `:text-secondary`,
+rendered inline on the edge (xyflow's `label` prop), not in a side
+legend.
+
+#### §17.4.4 Layout direction + default zoom
+
+- **Direction**: left-to-right (xyflow `dagre` `rankdir: 'LR'`) — matches
+  Stately's convention; matches reading order.
+- **Default zoom**: `fitView` on mount with 20px padding around the
+  bounding box. The `Fit` button in the Controls re-runs `fitView`.
+- **Min/max zoom**: 0.25× to 2×. Wheel-zoom enabled.
+- **Pan**: drag-to-pan on the canvas background; node-drag disabled
+  (it's a read-only render).
+
+#### §17.4.5 Causa-palette token integration into xyflow style props
+
+Sketched in §6.0; restated here as the canonical reference the
+xyflow-adapter bead (§17.5) implements against:
+
+```clojure
+;; tools/causa/src/day8/re_frame2_causa/machines/xyflow_style.cljs
+;; The single source of truth for xyflow visual props.
+
+(ns day8.re-frame2-causa.machines.xyflow-style
+  (:require [day8.re-frame2-causa.theme.tokens
+             :refer [tokens mono-stack type-scale duration-css]]))
+
+(def node-style
+  {:standard {:background    (:bg-2 tokens)
+              :border        (str "1px solid " (:border-default tokens))
+              :border-radius "6px"
+              :color         (:text-primary tokens)
+              :font-family   mono-stack
+              :font-size     (:body-tight type-scale)
+              :padding       "6px 10px"}
+   :final    {:background    (:bg-2 tokens)
+              :border        (str "2px solid " (:green tokens))
+              :box-shadow    (str "inset 0 0 0 1px " (:bg-2 tokens))
+              :border-radius "6px"
+              :color         (:text-primary tokens)
+              :font-family   mono-stack
+              :font-size     (:body-tight type-scale)
+              :padding       "6px 10px"}
+   :current  {:background    (:bg-2 tokens)
+              :border        (str "2px solid " (:green tokens))
+              :border-radius "6px"
+              :color         (:text-primary tokens)
+              :font-family   mono-stack
+              :font-size     (:body-tight type-scale)
+              :padding       "6px 10px"
+              :animation     (str "rf-causa-machine-pulse "
+                                  (duration-css 1200)
+                                  " ease-in-out infinite")}
+   :region   {:background    "transparent"
+              :border        (str "1px dashed " (:border-default tokens))
+              :border-radius "8px"}})
+
+(def edge-style
+  {:registered          {:stroke       (:text-tertiary tokens)
+                         :stroke-width 1
+                         :stroke-dasharray "4 4"}
+   :registered-traversed {:stroke      (:text-tertiary tokens)
+                          :stroke-width 1}
+   :fired-this-epoch    {:stroke       (:accent-violet tokens)
+                         :stroke-width 2}})  ; + xyflow :animated true
+
+(def edge-label-style
+  {:fill        (:text-secondary tokens)
+   :font-family mono-stack
+   :font-size   (:micro type-scale)})
+```
+
+The `rf-causa-machine-pulse` keyframe lives in the existing
+`theme/global_styles motion-css` block — added alongside the existing
+diff-flash + fade keyframes per the same `prefers-reduced-motion`
+collapsing mechanic.
+
+### §17.5 Follow-on bead candidates (visual layer)
+
+Each bullet below is a single-bead implementation slice the §17 visual
+pass implies. Format: title + 2-line description + dependencies.
+Mayor reviews + files these alongside the structural per-panel beads
+already drafted in §13.
+
+- **rf2-?????** — *Causa: xyflow integration adapter — re-frame2 machine
+  spec → xyflow JSON.* New ns
+  `tools/causa/src/day8/re_frame2_causa/machines/xyflow_adapter.cljs`
+  walks `reg-machine` topology + per-epoch transition trace and emits
+  xyflow nodes/edges JSON. Plus `xyflow_style.cljs` per §17.4.5. Plus
+  Reagent ↔ React mount wiring per §6.0. Depends: xyflow added to
+  `package.json` (~50-80KB gzipped, MIT). Gates: Machines panel
+  redesign (§6).
+
+- **rf2-?????** — *Causa: data-display renderer component — lazy tree
+  + inline diff + keyword accent + clickable paths.* New ns
+  `tools/causa/src/day8/re_frame2_causa/data_display/render.cljs` per
+  §10 + §17.1.3 palette mapping + §17.2 interaction-state matrix. The
+  only path-interaction is cross-panel propagation (§10.5). Gates: all
+  Dynamic panels.
+
+- **rf2-?????** — *Causa: apply forced-colors palette token coverage to
+  all L4 panel borders + accents + film-strip chevrons.* Audit the new
+  panel content against the §17.1.3 token table + the existing
+  `@media (forced-colors: active)` block; add any missing remaps so
+  Windows HCM renders the new chrome correctly. Gates: panel-by-panel
+  visual polish.
+
+- **rf2-?????** — *Causa: spacing-scale tokens.* Catalogue `:gap-0`
+  through `:gap-6` per §17.1.1 in `theme/tokens.cljc` and migrate the
+  ~50 inline `:padding "10px"` / `:margin "8px 0"` literals across the
+  panels to the tokenised values. Mechanical sweep; isolated surface.
+
+- **rf2-?????** — *Causa: film-strip header component.* Single reusable
+  `[◀ Prev] [Next ▶]` header consumed by every L4 panel. Per §17.1.5 hit-
+  target sizing (28×20px) + §17.2 state matrix (hover · focus-ring ·
+  pressed · disabled at spine ends). Keyboard `← / →` global binding.
+  Gates: panel-by-panel film-strip rollout.
+
+- **rf2-?????** — *Causa: per-L4 panel header icons.* Add the §17.1.5
+  Unicode header glyphs (⚡ ◉ ◐ ⬢ ◆ 🌐 ⚠ ✦) to the panel `<h1>` chrome
+  via a new `theme/tokens/panel-icon` map. Renders 8px to the left of
+  the accent stripe. Mechanical, single-file PR.
+
+- **rf2-?????** — *Causa: L2 row activity badges + dispatch-origin
+  prefix.* Already drafted in §13; the §17 visual pass binds the exact
+  glyph palette + per-glyph color token + HCM remap. Worker implements
+  against §17.1.5 + §17.1.3 mapping.
+
+- **rf2-?????** — *Causa: machine-state pulse keyframe.* Add
+  `rf-causa-machine-pulse` keyframe to `theme/global_styles motion-css`
+  alongside the existing flash + fade keyframes. 1.2s ease-in-out
+  infinite; interpolated through `--rf-causa-motion-scale` for
+  reduced-motion collapse. Gates: xyflow current-state node rendering.
