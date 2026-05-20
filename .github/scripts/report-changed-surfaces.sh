@@ -34,7 +34,7 @@ cljs_browser=false
 cljs_prod=false
 bundle_isolation=false
 reagent_slim_bundle=false
-examples_browser=false
+adapter_testbed_smokes=false
 tools_jvm=false
 template_expensive=false
 mcp_conformance=false
@@ -49,7 +49,7 @@ mark_all() {
   cljs_prod=true
   bundle_isolation=true
   reagent_slim_bundle=true
-  examples_browser=true
+  adapter_testbed_smokes=true
   tools_jvm=true
   template_expensive=true
   mcp_conformance=true
@@ -68,9 +68,9 @@ else
         mark_all
         ;;
       implementation/core/*)
-        # rf2-8jz9t — examples_browser NOT fired here. The
-        # examples-browser job exercises the 3 adapter-level smokes
-        # (Reagent/UIx/Helix at implementation/adapters/<name>/testbed/)
+        # rf2-8jz9t — adapter_testbed_smokes NOT fired here. The
+        # adapter-testbed-smokes job exercises the 3 adapter-level
+        # smokes (Reagent/UIx/Helix at implementation/adapters/<name>/testbed/)
         # which catch adapter-specific bugs (createRoot lifecycle,
         # hydration, real concurrent scheduling) — not core regressions.
         # Core renames are caught by node-test (CLJS unit + browser-test)
@@ -92,7 +92,7 @@ else
         # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast
         # used to ship a paired spec.cjs but the bundle-isolation contract
         # at scripts/check-reagent-slim-bundle-isolation.cjs is the
-        # canonical gate; examples_browser is no longer fired here.
+        # canonical gate; adapter_testbed_smokes is no longer fired here.
         implementation_jvm=true
         adapter_diagnostic=true
         cljs_browser=true
@@ -100,25 +100,38 @@ else
         reagent_slim_bundle=true
         ;;
       implementation/adapters/*)
+        # rf2-bxdk8 + rf2-cjp0i — the adapter-testbed-smokes gate is
+        # scoped to the 3 adapter smokes at
+        # implementation/adapters/<reagent|uix|helix>/testbed/. Adapter
+        # source changes are the canonical trigger; orchestrator-script
+        # changes are caught by the harness-script case below.
         implementation_jvm=true
         adapter_diagnostic=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        examples_browser=true
+        adapter_testbed_smokes=true
         tools_jvm=true
         template_expensive=true
         mcp_conformance=true
         mcp_live=true
         ;;
+      examples/scripts/serve-and-run-examples-tests.cjs|examples/scripts/run-examples-tests.cjs|examples/scripts/spec-helpers.cjs)
+        # rf2-bxdk8 + rf2-cjp0i — the orchestrator + runner + helpers
+        # under examples/scripts/ drive the adapter-testbed-smokes job
+        # (via `npm run test:examples`). They are the *only* paths
+        # under examples/ that fire this gate; the rest of examples/**
+        # is test-free per rf2-8cevm.
+        adapter_testbed_smokes=true
+        ;;
       implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/deps.edn)
-        # rf2-8jz9t — examples_browser NOT fired here. Per-feature
+        # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature
         # artefact changes are covered by their own JVM + CLJS unit
         # suites (implementation_jvm, cljs_browser, cljs_prod) and by
-        # bundle_isolation; the adapter smokes under examples-browser
-        # only catch adapter-mount-specific bugs (createRoot lifecycle,
-        # hydration, real concurrent scheduling). Nightly + post-merge
-        # gate runs the full matrix.
+        # bundle_isolation; the adapter smokes under
+        # adapter-testbed-smokes only catch adapter-mount-specific bugs
+        # (createRoot lifecycle, hydration, real concurrent scheduling).
+        # Nightly + post-merge gate runs the full matrix.
         implementation_jvm=true
         cljs_browser=true
         cljs_prod=true
@@ -144,12 +157,14 @@ else
         cljs_prod=true
         ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
-        # rf2-8jz9t — examples_browser NOT fired here. The examples-browser
-        # job is now triggered ONLY by direct adapter/example/testbed
-        # surface changes (implementation/adapters/*, examples/*,
-        # testbeds/*). A shadow-cljs.edn or scripts/ change that breaks
-        # the examples-browser build is caught by the nightly cron +
-        # post-merge gate (both run the full matrix on main).
+        # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i — adapter_testbed_smokes NOT
+        # fired here. The adapter-testbed-smokes job is now triggered
+        # ONLY by direct adapter surface changes
+        # (implementation/adapters/*) or by changes to the orchestrator
+        # scripts under examples/scripts/. A shadow-cljs.edn or
+        # implementation/scripts/ change that breaks the build is
+        # caught by the nightly cron + post-merge gate (both run the
+        # full matrix on main).
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
@@ -157,19 +172,22 @@ else
         story_causa_browser=true
         ;;
       examples/*)
+        # rf2-bxdk8 + rf2-cjp0i + rf2-8cevm — examples/** is test-free.
+        # adapter_testbed_smokes is NOT fired by generic examples/**
+        # paths; only the orchestrator scripts under examples/scripts/
+        # (matched above) fire it. The cljs_browser gate covers
+        # CLJS-source regressions touched by examples/.
         cljs_browser=true
-        examples_browser=true
         ;;
       testbeds/*)
-        # rf2-7vsfm — Top-level testbeds/* is mounted by
-        # examples/scripts/serve-and-run-examples-tests.cjs (ssr_basic,
-        # ssr_hydration_mismatch, ssr_multi_frame, deliberate_throw,
-        # http_toggle, deep_machine, non_trivial_app_db,
-        # long_flow_w_failure, drain_depth_trigger, …) and consumed by
-        # `npm run test:examples` -> the examples-browser job. A
-        # testbed-only PR must trigger both surfaces.
+        # rf2-7vsfm + rf2-bxdk8 + rf2-cjp0i — Top-level testbeds/* are
+        # compiled + staged by the orchestrator at
+        # examples/scripts/serve-and-run-examples-tests.cjs, but per
+        # rf2-cjp0i the adapter-testbed-smokes gate is scoped to the
+        # adapter smokes themselves; testbed-only diffs no longer fire
+        # adapter_testbed_smokes. cljs_browser still covers CLJS-source
+        # regressions; nightly + post-merge gate runs the full matrix.
         cljs_browser=true
-        examples_browser=true
         ;;
       tools/template/*)
         # rf2-os0c1 — tools/template is a clj-new template that scaffolds
@@ -243,7 +261,7 @@ emit cljs_browser "$cljs_browser"
 emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
 emit reagent_slim_bundle "$reagent_slim_bundle"
-emit examples_browser "$examples_browser"
+emit adapter_testbed_smokes "$adapter_testbed_smokes"
 emit tools_jvm "$tools_jvm"
 emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"

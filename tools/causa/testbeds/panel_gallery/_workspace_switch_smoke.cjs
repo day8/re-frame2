@@ -17,7 +17,7 @@
  * clicking from `event-detail/all` to `app-db-diff/all`.
  *
  * Wired into CI behind the RF2_CAUSA_RUN_GALLERY_SMOKES=1 opt-in
- * (rf2-1w76p, mirrors `_smoke.cjs`'s posture): the examples-browser
+ * (rf2-1w76p, mirrors `_smoke.cjs`'s posture): the adapter-testbed-smokes
  * job sets the flag and the orchestrator at
  * examples/scripts/serve-and-run-examples-tests.cjs invokes this
  * script after the main spec sweep. Run manually post-compile to

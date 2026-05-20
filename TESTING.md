@@ -164,7 +164,7 @@ boolean GitHub-Actions outputs per surface:
 | `cljs_prod` | Surface that release-mode probes (`browser-test-prod-elision`, schemas boundary prod) cover changed. |
 | `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
 | `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
-| `examples_browser` | Direct examples / adapter / top-level testbed surface changed (`implementation/adapters/*`, `examples/*`, `testbeds/*`). Not set by `implementation/core/*`, per-feature artefacts, or build-config changes (rf2-8jz9t — adapter smokes only catch adapter-mount-specific bugs; nightly + post-merge gate runs the full matrix on main). |
+| `adapter_testbed_smokes` | Adapter surface changed (`implementation/adapters/*`) or the orchestrator scripts that drive the smokes (`examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs`). Per rf2-bxdk8 + rf2-cjp0i + rf2-8cevm: generic `examples/**` and `testbeds/**` paths no longer fire this gate (examples/ is test-free; testbed-only diffs are caught by `cljs_browser` and the nightly + post-merge full matrix). Not set by `implementation/core/*`, per-feature artefacts, or build-config changes (rf2-8jz9t — adapter smokes only catch adapter-mount-specific bugs). |
 | `tools_jvm` | Story / Causa / Story-MCP / Causa-MCP / Pair2-MCP / MCP-base changed; gates the four per-tool JVM probes (`jvm-tools-{causa,story,story-mcp,mcp-base}`). Not set by `tools/template/*` or `tools/mcp-conformance/*` — those don't share runtime with the per-tool probes. |
 | `template_expensive` | `tools/template/*` changed; gates the template emitted-app smoke. |
 | `mcp_conformance` | Any MCP-server tool, `tools/mcp-base/*`, or `tools/mcp-conformance/*` changed. |
@@ -181,8 +181,8 @@ A few "blast-radius" inputs force the full sweep:
 - Changes under `implementation/core/*` fan out broadly (they touch
   almost every output) because core regressions can break every
   downstream substrate, tool, and bundle invariant. Exception:
-  `examples_browser` is **not** fired by `implementation/core/*`
-  changes (rf2-8jz9t). The adapter smokes under examples-browser
+  `adapter_testbed_smokes` is **not** fired by `implementation/core/*`
+  changes (rf2-8jz9t). The adapter smokes under adapter-testbed-smokes
   only catch adapter-mount-specific bugs (createRoot lifecycle,
   hydration, real concurrent scheduling); core renames are caught
   by `node-test` (which exercises every public `re-frame.core`
@@ -247,7 +247,7 @@ under that surface sets that output to `true`. The **blast-trigger row
 lights every output (defensive — anything that re-tiers the matrix
 must re-run the matrix).
 
-| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `examples_browser` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` |
+| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
 | S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |
@@ -256,8 +256,9 @@ must re-run the matrix).
 | S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
 | S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
 | S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   | ✓ |   |
-| S8 | `examples/*` |   |   | ✓ |   |   |   | ✓ |   |   |   |   |   |   |
-| S9 | `testbeds/*` |   |   | ✓ |   |   |   | ✓ |   |   |   |   |   |   |
+| S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |
+| S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |
+| S9 | `testbeds/*` |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |
 | S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
 | S11 | `tools/story/*`, `tools/causa/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |
 | S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
@@ -278,7 +279,7 @@ PR time; one row per output here so the table stays scannable).
 | `cljs_prod` | Release-mode probes ×3 (`browser-test-prod-elision`, schemas boundary prod, etc.) |
 | `bundle_isolation` | `bundle-isolation` |
 | `reagent_slim_bundle` | `reagent-slim-bundle-isolation` |
-| `examples_browser` | `examples-browser` (Playwright, testbeds + examples) |
+| `adapter_testbed_smokes` | `adapter-testbed-smokes` (Playwright; 3 adapter smokes + the framework + top-level testbeds the orchestrator compiles) |
 | `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-causa`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
 | `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
 | `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,re-frame2-pair,wire-vocab,...}`) |
@@ -296,7 +297,7 @@ actually does today:
 
 | Gate | Workflow job | Why skip-ok |
 |---|---|---|
-| Adapter JVM classpath probes (Reagent / Reagent Slim / UIx / Helix) | `jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix` | Adapter namespaces are `:cljs-only`. The job runs `clojure -M:test` with an `or-echo` fallback so a zero-test alias still proves the artefact's deps + classpath wiring stay green. Real adapter coverage is the browser counter + login specs (rf2-3yij / rf2-2qit Decision 7) under the examples-browser job, and per-adapter CLJS unit tests under the consolidated `node-test` build. |
+| Adapter JVM classpath probes (Reagent / Reagent Slim / UIx / Helix) | `jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix` | Adapter namespaces are `:cljs-only`. The job runs `clojure -M:test` with an `or-echo` fallback so a zero-test alias still proves the artefact's deps + classpath wiring stay green. Real adapter coverage is the browser counter + login specs (rf2-3yij / rf2-2qit Decision 7) under the adapter-testbed-smokes job, and per-adapter CLJS unit tests under the consolidated `node-test` build. |
 | `tools/causa` JVM probe | `jvm-tools-causa` | Causa ships two JVM tests today (`config_test.clj`, `trace_bus_test.clj`); an `or-echo` fallback keeps the job green if that set shrinks to zero on an intermediate cut. The CLJS surface is already covered by the consolidated `node-test` build (shadow-cljs.edn lists `tools/causa/test` as a source path). |
 | Pair2 live-overflow without nREPL | `mcp-conformance-re-frame2-pair` — step `Run re-frame2-pair-mcp live-overflow conformance (SKIPPED without nREPL)` | The step runs `npm run test:re-frame2-pair-live-overflow` (no env). The script exits 0 with a SKIP marker when `$SHADOW_CLJS_NREPL_PORT` is unset — so the SKIP path is exercised on every CI run (a regression that broke the SKIP, e.g. crashing on missing env, surfaces here). Real live coverage is the hermetic step that follows: `npm run test:re-frame2-pair-live-overflow-hermetic` (which spawns shadow-cljs + Chromium against `skills/re-frame2-pair/tests/fixture/`, sets `SHADOW_CLJS_NREPL_PORT`, and runs the same script). |
 
