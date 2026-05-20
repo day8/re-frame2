@@ -101,65 +101,45 @@ test('targeted Story/Causa workflow runs the Story feature-load gate', () => {
   assert.match(workflow, /story-causa-browser:[\s\S]*npm run test:story-feature-load/);
 });
 
-// rf2-9grp6 — framework-testbeds gate split. Adapter source changes
-// fire `adapter_testbed_smokes` (existing). Testbed-source changes
-// under tools/causa/testbeds/** or top-level testbeds/** fire the
-// new `framework_testbeds` output. Spec/Markdown changes fire neither.
+// rf2-t5slp — the framework-testbeds gate was retired after all four
+// rf2-tglku migration waves moved every framework + top-level testbed
+// Playwright spec.cjs to CLJS/JVM unit tests. The classifier no longer
+// emits a `framework_testbeds` output; testbed source diffs only light
+// `cljs_browser` (for the transitive CLJS compile coverage).
 
-test('top-level testbed .cljs changes trigger framework_testbeds (rf2-9grp6)', () => {
+test('framework_testbeds output is no longer emitted (rf2-t5slp)', () => {
   const result = classify('testbeds/ssr_basic/core.cljs');
-  assert.equal(result.framework_testbeds, 'true');
+  assert.equal(result.framework_testbeds, undefined);
 });
 
-test('top-level testbed .html changes trigger framework_testbeds (rf2-9grp6)', () => {
-  const result = classify('testbeds/ssr_basic/index.html');
-  assert.equal(result.framework_testbeds, 'true');
-});
-
-test('Causa perf_counter testbed .cljs changes trigger framework_testbeds (rf2-9grp6)', () => {
-  const result = classify('tools/causa/testbeds/perf_counter/core.cljs');
-  assert.equal(result.framework_testbeds, 'true');
-});
-
-test('Causa parallel_frames testbed .cljs changes trigger framework_testbeds (rf2-9grp6)', () => {
-  const result = classify('tools/causa/testbeds/parallel_frames/core.cljs');
-  assert.equal(result.framework_testbeds, 'true');
-});
-
-test('top-level testbed README.md does NOT trigger framework_testbeds (rf2-9grp6)', () => {
-  const result = classify('testbeds/ssr_basic/README.md');
-  assert.equal(result.framework_testbeds, 'false');
-});
-
-test('Story src .cljs change does NOT trigger framework_testbeds (rf2-9grp6 — Story drives story_causa_browser, not this)', () => {
-  const result = classify('tools/story/src/foo.cljs');
-  assert.equal(result.framework_testbeds, 'false');
-});
-
-test('Adapter source change fires adapter_testbed_smokes but NOT framework_testbeds (rf2-9grp6)', () => {
-  const result = classify('implementation/adapters/reagent/testbed/core.cljs');
-  assert.equal(result.adapter_testbed_smokes, 'true');
-  assert.equal(result.framework_testbeds, 'false');
-});
-
-test('top-level testbed .cljs change fires framework_testbeds but NOT adapter_testbed_smokes (rf2-9grp6)', () => {
+test('top-level testbed .cljs change fires cljs_browser only (rf2-t5slp)', () => {
   const result = classify('testbeds/ssr_basic/core.cljs');
   assert.equal(result.adapter_testbed_smokes, 'false');
-  assert.equal(result.framework_testbeds, 'true');
+  assert.equal(result.cljs_browser, 'true');
 });
 
-test('framework-testbeds workflow job is gated by framework_testbeds output (rf2-9grp6)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  assert.match(
-    workflow,
-    /framework-testbeds:[\s\S]*if:\s+needs\.detect_changed_surfaces\.outputs\.framework_testbeds\s*==\s*'true'/,
-  );
+test('Causa testbed .cljs change fires story_causa_browser only (rf2-t5slp)', () => {
+  const result = classify('tools/causa/testbeds/feature_matrix/core.cljs');
+  assert.equal(result.adapter_testbed_smokes, 'false');
+  assert.equal(result.story_causa_browser, 'true');
 });
 
-test('adapter-testbed-smokes workflow narrowed to EXAMPLES_FILTER=adapters/ (rf2-9grp6)', () => {
+test('Adapter source change fires adapter_testbed_smokes (rf2-t5slp regression guard)', () => {
+  const result = classify('implementation/adapters/reagent/testbed/core.cljs');
+  assert.equal(result.adapter_testbed_smokes, 'true');
+});
+
+test('framework-testbeds workflow job is removed (rf2-t5slp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  // Find the adapter-testbed-smokes job block and verify it passes the
-  // narrow adapters/ filter (so framework + top-level testbeds skip).
+  assert.doesNotMatch(workflow, /^\s*framework-testbeds:/m);
+  assert.doesNotMatch(workflow, /framework_testbeds/);
+});
+
+test('adapter-testbed-smokes workflow remains scoped to EXAMPLES_FILTER=adapters/ (rf2-t5slp)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  // Find the adapter-testbed-smokes job block and verify it still
+  // passes the narrow adapters/ filter — the only Playwright surface
+  // under the examples orchestrator after framework-testbeds retired.
   assert.match(
     workflow,
     /adapter-testbed-smokes:[\s\S]*EXAMPLES_FILTER:\s*"adapters\/"/,

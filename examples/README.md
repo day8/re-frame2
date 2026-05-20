@@ -48,7 +48,7 @@ examples/
     process_monitor_helix/
 ```
 
-> **The `examples/` tree is test-free (rf2-8cevm, Mike directive 2026-05-19).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at [`implementation/adapters/<name>/testbed/spec.cjs`](../implementation/adapters/). Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation (`npm run test:bundle-isolation`), the perf-bundle gate (`npm run test:perf-bundle`), and mcp-conformance. Framework testbeds at [`tools/causa/testbeds/`](../tools/causa/testbeds/) and the top-level [`testbeds/`](../testbeds/) carry their own non-adapter `spec.cjs` for cross-cutting surfaces (parallel-frames isolation, perf-API live counterpart, SSR, etc.).
+> **The `examples/` tree is test-free (rf2-8cevm, Mike directive 2026-05-19).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at [`implementation/adapters/<name>/testbed/spec.cjs`](../implementation/adapters/). Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation (`npm run test:bundle-isolation`), the perf-bundle gate (`npm run test:perf-bundle`), and mcp-conformance. Framework testbeds at [`tools/causa/testbeds/`](../tools/causa/testbeds/) and the top-level [`testbeds/`](../testbeds/) stay in-tree as Causa observation targets but no longer carry paired Playwright `spec.cjs` files — the four rf2-tglku migration waves (rf2-4j0tb / rf2-lcg1z / rf2-pxb7t / rf2-e3j8l) moved their assertions to CLJS/JVM unit tests under `implementation/{core,epoch,flows,http,machines,ssr}/test/`, and rf2-t5slp retired the split-out framework-testbeds Playwright gate.
 
 The orchestrator and the runner consume `playwright` and `http-server` out of `implementation/node_modules/` — there is no separate `examples/package.json` by design; the implementation tree owns the npm dependency surface for the whole repo.
 
@@ -130,10 +130,10 @@ If you're building on UIx, read [`uix/counter_uix/`](uix/counter_uix/) and [`uix
 Per rf2-8cevm (Mike directive 2026-05-19) the `examples/` tree is **test-free** — no `*.spec.cjs` lives under `examples/`. The historic per-example Playwright sweep has been retired; real-regression coverage instead lives in:
 
 - **`npm run test:cljs`** — substrate contract tests (events, subs, handlers, machines, schemas) across every artefact under `npm run test:cljs`'s node-runtime CLJS suite.
-- **`npm run test:examples`** — adapter-level smokes only. Compiles + serves the 3 adapter testbeds (`implementation/adapters/<name>/testbed/`), the 2 Causa-owned framework testbeds (`tools/causa/testbeds/{parallel_frames,perf_counter}/`), and the top-level cross-cutting testbeds (`testbeds/<surface>/`), then runs their paired `spec.cjs`.
+- **`npm run test:examples`** — adapter-level smokes only. Compiles + serves the 3 adapter testbeds (`implementation/adapters/<name>/testbed/`) and runs their paired `spec.cjs`. Per rf2-t5slp the framework + top-level testbeds no longer carry Playwright specs (the rf2-tglku migration waves moved every assertion to CLJS/JVM unit tests).
 - **`npm run test:causa-feature-gate`** — 14-scenario Causa feature-matrix gate. The canonical browser sweep for cross-cutting feature regressions.
 - **`npm run test:bundle-isolation`** — production bundle grep contract for the per-feature artefact split.
-- **`npm run test:perf-bundle`** — static perf-flag bundle-isolation grep (complemented by the live `tools/causa/testbeds/perf_counter/spec.cjs`).
+- **`npm run test:perf-bundle`** — static perf-flag bundle-isolation grep (the live perf-API counterpart at `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` runs in the nightly CLJS suite).
 - **`npm run test:story-feature-load`** — Story tool feature/load gate (occasional).
 
 ### Building examples interactively

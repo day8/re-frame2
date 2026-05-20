@@ -35,7 +35,6 @@ cljs_prod=false
 bundle_isolation=false
 reagent_slim_bundle=false
 adapter_testbed_smokes=false
-framework_testbeds=false
 tools_jvm=false
 template_expensive=false
 mcp_conformance=false
@@ -51,7 +50,6 @@ mark_all() {
   bundle_isolation=true
   reagent_slim_bundle=true
   adapter_testbed_smokes=true
-  framework_testbeds=true
   tools_jvm=true
   template_expensive=true
   mcp_conformance=true
@@ -70,42 +68,12 @@ mark_all() {
 # tools/{story,causa}/testbeds/** legitimately drive the
 # story-feature-load + causa-feature-gate Playwright runners (their
 # variant graph IS what the gate exercises), so a runtime-extension
-# change there does fire the gate. The runtime-extension AND
-# allow-listed-subdir rule is symmetric with the framework-testbeds
-# split below — both gates filter by `.cljs|.cljc|.js|.cjs|.css|.scss`
-# under explicitly named subdirs, never by anything that grep-matches
-# the parent tool dir.
+# change there does fire the gate.
 is_story_causa_runtime_path() {
   case "$1" in
     tools/story/src/*|tools/causa/src/*|tools/story/testbeds/*|tools/causa/testbeds/*)
       case "$1" in
         *.cljs|*.cljc|*.js|*.cjs|*.css|*.scss)
-          return 0 ;;
-        *)
-          return 1 ;;
-      esac
-      ;;
-    *)
-      return 1 ;;
-  esac
-}
-
-# rf2-9grp6 — predicate: does `$1` look like a framework-testbed
-# runtime source file (CLJS/CLJC/JS/CSS extension under
-# tools/causa/testbeds/** or top-level testbeds/**)? Returns 0 / 1.
-# The split between this gate and `adapter_testbed_smokes` is intentional
-# (rf2-cjp0i + this bead): adapter source changes fire the 3 adapter
-# smokes, framework-testbed source changes fire the 11 framework +
-# top-level testbeds; spec/Markdown changes fire neither. Story's own
-# testbeds (tools/story/testbeds/**) drive the Story/Causa browser gate
-# above, not this one — Causa-owned framework testbeds live under
-# tools/causa/testbeds/** plus the cross-cutting top-level testbeds/**
-# (SSR + framework-behaviour).
-is_framework_testbed_path() {
-  case "$1" in
-    tools/causa/testbeds/*|testbeds/*)
-      case "$1" in
-        *.cljs|*.cljc|*.js|*.cjs|*.css|*.scss|*.html|*.json)
           return 0 ;;
         *)
           return 1 ;;
@@ -126,18 +94,16 @@ else
         mark_all
         ;;
       implementation/core/*)
-        # rf2-8jz9t + rf2-k9ekz + rf2-9grp6 — adapter_testbed_smokes,
-        # framework_testbeds, and story_causa_browser are NOT fired
-        # here. The Playwright gates exist to catch surface-specific
-        # browser bugs (adapter mount lifecycle, Story variant boot,
-        # Causa panel layout, multi-frame isolation) — none of which
-        # are core regressions. Core renames are caught by node-test
-        # (consolidated CLJS unit + browser-test) which exercises every
-        # public re-frame.core fn, and by the always-on JVM core suite.
-        # A core rename that breaks an adapter mount, Story variant
-        # boot, or framework-testbed assertion silently is caught by
-        # the nightly cron + post-merge gate (both run the full matrix
-        # on main).
+        # rf2-8jz9t + rf2-k9ekz + rf2-t5slp — adapter_testbed_smokes
+        # and story_causa_browser are NOT fired here. The Playwright
+        # gates exist to catch surface-specific browser bugs (adapter
+        # mount lifecycle, Story variant boot, Causa panel layout) —
+        # none of which are core regressions. Core renames are caught
+        # by node-test (consolidated CLJS unit + browser-test) which
+        # exercises every public re-frame.core fn, and by the always-on
+        # JVM core suite. A core rename that breaks an adapter mount or
+        # Story variant boot silently is caught by the nightly cron +
+        # post-merge gate (both run the full matrix on main).
         implementation_jvm=true
         adapter_diagnostic=true
         cljs_browser=true
@@ -217,16 +183,15 @@ else
         cljs_prod=true
         ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
-        # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-9grp6 —
-        # adapter_testbed_smokes, framework_testbeds, and
-        # story_causa_browser are NOT fired here. The Playwright gates
-        # are now triggered ONLY by direct source-tree changes (adapter
-        # source for adapter-testbed-smokes; tools/causa/testbeds/** +
-        # top-level testbeds/** for framework-testbeds;
-        # tools/{story,causa}/{src,testbeds}/** for the Story/Causa
-        # browser gate). A shadow-cljs.edn or implementation/scripts/
-        # change that breaks the build is caught by the nightly cron +
-        # post-merge gate (both run the full matrix on main).
+        # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
+        # adapter_testbed_smokes and story_causa_browser are NOT fired
+        # here. The Playwright gates are triggered ONLY by direct
+        # source-tree changes (adapter source for adapter-testbed-
+        # smokes; tools/{story,causa}/{src,testbeds}/** for the Story/
+        # Causa browser gate). A shadow-cljs.edn or implementation/
+        # scripts/ change that breaks the build is caught by the
+        # nightly cron + post-merge gate (both run the full matrix on
+        # main).
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
@@ -241,21 +206,15 @@ else
         cljs_browser=true
         ;;
       testbeds/*)
-        # rf2-7vsfm + rf2-bxdk8 + rf2-cjp0i + rf2-9grp6 — Top-level
-        # testbeds/* are compiled + staged by the framework-testbeds
-        # orchestrator. Per rf2-cjp0i the adapter-testbed-smokes gate is
-        # scoped to the 3 adapter smokes themselves; per rf2-9grp6 the
-        # framework + top-level testbed Playwright surfaces are now
-        # covered by the split-out `framework-testbeds` gate, which
-        # fires on runtime-extension changes (.cljs/.cljc/.js/.cjs/.css/
-        # .scss/.html/.json) under this tree. Markdown/EDN-only diffs
-        # still skip the gate entirely. cljs_browser stays lit for CLJS-
+        # rf2-7vsfm + rf2-t5slp — Top-level testbeds/* surfaces are
+        # retained as Causa observation targets but no longer have a
+        # paired Playwright spec.cjs; all framework + top-level testbed
+        # specs migrated to CLJS/JVM unit tests under the four
+        # rf2-tglku waves and the split-out `framework-testbeds` gate
+        # was retired (rf2-t5slp). cljs_browser stays lit for CLJS-
         # source regressions in shared core/feature artefacts that the
         # testbed compiles transitively pull in.
         cljs_browser=true
-        if is_framework_testbed_path "$file"; then
-          framework_testbeds=true
-        fi
         ;;
       tools/template/*)
         # rf2-os0c1 — tools/template is a clj-new template that scaffolds
@@ -266,28 +225,24 @@ else
         template_expensive=true
         ;;
       tools/story/*|tools/causa/*)
-        # rf2-os0c1 + rf2-k9ekz + rf2-9grp6 — Story / Causa changes
+        # rf2-os0c1 + rf2-k9ekz + rf2-t5slp — Story / Causa changes
         # legitimately fan out to tools_jvm (per-artefact JVM unit tests
         # + sibling story-mcp consumer) and mcp_conformance (the MCP
-        # wrappers consume these artefacts). story_causa_browser is now
+        # wrappers consume these artefacts). story_causa_browser is
         # narrowed (rf2-k9ekz): it fires ONLY when the changed path is
         # under tools/{story,causa}/{src,testbeds}/** AND the file has a
         # runtime extension (.cljs/.cljc/.js/.cjs/.css/.scss). Markdown
         # specs under tools/{story,causa}/spec/**, JVM unit tests under
         # tools/{story,causa}/test/**, deps.edn, README.md, and *.txt
         # do NOT fire it — they cannot affect chrome and so cannot
-        # invalidate the Playwright gate. Per rf2-9grp6 the Causa-owned
-        # framework testbeds under tools/causa/testbeds/** also fire
-        # framework_testbeds (the split-out Playwright gate for the SSR
-        # + framework-behaviour surfaces). Story's own testbeds drive
-        # the story_causa_browser gate, not framework_testbeds.
+        # invalidate the Playwright gate. The split-out framework-
+        # testbeds gate (formerly rf2-9grp6) was retired in rf2-t5slp
+        # after all four rf2-tglku migration waves moved every Causa-
+        # owned testbed assertion to CLJS/JVM unit tests.
         tools_jvm=true
         mcp_conformance=true
         if is_story_causa_runtime_path "$file"; then
           story_causa_browser=true
-        fi
-        if is_framework_testbed_path "$file"; then
-          framework_testbeds=true
         fi
         ;;
       tools/story-mcp/*)
@@ -346,7 +301,6 @@ emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
 emit reagent_slim_bundle "$reagent_slim_bundle"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
-emit framework_testbeds "$framework_testbeds"
 emit tools_jvm "$tools_jvm"
 emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"
