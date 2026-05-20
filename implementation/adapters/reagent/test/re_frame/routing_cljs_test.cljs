@@ -33,7 +33,7 @@
 ;; them. routing/reset-counters! runs in :init-fn so per-test counter
 ;; sequences (nav-token, pending-nav, …) start from zero.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter
      :init-fn routing/reset-counters!}))
 

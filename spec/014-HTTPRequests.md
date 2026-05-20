@@ -906,7 +906,7 @@ For test suites that need to inspect or reset the in-flight request registry dir
 
 | Helper | Signature | Purpose |
 |---|---|---|
-| `clear-all-in-flight!` | `(clear-all-in-flight!)` → nil | Drops both the request-id-keyed and actor-id-keyed in-flight maps. Consumed by `re-frame.test-support/reset-runtime-fixture-factory` to restore a clean registry between tests; the `:http/clear-all-in-flight!` hook is published via the late-bind table so `test-support` can call it without statically requiring the http artefact. |
+| `clear-all-in-flight!` | `(clear-all-in-flight!)` → nil | Drops both the request-id-keyed and actor-id-keyed in-flight maps. Consumed by `re-frame.test-support/make-reset-runtime-fixture` to restore a clean registry between tests; the `:http/clear-all-in-flight!` hook is published via the late-bind table so `test-support` can call it without statically requiring the http artefact. |
 | `in-flight-snapshot` | `(in-flight-snapshot)` → map | Reads the current value of the request-id-keyed in-flight map. For tests that need to assert "this request-id is in flight" without poking the atom directly. |
 | `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` → map | Reads the current value of the actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy) and rf2-wvkn). For tests that need to assert the actor → request-id reverse index. |
 

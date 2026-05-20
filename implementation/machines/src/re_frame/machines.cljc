@@ -250,7 +250,7 @@
 (late-bind/set-fn! :machines/teardown-on-frame-destroy!
                    frame-destroy/teardown-on-frame-destroy!)
 ;; Per rf2-vsigt — test-isolation hook fired by
-;; `re-frame.test-support/reset-runtime-fixture-factory`. Drops the per-frame
+;; `re-frame.test-support/make-reset-runtime-fixture`. Drops the per-frame
 ;; spawn-order vectors so a stale entry from a sibling test cannot
 ;; contaminate a frame-destroy walk in the next test.
 (late-bind/set-fn! :machines/reset-spawn-order!

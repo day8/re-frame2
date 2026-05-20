@@ -25,7 +25,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- event-emit fires under prod build -----------------------------------

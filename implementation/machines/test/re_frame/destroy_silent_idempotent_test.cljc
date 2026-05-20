@@ -42,7 +42,7 @@
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 

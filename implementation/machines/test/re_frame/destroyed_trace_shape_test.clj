@@ -40,7 +40,7 @@
             [re-frame.trace :as trace]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; Canonical key-set that the destroyed-trace emission sites are
 ;; responsible for assembling. The trace framework auto-stamps

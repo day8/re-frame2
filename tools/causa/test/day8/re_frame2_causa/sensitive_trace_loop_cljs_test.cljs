@@ -46,7 +46,7 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; `reset-runtime-fixture-factory` snapshots/restores the registrar around each
+;; `make-reset-runtime-fixture` snapshots/restores the registrar around each
 ;; test, clears trace listeners, and disposes the substrate adapter. The
 ;; init-fn flips Causa's idempotency sentinels, re-registers the trace
 ;; collector (so each test runs against the SAME wiring the production
@@ -67,7 +67,7 @@
   (config/set-show-sensitive! false))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 

@@ -54,7 +54,7 @@
 
   `body-fn` runs inside a try/finally that clears the trace-bus atom +
   unregisters the trace callback so subsequent tests start from a
-  fresh slate. The `reset-runtime-fixture-factory` (which the per-test-file
+  fresh slate. The `make-reset-runtime-fixture` (which the per-test-file
   fixture wraps around `use-fixtures :each`) handles frame disposal
   and registrar restoration."
   (:require [re-frame.core :as rf]
@@ -138,7 +138,7 @@
     (body-fn)
     (finally
       ;; Be explicit about trace-bus state — the
-      ;; `reset-runtime-fixture-factory` clears registrar entries but not the
+      ;; `make-reset-runtime-fixture` clears registrar entries but not the
       ;; trace-bus atom (which is process-global / `defonce`). Clear
       ;; here so the next test starts from a fresh slate.
       (trace-bus/clear-buffer!))))

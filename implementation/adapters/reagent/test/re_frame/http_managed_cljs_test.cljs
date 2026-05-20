@@ -51,7 +51,7 @@
   (fn [test-fn]
     ;; Drop any in-flight registry leaks between tests.
     (http-managed/clear-all-in-flight!)
-    ((test-support/reset-runtime-fixture-factory
+    ((test-support/make-reset-runtime-fixture
        {:adapter reagent-adapter/adapter})
       test-fn)
     (http-managed/clear-all-in-flight!)))

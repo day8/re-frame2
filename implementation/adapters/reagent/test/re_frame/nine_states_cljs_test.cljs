@@ -27,7 +27,7 @@
             [nine-states.core-test :as ns-t]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 (deftest nine-states-runs-end-to-end

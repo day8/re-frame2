@@ -41,7 +41,7 @@ If your bug class lives in the leftmost four rows and the seminal symptom is "Re
          (mapv :phase (test-react/lifecycle-log mount)))))
 ```
 
-The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test owns the clock — there is no auto-re-render on app-db change in the current skeleton (tests call `trigger-update!` explicitly after a dispatch settles). Test fixtures pair the adapter with `re-frame.test-support/reset-runtime-fixture-factory` exactly like the production adapters.
+The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test owns the clock — there is no auto-re-render on app-db change in the current skeleton (tests call `trigger-update!` explicitly after a dispatch settles). Test fixtures pair the adapter with `re-frame.test-support/make-reset-runtime-fixture` exactly like the production adapters.
 
 ## Lifecycle phases recorded
 

@@ -15,7 +15,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter helix-adapter/adapter}))
 
 (defn- react-element-view-attr

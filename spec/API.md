@@ -589,7 +589,7 @@ The testing surface lives across three namespaces. `re-frame.core` carries the p
 | `poll-until` | Fn | `(poll-until pred)` / `(poll-until pred opts)` | v1 | 008 | Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` with `:rf.test/poll-timeout true` on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`. Lives in `re-frame.test-support`. |
 | `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | 002, 008 | Lexical-scope `:fx-overrides` binding (rf2-5uwl). Every `dispatch` / `dispatch-sync` inside the body merges the supplied map into its envelope's `:fx-overrides`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame `:fx-overrides`. Composes with `with-frame`. Lives in `re-frame.core`. Renamed from `with-overrides` per [MIGRATION §M-50](../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides). |
 | `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | 008 | Pure sub computation against an `app-db` value. Lives in `re-frame.core`. |
-| `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `reset-runtime-fixture-factory` | Fn | per docstring | v1 | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
+| `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `make-reset-runtime-fixture` | Fn | per docstring | v1 | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
 
 ### Testing — view-assertion helpers
 

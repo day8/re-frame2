@@ -99,7 +99,7 @@
 
 (def clear-warned-non-dom-roots!
   "Reset the warn-once cache for non-DOM-root warnings. Tests use this
-  between cases (via `reset-runtime-fixture-factory` and the chained
+  between cases (via `make-reset-runtime-fixture` and the chained
   `:adapter/clear-warn-once-caches!` hook) so a sibling test's
   first-encounter warning cannot silently swallow a later test's same-id
   warning. Per rf2-4edk."
@@ -189,7 +189,7 @@
 ;; Per rf2-4edk: contribute a clear of THIS adapter's warn-once cache to
 ;; the chained `:adapter/clear-warn-once-caches!` hook. The hook is
 ;; chained — each adapter (helix, uix) and re-frame.views all contribute
-;; a clear-step; `reset-runtime-fixture-factory` invokes the top of the chain
+;; a clear-step; `make-reset-runtime-fixture` invokes the top of the chain
 ;; and every contributor's reset runs (unlike `:adapter/current-frame`
 ;; etc. this hook is NOT routed through the installed adapter — every
 ;; loaded adapter's cache must clear because test bundles can mount

@@ -17,7 +17,7 @@
   `(install!)` is the canonical entry point used by
   `with-host-and-causa-frames`. Idempotent — re-running is a no-op
   beyond the registrar's harmless `:rf.warning/handler-replaced`
-  emit (which the test fixtures' `reset-runtime-fixture-factory` rolls back
+  emit (which the test fixtures' `make-reset-runtime-fixture` rolls back
   via the captured registrar snapshot)."
   (:require [re-frame.core :as rf]))
 

@@ -1,5 +1,5 @@
 (ns re-frame.warn-once-fixture-isolation-cljs-test
-  "Per rf2-4edk: regression test that `reset-runtime-fixture-factory` clears the
+  "Per rf2-4edk: regression test that `make-reset-runtime-fixture` clears the
   per-adapter `warned-non-dom-roots` warn-once caches.
 
   Background. Three CLJS namespaces hold a `defonce ^:private
@@ -19,7 +19,7 @@
   was discovered by ai/findings/functional-purity-review-2026-05-12.md
   §P3-1.
 
-  Fix. `reset-runtime-fixture-factory` invokes the chained
+  Fix. `make-reset-runtime-fixture` invokes the chained
   `:adapter/clear-warn-once-caches!` late-bind hook; each of the
   three namespaces above contributes a clear-step at ns-load. This
   test pins that contract for the Reagent path (re-frame.views): emit
@@ -31,7 +31,7 @@
   The test exercises the Reagent path because that is the one the
   node-test runner covers without a real browser; the Helix and UIx
   paths share the identical clear-step shape and are covered by the
-  same `reset-runtime-fixture-factory` step (their adapter ns'es publish the
+  same `make-reset-runtime-fixture` step (their adapter ns'es publish the
   chain step at load time, exercised by the parity tests).
 
   Production behaviour is unchanged: the warn-once `defonce` remains
@@ -44,7 +44,7 @@
             [re-frame.views]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- helper: capture console.warn calls (mirrors source-coord-warn-once) -
@@ -66,22 +66,22 @@
         (set! (.-warn js/console) original)))))
 
 (defn- run-fixture!
-  "Invoke `reset-runtime-fixture-factory` as a single call against a thunk.
+  "Invoke `make-reset-runtime-fixture` as a single call against a thunk.
   Matches the production fixture path (registrar snapshot/restore,
   trace listener clear, adapter dispose/re-install, AND the rf2-4edk
   warn-once cache clear) so the assertion below tests the production
   surface — not a private fn."
   [thunk]
-  (let [fixture (test-support/reset-runtime-fixture-factory
+  (let [fixture (test-support/make-reset-runtime-fixture
                   {:adapter reagent-adapter/adapter})]
     (fixture thunk)))
 
 ;; ---- regression: warn-once cache survives the same render twice ----------
 
-(deftest warn-once-cache-resets-across-reset-runtime-fixture-factory
+(deftest warn-once-cache-resets-across-make-reset-runtime-fixture
   (testing "Emit the SAME `:rf.warning/non-dom-root` (via reg-view of a
             Fragment-rooted view, then render it) twice — once before
-            and once after `reset-runtime-fixture-factory` runs. The fix in
+            and once after `make-reset-runtime-fixture` runs. The fix in
             rf2-4edk clears the `warned-non-dom-roots` cache as part of
             the fixture, so both emissions land. WITHOUT the fix the
             second emission is silenced by the cache that survived the
@@ -111,7 +111,7 @@
           "phase-1 warning names the shared id")
 
       ;; ── Cross the fixture boundary. This is the production
-      ;;    `reset-runtime-fixture-factory` thunk — it snapshots/restores the
+      ;;    `make-reset-runtime-fixture` thunk — it snapshots/restores the
       ;;    registrar AND (per rf2-4edk) clears the warn-once caches.
       (let [phase-2-ws (with-captured-console-warn
                          (fn []
@@ -128,12 +128,12 @@
         ;; the cache between phases, so the SAME id re-warns.
         (is (= 1 (count phase-2-ws))
             (str "phase-2 must re-emit the warning for the same id "
-                 "AFTER `reset-runtime-fixture-factory` clears the warn-once "
+                 "AFTER `make-reset-runtime-fixture` clears the warn-once "
                  "cache (per rf2-4edk). Got " (count phase-2-ws)
                  ": " (pr-str phase-2-ws)
                  ". If this is zero, the rf2-4edk fix has regressed: "
                  "the per-adapter `warned-non-dom-roots` defonce is "
-                 "no longer being cleared by reset-runtime-fixture-factory, "
+                 "no longer being cleared by make-reset-runtime-fixture, "
                  "and sibling tests can silently swallow each other's "
                  "warnings."))
         (is (str/includes? (first phase-2-ws) (name shared-id))
@@ -144,7 +144,7 @@
 (deftest clear-warned-non-dom-roots-resets-cache-directly
   (testing "Calling `re-frame.views/clear-warned-non-dom-roots!` directly
             also resets the cache — this is the public seam
-            `reset-runtime-fixture-factory` consumes through the chained hook.
+            `make-reset-runtime-fixture` consumes through the chained hook.
             Test it independently so a future refactor that drops the
             chain wiring but keeps the fn name is caught here."
     (let [target-id :rf.warn-once-fixture/direct

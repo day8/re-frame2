@@ -37,7 +37,7 @@
             [day8.re-frame2-causa.test-helpers.host-fixtures.counter :as counter]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- dispatch-counter-20 []
   (dotimes [i 20]

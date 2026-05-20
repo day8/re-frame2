@@ -46,7 +46,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; Helper: read the per-element index off a registered machine.
 (defn- per-element-coords [machine-id]

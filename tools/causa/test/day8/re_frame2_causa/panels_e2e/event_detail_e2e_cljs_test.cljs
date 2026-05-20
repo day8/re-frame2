@@ -33,7 +33,7 @@
             [day8.re-frame2-causa.test-helpers.host-fixtures.counter :as counter]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest causa-spine-focuses-on-host-dispatch
   (testing "real host dispatch flows through the trace bus into Causa"

@@ -25,7 +25,7 @@
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter}))
 
 (defn- record-traces! []

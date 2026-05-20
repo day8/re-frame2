@@ -56,7 +56,7 @@
   - [[snapshot-registrar]] — capture the current registrar state.
   - [[restore-registrar!]] — restore the registrar to a captured snapshot.
   - [[with-fresh-registrar]] — bracket a thunk with snapshot + restore.
-  - [[reset-runtime-fixture-factory]] — `clojure.test`/`cljs.test` `:each`
+  - [[make-reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
     per-process state held by frames / flows (when the flows artefact
     is loaded, rf2-tfw3) / adapter / machine counters / trace
@@ -159,7 +159,7 @@
 ;; ---- full per-test runtime reset ------------------------------------------
 
 (def ^:private reset-hook-table
-  "Late-bind hook keys fired by `reset-runtime-fixture-factory` to drop per-process
+  "Late-bind hook keys fired by `make-reset-runtime-fixture` to drop per-process
   test state — one row per optional artefact. Each entry pairs the hook key
   with a `:phase` (when it fires relative to `adapter/dispose-adapter!`) and
   the design bead that introduced the artefact. The driver
@@ -232,7 +232,7 @@
             (f)))
         (filter #(= phase (:phase %)) reset-hook-table)))
 
-(defn reset-runtime-fixture-factory
+(defn make-reset-runtime-fixture
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
   per-process re-frame runtime around each test.
 
@@ -283,7 +283,7 @@
   Example (CLJS):
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture-factory
+        (test-support/make-reset-runtime-fixture
           {:adapter reagent-adapter/adapter}))
 
   Example with example-app collision avoidance — schemas tests want a
@@ -291,16 +291,16 @@
   registrations:
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture-factory
+        (test-support/make-reset-runtime-fixture
           {:adapter     reagent-adapter/adapter
            :clear-kinds [:app-schema]}))
 
   Example (JVM, default plain-atom adapter):
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture-factory
+        (test-support/make-reset-runtime-fixture
           {:adapter plain-atom/adapter}))"
-  ([] (reset-runtime-fixture-factory {}))
+  ([] (make-reset-runtime-fixture {}))
   ([{:keys [adapter init-fn clear-kinds]}]
    (fn [test-fn]
      ;; Late-bind: when the schemas artefact is loaded, snap and restore

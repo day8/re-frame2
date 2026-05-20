@@ -156,7 +156,7 @@
 (late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
-;; reset-runtime-fixture-factory).
+;; make-reset-runtime-fixture).
 (late-bind/set-fn! :schemas/snapshot-by-frame    snapshot-schemas-by-frame)
 (late-bind/set-fn! :schemas/restore-by-frame!    restore-schemas-by-frame!)
 (late-bind/set-fn! :schemas/clear-by-frame!      clear-schemas-by-frame!)

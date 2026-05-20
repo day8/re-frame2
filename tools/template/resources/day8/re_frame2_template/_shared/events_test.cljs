@@ -22,13 +22,13 @@
 
 ;; --- Fixture ---------------------------------------------------------------
 ;;
-;; `reset-runtime-fixture-factory` snapshot/restores the registrar around each
+;; `make-reset-runtime-fixture` snapshot/restores the registrar around each
 ;; test, resets every frame's app-db to `{}`, and reinstalls the
 ;; plain-atom adapter. Per-test `reg-*` calls roll back on exit;
 ;; framework registrations (and the app's own ns-load registrations
 ;; above) survive.
 
-(use-fixtures :each (ts/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; --- Tests -----------------------------------------------------------------
 

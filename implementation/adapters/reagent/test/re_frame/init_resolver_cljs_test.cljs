@@ -18,7 +18,7 @@
 ;;
 ;; Cold-start: dispose any installed adapter before each test so the
 ;; init! call we exercise installs fresh. We do NOT use the
-;; reset-runtime-fixture-factory here — it pre-installs an adapter for us, and
+;; make-reset-runtime-fixture here — it pre-installs an adapter for us, and
 ;; the unit under test IS init!.
 
 (defn cold-start [test-fn]

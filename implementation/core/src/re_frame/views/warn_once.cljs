@@ -12,7 +12,7 @@
      non-DOM root (fn/class component or React Fragment) the source-
      coord walk skips the annotation and emits a one-shot
      console.warn per id. The `warned-non-dom-roots` defonce holds
-     the per-process set; `reset-runtime-fixture-factory` clears it via the
+     the per-process set; `make-reset-runtime-fixture` clears it via the
      chained `:adapter/clear-warn-once-caches!` hook.
 
   2. Plain-fn-under-non-default-frame warning (Spec 004 §Plain
@@ -32,7 +32,7 @@
 
 (defn clear-warned-non-dom-roots!
   "Reset the warn-once cache for non-DOM-root warnings. Tests use this
-  between cases (via `reset-runtime-fixture-factory` and the chained
+  between cases (via `make-reset-runtime-fixture` and the chained
   `:adapter/clear-warn-once-caches!` hook) so a sibling test's first-
   encounter warning cannot silently swallow a later test's same-id
   warning. The cache is a process-wide `defonce` so the user-facing
@@ -235,6 +235,6 @@
 ;; Register a clear of the `warned-non-dom-roots` cache under the
 ;; chained `:adapter/clear-warn-once-caches!` hook. Each adapter (helix,
 ;; uix) and this views ns all contribute a clear-step;
-;; `reset-runtime-fixture-factory` invokes the top of the chain and every
+;; `make-reset-runtime-fixture` invokes the top of the chain and every
 ;; contributor's reset runs.
 (late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-warned-non-dom-roots!)

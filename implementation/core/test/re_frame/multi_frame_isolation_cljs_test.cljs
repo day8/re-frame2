@@ -60,7 +60,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- Frame ids match the parallel-frames testbed ---------------------------
 

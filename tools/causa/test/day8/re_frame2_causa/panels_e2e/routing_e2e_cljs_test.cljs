@@ -22,7 +22,7 @@
             [day8.re-frame2-causa.test-helpers.host-fixtures.counter :as counter]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest causa-registered-routes-resolves
   (testing ":rf.causa/registered-routes returns a coll without throwing"

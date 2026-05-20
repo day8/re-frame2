@@ -51,7 +51,7 @@
 ;; Mirror schemas_cljs_test.cljs's fixture: snapshot/restore the
 ;; registrar (rf2-am9d) and clear :app-schema between tests.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter     reagent-adapter/adapter
      :clear-kinds [:app-schema]}))
 

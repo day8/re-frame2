@@ -115,7 +115,7 @@ Also: drop `day8/re-frame-test` from the Maven coords.
   body...)
 
 ;; REWRITE — hoist body; per-test fixture handles registrar isolation
-;; (assumes the ns already installs reset-runtime-fixture-factory via use-fixtures :each;
+;; (assumes the ns already installs make-reset-runtime-fixture via use-fixtures :each;
 ;; if not, add it — see M-52 in MIGRATION.md for the full pattern)
 body...
 

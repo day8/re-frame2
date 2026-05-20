@@ -44,7 +44,7 @@
             [re-frame.trace.tooling :as trace-tooling]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- :view/render trace does not fire under prod -------------------------

@@ -40,7 +40,7 @@
 ;; once cleared they're gone for the rest of the test run. Snapshot/restore
 ;; preserves them while still rolling back per-test registrations.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture-factory
+  (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- shared dispatch + sub --------------------------------------------------
@@ -639,7 +639,7 @@
 ;; (resubscribe-cancels, real-time timer assertions) against a
 ;; ScheduledExecutorService — under CLJS those checks would require async
 ;; tests, which need a map-form fixture incompatible with this ns's
-;; reset-runtime-fixture-factory. The grace-period implementation is shared core
+;; make-reset-runtime-fixture. The grace-period implementation is shared core
 ;; code; the JVM coverage is sufficient for the timing contract.
 
 (defn- cache-keys-of
