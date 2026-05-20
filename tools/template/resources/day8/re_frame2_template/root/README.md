@@ -181,6 +181,8 @@ related error, that's the fix.
 │   └── config.edn           ; linter config (empty by default)
 ├── .cljfmt.edn              ; cljfmt formatter config — `clojure -M:cljfmt check` / `fix`
 ├── lefthook.yml             ; pre-commit format + lint hook (see lefthook.dev/installation)
+├── .github/workflows/
+│   └── ci.yml               ; baseline GitHub Actions CI — JDK 21 + Clojure CLI + Node 22 + `npm test`
 ├── resources/public/
 │   ├── index.html           ; host page; loads shadow-cljs's compiled output
 │   └── css/app.css          ; minimal plain CSS — body / button / h1
