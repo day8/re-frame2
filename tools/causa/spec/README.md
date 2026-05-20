@@ -56,9 +56,10 @@ main read**.
 - **[007-UX-IA.md](007-UX-IA.md)** — Typography, colour tokens, animation
   timings, keyboard maps, density gradients — the pixels-that-feel-right
   reference.
-- **[008-Embedding-Contract.md](008-Embedding-Contract.md)** — Per-panel
-  `Panel` component contract so Story (and others) can embed Causa
-  surfaces outside Causa's own chrome.
+- **[008-Embedding-Contract.md](008-Embedding-Contract.md)** — Full-shell
+  embed contract so Story (and others) can mount the entire Causa
+  shell as a right-hand-side observability surface; state isolation
+  via the `:rf/causa` frame-provider.
 - **[011-Launch-Modes.md](011-Launch-Modes.md)** — In-app true-inline
   host and standalone-via-MCP remote-attach.
 - **[012-Views.md](012-Views.md)** — Views tab: three-group layout

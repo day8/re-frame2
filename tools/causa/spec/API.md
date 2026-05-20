@@ -233,9 +233,8 @@ facade:
 
 ### Panel reg-views
 
-Each panel namespace exports a single public `Panel` component for
-embedding (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)).
-The canonical symbol list:
+Each panel namespace exports a single public `Panel` component. The
+canonical symbol list:
 
 ```clojure
 day8.re-frame2-causa.panels.event-detail/Panel
@@ -252,16 +251,14 @@ violation-timeline`, `hydration-debugger`, and `mcp-server`. The
 4-layer shell switches over the 6 L3 tab ids in `spec/018-Event-
 Spine.md` §5 — these six are the surviving `Panel` exports.)
 
-Each accepts the props map specified in
-[`008-Embedding-Contract.md`](./008-Embedding-Contract.md):
-
-```clojure
-{:frame    :app/main          ;; frame to observe (required)
- :compact? false              ;; reduced chrome (optional)
- :height   nil                ;; pixels (optional)
- :scope    {...}              ;; filter (optional)
- :on-event #(...)}            ;; emit-event callback (optional)
-```
+These `Panel` components are the leaves the shell composes — they
+are NOT a host-facing single-panel embed surface. Hosts that want to
+mount Causa embed the **full shell** per
+[`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell
+embed contract. The `mount-<panel>!` aggregator surface enumerated in
+[`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract is
+internal-but-stable (used by shell composition and tests); it accepts
+one `opts` key — `:frame` — defaulting to `:rf/causa`.
 
 ## Public JS API
 
@@ -269,7 +266,6 @@ For React-only hosts (a JS Story consumer, a non-Reagent app):
 
 ```javascript
 import {init, open, close, toggle, popout} from '@day8/re-frame2-causa';
-import {EventDetailPanel, /* ... */} from '@day8/re-frame2-causa/panels';
 
 init({defaultFrame: ':app/main', theme: 'dark', density: 'cosy'});
 
@@ -277,19 +273,14 @@ open();
 close();
 toggle();
 popout();
-
-// Embedded panel
-<EventDetailPanel
-  frame=":app/main"
-  compact
-  height={320}
-  scope={{dispatchIdPrefix: 'story-variant-7c2-', includeChildren: true}}
-  onEvent={(evt) => console.log(evt)}
-/>
 ```
 
-The JS surface is a thin adapter over the Reagent components; props
-camelCase what the Reagent surface kebab-cases.
+The JS surface is a thin adapter over the canonical CLJS facade
+(§Canonical: `day8.re-frame2-causa.core`); props camelCase what the
+CLJS surface kebab-cases. There is no host-facing single-panel embed
+surface — full-shell embedding via
+[`008-Embedding-Contract.md`](./008-Embedding-Contract.md) is the
+canonical shape.
 
 ## Trace / epoch surfaces (consumed, not exposed)
 
@@ -747,11 +738,11 @@ major bumps with it.
   `rf2-sbfb7` (Mike's pre-alpha decision "A — delete both"); the
   true-inline default and `popout!` cover the dock use case.
 - **No imperative `mount-inline-panel!` / `unmount-inline-panel!`.**
-  Removed per `rf2-sbfb7`; declarative panel embedding lives at
+  Removed per `rf2-sbfb7`; full-shell embedding lives at
   [`008-Embedding-Contract.md`](./008-Embedding-Contract.md).
 
 ## Resolved decisions
 
 | Decision | Bead | Outcome |
 |---|---|---|
-| Keep or delete `dock!` / `undock!` / `mount-inline-panel!` / `unmount-inline-panel!` debug surfaces | `rf2-sbfb7` | "A — delete both" (Mike, 2026-05-17). Pre-alpha posture: no back-compat shims; the true-inline default + `popout!` cover the dock use case, declarative `Panel` (008-Embedding-Contract) covers the embedded-panel use case. |
+| Keep or delete `dock!` / `undock!` / `mount-inline-panel!` / `unmount-inline-panel!` debug surfaces | `rf2-sbfb7` | "A — delete both" (Mike, 2026-05-17). Pre-alpha posture: no back-compat shims; the true-inline default + `popout!` cover the dock use case, full-shell embedding (008-Embedding-Contract) covers Causa-as-Story-RHS. |

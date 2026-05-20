@@ -1554,8 +1554,9 @@ the placeholder Static sub-tabs (a separate decision).
 ### See also
 
 - [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — the
-  embedding contract for Story / first-party embeds (the `:compact?`
-  / `:scope` / `:on-event` props the panel views consume).
+  full-shell embedding contract for Story / first-party embeds (Story
+  mounts the full Causa shell with `:rf.causa/keybinding-enabled?
+  false`).
 - [`011-Launch-Modes.md`](./011-Launch-Modes.md) — the default
   in-app shell-mount path via `[data-rf-causa-host]`.
 - [`Conventions.md`](./Conventions.md) §Panel facade + leaf split —

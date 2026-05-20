@@ -297,8 +297,8 @@ Remove the `:preloads` entry, or:
 Per `rf2-sbfb7` the body-padding dock surface (`dock!` / `undock!`) and
 the imperative inline-panel surface (`mount-inline-panel!` /
 `unmount-inline-panel!`) were removed. The true-inline default and the
-`popout!` window cover the dock use case; declarative panel embedding
-is the surface enumerated in
+`popout!` window cover the dock use case; full-shell embedding (e.g.
+Causa-as-Story-RHS) is enumerated in
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md).
 
 ### Closed state
@@ -477,9 +477,10 @@ singletons, not just the in-app shell:
 
 (The third pre-existing singleton — `inline-mounts` for the
 imperative `mount-inline-panel!` debug API — went away under
-`rf2-sbfb7` together with the debug API itself; declarative panel
-embedding under [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
-replaces it and does not touch the mount singleton surface.)
+`rf2-sbfb7` together with the debug API itself; full-shell embedding
+under [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
+covers the remaining host use cases and does not touch the mount
+singleton surface.)
 
 **Popout external-close cleanup.** Per `rf2-yudol` `popout!` MUST
 register `pagehide` / `unload` listeners on the popout window so
