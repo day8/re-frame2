@@ -89,8 +89,10 @@
 ;; Four steps thread through `boundary-step/run-step-pipeline`. Each
 ;; step's `:run` receives the live context (carrying `:result` and
 ;; `:precheck-hash`) and returns a Promise of the next context. The
-;; `:short-circuit?` predicates encode the per-step skip rules
-;; declaratively — no inline conditionals in the orchestrator.
+;; `:skip-when?` predicates encode the per-step skip rules
+;; declaratively — no inline conditionals in the orchestrator
+;; (renamed from `:short-circuit?` per rf2-l0isf; the actual
+;; semantics are skip-this-step, not halt-the-chain).
 ;;
 ;; Adding a future step (request-level redaction, metrics, path-prefix
 ;; slicing, per-call elision toggle) is one map-entry addition here
@@ -103,7 +105,7 @@
   tools (cache enabled AND tool registers a precheck-target), fetches
   the runtime-side hash via one bencode round-trip and consults the
   cache. On a hit, writes the marker to `:result` (which trips
-  subsequent steps' `:short-circuit?` predicates). On a miss, records
+  subsequent steps' `:skip-when?` predicates). On a miss, records
   the fetched hash in `:precheck-hash` so `apply-cache` can attach
   it to the future entry."
   [{:keys [conn name args cache-opts] :as ctx}]
@@ -148,7 +150,7 @@
   "The four-step wire-boundary pipeline. Order matters — see step
   docstrings for the per-step semantics.
 
-  | Step              | When the step is skipped (`:short-circuit?`)        |
+  | Step              | When the step is skipped (`:skip-when?`)            |
   |-------------------|-----------------------------------------------------|
   | `:precheck`       | never — runs unconditionally; produces a marker     |
   |                   | result ONLY for eligible cacheable tools            |
@@ -162,19 +164,24 @@
   Cache before cap is the right order: a cache hit emits a sub-100-
   byte marker that's trivially under any reasonable cap, so flipping
   the order would never change behaviour but would waste a token
-  walk on the hit path."
-  [{:name           :precheck
-    :run            precheck-step}
-   {:name           :dispatch
-    :run            dispatch-step
-    :short-circuit? (fn [{:keys [result]}] (some? result))}
-   {:name           :apply-cache
-    :run            apply-cache-step
-    :short-circuit? (fn [{:keys [result]}]
-                      (or (isError? result) (wire/marker? result)))}
-   {:name           :apply-cap
-    :run            apply-cap-step
-    :short-circuit? (fn [{:keys [result]}] (wire/marker? result))}])
+  walk on the hit path.
+
+  `:skip-when?` is the per-step skip predicate (renamed from
+  `:short-circuit?` per rf2-l0isf — the prior name read as
+  halt-the-chain semantics; the actual semantics are skip-this-step
+  and continue to the next step's own predicate)."
+  [{:name       :precheck
+    :run        precheck-step}
+   {:name       :dispatch
+    :run        dispatch-step
+    :skip-when? (fn [{:keys [result]}] (some? result))}
+   {:name       :apply-cache
+    :run        apply-cache-step
+    :skip-when? (fn [{:keys [result]}]
+                  (or (isError? result) (wire/marker? result)))}
+   {:name       :apply-cap
+    :run        apply-cap-step
+    :skip-when? (fn [{:keys [result]}] (wire/marker? result))}])
 
 (defn invoke
   "Dispatch a `tools/call` invocation through the wire-boundary

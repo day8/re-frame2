@@ -21,19 +21,22 @@
   one level up. Each step is a map:
 
   ```clojure
-  {:name           :apply-cap
-   :run            (fn [ctx] Promise<ctx>)
-   :short-circuit? (fn [ctx] boolean)}
+  {:name       :apply-cap
+   :run        (fn [ctx] Promise<ctx>)
+   :skip-when? (fn [ctx] boolean)}
   ```
 
-  - `:name`           — namespaced for tracing / errors.
-  - `:run`            — receives the live context map and returns a
-                        Promise of the next context. Side-effects (LRU
-                        writes, nREPL round-trips) are the step's own.
-  - `:short-circuit?` — optional predicate over the post-`:run`
-                        context. When truthy, the rest of the pipeline
-                        is skipped — the current `:result` is the
-                        final response. Pure on the context; cheap.
+  - `:name`       — namespaced for tracing / errors.
+  - `:run`        — receives the live context map and returns a
+                    Promise of the next context. Side-effects (LRU
+                    writes, nREPL round-trips) are the step's own.
+  - `:skip-when?` — optional predicate over the pre-`:run` context.
+                    When truthy, THIS step is skipped (its `:run` is
+                    not called) and the pipeline continues to the
+                    next step. Pure on the context; cheap. Renamed
+                    from `:short-circuit?` (rf2-l0isf) — the prior
+                    name read as halt-the-chain semantics; the
+                    actual semantics are skip-this-step.
 
   ## Context shape
 
@@ -52,12 +55,13 @@
   `:precheck-hash` slot is the cheap-hash from rf2-36xod; the
   `apply-cache` step consumes it to record on a miss.
 
-  ## Short-circuit semantics
+  ## Skip-when semantics
 
-  Each step's `:short-circuit?` is checked BEFORE its `:run` — the
+  Each step's `:skip-when?` is checked BEFORE its `:run` — the
   predicate decides 'should I bother running'. When truthy, the
   step is skipped and the pipeline continues to the next step
-  (whose own predicate is then consulted).
+  (whose own predicate is then consulted). 'Skip' is per-step,
+  not chain-halting.
 
   `apply-cap`'s predicate fires on a `marker?` result (a cache-hit
   or overflow envelope is already a wire-bounded marker — capping
@@ -78,19 +82,19 @@
 
 (defn run-step-pipeline
   "Thread `ctx` through `steps` in order. Each step's `:run` returns a
-  Promise of the next `ctx`. After every step, the `:short-circuit?`
-  predicate is consulted — when truthy, the rest of the pipeline is
-  skipped and `ctx` is returned as-is.
+  Promise of the next `ctx`. Before every step, the `:skip-when?`
+  predicate is consulted — when truthy, THAT step's `:run` is not
+  called; the pipeline continues to the next step.
 
   Returns a Promise of the final `ctx`. Caller extracts `:result` for
   the MCP wire reply."
   [steps ctx]
   (reduce
-    (fn [pr {:keys [run short-circuit?] :as _step}]
+    (fn [pr {:keys [run skip-when?] :as _step}]
       (-> pr
           (.then
             (fn [ctx]
-              (if (and short-circuit? (short-circuit? ctx))
+              (if (and skip-when? (skip-when? ctx))
                 ctx
                 (run ctx))))))
     (js/Promise.resolve ctx)

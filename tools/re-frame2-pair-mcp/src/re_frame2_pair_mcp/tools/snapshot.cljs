@@ -77,7 +77,11 @@
         ;; `:sub-cache` slices (where elision fired) — it only
         ;; re-shapes `:epochs` — so the pre-dedup server count equals
         ;; the post-dedup client count.
-        elision-opts-form (elision/elision-opts-edn elision? incl?)
+        ;; rf2-suoj2 — `elision-opts-edn` now takes the walker-aligned
+        ;; `include-large?` polarity directly (no in-helper inversion).
+        ;; MCP arg `elision` true = emit markers = `:include-large?` false,
+        ;; hence the local `(not elision?)`.
+        elision-opts-form (elision/elision-opts-edn (not elision?) incl?)
         form     (if elision?
                    (ef/emit
                      (ef/rt-let
