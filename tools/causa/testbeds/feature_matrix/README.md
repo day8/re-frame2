@@ -36,7 +36,7 @@ re-check. It now exercises the follow-up surfaces directly:
   (laid out to the left of Causa) clickable and that `popout!` renders a same-origin second-window
   Causa shell sharing the opener's runtime. (Per `rf2-sbfb7`, the dock /
   docked-overlay and `mount-inline-panel!` debug surfaces were removed;
-  declarative embedding lands under 008-Embedding-Contract.)
+  full-shell embedding lands under 008-Embedding-Contract.)
 - Schema recovery: the schema testbed loads the Malli adapter so browser runs
   assert rollback, skipped handlers, skipped fx, and the Causa schema panel's
   current row/empty-state projection.

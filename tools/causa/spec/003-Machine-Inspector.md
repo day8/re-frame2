@@ -158,8 +158,8 @@ who want Causa's panel chrome get the chart transitively via Causa.
   Causa → machines-viz → implementation/ dependency arrow at the
   whole-tool level.
 - [`008-Embedding-Contract.md`](008-Embedding-Contract.md) — the
-  embed surface for the chart (depend on `tools/machines-viz/`
-  directly when you don't need the panel chrome).
+  full-shell embed contract. Hosts that want only the chart skip
+  Causa entirely and depend on `tools/machines-viz/` directly.
 
 ## Tab placement
 

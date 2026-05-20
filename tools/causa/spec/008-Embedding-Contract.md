@@ -1,61 +1,28 @@
 # 008-Embedding-Contract
 
-Causa's default full-shell integration is an app-provided true-inline
-layout host (`[data-rf-causa-host]`) described in
-[`011-Launch-Modes.md`](./011-Launch-Modes.md). This file covers the
-separate embedded-panel contract.
+Causa's default integration is an app-provided true-inline layout host
+(`[data-rf-causa-host]`) described in
+[`011-Launch-Modes.md`](./011-Launch-Modes.md). This doc covers the
+**full-shell embed contract** — the canonical shape Story (per
+[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) §RHS) uses to mount
+the entire 4-layer Causa shell as its right-hand-side observability
+surface.
 
-Causa is consumed by Story (per `spec/007-Stories.md` §6.7) as a
-per-variant observability ribbon. This doc specifies the contract:
-every Causa panel exports a React component (or hiccup-fn equivalent)
-that can be embedded outside Causa's own chrome.
+Single-panel embedding as a host-facing affordance is **not part of
+the v1.0 contract**. Hosts that want per-panel mount fns reach for
+the `day8.re-frame2-causa.panels/mount-<panel>!` surface enumerated in
+[`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract — that
+surface is internal-but-stable (the shell composes panels through it;
+tests mount panels through it) rather than a host-facing embed
+contract with its own props vocabulary.
 
-## The contract
+## Full-shell embed contract (Causa-as-Story-RHS)
 
-Every panel exposes a public `Panel` component that accepts a props
-map:
-
-```clojure
-{:frame    :story.auth/login         ;; which frame to observe
- :compact? true                      ;; reduced chrome — no sidebar, no header
- :height   320                       ;; in pixels (optional; default flex)
- :scope    {:dispatch-id-prefix ...} ;; optional filter to restrict the observation window
- :on-event #(...)}                   ;; optional callback when the panel emits an event (e.g. click-to-source)
-```
-
-### Props
-
-| Prop | Required | Default | Meaning |
-|---|---|---|---|
-| `:frame` | yes | n/a | The frame-id this panel observes. The panel does not switch frames; the host owns frame selection. |
-| `:compact?` | no | `false` | If true: no sidebar, no top strip, no bottom rail. The panel renders as a self-contained card. |
-| `:height` | no | `nil` (flex) | Fixed height in pixels. Useful for Story variants that want a uniform ribbon height. |
-| `:scope` | no | `nil` | A filter map narrowing what the panel observes. See §Scoping below. |
-| `:on-event` | no | `nil` | A callback `(fn [event-map])` invoked when the panel emits a host-meaningful event (source-coord click, re-dispatch request, etc.). |
-
-### Embedded posture
-
-When embedded (`:compact? true`), the panel:
-
-- Does **not** claim `Ctrl+Shift+C`.
-- Does **not** open its own pop-out window.
-- Does **not** show a "close" button.
-- Does **not** render the sidebar, top strip, or bottom rail.
-- **Does** render its own content area identically to the
-  non-embedded version.
-- **Does** respect the user's density / theme / keybinding preferences
-  (the same localStorage settings drive both modes).
-
-The panel **knows it's embedded** via the `:compact?` flag.
-
-### Full-shell embed contract (Causa-as-Story-RHS)
-
-When a host mounts the **full Causa shell** (not a single panel) as
-its right-hand-side observability surface — Story does this per
-[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) §RHS —
-the host MUST surrender Causa's global keybinding capture so its own
-shortcuts (typically `Cmd/Ctrl+K` for the host's command palette) are
-not swallowed by Causa's capture-phase listener:
+When a host mounts the **full Causa shell** as its right-hand-side
+observability surface, the host MUST surrender Causa's global
+keybinding capture so its own shortcuts (typically `Cmd/Ctrl+K` for
+the host's command palette) are not swallowed by Causa's capture-phase
+listener:
 
 ```clojure
 (causa-config/configure! {:rf.causa/keybinding-enabled? false})
@@ -91,158 +58,76 @@ posture stays on `js/document` and continues consuming keypresses.
 The full API contract for `detach!` is documented in
 [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!`.
 
-## Scoping
+## Embed props inventory
 
-The `:scope` prop narrows the observation window:
+The full-shell embed exposes exactly two host-visible props:
 
-```clojure
-{:scope {:dispatch-id-prefix "story-variant-7c2-"  ;; observe only dispatches in this Story variant
-         :since-time         <ms>                  ;; observe only events newer than this
-         :only-origins       #{:app :story}        ;; filter by :origin axis
-         :include-children?  true}}                ;; if true, also observe child cascades
-```
+| Prop | Required | Default | Meaning |
+|---|---|---|---|
+| `:frame` | no | `:rf/causa` (Causa-internal default) | The frame the shell's frame-provider wraps. Hosts that need the embedded shell to read a non-default Causa-internal frame pass this through `mount-shell!`'s `opts`; in practice the default is what every shipped host uses. The shell's frame-picker UI is the canonical way to choose which *host* frame Causa observes — that selection lives in `:rf.causa/target-frame` inside `:rf/causa`'s db. |
+| `:height` | no | host-CSS owned | Causa does not read a height prop. The host's stylesheet sizes the mount-point container (typically via `--rf-causa-inline-width` for inline-host width and the host's flex / grid rules for height). Listed here because hosts often think of "height" as part of the embed contract; the contract is "the host owns it". |
 
-Scoping rules:
-
-- All scope keys are **optional**; absent means "no filter on this
-  axis."
-- Multiple scope keys are **AND-combined**.
-- Scope applies to the panel's data feed: an embedded event-detail
-  panel with `:dispatch-id-prefix "story-variant-..."` only shows
-  events whose `:dispatch-id` starts with that prefix.
-- Scope does **not** filter the trace bus itself — other Causa
-  instances and other consumers see all events. The framework's
-  emission is unchanged.
-
-### Why scoping exists
-
-Story renders multiple variants on one page. Each variant runs in
-its own frame and emits its own dispatches; the embedded ribbon for
-variant A must not show variant B's events. Scoping is the
-mechanism.
-
-## What ships embedded at v1.0
-
-| Panel | v1.0 embeddable? |
-|---|---|
-| **Event detail** | Yes (the primary embed target for Story). |
-| **App-db inspector** | Yes (compact-mode renders the slice-centric view only; no full-tree escape). |
-| **Issues ribbon** | Yes. |
-| **Performance ribbon** | Yes. |
-| Machine inspector | v1.0 — depends on `tools/machines-viz/` (its own tool jar; per rf2-o9arp / PR #1570). Causa re-exports the public chart API via thin shims so embedders that want the chart alone can depend on `tools/machines-viz/` directly without bringing in Causa's panel chrome. See also 003 §Architectural posture (H1) and 000 §Dependency arrows (H6). |
-| Subscription graph | v1.1. |
-| Schema timeline | v1.1. |
-| Hydration debugger | Not embeddable (the panel is contextual to a specific hydration; doesn't compose). |
-| Settings | Not embeddable. |
-
-The v1.0 embed set covers Story's needs (per `spec/007-Stories.md`
-§6.7 — Story embeds the **epoch panel** at v1.0). The wider v1.1
-embed set covers Story's planned ribbon expansions.
-
-## How Story wires it in
-
-Per `tools/story/` (when it lands):
-
-```clojure
-(ns day8.story.variants
-  (:require [re-frame.story :as story]
-            [day8.re-frame2-causa.panels.event-detail :as causa-event]))
-
-(story/reg-story-panel :story.auth/login
-  {:panels
-   [{:title  "Login form"
-     :render (fn [variant-data] [login-form variant-data])}
-    {:title  "Causa: events"
-     :render (fn [variant-data]
-               [causa-event/Panel
-                {:frame    (:frame variant-data)
-                 :compact? true
-                 :height   320
-                 :scope    {:dispatch-id-prefix (:scope-prefix variant-data)
-                            :include-children?  true}}])}]})
-```
-
-The host (Story) controls layout; Causa supplies the content.
-
-## Hook-style integration
-
-For React-only hosts that don't render Reagent, Causa exposes a
-plain-React surface:
-
-```javascript
-import {EventDetailPanel} from '@day8/re-frame2-causa/panels';
-
-function StoryVariant() {
-  return (
-    <EventDetailPanel
-      frame=":story.auth/login"
-      compact
-      height={320}
-      scope={{dispatchIdPrefix: 'story-variant-7c2-'}}
-    />
-  );
-}
-```
-
-The JS API kebab-cases / camelCases the props (`compact` for
-`:compact?`, `dispatchIdPrefix` for `:dispatch-id-prefix`).
-
-Internally the JS surface delegates to the same Reagent components;
-the JS wrapper is a thin adapter.
+Both props are honoured by the **frame-provider convention** (the
+`mount-<panel>!` surface from [`007-UX-IA.md`](./007-UX-IA.md)
+§Mountable panel contract: every mount fn opens with
+`[rf/frame-provider {:frame ...} ...]` and renders into the
+host-supplied mount-point — Causa never sizes its own container). No
+other host-facing props exist.
 
 ## What the host owns
 
-When embedded, the host (Story) owns:
+When Causa is embedded full-shell, the host (Story) owns:
 
-- **Frame selection.** The `:frame` prop is fixed by the host; Causa
-  never re-binds it from inside the embedded panel.
-- **Layout.** Where the embed goes on the page, its surrounding
+- **Layout.** Where the Causa shell goes on the page, its surrounding
   chrome, its size.
-- **Lifecycle.** Mount / unmount on variant change. Causa's panels
-  are pure with respect to their props; they tear down cleanly on
-  unmount.
-- **Event routing.** The host's `:on-event` callback decides what
-  to do with embed-emitted events (open a side panel, log,
-  ignore).
+- **Lifecycle.** Mount / unmount of the shell. Causa's mount fn
+  returns an unmount fn so the host owns teardown.
+- **Frame selection.** The host selects which host frame Causa
+  observes via Causa's own frame-picker UI; the host does not
+  re-bind the frame from outside.
+- **Keybinding capture.** Per the contract above, the host owns
+  global keystrokes; Causa's chord listener is detached.
 
 What Causa owns:
 
-- **The panel's content.** What's rendered inside the embed.
-- **Internal state** (selected slice, scroll position, expand/collapse
-  state) — local to the panel instance, not persisted.
-- **Live updates** from the trace bus / epoch history, scoped by the
-  `:scope` prop.
+- **Shell contents.** The 4-layer chrome and every panel inside it.
+- **Internal state** (selected tab, scrubber position, expand /
+  collapse state, filter settings) — local to the shell instance,
+  persisted via Causa's own localStorage slots.
+- **Live updates** from the trace bus / epoch history.
 
 ## State isolation (Option-C frame-provider)
 
-Causa's panels mount **inside the host's React tree** so embedding is
-zero-config — drop a `[Panel ...]` into Story / your own layout and it
-renders. But Causa's *state* must never bleed into the host's app-db,
-its subs, or its dispatch queue. That isolation is achieved by an
-internal frame-provider wrapper; see [`011-Launch-Modes.md`](./011-Launch-Modes.md)
-for the in-app overlay context and [`007-UX-IA.md`](./007-UX-IA.md)
-for shell layout. The mechanism, locked under rf2-tijr (2026-05-12):
+Causa's shell mounts **inside the host's React tree** so embedding is
+zero-config — drop a `mount-shell!` call into Story / your own layout
+and it renders. But Causa's *state* must never bleed into the host's
+app-db, its subs, or its dispatch queue. That isolation is achieved
+by an internal frame-provider wrapper; see
+[`011-Launch-Modes.md`](./011-Launch-Modes.md) for the in-app overlay
+context and [`007-UX-IA.md`](./007-UX-IA.md) for shell layout. The
+mechanism, locked under rf2-tijr (2026-05-12):
 
-### Frame-provider wraps every panel
+### Frame-provider wraps the shell
 
-Each public `Panel` component opens with an internal
-`[rf/frame-provider {:frame :rf/causa} ...]`. Descendant subscriptions
-and dispatches re-anchor to the `:rf/causa` frame, *not* the host's
-`:rf/default` (or whatever frame the host's tree is providing).
-Consequences:
+Every Causa mount fn (the master `mount-shell!` and every per-panel
+`mount-<panel>!` per [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel
+contract) opens with an internal `[rf/frame-provider {:frame
+:rf/causa} ...]`. Descendant subscriptions and dispatches re-anchor
+to the `:rf/causa` frame, *not* the host's `:rf/default` (or whatever
+frame the host's tree is providing). Consequences:
 
 - **App-db isolated.** `:rf.causa/buffer-cleared` writes touch
   `:rf/causa`'s db; the host app-db is untouched.
 - **Subs isolated.** A panel sub like `:rf.causa/trace-buffer` reads
   `:rf/causa`'s db.
-- **Dispatches isolated.** Events fired from inside the panel run on
+- **Dispatches isolated.** Events fired from inside the shell run on
   `:rf/causa`'s event queue and interceptor chain.
 - **Machines isolated.** Causa's machines live in `:rf/causa` and
   don't share state with host machines.
 
 Host code never sees `:rf/causa`; the wrapper is an implementation
-detail of `Panel`. Story (and any other host) embeds Causa with no
-awareness of the frame split.
+detail of the mount-fn surface. Story (and any other host) embeds
+Causa with no awareness of the frame split.
 
 ### Registry-key isolation via `:rf.causa/*` prefix
 
@@ -270,16 +155,20 @@ that needs it, not in a central shim layer.
 
 ## What this doesn't do
 
+- **No host-facing per-panel props vocabulary.** Hosts mount the full
+  shell; the shell composes panels internally. The
+  `mount-<panel>!` aggregator surface is documented at
+  [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract for
+  internal use (shell composition, tests, future tools); it carries
+  one `opts` key — `:frame` — and is not a host-facing embed contract.
 - **No two-way binding.** The host doesn't push state into Causa
-  beyond the props; Causa doesn't push state back beyond
-  `:on-event` callbacks.
-- **No cross-embed coordination.** Two embedded panels on the same
-  page do not share state. Each panel reads the trace bus
-  independently. (The trace bus emits once; multiple subscribers see
-  the same event — the per-panel scope filters happen client-side.)
-- **No standalone styling overrides.** Embedded panels use Causa's
-  theme tokens. The host can wrap them in a container that overrides
-  CSS variables but cannot patch panel internals.
+  beyond the configure! slots; Causa doesn't push state back to the
+  host.
+- **No standalone styling overrides.** The embedded shell uses
+  Causa's theme tokens. The host can wrap the shell in a container
+  that overrides CSS variables (`--rf-causa-font-size`,
+  `--rf-causa-accent`, `--rf-causa-inline-width`, …) but cannot
+  patch shell internals.
 - **No security boundary.** Causa runs in the host page's JS realm.
   If the host is untrusted, do not embed Causa.
 
@@ -289,13 +178,14 @@ v1.0 is **first-party panels only.** No plugin API, no panel registry.
 Third-party-extensible panels are a v2.0 design discussion.
 
 The current contract leaves room: every panel is already a
-self-contained component with a props-only interface. A future
-plugin registry would `:require` a third-party namespace and register
-it under a new sidebar entry with the same `Panel` shape.
+self-contained component with a `Panel` reg-view + `install!` shape
+(per [`Conventions.md`](./Conventions.md) §Panel facade + leaf split).
+A future plugin registry would `:require` a third-party namespace and
+register it under a new sidebar entry with the same `Panel` shape.
 
-No commitment is made about the third-party plugin surface
-shape — the embedding contract above is for the **canonical
-first-party panels**, not for any future third-party kind.
+No commitment is made about the third-party plugin surface shape —
+the embedding contract above is for the **canonical first-party
+shell**, not for any future third-party kind.
 
 ## Vision — Story ↔ Causa preset round-tripping
 
@@ -303,8 +193,8 @@ first-party panels**, not for any future third-party kind.
 debugging posture (filters set, tab selected, pinned epoch); when
 someone else opens that story, they should land in the same posture."
 
-The Story embedding contract (above) covers the **structural** props
-the host passes to a panel. The next-step affordance is **deep preset
+The full-shell embed contract above covers the **structural** wiring
+Story uses to mount Causa. The next-step affordance is **deep preset
 round-tripping**: when a Story variant declares `{:causa/preset {…}}`,
 Causa restores **the full visible state** on mount:
 

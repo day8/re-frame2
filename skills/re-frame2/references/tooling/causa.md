@@ -9,7 +9,7 @@
 - Resizing the inline panel via the `--rf-causa-inline-width` CSS variable.
 - Suppressing the page-load auto-open on a tool-only canvas (Story-only build, internal dev page).
 - Reaching the pop-out from CLJS or a devtools console.
-- Choosing between inline / popout / declarative embedding (per Spec 008) / MCP-only access.
+- Choosing between inline / popout / full-shell embedding (per Spec 008) / MCP-only access.
 
 Do **not** load this leaf to learn what Causa is — load `tools/causa/README.md` for the panel inventory and Spec 011 for the full launch-mode treatment.
 
@@ -50,7 +50,7 @@ Most apps use **inline (default)**. Reach for the others only when the trigger f
 | Local development; want devtools in the app window | **Inline (default)** | Add the preload + the `[data-rf-causa-host]` host. Causa auto-mounts. |
 | Want a second monitor for Causa | **Inline + pop-out** | Inline mount as above, then `(causa/popout!)` from CLJS or `window.day8.re_frame2_causa.popout_BANG_()` from a devtools console. Same JS realm via `window.opener`. |
 | Tool-only page that can't reserve right-column real estate (Story-only canvas, internal config UI) | **Suppress auto-open** | `(causa-config/configure! {:rf.causa/auto-open? false})` before `rf/init!`. Causa stays installed; explicit `open!` still works and still warns on missing host. |
-| Want to embed a single Causa panel inside the app's own layout (e.g. an embedded epoch scrubber in a debug screen) | **Declarative embedding via Spec 008** | See `tools/causa/spec/008-Embedding-Contract.md` for the `Panel` component shape. Not for "I want the whole panel"; only for "I want one slice of Causa as an app component." |
+| Want to mount the full Causa shell inside another host (Story is the canonical example) | **Full-shell embed via Spec 008** | See `tools/causa/spec/008-Embedding-Contract.md` §Full-shell embed contract. The host surrenders the global chord (`:rf.causa/keybinding-enabled? false`) so its own keybindings reach their handlers. Single-panel embedding is NOT a v1.0 host-facing affordance. |
 | Want an AI agent to read / time-travel the running re-frame2 app programmatically | **re-frame2-pair-mcp** | Configure the `tools/re-frame2-pair-mcp/` server in the agent host (`re-frame2-pair-mcp`). Raw nREPL pair-programming companion. UI may or may not be open in the browser. |
 
 Cross-machine debugging and mobile launch are out of scope at v1.0 (see Spec 011 §Default summary, locks #5 and #9).
@@ -97,7 +97,7 @@ Set `(causa-config/configure! {:rf.causa/auto-open? false})` before `rf/init!` o
 
 - Story-only browser-test canvases (the page is a test harness; no human reads Causa).
 - Internal dev pages whose layout can't accommodate a right column.
-- Embed-via-Spec-008 pages where the app composes specific Causa panels into its own layout, not the whole shell.
+- Full-shell-embed pages (per Spec 008) where the host owns shell mount lifecycle — the host's own boot, not Causa's preload-auto-open, drives mount timing.
 
 Suppression only blocks the default page-load open. Explicit `open!`, `toggle!`, and the keybinding still work — and if no host exists when they fire, Causa still emits the missing-host diagnostic. App dev pages should leave auto-open at its `true` default and provide `[data-rf-causa-host]`.
 
@@ -120,5 +120,5 @@ Causa's shell wraps in `[rf/frame-provider {:frame :rf/causa} ...]`. Every `subs
 - `tools/causa/README.md` — panel inventory, headline experiences, file layout.
 - `tools/causa/spec/011-Launch-Modes.md` — normative launch-mode contract, full popout handling.
 - `tools/causa/spec/007-UX-IA.md` — five-region layout, keyboard map, density model.
-- `tools/causa/spec/008-Embedding-Contract.md` — the declarative `Panel` shape for embedding one panel inside the app.
+- `tools/causa/spec/008-Embedding-Contract.md` — the full-shell embed contract (Story mounts Causa with `:rf.causa/keybinding-enabled? false`).
 - `skills/re-frame-migration/references/causa-replaces-10x.md` — the 10x → Causa migration view, including the keybinding-parity caveat.
