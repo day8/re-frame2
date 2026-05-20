@@ -187,6 +187,7 @@ related error, that's the fix.
 ├── src/{{nested-dirs}}/
 │   ├── core.cljs            ; entry point — mounts the root view
 │   ├── events.cljs          ; `:counter/initialise`, `:counter/increment` handlers
+│   ├── schema.cljs          ; whole-app-db Malli schema + `reg-app-schema`
 │   ├── subs.cljs            ; `:counter/value` subscription
 │   └── views.cljs           ; the counter view ({{substrate}})
 ├── test/{{nested-dirs}}/
@@ -211,6 +212,165 @@ This is the same counter walked through in
 the state key is intentionally feature-scoped (`:counter/value`, not a
 bare `:count`) so generated applications start with AI-readable,
 non-colliding app-db slices.
+
+## Best practices baked into the scaffold
+
+re-frame2 ships with distinctive postures on **error visibility**,
+**typed boundaries**, and **HTTP failure handling**. The starter app
+demonstrates each one inline so new apps inherit the conventions
+without ceremony.
+
+### Errors are events too
+
+Every error inside the dispatch pipeline — schema violation, handler
+exception, sub exception, fx exception, drain-depth overflow — emits a
+structured trace event with `:op-type :error` (per
+[Spec 009 §Error contract](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)).
+The framework does NOT decide what the user sees; an **app-level
+listener projects errors onto the UI**.
+
+The scaffold registers a default error sink at the top of `events.cljs`:
+
+```clojure
+(trace-tooling/register-trace-listener!
+  ::error-sink
+  (fn [trace-event]
+    (when (= :error (:op-type trace-event))
+      (js/console.error "[your-app]"
+                        (:operation trace-event)
+                        (clj->js (:tags trace-event))))))
+```
+
+(The listener API lives in `re-frame.trace.tooling`, not `re-frame.core`
+— CLJS production bundles DCE the tooling namespace wholesale, so the
+`rf/...` alias for these fns is JVM-only. Per Spec 009 §JVM-only
+aliases — rf2-qwm0a.)
+
+The sink surfaces every error to the console — silent regressions are
+impossible to miss. Replace `js/console.error` with whatever your app
+does for user-visible errors (toast, error boundary, Sentry / Rollbar /
+etc.).
+
+The same-key registration form means hot-reload re-runs without
+leaking listeners; the listener registry elides in production builds
+(per [Spec 009 §`register-trace-listener!`](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#the-listener-api)).
+
+Note: re-frame2 also ships `reg-error-projector` for **server-side
+rendering** (SSR), where the projector maps internal trace events to
+HTTP-response shapes. That projector is a separate surface from the
+client-side error sink above — see
+[Spec 011 §SSR](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md)
+if you're rendering server-side.
+
+### Typed app-db boundaries
+
+`schema.cljs` registers a **whole-app-db schema** at the empty path
+`[]`. The framework validates every write against the registered
+schemas; a non-conforming write rolls back the `:db` effect and emits
+`:rf.error/schema-validation-failure`. The error then flows through
+the error sink above — wrong writes are caught at the boundary, not
+N renders downstream.
+
+```clojure
+(def CounterDb
+  [:map {:closed true}
+   [:counter/value :int]])
+
+(rf/reg-app-schema [] CounterDb)
+```
+
+Closed maps catch typos (`:countr/value` → schema rejection); open
+maps admit new keys during development. The starter uses closed —
+flip to `{:closed false}` if you want laxer registration while you
+sketch.
+
+For multi-feature apps, register **per-feature schemas at their
+prefix path** rather than one giant root schema:
+
+```clojure
+(rf/reg-app-schemas
+  {[:cart]                  CartSlice
+   [:cart :items]           [:vector CartItem]
+   [:auth]                  AuthSlice
+   [:auth :login-form]      FormSlice})
+```
+
+Per-feature schemas compose with the root schema; both validate. Full
+detail: [Spec 010 §`app-db` schemas — path-based](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#app-db-schemas--path-based).
+
+Schema validation elides automatically under `:advanced`
+`goog.DEBUG=false` builds — registrations stay in source but cost
+nothing in production hot paths.
+
+### HTTP — closed failure-category set and a single `:on-failure` branch
+
+`events.cljs` ships a commented-out `:rf.http/managed` handler showing
+the canonical call shape per
+[Spec 014 §`:rf.http/managed`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md).
+Uncomment and adapt when your app starts talking to a backend.
+
+Two distinctive postures land in the example:
+
+1. **Closed `:retry :on` set.** Only the *retryable* subset of the
+   `:rf.http/*` failure-category vocabulary is admissible:
+   `:rf.http/transport`, `:rf.http/http-5xx`, `:rf.http/timeout`. The
+   non-retryable categories (`:rf.http/cors`,
+   `:rf.http/decode-failure`, `:rf.http/http-4xx`, `:rf.http/aborted`,
+   `:rf.http/accept-failure`) are rejected at fx-call time with
+   `:rf.error/http-bad-retry-on` — misuse fails fast at the dispatch
+   site, not silently across the request's lifetime.
+
+2. **Single `:on-failure` branch, project on the kind.** Exactly one
+   `:on-failure` dispatch fires per request (even with retry — per
+   Spec 014 §Retry × `:on-failure` semantics). Branch on
+   `(:kind (:failure reply))` to project each `:rf.http/*` category
+   onto the UI-facing message:
+
+   ```clojure
+   (case (:kind failure)
+     :rf.http/transport      "Network unavailable."
+     :rf.http/http-5xx       "Server error — try again later."
+     :rf.http/timeout        "Server took too long to respond."
+     :rf.http/decode-failure "Bad response from server."
+     ...)
+   ```
+
+   Body-conditional retry (e.g. honour a `:retry-after` header) is
+   **out of scope** for `:retry` — that's semantic, not transport.
+   Lift it into a state machine per Spec 014 §Boundary — transport vs
+   semantic retry.
+
+To enable HTTP, add `day8/re-frame2-http` to `deps.edn` and require
+`[re-frame.http-managed]` at app boot (the side-effecting load that
+registers `:rf.http/managed`).
+
+### Naming conventions
+
+The scaffold follows the **`:domain/action` keyword shape** throughout
+— `:counter/value` for the app-db slice, `:counter/initialise` and
+`:counter/increment` for events, `:counter/value` for the sub. Same
+shape for views and fx; the **id prefix identifies the feature**.
+
+Two rules cover most of the surface:
+
+- **Reserved namespaces are framework-owned.** Anything under `:rf/*`,
+  `:rf.<area>/*` (e.g. `:rf.http/*`, `:rf.machine/*`), and
+  `:rf.error/*` belongs to the framework. App ids live under your own
+  domain prefix — never `:rf` / `:rf.*`.
+
+- **Per-feature `:rf.<area>/*` patterns for fx.** A feature with
+  prefix `:cart` namespaces its events under `:cart/...` and
+  `:cart.<area>/...`; its subs under `:cart/...`; its app-db slice at
+  `[:cart]`; its schemas under `[:cart]` paths; its private fx under
+  `:cart.<sub-area>/...` (e.g. `:cart.persistence/save`). A feature
+  does NOT reach into another feature's slice directly — it goes
+  through the other feature's subs (to read) and dispatches the other
+  feature's events (to write).
+
+Full normative catalogue:
+[spec/Conventions.md](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)
+— reserved namespaces, fx-id sub-namespaces, reserved app-db keys,
+and the feature-modularity prefix convention.
 
 ## Next steps
 
