@@ -151,7 +151,7 @@ const EXAMPLES = [
     outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'helix'),
   },
 
-  // ----- Framework testbeds (1) -----------------------------------------
+  // ----- Framework testbeds (0) -----------------------------------------
   // (Wave 4, rf2-e3j8l) The `examples/counter-perf` Playwright entry has
   // been removed: `tools/causa/testbeds/perf_counter/spec.cjs` was
   // deleted in favour of pure-CLJS User-Timing assertions at
@@ -161,15 +161,15 @@ const EXAMPLES = [
   // retained — `npm run test:perf-bundle` still uses it for the
   // bundle-presence grep (scripts/check-perf-bundle.cjs).
   //
-  // Parallel-Frames testbed (rf2-m00rw) — THE canonical multi-frame
-  // isolation demo. One app, mounted in TWO frames (:above + :below)
-  // on ONE page with zero cross-frame coupling. Paired with
-  // tools/causa/testbeds/parallel_frames/spec.cjs.
-  {
-    build: 'examples/parallel-frames',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'parallel_frames', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'parallel-frames'),
-  },
+  // (Wave 2, rf2-lcg1z) The `examples/parallel-frames` Playwright entry
+  // has been removed: `tools/causa/testbeds/parallel_frames/spec.cjs`
+  // was deleted in favour of pure-CLJS multi-frame isolation
+  // assertions at
+  // `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs`
+  // (per-PR via the standard `:node-test` build). The testbed surface
+  // (`core.cljs`, `index.html`, `README.md`) stays in-tree as the
+  // canonical Causa-displayable multi-frame demo; only the Playwright
+  // spec.cjs retired.
 
   // ----- SSR testbeds (rf2-ik4io) ---------------------------------------
   // Top-level `testbeds/<surface>/` siblings of `examples/<substrate>/`

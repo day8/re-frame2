@@ -1101,11 +1101,9 @@ jobs:
       # rf2-9grp6 — framework + top-level testbed Playwright surfaces.
       # Split out of `adapter-testbed-smokes` (rf2-cjp0i narrowed the
       # adapter gate's trigger; this bead narrowed its scope to match).
-      # The EXAMPLES_FILTER pattern OR-matches the 10 framework / SSR
-      # builds (1 Causa-owned: parallel-frames; 9 top-level: ssr-basic,
-      # ssr-hydration-mismatch, ssr-multi-frame, deliberate-throw,
-      # http-toggle, deep-machine, non-trivial-app-db,
-      # long-flow-w-failure, drain-depth-trigger) while excluding the 3
+      # The EXAMPLES_FILTER pattern OR-matches the residual top-level
+      # testbed builds (testbeds/ssr-basic, testbeds/ssr-hydration-
+      # mismatch, testbeds/ssr-multi-frame) while excluding the 3
       # adapter builds. RF2_CAUSA_RUN_GALLERY_SMOKES=1 (rf2-1w76p)
       # additionally compiles + runs the panel-gallery stand-alone
       # smokes (gate the rf2-kgn0c workspace-teardown regression) —
@@ -1119,9 +1117,17 @@ jobs:
       # The shadow-cljs `examples/counter-perf` build target is retained
       # for `npm run test:perf-bundle` (bundle-presence grep) but no
       # longer has a Playwright spec.cjs to run.
+      #
+      # (rf2-lcg1z, Wave 2) `examples/parallel-frames` removed from
+      # this filter — the parallel_frames Playwright spec.cjs was
+      # deleted and its isolation assertions migrated to the CLJS
+      # node-test suite at
+      # `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs`.
+      # The testbed surface itself stays in-tree as the canonical
+      # Causa-displayable multi-frame demo.
       - name: Compile framework + top-level testbeds, serve, and run Playwright specs
         env:
-          EXAMPLES_FILTER: "examples/parallel-frames,testbeds/"
+          EXAMPLES_FILTER: "testbeds/"
           RF2_CAUSA_RUN_GALLERY_SMOKES: "1"
         run: npm run test:examples
 
