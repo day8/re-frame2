@@ -218,8 +218,20 @@
 ;; ---- (7) resolve-focus-status + find-epoch-record -------------------
 
 (deftest resolve-focus-status-no-focus
-  (is (= :no-focus (h/resolve-focus-status nil [])))
-  (is (= :no-focus (h/resolve-focus-status nil [(epoch-record 1 [])]))))
+  (testing "focus nil AND history empty → cold start, :no-focus"
+    (is (= :no-focus (h/resolve-focus-status nil [])))
+    (is (= :no-focus (h/resolve-focus-status nil nil)))))
+
+(deftest resolve-focus-status-head-fallback
+  (testing "rf2-h0120 — focus nil but history non-empty → head-fallback
+            (resolves to :focused; the find-epoch-record lookup returns
+            the most-recent record). This is the natural debugging UX —
+            show the latest unless the operator explicitly picks an
+            earlier row."
+    (let [hist [(epoch-record 1 []) (epoch-record 2 []) (epoch-record 3 [])]]
+      (is (= :focused (h/resolve-focus-status nil hist))))
+    (testing "single-record history also resolves to :focused"
+      (is (= :focused (h/resolve-focus-status nil [(epoch-record 1 [])]))))))
 
 (deftest resolve-focus-status-focused-match
   (let [hist [(epoch-record 1 []) (epoch-record 2 []) (epoch-record 3 [])]]
@@ -244,8 +256,23 @@
               (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])]]
     (is (= 5 (:epoch-id (h/find-epoch-record 5 hist))))
     (is (= 6 (:epoch-id (h/find-epoch-record 6 hist))))
-    (is (nil? (h/find-epoch-record 99 hist)))
-    (is (nil? (h/find-epoch-record nil hist)))))
+    (is (nil? (h/find-epoch-record 99 hist)))))
+
+(deftest find-epoch-record-head-fallback
+  (testing "rf2-h0120 — focus nil + history non-empty returns the HEAD
+            (most-recent) record. epoch-history is oldest-first per
+            re-frame.epoch/epoch-history, so the head is the last
+            element."
+    (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-threw)])
+                (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])
+                (epoch-record 7 [])]]
+      (is (= 7 (:epoch-id (h/find-epoch-record nil hist))))))
+  (testing "single-record history's head is that single record"
+    (let [hist [(epoch-record 42 [(error-ev 1 :rf.error/handler-threw)])]]
+      (is (= 42 (:epoch-id (h/find-epoch-record nil hist))))))
+  (testing "focus nil AND history empty/nil returns nil"
+    (is (nil? (h/find-epoch-record nil [])))
+    (is (nil? (h/find-epoch-record nil nil)))))
 
 ;; ---- (8) project-feed top-level composite ---------------------------
 
@@ -296,6 +323,30 @@
       (is (= #{1 3 5} (set (map :id (:issues feed)))))
       (is (nil? (:empty-kind feed)))
       (is (= 42 (:epoch-id feed))))))
+
+(deftest project-feed-head-fallback-end-to-end
+  (testing "rf2-h0120 — exercise the panel's sub call-site shape: when
+            :rf.causa/focus carries no :epoch-id but :rf.causa/epoch-
+            history has records, resolve-focus-status returns :focused,
+            find-epoch-record returns the head, and project-feed
+            renders the head's issues. This is the natural debugging
+            UX the scenarios.cjs schema-violation scenario relies on."
+    (let [hist             [(epoch-record 5 [])
+                            (epoch-record 6 [(error-ev 1 :rf.error/schema-violation
+                                                       {:tags {:path [:user :name]}})])]
+          ;; Sub call-site shape from issues_ribbon.cljs:
+          focus-epoch-id   nil
+          focus-status     (h/resolve-focus-status focus-epoch-id hist)
+          record           (h/find-epoch-record   focus-epoch-id hist)
+          feed             (h/project-feed record {} focus-status)]
+      (is (= :focused focus-status))
+      (is (= 6 (:epoch-id record)) "head record is the most-recent epoch")
+      (is (nil? (:empty-kind feed))
+          "feed renders, not an empty state")
+      (is (= 1 (:total feed)))
+      (is (= 1 (:rendered feed)))
+      (is (= [1] (mapv :id (:issues feed))))
+      (is (= 6 (:epoch-id feed)) "feed epoch-id reflects the head"))))
 
 (deftest project-feed-newest-first
   (testing "the feed reverses the trace-events stream — newest first"

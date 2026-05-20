@@ -79,7 +79,21 @@
   ring buffer (history capped per the framework's `:epoch-history`
   configuration) the helper surfaces `:empty-kind :epoch-evicted`
   so the view renders the canonical evicted-epoch placeholder per
-  spec/021 §10.7."
+  spec/021 §10.7.
+
+  ## Head-fallback when focus is nil (rf2-h0120)
+
+  When `:rf.causa/focus` carries no `:epoch-id` (cold start before
+  any user click; test rigs that don't pre-set focus) BUT
+  `:rf.causa/epoch-history` is non-empty, the resolver falls back
+  to the HEAD of `epoch-history` (the most recent epoch — recall
+  `epoch-history` is oldest-first per `re-frame.epoch/epoch-history`,
+  so head = `peek`). This is the natural debugging UX: show the
+  latest unless the operator explicitly clicks an earlier row. The
+  resolver returns `:focused` for this case; `find-epoch-record`
+  returns the head record. The `:no-focus` empty-state is reserved
+  for the truly degenerate case where focus is nil AND history is
+  empty (no cascades have settled yet)."
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.theme.tokens :as tokens]))
@@ -321,10 +335,12 @@
   projection.
 
   `focus-status` is one of:
-    :no-focus       — no focused epoch (cold start, no cascades yet)
+    :no-focus       — no focused epoch AND no history (cold start
+                      before any cascade has settled)
     :epoch-evicted  — focus has an :epoch-id but the matching record
                       is gone from history (capped per :epoch-history)
-    :focused        — focus resolved to a real epoch record
+    :focused        — focus resolved to a real epoch record (either
+                      explicit pin or head-fallback per rf2-h0120)
 
   Returns:
 
@@ -340,9 +356,13 @@
 
   `:empty-kind` discriminates the empty-state branches:
 
-      :no-focus       — spine carries no focused epoch yet. Render a
-                        terse 'No epoch focused.' line so the panel
-                        skeleton doesn't look broken.
+      :no-focus       — spine carries no focused epoch AND history
+                        is empty (cold start, no cascades have
+                        settled). Render a terse 'No epoch focused.'
+                        line so the panel skeleton doesn't look
+                        broken. Per rf2-h0120 a nil-focus with
+                        non-empty history falls back to head and
+                        renders the feed, not this empty state.
       :epoch-evicted  — focused epoch's record has been evicted from
                         the history ring buffer; view paints the
                         canonical placeholder per spec/021 §10.7.
@@ -405,15 +425,24 @@
   "Classify the focus + history pair into one of the three focus
   statuses the projection consumes. Pure data → keyword; JVM-testable.
 
-      :no-focus       — focus carries no :epoch-id (cold start)
+      :no-focus       — focus carries no :epoch-id AND epoch-history
+                        is empty (cold start, no cascades yet)
       :epoch-evicted  — focus has :epoch-id but no matching record
                         survives in epoch-history
-      :focused        — match found
+      :focused        — focus has :epoch-id and matches a record, OR
+                        focus is nil but epoch-history has at least
+                        one record (head-fallback per rf2-h0120)
 
   `focus-epoch-id` is `(:epoch-id focus)`. `epoch-history` is the
-  vector of `:rf/epoch-record` maps the framework keeps."
+  vector of `:rf/epoch-record` maps the framework keeps (oldest-first
+  per `re-frame.epoch/epoch-history`)."
   [focus-epoch-id epoch-history]
   (cond
+    ;; Head-fallback: focus unset but history exists. Per rf2-h0120
+    ;; this is the natural debugging UX — show the latest epoch
+    ;; rather than the empty 'no focus' line.
+    (and (nil? focus-epoch-id)
+         (seq epoch-history))                 :focused
     (nil? focus-epoch-id)                     :no-focus
     (some (fn [r] (= focus-epoch-id (:epoch-id r)))
           epoch-history)                      :focused
@@ -421,12 +450,28 @@
 
 (defn find-epoch-record
   "Look up the `:rf/epoch-record` in `epoch-history` whose `:epoch-id`
-  matches `focus-epoch-id`. Returns nil when not found. Pure data →
-  record-or-nil; JVM-testable."
+  matches `focus-epoch-id`. When `focus-epoch-id` is nil but
+  `epoch-history` is non-empty, returns the HEAD (most-recent) record
+  per the head-fallback contract (rf2-h0120) — `epoch-history` is
+  oldest-first, so the head is `(peek epoch-history)`. Returns nil
+  when no match (and no history). Pure data → record-or-nil; JVM-
+  testable."
   [focus-epoch-id epoch-history]
-  (when (some? focus-epoch-id)
+  (cond
+    (and (nil? focus-epoch-id) (seq epoch-history))
+    ;; `peek` on a vector is O(1); `last` is the safe fall-back when
+    ;; a caller hands in a seq. Production sub joins on the
+    ;; framework's vector-backed `:rf.causa/epoch-history`, so the
+    ;; vector branch is the hot path.
+    (if (vector? epoch-history)
+      (peek epoch-history)
+      (last epoch-history))
+
+    (some? focus-epoch-id)
     (some (fn [r] (when (= focus-epoch-id (:epoch-id r)) r))
-          epoch-history)))
+          epoch-history)
+
+    :else nil))
 
 ;; ---- selection ----------------------------------------------------------
 

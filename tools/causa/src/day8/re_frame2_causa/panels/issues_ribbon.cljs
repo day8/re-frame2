@@ -38,7 +38,10 @@
   ## Empty states (per spec/021 §8.2 + §10.7)
 
     :no-focus       → 'No epoch focused.' — cold start; spine has
-                      not landed on any epoch yet.
+                      not landed on any epoch AND no epochs are in
+                      history yet. Per rf2-h0120 a nil-focus with
+                      non-empty history falls back to the head epoch
+                      and renders the feed, not this empty state.
     :epoch-evicted  → canonical placeholder per spec/021 §10.7:
                       'Epoch evicted from buffer.
                        Increase :epoch-history to retain more.'
