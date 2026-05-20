@@ -126,8 +126,28 @@
 
   ### Authoring
   - [[testid]] — build a `:data-testid`-carrying attrs map at the
-    view call site. Optional `extra` map merges additional attrs."
-  (:require [clojure.string :as str]))
+    view call site. Optional `extra` map merges additional attrs.
+
+  ### Single-frame e2e fixture (rf2-wy1ac)
+  - [[with-app-fixture]] — macro. Brackets `body` with a fresh frame
+    (created, bound as `*current-frame*`, destroyed on exit) and
+    optionally runs an `:install` hook and stashes a `:root-view`
+    for downstream `expect-text` / `wait-until` calls. Compresses the
+    five-line per-test fixture pattern to two lines (frame + body).
+  - [[expect-text]] — locate a `:data-testid` in the root-view's
+    rendered hiccup and assert on its text content via
+    `clojure.test/is`. 2-arity uses the fixture-stashed root view; the
+    3-arity accepts an explicit tree.
+  - [[wait-until]] — bounded-deadline poll for a condition. JVM is
+    synchronous; CLJS returns a `js/Promise` (composes with
+    `cljs.test/async`). Replaces incidental fixed-sleep waits when the
+    post-condition is observable in view-state or app-db."
+  (:require [clojure.string :as str]
+            [re-frame.frame :as frame]
+            #?(:clj  [clojure.test :as ctest]
+               :cljs [cljs.test :as ctest :include-macros true]))
+  #?(:cljs (:require-macros
+             [re-frame.test-helpers :refer [with-app-fixture]])))
 
 ;; ---------------------------------------------------------------------------
 ;; Hiccup-tree expansion
@@ -409,3 +429,326 @@
    {:data-testid id})
   ([id extra]
    (assoc extra :data-testid id)))
+
+;; ---------------------------------------------------------------------------
+;; Single-frame e2e fixture (rf2-wy1ac)
+;;
+;; The trio below — `with-app-fixture`, `expect-text`, `wait-until` —
+;; compresses the dominant single-frame e2e test pattern from five
+;; lines of fixture boilerplate to two. Multi-frame setups (Causa,
+;; Story) keep using `rf/with-frame` + the lower-level primitives
+;; directly; this fixture is for the common app-developer case.
+;;
+;; The shape:
+;;
+;;     (deftest counter-increments
+;;       (th/with-app-fixture {:install  counter/install!
+;;                             :root-view counter/main}
+;;                            :test-app
+;;         (rf/dispatch-sync [:counter/inc])
+;;         (rf/dispatch-sync [:counter/inc])
+;;         (th/expect-text :counter-display \"2\")))
+;;
+;; `with-app-fixture` creates the frame, pins it as `*current-frame*`,
+;; calls the `:install` fn inside that scope (so any `reg-event-db` /
+;; `reg-sub` etc. land while the frame is active), then runs `body`
+;; with the root view stashed for `expect-text`. On exit (success or
+;; exception) the frame is destroyed.
+;; ---------------------------------------------------------------------------
+
+(def ^:dynamic *current-root-view*
+  "Root-view fn stashed by [[with-app-fixture]] for the body's dynamic
+  extent. [[expect-text]] and [[wait-until]]'s 2-arity testid form read
+  this var to know which view-fn to call when assembling the hiccup
+  tree. `nil` outside a fixture body; callers that want to operate on
+  an explicit tree use the 3-arity shapes instead."
+  nil)
+
+(def ^:dynamic *current-root-view-args*
+  "Args vector passed to `*current-root-view*` when rendering the
+  tree. Defaults to `[]` (the common Reagent-style zero-arg view).
+  [[with-app-fixture]] sets this from the fixture opts' `:root-view-args`
+  key — callers whose root view takes arguments (e.g. a props map)
+  supply them once at the fixture site, not at every `expect-text`
+  call."
+  [])
+
+#?(:clj
+   (defmacro with-app-fixture
+     "Bracket `body` with a fresh single-frame fixture — the dominant
+     shape for app-developer e2e tests (rf2-wy1ac).
+
+     Two call shapes — first arg is the discriminator:
+
+       (with-app-fixture opts-map frame-id body+)
+       (with-app-fixture opts-map           body+)   ; anonymous gensym'd id
+
+     `opts-map` (all keys optional):
+
+       :install         zero-arg fn called *inside* the frame's dynamic
+                        extent, after the frame is created. Typical
+                        body: `(reg-event-db ...)` / `(reg-sub ...)` /
+                        `(reg-view ...)` calls that the test relies on.
+                        Registrations land in the global registrar; pair
+                        this fixture with `re-frame.test-support/reset-runtime-fixture`
+                        (or `with-fresh-registrar`) to roll them back
+                        between tests.
+       :root-view       view fn (a hiccup-returning function). Stashed in
+                        `*current-root-view*` for the body so [[expect-text]]
+                        and [[wait-until]]'s testid forms can find it
+                        without an explicit tree argument.
+       :root-view-args  args vector passed to `:root-view` when rendering
+                        the tree. Defaults to `[]`. Use when the view fn
+                        takes a props map or similar.
+       :frame-config    extra map merged into the frame's config map
+                        (passed to `make-frame` / `reg-frame`). Use for
+                        `:on-create`, `:fx-overrides`, `:interceptor-overrides`,
+                        `:interceptors` and the rest of the frame-shape
+                        contract per Spec 002.
+
+     The macro:
+       1. Creates the frame (anonymous gensym'd id, or the supplied
+          `frame-id`).
+       2. Binds `re-frame.frame/*current-frame*` to that id for the
+          dynamic extent of `body`.
+       3. Calls `:install` (if supplied) — zero-arg, with the frame
+          already bound.
+       4. Binds `*current-root-view*` / `*current-root-view-args*` from
+          the opts (if `:root-view` is supplied).
+       5. Runs `body`.
+       6. In a `finally`, calls `(destroy-frame! id)` so the frame is
+          released regardless of whether `body` returned normally.
+
+     Per Spec 008 §Test fixture lifecycle patterns — this is the
+     ergonomic shorthand over the Pattern 1 / Pattern 2 long forms."
+     {:arglists '([opts-map frame-id body+] [opts-map body+])}
+     [opts & more]
+     (let [[frame-id body] (if (and (seq more) (keyword? (first more)))
+                             [(first more) (rest more)]
+                             [nil more])
+           opts-sym       (gensym "opts")
+           install-sym    (gensym "install")
+           root-view-sym  (gensym "root-view")
+           root-args-sym  (gensym "root-args")
+           frame-cfg-sym  (gensym "frame-config")
+           id-sym         (gensym "frame-id")
+           create-form    (if frame-id
+                            `(re-frame.frame/reg-frame ~frame-id ~frame-cfg-sym)
+                            `(re-frame.frame/make-frame ~frame-cfg-sym))]
+       `(let [~opts-sym       ~opts
+              ~install-sym    (:install      ~opts-sym)
+              ~root-view-sym  (:root-view    ~opts-sym)
+              ~root-args-sym  (or (:root-view-args ~opts-sym) [])
+              ~frame-cfg-sym  (or (:frame-config   ~opts-sym) {})
+              ~id-sym         ~create-form]
+          (try
+            (binding [re-frame.frame/*current-frame*                 ~id-sym
+                      re-frame.test-helpers/*current-root-view*      ~root-view-sym
+                      re-frame.test-helpers/*current-root-view-args* ~root-args-sym]
+              (when ~install-sym (~install-sym))
+              ~@body)
+            (finally
+              (re-frame.frame/destroy-frame! ~id-sym)))))))
+
+(defn- render-current-root
+  "Render the fixture-stashed root view to a hiccup tree, or throw
+  with a helpful message when no `:root-view` was supplied."
+  []
+  (if-let [view *current-root-view*]
+    (apply view *current-root-view-args*)
+    (throw (ex-info
+             (str "expect-text / wait-until called outside a "
+                  "`with-app-fixture` body, OR the fixture did not "
+                  "supply :root-view. Pass an explicit tree as the "
+                  "first arg, or set :root-view in the fixture opts.")
+             {:rf.test-helpers/error :no-root-view}))))
+
+(defn- coerce-testid-string
+  "Allow testids supplied as keywords (`:counter-display`) at the call
+  site, while the underlying hiccup-walk keys on the string form. A
+  string testid passes through; anything else (`nil`, a number) is an
+  argument error."
+  [testid]
+  (cond
+    (keyword? testid) (name testid)
+    (string?  testid) testid
+    :else
+    (throw (ex-info (str "testid must be a keyword or string, got "
+                         (pr-str testid))
+                    {:rf.test-helpers/error :bad-testid
+                     :testid                testid}))))
+
+(defn expect-text
+  "Assert that the hiccup node carrying `:data-testid testid` has
+  `text-content` equal to `expected`. Reports via `clojure.test/is`
+  — failure carries the actual text in the diagnostic.
+
+  Two call shapes:
+
+    (expect-text testid expected)
+      Uses the fixture-stashed root view from `*current-root-view*`
+      (set by [[with-app-fixture]]). The view fn is called with
+      `*current-root-view-args*` to assemble the tree.
+
+    (expect-text tree testid expected)
+      Walks the supplied `tree` directly — no fixture required.
+
+  `testid` may be a string (`\"counter-display\"`) or a keyword
+  (`:counter-display`); keywords are coerced via `name`.
+
+  Returns `true` on pass, `false` on fail — the `clojure.test`
+  failure has already been reported in either case, so callers
+  rarely care about the boolean.
+
+  Per Spec 008 §Single-frame e2e fixture (rf2-wy1ac)."
+  ([testid expected]
+   (expect-text (render-current-root) testid expected))
+  ([tree testid expected]
+   (let [testid-str (coerce-testid-string testid)
+         node       (find-by-testid tree testid-str)
+         actual     (when node (text-content node))
+         pass?      (= expected actual)]
+     (ctest/do-report
+       {:type     (if pass? :pass :fail)
+        :message  (cond
+                    (nil? node)
+                    (str "expect-text: no node with :data-testid "
+                         (pr-str testid-str)
+                         " found in tree")
+                    :else
+                    (str "expect-text: text mismatch at :data-testid "
+                         (pr-str testid-str)))
+        :expected expected
+        :actual   actual})
+     pass?)))
+
+;; ---------------------------------------------------------------------------
+;; wait-until — bounded-deadline poll for async-stable assertions
+;;
+;; The view-test counterpart to `re-frame.test-support/poll-until`:
+;; same shape (JVM-sync / CLJS-Promise), tuned for the hiccup-walk
+;; pattern. The 1-arity (predicate) is a thin alias on poll-until
+;; semantics; the testid-form (`(wait-until testid expected)`) polls
+;; the fixture-stashed root view until its `:data-testid` node's text
+;; matches `expected`, or the deadline elapses.
+;;
+;; Use this when an event cascade is async (HTTP, dispatched
+;; machine transition, scheduled event via `dispatch`) and the
+;; post-condition is observable in the rendered view. For sync
+;; cascades, `expect-text` after `dispatch-sync` is sufficient.
+;; ---------------------------------------------------------------------------
+
+(defn- wait-timeout-error
+  "Shared timeout-error constructor so test code can pattern-match on
+  `:rf.test-helpers/wait-timeout` regardless of runtime."
+  [label elapsed-ms]
+  (ex-info (str "wait-until timed out"
+                (when label (str " — " label)))
+           {:rf.test-helpers/wait-timeout true
+            :elapsed-ms                   elapsed-ms
+            :label                        label}))
+
+#?(:clj
+   (defn- jvm-wait-until-pred
+     [pred {:keys [timeout-ms interval-ms label]
+            :or   {timeout-ms 2000 interval-ms 5}}]
+     (let [start    (System/currentTimeMillis)
+           deadline (+ start timeout-ms)]
+       (loop []
+         (let [v (try (pred) (catch Throwable _ false))]
+           (cond
+             v v
+             (>= (System/currentTimeMillis) deadline)
+             (throw (wait-timeout-error
+                      label (- (System/currentTimeMillis) start)))
+             :else (do (Thread/sleep ^long interval-ms) (recur))))))))
+
+#?(:cljs
+   (defn- cljs-wait-until-pred
+     [pred {:keys [timeout-ms interval-ms label]
+            :or   {timeout-ms 2000 interval-ms 5}}]
+     (let [start    (.now js/Date)
+           deadline (+ start timeout-ms)]
+       (js/Promise.
+         (fn [resolve reject]
+           (letfn [(settle [v]
+                     (cond
+                       v (resolve v)
+                       (>= (.now js/Date) deadline)
+                       (reject (wait-timeout-error
+                                 label (- (.now js/Date) start)))
+                       :else (js/setTimeout tick interval-ms)))
+                   (tick []
+                     (let [raw (try (pred)
+                                    (catch :default _ false))]
+                       (if (instance? js/Promise raw)
+                         (-> ^js/Promise raw
+                             (.then settle)
+                             (.catch (fn [_] (settle false))))
+                         (settle raw))))]
+             (tick)))))))
+
+(defn wait-until
+  "Bounded-deadline poll until a condition is truthy. The view-test
+  counterpart to `re-frame.test-support/poll-until`.
+
+  Two call shapes:
+
+    (wait-until pred)
+    (wait-until pred opts)
+      Poll `(pred)` until truthy or the deadline elapses.
+
+    (wait-until testid expected)
+    (wait-until testid expected opts)
+      Poll the fixture-stashed root view (`*current-root-view*`)
+      until `(text-content (find-by-testid tree testid)) = expected`,
+      or the deadline elapses. Equivalent to:
+        (wait-until #(= expected
+                        (text-content
+                          (find-by-testid (render-root) testid))))
+
+  `opts` (all optional):
+    :timeout-ms   default 2000 — overall deadline.
+    :interval-ms  default 5    — gap (ms) between probes.
+    :label        string/keyword used in the timeout message.
+
+  Per-platform shape (matching `poll-until`):
+    JVM:  synchronous — returns the truthy value, throws `ex-info`
+                        with `:rf.test-helpers/wait-timeout` `true` on
+                        timeout.
+    CLJS: async       — returns a `js/Promise`. Resolves with the
+                        truthy value, rejects with an `ex-info`-style
+                        error on timeout. Compose with `cljs.test/async`.
+
+  Use for async event flows (HTTP, scheduled events, machine `:after`
+  transitions) that need to drain past `dispatch-sync`. Not a
+  substitute for timer-semantics sleeps (grace-period elapse,
+  throttle/debounce window) — those should keep their explicit sleep
+  and annotate the intent locally.
+
+  Per Spec 008 §Single-frame e2e fixture (rf2-wy1ac)."
+  ([pred-or-testid]
+   (wait-until pred-or-testid nil))
+  ([pred-or-testid opts-or-expected]
+   (cond
+     (fn? pred-or-testid)
+     #?(:clj  (jvm-wait-until-pred  pred-or-testid (or opts-or-expected {}))
+        :cljs (cljs-wait-until-pred pred-or-testid (or opts-or-expected {})))
+
+     ;; (wait-until testid expected) — testid form, default opts.
+     :else
+     (wait-until pred-or-testid opts-or-expected nil)))
+  ([testid expected opts]
+   (let [testid-str (coerce-testid-string testid)
+         label      (or (:label opts)
+                        (str "text under :data-testid " (pr-str testid-str)
+                             " = " (pr-str expected)))
+         opts*      (assoc (or opts {}) :label label)
+         probe      (fn []
+                      (let [node (find-by-testid (render-current-root)
+                                                 testid-str)
+                            actual (when node (text-content node))]
+                        (when (= expected actual)
+                          actual)))]
+     #?(:clj  (jvm-wait-until-pred  probe opts*)
+        :cljs (cljs-wait-until-pred probe opts*)))))
