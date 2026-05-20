@@ -16,10 +16,13 @@
  *   - 3 adapter smokes   (implementation/adapters/<name>/testbed/spec.cjs)
  *     Reagent / UIx / Helix mount + dispatch + render.
  *
- *   - 2 framework testbeds (tools/causa/testbeds/{perf_counter,
- *     parallel_frames}/spec.cjs)
- *     Perf-API live counterpart of the static perf-bundle gate, and
- *     the canonical multi-frame-isolation contract.
+ *   - 0 framework testbeds under tools/causa/testbeds/. Both Causa-
+ *     owned testbeds shed their Playwright specs in the rf2-tglku
+ *     migration: perf_counter (Wave 4, rf2-e3j8l) and parallel_frames
+ *     (Wave 2, rf2-lcg1z). Their data-layer contracts live as pure
+ *     CLJS unit tests under implementation/core/test/re_frame/. The
+ *     testbed surfaces themselves stay in-tree as the canonical
+ *     Causa-displayable observation targets.
  *
  *   - top-level testbeds/  (testbeds/<surface>/spec.cjs)
  *     rf2-fe84r framework-behaviour cross-cutting + rf2-ik4io SSR.
@@ -114,8 +117,15 @@ function matchesFilter(filePath) {
 // `examples/` tree is TEST-FREE — no `*.spec.cjs` is permitted under
 // it. Discovery now scans only the spec-bearing roots:
 //
-//   - tools/<tool>/testbeds/        — framework testbeds owned by Causa
-//                                     (parallel_frames, perf_counter)
+//   - tools/<tool>/testbeds/        — framework testbeds owned by Causa.
+//                                     Currently empty for Playwright
+//                                     specs — perf_counter (Wave 4)
+//                                     and parallel_frames (Wave 2) of
+//                                     the rf2-tglku migration both
+//                                     migrated their assertions to
+//                                     CLJS unit tests; the testbed
+//                                     dirs themselves stay in-tree
+//                                     as Causa-displayable demos.
 //   - testbeds/                     — top-level cross-cutting testbeds
 //                                     (rf2-fe84r framework-behaviour +
 //                                     rf2-ik4io SSR)

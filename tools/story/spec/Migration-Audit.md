@@ -50,7 +50,10 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 ### `implementation/adapters/uix/testbed/spec.cjs` (uix adapter smoke)
 Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
-### `tools/causa/testbeds/parallel_frames/spec.cjs` (Causa multi-frame demo)
+### `tools/causa/testbeds/parallel_frames/spec.cjs` (Causa multi-frame demo) — MIGRATED (Wave 2, rf2-lcg1z)
+
+**Status: spec.cjs DELETED.** Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (per-PR via the standard `:node-test` build). The testbed surface (`core.cljs`, `index.html`, `README.md`) stays in-tree as the canonical Causa-displayable multi-frame demo. The Causa-side target-frame round-trip + L2 frame-scoped filter assertions were already covered ahead of this migration by `tools/causa/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx).
+
 | # | Assertion | Class | Rationale + target |
 |---:|---|:---:|---|
 | 1 | `expectVisible(parallel-frames-root)` | C | Page-mount sanity; cheap, keep at Playwright level since this is the gate's smoke entry. |
@@ -231,7 +234,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | helix smoke | 3 | 0 | 3 | 0 |
 | reagent smoke | 3 | 0 | 3 | 0 |
 | uix smoke | 3 | 0 | 3 | 0 |
-| parallel_frames | 27 | 23 | 0 | 4 |
+| ~~parallel_frames~~ MIGRATED Wave 2 (rf2-lcg1z) → `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` | ~~27~~ | ~~23~~ | 0 | ~~4~~ |
 | perf_counter | 6 | 6 | 0 | 0 |
 | deep_machine | 5 | 5 | 0 | 0 |
 | deliberate_throw | 4 | 4 | 0 | 0 |
@@ -246,7 +249,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 (124 counts http_toggle's 6 ×3 categories and otherwise mirrors §Inventory.)
 
-Headline: **105 of 124 assertions (85%) migrate to CLJS unit tests** (Wave 4 rf2-e3j8l migrated perf_counter's 4 User-Timing residuals to a nightly `:node-test`-style build). 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. 10 (8%) genuinely stay Playwright — SSR mount/static-HTML/banner-DOM (8 across 3 SSR specs) + parallel_frames page-mount (2).
+Headline: **105 of 124 assertions (85%) migrate to CLJS unit tests** (Wave 4 rf2-e3j8l migrated perf_counter's User-Timing residuals to a nightly `:node-test`-style build; Wave 2 rf2-lcg1z migrated parallel_frames' 23 isolation assertions to the per-PR `:node-test` build and DROPPED the residual 2-mount Playwright surface entirely — the multi-frame mount path is exercised by Causa's own panels-e2e tests). 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. 8 (6%) genuinely stay Playwright — SSR mount/static-HTML/banner-DOM (8 across 3 SSR specs).
 
 Five testbed spec.cjs files become **DROP candidates** entirely (residual = 0 substantive assertions after migration): `deep_machine`, `deliberate_throw`, `drain_depth_trigger`, `http_toggle`, `long_flow_w_failure`, `non_trivial_app_db`. (Six files.) For these, the testbed surface itself stays — it's the canonical Causa/Story observation target — but the Playwright spec.cjs deletes.
 
@@ -264,12 +267,8 @@ One bead per spec.cjs file. Each can dispatch in parallel where target test file
 
 Each Wave 1 bead is fully isolated to one artefact's test dir + one repo-root spec.cjs file deletion. **Six beads, parallel-dispatchable.**
 
-**Wave 2 (sequential within Causa, depends on rf2-7icrs helpers being stable):**
-- `B7` — `tools/causa/testbeds/parallel_frames/spec.cjs` migration. Migrates 23 of 27 assertions to:
-  - `tools/causa/testbeds/parallel_frames/test/.../parallel_frames_isolation_cljs_test.cljs` (new), and
-  - `tools/causa/test/.../panels_e2e/target_frame_roundtrip_e2e_cljs_test.cljs` (new), and
-  - `tools/causa/test/.../panels_e2e/embedding_contract_isolation_e2e_cljs_test.cljs` (new).
-  spec.cjs slims to a 30-line mount-smoke + one counter-isolation eyeball. **Surface: Causa multi-frame.**
+**Wave 2 (rf2-lcg1z, COMPLETED):**
+- `B7` — `tools/causa/testbeds/parallel_frames/spec.cjs` DELETED. Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (six deftests covering: two-frames-mount, counter-isolation, clock-tick-isolation, sub-lens-follows-frame, no-cross-frame-leakage + rf/get-frame-db as the only legitimate cross-frame read, destroy-independence). Causa-side target-frame round-trip + L2 frame-scoped filter were already covered by `tools/causa/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx). The testbed dir itself stays as the Causa-displayable showcase. **Surface: framework multi-frame.**
 
 **Wave 3 (parallel, SSR surfaces — coordinated since they share `implementation/ssr/test/`):**
 - `B8` — `testbeds/ssr_basic/spec.cjs` migration. Migrate 11 of 13 to `implementation/ssr/test/.../ssr_hydration_cljs_test.cljs` (new). spec.cjs slims to thin static-HTML-before-bundle mount-smoke.
@@ -289,10 +288,10 @@ Total bead count: **10 follow-on beads** (1 per spec.cjs file = 11 minus the 1-s
 
 **After all migrations land, the Playwright residual is:**
 - 3 adapter smokes (helix/reagent/uix) — substrate (B). **~30 LoC total, ~5s wall.** Required per-PR.
-- `parallel_frames` slim — mount + one isolation eyeball. **~30-40 LoC.** ~3s wall.
 - `ssr_basic` slim — static-HTML-before-bundle + hydrated marker. **~30 LoC.** ~2s wall.
 - `ssr_hydration_mismatch` slim — banner DOM + post-mismatch-interactive. **~25 LoC.** ~2s wall.
 - `ssr_multi_frame` slim — three-panel mount. **~20 LoC.** ~2s wall.
+- ~~`parallel_frames`~~ — DELETED (Wave 2, rf2-lcg1z); residuals migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (per-PR). The two page-mount eyeballs that would have justified a slim Playwright stay are subsumed by Causa's own panels-e2e suite, which mounts the same multi-frame topology in node-CLJS.
 - ~~`perf_counter`~~ — DELETED (Wave 4, rf2-e3j8l); residuals migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` (nightly).
 
 **Total residual: ~150-180 LoC, ~15-20s wall.** Down from 1715 LoC / ~3 min.
@@ -309,7 +308,6 @@ Rationale:
 A path-filter that runs Playwright only when:
 - `implementation/adapters/**` touched (substrate impact)
 - `testbeds/ssr_*/**` or `implementation/ssr/**` touched (SSR impact)
-- `tools/causa/testbeds/parallel_frames/**` touched (Causa multi-frame impact)
 - `tools/causa/spine/**` or `tools/story/render-shell/**` touched (chrome impact)
 
 Otherwise skip. This is the rf2-k9ekz sister bead — solve once the migration lands.
