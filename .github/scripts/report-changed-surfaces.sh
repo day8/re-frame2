@@ -68,12 +68,20 @@ else
         mark_all
         ;;
       implementation/core/*)
+        # rf2-8jz9t — examples_browser NOT fired here. The
+        # examples-browser job exercises the 3 adapter-level smokes
+        # (Reagent/UIx/Helix at implementation/adapters/<name>/testbed/)
+        # which catch adapter-specific bugs (createRoot lifecycle,
+        # hydration, real concurrent scheduling) — not core regressions.
+        # Core renames are caught by node-test (CLJS unit + browser-test)
+        # which exercises every public re-frame.core fn. A core rename
+        # that breaks adapter mount silently is caught by the nightly
+        # cron + post-merge gate (both run the full matrix on main).
         implementation_jvm=true
         adapter_diagnostic=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        examples_browser=true
         tools_jvm=true
         template_expensive=true
         mcp_conformance=true
@@ -104,11 +112,17 @@ else
         mcp_live=true
         ;;
       implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/deps.edn)
+        # rf2-8jz9t — examples_browser NOT fired here. Per-feature
+        # artefact changes are covered by their own JVM + CLJS unit
+        # suites (implementation_jvm, cljs_browser, cljs_prod) and by
+        # bundle_isolation; the adapter smokes under examples-browser
+        # only catch adapter-mount-specific bugs (createRoot lifecycle,
+        # hydration, real concurrent scheduling). Nightly + post-merge
+        # gate runs the full matrix.
         implementation_jvm=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        examples_browser=true
         ;;
       spec/conformance/fixtures/*)
         # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn
@@ -130,11 +144,16 @@ else
         cljs_prod=true
         ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
+        # rf2-8jz9t — examples_browser NOT fired here. The examples-browser
+        # job is now triggered ONLY by direct adapter/example/testbed
+        # surface changes (implementation/adapters/*, examples/*,
+        # testbeds/*). A shadow-cljs.edn or scripts/ change that breaks
+        # the examples-browser build is caught by the nightly cron +
+        # post-merge gate (both run the full matrix on main).
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
         reagent_slim_bundle=true
-        examples_browser=true
         story_causa_browser=true
         ;;
       examples/*)

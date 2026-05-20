@@ -164,7 +164,7 @@ boolean GitHub-Actions outputs per surface:
 | `cljs_prod` | Surface that release-mode probes (`browser-test-prod-elision`, schemas boundary prod) cover changed. |
 | `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
 | `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
-| `examples_browser` | Examples surface changed. |
+| `examples_browser` | Direct examples / adapter / top-level testbed surface changed (`implementation/adapters/*`, `examples/*`, `testbeds/*`). Not set by `implementation/core/*`, per-feature artefacts, or build-config changes (rf2-8jz9t — adapter smokes only catch adapter-mount-specific bugs; nightly + post-merge gate runs the full matrix on main). |
 | `tools_jvm` | Story / Causa / Story-MCP / Causa-MCP / Pair2-MCP / MCP-base changed; gates the four per-tool JVM probes (`jvm-tools-{causa,story,story-mcp,mcp-base}`). Not set by `tools/template/*` or `tools/mcp-conformance/*` — those don't share runtime with the per-tool probes. |
 | `template_expensive` | `tools/template/*` changed; gates the template emitted-app smoke. |
 | `mcp_conformance` | Any MCP-server tool, `tools/mcp-base/*`, or `tools/mcp-conformance/*` changed. |
@@ -180,7 +180,14 @@ A few "blast-radius" inputs force the full sweep:
   full matrix).
 - Changes under `implementation/core/*` fan out broadly (they touch
   almost every output) because core regressions can break every
-  downstream substrate, tool, and bundle invariant.
+  downstream substrate, tool, and bundle invariant. Exception:
+  `examples_browser` is **not** fired by `implementation/core/*`
+  changes (rf2-8jz9t). The adapter smokes under examples-browser
+  only catch adapter-mount-specific bugs (createRoot lifecycle,
+  hydration, real concurrent scheduling); core renames are caught
+  by `node-test` (which exercises every public `re-frame.core`
+  fn), and the nightly cron + post-merge gate runs the full matrix
+  on main.
 
 **Adding a new artefact directory**: a new artefact (e.g. a new tool,
 new substrate, new SSR runtime) needs **two** matching changes:
@@ -243,12 +250,12 @@ must re-run the matrix).
 | # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `examples_browser` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
-| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   |
-| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |
+| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |
+| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |
 | S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |
-| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |
+| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
 | S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
-| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |   | ✓ |   |
+| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   | ✓ |   |
 | S8 | `examples/*` |   |   | ✓ |   |   |   | ✓ |   |   |   |   |   |   |
 | S9 | `testbeds/*` |   |   | ✓ |   |   |   | ✓ |   |   |   |   |   |   |
 | S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
