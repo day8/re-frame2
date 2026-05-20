@@ -1,5 +1,14 @@
 # Story — Tutorial: Playwright e2e starter recipe (rf2-6qqry)
 
+> **Default to [`Tutorial-CLJS-Unit.md`](Tutorial-CLJS-Unit.md)
+> instead.** The CLJS-unit recipe is the recommended end-user
+> testing path — sub-millisecond per case, no browser, no
+> Playwright. Per the project's testing direction, Wave 1–4
+> migration moved 81% of Story's Playwright assertions to CLJS-unit
+> tests. Reach for THIS recipe only when a browser-only surface is
+> genuinely required (real-pointer events, viewport sizing, file-
+> upload dialogs, multi-tab flows, visual-regression pixel diffs).
+>
 > A minimum-viable Playwright probe for a Story-using app. Navigates
 > to `#/stories/<variant-id>`, waits for the canvas to mount, asserts
 > a `[data-test=...]` selector, captures a screenshot keyed by

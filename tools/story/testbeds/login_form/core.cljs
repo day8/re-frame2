@@ -119,7 +119,10 @@
   ;; `[data-rf-causa-host]` contract.
   (causa-config/configure! {:rf.causa/auto-open? false})
   (rf/init! reagent-adapter/adapter)
-  (story/install-canonical-vocabulary!)
+  ;; No explicit `(story/install-canonical-vocabulary!)` — the first
+  ;; `reg-*` in `login-form.stories` (loaded via the :require above)
+  ;; auto-installs the canonical vocabulary per rf2-p1ydc (audit D-2
+  ;; / rf2-y8gag).
   ;; rf2-r1uod — `:rf.story/project-root` plumbed through Story; the
   ;; `causa-preset` bridge propagates it into Causa's slot so the
   ;; Causa-as-RHS open-in-editor chips resolve absolute on-disk paths.
