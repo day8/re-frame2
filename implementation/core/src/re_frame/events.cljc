@@ -17,7 +17,8 @@
   The marks are stashed in the per-(kind, id) marks table via
   `re-frame.marks/register-marks!` (called through the late-bind
   hook to keep events decoupled from the optional marks artefact)."
-  (:require [re-frame.registrar :as registrar]
+  (:require [re-frame.interop :as interop]
+            [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]
             [re-frame.source-coords :as source-coords]
@@ -291,6 +292,33 @@
              "reg-event-* arity error — expected (id handler), (id metadata handler), or (id metadata interceptors handler)"
              {:args args :count (count args)}))))
 
+(defn- merge-form-source
+  "Merge `*pending-form-source*` into `m` under `:rf.handler/source`
+  (Spec 009 §`:rf.handler/source`, Causa Spec 021 §11.2 B.7 stretch,
+  rf2-xgfuy). User-supplied `:rf.handler/source` overrides the auto-
+  captured value (mirrors `source-coords/merge-coords` semantics — so
+  tooling that synthesises registrations from another source can stamp
+  the original form-source). Returns `m` unchanged when no source is
+  pending (programmatic / REPL registrations that bypass the macro
+  path).
+
+  Per rf2-xgfuy §Production elision: the whole body is gated on
+  `interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`
+  Closure constant-folds the gate to `false` and DCEs the entire merge
+  — both the literal `:rf.handler/source` keyword's reachability from
+  this slot AND the dynamic-var lookup. Layered with the macro-emitted
+  `(if interop/debug-enabled? ~src-string nil)` gate on the bound
+  value, the source-string bytes themselves never reach the bundle.
+  JVM/SSR/test builds (where `interop/debug-enabled?` is true by
+  default) always capture."
+  [m]
+  (if-not interop/debug-enabled?
+    m
+    (let [src source-coords/*pending-form-source*]
+      (if (and src (not (contains? m :rf.handler/source)))
+        (assoc m :rf.handler/source src)
+        m))))
+
 (defn- register-event!
   "Common registration body for the three reg-event-* forms.
 
@@ -301,7 +329,9 @@
     3. wrap the user handler into the kind-appropriate interceptor via
        `wrap-event-handler` (see `kind-spec`);
     4. register under `:event` with `:event/kind` recording which form was
-       used and `:handler-fn` retained for tooling introspection;
+       used, `:handler-fn` retained for tooling introspection, and
+       `:rf.handler/source` carrying the macro-captured form-source
+       string when present (Spec 009, rf2-xgfuy);
     5. return the event id. Path-D schema-first privacy has no
        user-facing redaction interceptor to police at registration time.
 
@@ -319,7 +349,7 @@
     ;; dispatch in production.
     (reject-at-boundary-without-schema! reg-fn-name id meta interceptors)
     (registrar/register! :event id
-      (assoc (source-coords/merge-coords meta)
+      (assoc (-> meta source-coords/merge-coords merge-form-source)
              :event/kind   kind
              :handler-fn   handler-fn
              :interceptors (-> [] (into interceptors) (conj wrapped))))

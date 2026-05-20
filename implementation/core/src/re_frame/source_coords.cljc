@@ -61,6 +61,30 @@
   registrations that bypass the macro path)."
   nil)
 
+(def ^:dynamic *pending-form-source*
+  "Per-thread (per-call) handler form-source captured by `reg-event-{db,
+  fx,ctx}` macros and consumed by `re-frame.events/register-event!`. nil
+  outside a macro invocation.
+
+  Per Spec 009 §`:rf.handler/source` and Causa Spec 021 §11.2 B.7
+  stretch: the macros stamp the whole `(reg-event-X :id ...)` form as
+  a string into the handler's registry metadata under
+  `:rf.handler/source` so Causa's Event panel can render the source
+  inline (no need to leave the browser to read what code ran).
+
+  CLJS production elision: the macro emission wraps the binding-value
+  in an `(if interop/debug-enabled? <source-string> nil)` gate so
+  Closure constant-folds the gate to `nil` under `:advanced` +
+  `goog.DEBUG=false` and DCEs both the literal source string and the
+  `:rf.handler/source` keyword's reachability from this slot. The
+  elision probe asserts the absence; per-string DCE depends on no
+  other surface keeping the same byte sequence reachable.
+
+  JVM-side: always captured. The bundle-size argument doesn't apply on
+  the JVM; SSR / test / tooling builds can read
+  `(:rf.handler/source (rf/handler-meta :event id))` directly."
+  nil)
+
 (defn merge-coords
   "Merge `*pending-coords*` into `user-meta`. User-supplied :ns / :line
   / :file override auto-captured values per Spec 001. Returns user-meta

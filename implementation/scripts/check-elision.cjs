@@ -272,7 +272,31 @@ const DEV_ONLY_SENTINELS = [
   // stamp branch DCEs. The `rf.trace/call-site` keyword's string
   // fragment must NOT survive in production bundles.
   { source: 're-frame.core/{dispatch,subscribe,inject-cofx} (rf.trace/call-site stamping)',
-    sentinel: 'rf.trace/call-site' }
+    sentinel: 'rf.trace/call-site' },
+  // re-frame.core/reg-event-{db,fx,ctx} — handler form-source capture
+  // (Spec 009 §`:rf.handler/source`, Causa Spec 021 §11.2 B.7 stretch,
+  // rf2-xgfuy). The defreg-event-macro emission wraps the bound source
+  // string in `(if interop/debug-enabled? ~src-string nil)` and the
+  // events/merge-form-source body is gated on `interop/debug-enabled?`.
+  // Under :advanced + goog.DEBUG=false, Closure constant-folds both
+  // gates to false and DCEs the keyword's reachability from the assoc
+  // slot AND the source-string bytes themselves. Two sentinels:
+  //
+  //   1. The slot keyword `rf.handler/source` — must NOT appear in
+  //      the prod bundle (the assoc branch DCEs, dropping the literal
+  //      from events.cljc's compiled output).
+  //   2. A distinctive source-string fragment minted in the elision-
+  //      probe. The probe registers
+  //        (rf/reg-event-db :probe/cs-event (fn [db _ev] db))
+  //      under DEBUG=true the captured form-source carries the byte
+  //      sequence `:probe/cs-event (fn [db _ev]`; under DEBUG=false
+  //      the macro-emitted `if interop/debug-enabled? ~src-string nil`
+  //      gate DCEs the source-string literal entirely. The fragment is
+  //      distinctive enough that a global grep is unambiguous.
+  { source: 're-frame.events/merge-form-source (rf.handler/source slot keyword)',
+    sentinel: 'rf.handler/source' },
+  { source: 're-frame.core/reg-event-db macro (form-source pr-str literal)',
+    sentinel: ':probe/cs-event (fn [db _ev]' }
   // Note (rf2-d3k3): re-frame.views/maybe-warn-plain-fn-under-non-
   // default-frame! emits :rf.warning/plain-fn-under-non-default-frame-
   // once gated on interop/debug-enabled?. We do NOT add a sentinel
