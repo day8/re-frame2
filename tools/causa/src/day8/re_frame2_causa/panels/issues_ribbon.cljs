@@ -179,8 +179,16 @@
                          :font-weight 600
                          :letter-spacing "-0.01em"
                          :margin 0
-                         :color  (:text-primary tokens)}
+                         :color  (:text-primary tokens)
+                         :display "flex" :align-items "center"
+                         :gap "8px"}
                         (t/accent-stripe-style :issues))}
+     ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ⚠ in
+     ;; :red (Issues' domain colour via panel-domain->token).
+     [:span {:data-testid "rf-causa-issues-panel-icon"
+             :aria-hidden "true"
+             :style       (t/panel-icon-style :issues)}
+      (:issues t/panel-icon)]
      "Issues"]
     [:span {:data-testid "rf-causa-issues-counts"
             :style {:font-size   "11px"

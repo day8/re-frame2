@@ -210,8 +210,17 @@
                         :font-weight 600
                         :letter-spacing "-0.01em"
                         :margin 0
-                        :color (:text-primary tokens)}
+                        :color (:text-primary tokens)
+                        :display "flex" :align-items "center"
+                        :gap "8px"}
                        (t/accent-stripe-style :machines))}
+    ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ◆ in
+    ;; :green (Machines Canvas shares the :green accent with Machine
+    ;; Inspector per panel-domain->token).
+    [:span {:data-testid "rf-causa-machines-canvas-panel-icon"
+            :aria-hidden "true"
+            :style       (t/panel-icon-style :machines-canvas)}
+     (:machines-canvas t/panel-icon)]
     "Machines canvas"]
    (when machine-id
      [:span {:style {:color (:accent-violet tokens)

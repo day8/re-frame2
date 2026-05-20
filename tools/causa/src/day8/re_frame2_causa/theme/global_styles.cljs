@@ -444,6 +444,35 @@
     "  from { opacity: 0; transform: translateY(2px); }\n"
     "  to   { opacity: 1; transform: translateY(0); }\n"
     "}\n"
+    ;; rf2-ezx8w — machine-state pulse (spec/021 §17.4.2 + §17.4.5).
+    ;; The xyflow `:current` node (most recent visit per per-epoch
+    ;; transition trace) carries `:animation rf-causa-machine-pulse
+    ;; 1.2s ease-in-out infinite` per `panels/machines/xyflow_style`.
+    ;; The keyframe alternates `box-shadow` + `opacity` so the green
+    ;; outer ring gently breathes — subtle scale-less pulse that reads
+    ;; as "this is the live state" without becoming a strobe across
+    ;; multi-machine canvases.
+    ;;
+    ;; The 1.2s duration is documented in §17.2 (interaction-state
+    ;; matrix → animation timings) as the machine-state current-state
+    ;; pulse cadence. It runs through `--rf-causa-motion-scale` like
+    ;; every other Causa animation, so the `prefers-reduced-motion:
+    ;; reduce` seam (+ the rf2-ybjkx user override) collapses it to
+    ;; a single resolve frame.
+    ;;
+    ;; `0%` and `100%` carry the resting frame; the midpoint adds a
+    ;; faint green glow + a 0.85 opacity dip. The xyflow node's base
+    ;; rectangle stays painted at full opacity — only the box-shadow
+    ;; halo around it pulses (alternate-style breath rather than the
+    ;; node itself flickering).
+    "@keyframes rf-causa-machine-pulse {\n"
+    "  0%, 100% {\n"
+    "    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.45);\n"
+    "  }\n"
+    "  50% {\n"
+    "    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0);\n"
+    "  }\n"
+    "}\n"
     ;; rf2-fxde5 — global `:focus-visible` focus ring. Causa-wide
     ;; keyboard-only focus indicator scoped to descendants of the
     ;; shell roots (`[data-testid="rf-causa-shell"]` for Runtime,

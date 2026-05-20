@@ -489,8 +489,18 @@
                             :font-weight    600
                             :letter-spacing "-0.01em"
                             :margin         0
-                            :color          (:text-primary tokens)}
+                            :color          (:text-primary tokens)
+                            :display        "flex"
+                            :align-items    "center"
+                            :gap            "8px"}
                            (t/accent-stripe-style :chrome-a11y))}
+        ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ✦ in
+        ;; :red (Chrome A11y's diagnostics-group sibling accent, shared
+        ;; with Issues per panel-domain->token).
+        [:span {:data-testid "rf-causa-chrome-a11y-panel-icon"
+                :aria-hidden "true"
+                :style       (t/panel-icon-style :chrome-a11y)}
+         (:chrome-a11y t/panel-icon)]
         "Chrome A11y"]
        [:span {:data-testid "rf-causa-chrome-a11y-count"
                :style       {:font-size   (:caption type-scale)

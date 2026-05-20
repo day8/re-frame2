@@ -112,6 +112,36 @@
           "the initial state lifts 2px below final → the new tab rises
            into place rather than appearing statically"))))
 
+;; ---- rf2-ezx8w — machine-state pulse keyframe --------------------------
+
+(deftest motion-css-declares-machine-pulse-keyframes
+  (testing "rf2-ezx8w — the xyflow `:current` node references
+            `rf-causa-machine-pulse` (see panels/machines/xyflow_style
+            `:current` kind). The keyframe MUST be declared in the
+            injected motion stylesheet so the animation resolves at
+            paint time rather than no-op'ing."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"@keyframes\s+rf-causa-machine-pulse" css)
+          "keyframes block named rf-causa-machine-pulse exists"))))
+
+(deftest motion-css-machine-pulse-uses-green-halo
+  (testing "rf2-ezx8w / spec/021 §17.4 — the pulse halo rides the
+            `:green` token (rgba 74, 222, 128) — Causa's 'final / live
+            state' hue. The 0% / 100% resting frame is the inner ring;
+            the midpoint expands the box-shadow halo + dips alpha so
+            the green ring gently breathes. Subtle box-shadow pulse
+            rather than a scale or full-opacity flicker so multi-
+            machine canvases don't strobe."
+    (let [css @#'gs/motion-css]
+      ;; Resting frame — the halo at rest is solid green at moderate alpha.
+      (is (re-find #"0%,\s*100%\s*\{\s*box-shadow:\s*0\s+0\s+0\s+0\s+rgba\(74,\s*222,\s*128"
+                   css)
+          "resting box-shadow uses the :green token rgba")
+      ;; Midpoint — the halo expands + alpha drops toward zero.
+      (is (re-find #"50%\s*\{\s*box-shadow:\s*0\s+0\s+0\s+4px\s+rgba\(74,\s*222,\s*128,\s*0\)"
+                   css)
+          "midpoint box-shadow expands to 4px halo with 0 alpha"))))
+
 ;; ---- rf2-5kfxe.5 — prefers-reduced-motion seam --------------------------
 
 (deftest motion-css-declares-root-motion-scale-default

@@ -157,7 +157,10 @@
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chips"))
             "severity chip row present")
         (is (some? (find-by-testid tree "rf-causa-issues-since-input"))
-            "since-ms input present")))))
+            "since-ms input present")
+        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
+        (is (some? (find-by-testid tree "rf-causa-issues-panel-icon"))
+            "panel header icon (⚠ in :red) present")))))
 
 ;; ---- (3) empty states ---------------------------------------------------
 

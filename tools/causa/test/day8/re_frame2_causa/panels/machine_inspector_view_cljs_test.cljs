@@ -129,7 +129,10 @@
       (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid tree "rf-causa-machine-inspector")))
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-empty"))
-            "empty-state container present")))))
+            "empty-state container present")
+        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-panel-icon"))
+            "panel header icon (◆ in :green) present")))))
 
 ;; ---- (3) blank state (event has no machine activity) ------------------
 

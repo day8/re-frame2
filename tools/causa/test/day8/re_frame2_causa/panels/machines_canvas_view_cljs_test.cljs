@@ -76,7 +76,10 @@
         (is (some? (find-by-testid tree "rf-causa-machines-canvas-no-selection"))
             "canvas pane shows no-selection state")
         (is (nil? (find-by-testid tree "rf-causa-machines-canvas-picker-rows"))
-            "picker rows container NOT rendered when empty")))))
+            "picker rows container NOT rendered when empty")
+        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
+        (is (some? (find-by-testid tree "rf-causa-machines-canvas-panel-icon"))
+            "panel header icon (◆ in :green) present")))))
 
 ;; ---- 2. populated state ------------------------------------------------
 
