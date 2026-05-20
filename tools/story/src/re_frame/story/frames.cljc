@@ -169,14 +169,18 @@
 
 (defn- teardown-exception-record
   "Build the `:rf.error/exception` assertion record projected when a
-  `:teardown` event throws. Per `002-Runtime.md` §Error projection and
-  §Loader teardown contract — phase is `:phase-teardown`, the record
-  lands in `:rf.story/assertions` so the variant's last result-map
-  surfaces the failure (the play / variant pane renders it inline)."
-  [variant-id event err]
+  teardown event throws. Per `002-Runtime.md` §Error projection and
+  §Loader teardown contract — the record lands in `:rf.story/assertions`
+  so the variant's last result-map surfaces the failure (the play /
+  variant pane renders it inline).
+
+  `phase` is one of `:phase-loaders-teardown` (variant body's
+  `:loaders-teardown` events — rf2-lqs0b) or `:phase-teardown`
+  (`:frame-setup` decorator `:teardown` events — rf2-dg2uh)."
+  [variant-id phase event err]
   {:assertion  :rf.error/exception
    :variant-id variant-id
-   :phase      :phase-teardown
+   :phase      phase
    :event      event
    :error      {:message #?(:clj  (.getMessage ^Throwable err)
                             :cljs (str err))
@@ -249,7 +253,8 @@
                        (let [orig-event (get-in tev [:tags :event])
                              err        (get-in tev [:tags :exception])
                              record     (teardown-exception-record
-                                          variant-id orig-event err)]
+                                          variant-id :phase-teardown
+                                          orig-event err)]
                          (try
                            (rf/dispatch-sync [::append-teardown-assertion record]
                                              {:frame variant-id})
@@ -271,7 +276,8 @@
                   ;; Synchronous throw (outside the interceptor chain).
                   ;; Project directly. The trace-listener path covers
                   ;; in-handler throws that the interceptor chain catches.
-                  (let [record (teardown-exception-record variant-id ev err)]
+                  (let [record (teardown-exception-record
+                                 variant-id :phase-teardown ev err)]
                     (try
                       (rf/dispatch-sync [::append-teardown-assertion record]
                                         {:frame variant-id})
@@ -287,7 +293,93 @@
       (doseq [tev collected]
         (let [orig-event (get-in tev [:tags :event])
               err        (get-in tev [:tags :exception])
-              record     (teardown-exception-record variant-id orig-event err)]
+              record     (teardown-exception-record
+                           variant-id :phase-teardown orig-event err)]
+          (try
+            (rf/dispatch-sync [::append-teardown-assertion record]
+                              {:frame variant-id})
+            (catch #?(:clj Throwable :cljs :default) _ nil)))))))
+
+;; ---- variant body :loaders-teardown walk --------------------------------
+;;
+;; rf2-lqs0b — symmetric counterpart of `:loaders` on the variant body. A
+;; long-lived fx (websocket subscription, polling interval, geolocation
+;; watch) opened by a `:loaders` event needs a matching cancel-event at
+;; variant teardown. `:loaders-teardown` is the lightweight path for
+;; variants whose cleanup is too small to justify a spec/005 machine
+;; actor `:exit` or a `:frame-setup` decorator wrapping; the events
+;; dispatch-sync into the variant frame BEFORE the decorator `:teardown`
+;; walk (so decorator-installed wider state survives the cleanup of
+;; loader-installed narrower state).
+;;
+;; Composition with `:frame-setup` decorator `:teardown`:
+;;
+;;   destroy!  ─►  variant body :loaders-teardown
+;;             ─►  decorator :teardown (reverse-declaration order)
+;;             ─►  spec/005 machine :rf.machine/destroy
+;;             ─►  rf/destroy-frame!
+;;
+;; The intuition: variant-body `:loaders-teardown` cleans up what
+;; variant-body `:loaders` opened — innermost in resource-scope terms.
+;; Decorator `:teardown` cleans up what decorator `:init` opened —
+;; outermost. So we walk loaders-teardown first, then decorator teardown
+;; in reverse-declaration order. Matches the rule:
+;; "narrower-than-the-decorator stack tears down first".
+
+(defn- apply-loaders-teardown!
+  "Walk the variant body's `:loaders-teardown` vector and dispatch-sync
+  each event into the variant's frame in declared order. Per `002-
+  Runtime.md` §Loader teardown contract.
+
+  Exception handling is identical to `apply-frame-teardown!`: re-frame's
+  interceptor chain catches handler throws and emits
+  `:rf.error/handler-exception` trace events; a per-walk trace listener
+  collects them and projects each onto `[:rf.story/assertions]` as
+  `:rf.error/exception` records with `:phase :phase-loaders-teardown`.
+  Synchronous throws from outside the interceptor chain are caught
+  directly. The walk never aborts `destroy-frame!`."
+  [variant-id loaders-teardown-events]
+  (let [pending  (atom [])
+        drain!   (fn []
+                   (when-let [evs (seq @pending)]
+                     (reset! pending [])
+                     (doseq [tev evs]
+                       (let [orig-event (get-in tev [:tags :event])
+                             err        (get-in tev [:tags :exception])
+                             record     (teardown-exception-record
+                                          variant-id :phase-loaders-teardown
+                                          orig-event err)]
+                         (try
+                           (rf/dispatch-sync [::append-teardown-assertion record]
+                                             {:frame variant-id})
+                           (catch #?(:clj Throwable :cljs :default) _ nil))))))
+        listener (fn [ev]
+                   (when (and (= :rf.error/handler-exception (:operation ev))
+                              (= variant-id (get-in ev [:tags :frame])))
+                     (swap! pending conj ev)))]
+    (with-teardown-trace-listener
+      listener
+      (fn []
+        (doseq [ev loaders-teardown-events]
+          (try
+            (rf/dispatch-sync ev {:frame variant-id})
+            (catch #?(:clj Throwable :cljs :default) err
+              (let [record (teardown-exception-record
+                             variant-id :phase-loaders-teardown ev err)]
+                (try
+                  (rf/dispatch-sync [::append-teardown-assertion record]
+                                    {:frame variant-id})
+                  (catch #?(:clj Throwable :cljs :default) _ nil)))))
+          (drain!))))
+    ;; Final drain after the listener unbinds.
+    (let [collected @pending]
+      (reset! pending [])
+      (doseq [tev collected]
+        (let [orig-event (get-in tev [:tags :event])
+              err        (get-in tev [:tags :exception])
+              record     (teardown-exception-record
+                           variant-id :phase-loaders-teardown
+                           orig-event err)]
           (try
             (rf/dispatch-sync [::append-teardown-assertion record]
                               {:frame variant-id})
@@ -396,15 +488,26 @@
   1. Drop per-variant assertion accumulators (`drop-assertion-accumulators`
      late-bind shim) + per-frame stub-call log.
   2. Clear lifecycle watchers (`loaders/clear-watchers!`).
-  3. Dispatch-sync the variant's `:frame-setup` decorator `:teardown`
+  3. Dispatch-sync the variant body's `:loaders-teardown` events in
+     declared order (rf2-lqs0b). Exceptions are caught and projected
+     into the variant frame's `:rf.story/assertions` as
+     `:rf.error/exception` records with
+     `:phase :phase-loaders-teardown`. The walk never aborts.
+  4. Dispatch-sync the variant's `:frame-setup` decorator `:teardown`
      events in reverse-declaration order. Exceptions are caught and
      projected into the variant frame's `:rf.story/assertions` as
      `:rf.error/exception` records with `:phase :phase-teardown`. The
      walk never aborts.
-  4. Machines spawned into the variant frame receive
+  5. Machines spawned into the variant frame receive
      `:rf.machine/destroy` (existing spec/005 contract, executed
      inside `rf/destroy-frame!`).
-  5. `rf/destroy-frame!` runs the frame's own teardown walk.
+  6. `rf/destroy-frame!` runs the frame's own teardown walk.
+
+  Step 3 fires BEFORE step 4: the variant body's `:loaders-teardown`
+  cleans up what `:loaders` opened (innermost in resource-scope terms);
+  decorator `:teardown` cleans up what decorator `:init` opened
+  (outermost). Matches the rule 'narrower-than-the-decorator stack
+  tears down first'.
 
   Returns nil."
   [variant-id]
@@ -413,7 +516,16 @@
     (clear-stub-call-log! variant-id)
     (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
       (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-    ;; Run `:frame-setup` decorator `:teardown` events. Resolve the
+    ;; Step 3 (rf2-lqs0b) — variant body :loaders-teardown. Runs BEFORE
+    ;; decorator teardown so loader-installed narrower state is cleaned
+    ;; up before decorator-installed wider state.
+    (try
+      (let [v-body (registrar/handler-meta :variant variant-id)
+            evs    (:loaders-teardown v-body)]
+        (when (seq evs)
+          (apply-loaders-teardown! variant-id evs)))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    ;; Step 4 — :frame-setup decorator :teardown events. Resolve the
     ;; decorator stack here (rather than carrying it through the
     ;; destroy! signature) so the caller surface stays unchanged —
     ;; `destroy-variant!` takes only a variant-id.
