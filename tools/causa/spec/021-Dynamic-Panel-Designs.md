@@ -935,16 +935,19 @@ operator stepping through bug repro lands on issue-bearing epochs only.
 
 ---
 
-## §9 The Chrome A11y panel (unchanged)
+## §9 The Chrome A11y panel — removed (rf2-4v67l)
 
-Causa's own chrome accessibility dogfood, per §007 / rf2-5r2yj. Spine-
-independent — same shape pre- and post-redesign. No further work in this
-spec.
+The Causa Chrome A11y dogfood panel was removed. A11y dogfooding is
+properly Story's domain, where it already ships:
 
-**Density note** (per §0). Existing panel already lives at the
-workstation density bar — the audit-list layout (one row per violation,
-inline severity + rule-id + affected element + remediation hint) is the
-template every other panel's empty/dense state follows. Untouched here.
+- `re-frame.story.ui.chrome-a11y` (rf2-18t6p · `tools/story/src/re_frame/
+  story/ui/chrome_a11y.cljs`) — axe-core scoped to the Story chrome.
+- `re-frame.story.ui.a11y` (rf2-qgms1 · `tools/story/src/re_frame/story/
+  ui/a11y.cljs`) — axe-core scoped to VARIANT trees.
+
+A duplicate Causa-side panel was noise that flagged the Causa
+events-list as a problem; the canonical "one source of truth" rule
+keeps the dogfood in Story.
 
 ---
 
@@ -1153,7 +1156,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 | Sub-decision | Pick | Notes |
 |---|---|---|
 | Unchanged subs in cascade | **Dim, collapsed by default with "Show N unchanged"** | §3.4. Toggle in Settings → View. |
-| Meta-epoch section ordering | **Fixed order: Event > App-db > Reactive > Trace > Machines > Routing > Issues > Chrome A11y** | Matches the L3 tab order. Predictable beats dynamic. |
+| Meta-epoch section ordering | **Fixed order: Event > App-db > Reactive > Trace > Machines > Routing > Issues** | Matches the L3 tab order. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
 | Event panel section default-expansion | **Steps 1-6 all expanded by default; collapsible per-step via header click; collapse-all keyboard `[`** | The Event panel IS the handling-pipeline view — collapsing by default would hide the punch. |
 | Dispatch-origin display on L2 rows | **Short text label prefix** (`user · :checkout/submit`) | No icon-only or coloured chip — keeps L2 row scannable. Matches the existing L1 ribbon density. |
 | Pattern view (4th lens) | **Defer to follow-up bead** | Per super-prompt. The 3-lens model (handling / reactive / state) is sufficient for MVP. |
@@ -1445,7 +1448,7 @@ through `theme/tokens` (dark) / theme-CSS-variables (light + HCM).
 | **Background — panel canvas** | `:bg-2` (`#1B1E24`) | ✅ |
 | **Background — hover row** | `:bg-active` (`#2A2F3D`) | ✅ |
 | **Background — popover** | `:bg-3` (`#232730`) | ✅ |
-| **L4 panel header stripe** | `theme/tokens/panel-accent` table (§007): Event violet · App-db cyan · Reactive cyan · Trace orange · Machines green · Routing yellow · Issues red · Chrome A11y red | ✅ |
+| **L4 panel header stripe** | `theme/tokens/panel-accent` table (§007): Event violet · App-db cyan · Reactive cyan · Trace orange · Machines green · Routing yellow · Issues red (rf2-4v67l — Chrome A11y removed) | ✅ |
 | **Cross-panel arrow / `⤴` link** | `:accent-violet` 600-weight | ✅ |
 | **Film-strip back/forward chevron** | `:text-secondary` default · `:text-primary` on hover | ✅ |
 
@@ -1511,7 +1514,9 @@ alone (§007).
 | Machines | ◆ | `:green` |
 | Routing | 🌐 | `:yellow` |
 | Issues | ⚠ | `:red` |
-| Chrome A11y | ✦ | `:red` |
+
+(rf2-4v67l — the Chrome A11y `✦` glyph row was removed alongside
+the panel itself.)
 
 **Film-strip back/forward buttons** (rendered in every L4 panel header):
 
@@ -1596,7 +1601,9 @@ table the implementer reads at panel-build time:
 | Machines (§6) | ~16-36 (xyflow auto-fit) | Each per-machine canvas auto-fit-on-mount; guards/actions/cancellation lists all expanded |
 | Routing (§7) | ~16-30 | Route tree fully expanded (max depth typically ≤ 4); "This epoch" block always expanded |
 | Issues (§8) | ~6-24 (variable) | Each issue block fully expanded (severity + op-key + message + path + ex-data); ex-data tree depth-2-expanded |
-| Chrome A11y (§9) | unchanged | unchanged |
+
+(rf2-4v67l — the Chrome A11y row was removed alongside the panel
+itself.)
 
 Per-panel implementations MUST NOT add a "Compact / Cosy / Comfy"
 density toggle inside the panel — the global `--rf-causa-font-size`

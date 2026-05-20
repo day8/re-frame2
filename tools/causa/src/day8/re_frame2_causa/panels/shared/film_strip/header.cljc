@@ -78,8 +78,9 @@
   ## Why a separate ns
 
   Every L4 panel (Event, Reactive, App-db, Trace, Machines,
-  Routing, Issues, Chrome-A11y) renders a film-strip in its header.
-  Inlining the hiccup eight times invites drift; hoisting it here
+  Routing, Issues) renders a film-strip in its header (rf2-4v67l
+  removed the Chrome A11y dogfood — Story owns a11y dogfooding now).
+  Inlining the hiccup seven times invites drift; hoisting it here
   gives the visual rhythm one source of truth — a future tweak
   (chevron weight, hit-target geometry, focus-ring radius) lands
   in one place."

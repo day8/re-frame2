@@ -281,21 +281,13 @@ implementation at
 [`panels/issues_ribbon.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon.cljs)
 + [`panels/issues_ribbon_helpers.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon_helpers.cljc).
 
-### Chrome A11y — `✦` · stripe `:red`
-
-Causa's own chrome accessibility dogfood (per §021 §9). Spine-
-independent — same shape pre- and post-rebuild. The audit-list layout
-(one row per violation, inline severity + rule-id + affected element +
-remediation hint) is the template every other panel's empty/dense
-state follows.
-
-**Open when:** "is Causa's own chrome accessible right now?" — meta
-panel for Causa-on-Causa development.
-
-Spec: [`021-Dynamic-Panel-Designs.md` §9](../../../tools/causa/spec/021-Dynamic-Panel-Designs.md)
-+ [`007-UX-IA.md`](../../../tools/causa/spec/007-UX-IA.md);
-implementation under
-[`panels/chrome_a11y/`](../../../tools/causa/src/day8/re_frame2_causa/panels).
+(rf2-4v67l — the Chrome A11y dogfood panel was removed. A11y
+dogfooding is properly Story's domain, where it already ships as
+`re-frame.story.ui.chrome-a11y` (rf2-18t6p ·
+[`tools/story/src/re_frame/story/ui/chrome_a11y.cljs`](../../../tools/story/src/re_frame/story/ui/chrome_a11y.cljs))
+— a sibling to the variant a11y scanner `re-frame.story.ui.a11y`
+(rf2-qgms1). A duplicate Causa panel was noise that flagged the
+Causa events-list as a problem.)
 
 ## Shared components
 

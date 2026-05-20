@@ -178,14 +178,15 @@
 ;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
 
 (deftest panel-domain-map-covers-every-l4-tab
-  (testing "rf2-5kfxe.8 — the 9 L4 tabs each get a domain colour, so
+  (testing "rf2-5kfxe.8 — the 8 L4 tabs each get a domain colour, so
             panels are distinguishable at a glance via the 3px left
             border on their header. Machines Canvas (rf2-mkpnb)
             shares :green with Machines (the two are sibling
-            sub-domain tabs); Chrome A11y (rf2-5r2yj) shares :red
-            with Issues (the diagnostics group sibling)."
+            sub-domain tabs). (rf2-4v67l — Chrome A11y was removed in
+            favour of Story's already-shipped chrome-a11y dogfood per
+            rf2-18t6p.)"
     (let [tabs #{:event :app-db :views :trace :machines :machines-canvas
-                 :routing :issues :chrome-a11y}]
+                 :routing :issues}]
       (is (= tabs (set (keys t/panel-domain->token)))))))
 
 (deftest panel-accent-resolves-through-tokens
@@ -532,9 +533,11 @@
 (deftest panel-icon-map-covers-every-l4-tab
   (testing "rf2-ezx8w — every L4 tab has a header-icon glyph per
             spec/021 §17.1.5. Mirrors `panel-domain->token` so the
-            icon and the accent stripe address the same tab keys."
+            icon and the accent stripe address the same tab keys.
+            (rf2-4v67l — Chrome A11y removed in favour of Story's
+            already-shipped chrome-a11y dogfood per rf2-18t6p.)"
     (let [tabs #{:event :reactive :views :app-db :trace :machines
-                 :machines-canvas :routing :issues :chrome-a11y}]
+                 :machines-canvas :routing :issues}]
       (is (= tabs (set (keys t/panel-icon)))))))
 
 (deftest panel-icon-glyphs-are-strings
@@ -555,8 +558,7 @@
     (is (= "◆" (:machines        t/panel-icon)))
     (is (= "◆" (:machines-canvas t/panel-icon)))
     (is (= "🌐" (:routing         t/panel-icon)))
-    (is (= "⚠" (:issues          t/panel-icon)))
-    (is (= "✦" (:chrome-a11y     t/panel-icon)))))
+    (is (= "⚠" (:issues          t/panel-icon)))))
 
 (deftest panel-icon-style-rides-panel-accent
   (testing "rf2-ezx8w — `panel-icon-style` resolves the glyph colour

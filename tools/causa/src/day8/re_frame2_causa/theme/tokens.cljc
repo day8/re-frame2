@@ -486,12 +486,10 @@
                                   attention tone — distinguishes
                                   from app-db's main colour)
     :issues    → :red            (issues = errors; semantic red)
-    :chrome-a11y → :red          (rf2-5r2yj — diagnostics-group
-                                  sibling to :issues; both surface
-                                  \"what's wrong here?\" content, so
-                                  the red accent reads them as one
-                                  family at the right edge of the
-                                  tab strip)
+
+  (rf2-4v67l — the Chrome A11y entry was removed alongside the panel
+  itself; a11y dogfooding is now Story's concern per rf2-18t6p +
+  rf2-qgms1.)
 
   JVM-portable pure data → keyword. Call sites do
   `(get tokens (panel-domain->token tab))` to materialise the hex."
@@ -502,8 +500,7 @@
    :machines        :green
    :machines-canvas :green
    :routing         :yellow
-   :issues          :red
-   :chrome-a11y     :red})
+   :issues          :red})
 
 (defn panel-accent
   "Resolve the L4 panel's accent CSS-variable string from the canonical
@@ -583,7 +580,10 @@
   | `:machines-canvas` | ◆ |
   | `:routing`    | 🌐    |
   | `:issues`     | ⚠    |
-  | `:chrome-a11y` | ✦    |
+
+  (rf2-4v67l — the Chrome A11y glyph was removed alongside the panel
+  itself; a11y dogfooding is now Story's concern per rf2-18t6p +
+  rf2-qgms1.)
 
   Emoji glyphs are deliberate — consistent with existing Causa
   convention (the L2-row badges + the Routing 🌐 affordance already
@@ -598,8 +598,7 @@
    :machines        "◆"
    :machines-canvas "◆"
    :routing         "🌐"
-   :issues          "⚠"
-   :chrome-a11y     "✦"})
+   :issues          "⚠"})
 
 (defn panel-icon-style
   "Build an inline-style map for the panel header icon span. Resolves
