@@ -113,7 +113,7 @@
         (fn [[a-val b-val] query-v] ...derived-value...))
 
   An optional metadata-map may precede the `:<-` chain / handler:
-  `(reg-sub :id {:doc \"...\" :spec ...} ...)`. The `query-v` arg the
+  `(reg-sub :id {:doc \"...\" :schema ...} ...)`. The `query-v` arg the
   handler receives is the full `[sub-id & args]` subscription vector
   the caller passed to `subscribe`.
 
@@ -398,7 +398,7 @@
   per-frame cache. Supports the same :<- chain shape as subscribe.
 
   Per Spec 008 §Testing — pure compute-sub form. Per Spec 010 §step 6
-  (rf2-wcam): the return value is validated against any :spec on the
+  (rf2-wcam): the return value is validated against any :schema on the
   sub's meta — failures emit :rf.error/schema-validation-failure and
   yield nil (default :replaced-with-default recovery).
 

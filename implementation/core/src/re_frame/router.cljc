@@ -243,7 +243,7 @@
 
 (defn- validate-event!
   "Per Spec 010 §Validation order step 1 (rf2-jwm4): validate the
-  dispatched event vector against the handler's :spec BEFORE the
+  dispatched event vector against the handler's :schema BEFORE the
   handler's interceptor chain runs. Failures emit
   :rf.error/schema-validation-failure with :where :event and skip the
   handler (recovery :no-recovery; downstream queue continues).

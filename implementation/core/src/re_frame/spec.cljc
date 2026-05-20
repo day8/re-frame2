@@ -111,8 +111,8 @@
 ;; continues.
 ;;
 ;; The interceptor's `:id` is `:rf.schema/at-boundary` — renamed from
-;; `:spec/at-boundary` at rf2-ieu0i as part of the framework-wide
-;; `:spec` → `schema` vocabulary unification.
+;; `:spec/at-boundary` at rf2-ieu0i and finalised under the schema-
+;; vocabulary strip in rf2-9brg7 (audit-of-audits schemas #6).
 
 (def validate-at-boundary-interceptor
   "Production-side schema validation interceptor. Per Spec 010 §Production

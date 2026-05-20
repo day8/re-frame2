@@ -29,7 +29,7 @@
 ;; ---- metadata-map mis-use detection (rf2-bbea) ----------------------------
 ;;
 ;; `reg-event-*`'s middle slot may be a metadata-map (open shape — `:doc`,
-;; `:spec`, `:tags`, ...) OR an interceptor vector. The interceptor chain
+;; `:schema`, `:tags`, ...) OR an interceptor vector. The interceptor chain
 ;; lives in the *positional* slot only, NOT inside the metadata-map. Putting
 ;; `:interceptors` inside the metadata-map silently drops the chain — which
 ;; surfaced via rf2-w3vn (Circle Drawer): `{:interceptors [undoable]}` placed
@@ -42,7 +42,7 @@
 
 (defn- warn-interceptors-in-meta!
   "Emit `:rf.warning/interceptors-in-metadata-map` when `meta` carries the
-  `:interceptors` key. The metadata-map is for reflection (`:doc`, `:spec`,
+  `:interceptors` key. The metadata-map is for reflection (`:doc`, `:schema`,
   `:tags`, `:platforms`, ...) and the interceptor chain belongs in the
   positional slot. Returns nil."
   [reg-fn-name id meta]
@@ -376,10 +376,10 @@
   interceptor-vector, NOT both — per Conventions §`:interceptors` is
   positional, not metadata):
 
-      (reg-event-db :id                          (fn [db ev] new-db))
-      (reg-event-db :id {:doc \"...\" :spec ...}   (fn [db ev] new-db))
-      (reg-event-db :id [(path :counter)]        (fn [slice ev] new-slice))
-      (reg-event-db :id {:doc \"...\"} [icpt]      (fn [db ev] new-db))
+      (reg-event-db :id                            (fn [db ev] new-db))
+      (reg-event-db :id {:doc \"...\" :schema ...} (fn [db ev] new-db))
+      (reg-event-db :id [(path :counter)]          (fn [slice ev] new-slice))
+      (reg-event-db :id {:doc \"...\"} [icpt]        (fn [db ev] new-db))
 
   Returns `id`.
 

@@ -88,7 +88,7 @@
 
 ;; ---- walker-opaque warning (rf2-jsokn / rf2-ycqtv finding #12) ------------
 ;;
-;; Per Spec 010 §The `:spec` value is opaque to re-frame, the framework's
+;; Per Spec 010 §The `:schema` value is opaque to re-frame, the framework's
 ;; schema walker (`re-frame.schemas.walker`) is pure data — it handles
 ;; vector-form Malli EDN and treats compiled `m/schema` values, registry
 ;; refs, and anything-else-non-vector as opaque leaves. A user that
@@ -150,7 +150,7 @@
                      " can introspect it; (2) use registration-level"
                      " `:sensitive?` metadata on the consuming"
                      " `reg-event-*` for coarse-grained honour. Per"
-                     " Spec 010 §The `:spec` value is opaque to"
+                     " Spec 010 §The `:schema` value is opaque to"
                      " re-frame.")})))))
 
 (defn- maybe-warn-validator-unavailable!
