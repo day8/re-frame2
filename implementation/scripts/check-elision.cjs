@@ -254,6 +254,17 @@ const DEV_ONLY_SENTINELS = [
   // must NOT appear in :advanced + goog.DEBUG=false bundles.
   { source: 're-frame.views/reg-view* (data-rf2-source-coord injection)',
     sentinel: 'data-rf2-source-coord' },
+  // re-frame.views — view-id DOM annotation (Spec 006 §View tagging
+  // contract, rf2-01il5). The reg-view* wrapper ALSO merges
+  // `:data-rf-view` onto the rendered root DOM element when
+  // `interop/debug-enabled?` is true — the fallback path for runtime
+  // view-hierarchy capture when the Fiber-walker primary path
+  // (rf2-mxkq7) is unavailable. The injection rides the SAME gate as
+  // data-rf2-source-coord (no separate code path or elision branch);
+  // the literal "data-rf-view" string fragment must NOT appear in
+  // :advanced + goog.DEBUG=false bundles.
+  { source: 're-frame.views/reg-view* (data-rf-view injection)',
+    sentinel: 'data-rf-view' },
   // re-frame.core/reg-machine — per-element source-coord stamping
   // (Spec 005 §Source-coord stamping, rf2-8bp3). The reg-machine macro
   // emits an `(if interop/debug-enabled? (assoc spec :rf.machine/

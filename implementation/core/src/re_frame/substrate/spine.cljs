@@ -563,6 +563,16 @@
          ":"
          (if col (str col) "?"))))
 
+(defn format-view-id
+  "Render the registry id keyword as the `:data-rf-view` attribute
+  value. Returns `(str id)` so `:rf.foo/bar` → `\":rf.foo/bar\"`. The
+  walker reads it back via `(keyword (subs s 1))` when the leading `:`
+  is present. Per Spec 006 §View tagging contract (rf2-01il5).
+  Mirrors re-frame.views.source-coord-annotation/format-view-id so
+  the attribute value is identical across substrates."
+  [id]
+  (str id))
+
 (defn make-warn-once-cache
   "Return an `(atom #{})` for tracking per-id warn-once emission. Each
   adapter owns its own cache so multiple adapters can coexist in test
@@ -608,18 +618,34 @@
 
 (defn- inject-source-coord-attr
   "Wrap `out` (the user component's React element output) with a
-  cloneElement call that adds `:data-rf2-source-coord`. Non-element
-  outputs (nil, fragment, function-component head) emit a one-shot
-  warning per id and pass through unchanged. Per Spec 006 §Source-coord
-  annotation."
-  [warn-fn id coord-attr out]
+  cloneElement call that adds both `data-rf2-source-coord` (Spec 006
+  §Source-coord annotation, rf2-z7f7) and `data-rf-view` (Spec 006
+  §View tagging contract, rf2-01il5). Non-element outputs (nil,
+  fragment, function-component head) emit a one-shot warning per id
+  and pass through unchanged — pair tools fall back to `:rf/id` for
+  source-coord; the view-walker falls back to the Fiber-walker primary
+  path for hierarchy capture.
+
+  CRITICAL: cloneElement returns a new element with the SAME `type` and
+  `key` slots — it does NOT wrap the original. Wrapping with a
+  synthetic host element (the `[:div]` shape rejected by Spec 006
+  §View tagging contract) would break flexbox / CSS Grid / table
+  layouts / `:nth-child` selectors / positioning ancestors / stacking
+  contexts / CSS containment."
+  [warn-fn id coord-attr view-attr out]
   (cond
     (dom-element? out)
-    (let [props    (.-props out)
-          existing (when props (aget props "data-rf2-source-coord"))]
-      (if existing
+    (let [props             (.-props out)
+          existing-coord    (when props (aget props "data-rf2-source-coord"))
+          existing-view     (when props (aget props "data-rf-view"))
+          patch             #js {}]
+      (when-not existing-coord
+        (aset patch "data-rf2-source-coord" coord-attr))
+      (when-not existing-view
+        (aset patch "data-rf-view" view-attr))
+      (if (and existing-coord existing-view)
         out
-        (React/cloneElement out #js {"data-rf2-source-coord" coord-attr})))
+        (React/cloneElement out patch)))
 
     :else
     (do
@@ -632,16 +658,19 @@
   `warn-fn` (typically built via `make-warn-non-dom-root-fn`). The
   returned fn has the standard 3-arg shape `(id metadata user-fn) ->
   wrapped-user-fn` and produces a function component that injects
-  `data-rf2-source-coord` on the rendered root DOM element when
-  `interop/debug-enabled?` is true. Production builds elide via
-  `interop/debug-enabled?` per Spec 009 §Production builds."
+  both `data-rf2-source-coord` (Spec 006 §Source-coord annotation) and
+  `data-rf-view` (Spec 006 §View tagging contract) on the rendered
+  root DOM element when `interop/debug-enabled?` is true. Production
+  builds elide via `interop/debug-enabled?` per Spec 009 §Production
+  builds."
   [warn-fn]
   (fn wrap-view [id metadata user-fn]
     (if interop/debug-enabled?
-      (let [coord-attr (format-source-coord id metadata)]
+      (let [coord-attr (format-source-coord id metadata)
+            view-attr  (format-view-id id)]
         (fn wrapped-user-fn [& args]
           (let [out (apply user-fn args)]
-            (inject-source-coord-attr warn-fn id coord-attr out))))
+            (inject-source-coord-attr warn-fn id coord-attr view-attr out))))
       user-fn)))
 
 (defn install-clear-warn-once-step!
