@@ -44,6 +44,13 @@
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]
             [re-frame.trace.projection :as trace-projection]
+            ;; JVM-only autoload for the focused-event-only cascade-DAG
+            ;; aggregator (rf2-931pm). CLJS deliberately omits the
+            ;; require so Closure DCE keeps the aggregator + per-fn
+            ;; keyword interns out of production bundles — the
+            ;; bundle-isolation gate verifies. Causa's Reactive panel
+            ;; loads the ns explicitly from its tools-side build.
+            #?@(:clj [[re-frame.trace.cascade]])
             [re-frame.event-emit :as event-emit]
             [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
