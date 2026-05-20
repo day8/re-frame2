@@ -2,10 +2,21 @@
   "Docs-category tool handlers — introspection over the Story
   registry. Per IMPL-SPEC §7.2 these are the pure-read surfaces:
   `list-stories`, `get-story`, `get-variant`, `list-tags`,
-  `list-modes`, `list-assertions`, `variant->edn`."
+  `list-modes`, `list-assertions`, `variant->edn`.
+
+  ## Pagination (rf2-76sf6)
+
+  Per spec/Principles.md §'Tight token budget' MUST, every `list-*`
+  tool accepts `:limit` + `:cursor`. Small registries fit on one
+  page and never see the pagination metadata; large registries get
+  `:total`, `:limit`, `:has-more?`, `:next-cursor` slots alongside
+  the normal payload. The `get-*` / `<thing>->edn` tools are NOT
+  paginated — their return is a single record bounded by the
+  registered body's size, not a function of registry size."
   (:require [clojure.set :as set]
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
+            [re-frame.story-mcp.tools.cursor :as cursor]
             [re-frame.story-mcp.tools.helpers :as h]
             [re-frame.story-mcp.tools.schemas :as s]))
 
@@ -13,8 +24,10 @@
   "Docs: all registered stories (with optional tag filters).
 
   `args`:
-    :tags — vector of tag ids (strings or `:keyword` forms); narrows
-            the result to stories whose `:tags` set intersects this.
+    :tags    — vector of tag ids (strings or `:keyword` forms); narrows
+               the result to stories whose `:tags` set intersects this.
+    :limit   — optional, default 25. Per-page entry count (rf2-76sf6).
+    :cursor  — optional opaque continuation token from a previous call.
 
   HOT PATH (rf2-d3iso): agents spam this tool. The variant-id slot per
   story is read from `story/variants-by-story` — a single O(V) pass
@@ -24,7 +37,12 @@
   rf2-lqjbk: caller-supplied `:tags` entries route through
   `args/safe-keyword` against the registered-tag set — unknown tag
   ids skip the intersection rather than interning a fresh JVM
-  keyword."
+  keyword.
+
+  rf2-76sf6: pagination via `cursor/page`. The stable-sort key is the
+  story id (string projection). Small registries return the bare
+  `{:stories [...]}` payload; once entries exceed `:limit` the
+  response adds `:total :limit :has-more? :next-cursor`."
   [args]
   (let [stories  (story/registrations :story)
         tag-set  (story/list-tags)
@@ -37,12 +55,22 @@
                          stories)
                    stories)
         index    (story/variants-by-story)
-        payload  {:stories (vec (for [[sid body] filtered]
-                                  {:id   sid
-                                   :doc  (:doc body)
-                                   :tags (vec (:tags body))
-                                   :variants (sort (get index sid #{}))}))}]
-    (h/text-result (h/pr-edn payload) payload)))
+        ;; Build the full sorted entry vec FIRST; pagination slices it.
+        ;; The sort is on string projection of the id for stable cross-
+        ;; page ordering — the fingerprint depends on it.
+        sorted   (sort-by (comp str key) filtered)
+        all-ids  (keys filtered)
+        entries  (mapv (fn [[sid body]]
+                         {:id   sid
+                          :doc  (:doc body)
+                          :tags (vec (:tags body))
+                          :variants (sort (get index sid #{}))})
+                       sorted)]
+    (let [[res page meta] (cursor/page entries all-ids args "list-stories")]
+      (if (= res :err)
+        page
+        (let [payload (merge {:stories page} meta)]
+          (h/text-result (h/pr-edn payload) payload))))))
 
 (defn tool-get-story
   "Docs: one story's full body.
@@ -68,24 +96,48 @@
         (h/text-result (h/pr-edn payload) payload)))))
 
 (defn tool-list-tags
-  "Docs: canonical tags + custom tags."
-  [_args]
+  "Docs: canonical tags + custom tags.
+
+  rf2-76sf6: the bifurcated `{:canonical :custom :all}` shape is
+  retained; `:canonical` is always the full 7-tag set (it is bounded
+  and not a function of registry size, so the pagination MUST does not
+  apply). `:custom` (project-registered tags) and `:all` (their union)
+  are paginated when the count exceeds `:limit`. Small registries see
+  no pagination metadata."
+  [args]
   (let [registered (story/list-tags)
-        canonical  story/canonical-tags
-        custom     (set/difference (set registered) (set canonical))
-        payload    {:canonical (vec (sort-by str canonical))
-                    :custom    (vec (sort-by str custom))
-                    :all       (vec (sort-by str registered))}]
-    (h/text-result (h/pr-edn payload) payload)))
+        canonical  (vec (sort-by str story/canonical-tags))
+        custom-set (set/difference (set registered) (set canonical))
+        custom     (vec (sort-by str custom-set))
+        [res page meta] (cursor/page custom custom-set args "list-tags")]
+    (if (= res :err)
+      page
+      (let [;; :all is the union of :canonical + the (page-sliced) :custom.
+            ;; When no pagination kicks in (small registry) the result is
+            ;; byte-identical to the pre-rf2-76sf6 shape.
+            all-page (vec (sort-by str (into canonical page)))
+            payload  (merge {:canonical canonical
+                             :custom    page
+                             :all       all-page}
+                            meta)]
+        (h/text-result (h/pr-edn payload) payload)))))
 
 (defn tool-list-modes
   "Docs: registered modes (from `reg-mode`). Returns each mode's id +
-  body so agents can see the `:args` saved tuple."
-  [_args]
+  body so agents can see the `:args` saved tuple.
+
+  rf2-76sf6: paginated per spec/Principles.md §'Tight token budget'."
+  [args]
   (let [modes   (story/registrations :mode)
-        payload {:modes (vec (for [[mid body] modes]
-                               {:id mid :doc (:doc body) :args (:args body)}))}]
-    (h/text-result (h/pr-edn payload) payload)))
+        sorted  (sort-by (comp str key) modes)
+        all-ids (keys modes)
+        entries (mapv (fn [[mid body]] {:id mid :doc (:doc body) :args (:args body)})
+                      sorted)
+        [res page meta] (cursor/page entries all-ids args "list-modes")]
+    (if (= res :err)
+      page
+      (let [payload (merge {:modes page} meta)]
+        (h/text-result (h/pr-edn payload) payload)))))
 
 (defn- decorator-summary
   "Project one decorator body to the EDN-safe shape — id, kind, doc,
@@ -127,15 +179,26 @@
   - `:kind` (string, optional) — narrow to one decorator kind. One
     of `\"hiccup\"`, `\"frame-setup\"`, `\"fx-override\"`. Resolved
     through `args/safe-keyword` against the bounded `decorator-kinds`
-    set (rf2-lqjbk); unrecognised values are treated as no filter."
+    set (rf2-lqjbk); unrecognised values are treated as no filter.
+
+  rf2-76sf6: pagination via `:limit` / `:cursor`. The filtered+sorted
+  entry vec is paged; the cursor's fingerprint is over the FILTERED
+  id-set so a kind-filter change between pages reads as a stale
+  cursor (different sig)."
   [args]
   (let [kind-filter (some-> (:kind args) (args/safe-keyword decorator-kinds))
         decorators  (story/registrations :decorator)
-        entries     (cond->> (for [[did body] decorators]
-                               (decorator-summary did body))
-                      kind-filter (filter #(= kind-filter (:kind %))))
-        payload     {:decorators (vec entries)}]
-    (h/text-result (h/pr-edn payload) payload)))
+        filtered    (cond->> decorators
+                      kind-filter (into {} (filter (fn [[_ body]]
+                                                     (= kind-filter (:kind body))))))
+        sorted      (sort-by (comp str key) filtered)
+        all-ids     (keys filtered)
+        entries     (mapv (fn [[did body]] (decorator-summary did body)) sorted)
+        [res page meta] (cursor/page entries all-ids args "list-decorators")]
+    (if (= res :err)
+      page
+      (let [payload (merge {:decorators page} meta)]
+        (h/text-result (h/pr-edn payload) payload)))))
 
 (def canonical-assertion-docs
   "Per spec/007 line 304 + IMPL-SPEC §3.5 the canonical seven
@@ -163,12 +226,23 @@
     :semantics "fx-id emitted during play?"}])
 
 (defn tool-list-assertions
-  "Docs: the `:rf.assert/*` canonical vocabulary + arity docs."
-  [_args]
-  (let [registered (story/canonical-assertion-ids)
-        payload    {:canonical canonical-assertion-docs
-                    :registered (vec (sort-by str registered))}]
-    (h/text-result (h/pr-edn payload) payload)))
+  "Docs: the `:rf.assert/*` canonical vocabulary + arity docs.
+
+  rf2-76sf6: the bifurcated `{:canonical :registered}` shape is
+  retained; `:canonical` is the full 7-assertion doc vector (bounded
+  and constant, so the pagination MUST does not apply). `:registered`
+  (project-registered + canonical ids) is paginated when the count
+  exceeds `:limit`. Small registries see no pagination metadata."
+  [args]
+  (let [registered (sort-by str (story/canonical-assertion-ids))
+        reg-vec    (vec registered)
+        [res page meta] (cursor/page reg-vec (set reg-vec) args "list-assertions")]
+    (if (= res :err)
+      page
+      (let [payload (merge {:canonical  canonical-assertion-docs
+                            :registered page}
+                           meta)]
+        (h/text-result (h/pr-edn payload) payload)))))
 
 (defn tool-variant->edn
   "Docs: round-trippable EDN of a registered variant. Identical payload
@@ -266,7 +340,7 @@
   "Docs-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "list-stories"
     :category       :docs
-    :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. "
+    :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. Paginated per rf2-76sf6 (`:limit` default 25, optional `:cursor` continuation). "
                          "Examples: "
                          "1. All stories: {} -> {:stories [{:id :story.cart :doc \"...\" :tags [:dev :docs] :variants [:story.cart/empty :story.cart/full]} ...]}. "
                          "2. Filter by tag: {:tags [\":docs\"]} -> {:stories [...]} — only stories whose :tags intersect the requested set. "
@@ -274,8 +348,9 @@
     :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
-                                {:tags {:type "array" :items s/kw-or-string
-                                        :description "Optional tag filter; story `:tags` set must intersect."}})
+                                (s/with-pagination
+                                  {:tags {:type "array" :items s/kw-or-string
+                                          :description "Optional tag filter; story `:tags` set must intersect."}}))
                   :additionalProperties false}
     :outputSchema s/default-output-schema
     :annotations  s/read-only-annotations
@@ -315,26 +390,32 @@
 
    {:name           "list-tags"
     :category       :docs
-    :description    (str "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project. "
+    :description    (str "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project. Paginated per rf2-76sf6 — `:canonical` stays full (bounded 7); `:custom` and `:all` slice per `:limit` / `:cursor`. "
                          "Examples: "
                          "1. Fresh registry: {} -> {:canonical [:agent :dev :docs :experimental :internal :screenshot :test] :custom [] :all [:agent :dev :docs ...]}. "
                          "2. Project with custom tags: {} -> {:canonical [...] :custom [:mobile :rtl] :all [:agent :dev :docs ... :mobile :rtl]}. "
-                         "3. Pair with list-stories: call this first, then list-stories with :tags to filter the catalogue.")
+                         "3. Pair with list-stories: call this first, then list-stories with :tags to filter the catalogue. "
+                         "4. Large custom set — paginated: {:limit 25} -> {:canonical [...7...] :custom [...25...] :all [...32...] :total 50 :limit 25 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  100
-    :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :inputSchema    {:type "object"
+                     :properties (s/with-max-tokens (s/with-pagination {}))
+                     :additionalProperties false}
     :outputSchema   s/default-output-schema
     :annotations    s/read-only-annotations
     :handler        tool-list-tags}
 
    {:name           "list-modes"
     :category       :docs
-    :description    (str "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`. "
+    :description    (str "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`. Paginated per rf2-76sf6 (`:limit` default 25, optional `:cursor`). "
                          "Examples: "
                          "1. Project with modes: {} -> {:modes [{:id :mode/dark :doc \"Dark theme\" :args {:theme :dark}} {:id :mode/mobile :doc \"...\" :args {:viewport :mobile}}]}. "
                          "2. Fresh registry (no project modes): {} -> {:modes []}. "
-                         "3. Use with preview-variant: pass {:active-modes [\":mode/dark\"]} on a preview-variant call to render the variant under that mode.")
+                         "3. Use with preview-variant: pass {:active-modes [\":mode/dark\"]} on a preview-variant call to render the variant under that mode. "
+                         "4. Large mode set — paginated: {:limit 10} -> {:modes [...10...] :total 47 :limit 10 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  200
-    :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :inputSchema    {:type "object"
+                     :properties (s/with-max-tokens (s/with-pagination {}))
+                     :additionalProperties false}
     :outputSchema   s/default-output-schema
     :annotations    s/read-only-annotations
     :handler        tool-list-modes}
@@ -348,17 +429,20 @@
                          "for `:fx-override`. The read-only peer of the deferred `register-decorator` "
                          "write surface — closures don't transport, so the write side stays out of "
                          "scope, but the read side is cheap. Optional `:kind` arg narrows to one "
-                         "decorator kind. "
+                         "decorator kind. Paginated per rf2-76sf6 (`:limit` default 25, optional "
+                         "`:cursor`). "
                          "Examples: "
                          "1. All decorators: {} -> {:decorators [{:id :with-router :kind :hiccup :doc \"...\" :has-wrap? true} {:id :seed-cart :kind :frame-setup :doc \"...\" :init [...] :app-db-patch {...}} {:id :stub-http :kind :fx-override :fx-id :http :response {...}}]}. "
                          "2. Filter to one kind: {:kind \"fx-override\"} -> {:decorators [{:id :stub-http :kind :fx-override ...}]}. "
-                         "3. Empty registry: {} -> {:decorators []}.")
+                         "3. Empty registry: {} -> {:decorators []}. "
+                         "4. Paginated: {:limit 10} -> {:decorators [...10...] :total 23 :limit 10 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
-                                {:kind {:type "string"
-                                        :description "Optional filter — only return decorators of this kind."
-                                        :enum ["hiccup" "frame-setup" "fx-override"]}})
+                                (s/with-pagination
+                                  {:kind {:type "string"
+                                          :description "Optional filter — only return decorators of this kind."
+                                          :enum ["hiccup" "frame-setup" "fx-override"]}}))
                   :additionalProperties false}
     :outputSchema s/default-output-schema
     :annotations  s/read-only-annotations
@@ -366,13 +450,16 @@
 
    {:name           "list-assertions"
     :category       :docs
-    :description    (str "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids. "
+    :description    (str "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids. Paginated per rf2-76sf6 — `:canonical` (the 7-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
                          "Examples: "
                          "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/dispatched? :rf.assert/effect-emitted ...]}. "
                          "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "
-                         "3. Pair with run-variant: discover the assertion vocab here, then write :play sequences referencing those event ids.")
+                         "3. Pair with run-variant: discover the assertion vocab here, then write :play sequences referencing those event ids. "
+                         "4. Paginated: {:limit 5} -> {:canonical [...7...] :registered [...5...] :total 14 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
-    :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :inputSchema    {:type "object"
+                     :properties (s/with-max-tokens (s/with-pagination {}))
+                     :additionalProperties false}
     :outputSchema   s/default-output-schema
     :annotations    s/read-only-annotations
     :handler        tool-list-assertions}

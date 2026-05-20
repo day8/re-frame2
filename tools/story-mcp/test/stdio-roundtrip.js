@@ -162,11 +162,12 @@ function run() {
 
       // 2d. Verify the record-as-variant descriptor (rf2-luhdu landing):
       // required `variant-id`; optional duration-ms / new-variant-id / doc
-      // / extends / alias / write-back?.
+      // / extends / alias / write-back. (Wire-key `write-back` — no `?` per
+      // Anthropic's input-schema property-name regex; rf2-pmwgn.)
       const recDesc = (list.result?.tools || []).find((t) => t.name === 'record-as-variant');
       if (!recDesc) throw new Error('record-as-variant descriptor missing from tools/list');
       const recProps = recDesc.inputSchema?.properties || {};
-      for (const k of ['variant-id', 'duration-ms', 'new-variant-id', 'doc', 'extends', 'alias', 'write-back?']) {
+      for (const k of ['variant-id', 'duration-ms', 'new-variant-id', 'doc', 'extends', 'alias', 'write-back']) {
         if (!(k in recProps)) {
           throw new Error('record-as-variant inputSchema missing property: ' + k);
         }
@@ -174,7 +175,7 @@ function run() {
       if (!recDesc.inputSchema?.required?.includes('variant-id')) {
         throw new Error('record-as-variant.inputSchema missing required: variant-id');
       }
-      console.log('OK   record-as-variant descriptor -> variant-id (required) + duration-ms/new-variant-id/doc/extends/alias/write-back?');
+      console.log('OK   record-as-variant descriptor -> variant-id (required) + duration-ms/new-variant-id/doc/extends/alias/write-back');
 
       // 3. tools/call list-tags — read-side smoke; the canonical seven
       // tags must be present (loaded by `install-canonical-vocabulary!` in

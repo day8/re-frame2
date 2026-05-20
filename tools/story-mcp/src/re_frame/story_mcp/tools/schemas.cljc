@@ -39,7 +39,15 @@
   for booleans is rejected at the host, so the wire form drops it. The
   predicate FUNCTION `helpers/include-sensitive?` retains the `?` (the
   Clojure idiom belongs on the predicate, not on the data key whose
-  wire form disallows it)."
+  wire form disallows it).
+
+  This is the canonical rule for the **input-schema property side**
+  (rf2-pmwgn): every boolean tool input property MUST omit the
+  trailing `?` (today: `:include-sensitive` and `:write-back`).
+  Response-payload keys (in `structuredContent`) are NOT bound by the
+  Anthropic regex and retain the Clojure-idiomatic `?` — that's why
+  `:passing?`, `:registered?`, `:unregistered?`, `:written-back?`,
+  `:has-wrap?` survive on the response side."
   {:type "boolean"
    :description (str "Opt in to forwarding sensitive `:app-db` slots and "
                      "assertion records. Default false (declared-sensitive paths "
@@ -53,6 +61,58 @@
   tool inherits the slot so the cap is uniformly overrideable per call."
   [props]
   (assoc props :max-tokens max-tokens-schema))
+
+;; ---------------------------------------------------------------------------
+;; Pagination schema fragments (rf2-76sf6)
+;;
+;; spec/Principles.md §'Tight token budget' MUST: every read tool whose
+;; return size is a function of registry size MUST accept `:limit` and
+;; return a `:cursor` for continuation. The Docs `list-*` tools share
+;; the same pagination contract — define the schema fragments once
+;; here and inject via `with-pagination`.
+;; ---------------------------------------------------------------------------
+
+(def limit-schema
+  "Recurring fragment — `list-*` tools accept a `:limit` arg to bound
+  the per-page entry count. Default 25 per
+  `re-frame.story-mcp.tools.cursor/default-limit`; clamped to 200 per
+  `max-limit`."
+  {:type "integer" :minimum 1 :maximum 200
+   :description (str "Per-page entry count. Default 25; clamped to 200. "
+                     "Pair with `:cursor` for continuation across pages. "
+                     "Per spec/Principles.md §'Tight token budget' the "
+                     "default keeps the response under the wire cap.")})
+
+(def cursor-schema
+  "Recurring fragment — `list-*` tools accept an opaque `:cursor`
+  string for continuation. The agent passes the response's
+  `:next-cursor` value back verbatim on the next call; the encoding is
+  an implementation detail (today: base64 of an EDN map; subject to
+  change). When the underlying registry changes between cursor mint
+  and deref, the server returns `:rf.mcp/cursor-stale` and the agent
+  must drop the cursor + restart."
+  {:type "string"
+   :description (str "Opaque continuation token from a previous list-* call's "
+                     ":next-cursor slot. Agents pass the value back verbatim. "
+                     "On registry change between pages the server returns "
+                     ":rf.mcp/cursor-stale; drop the cursor and restart.")})
+
+(defn with-pagination
+  "Inject `:limit` and `:cursor` slots into a tool's `:properties`
+  map. Used by every Docs `list-*` tool per spec/Principles.md
+  §'Tight token budget' (rf2-76sf6).
+
+  The `get-*` tools (`get-story`, `get-variant`, `get-docs-markdown`,
+  `variant->edn`) are NOT paginated — their return is a single record
+  bounded by the registered body's size, not a function of registry
+  size. Per the Principles MUST: 'any read tool whose return size is
+  a function of registry size' — single-record reads are bounded
+  separately by the wire-boundary cap (`:max-tokens` + the
+  `:rf.mcp/overflow` marker)."
+  [props]
+  (assoc props
+         :limit  limit-schema
+         :cursor cursor-schema))
 
 (defn with-include-sensitive
   "Inject the `:include-sensitive` slot into a tool's `:properties`
@@ -122,15 +182,17 @@
 ;; `destructiveHint`, `idempotentHint`, `openWorldHint` — per
 ;; mcp_best_practices.md.
 ;;
-;; Story-mcp matrix (per the bead rf2-94p8q):
+;; Story-mcp matrix (per the bead rf2-94p8q, refined per rf2-8h778):
 ;;
-;;   - READ-ONLY tools: get-story-instructions, preview-variant,
-;;     list-substrates, list-stories, get-story, get-variant, list-tags,
-;;     list-modes, list-decorators, list-assertions, get-docs-markdown,
-;;     variant->edn, snapshot-identity, run-a11y, read-failures.
+;;   - READ-ONLY tools: get-story-instructions, list-substrates,
+;;     list-stories, get-story, get-variant, list-tags, list-modes,
+;;     list-decorators, list-assertions, get-docs-markdown, variant->edn,
+;;     snapshot-identity, run-a11y, read-failures.
 ;;
-;;   - DESTRUCTIVE tools: run-variant (dispatches events into a story
-;;     frame), register-variant, unregister-variant, record-as-variant.
+;;   - DESTRUCTIVE tools: preview-variant (dispatches events into a
+;;     variant's frame via the same `story/run-variant` lifecycle as
+;;     run-variant — rf2-8h778), run-variant, register-variant,
+;;     unregister-variant, record-as-variant.
 ;; ---------------------------------------------------------------------------
 
 (def read-only-annotations
@@ -151,17 +213,25 @@
    :openWorldHint   false})
 
 (def run-variant-annotations
-  "Annotations for `run-variant` — executes a variant's four-phase
-  lifecycle which dispatches events into the variant's frame. Per
+  "Annotations for the variant-lifecycle tools (`run-variant` and
+  `preview-variant`) — both execute a variant's four-phase lifecycle
+  which dispatches events into the variant's frame. Per
   spec/Tool-Pair.md §Direct-read privacy posture the run is a write
   to the runtime, so `:destructiveHint true`. The events fire inside
-  the JVM process — `:openWorldHint false`."
+  the JVM process — `:openWorldHint false`.
+
+  rf2-8h778: `preview-variant` originally shipped with
+  `read-only-annotations`; the audit (rf2-3pn6c Finding #2) caught
+  the asymmetry — both tools call `(story/run-variant vk opts)` and
+  derive their result from the lifecycle outcome. The annotations
+  must match the side-effect surface, not the verb gloss
+  (`preview-variant`'s rendered URL output) at the wire."
   {:destructiveHint true
    :openWorldHint   false})
 
 (def write-gated-output-schema
   "outputSchema for write-surface tools (`register-variant`,
-  `unregister-variant`, `record-as-variant` with `:write-back? true`).
+  `unregister-variant`, `record-as-variant` with `:write-back true`).
   Includes the gated-error shape — when the operator-only
   `--allow-writes` flag is closed, the tool returns
   `{:isError true :structuredContent {:gated true :tool \"<name>\"}}`.

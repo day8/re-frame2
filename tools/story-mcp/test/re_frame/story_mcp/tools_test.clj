@@ -194,7 +194,7 @@
       (is (every? #(map? (:annotations %)) ds))))
   (testing "matrix: read-only tools have readOnlyHint"
     (let [by-name (into {} (map (juxt :name identity)) registry/tool-registry)
-          ro-tools ["get-story-instructions" "preview-variant" "list-substrates"
+          ro-tools ["get-story-instructions" "list-substrates"
                     "list-stories" "get-story" "get-variant" "list-tags"
                     "list-modes" "list-decorators" "list-assertions"
                     "get-docs-markdown" "variant->edn" "snapshot-identity"
@@ -202,10 +202,16 @@
       (doseq [n ro-tools]
         (is (true? (get-in (by-name n) [:annotations :readOnlyHint]))
             (str n " should have readOnlyHint true (rf2-94p8q matrix)")))))
+  ;; rf2-8h778: preview-variant moves to the destructive list. It dispatches
+  ;; events into the variant's frame via the same `story/run-variant`
+  ;; lifecycle as `run-variant`; the original `read-only-annotations`
+  ;; marking was a wire-mismatch with the actual side-effect surface and
+  ;; would have let agent-host auto-approval skip the destructive-write
+  ;; ceremony.
   (testing "matrix: destructive tools have destructiveHint"
     (let [by-name (into {} (map (juxt :name identity)) registry/tool-registry)
-          dest-tools ["run-variant" "register-variant" "unregister-variant"
-                      "record-as-variant"]]
+          dest-tools ["preview-variant" "run-variant" "register-variant"
+                      "unregister-variant" "record-as-variant"]]
       (doseq [n dest-tools]
         (is (true? (get-in (by-name n) [:annotations :destructiveHint]))
             (str n " should have destructiveHint true (rf2-94p8q matrix)"))))))
@@ -443,6 +449,153 @@
   (let [r (invoke "get-docs-markdown" {})]
     (is (error? r))
     (is (re-find #"story-id" (-> r :content first :text)))))
+
+;; ---------------------------------------------------------------------------
+;; Pagination on the Docs `list-*` tools (rf2-76sf6)
+;;
+;; spec/Principles.md §'Tight token budget' MUST: every read tool whose
+;; return size is a function of registry size MUST accept `:limit` +
+;; `:cursor`. These tests pin:
+;;   - small registries return the bare shape (no pagination metadata)
+;;     — the pre-rf2-76sf6 wire shape is preserved
+;;   - large registries (>= :limit) return :total :limit :has-more?
+;;     :next-cursor
+;;   - cursor round-trips across pages
+;;   - a stale cursor (registry mutated between pages) returns
+;;     :rf.mcp/cursor-stale
+;;   - `:limit` is clamped to the documented ceiling
+;; ---------------------------------------------------------------------------
+
+(deftest list-stories-small-registry-no-pagination-metadata
+  (testing "single-story fixture fits on one page — no :total / :next-cursor"
+    (let [r (invoke "list-stories" {})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (vector? (:stories s)))
+      (is (not (contains? s :total))
+          "small registry MUST NOT carry pagination metadata (wire shape unchanged)")
+      (is (not (contains? s :next-cursor))))))
+
+(deftest list-stories-paginates-when-over-limit
+  (testing "with many stories + :limit smaller than total, response is paginated"
+    ;; Register additional stories so total > :limit. The fixture leaves
+    ;; one story; adding 4 more + :limit 2 produces a 5-entry total.
+    (doseq [n (range 4)]
+      (story/reg-story (keyword (str "story.pager" n))
+        {:doc (str "Pager story " n) :component :app/x :tags #{:dev}}))
+    (let [r (invoke "list-stories" {:limit 2})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= 2 (count (:stories s))) "first page honours :limit")
+      (is (= 5 (:total s)) "five stories total (fixture + 4)")
+      (is (= 2 (:limit s)))
+      (is (true? (:has-more? s)))
+      (is (string? (:next-cursor s)))
+      ;; Round-trip the cursor: passing :next-cursor returns the next page.
+      (let [r2 (invoke "list-stories" {:limit 2 :cursor (:next-cursor s)})
+            s2 (:structuredContent r2)]
+        (is (success? r2))
+        (is (= 2 (count (:stories s2))) "second page also 2 entries")
+        (is (true? (:has-more? s2)))
+        (is (string? (:next-cursor s2)))
+        ;; Final page: one entry, has-more? false, next-cursor nil.
+        (let [r3 (invoke "list-stories" {:limit 2 :cursor (:next-cursor s2)})
+              s3 (:structuredContent r3)]
+          (is (success? r3))
+          (is (= 1 (count (:stories s3))) "final page has the remaining entry")
+          (is (false? (:has-more? s3)))
+          (is (nil? (:next-cursor s3))))))))
+
+(deftest list-stories-stale-cursor-returns-error
+  (testing "a registry mutation between pages stales the cursor"
+    (doseq [n (range 3)]
+      (story/reg-story (keyword (str "story.stale" n))
+        {:doc (str "Stale " n) :component :app/x :tags #{:dev}}))
+    (let [r1     (invoke "list-stories" {:limit 1})
+          cursor (-> r1 :structuredContent :next-cursor)]
+      (is (string? cursor))
+      ;; Mutate the registry: register one more story before deref.
+      (story/reg-story :story.intruder
+        {:doc "Landed mid-pagination" :component :app/x :tags #{:dev}})
+      (let [r2 (invoke "list-stories" {:limit 1 :cursor cursor})
+            s2 (:structuredContent r2)]
+        (is (error? r2))
+        (is (= :rf.mcp/cursor-stale (:reason s2)))
+        (is (= "list-stories" (:tool s2)))))))
+
+(deftest list-stories-limit-clamped-to-max
+  (testing ":limit above the ceiling clamps DOWN to max-limit"
+    (let [r (invoke "list-stories" {:limit 99999})
+          s (:structuredContent r)]
+      (is (success? r))
+      ;; With 1 fixture story, no pagination kicks in — but if it did,
+      ;; the :limit slot would be 200 (max-limit), not 99999. We verify
+      ;; this by registering enough stories to force pagination.
+      (doseq [n (range 250)]
+        (story/reg-story (keyword (str "story.clamp" n))
+          {:doc "" :component :app/x :tags #{:dev}}))
+      (let [r2 (invoke "list-stories" {:limit 99999})
+            s2 (:structuredContent r2)]
+        (is (success? r2))
+        ;; Total is fixture + 250 = 251; with :limit clamped to 200,
+        ;; first page is 200 entries and :has-more? true.
+        (is (<= (count (:stories s2)) 200)
+            "first page MUST NOT exceed max-limit 200")))))
+
+(deftest list-stories-malformed-cursor-reads-as-stale
+  (testing "a malformed :cursor (bad base64 / wrong shape) returns the stale error"
+    (let [r (invoke "list-stories" {:cursor "not-a-valid-cursor!!!"})
+          s (:structuredContent r)]
+      (is (error? r))
+      (is (= :rf.mcp/cursor-stale (:reason s))))))
+
+(deftest list-modes-paginates
+  (testing "list-modes honours :limit + :cursor"
+    (doseq [n (range 35)]
+      ;; Mode ids per spec/007 grammar: `:Mode.<path>/<name>`.
+      (story/reg-mode (keyword "Mode.pager" (str "m" n))
+        {:doc "" :args {}}))
+    (let [r (invoke "list-modes" {:limit 10})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= 10 (count (:modes s))))
+      (is (true? (:has-more? s)))
+      (is (string? (:next-cursor s))))))
+
+(deftest list-decorators-pagination-preserves-kind-filter
+  (testing ":kind filter narrows the paginated entry set"
+    ;; Build enough hiccup decorators to force pagination of a kind filter.
+    (doseq [n (range 30)]
+      (story/reg-decorator (keyword (str "dec.page/h" n))
+        {:kind :hiccup :doc "" :wrap (fn [child] child)}))
+    (let [r (invoke "list-decorators" {:kind "hiccup" :limit 5})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= 5 (count (:decorators s))))
+      (is (every? #(= :hiccup (:kind %)) (:decorators s)))
+      (is (true? (:has-more? s))))))
+
+(deftest list-tags-canonical-stays-full-under-pagination
+  (testing "the canonical-tag slot is bounded (7) so it never paginates"
+    ;; Register lots of custom tags.
+    (doseq [n (range 50)]
+      (story/reg-tag (keyword (str "tag/pager" n)) {:doc ""}))
+    (let [r (invoke "list-tags" {:limit 5})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= 7 (count (:canonical s)))
+          "the 7-entry canonical set always lands in full")
+      (is (= 5 (count (:custom s))) ":custom honours :limit")
+      (is (true? (:has-more? s))))))
+
+(deftest list-assertions-canonical-doc-stays-full
+  (testing "the canonical assertion-doc vector is bounded (7) so it never paginates"
+    (let [r (invoke "list-assertions" {:limit 3})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= 7 (count (:canonical s)))
+          "the canonical-doc vec is the bounded reference; not subject to pagination")
+      (is (<= (count (:registered s)) 3) ":registered honours :limit"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Testing tools
@@ -763,7 +916,7 @@
       (is (true? (-> r :structuredContent :gated)))
       (is (= "unregister-variant" (-> r :structuredContent :tool))))
     (let [r (invoke "record-as-variant" {:variant-id  "story.button/primary"
-                                         :write-back? true})]
+                                         :write-back  true})]
       (is (error? r))
       (is (true? (-> r :structuredContent :gated)))
       (is (= "record-as-variant" (-> r :structuredContent :tool))))))
@@ -858,22 +1011,22 @@
       (is (re-find #":counter/by 7" (:play-snippet s))))))
 
 (deftest record-as-variant-write-back-gated-by-default
-  (testing "write-back? true with allow-writes? false ⇒ gated error"
+  (testing "write-back true with allow-writes? false ⇒ gated error"
     (is (false? (config/writes-allowed?)))
     (let [r (invoke "record-as-variant" {:variant-id  "story.button/primary"
-                                         :write-back? true})]
+                                         :write-back  true})]
       (is (error? r))
       (is (re-find #"Write surface disabled" (-> r :content first :text)))
       (is (true? (-> r :structuredContent :gated))))))
 
 (deftest record-as-variant-write-back-overwrites-source
-  (testing "write-back? true with gate open re-registers the source variant"
+  (testing "write-back true with gate open re-registers the source variant"
     (config/set-allow-writes! true)
     (drive-events-during-recording [[:counter/inc] [:counter/inc]])
     (let [r (invoke "record-as-variant"
                     {:variant-id  "story.button/primary"
                      :duration-ms 100
-                     :write-back? true})
+                     :write-back  true})
           s (:structuredContent r)]
       (is (success? r))
       (is (true? (:written-back? s)))
@@ -892,7 +1045,7 @@
                     {:variant-id     "story.button/primary"
                      :new-variant-id "story.button/recorded"
                      :duration-ms    100
-                     :write-back?    true})
+                     :write-back     true})
           s (:structuredContent r)]
       (is (success? r))
       (is (true? (:written-back? s)))
@@ -974,7 +1127,7 @@
     (let [r    (invoke "record-as-variant"
                        {:variant-id  "story.button/primary"
                         :duration-ms 100
-                        :write-back? true})
+                        :write-back  true})
           body (story/variant->edn :story.button/primary)]
       (is (success? r))
       (is (true? (-> r :structuredContent :written-back?)))
@@ -992,13 +1145,13 @@
                        {:variant-id     "story.button/primary"
                         :new-variant-id "story.button/origin-recorded"
                         :duration-ms    100
-                        :write-back?    true})
+                        :write-back     true})
           body (story/variant->edn :story.button/origin-recorded)]
       (is (success? r))
       (is (= :story-mcp (:origin body))))))
 
 (deftest record-as-variant-without-write-back-does-not-touch-source
-  (testing "without :write-back? the source variant is untouched (no :origin landed)"
+  (testing "without :write-back the source variant is untouched (no :origin landed)"
     ;; This pins the contract: the write happens only on the write-back
     ;; branch. The :origin stamp is the marker of a write — its absence
     ;; on a non-write-back call is the marker of a no-write.
@@ -1696,7 +1849,7 @@
                     {:variant-id     "story.button/primary"
                      :new-variant-id "garbage-id-no-namespace"  ; not :story.x/y
                      :duration-ms    50
-                     :write-back?    true})]
+                     :write-back     true})]
       (is (error? r) "write-back against a malformed target id must fail")
       (is (re-find #"(?i)Write-back failed" (-> r :content first :text))
           "the error text names the failure surface — agents pattern-match on this")

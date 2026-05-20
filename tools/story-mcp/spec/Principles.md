@@ -194,12 +194,20 @@ budget the agent needs for the next ten ops.
 The discipline applies across three axes:
 
 - **Pagination / cursor for unbounded surfaces.**
-  `list-variants`, `list-modes`, `list-assertions`, and any
-  read tool whose return size is a function of registry size
-  MUST accept a `:limit` argument and return a `:cursor` for
-  continuation. The default `:limit` MUST keep the response
-  under the cap. No unbounded list responses; no "best-effort"
-  omission of pagination.
+  `list-stories`, `list-modes`, `list-decorators`,
+  `list-assertions`, `list-tags`, and any read tool whose return
+  size is a function of registry size MUST accept a `:limit`
+  argument and return a `:cursor` for continuation. The default
+  `:limit` MUST keep the response under the cap. No unbounded
+  list responses; no "best-effort" omission of pagination.
+
+  Implemented per rf2-76sf6 (default `:limit` 25, max 200,
+  base64-encoded opaque cursor with whole-set fingerprint for
+  staleness detection); see
+  `tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc`. The
+  `get-*` / `<thing>->edn` tools are exempt — their return is a
+  single record bounded by the body size, not a function of
+  registry size; the wire-boundary cap catches overruns there.
 - **Summarisation modes for rich payloads.** Ops with rich
   per-item shape (`run-variant`, `snapshot-identity`,
   `variant->edn`) MUST expose a `:mode` argument with at

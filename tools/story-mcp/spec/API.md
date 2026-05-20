@@ -70,11 +70,54 @@ form disallows it.
 
 ## Docs tools
 
+### Pagination (rf2-76sf6)
+
+Every `list-*` tool accepts the cross-MCP pagination contract
+per spec/Principles.md §"Tight token budget":
+
+```clojure
+{:limit  integer (optional, default 25, max 200)
+ :cursor string  (optional opaque continuation token)}
+```
+
+The cursor is an opaque base64-encoded EDN map whose internal shape
+(today: `{:v 1 :offset N :total N :sig "<digest>"}`) is an
+implementation detail; agents pass the value back verbatim. The
+encoding lives in
+`tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc`.
+
+When the entry count fits on one page (≤ `:limit`), the response is
+the bare tool payload — no pagination metadata, byte-identical to
+the pre-rf2-76sf6 shape. When pagination kicks in, the response
+adds:
+
+```clojure
+{:total        integer    ; whole-set count at cursor-mint time
+ :limit        integer
+ :has-more?    boolean
+ :next-cursor  string | nil}  ; nil on the final page
+```
+
+If the underlying registry materially changes between cursor mint
+and cursor deref (e.g. a `register-variant` lands between two pages
+of `list-stories`), the server returns
+`{:isError true :structuredContent {:reason :rf.mcp/cursor-stale :tool "..."}}`
+— the same vocab pair-mcp uses for ring-rotation staleness. The
+agent restarts pagination from offset 0.
+
+The `get-*` / `<thing>->edn` tools are NOT paginated — their return
+is a single record bounded by the registered body's size, not a
+function of registry size. Wire-budget overruns are caught by the
+top-level cap via `:max-tokens` + the `:rf.mcp/overflow` marker.
+
 ### `list-stories`
 
-**Input.** `{:tags [keyword] (optional)}`.
+**Input.** `{:tags [keyword] (optional)
+                :limit integer (optional, default 25)
+                :cursor string (optional)}`.
 
-**Output.** `{:stories [{:id keyword :doc string ...}]}`.
+**Output.** `{:stories [{:id keyword :doc string ...}]}`, plus the
+pagination metadata when active (see "Pagination" above).
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Docs.
 
@@ -97,30 +140,43 @@ form disallows it.
 
 ### `list-tags`
 
-**Input.** `{}`.
+**Input.** `{:limit integer (optional) :cursor string (optional)}`.
 
-**Output.** `{:canonical [...] :project [...]}`.
+**Output.** `{:canonical [...] :custom [...] :all [...]}`. The
+`:canonical` set is the bounded 7-entry canonical-tag vector and
+is always returned in full. `:custom` (project-registered tags)
+and `:all` (the union) are paginated together per the contract
+above when the custom-tag count exceeds `:limit`.
 
 ### `list-modes`
 
-**Input.** `{}`.
+**Input.** `{:limit integer (optional) :cursor string (optional)}`.
 
-**Output.** `{:modes [{:id keyword :args map ...}]}`.
+**Output.** `{:modes [{:id keyword :args map ...}]}`, plus
+pagination metadata when active.
 
 ### `list-decorators` (rf2-mqp1u)
 
-**Input.** `{:kind "hiccup" | "frame-setup" | "fx-override" (optional)}`.
+**Input.** `{:kind "hiccup" | "frame-setup" | "fx-override" (optional)
+                :limit integer (optional) :cursor string (optional)}`.
 
-**Output.** `{:decorators [{:id keyword :kind keyword :doc string ...}]}`.
-Per-kind slots: `:has-wrap?` (hiccup, never the closure itself);
-`:init` + `:app-db-patch` (frame-setup); `:fx-id` + `:response`
-(fx-override).
+**Output.** `{:decorators [{:id keyword :kind keyword :doc string ...}]}`,
+plus pagination metadata when active. Per-kind slots: `:has-wrap?`
+(hiccup, never the closure itself); `:init` + `:app-db-patch`
+(frame-setup); `:fx-id` + `:response` (fx-override).
+
+When a `:kind` filter is applied, the cursor's fingerprint is over
+the filtered id-set — so a kind-filter change between pages reads
+as a stale cursor (different fingerprint).
 
 ### `list-assertions`
 
-**Input.** `{}`.
+**Input.** `{:limit integer (optional) :cursor string (optional)}`.
 
-**Output.** `{:assertions [{:id keyword :arity ... :semantics "..."}]}`.
+**Output.** `{:canonical [{:id :payload :semantics}] :registered [keyword ...]}`.
+The `:canonical` doc vector (the 7-assertion documentation) is
+bounded and always returned in full. `:registered` (the live
+registered-assertion ids) is paginated per the contract above.
 
 ### `get-docs-markdown` (rf2-i0kyy)
 
@@ -212,11 +268,34 @@ hosts return `{:violations [] :hint "axe-core requires the in-browser panel."}`.
  :include-sensitive boolean (optional, gated — see `preview-variant`)}
 ```
 
-**Output.** `{:assertions [map] :passing? boolean}`. No re-run.
+**Output.**
+
+```clojure
+{:variant-id keyword            ; the frame the failures came from
+ :total      integer            ; total assertion records seen post-scrub
+ :failures   [{:assertion :passed? ...}]
+                                ; records where :passed? is NOT true
+ :passing?   boolean}           ; vacuous pass when :total is 0
+```
+
+No re-run. The `:failures` slot is filtered to records where
+`:passed?` is not `true` — the wire-budget optimisation per
+`tools/testing.cljc:147–151`; agents wanting the full assertion
+vec read it via `run-variant`'s `:assertions` slot. `:total` is
+the count of all records (including passed) so an agent can
+distinguish "we have records and they're all green" from "no
+assertions ran" without re-running. Pinned by the end-to-end
+conformance harness at
+`tools/mcp-conformance/test/end-to-end-story.cjs` (asserts on the
+`:total` + `:failures` slots, locking the shape — rf2-zx0p0).
 
 `:include-sensitive` follows the same `--allow-sensitive-reads`
 boot gate as `preview-variant` / `run-variant`. Assertion records
-stamped `:sensitive? true` are dropped at egress by default.
+stamped `:sensitive? true` are dropped at egress by default; the
+`:passing?` predicate runs against the SCRUBBED vec so an
+agent's view of green/red is consistent with the records it
+actually sees (a dropped sensitive failure does not quietly flip
+`:passing?` to true).
 
 ## Write tools (gated)
 
@@ -283,9 +362,16 @@ Bridges `re-frame.story`'s recorder primitives (per
  :doc            string  (optional)                ; embedded in snippet
  :extends        keyword (optional)                ; defaults to :variant-id
  :alias          string  (optional, default "story")
- :write-back?    boolean (optional, default false) ; re-register with :play <captured>
+ :write-back     boolean (optional, default false) ; re-register with :play <captured>
 }
 ```
+
+The input-schema property key is `:write-back` (no `?`) per the
+Anthropic `^[a-zA-Z0-9_.-]{1,64}$` regex on tool input-property
+names (rf2-pmwgn) — the same wire-key rule that motivates
+`:include-sensitive` (no `?`). Response-payload keys are not bound
+by the regex; the structuredContent slot `:written-back?` retains
+the `?` per Clojure idiom.
 
 **Output.**
 
@@ -301,7 +387,7 @@ Bridges `re-frame.story`'s recorder primitives (per
 
 **Errors.**
 - `isError: true` when the source `:variant-id` is not registered.
-- `isError: true` when `:write-back?` is true but the gate is closed
+- `isError: true` when `:write-back` is true but the gate is closed
   (`{:gated true}` in `structuredContent`).
 - `isError: true` when the write-back `reg-variant*` call fails (shape
   validation, unresolved `:extends`, etc.).
