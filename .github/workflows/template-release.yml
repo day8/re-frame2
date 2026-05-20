@@ -1,0 +1,180 @@
+# Release workflow for tools/template/ (rf2-h0w5y · rf2-dolpf §3.1).
+#
+# Tags a git-coord release of `day8/re-frame2-template` on a tag push of
+# the form `template-v[0-9]+.[0-9]+.[0-9]+*` (e.g. `template-v0.0.1.alpha`).
+#
+# # Distribution model: git-coord, NOT Clojars
+#
+# Per the template walkthrough Q2 lock (2026-05-12) and the rf2-dolpf
+# epic, `day8/re-frame2-template` ships via git-coord — the tagged
+# commit IS the artefact. Consumers resolve the template via deps-new's
+# `:template io.github.day8/re-frame2-template[#<tag>]` form, which
+# triggers deps-new's `auto-git-url` mechanism to clone the repo at the
+# tag (or HEAD) before invoking the template's `data-fn` / `template-fn`
+# / `post-process-fn` hooks.
+#
+# This workflow therefore:
+#
+#   - validates the pushed tag against the template's co-located
+#     VERSION file (`tools/template/VERSION`);
+#   - runs the template's JVM test suite as a pre-release gate;
+#   - cuts a GitHub Release pointing at the tagged commit.
+#
+# No Clojars push step. No artefact upload step. The tagged commit IS
+# the artefact; consumers retrieve it through git, not through Maven.
+#
+# # Why a separate workflow from release.yml + release-causa.yml
+#
+# `release.yml` (framework) and `release-causa.yml` (Causa) both ship
+# Clojars artefacts under the framework-wide lockstep VERSION at the
+# repo root. The template is the odd one out:
+#
+#   - It is **build-time only** — it never lands on a consumer's
+#     runtime classpath (see `tools/template/spec/Principles.md` §P1).
+#   - Its release cadence is **independent** — a template-only doc
+#     polish or a new opt-in flag doesn't warrant republishing the
+#     framework, and a framework patch release doesn't warrant
+#     cutting a new template.
+#   - Its **own** VERSION file (`tools/template/VERSION`) drives this
+#     workflow; the framework-wide repo-root VERSION (`/VERSION`)
+#     drives the framework + Causa workflows. The two version
+#     sequences are decoupled.
+#
+# The separate tag prefix (`template-v…` vs `v…` vs `causa-v…`) keeps
+# the trigger paths disjoint so a framework release does not
+# accidentally republish the template and vice versa.
+#
+# # Lockstep with the framework
+#
+# The template's own VERSION evolves independently of the framework-
+# wide VERSION; the in-template lockstep guard
+# (`test/day8/re_frame2_template/version_lockstep_test.clj`) asserts
+# the template's emitted `:rf2-version` matches the repo-root VERSION
+# at the time the template is built. That guard runs in the test job
+# below, so a template release at `template-v0.0.2` whose hooks.clj
+# still points at a stale `:rf2-version` literal fails the gate
+# BEFORE the GitHub Release is cut.
+#
+# # First publish protocol
+#
+# Mike pushes the first `template-v0.0.1.alpha` tag manually once the
+# `day8/re-frame2-template` repo is split out (rf2-7jgkv / rf2-dolpf
+# §4). Until then this workflow runs out of the `day8/re-frame2`
+# monorepo on `tools/template/` changes — the tag still cuts a
+# release, but the git-coord URL consumers use
+# (`io.github.day8/re-frame2-template`) won't resolve until the split
+# repo exists. The split is the rf2-7jgkv bead, downstream of this
+# one.
+
+name: release-template
+
+on:
+  push:
+    tags:
+      - "template-v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 1. Tag-vs-VERSION sanity check. The pushed tag's version segment
+  #    (everything after `template-v`) must equal the template's
+  #    co-located VERSION file content. Catches accidental tags (e.g.
+  #    someone tagging `template-v0.0.2` while VERSION still reads
+  #    0.0.1.alpha) before any test step runs.
+  # ─────────────────────────────────────────────────────────────────
+  verify-version:
+    name: Verify template tag matches VERSION
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Verify tag matches tools/template/VERSION
+        id: version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(tr -d '[:space:]' < tools/template/VERSION)"
+          expected="template-v${version}"
+          if [ "$tag" != "$expected" ]; then
+            echo "::error::tag '$tag' does not match tools/template/VERSION '$expected' (refusing release — bump tools/template/VERSION or fix the tag)"
+            exit 1
+          fi
+          echo "tag $tag matches tools/template/VERSION $expected — proceeding"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────────────────────────
+  # 2. Pre-release test gate. Runs the template's JVM test suite end-
+  #    to-end (shape + static-parse framework-surface + behavioural
+  #    emission + the rf2 / shadow / react pin-lockstep guards). A
+  #    drift in any of these blocks the release — the tagged commit
+  #    must emit the same shape the test suite asserts on.
+  # ─────────────────────────────────────────────────────────────────
+  test-template:
+    name: Template pre-release test gate
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-template-${{ hashFiles('tools/template/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-template-
+            ${{ runner.os }}-clj-
+
+      - name: JVM tests (template artefact)
+        working-directory: tools/template
+        run: clojure -M:test
+
+  # ─────────────────────────────────────────────────────────────────
+  # 3. GitHub Release. Cuts a Release object pointing at the tagged
+  #    commit. No artefact upload — the tagged commit IS the artefact
+  #    under git-coord distribution. Consumers resolve the template
+  #    via deps-new's `:template io.github.day8/re-frame2-template#<tag>`
+  #    form, which clones the repo at the tag.
+  # ─────────────────────────────────────────────────────────────────
+  github-release:
+    name: Cut GitHub Release for template
+    needs: [verify-version, test-template]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844  # v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            `day8/re-frame2-template` ${{ needs.verify-version.outputs.version }} — git-coord release.
+
+            Consumers resolve the template via deps-new at this tag:
+
+            ```bash
+            clojure -Tnew create \
+                    :template io.github.day8/re-frame2-template#${{ github.ref_name }} \
+                    :name acme/my-app
+            ```
+
+            See [`tools/template/README.md`](https://github.com/day8/re-frame2/blob/main/tools/template/README.md) for the full invocation surface and [`tools/template/spec/`](https://github.com/day8/re-frame2/tree/main/tools/template/spec) for the normative contract.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

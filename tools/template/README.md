@@ -12,6 +12,12 @@
 > not Clojars (rf2-dolpf §2.5 — `day8/clj-template.re-frame2` on Clojars
 > is now frozen at its last clj-new release; older versions remain
 > resolvable for legacy users).
+>
+> **Release pipeline:**
+> [`.github/workflows/template-release.yml`](../../.github/workflows/template-release.yml)
+> cuts a GitHub Release on every `template-v<VERSION>` tag push;
+> [`VERSION`](./VERSION) carries the template's own version sequence
+> (independent of the framework-wide repo-root `VERSION`).
 
 This tool generates a fresh re-frame2 application skeleton. It is the
 front door for new users: one command and you have a working CLJS app
@@ -20,8 +26,7 @@ wired against the alpha-channel `day8/re-frame2-*` coords, ready to
 
 ## Quick start
 
-Once the template repo is published (rf2-dolpf §3 — git-coord release
-pipeline) the canonical invocation is:
+The canonical invocation:
 
 ```bash
 # Reagent — the canonical substrate (default)
@@ -38,15 +43,27 @@ clojure -Tnew create \
 
 # Pinned to a specific release tag
 clojure -Tnew create \
-        :template io.github.day8/re-frame2-template#v0.0.1 \
+        :template io.github.day8/re-frame2-template#template-v0.0.1.alpha \
         :name acme/my-app
 ```
 
 That assumes the standard `-Tnew` tool is installed per
 [deps-new's README](https://github.com/seancorfield/deps-new#installation).
 
-Until the git-coord release lands, use the `:local/root` route to
-exercise the template from a checkout of this repo:
+`io.github.day8/re-frame2-template` triggers deps-new's
+`auto-git-url` mechanism — deps-new clones the
+`github.com/day8/re-frame2-template` repo (or HEAD-of-`day8/re-frame2`
+during the transition period, before the rf2-7jgkv repo split lands)
+at the requested tag and runs the template hooks. The tagged commit
+IS the artefact; no Maven / Clojars resolution.
+
+Until the `day8/re-frame2-template` repo is split out (rf2-dolpf §4 /
+rf2-7jgkv), `io.github.day8/re-frame2-template` will resolve against
+this monorepo path — pinning via `#template-v…` still works for
+reproducible scaffolding.
+
+For local development against a checkout of this repo, use the
+`:local/root` route instead:
 
 ```bash
 clojure -Sdeps '{:deps {day8/re-frame2-template
@@ -55,9 +72,8 @@ clojure -Sdeps '{:deps {day8/re-frame2-template
 ```
 
 (`day8/re-frame2-template`, not `io.github.day8/re-frame2-template`,
-because the `io.github.*` prefix triggers deps-new's auto-git-clone
-before classpath lookup. The published repo flips the on-disk path so
-the steady-state invocation resolves via the git-clone.)
+because the `io.github.*` prefix would trigger deps-new's auto-git-clone
+before classpath lookup — bypassing the local-root checkout.)
 
 Then:
 

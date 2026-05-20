@@ -1,8 +1,7 @@
 # Template — Substrate Variants
 
 > Capability doc. The template ships three substrate variants; this
-> file documents each, the invocation form, and the rationale for the
-> `:edn-args` plumbing.
+> file documents each, the invocation form, and substrate coercion.
 
 ## The three variants
 
@@ -14,38 +13,41 @@
 
 Reagent is the canonical default — the substrate every re-frame and
 re-frame2 example targets first. UIx and Helix are equally supported;
-the choice is the developer's, surfaced via the `:edn-args` selector
-described below.
+the choice is the developer's, surfaced via the `:substrate` top-level
+k/v argument.
 
 ## Invocation form
 
-The substrate selector rides on `:edn-args` because clj-new's
-`create` strips unknown top-level args (this is a harness constraint
-discovered during implementation — see
-[DESIGN-RATIONALE](DESIGN-RATIONALE.md) §edn-args-not-top-level):
+The substrate selector is a **top-level k/v argument** on the
+`-Tnew create` invocation:
 
 ```bash
 # Reagent — the canonical substrate (default)
-clojure -X:project/new :template re-frame2 :name acme/my-app
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app
 
 # UIx
-clojure -X:project/new :template re-frame2 :name acme/my-app \
-        :edn-args '[:substrate :uix]'
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app \
+        :substrate :uix
 
 # Helix
-clojure -X:project/new :template re-frame2 :name acme/my-app \
-        :edn-args '[:substrate :helix]'
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app \
+        :substrate :helix
 ```
 
-`:edn-args` is a flat alternating-key-value vector: clj-new passes
-its contents through to the template's entry fn as `& args`. The
-template wraps the args in `apply hash-map` and reads `:substrate`.
+deps-new passes the args through to the template's `data-fn` directly
+as a Clojure map — no `:edn-args` pass-through bag, no Mustache
+nesting. `data-fn` reads `:substrate` off the data map and threads
+the resulting keyword through to `template-fn`'s `case` on the
+substrate.
 
 ## Substrate coercion
 
 The template accepts the substrate arg as a keyword, a string (with
-or without leading `:`), or a symbol — clj-new harnesses around the
-wider Clojure tooling ecosystem hand keywords through inconsistently,
+or without leading `:`), or a symbol — across shells and tooling
+ecosystems the args round-trip through `-Tnew` slightly differently,
 and tolerating all three keeps the command line forgiving:
 
 ```clojure
@@ -83,7 +85,7 @@ choice swaps:
 
 The substrate-agnostic shell — `events.cljs`, `subs.cljs`,
 `README.md`, `.gitignore`, `resources/public/index.html` — lives
-under the `shared/` resource sub-tree and is emitted identically
+under the `_shared/` resource sub-tree and is emitted identically
 across all three variants.
 
 ## The counter throughline
@@ -101,35 +103,33 @@ shape the developer reads about in:
   the Helix counter.
 
 What the template emits is what the guide walks through. A
-developer who runs `clojure -X:project/new :template re-frame2 ...`
-and then reads Guide chapter 03 sees the same code in both places.
+developer who runs `clojure -Tnew create :template
+io.github.day8/re-frame2-template ...` and then reads Guide chapter
+03 sees the same code in both places.
 
 ## Future variants
 
 Reserved space — not implemented:
 
-- **Re-frame2 + Story scaffolding.** Adds `tools/story/`'s
-  registrations and a worked `counter_with_stories`. Lands once
-  Story stabilises post-1.0 (see
-  [DESIGN-RATIONALE](DESIGN-RATIONALE.md) §No-Story-yet).
 - **SSR.** Once Spec 011 has a Reagent-side reference implementation
-  the template can ship an SSR variant of the counter.
+  the template can ship an SSR variant of the counter via the
+  locked `:include-ssr?` flag (rf2-0m5ea gates the flag work).
 - **reagent-slim.** Once the substrate-portable reagent-slim adapter
   exists the template can ship it as a fourth substrate choice.
 - **TypeScript port.** Per Spec 000 — re-frame2 is a pattern, not a
   CLJS library. A `create-re-frame2-app` style npm template is
   reserved for a future iteration.
 
-Adding a variant requires:
+Adding a substrate requires:
 
-1. A new entry in the `valid-substrates` set in
-   `src/clj/new/re_frame2.clj`.
+1. A new entry in `valid-substrates` in
+   [`src/day8/re_frame2_template/hooks.clj`](../src/day8/re_frame2_template/hooks.clj).
 2. A new resource sub-tree at
-   `src/clj/new/re_frame2/<substrate>/` (matching the existing
-   reagent/uix/helix shape).
-3. A test entry in each of `test/clj/new/re_frame2_test.clj`,
-   `test/clj/new/template_emission_test.clj`, and
-   `test/clj/new/emitted_test_run_test.clj` (per-substrate runs in
-   the existing deftests).
+   `resources/day8/re_frame2_template/_<substrate>/` (matching the
+   existing `_reagent` / `_uix` / `_helix` shape).
+3. A new `case` clause in `template-fn`'s per-substrate transform
+   block.
+4. A test entry in each of `test/day8/re_frame2_template/`'s test
+   files (per-substrate runs in the existing deftests).
 
-The substrate-agnostic `shared/` tree is reused as-is.
+The substrate-agnostic `_shared/` tree is reused as-is.
