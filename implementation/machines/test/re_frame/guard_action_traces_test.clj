@@ -59,7 +59,7 @@
     (rf/reg-machine :ga/guard-outcomes
       {:initial :idle
        :data    {:ready? false}
-       :guards  {:ready? (fn [data _ev] (:ready? data))}
+       :guards  {:ready? (fn [{data :data}] (:ready? data))}
        :states  {:idle  {:on {:go [{:guard :ready? :target :done}]}}
                  :done  {}}})
     ;; First dispatch: :ready? is false → guard fails.
@@ -80,7 +80,7 @@
     (rf/reg-machine :ga/guard-pass
       {:initial :idle
        :data    {:ready? true}
-       :guards  {:ready? (fn [data _ev] (:ready? data))}
+       :guards  {:ready? (fn [{data :data}] (:ready? data))}
        :states  {:idle  {:on {:go [{:guard :ready? :target :done}]}}
                  :done  {}}})
     (let [evs (record-traces!
@@ -97,9 +97,9 @@
     (rf/reg-machine :ga/short-circuit
       {:initial :idle
        :data    {:a? false :b? true :c? true}
-       :guards  {:a? (fn [d _] (:a? d))
-                 :b? (fn [d _] (:b? d))
-                 :c? (fn [d _] (:c? d))}
+       :guards  {:a? (fn [{d :data}] (:a? d))
+                 :b? (fn [{d :data}] (:b? d))
+                 :c? (fn [{d :data}] (:c? d))}
        :states  {:idle {:on {:go [{:guard :a? :target :A}
                                   {:guard :b? :target :B}
                                   {:guard :c? :target :C}]}}
@@ -138,7 +138,7 @@
     (let [calls (atom 0)]
       (rf/reg-machine :ga/action-ok
         {:initial :idle
-         :actions {:tap (fn [_data _ev] (swap! calls inc) nil)}
+         :actions {:tap (fn [_] (swap! calls inc) nil)}
          :states  {:idle {:on {:go {:target :done :action :tap}}}
                    :done {}}})
       (let [evs (record-traces!
@@ -158,9 +158,9 @@
    traces fire in cascade order"
     (rf/reg-machine :ga/cascade
       {:initial :idle
-       :actions {:exit-idle  (fn [_ _] nil)
-                 :do-go      (fn [_ _] nil)
-                 :enter-done (fn [_ _] nil)}
+       :actions {:exit-idle  (fn [_] nil)
+                 :do-go      (fn [_] nil)
+                 :enter-done (fn [_] nil)}
        :states  {:idle {:exit :exit-idle
                         :on   {:go {:target :done :action :do-go}}}
                  :done {:entry :enter-done}}})
@@ -178,7 +178,7 @@
    AND carries the exception in :tags"
     (rf/reg-machine :ga/throws
       {:initial :idle
-       :actions {:boom (fn [_ _] (throw (ex-info "boom" {})))}
+       :actions {:boom (fn [_] (throw (ex-info "boom" {})))}
        :states  {:idle {:on {:go {:target :done :action :boom}}}
                  :done {}}})
     (let [evs (record-traces!
@@ -201,8 +201,8 @@
     (rf/reg-machine :ga/correlate
       {:initial :idle
        :data    {:ready? true}
-       :guards  {:ready? (fn [d _] (:ready? d))}
-       :actions {:tap (fn [_ _] nil)}
+       :guards  {:ready? (fn [{d :data}] (:ready? d))}
+       :actions {:tap (fn [_] nil)}
        :states  {:idle {:on {:go [{:guard :ready? :target :done :action :tap}]}}
                  :done {}}})
     (let [evs (record-traces!

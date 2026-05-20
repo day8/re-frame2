@@ -69,7 +69,7 @@
                   :states
                   {:idle    {:on {:start :working}}
                    :working {:spawn {:machine-id :worker/proc
-                                      :data       (fn [snap _]
+                                      :data       (fn [{snap :snapshot}]
                                                     {:url    (-> snap :data :endpoint)
                                                      :method :post})}}}}]
       (rf/reg-machine :worker/proc child)
@@ -95,7 +95,7 @@
           parent {:initial :idle
                   :data    {:base-url "http://api.example.com"}
                   :actions {:assemble-endpoint
-                            (fn [data _]
+                            (fn [{data :data}]
                               ;; The action writes :endpoint into :data;
                               ;; the :spawn :data fn must see it.
                               {:data (assoc data :endpoint
@@ -104,7 +104,7 @@
                   {:idle    {:on {:start {:target :working
                                           :action :assemble-endpoint}}}
                    :working {:spawn {:machine-id :worker/proc
-                                      :data       (fn [snap _]
+                                      :data       (fn [{snap :snapshot}]
                                                     {:url (-> snap :data :endpoint)})}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/post-action parent)
@@ -122,7 +122,7 @@
                   :states
                   {:idle    {:on {:fetch :working}}
                    :working {:spawn {:machine-id :worker/proc
-                                      :data       (fn [_ ev]
+                                      :data       (fn [{ev :event}]
                                                     {:from-event ev})}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/event-form parent)
@@ -141,7 +141,7 @@
                   :states
                   {:idle    {:on {:start :working}}
                    :working {:spawn {:machine-id :worker/proc
-                                      :data       (fn [_ _]
+                                      :data       (fn [_]
                                                     (throw (ex-info "boom" {:why :test})))}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/throwing parent)
@@ -179,11 +179,11 @@
                                {:children
                                 [{:id         :one
                                   :machine-id :hydra/leaf
-                                  :data       (fn [snap _]
+                                  :data       (fn [{snap :snapshot}]
                                                 {:url (str (-> snap :data :base) "/one")})}
                                  {:id         :two
                                   :machine-id :hydra/leaf
-                                  :data       (fn [snap _]
+                                  :data       (fn [{snap :snapshot}]
                                                 {:url (str (-> snap :data :base) "/two")})}]
                                 :on-child-done   :child/done
                                 :on-child-error  :child/error

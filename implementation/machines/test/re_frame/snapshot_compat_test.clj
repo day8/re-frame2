@@ -46,7 +46,7 @@
     (let [{:keys [captured stop!]} (capture-error-traces)
           entry-calls (atom [])
           spec        {:initial :idle
-                       :actions {:on-enter-idle (fn [_ _]
+                       :actions {:on-enter-idle (fn [_]
                                                   (swap! entry-calls conj :idle)
                                                   nil)}
                        :states  {:idle {:entry :on-enter-idle

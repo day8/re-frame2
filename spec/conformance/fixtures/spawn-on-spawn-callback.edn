@@ -2,20 +2,26 @@
 ;;
 ;; The :on-spawn callback receives the just-allocated actor-id. Per
 ;; [005 §Declarative :spawn (sugar over spawn)]
-;; (../../005-StateMachines.md#declarative-spawn): when the
-;; runtime processes a :rf.machine/spawn fx (whether from declarative
-;; :spawn desugar or an action's hand-emitted :rf.machine/spawn), it
-;; allocates a deterministic actor id and threads (data, spawned-id)
-;; through the user-supplied :on-spawn
-;; callback. The callback returns an updated :data map — typically recording
-;; the actor-id so later transitions can reference it. The runtime patches
-;; the returned :data back into the parent's snapshot.
+;; (../../005-StateMachines.md#declarative-spawn) and rf2-grw4i /
+;; rf2-v0rrr: when the runtime processes a :rf.machine/spawn fx
+;; (whether from declarative :spawn desugar or an action's hand-emitted
+;; :rf.machine/spawn), it allocates a deterministic actor id and
+;; invokes the user-supplied :on-spawn callback with the unified
+;; context-map `{:data <parent-data> :id <spawned-id>}`. The return
+;; value is purely ADVISORY — `:on-spawn` cannot mutate the parent's
+;; `:data`. Authors who need to observe the id from the parent's `:data`
+;; read it from the runtime-tracked `[:rf/spawned <parent> <invoke-id>]`
+;; slot or capture it via a sidechannel atom.
 ;;
 ;; This fixture isolates the callback-fires-with-actor-id contract: the
-;; on-spawn body writes the spawned-id under a distinct key (:born-with-id)
-;; rather than the conventional :pending. Verification: after the entry
-;; transition, :data carries :born-with-id :http/post#1 — proving the
-;; callback ran AND received the right actor-id argument.
+;; on-spawn body invokes a `:set` op (which the harness reduces over
+;; the synthetic context) but the runtime's return value is dropped —
+;; the parent's `:data` stays unchanged. Verification: after the entry
+;; transition, the parent's `:data` is the literal `{}` it started with.
+;; The spawn-fx still carries the allocated `:rf/spawned-id`, which is
+;; the runtime's observable hand-off to the harness; the runtime-tracked
+;; slot at `[:rf/spawned <parent> <invoke-id>]` is the production path
+;; for cross-transition resolution.
 ;;
 ;; Companion to `spawn-on-entry-destroy-on-exit.edn`, which exercises
 ;; the full spawn/destroy lifecycle; this fixture's narrower claim is "the
@@ -24,24 +30,25 @@
 {:fixture/id           :machine/spawn-on-spawn-callback
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke}
- :fixture/doc          "The :on-spawn callback receives (data, spawned-id) and returns new data. Verifies the callback fires with the just-allocated actor-id by recording the id in :data under a distinct key."
+ :fixture/doc          "The :on-spawn callback receives `{:data ... :id ...}` per rf2-grw4i / rf2-v0rrr. Return is advisory only — the parent's `:data` is NOT mutated by the callback. Verifies the callback fires with the just-allocated actor-id via the spawn-fx's `:rf/spawned-id` slot."
 
  :fixture/registry
  {:machine
   {:http/post {:doc "Stub child machine — only the spawn/callback lifecycle is observed."}}
   :machine-action
   {:supervisor/record-actor-id
-   {:doc "On-spawn callback — records the spawned-id under :data.:born-with-id."}}}
+   {:doc "On-spawn callback — body invokes a :set op (which the harness reduces) but the runtime drops the returned :data."}}}
 
  :fixture/handlers
  {:machine-action
   ;; The on-spawn handler-body realises [:event-arg 1] as the spawned-id
   ;; (the synthetic event the harness threads through is
-  ;; [::on-spawn spawned-id]). Per [005 §Path conventions in machine bodies]
-  ;; (rf2-een2 / rf2-smba): body :set paths are data-relative — uniform
-  ;; with regular machine actions. Here the path is [:born-with-id], which
-  ;; lands at data.:born-with-id once the runtime patches the result back
-  ;; into the parent's snapshot.
+  ;; [::on-spawn spawned-id]). The body's `:set` op runs against the
+  ;; harness's synthetic context but the RUNTIME ignores the returned
+  ;; `:data` per rf2-grw4i / rf2-v0rrr — `:on-spawn` is advisory only.
+  ;; The body is retained here for trace symmetry with regular actions;
+  ;; authors observing the id from `:data` would read it from the
+  ;; runtime-tracked `[:rf/spawned <parent> <invoke-id>]` slot.
   {:supervisor/record-actor-id [[:set [:born-with-id] [:event-arg 1]]]}}
 
  :fixture/calls
@@ -60,19 +67,19 @@
                :start      [:begin]}}}}
    :snapshot     {:state :idle :data {}}
    :event        [:go]
-   ;; After entering :working, the desugared spawn fx fires and the
-   ;; on-spawn callback installs the deterministic actor id (per rf2-gr8q
-   ;; allocate-spawned-id, the first spawn for this machine spec gets
-   ;; :http/post#1) under :data.:born-with-id. The in-snapshot counter
-   ;; at `:rf/spawn-counter` records the bumped value.
+   ;; After entering :working, the desugared spawn fx fires. The
+   ;; on-spawn callback runs but cannot mutate `:data` — the parent's
+   ;; `:data` stays {}. The in-snapshot counter at `:rf/spawn-counter`
+   ;; records the bumped value (the runtime's deterministic allocator
+   ;; per rf2-gr8q).
    :expect-next-snapshot {:state            :working
-                          :data             {:born-with-id :http/post#1}
+                          :data             {}
                           :rf/spawn-counter {:http/post 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
-                                              :id-prefix     :http/post
                                               :data          {:url "/api/x"}
                                               :on-spawn      :supervisor/record-actor-id
                                               :start         [:begin]
+                                              :id-prefix     :http/post
                                               :rf/spawned-id :http/post#1
                                               :rf/parent-id  :rf/transition-pure
-                                              :rf/spawn-id  [:working]}]]}]}
+                                              :rf/spawn-id   [:working]}]]}]}

@@ -6,7 +6,7 @@
 ;;
 ;;   1. The runtime extracts `result` from the child's `:data` slot
 ;;      named by the final state's `:output-key`.
-;;   2. The parent's `:spawn :on-done (fn [data result] new-data)`
+;;   2. The parent's `:spawn :on-done (fn [{:keys [data result]}] new-data)`
 ;;      fires synchronously against the parent's `:data`.
 ;;   3. The child is auto-destroyed (snapshot + handler + spawn-registry
 ;;      slot + system-id reverse-index all cleared).

@@ -47,12 +47,13 @@
 
  :fixture/expect
  ;; Post-destroy: :rf/system-ids slot cleared, worker's snapshot gone,
- ;; only the parent's snapshot (now :idle) remains. The :pending key on
- ;; the parent is the latest-known id; the destroy fx clears the snapshot
- ;; itself but the user code is responsible for clearing :data.:pending.
+ ;; only the parent's snapshot (now :idle) remains. Per rf2-grw4i /
+ ;; rf2-v0rrr the :on-spawn callback is advisory only — the parent's
+ ;; :data is unchanged by the callback's return, so the parent's :data
+ ;; remains the literal `{}` it started with.
  {:final-app-db
   {:rf/machines
-   {:sup/flow {:state :idle :data {:pending :worker/proc#1}}}
+   {:sup/flow {:state :idle :data {}}}
    :rf/system-ids {}}
 
   :trace-emissions

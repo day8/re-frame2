@@ -49,7 +49,7 @@
           spec  {:initial :idle
                  :data    {}
                  :actions
-                 {:on-enter-idle (fn [data _event]
+                 {:on-enter-idle (fn [{data :data}]
                                    (swap! calls conj :idle-entry)
                                    {:data (assoc data :idle-entered? true)})}
                  :states
@@ -84,7 +84,7 @@
           child {:initial :requesting
                  :data    {}
                  :actions
-                 {:fire-request (fn [_data _event]
+                 {:fire-request (fn [_]
                                   {:fx [[:rf2-0z73/record :child-entry-fired]]})}
                  :states
                  {:requesting {:entry :fire-request}}}
@@ -109,13 +109,13 @@
           spec  {:initial :outer
                  :data    {}
                  :actions
-                 {:enter-outer (fn [data _ev]
+                 {:enter-outer (fn [{data :data}]
                                  (swap! calls conj :outer)
                                  {:data (update data :seen (fnil conj []) :outer)})
-                  :enter-mid   (fn [data _ev]
+                  :enter-mid   (fn [{data :data}]
                                  (swap! calls conj :mid)
                                  {:data (update data :seen (fnil conj []) :mid)})
-                  :enter-leaf  (fn [data _ev]
+                  :enter-leaf  (fn [{data :data}]
                                  (swap! calls conj :leaf)
                                  {:data (update data :seen (fnil conj []) :leaf)})}
                  :states
@@ -154,7 +154,7 @@
           spec   {:initial :a
                   :data    {}
                   :actions
-                  {:throws (fn [_data _ev]
+                  {:throws (fn [_]
                              (swap! calls conj :throws-entered)
                              (throw (ex-info "boom in :entry" {:why :test})))}
                   :states
@@ -211,7 +211,7 @@
                      (reset! spawn-fired? true)))
         (let [spec {:initial :a
                     :data    {}
-                    :actions {:throws (fn [_ _]
+                    :actions {:throws (fn [_]
                                         (swap! calls conj :throws-entered)
                                         (throw (ex-info "boom" {})))}
                     :states
@@ -245,10 +245,10 @@
           spec   {:initial :outer
                   :data    {}
                   :actions
-                  {:outer-ok  (fn [data _]
+                  {:outer-ok  (fn [{data :data}]
                                 (swap! calls conj :outer)
                                 {:data (assoc data :outer-ran? true)})
-                   :inner-bad (fn [_ _]
+                   :inner-bad (fn [_]
                                 (swap! calls conj :inner-throws)
                                 (throw (ex-info "inner boom" {})))}
                   :states

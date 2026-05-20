@@ -29,12 +29,12 @@
     (let [;; A child machine registered ahead of the parent's spawn.
           child {:initial :running
                  :data    {:hits 0}
-                 :actions {:bump (fn [data _] {:data {:hits (inc (:hits data))}})}
+                 :actions {:bump (fn [{data :data}] {:data {:hits (inc (:hits data))}})}
                  :states  {:running {:on {:ping {:action :bump}}}}}
           ;; A parent that spawns the child with a :system-id under :spawn.
           parent {:initial :idle
                   :on-spawn-actions
-                  {:auth/record-actor (fn [data actor-id]
+                  {:auth/record-actor (fn [{data :data actor-id :id}]
                                         (assoc data :pending actor-id))}
                   :states
                   {:idle      {:on {:start :working}}
@@ -74,12 +74,12 @@
   (testing "dispatch-to-system sugar resolves the system-id and routes the dispatch"
     (let [child  {:initial :running
                   :data    {:msgs []}
-                  :actions {:record (fn [data [_ msg]]
+                  :actions {:record (fn [{data :data [_ msg] :event}]
                                       {:data {:msgs (conj (:msgs data) msg)}})}
                   :states  {:running {:on {:notify {:action :record}}}}}
           parent {:initial :idle
                   :on-spawn-actions
-                  {:auth/record-actor (fn [data id] (assoc data :pending id))}
+                  {:auth/record-actor (fn [{data :data id :id}] (assoc data :pending id))}
                   :states
                   {:idle    {:on {:go :running}}
                    :running {:spawn {:machine-id :notifier/proc

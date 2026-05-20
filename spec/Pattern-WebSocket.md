@@ -197,11 +197,15 @@ The connection machine composes the locked substrate:
                 ;; :active picks up whatever the parent's :data currently
                 ;; holds, so a :refresh-token between reconnects flows in
                 ;; without any extra wiring.
-                :data       (fn [snap _] {:url        (-> snap :data :url)
-                                          :auth-token (-> snap :data :auth-token)})
+                :data       (fn [{snap :snapshot}]
+                              {:url        (-> snap :data :url)
+                               :auth-token (-> snap :data :auth-token)})
                 ;; Record the spawned actor id so subsequent dispatches
                 ;; and :current-socket? checks have a value to compare.
-                :on-spawn   (fn [data id] (assoc data :socket-id id))}
+                ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory (return
+                ;; is dropped); read the id from
+                ;; `[:rf/spawned <parent> <invoke-id>]` instead.
+                :on-spawn   (fn [{:keys [data id]}] (assoc data :socket-id id))}
 
        ;; Exit cascade — on any transition that leaves :active, clear the
        ;; stale socket-id from :data. The runtime destroys the actor

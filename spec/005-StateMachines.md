@@ -32,7 +32,7 @@ The snapshot is `{:state :data}`:
 
 The pair `{:state :data}` reads as the natural English idiom and matches a vocabulary that's well-represented in AI training corpora. We use `:data` to avoid the existing "context" overloading in re-frame's interceptor pipeline and React-context affordances.
 
-> **`:data` is the parameter name passed to guards and actions, not a destructure key.** Per [§Guards](#guards) / [§Actions](#actions), guards and actions receive `(fn [data event] ...)` — `data` is the snapshot's `:data` slot directly, a plain map. Bodies that read individual fields write `(:circle-id data)`, not `(get-in snapshot [:data :circle-id])`. The 3-arity opt-in `^:rf.machine/wants-ctx (fn [data event {:state :meta}] ...)` adds the introspection slot when needed; users that don't opt in never see the snapshot wrapper.
+> **`:data` is the canonical destructure key for the machine's working memory.** Per [§Guards](#guards) / [§Actions](#actions) and rf2-grw4i / rf2-v0rrr, every machine callback receives a SINGLE context-map argument with `:data` (the machine's `:data` slot — a plain map), `:event` (the inbound event vector), and on opt-in via destructure also `:state` (the discrete FSM-keyword) and `:meta` (any user `:meta` declared on the snapshot). Bodies that read individual fields destructure: `(fn [{:keys [data event]}] (:circle-id data))`, NOT `(get-in snapshot [:data :circle-id])`.
 
 ## Snapshot shape
 
@@ -92,7 +92,7 @@ Beyond the user-facing `{:state :data :tags? :meta?}` shape above, the runtime s
 - `:rf/region` — present iff the spec is a synthetic region-machine of a `:type :parallel` parent; the region-name keyword scoping `:after`-epochs per [§Per-region scoping](#per-region-always--after--spawn-scoping)
 - `:rf/transition-pure` — the sentinel parent-id used by the pure-transition path so `intercept-invoke-all-event` (and analogous join-bookkeeping interceptors) recognises a no-op call and short-circuits without consulting `app-db`. Stamped only by callers exercising the pure-fn `machine-transition` (conformance corpus, JVM pure-fn tests, SSR machine-pure surface); absent during normal handler-driven drains.
 
-These spec-level keys are visible to the 3-arity `^:rf.machine/wants-ctx` introspection slot via the `ctx` argument's `:meta` projection where exposed.
+These spec-level keys are reachable from callbacks via the unified context-map's `:meta` key — `(fn [{:keys [data event meta]}] ...)` reads the value directly. No opt-in required (per rf2-grw4i / rf2-v0rrr the context map is uniform across every callback slot).
 
 **Open-map invariant.** Snapshots are open maps: user `:data` keys at any depth are fine. The runtime-reserved set above is the **closed** subset of `:rf/*`-prefixed slots the runtime owns inside the snapshot. The migration agent flags any user write to `[:rf/machines <id> :data :rf/<reserved>]` or to `[:rf/machines <id> :rf/<reserved>]` as a collision.
 
@@ -107,7 +107,7 @@ The machine runtime emits a small **closed set** of synthetic event vectors that
 | Synthetic event vector | Source | Reaches | Purpose |
 |---|---|---|---|
 | `[:rf.machine/spawned]` | The `:rf.machine/spawn` fx handler (per [§Synthetic `[:rf.machine/spawned]` on spawn](#synthetic-rfmachinespawned-on-spawn-rf2-ijm7)) when the spawn args carry no `:start`. | The spawned actor — dispatched as `[<spawned-id> [:rf.machine/spawned]]` after the initial-entry cascade settles. | Generic-child kick-off shape. Machines that need to do work on spawn declare `:on :rf.machine/spawned` (pre-rf2-0z73) or `:entry :fire-request` on the initial state (canonical post-rf2-0z73; the synthetic event still flows and resolves as a no-op for non-handlers). |
-| `[:rf.machine/bootstrap]` | The bootstrap entry cascade (per [§Synthetic bootstrap event vector — `[:rf.machine/bootstrap]`](#synthetic-bootstrap-event-vector--rfmachinebootstrap-rf2-pexjc)). | The bootstrap `:entry` action(s) — threaded as the `event` argument to the cascade's action fns. Never reaches an `:on` map. | Placeholder event vector for the initial-entry cascade. Authors writing introspection-capable (`^:rf.machine/wants-ctx`) `:entry` actions observe this vector on bootstrap and use it to distinguish bootstrap from user-driven entry. |
+| `[:rf.machine/bootstrap]` | The bootstrap entry cascade (per [§Synthetic bootstrap event vector — `[:rf.machine/bootstrap]`](#synthetic-bootstrap-event-vector--rfmachinebootstrap-rf2-pexjc)). | The bootstrap `:entry` action(s) — threaded as the context-map's `:event` value. Never reaches an `:on` map. | Placeholder event vector for the initial-entry cascade. `:entry` actions that need to distinguish bootstrap from user-driven entry destructure `:event` from the context map and check the first element against `:rf.machine/bootstrap`. |
 | `[:rf.machine.timer/after-elapsed <delay-key> <epoch>]` | `re-frame.machines.timer` (per [§Epoch-based stale detection](#epoch-based-stale-detection)). Scheduled via `:dispatch-later` at state entry for every `:after` entry; fires when the wall-clock window elapses. | The parent machine — dispatched as `[<machine-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch>]]`. Handled by the machine handler's `:after`-dispatch path. | Wire format between `schedule-after-timer!` and `pick-after-transition`. `<delay-key>` is the literal `:after` map key (a `pos-int?`, a subscription vector, or the resolved fn-output) that identifies which `:after` entry's timer fired; `<epoch>` is the value of `:rf/after-epoch` (or, for parallel-region machines, the region's slot in `:rf/after-epoch-by-region`) captured at scheduling time. The handler compares the carried `<epoch>` to the snapshot's current value; on mismatch the timer is stale and silently dropped (per [§Epoch-based stale detection](#epoch-based-stale-detection)). |
 
 Conformance harnesses that dispatch these vectors directly (per the JVM pure-fn tests for `:after` timers) do so by emulating the runtime — they're exercising the same wire shape the runtime uses internally, not registering new handlers for these names.
@@ -246,7 +246,7 @@ A transition spec for `:on` may be:
 {:on {:right-click-circle
       {:target :editing
        :guard  :circle-exists?
-       :action (fn [_ [_ id radius]]
+       :action (fn [{[_ id radius] :event}]
                  {:data {:circle-id id :initial-radius radius :preview-radius radius}})}}}
 
 ;; multiple candidates with guards (first matching wins)
@@ -275,8 +275,8 @@ Transition slots:
 {:idle      {:on {:start :running
                   :*     :error}}        ;; any other event drops to :error
 
- :listening {:on {:msg/data {:action (fn [_ ev] {:data {:last ev}})}
-                  :*        {:action (fn [_ ev] {:fx [[:log/unknown ev]]})}}}}
+ :listening {:on {:msg/data {:action (fn [{ev :event}] {:data {:last ev}})}
+                  :*        {:action (fn [{ev :event}] {:fx [[:log/unknown ev]]})}}}}
 ```
 
 Precedence inside the standard transition lookup, **at each level**:
@@ -295,70 +295,52 @@ Internal transitions are how to update `:data` without re-running entry/exit mac
 
 ### Guards
 
-A guard is **`(fn [data event] boolean)`** — 2-arity is canonical. **One inline fn or one keyword reference into the machine's `:guards` map** — never a compound data form.
+A guard is **`(fn [{:keys [data event state meta]}] boolean)`** — a single context-map argument. **One inline fn or one keyword reference into the machine's `:guards` map** — never a compound data form.
 
-`data` is the snapshot's `:data` slot directly (a map). The fn never sees the snapshot wrapper; pulling `:data` from a snapshot is the runtime's job, not the user's. This keeps the 99% case monomorphic and stops `:keys [data]` boilerplate from spreading through the corpus.
+`data` is the snapshot's `:data` slot (a plain map). `event` is the inbound event vector. `state` is the discrete FSM-keyword and `meta` is any user `:meta` declared on the snapshot — both available for introspection without an opt-in. The fn destructures whichever keys it needs; the runtime supplies the full map every time.
 
 ```clojure
-;; inline fn — data is the snapshot's :data slot, passed directly
-:guard (fn [data [_ id]]
+;; destructure the keys you need — `data` is the snapshot's :data slot
+:guard (fn [{:keys [data event]}]
          (some? (:circle-id data)))
 
 ;; keyword reference — resolves to (get-in spec [:guards :circle-exists?])
 :guard :circle-exists?
 
 ;; compound logic — write the fn
-:guard (fn [data ev] (and (active? data ev) (under-quota? data ev)))
+:guard (fn [{:keys [data event]}]
+         (and (active? data event) (under-quota? data event)))
 
 ;; even better — declare a named compound in the machine's :guards map
 (rf/make-machine-handler
   {:guards {:active-and-under-quota?
-            (fn [data ev] (and (active? data ev) (under-quota? data ev)))}
+            (fn [{:keys [data event]}]
+              (and (active? data event) (under-quota? data event)))}
    :states {... :on {... {:guard :active-and-under-quota?}}}})
 ;; the name carries semantic meaning that visualisers / AIs read.
 ```
 
-#### 3-arity escape hatch — `:state` / `:meta` introspection
+#### Snapshot introspection — `:state` / `:meta`
 
-The 3-arity overload is **opt-in** via the `^:rf.machine/wants-ctx` metadata flag on the fn:
-
-```clojure
-:guard ^:rf.machine/wants-ctx
-       (fn [data event {:keys [state meta]}]
-         ...)
-
-;; or, for a named guard in the machine's :guards map:
-(defn my-guard
-  {:rf.machine/wants-ctx true}
-  [data event {:keys [state meta]}]
-  ...)
-```
-
-`{:state :meta}` is the snapshot's introspection slot — the discrete state and any user `:meta`. Use it for the rare guard or action that needs to branch on the current state name (e.g. dispatch on `:state` itself rather than `:data`). The vast majority of guards and actions are state-blind and don't need the third arg; the metadata flag is the explicit signal to the runtime that introspection is wanted.
-
-**Why opt-in.** The 99% case stays monomorphic on `[data event]`, so most fns avoid `:keys [data]` destructure boilerplate at the call site (see the rationale at [§Naming — `:state` and `:data`](#naming--state-and-data)). The 3-arity overload exists precisely so the introspection slot does not bleed into bodies that don't need it.
-
-**Why metadata, not structural arity-detection.** The opt-in is declarative — the user's intent is on the fn itself, not inferred from its arglist shape. Per rf2-2yupx this replaces an earlier structural rule (Java reflection on JVM, compiled-fn-surface introspection on CLJS) that was fragile (a CLJS bug rf2-l04j misclassified 2-plus-rest variadics) and per-call expensive (~80–200ns of reflection per guard or action invocation on JVM). The metadata-driven rule is a single map lookup, platform-uniform, and immune to the variadic-fn footgun: a `(fn [d e & rest] ...)` that wants the ctx flags itself explicitly and the runtime delivers it as the first element of `rest` — the user's intent governs dispatch, not the arglist shape.
-
-**Helper form.** For cases where the reader-macro form is awkward (anonymous fns built by combinators, dynamically-wrapped fns), `re-frame.machines/wants-ctx` attaches the flag programmatically:
+Guards or actions that need to branch on the discrete FSM state name or on any user `:meta` simply destructure the keys from the context map:
 
 ```clojure
-:guard (machines/wants-ctx (fn [data event ctx] ...))
+:guard (fn [{:keys [data event state meta]}]
+         (and (= :loading state)
+              (under-quota? data)))
 ```
 
-Equivalent to the `^:rf.machine/wants-ctx` form.
-
-**Plain 3-arity without the flag.** A `(fn [data event ctx] ...)` *without* the metadata flag routes through the 2-arity path and the runtime calls `(fn data event)` — which raises an `ArityException` at call time. The arity throw is the deliberate signal: a fn whose body requires three positionals must opt in explicitly. No silent misdispatch.
+The context-map shape is uniform across every callback slot — `:state` and `:meta` are always present alongside `:data` and `:event` for `:guard` / `:action` / `:entry` / `:exit`. There is no opt-in flag and no separate 3-arity variant; the runtime delivers the full map and the user's destructure pattern decides what's bound.
 
 Compound logic is expressed via function composition or as a named entry in the machine's `:guards` map — the name carries semantic content visualisers and AIs read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-guard`.
 
 ### Actions
 
-An action is **`(fn [data event] effects)`** returning the `{:data :fx}` shape (or `nil`). 2-arity is canonical; 3-arity opt-in is the same `^:rf.machine/wants-ctx (fn [data event {:state :meta}] ...)` escape hatch as for guards. **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
+An action is **`(fn [{:keys [data event state meta]}] effects)`** returning the `{:data :fx}` shape (or `nil`). Single context-map argument, same shape as guards. **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
 
 ```clojure
-;; inline — data is the snapshot's :data slot, passed directly
-:action (fn [_ [_ id radius]]
+;; inline — destructure :data and the event from the context map
+:action (fn [{[_ id radius] :event}]
           {:data {:circle-id id :initial-radius radius :preview-radius radius}})
 
 ;; keyword reference — resolves to (get-in spec [:actions :clear-form])
@@ -367,7 +349,7 @@ An action is **`(fn [data event] effects)`** returning the `{:data :fx}` shape (
 ;; the body lives in the machine's :actions map:
 (rf/make-machine-handler
   {:actions {:clear-form
-             (fn [_ _]
+             (fn [_]
                {:data {:circle-id nil :initial-radius nil :preview-radius nil}})}
    :states {... :on {... {:action :clear-form}}}})
 ```
@@ -375,9 +357,9 @@ An action is **`(fn [data event] effects)`** returning the `{:data :fx}` shape (
 Multiple steps in one action are **fn composition**, not a vector:
 
 ```clojure
-:action (fn [data ev]
-          (let [a (action-clear data ev)
-                b (action-record-attempt data ev)]
+:action (fn [{:keys [data event] :as ctx}]
+          (let [a (action-clear ctx)
+                b (action-record-attempt ctx)]
             {:data (merge (:data a) (:data b))
              :fx   (into (:fx a []) (:fx b []))}))
 ```
@@ -386,7 +368,7 @@ If the composition is reused, name it in the machine's `:actions` map:
 
 ```clojure
 (rf/make-machine-handler
-  {:actions {:clear-and-record (fn [data ev] ...)}
+  {:actions {:clear-and-record (fn [{:keys [data event]}] ...)}
    :states {... :on {... {:action :clear-and-record}}}})
 ```
 
@@ -428,7 +410,7 @@ Not separate top-level keys. The machine handler walks `:fx` left-to-right and r
 {:fx [[:raise              [:event-1]]                                          ;; back into THIS machine, atomic, pre-commit
       [:raise              [:event-2]]
       [:rf.machine/spawn   {:machine-id :request/protocol
-                            :on-spawn   (fn [data id] (assoc data :child id)) ;; how the parent records the new id
+                            :on-spawn   (fn [{data :data id :id}] (assoc data :child id)) ;; how the parent records the new id
                             :start      [:begin]}]                              ;; child actor (see §Spawning)
       [:rf.machine/destroy actor-id]                                            ;; tear down a spawned actor
       [:dispatch           [:other-machine [:notify]]]                          ;; standard re-frame :dispatch
@@ -438,7 +420,7 @@ Not separate top-level keys. The machine handler walks `:fx` left-to-right and r
 Routing rules (per [§Drain semantics](#drain-semantics)):
 
 - `[:raise <event-vec>]` — appended to the machine's local pre-commit raise-queue.
-- `[:rf.machine/spawn <spawn-spec>]` — registers a new handler immediately; the new id is fed through the spec's `:on-spawn` to update `:data`; if `:start` is present, an event is queued to the new actor.
+- `[:rf.machine/spawn <spawn-spec>]` — registers a new handler immediately; the runtime invokes the spec's `:on-spawn` advisory callback (per rf2-grw4i / rf2-v0rrr — return is dropped); the spawned id is tracked at `[:rf/spawned <parent-id> <invoke-id>]` in app-db; if `:start` is present, an event is queued to the new actor.
 - `[:rf.machine/destroy <actor-id>]` — runs the actor's `:exit` action, dissociates its snapshot at `[:rf/machines <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:rf.machine/spawn`. Used directly by user actions and emitted by the desugaring of `:spawn` on state exit.
 - Any other `[fx-id args]` — forwarded to the standard `do-fx` for runtime processing.
 
@@ -450,9 +432,9 @@ A machine *almost never* needs to write `app-db` directly; it acts on its own st
 
 > **Why this is locked.** Strict encapsulation is one of the named consequences of [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility). If actions could read or write `app-db` outside `[:rf/machines <id>]`, machine logic would create state changes that don't show up in any machine snapshot and don't roll back when the surrounding machine snapshot does. The whole machine's state has to live inside the frame's persistent value to revert with it; encapsulation is what stops machines from leaking state into parts of the value that aren't theirs.
 
-- **Action signature:** `(fn [data event] effects)` — 2-arity canonical; 3-arity opt-in is `^:rf.machine/wants-ctx (fn [data event {:state :meta}] effects)`.
-- **Guard signature:** `(fn [data event] boolean)` — 2-arity canonical; 3-arity opt-in is `^:rf.machine/wants-ctx (fn [data event {:state :meta}] boolean)`.
-- **What the fn sees:** the snapshot's `:data` slot directly (a map). The full `{:state :data :meta}` snapshot is reachable only via the 3-arity opt-in. Never `app-db`; never cofx.
+- **Action signature:** `(fn [{:keys [data event state meta]}] effects)` — single context-map argument; user destructures the keys it needs.
+- **Guard signature:** `(fn [{:keys [data event state meta]}] boolean)` — single context-map argument, same shape as `:action`.
+- **What the fn sees:** the keys it destructures from the context map — `:data` (the snapshot's `:data` slot), `:event` (the inbound event vector), `:state` (the discrete FSM-keyword), `:meta` (any user `:meta` on the snapshot). Never `app-db`; never cofx.
 
 The impure plumbing (reading the snapshot from `app-db` at `[:rf/machines <id>]`, writing `:data` back as a `:db` write, lowering `:fx` / `:raise` / `:rf.machine/spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `make-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
 
@@ -469,7 +451,7 @@ Whoever fires the event has the data; they pass it. The machine never reaches ou
 ```clojure
 :close-dialog
 {:target :idle
- :action (fn [data _]
+ :action (fn [{:keys [data]}]
            {:fx   [[:dispatch [:drawer/apply-radius
                                (:circle-id data)
                                (:preview-radius data)]]]
@@ -484,66 +466,31 @@ This forces every cross-encapsulation write to be a *named, traced, reusable eve
 
 ## Path conventions in machine bodies
 
-Every callback the user supplies inside a machine body — guards, actions, `:on-spawn` — operates on the snapshot's **`:data`** map directly, not on the wrapping snapshot:
+Per rf2-grw4i / rf2-v0rrr every machine callback receives a SINGLE context-map argument; the keys present per slot are:
 
-| Slot | Signature | What it sees | What it returns |
+| Slot | Signature | Ctx keys | What it returns |
 |---|---|---|---|
-| `:guard` | `(fn [data event] boolean)` | the `:data` map | a boolean |
-| `:action` | `(fn [data event] effects)` | the `:data` map | `{:data ... :fx ...}` (or `nil`) |
-| `:on-spawn` | `(fn [data spawned-id] new-data)` | the `:data` map | the new `:data` map |
-| `:after` delay-fn | `(fn [snapshot] ms)` | the **whole snapshot** (`{:state :data :meta?}`) | a positive-int millisecond delay |
-| `:spawn :data` fn | `(fn [snapshot event] data)` | the **whole snapshot** plus the entering event vector | the child's initial data map |
+| `:guard` | `(fn [{:keys [data event state meta]}] boolean)` | `:data :event :state :meta` | a boolean |
+| `:action` | `(fn [{:keys [data event state meta]}] effects)` | `:data :event :state :meta` | `{:data ... :fx ...}` (or `nil`) |
+| `:entry` / `:exit` | same as `:action` | `:data :event :state :meta` | `{:data ... :fx ...}` (or `nil`) |
+| `:on-spawn` | `(fn [{:keys [data id]}] _)` — **advisory** | `:data :id` | ignored (return is dropped; runtime tracks the spawn-id at `[:rf/spawned <parent> <invoke-id>]`) |
+| `:on-done` | `(fn [{:keys [data result]}] new-data)` | `:data :result` | the parent's new `:data` map |
+| `:after` delay-fn | `(fn [{:keys [snapshot]}] ms)` | `:snapshot` | a positive-int millisecond delay |
+| `:spawn :data` fn | `(fn [{:keys [snapshot event]}] data)` | `:snapshot :event` | the child's initial data map |
 
-The runtime is responsible for unwrapping the snapshot before calling these fns and for patching the result back into the snapshot. **User code never names `[:data ...]` paths inside the body**; if a callback needs to read or write a field, it does so on `data` directly (e.g. `(:pending data)`, `(assoc data :pending id)`).
+**Why uniform context-map.** Pre-rf2-grw4i five slot-specific positional signatures existed (`(fn [data event])` for guards/actions, `(fn [data id])` for `:on-spawn`, `(fn [data result])` for `:on-done`, `(fn [snapshot])` for `:after`, `(fn [snapshot event])` for `:spawn :data`). The paste-from-`:guard`-into-`:on-spawn` trap silently meant `id` was bound to the event vector (or vice-versa) with no runtime signal — a class of bug that survives review because both args destructure the same way. The unified shape eliminates the trap structurally: every callback receives ONE map, the keys say what they carry, and future slot additions extend the key set without expanding the arity-permutation matrix.
 
-> **Asymmetry note — the last two rows take the whole snapshot, not `:data`.** `:after` delay-fns and `:spawn :data` fns receive the wrapping snapshot because they need access to `:state` (the entering leaf path) for parameterising delay or child-data on hierarchical position; the 3-arity escape hatch on `:guard` / `:action` exists for the same reason but as opt-in. The deliberate asymmetry is documented here so port authors implement it explicitly. Bodies that only need `:data` should pull it via `(:data snapshot)` at the call site.
+**Return shape — narrow by purpose.** Three buckets per Mike-LOCKED design:
+
+- `:guard` → boolean (the transition's gate).
+- `:action` / `:entry` / `:exit` / `:on-done` / `:spawn :data` → a fresh `:data` map (or, for actions, a `{:data :fx}` effects map). The runtime patches `:data` back into the snapshot. Logical state (`:loading` / `:loaded` / `:error`) is reserved for declarative transition apparatus (`:on` / `:always` / `:after`); callbacks can ONLY update working memory (the `:data` bag) — they cannot nudge the machine into a state the spec didn't declare. Matches xstate's `assign` invariant.
+- `:on-spawn` / `:after` advisory cases — `:on-spawn` returns are dropped (the runtime tracks the spawn-id at `[:rf/spawned <parent> <invoke-id>]`); `:after` delay-fn returns the ms value the timer scheduler consumes.
+
+**Snapshot-level escape hatch.** If a callback NEEDS to touch `:state` / `:meta` / `:errors` / `:status` / `:data` plus something else in one atomic write, emit `[:rf.machine/update-snapshot {:errors ... :status ...}]` from inside the callback's `:fx` vector — NOT a return-shape hidden contract.
+
+The runtime is responsible for unwrapping the snapshot before calling these fns and for patching the result back into the snapshot. **User code never names `[:data ...]` paths inside the body**; if a callback needs to read or write a field, it does so on the destructured `data` directly (e.g. `(:pending data)`, `(assoc data :pending id)`).
 
 The same principle holds for any data DSL the conformance corpus or a tooling layer interprets on top of the surface: a `:set` step inside a body operates on `:data`, so its path is data-relative. `[:set [:pending] x]` writes `data.:pending = x`. `[:set [:data :pending] x]` would write `data.:data.:pending = x`, which is virtually never what's wanted.
-
-### 3-arity escape hatch — snapshot introspection
-
-When a callback truly needs the discrete `:state` or any user `:meta` (rare), opt in via the `^:rf.machine/wants-ctx` metadata flag and declare the third parameter:
-
-- `:guard ^:rf.machine/wants-ctx (fn [data event {:keys [state meta]}] ...)`
-- `:action ^:rf.machine/wants-ctx (fn [data event {:keys [state meta]}] ...)`
-
-`:on-spawn` doesn't currently take an introspection slot — the snapshot's `:state` at spawn time is the entry-bearing leaf state by definition, so the slot would carry no information beyond the lexical position of the `:spawn`. If a future use case needs it, the same metadata-driven opt-in pattern applies.
-
-#### Dispatch rule — metadata opt-in (`:rf.machine/wants-ctx`)
-
-The 3-arity overload is **explicitly opted-in via metadata** on the guard / action fn itself. The runtime's dispatch rule is one line:
-
-> **A guard or action fn is called with the 3-arity `(data event ctx)` signature iff `(:rf.machine/wants-ctx (meta f))` is truthy. Otherwise it is called with the 2-arity `(data event)` signature.**
-
-`ctx` is the introspection map `{:state <snapshot's-:state> :meta <snapshot's-:meta>}` — a thin projection of the wrapping snapshot, never the snapshot itself. (`:data` is already the first positional parameter; passing it again under `ctx` would invite the footgun of two divergent copies.)
-
-Three value-equivalent ways to attach the flag:
-
-```clojure
-;; (1) inline metadata on the fn literal
-:guard ^:rf.machine/wants-ctx (fn [data event ctx] ...)
-
-;; (2) defn attr-map for a named guard / action
-(defn my-guard {:rf.machine/wants-ctx true}
-  [data event ctx] ...)
-
-;; (3) the wrapper helper — for combinators and anonymous fns where
-;;     attaching reader-macro metadata is awkward
-:guard (machines/wants-ctx (fn [data event ctx] ...))
-```
-
-`re-frame.machines/wants-ctx` is the public helper that sugar-attaches the metadata flag via `vary-meta`; it is equivalent to the reader-macro form on a fn-literal and exists for cases where the literal form does not parse (anonymous fns built by reduce, combinator fns, etc.).
-
-The opt-in is metadata-driven (not structurally arity-detected). Consequences:
-
-- **Explicit user intent.** The fn's signature alone never decides; the user states "I want ctx" via the flag. A `(fn [data event _] ...)` without the flag is called with 2 args and the third parameter is unbound — same as any other 2-arity call against a 3-arg fn under Clojure's per-arity dispatch.
-- **No platform reflection.** The dispatch check is a `(boolean (:rf.machine/wants-ctx (meta f)))` map lookup — no `(.getDeclaredMethods f)` on the JVM, no `(unchecked-get f "cljs$lang$maxFixedArity")` on CLJS. The rule is platform-uniform.
-- **Variadic fns are unambiguous.** A `(fn [data event & rest] ...)` that wants ctx attaches the flag; the same fn without the flag stays in the 2-arity camp. The previous structural rule had to special-case variadics; the metadata rule does not.
-- **Metadata survives `chase-ref`.** When a guard / action slot carries a keyword reference into the machine's `:guards` / `:actions` map, the runtime's reference-chase returns the fn value with its metadata intact — the opt-in attached at definition site carries through to the call site.
-
-Per rf2-2yupx this replaces the earlier structural arity-detection rule (which inspected `.getDeclaredMethods` on JVM / `cljs$lang$maxFixedArity` on CLJS and routed variadics through the 2-arity path). The metadata rule is the normative dispatch contract — conformant implementations MUST consult the `:rf.machine/wants-ctx` metadata flag and MUST NOT introspect the fn's arglist shape.
-
-The `ctx` projection's shape — `{:state :meta}`, no other keys — is closed. Future runtime introspection slots (if any) extend the projection by Spec change, not by user contribution.
 
 ## Registration — the machine IS the event handler
 
@@ -556,8 +503,8 @@ A machine is registered as **one event handler** via `reg-event-fx` whose body c
   (rf/make-machine-handler
     {:initial :idle                                       ;; initial FSM-keyword
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
-     :guards  {:circle-exists? (fn [data _] (some? (:circle-id data)))}
-     :actions {:clear-error    (fn [_ _] {:data {:error nil}})}
+     :guards  {:circle-exists? (fn [{data :data}] (some? (:circle-id data)))}
+     :actions {:clear-error    (fn [_] {:data {:error nil}})}
      :states  { ... }}))
 ```
 
@@ -652,9 +599,9 @@ Alongside the underlying `reg-event-fx + make-machine-handler` form (per [§Regi
 (rf/reg-machine :auth.login/flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
-   :guards  {:under-retry-limit (fn [data _] (< (:attempts data) 3))}
-   :actions {:begin-submit       (fn [_ [_ creds]] {:fx [[:http {...}]]})
-             :record-failure     (fn [data _]      {:data {:attempts (inc (:attempts data))}})}
+   :guards  {:under-retry-limit (fn [{data :data}] (< (:attempts data) 3))}
+   :actions {:begin-submit       (fn [{[_ creds] :event}] {:fx [[:http {...}]]})
+             :record-failure     (fn [{data :data}]      {:data {:attempts (inc (:attempts data))}})}
    :states  { ... }})
 ```
 
@@ -719,9 +666,9 @@ Two axes are stamped:
 
 For a keyword reference like `:guard :form-valid?` inside a transition, the **definition-site is stamped, the reference-site slot is not**. Rationale: a keyword (`:form-valid?`) is a name, not a source form — it carries no reader metadata of its own. The closest meaningful coord is the **enclosing transition map's** coord, which IS stamped under the transition's path. Synthesising a duplicate slot entry at the same coord adds no information for tools — they walk the path tree to find the closest ancestor coord.
 
-For an **inline-fn reference** like `:guard (fn [_ _] ...)`, the fn-form carries its own reader meta, so the reference-site slot IS stamped at the full path with a distinct coord.
+For an **inline-fn reference** like `:guard (fn [_] ...)`, the fn-form carries its own reader meta, so the reference-site slot IS stamped at the full path with a distinct coord.
 
-Concretely for `{:on {:submit {:target :done :guard :form-valid? :action (fn [_ _] {})}}}`:
+Concretely for `{:on {:submit {:target :done :guard :form-valid? :action (fn [_] {})}}}`:
 
 | Path | Stamped? | Why |
 |---|---|---|
@@ -776,11 +723,11 @@ Why the bias:
 
 - **Visualisers read ids, not fn bodies.** A diagram exporter that renders the transition table can label an arrow with `:under-quota?` and have it mean something. An inline fn becomes "[fn]" — a hole in the rendered diagram.
 - **AIs read ids, not fn bodies.** When an AI reasons about a machine — generating tests, proposing changes, explaining behaviour — a keyword reference is a stable name it can resolve against the machine's `:guards` / `:actions` map (visible via `(machine-meta <id>)`). An inline fn is a closure with no public name.
-- **Humans read ids, not fn bodies.** A reviewer scanning a transition table sees `:guard :under-quota?` and knows what gates the transition; with `:guard (fn [data ev] ...)` they have to read the body to find out.
+- **Humans read ids, not fn bodies.** A reviewer scanning a transition table sees `:guard :under-quota?` and knows what gates the transition; with `:guard (fn [{data :data ev :event}] ...)` they have to read the body to find out.
 - **Tests read ids.** Level-1 (`machine-transition`) and Level-2 tests can stub or assert against named guards/actions by id — re-define the spec's `:guards` / `:actions` entry with a deterministic stand-in. Inline fns can only be replaced by re-writing the entire transition table.
 - **Conformance fixtures read ids.** A fixture's expected `:fx` vector can name `[:dispatch [:audit/login-ok]]` against the action `:record-success` declared in the machine's `:actions` map; inline-fn equivalents are not addressable.
 
-Inline fns remain acceptable for **trivial bodies that don't add meaning by being named** — e.g. `:guard (fn [data _] (some? (:circle-id data)))` is fine; naming it as `:has-circle?` may add no information beyond what the body already shows. The test is whether the fn body is a single non-branching expression: yes → inline is OK; no → name it in `:guards` / `:actions`.
+Inline fns remain acceptable for **trivial bodies that don't add meaning by being named** — e.g. `:guard (fn [{data :data}] (some? (:circle-id data)))` is fine; naming it as `:has-circle?` may add no information beyond what the body already shows. The test is whether the fn body is a single non-branching expression: yes → inline is OK; no → name it in `:guards` / `:actions`.
 
 Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaffolding guidance.
 
@@ -879,11 +826,11 @@ Standard re-frame. The router maintains a single FIFO queue:
 
 ;; --- dequeue [:M [:start]] -----------------------------------
 ;; suppose M's :start transition has:
-;;   :action (fn [_ _] {:fx [[:raise [:input1]]
+;;   :action (fn [_] {:fx [[:raise [:input1]]
 ;;                           [:raise [:input2]]
 ;;                           [:dispatch :ev-A]]})
-;; and :input1's transition has :action (fn [_ _] {:fx [[:dispatch :ev-B]]})
-;; and :input2's transition has :action (fn [_ _] {:data {:n 1}})
+;; and :input1's transition has :action (fn [_] {:fx [[:dispatch :ev-B]]})
+;; and :input2's transition has :action (fn [_] {:data {:n 1}})
 
 ;;   1. apply :start's action; walk :fx left-to-right:
 ;;        [:raise [:input1]]  → local raise-queue: [[:input1]]
@@ -1006,7 +953,7 @@ For singleton machines the bootstrap fx flow out as part of the **first event's*
 
 ##### Synthetic bootstrap event vector — `[:rf.machine/bootstrap]` (rf2-pexjc)
 
-When the bootstrap cascade fires, the runtime synthesises a placeholder event vector `[:rf.machine/bootstrap]` and threads it through the action machinery as the "current event" — needed because action fns receive a 2-arity `(fn [data event] {...})` (or 3-arity `(fn [data event ctx] {...})` for the `^:rf.machine/wants-ctx` introspection slot per [§Dispatch rule — metadata opt-in](#dispatch-rule--metadata-opt-in-rfmachinewants-ctx)) and there is no user-dispatched event to thread on bootstrap.
+When the bootstrap cascade fires, the runtime synthesises a placeholder event vector `[:rf.machine/bootstrap]` and threads it through the action machinery under the context-map's `:event` key — needed because action fns receive `(fn [{:keys [data event state meta]}] effects)` (per rf2-grw4i / rf2-v0rrr) and there is no user-dispatched event to thread on bootstrap.
 
 Most `:entry` actions ignore the event argument (it's the data argument they read from). Authors writing introspection-capable `:entry` actions — actions that read the event vector to decide what to do — observe `[:rf.machine/bootstrap]` on the bootstrap call, distinguishable from any user-dispatched event by the reserved `:rf.machine/*` namespace.
 
@@ -1015,8 +962,8 @@ Most `:entry` actions ignore the event argument (it's the data argument they rea
 (rf/reg-machine :auth-flow
   {:initial :requesting
    :states {:requesting {:entry :log-entry}}
-   :actions {:log-entry ^:rf.machine/wants-ctx
-             (fn [data event _ctx]
+   :actions {:log-entry
+             (fn [{:keys [event]}]
                (let [trigger (first event)]
                  (println "entered :requesting via" trigger))
                {})}})
@@ -1127,8 +1074,8 @@ xstate/SCXML term: **parallel state** / `<parallel>`. The motivating use case is
 (rf/reg-machine :ui/nine-states
   {:type    :parallel
    :data    {:items [] :error nil}                            ;; shared across all regions
-   :guards  {:empty? (fn [d _] (zero? (count (:items d))))}
-   :actions {:bump   (fn [d _] {:data (update d :count inc)})}
+   :guards  {:empty? (fn [{d :data}] (zero? (count (:items d))))}
+   :actions {:bump   (fn [{d :data}] {:data (update d :count inc)})}
    :regions
    {:data
     {:initial :nothing
@@ -1241,7 +1188,7 @@ The framework sub `:rf/machine-has-tag?` (per [§Querying tags](#querying-tags--
 (rf/reg-machine :ui/example
   {:type    :parallel
    :data    {:count 0}
-   :actions {:bump-count (fn [d _] {:data (update d :count inc)})}
+   :actions {:bump-count (fn [{d :data}] {:data (update d :count inc)})}
    :regions
    {:left
     {:initial :a
@@ -1370,9 +1317,9 @@ Guards in `:always` resolve against the **machine's `:guards` map** (per [§Regi
 
 ```clojure
 {:initial :asking
- :guards  {:enough-correct? (fn [data _] (>= (:correct-count data) 10))}
- :actions {:count-correct   (fn [_ _] {:data {:correct-count inc}})
-           :count-wrong     (fn [_ _] {:data {:wrong-count inc}})}
+ :guards  {:enough-correct? (fn [{data :data}] (>= (:correct-count data) 10))}
+ :actions {:count-correct   (fn [_] {:data {:correct-count inc}})
+           :count-wrong     (fn [_] {:data {:wrong-count inc}})}
  :states
  {:asking
   {:always [{:guard :enough-correct? :target :winner}]
@@ -1562,7 +1509,7 @@ Each `:after` map entry is `<delay> → <transition-spec>`. Both halves admit mu
 
 - **`pos-int?`** — literal milliseconds, computed at registration time. The default form for fixed timeouts (`{30000 :timeout}` — fire after 30 seconds).
 - **Subscription vector** — `[<sub-id> & <args>]` resolved through the same machinery as `subscribe`. Canonical for **app-state-derived delays**: the delay reads from a flow / sub whose value reflects user preferences, feature-flag config, or any other `app-db`-derived setting. Re-resolves on subscription change (see [§Dynamic delay re-resolution](#dynamic-delay-re-resolution)). Example: `{[:sub :timeout-config :auth] :timeout}` reads the auth-phase timeout from a registered sub.
-- **`(fn [snapshot] ms)`** — fn-valued delay, called once at state entry against the entering snapshot. Returns a `pos-int?` ms value. The escape valve for delays computed from local machine `:data` (the snapshot is `{:state :data :meta?}`); `:data` is the only source of dynamic input that the subscription form cannot reach without a subscription wrapper. Example: `{(fn [snap] (* 1000 (:retry-count (:data snap)))) :retry}`.
+- **`(fn [{:keys [snapshot]}] ms)`** — fn-valued delay, called once at state entry against the entering snapshot via the unified context-map (per rf2-grw4i / rf2-v0rrr). Returns a `pos-int?` ms value. The escape valve for delays computed from local machine `:data` (the snapshot is `{:state :data :meta?}`); `:data` is the only source of dynamic input that the subscription form cannot reach without a subscription wrapper. Example: `{(fn [{:keys [snapshot]}] (* 1000 (:retry-count (:data snapshot)))) :retry}`.
 
 The subscription form is the **canonical** answer for "the delay should track an app-level configuration"; the fn form is the **local** answer for "the delay depends on this machine's own `:data`." Literal `pos-int?` covers the common case where the delay is a constant.
 
@@ -1578,7 +1525,7 @@ Sugar normalises at registration time: `{5000 :timeout}` is equivalent to `{5000
 {:loading
  {:after {30000                        {:target :timeout :guard :no-progress?}     ;; literal ms
           [:sub :timeout-config :slow] {:target :warn :action :log-slow}            ;; subscription
-          (fn [snap] (* 1000 (-> snap :data :retry-count)))
+          (fn [{:keys [snapshot]}] (* 1000 (-> snapshot :data :retry-count)))
                                        :retry}                                      ;; local fn
   :on    {:loaded :ready
           :failed :error}}}
@@ -1625,7 +1572,7 @@ A subscription-vector delay (`[:sub-id & args]`) is **re-resolved** when its und
 
 **Trace.** A subscription-driven restart emits a paired `:rf.machine.timer/cancelled-on-resolution` (the prior timer cancelled by re-resolution; `:tags {:machine-id <id> :state <state> :delay <prior-ms> :reason :sub-changed :sub-id <sub-id>}`) followed by a fresh `:rf.machine.timer/scheduled` (the new timer). Tools that distinguish "the subscription changed" from "the state exited" filter on `:reason :sub-changed` vs the standard exit-cascade-driven `:rf.machine.timer/stale-after`.
 
-**Function-form delays do NOT re-resolve.** A `(fn [snapshot] ms)` delay is called **once** at state entry; the snapshot's `:data` may change later but the timer does not re-evaluate. Authors who want a `:data`-derived delay that re-resolves on `:data` change use the subscription form (`[:sub :machine-data-derived-delay <machine-id>]` whose body reads from `[:rf/machines <machine-id> :data ...]`) and pay the subscription cost; the fn form is the cheap "compute once at entry" escape valve.
+**Function-form delays do NOT re-resolve.** A `(fn [{:keys [snapshot]}] ms)` delay is called **once** at state entry; the snapshot's `:data` may change later but the timer does not re-evaluate. Authors who want a `:data`-derived delay that re-resolves on `:data` change use the subscription form (`[:sub :machine-data-derived-delay <machine-id>]` whose body reads from `[:rf/machines <machine-id> :data ...]`) and pay the subscription cost; the fn form is the cheap "compute once at entry" escape valve.
 
 **Subscription form under SSR.** Resolved at server render time (the runtime materialises the value), but **scheduling is suppressed** per [§SSR mode](#ssr-mode); the resolved ms value flows into the hydration payload as part of the snapshot's trace state but no timer fires server-side.
 
@@ -1740,7 +1687,7 @@ Tools subscribe to whichever granularity they need: `:scheduled` for timeline vi
 
 ```clojure
 {:initial :idle
- :guards  {:still-loading? (fn [data _] (:loading? data))}
+ :guards  {:still-loading? (fn [{data :data}] (:loading? data))}
  :states
  {:idle    {:on {:fetch :loading}}
 
@@ -1820,8 +1767,8 @@ The same skeleton applies to `:spawn-all`'s N children (per [§Spawn-and-join vi
 ;; Parent
 {:authenticating
  {:spawn {:machine-id :auth-flow
-           :data       (fn [snap _] {:credentials (-> snap :data :form)})
-           :on-spawn   (fn [d id] (assoc d :auth-actor id))}
+           :data       (fn [{snap :snapshot}] {:credentials (-> snap :data :form)})
+           :on-spawn   (fn [{d :data id :id}] (assoc d :auth-actor id))}
   :on     {:auth/succeeded :authenticated
            :auth/failed    :idle}}}
 
@@ -1832,7 +1779,7 @@ The same skeleton applies to `:spawn-all`'s N children (per [§Spawn-and-join vi
    :states {:running {:entry :fire-request
                       :on    {:server-ok {:target :done}}}
             :done    {:final? true :output-key :token}}
-   :actions {:fire-request (fn [data _] {:fx [[:http/post …]]})}})
+   :actions {:fire-request (fn [{data :data}] {:fx [[:http/post …]]})}})
 ```
 
 Trace of a `[:submit]` event landing on the parent in `:idle`:
@@ -1869,11 +1816,11 @@ The ordering is what lets two patterns compose without surprises:
 ### Spawning from inside an action (the common case)
 
 ```clojure
-:action (fn [_ [_ url]]
+:action (fn [{[_ url] :event}]
           {:fx [[:rf.machine/spawn {:machine-id :request/protocol
                                     :id-prefix  :request/protocol
                                     :data       {:url url}
-                                    :on-spawn   (fn [data id] (assoc data :pending-request id))
+                                    :on-spawn   (fn [{data :data id :id}] (assoc data :pending-request id))
                                     :start      [:begin]}]]})
 ```
 
@@ -1886,7 +1833,7 @@ After this action, `(:pending-request data)` *is* the actor's id. Subsequent tra
 | `:machine-id` *or* `:definition` | which machine to instantiate (registered id, or inline spec map) | one of these |
 | `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional; defaults to `:machine-id` |
 | `:data` | initial data for the new machine (overrides definition's default) | optional |
-| `:on-spawn` | `(fn [data id] new-data)` — how the parent records the new id | required for from-action spawns; ignored for top-level boot-time spawns |
+| `:on-spawn` | `(fn [{:keys [data id]}] _)` — advisory callback fired with the spawned id; return is ignored (runtime tracks the id at `[:rf/spawned <parent> <invoke-id>]`). Per rf2-grw4i / rf2-v0rrr. | optional for any spawn; ignored for top-level boot-time spawns |
 | `:start` | event vector dispatched to the new actor immediately after spawn | optional |
 | `:system-id` | bind the spawned actor to a per-frame name in the `[:rf/system-ids]` reverse index; lookup with `(rf/machine-by-system-id sid)`. See [§Named addressing via `:system-id`](#named-addressing-via-system-id). | optional |
 
@@ -1942,7 +1889,7 @@ The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an eve
            {:definition request-protocol           ;; or :machine-id if reusing a registered definition
             :id-prefix  :request/protocol           ;; → :request/protocol#42
             :data       {:url url :attempt 0}
-            :on-spawn   (fn [data id] (assoc data :request-id id))}]]}))
+            :on-spawn   (fn [{data :data id :id}] (assoc data :request-id id))}]]}))
 
 (rf/dispatch-sync [:app/spawn-request-protocol "/foo"])
 
@@ -1987,11 +1934,11 @@ Observability is unchanged: the **original** `:rf.machine/destroyed` (with `:rea
 Multiple `[:rf.machine/spawn ...]` entries in `:fx` work independently; each runs its `:on-spawn` against the current data (post-previous-spawn). For dynamic-count spawning, build the `:fx` vector with `mapv`:
 
 ```clojure
-:action (fn [_ [_ jobs]]
+:action (fn [{[_ jobs] :event}]
           {:fx (mapv (fn [job]
                        [:rf.machine/spawn {:machine-id :worker
                                            :data       job
-                                           :on-spawn   (fn [data id]
+                                           :on-spawn   (fn [{data :data id :id}]
                                                          (update data :workers (fnil conj []) id))}])
                      jobs)})
 ;; → after action: (:workers data) is [<id-0> <id-1> <id-2> ...]
@@ -2014,19 +1961,19 @@ A spawn whose `:system-id` key is supplied **also** binds a name in the per-fram
 
 ```clojure
 ;; Imperative spawn (action :fx) with a :system-id binding.
-:action (fn [_ _]
+:action (fn [_]
           {:fx [[:rf.machine/spawn {:machine-id :request/protocol
                                     :system-id  :primary-request    ;; bind the name
                                     :data       {:url "/api/foo"}
-                                    :on-spawn   (fn [d id] (assoc d :pending id))
+                                    :on-spawn   (fn [{d :data id :id}] (assoc d :pending id))
                                     :start      [:begin]}]]})
 
 ;; The same :system-id key works on declarative :spawn:
 {:loading
  {:spawn {:machine-id :request/protocol
            :system-id  :primary-request
-           :data       (fn [snap _] {:url (-> snap :data :endpoint)})
-           :on-spawn   (fn [d id] (assoc d :pending id))}}}
+           :data       (fn [{snap :snapshot}] {:url (-> snap :data :endpoint)})
+           :on-spawn   (fn [{d :data id :id}] (assoc d :pending id))}}}
 
 ;; Anywhere in the same frame:
 (rf/machine-by-system-id :primary-request)
@@ -2054,12 +2001,12 @@ The standard cross-machine pattern remains `[:fx [[:dispatch [<other-id> [:event
 
 ```clojure
 ;; Inside a machine action's :fx — dispatch by name
-:action (fn [_ _]
+:action (fn [_]
           {:fx [[:dispatch [(rf/machine-by-system-id :primary-request)
                             [:cancel]]]]})
 
 ;; Sugar — dispatches via the lookup, no-ops when the name is unbound:
-:action (fn [_ _]
+:action (fn [_]
           {:fx [[:dispatch-to-system :primary-request [:cancel]]]})
 ```
 
@@ -2079,7 +2026,7 @@ The pattern composes naturally with the standard reply convention ([§Reply patt
 {:loading
  {:spawn {:machine-id :request/protocol
            :data       {:url "/api/foo"}
-           :on-spawn   (fn [data id] (assoc data :pending id))
+           :on-spawn   (fn [{data :data id :id}] (assoc data :pending id))
            :start      [:begin]}
   :on     {:succeeded {:target :loaded}
            :failed    {:target :error}}}}
@@ -2094,16 +2041,16 @@ The map under `:spawn` accepts the following keys:
 | key | purpose | required? |
 |---|---|---|
 | `:machine-id` *or* `:definition` | which machine to spawn (registered id, or inline transition table) | exactly one of these |
-| `:data` | initial data for the child — literal map or `(fn [snapshot event] data)` | optional |
+| `:data` | initial data for the child — literal map or `(fn [{:keys [snapshot event]}] data)` (per rf2-grw4i / rf2-v0rrr — unified context-map) | optional |
 | `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional; defaults to `:machine-id` |
-| `:on-spawn` | `(fn [data spawned-id] new-data)` — how the parent records the child id in its own `:data` | optional but typically wanted |
-| `:on-done` | `(fn [data result] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil` if no `:output-key` declared) — see [§Final states](#final-states-final--on-done--output-key) | optional |
+| `:on-spawn` | `(fn [{:keys [data id]}] _)` — advisory callback fired with the spawned id; return is ignored (runtime tracks the id at `[:rf/spawned <parent> <invoke-id>]`) | optional |
+| `:on-done` | `(fn [{:keys [data result]}] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil` if no `:output-key` declared) — see [§Final states](#final-states-final--on-done--output-key). Returns the parent's new `:data` map. | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:spawn-id` | explicit id instead of gensym (useful for tests / per-state singleton actors) | optional |
 
 The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
-- `:data` admits a function form `(fn [snap ev] data)` so the initial data can depend on the snapshot at the moment of entry — the snapshot is the *post-action* value (the transition's `:action` has already run, so any `:data` writes the action made are visible).
+- `:data` admits a function form `(fn [{:keys [snapshot event]}] data)` so the initial data can depend on the snapshot + the triggering event at the moment of entry — the snapshot is the *post-action* value (the transition's `:action` has already run, so any `:data` writes the action made are visible). Per rf2-grw4i / rf2-v0rrr the callback receives the unified context-map.
 - `:spawn-id` is an explicit alternative to `:id-prefix` + gensym — useful when a state should host exactly one actor with a known id (no need to record the id in the parent's `:data` because it's already a known constant).
 
 > **Wall-clock timeouts: use the parent state's `:after` slot.** Earlier drafts of this spec carried a `:timeout-ms` slot on `:spawn` / `:spawn-all` for "the whole spawned actor must terminate within N ms (spanning retries)." That slot is **dropped** in favour of the canonical `:after` primitive on the parent state — `:after` is one mechanism, not two. Per [§Whichever fires first wins](#whichever-fires-first-wins), an `:after` firing on the parent state exits the state and the standard exit cascade destroys the in-flight `:spawn`d child. The migration recipe is mechanical: lift the `:timeout-ms` value into the `:spawn`-bearing state's `:after` map, with a transition that exits the state to a "timeout" target. See [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after).
@@ -2114,7 +2061,7 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
 > **Use `:on-spawn` ONLY for side-channel observation.** Per audit-of-audits (rf2-cthfn) state-machines #7 — the callback is the canonical place to log spawn events, mirror the new id into instrumentation, or fold the id into the parent's `:data` for user-side addressing. It is NOT load-bearing for destroy-side lifecycle, which the runtime owns via the `[:rf/spawned <parent-id> <invoke-id>]` registry. Treat `:on-spawn` as the convenient observer hook for "the spawn just happened, here's the id" — not as a step the framework needs you to perform for correctness.
 
-> **Semantic shift from older drafts (rf2-1aswm).** Pre-rf2-t07u, `:on-spawn` was **load-bearing**: it was the parent's only way to track the spawned id, and the destroy-side cascade read the id back from whichever `:data` key the user's `:on-spawn` had stashed it under. Post-rf2-t07u the runtime owns the destroy-side resolution via the `[:rf/spawned <parent-id> <invoke-id>]` registry, so `:on-spawn` has shifted to **user bookkeeping only**. Readers of older code or older spec drafts that show `:on-spawn` patterns wired into destroy-side flows should treat those examples as historical: the parent's `:exit` cascade no longer requires the user-recorded id to function. The keyword name is unchanged — `:on-spawn` still fires on spawn and still receives `(fn [data spawned-id] new-data)` — but its category has moved from "framework-required hook" to "optional user-bookkeeping convenience." Per the audit (rf2-a2xhr Finding 7), a rename to a noun-form (e.g. `:bookkeeping`) was considered and rejected: the verb-form remains the clearer description of when the callback fires, and the docstring above is the canonical disambiguation.
+> **Semantic shift from older drafts (rf2-1aswm / rf2-grw4i / rf2-v0rrr).** Pre-rf2-t07u, `:on-spawn` was **load-bearing**: it was the parent's only way to track the spawned id, and the destroy-side cascade read the id back from whichever `:data` key the user's `:on-spawn` had stashed it under. Post-rf2-t07u the runtime owns the destroy-side resolution via the `[:rf/spawned <parent-id> <invoke-id>]` registry, so `:on-spawn` shifted to user bookkeeping only. Post-rf2-grw4i / rf2-v0rrr the shift is structural — `:on-spawn` is now **purely advisory**: the runtime invokes the callback with `{:data ... :id <spawned-id>}` (per the unified context-map contract) and DROPS the return value entirely. The parent's `:data` cannot be mutated by `:on-spawn`. Authors that need the id user-side either (a) read it from the runtime-tracked `[:rf/spawned <parent> <invoke-id>]` slot, or (b) capture it via a sidechannel atom. Readers of older code or older spec drafts that show `:on-spawn` patterns wired into destroy-side flows or `:data`-mutation flows should treat those examples as historical. Per the audit (rf2-a2xhr Finding 7), a rename to a noun-form (e.g. `:bookkeeping`) was considered and rejected: the verb-form remains the clearer description of when the callback fires.
 
 ### Desugaring rules
 
@@ -2132,26 +2079,26 @@ Before / after:
 ;; user writes (declarative :spawn):
 {:loading
  {:spawn {:machine-id :request/protocol
-           :data       (fn [snap _] {:url (-> snap :data :endpoint)})
-           :on-spawn   (fn [data id] (assoc data :pending id))
+           :data       (fn [{snap :snapshot}] {:url (-> snap :data :endpoint)})
+           :on-spawn   (fn [{data :data id :id}] (assoc data :pending id))
            :start      [:begin]}
   :on     {:succeeded :loaded
            :failed    :error}}}
 
 ;; make-machine-handler rewrites to (runtime sees this):
 {:loading
- {:entry (fn [data _ev]
+ {:entry (fn [{data :data}]
            {:fx [[:rf.machine/spawn {:machine-id   :request/protocol
                                      :id-prefix    :request/protocol
                                      :data         {:url (:endpoint data)}
-                                     :on-spawn     (fn [d id] (assoc d :pending id))
+                                     :on-spawn     (fn [{d :data id :id}] (assoc d :pending id))
                                      :start        [:begin]
                                      ;; Stamped by the runtime — addresses the
                                      ;; runtime-owned spawn registry slot at
                                      ;; [:rf/spawned <parent-id> <invoke-id>].
                                      :rf/parent-id <parent-machine-id>
                                      :rf/spawn-id [:loading]}]]})
-  :exit  (fn [_data _]
+  :exit  (fn [_]
            ;; Per rf2-t07u (Option A revised) — the destroy fx no longer
            ;; reads the actor id from `:data`. The fx handler resolves
            ;; the id from [:rf/spawned <parent-id> <invoke-id>] in the
@@ -2164,7 +2111,7 @@ Before / after:
 
 From outside, a `:spawn`-using machine is indistinguishable from one that wrote the entry/exit by hand — except that the runtime no longer requires the user's `:on-spawn` callback to write the spawned id under any particular `:data` slot. The pure-factory invariant on `make-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf/spawned ...]` slot lives inside `app-db` per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys); not a separate registry).
 
-> **Spec-as-data caveat for `:spawn` / `:spawn-all` (rf2-4kowj).** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: `machine-meta` returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `make-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record (e.g. via `:rf.machine/wants-ctx` introspection — see [§3-arity escape hatch](#3-arity-escape-hatch--snapshot-introspection)) sees the desugared form, not the literal `:spawn` map. The two surfaces are deliberately split: the spec-as-data invariant covers what users wrote and what tools read back via `machine-meta`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume `machine-meta` for the user-facing shape; the runtime form is intentionally not part of the public contract and may evolve. Per audit rf2-a2xhr Finding 3.
+> **Spec-as-data caveat for `:spawn` / `:spawn-all` (rf2-4kowj).** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: `machine-meta` returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `make-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record sees the desugared form, not the literal `:spawn` map. The two surfaces are deliberately split: the spec-as-data invariant covers what users wrote and what tools read back via `machine-meta`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume `machine-meta` for the user-facing shape; the runtime form is intentionally not part of the public contract and may evolve. Per audit rf2-a2xhr Finding 3.
 
 ### Composition with explicit `:entry` / `:exit`
 
@@ -2205,7 +2152,7 @@ xstate's `invoke` admits several features re-frame2 deliberately omits. Each has
 
 | xstate feature | re-frame2 substitute |
 |---|---|
-| **`onDone`** — fire a callback when the child reaches a final state | re-frame2 ships first-class final states with parent notification — see [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key). A leaf state declares `:final? true` (and optionally `:output-key`); the parent's `:spawn` declares `:on-done (fn [data result] new-data)`. The runtime invokes `:on-done` synchronously when the child enters its final state, then auto-destroys the child. Per rf2-gn80. |
+| **`onDone`** — fire a callback when the child reaches a final state | re-frame2 ships first-class final states with parent notification — see [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key). A leaf state declares `:final? true` (and optionally `:output-key`); the parent's `:spawn` declares `:on-done (fn [{data :data result :result}] new-data)`. The runtime invokes `:on-done` synchronously when the child enters its final state, then auto-destroys the child. Per rf2-gn80. |
 | **`onError`** — child error callback | Errors flow through the standard `:rf.error/*` machinery and are visible in trace events. The parent observes via the existing error envelope, not a `:spawn`-specific hook. |
 | **Multiple `:spawn` per state** (xstate admits a vector) | One `:spawn` per state. Multiple actors per state suggests refactoring into a compound state where each substate invokes one of the actors. |
 | **`autoForward`** — forward all parent events to the child | Users forward explicitly via `:fx [[:dispatch [child-id ev]]]` from the relevant transitions. Implicit forwarding is invisible at the call site; explicit forwarding is what visualisers and AIs read. |
@@ -2221,9 +2168,10 @@ Each omission is consistent with the spec's broader bias: **prefer one explicit 
 
   :authenticating
   {:spawn {:machine-id :http/post
-            :data       (fn [snap _] {:url  "/api/login"
-                                      :body (-> snap :data :credentials)})
-            :on-spawn   (fn [data id] (assoc data :auth-actor id))}
+            :data       (fn [{snap :snapshot}]
+                          {:url  "/api/login"
+                           :body (-> snap :data :credentials)})
+            :on-spawn   (fn [{data :data id :id}] (assoc data :auth-actor id))}
    :on     {:auth/succeeded :authenticated
             :auth/failed    :idle}}
 
@@ -2264,7 +2212,7 @@ Per rf2-gn80, re-frame2 ships first-class **final states** with parent notificat
 
 A leaf state may declare `:final? true`. Entering that state **terminates the machine**:
 
-- If the machine was spawned by a parent's `:spawn`, the parent's `:spawn :on-done (fn [data result] new-data)` fires (with `result` = the child's `:data` slot named by the final state's `:output-key`, or `nil` when `:output-key` is absent). The child is then **auto-destroyed**.
+- If the machine was spawned by a parent's `:spawn`, the parent's `:spawn :on-done (fn [{data :data result :result}] new-data)` fires (with `result` = the child's `:data` slot named by the final state's `:output-key`, or `nil` when `:output-key` is absent). The child is then **auto-destroyed**.
 - If the machine is a **singleton** (registered top-level, no parent `:spawn`), the machine still auto-destroys on entry to `:final?` — "final means final" (D7 below). Apps wanting a persistent terminal state simply **omit `:final?`** and use an ordinary leaf state.
 
 ```clojure
@@ -2274,7 +2222,7 @@ A leaf state may declare `:final? true`. Entering that state **terminates the ma
    :data    {}
    :states
    {:running {:on {:server-ok {:target :done
-                               :action (fn [data ev]
+                               :action (fn [{data :data ev :event}]
                                          {:data (assoc data :token (second ev))})}}}
     :done    {:final?     true
               :output-key :token}}})
@@ -2288,7 +2236,7 @@ A leaf state may declare `:final? true`. Entering that state **terminates the ma
 
     :authenticating
     {:spawn {:machine-id :auth-flow
-              :on-done    (fn [data result] (assoc data :token result))}
+              :on-done    (fn [{data :data result :result}] (assoc data :token result))}
      :on    {:auth/cancelled :idle}}}})
 ```
 
@@ -2306,7 +2254,7 @@ When `:auth-flow` enters `:done`, the runtime:
 | # | Decision |
 |---|---|
 | D1 | **`:final?` is a first-class key on the state node**, not stashed under `:meta`. Visibility wins — `:final?` is a strong runtime signal and authors / AI agents see it at the state level. |
-| D2 | The parent-notification hook is **`:on-done` on the parent's `:spawn` map** (mirrors `:on-spawn`). Signature `(fn [data result] new-data)` — uniform with other machine callbacks (operates on `:data`, returns the new `:data` map). |
+| D2 | The parent-notification hook is **`:on-done` on the parent's `:spawn` map** (mirrors `:on-spawn`). Signature `(fn [{:keys [data result]}] new-data)` — unified context-map per rf2-grw4i / rf2-v0rrr; returns the parent's new `:data` map. |
 | D3 | Output is sourced via **`:output-key` on the child's final state** — a designated key into the child's `:data`. There is **no `:output-fn` escape hatch**; one explicit primitive, not two. Apps wanting computed output write a `:action` on the transition INTO the final state that stashes the computed value at `:output-key`. |
 | D4 | **Auto-destroy is synchronous** and happens on the same tick the machine entered `:final?`. The standard destroy path runs (in-flight HTTP aborts, registrar unregister, `[:rf/spawned ...]` slot clear, `[:rf/machines <id>]` snapshot dissoc). |
 | D5 | A dispatch arriving at the now-destroyed actor address is handled by the **existing destroyed-frame trace path** — `:rf.error/no-such-handler` (or the per-runtime equivalent). No new `:rf.machine/dispatched-while-done` half-state is introduced. |
@@ -2550,7 +2498,7 @@ Each child decides when it is "done" or "failed" and dispatches a 2- or 3-elemen
 ;; In the child machine (e.g. :load-config), at a terminal state's :entry:
 {:done
  {:meta  {:terminal? true}
-  :entry (fn [data _]
+  :entry (fn [{data :data}]
            {:fx [[:dispatch [:hydrate-flow [:child/done :cfg (:result data)]]]]})}}
 ```
 
@@ -2598,8 +2546,9 @@ A `:rf.machine.spawn-all/some-completed` trace fires for the `:any` / `{:n N}` /
  :states
  {:authenticating
   {:spawn {:machine-id :http/post
-            :data       (fn [snap _] {:url "/api/login"
-                                      :body (-> snap :data :credentials)})}
+            :data       (fn [{snap :snapshot}]
+                          {:url "/api/login"
+                           :body (-> snap :data :credentials)})}
    :on     {:auth/succeeded :hydrating
             :auth/failed    :idle}}
 
@@ -2938,14 +2887,14 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
      :actions
      {:begin-edit
       ;; Seed circle-id, initial-radius, and preview-radius from the right-click event.
-      (fn [_ [_ id radius]]
+      (fn [{[_ id radius] :event}]
         {:data {:circle-id      id
                 :initial-radius radius
                 :preview-radius radius}})
 
       :commit
       ;; Persist the previewed radius via :drawer/apply-radius and clear :data.
-      (fn [data _]
+      (fn [{data :data}]
         {:fx   [[:dispatch [:drawer/apply-radius
                             (:circle-id data)
                             (:preview-radius data)]]]
@@ -2968,7 +2917,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
         ;; internal self-transition — no :target, so no exit/entry.
         ;; Single-key :data update, single non-branching expression — inline OK
         ;; per the inspectability-bias escape hatch.
-        {:action (fn [_ [_ new-r]]
+        {:action (fn [{[_ new-r] :event}]
                    {:data {:preview-radius new-r}})}
 
         :close-dialog
@@ -2979,7 +2928,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
         ;; Single :data clear, single non-branching expression — inline OK.
         ;; Nothing to apply — preview was never persisted.
         {:target :idle
-         :action (fn [_ _]
+         :action (fn [_]
                    {:data {:circle-id      nil
                            :initial-radius nil
                            :preview-radius nil}})}}}}}))

@@ -44,7 +44,6 @@
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.timer :as timer]
-            [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]))
 
@@ -118,13 +117,6 @@
    (machine-by-system-id system-id (frame/current-frame)))
   ([system-id frame-id]
    (get-in (frame/frame-app-db-value frame-id) [:rf/system-ids system-id])))
-
-;; Per Spec 005 §3-arity escape hatch — `:state` / `:meta` introspection
-;; (rf2-2yupx): explicit opt-in via the `:rf.machine/wants-ctx` metadata
-;; flag replaces the pre-rf2-2yupx structural arity-detection rule. The
-;; `wants-ctx` helper is the wrapper form for anonymous fns where the
-;; `^:rf.machine/wants-ctx` reader-macro form is awkward.
-(def wants-ctx              transition/wants-ctx)
 
 (defn reset-timers!
   "Cancel in-flight `:after` timers.

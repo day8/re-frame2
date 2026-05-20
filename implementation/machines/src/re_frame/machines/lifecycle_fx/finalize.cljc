@@ -191,16 +191,18 @@
                         :frame      frame-id})
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
         ;; snapshot lives at [:rf/machines <parent-id>]; we read it,
-        ;; pass `:data` + `result` to `:on-done`, and write the new
-        ;; `:data` back. If the parent has no snapshot (spawned a
-        ;; child but was itself destroyed) or no `:on-done`, this
-        ;; reduces to identity.
+        ;; pass the unified context-map (`{:data :result}`) to
+        ;; `:on-done`, and write the new `:data` back. Per Spec 005
+        ;; §Final states / rf2-grw4i / rf2-v0rrr the callback receives
+        ;; one context-map arg and returns the new `:data` map. If the
+        ;; parent has no snapshot (spawned a child but was itself
+        ;; destroyed) or no `:on-done`, this reduces to identity.
         db-after-on-done
         (if (and on-done-fn parent-id)
           (let [parent-snap     (get-in db parent-path)
                 parent-data     (:data parent-snap)
                 new-parent-data (try
-                                  (on-done-fn parent-data result)
+                                  (on-done-fn {:data parent-data :result result})
                                   (catch #?(:clj Throwable :cljs :default) e
                                     (trace/emit-error! :rf.error/machine-action-exception
                                                        {:machine-id machine-id

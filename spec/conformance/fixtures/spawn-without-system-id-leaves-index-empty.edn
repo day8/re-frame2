@@ -42,5 +42,5 @@
  ;; just isn't named).
  {:final-app-db
   {:rf/machines
-   {:sup/flow      {:state :working :data {:pending :worker/proc#1}}
+   {:sup/flow      {:state :working :data {}}
     :worker/proc#1 {:state :running :data {}}}}}}

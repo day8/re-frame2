@@ -66,7 +66,7 @@
     (rf/reg-machine
       :ko8jb/guard
       {:initial :idle
-       :guards  {:always-pass (fn [_d _e] true)}
+       :guards  {:always-pass (fn [_] true)}
        :states  {:idle  {:on {:go [{:guard :always-pass :target :done}]}}
                  :done  {}}})
     (let [traces (record-traces!
@@ -84,7 +84,7 @@
     (rf/reg-machine
       :ko8jb/action
       {:initial :idle
-       :actions {:noop (fn [_d _e] nil)}
+       :actions {:noop (fn [_] nil)}
        :states  {:idle {:on {:go {:target :done :action :noop}}}
                  :done {}}})
     (let [traces (record-traces!
@@ -102,7 +102,7 @@
     (rf/reg-machine
       :ko8jb/action-throws
       {:initial :idle
-       :actions {:bang (fn [_d _e] (throw (ex-info "boom" {})))}
+       :actions {:bang (fn [_] (throw (ex-info "boom" {})))}
        :states  {:idle {:on {:go {:target :done :action :bang}}}
                  :done {}}})
     (let [traces (record-traces!
@@ -204,7 +204,7 @@
       {:initial :idle
        :raise-depth-limit 3
        :actions {:fan-out
-                 (fn [_d _e]
+                 (fn [_]
                    {:fx [[:raise [:noop]]
                          [:raise [:noop]]
                          [:raise [:noop]]
@@ -232,7 +232,7 @@
       :ko8jb/always-loop
       {:initial :start
        :always-depth-limit 5
-       :guards  {:p? (fn [_d _e] true)}
+       :guards  {:p? (fn [_] true)}
        :states  {:start {:on {:go :a}}
                  :a     {:always [{:guard :p? :target :b}]}
                  :b     {:always [{:guard :p? :target :a}]}}})
@@ -262,7 +262,7 @@
        :data    {}
        :states  {:idle    {:on {:start :working}}
                  :working {:spawn {:machine-id :ko8jb/child-od
-                                    :on-done    (fn [_d _r]
+                                    :on-done (fn [_]
                                                   (throw (ex-info "boom" {})))}}}})
     (let [traces (record-traces!
                    (fn []
@@ -292,13 +292,13 @@
   {:initial :running
    :data    {:id nil}
    :actions {:dispatch-done
-             (fn [data _]
+             (fn [{data :data}]
                {:fx [[:dispatch [parent-id [done-event-kw (:id data)]]]]})
              :dispatch-error
-             (fn [data _]
+             (fn [{data :data}]
                {:fx [[:dispatch [parent-id [error-event-kw (:id data)]]]]})
              :record-id
-             (fn [data ev]
+             (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states  {:running {:on {:set-id {:action :record-id}
                             :go     {:target :done   :action :dispatch-done}

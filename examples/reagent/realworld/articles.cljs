@@ -71,23 +71,23 @@
 
    :guards
    {:empty?
-    (fn guard-empty? [data _event]
+    (fn guard-empty? [{data :data}]
       (zero? (:count data 0)))}
 
    :actions
    {:set-count
     ;; :fetch-succeeded carries the resolved count under :items.
-    (fn action-set-count [data [_ {:keys [items]}]]
+    (fn action-set-count [{data :data [_ {:keys [items]}] :event}]
       {:data (-> data
                  (assoc :count (count items))
                  (assoc :error nil))})
 
     :set-error
-    (fn action-set-error [data [_ {:keys [failure]}]]
+    (fn action-set-error [{data :data [_ {:keys [failure]}] :event}]
       {:data (assoc data :error failure)})
 
     :clear-count
-    (fn action-clear-count [data _event]
+    (fn action-clear-count [{data :data}]
       {:data (assoc data :count 0 :error nil)})}
 
    :regions

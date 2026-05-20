@@ -357,7 +357,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 2. **Verify the id is unused.** `(rf/registrations :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf/machines)` enumerates already-registered machines specifically.
 3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
-5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [snapshot event] boolean)` and each action `(fn [snapshot event] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). **Inline only when the body is a single non-branching expression.**
+5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per rf2-grw4i / rf2-v0rrr every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
 
 **Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf/machines <machine-id>]` in the frame's `app-db`. For id `:auth.login/flow`, the snapshot is at `[:rf/machines :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `make-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own `app-db` and thus its own `:rf/machines` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
@@ -502,7 +502,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
    {:fx [[:rf.machine/spawn {:machine-id :request/protocol
                              :id-prefix  :request/protocol
                              :data       {:url url}
-                             :on-spawn   (fn [data id] (assoc data :pending-request id))
+                             :on-spawn   (fn [{:keys [data id]}] (assoc data :pending-request id))
                              :start      [:begin]}]]})}
 
 :states
@@ -518,7 +518,7 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 - The transition table is **pure data** (per [005](005-StateMachines.md)) — serialisable, AI-readable, visualisable.
 - **Default to registered guards and actions.** Inline fns are an escape hatch for trivial logic, not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
 - Action and guard slots are **single fn or single registered id** — no `:actions [a1 a2 a3]` vector form, no `{:and [...]}` compound-guard data form. Multi-step composition is fn composition; reused composition is registered with a meaningful name.
-- Action signature: `(fn [snapshot event] {:data {...} :fx [...]})`. **Strict encapsulation**: no `:db`, no cofx — the runtime hard-disallows `:db` in the action's effect map (`:rf.error/machine-action-wrote-db`).
+- Action signature: `(fn [{:keys [data event state meta]}] {:data {...} :fx [...]})` — single context-map argument per rf2-grw4i / rf2-v0rrr. **Strict encapsulation**: no `:db`, no cofx — the runtime hard-disallows `:db` in the action's effect map (`:rf.error/machine-action-wrote-db`).
 - `machine-transition` is a **pure function** — `(definition, snapshot, event) → [next-snapshot, effects]`. JVM-runnable, headless-testable.
 - The actor system boundary is the frame; cross-machine messages within a frame settle via run-to-completion drain.
 

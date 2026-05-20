@@ -31,11 +31,13 @@
                                      :system-id  :worker
                                      :on-spawn   :auth/record-actor}}}}}
   :machine-action
-  {:auth/record-actor {:doc "On-spawn callback — records the spawned id under :pending."}}}
+  {:auth/record-actor {:doc "On-spawn callback — body invokes a :set op for trace symmetry; per rf2-grw4i / rf2-v0rrr the runtime drops the return so the parent's :data is unchanged."}}}
 
  :fixture/handlers
  {:machine-action
-  ;; (fn [data id] (assoc data :pending id))
+  ;; (fn [{:keys [data id]}] _) — return is advisory only (rf2-grw4i /
+  ;; rf2-v0rrr). The :set op runs against the harness's synthetic
+  ;; context but the RUNTIME ignores the return value entirely.
   {:auth/record-actor [[:set [:pending] [:event-arg 1]]]}}
 
  :fixture/frame-config {:on-create []}
@@ -54,7 +56,7 @@
  {:final-app-db
   {:rf/machines
    {:sup/flow      {:state    :working
-                    :data     {:pending :worker/proc#1}}
+                    :data     {}}
     :worker/proc#1 {:state :running :data {}}}
    :rf/system-ids
    {:worker :worker/proc#1}}

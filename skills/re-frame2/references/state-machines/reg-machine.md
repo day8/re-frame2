@@ -97,7 +97,7 @@ The transition's `:target` may be a single keyword (sibling-level) or a vector p
 
 ```clojure
 ;; Inline — preferred only for one-line trivialities.
-{:on {:start {:guard  (fn [data _ev] (some? (:input data)))
+{:on {:start {:guard  (fn [{data :data}] (some? (:input data)))
               :target :working}}}
 
 ;; Keyword reference — preferred for anything non-trivial, because the

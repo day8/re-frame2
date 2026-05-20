@@ -212,32 +212,32 @@
 
    :guards
    {:empty?
-    (fn guard-empty? [data _event]
+    (fn guard-empty? [{:keys [data]}]
       (zero? (count (:items data))))
 
     :one?
-    (fn guard-one? [data _event]
+    (fn guard-one? [{:keys [data]}]
       (= 1 (count (:items data))))
 
     :too-many?
-    (fn guard-too-many? [data _event]
+    (fn guard-too-many? [{:keys [data]}]
       (> (count (:items data)) too-many-threshold))}
 
    :actions
    {:set-items
     ;; :fetch-succeeded carries the new items as the action's event
     ;; payload's second element: [:fetch-succeeded {:items [...]}].
-    (fn action-set-items [data [_ {:keys [items]}]]
+    (fn action-set-items [{data :data [_ {:keys [items]}] :event}]
       {:data (-> data
                  (assoc :items (vec items))
                  (assoc :error nil))})
 
     :set-error
-    (fn action-set-error [data [_ {:keys [failure]}]]
+    (fn action-set-error [{data :data [_ {:keys [failure]}] :event}]
       {:data (assoc data :error failure)})
 
     :stamp-archived
-    (fn action-stamp-archived [data [_ {:keys [now]}]]
+    (fn action-stamp-archived [{data :data [_ {:keys [now]}] :event}]
       {:data (assoc data :archived-at (or now 0))})}
 
    :regions

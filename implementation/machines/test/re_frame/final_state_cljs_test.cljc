@@ -67,7 +67,7 @@
        :data    {}
        :states
        {:running {:on {:finish {:target :done
-                                :action (fn [data ev]
+                                :action (fn [{data :data ev :event}]
                                           {:data (assoc data :token (second ev))})}}}
         :done    {:final?     true
                   :output-key :token}}})
@@ -80,7 +80,7 @@
 
         :working
         {:spawn {:machine-id :rf2-gn80/child
-                  :on-done    (fn [data result] (assoc data :token-from-child result))}}}})
+                  :on-done (fn [{data :data result :result}] (assoc data :token-from-child result))}}}})
     (rf/dispatch-sync [:rf2-gn80/parent [:start]])
     ;; Now the child is spawned. Drive its :finish to enter :final?.
     (let [spawned-id (-> (rf/get-frame-db :rf/default)
@@ -123,7 +123,7 @@
          :data    {}
          :states
          {:running {:on {:finish {:target :done
-                                  :action (fn [data ev]
+                                  :action (fn [{data :data ev :event}]
                                             {:data (assoc data :result (second ev))})}}}
           :done    {:final?     true
                     :output-key :result}}})
@@ -132,7 +132,7 @@
          :states
          {:working
           {:spawn {:machine-id :rf2-gn80/child2
-                    :on-done    (fn [d r] (assoc d :reported r))}}}})
+                    :on-done (fn [{d :data r :result}] (assoc d :reported r))}}}})
       (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine/spawned]])
       (let [spawned-id (get-in (rf/get-frame-db :rf/default)
                                [:rf/spawned :rf2-gn80/parent2 [:working]])]
@@ -211,7 +211,7 @@
          {:working
           {:spawn {:machine-id :rf2-gn80/sid-child
                     :system-id  :auth-actor
-                    :on-done    (fn [d r]
+                    :on-done (fn [{d :data r :result}]
                                   ;; D8: during :on-done, the system-id
                                   ;; binding MUST still resolve — only
                                   ;; cleared after the hook returns.
@@ -264,7 +264,7 @@
          :states
          {:working
           {:spawn {:machine-id :rf2-gn80/no-output
-                    :on-done    (fn [d r]
+                    :on-done (fn [{d :data r :result}]
                                   (reset! seen-result r)
                                   d)}}}})
       (rf/dispatch-sync [:rf2-gn80/observer [:rf.machine/spawned]])

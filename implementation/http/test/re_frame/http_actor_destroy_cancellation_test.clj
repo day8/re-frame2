@@ -122,7 +122,7 @@
           {:initial :idle
            :data    {:port port}
            :actions {:fire-request
-                     (fn [data _]
+                     (fn [{data :data}]
                        {:fx [[:rf.http/managed
                               {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
                                             :method :get}
@@ -187,7 +187,7 @@
           {:initial :idle
            :data    {:port port}
            :actions {:fire-three
-                     (fn [data _]
+                     (fn [{data :data}]
                        {:fx [[:rf.http/managed
                               {:request    {:url (str "http://127.0.0.1:" (:port data) "/a")}
                                :decode     :json
@@ -246,7 +246,7 @@
         (rf/reg-machine :worker/proc-a
           {:initial :idle
            :data    {:port (:port srv-a)}
-           :actions {:fire (fn [data _]
+           :actions {:fire (fn [{data :data}]
                              {:fx [[:rf.http/managed
                                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/")}
                                      :decode     :json
@@ -258,7 +258,7 @@
         (rf/reg-machine :worker/proc-b
           {:initial :idle
            :data    {:port (:port srv-b)}
-           :actions {:fire (fn [data _]
+           :actions {:fire (fn [{data :data}]
                              {:fx [[:rf.http/managed
                                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/")}
                                      :decode     :json
@@ -361,7 +361,7 @@
         (rf/reg-machine :worker/slow
           {:initial :idle
            :data    {:port port}
-           :actions {:fire (fn [data _]
+           :actions {:fire (fn [{data :data}]
                              {:fx [[:rf.http/managed
                                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/")}
                                      :decode     :json

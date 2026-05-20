@@ -74,7 +74,7 @@ A product-detail page needs three independent fetches before render: the product
              :pdp/timed-out    :error}}
 
     :ready {:final? true
-            :entry  (fn [data event]
+            :entry  (fn [{:keys [event]}]
                       (let [[_ _ {:keys [product related reviews]}] event]
                         {:db-fx [[:assoc-in [:pdp :product] product]
                                  [:assoc-in [:pdp :related] related]

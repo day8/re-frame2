@@ -66,86 +66,50 @@
 
 ;; ---- guard/action contract --------------------------------------------------
 ;;
-;; Per Spec 005 §Guards / §Actions, the canonical signature is:
+;; Per Spec 005 §Guards / §Actions (rf2-grw4i / rf2-v0rrr), the canonical
+;; signature for every machine callback is a SINGLE context-map argument:
 ;;
-;;   (fn [data event] ...)              ; 2-arity — the 99% case
-;;   ^:rf.machine/wants-ctx              ; 3-arity — opt-in introspection
-;;   (fn [data event ctx] ...)
+;;   (fn [{:keys [data event state meta]}] ...)
 ;;
-;; `data` is the machine's :data slot directly (a map). `event` is the inbound
-;; event vector. `ctx` (3-arity escape hatch) is `{:state ... :meta ...}` —
-;; the snapshot's discrete-state and any user `:meta`. Returning to the 2-
-;; arity surface from the 3-arity body is dropping the third positional and
-;; the metadata flag; no migration cost when introspection is no longer needed.
+;; The context map carries every key the slot is meaningfully wired to;
+;; user code destructures the ones it needs. Keys present per slot type:
 ;;
-;; The opt-in is metadata-driven (`:rf.machine/wants-ctx true`) rather than
-;; structurally arity-detected. This makes the user's intent explicit and
-;; declarative, eliminates per-call platform reflection (`getDeclaredMethods`
-;; on JVM, `cljs$lang$maxFixedArity` + `unchecked-get` on CLJS), and removes
-;; the variadic-fn footgun the structural rule had — a `(fn [d e & rest] ...)`
-;; that wants to see ctx now declares its intent on the fn itself, not on its
-;; arglist shape.
+;;   :guard / :action / :entry / :exit  → :data :event :state :meta
+;;   :on-done                            → :data :result
+;;   :on-spawn                           → :data :id
+;;   :after  (delay-fn)                  → :snapshot
+;;   :spawn :data (init-fn)              → :snapshot :event
 ;;
-;; Ergonomic forms (any value-equivalent encoding works):
+;; Return shapes are slot-specific (Spec 005 §Return shapes):
+;;   :guard                                                → boolean
+;;   :action / :entry / :exit / :on-done / :spawn :data    → new :data map
+;;   :on-spawn / :after                                    → see slot docs
+;;     (on-spawn: advisory, nil; after: positive-int ms delay)
 ;;
-;;   ;; inline metadata on the fn literal
-;;   :guard ^:rf.machine/wants-ctx (fn [data event ctx] ...)
-;;
-;;   ;; defn attr-map for a named guard
-;;   (defn my-guard {:rf.machine/wants-ctx true} [data event ctx] ...)
-;;
-;;   ;; helper for wrapping an existing 3-arity fn — see `wants-ctx`
-;;   :guard (wants-ctx (fn [data event ctx] ...))
-;;
-;; `chase-ref` carries metadata via the var-reference value, so a keyword
-;; reference into the machine's `:guards` / `:actions` map preserves the
-;; opt-in flag the user attached at definition site.
-
-(defn- wants-ctx?
-  "True iff f explicitly opts in to the 3-arity ctx surface via the
-  `:rf.machine/wants-ctx true` metadata flag. Cheap — a single map
-  lookup on the fn's metadata. No platform reflection."
-  [f]
-  (boolean (:rf.machine/wants-ctx (meta f))))
-
-(defn wants-ctx
-  "Wrap a 3-arity guard or action fn so the runtime calls it with the
-  introspection ctx `{:state :meta}`. Sugar over the
-  `^:rf.machine/wants-ctx` metadata flag for cases where attaching
-  metadata to the source form is awkward (anonymous fns inside a
-  reduce, fns built by combinators, etc.).
-
-      :guard (wants-ctx (fn [data event ctx] ...))
-
-  Equivalent to:
-
-      :guard ^:rf.machine/wants-ctx (fn [data event ctx] ...)
-
-  Per Spec 005 §3-arity escape hatch — `:state` / `:meta` introspection."
-  [f]
-  (vary-meta f assoc :rf.machine/wants-ctx true))
+;; Uniform input shape: future slot additions extend the ctx keys without
+;; expanding the arity-permutation matrix. Destructuring at the call site
+;; makes meaningful keys explicit; the runtime delivers them in a single
+;; map.
 
 (defn- call-guard
-  "Invoke a resolved guard fn against a snapshot + event with the
-  canonical contract. 2-arity (default) sees [data event]; 3-arity
-  opt-in (`^:rf.machine/wants-ctx` metadata on the fn) sees
-  [data event {:state :meta}]."
+  "Invoke a resolved guard fn against a snapshot + event with the unified
+  context-map contract — `(fn [{:keys [data event state meta]}] boolean)`.
+  Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr)."
   [g snapshot event]
-  (let [data (:data snapshot)]
-    (if (wants-ctx? g)
-      (g data event {:state (:state snapshot) :meta (:meta snapshot)})
-      (g data event))))
+  (g {:data  (:data snapshot)
+      :event event
+      :state (:state snapshot)
+      :meta  (:meta snapshot)}))
 
 (defn- call-action
-  "Invoke a resolved action fn against a snapshot + event with the
-  canonical contract. 2-arity (default) sees [data event]; 3-arity
-  opt-in (`^:rf.machine/wants-ctx` metadata on the fn) sees
-  [data event {:state :meta}]."
+  "Invoke a resolved action fn against a snapshot + event with the unified
+  context-map contract — `(fn [{:keys [data event state meta]}] effects)`.
+  Per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr)."
   [f snapshot event]
-  (let [data (:data snapshot)]
-    (if (wants-ctx? f)
-      (f data event {:state (:state snapshot) :meta (:meta snapshot)})
-      (f data event))))
+  (f {:data  (:data snapshot)
+      :event event
+      :state (:state snapshot)
+      :meta  (:meta snapshot)}))
 
 ;; ---- guard / action evaluation traces -------------------------------------
 ;;
@@ -567,17 +531,19 @@
 
 (defn- materialise-data
   "Resolve a :spawn spec's `:data` slot. Per Spec 005 §Declarative `:spawn`
-  and rf2-h131, `:data` admits a fn form `(fn [snap ev] data)` so the spawn's
-  initial data can depend on the parent snapshot at the moment of entry. The
-  fn runs against the post-action snapshot (any :action :data writes are
-  visible). Returns `[::ok-data <materialised-data>]` on success, or a
-  `result/fail` Result carrying `{:exception <e>}` if the fn threw —
-  caller stamps `:action-ref` / `:spawn-id` / `:child-id` onto the
-  Result before propagating."
+  and rf2-h131, `:data` admits a fn form `(fn [{:keys [snapshot event]}]
+  data)` so the spawn's initial data can depend on the parent snapshot at
+  the moment of entry. Per rf2-grw4i / rf2-v0rrr the fn is invoked with
+  the unified context-map shape. The fn runs against the post-action
+  snapshot (any :action :data writes are visible). Returns
+  `[::ok-data <materialised-data>]` on success, or a `result/fail` Result
+  carrying `{:exception <e>}` if the fn threw — caller stamps
+  `:action-ref` / `:spawn-id` / `:child-id` onto the Result before
+  propagating."
   [d snap event]
   (if (fn? d)
     (try
-      [::ok-data (d snap event)]
+      [::ok-data (d {:snapshot snap :event event})]
       (catch #?(:clj Throwable :cljs :default) e
         (result/fail {:exception e})))
     [::ok-data d]))
@@ -711,18 +677,20 @@
 
 (defn- apply-on-spawn
   "Run `inv-spec`'s `:on-spawn` advisory callback against `snap`'s `:data`.
-  Per Spec 005 §Declarative `:spawn`, the signature is
-  `(fn [data id] new-data)` — operates on `:data`, uniform with regular
-  actions. Per rf2-t07u (Option A revised) `:on-spawn` is purely advisory;
-  the runtime tracks the spawn-id at `[:rf/spawned parent-id invoke-id]`."
+  Per Spec 005 §Declarative `:spawn` (rf2-grw4i / rf2-v0rrr), the signature
+  is `(fn [{:keys [data id]}] _)` — context-map input, advisory return
+  (any return value is ignored). Per rf2-t07u (Option A revised) the
+  runtime tracks the spawn-id at `[:rf/spawned parent-id invoke-id]`;
+  `:on-spawn` is purely observational — callers needing snapshot-level
+  side effects emit `[:rf.machine/update-snapshot ...]` from a regular
+  `:action` instead."
   [machine snap inv-spec spawned-id]
-  (if-let [f (let [aref (:on-spawn inv-spec)]
-               (when aref
-                 (or (chase-ref (:on-spawn-actions machine) aref)
-                     (chase-ref (:actions machine) aref))))]
-    (let [new-data (f (:data snap) spawned-id)]
-      (if new-data (assoc snap :data new-data) snap))
-    snap))
+  (when-let [f (let [aref (:on-spawn inv-spec)]
+                 (when aref
+                   (or (chase-ref (:on-spawn-actions machine) aref)
+                       (chase-ref (:actions machine) aref))))]
+    (f {:data (:data snap) :id spawned-id}))
+  snap)
 
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.

@@ -236,7 +236,7 @@
 
    :actions
    {:fire-request
-    (fn [data _]
+    (fn [{data :data}]
       ;; Build the args map for the underlying fx from whatever the
       ;; user passed through the parent's :spawn :data. Strip the
       ;; framework-reserved `:rf/*` keys; pass through every other
@@ -250,15 +250,15 @@
         {:fx [[:rf.http/managed fx-args]]}))
 
     :record-value
-    (fn [data [_ payload]]
+    (fn [{data :data [_ payload] :event}]
       {:data (assoc data :rf/result payload)})
 
     :record-failure
-    (fn [data [_ payload]]
+    (fn [{data :data [_ payload] :event}]
       {:data (assoc data :rf/result payload)})
 
     :dispatch-done
-    (fn [data _]
+    (fn [{data :data}]
       (let [parent-id (:rf/parent-id data)
             result    (:rf/result data)
             value     (:value result)]
@@ -266,7 +266,7 @@
           {:fx [[:dispatch [parent-id [:succeeded value]]]]})))
 
     :dispatch-error
-    (fn [data _]
+    (fn [{data :data}]
       (let [parent-id (:rf/parent-id data)
             result    (:rf/result data)
             failure   (:failure result)]

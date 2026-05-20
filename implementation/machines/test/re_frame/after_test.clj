@@ -136,7 +136,7 @@
     (let [m {:initial :idle
              :data    {:rf/after-epoch 0
                        :slow?          false}
-             :guards  {:slow? (fn [data _] (:slow? data))}
+             :guards  {:slow? (fn [{:keys [data]}] (:slow? data))}
              :states
              {:idle    {:on {:fetch :loading}}
               :loading {:after {5000  {:guard :slow? :target :warn}
@@ -220,8 +220,9 @@
   (testing "(fn [snap] ms) delay form: invoked once at state entry"
     (let [;; Per spec, fn delays use the ORIGINAL fn key for synthetic-event
           ;; lookup. This test exercises pick-after-transition's lookup
-          ;; with a fn delay-key.
-          delay-fn (fn [_snap] 7000)
+          ;; with a fn delay-key. Per rf2-grw4i / rf2-v0rrr the delay-fn
+          ;; receives a single context-map arg `{:snapshot ...}`.
+          delay-fn (fn [_ctx] 7000)
           m {:initial :idle
              :data    {:rf/after-epoch 0}
              :states
@@ -247,7 +248,7 @@
           parent {:initial :idle
                   :data    {:rf/after-epoch 0}
                   :on-spawn-actions
-                  {:rec (fn [data id] (assoc data :pending id))}
+                  {:rec (fn [{:keys [data id]}] (assoc data :pending id))}
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating
@@ -280,7 +281,7 @@
     ;; configured downstream with no signal that the fn itself blew up.
     (let [captured (atom [])
           listener (fn [ev] (swap! captured conj ev))
-          delay-fn (fn [_snapshot]
+          delay-fn (fn [_ctx]
                      (throw (ex-info "fn-form delay blew up" {:where :test})))]
       (re-frame.trace/register-trace-listener! ::after-fn-trace listener)
       (try

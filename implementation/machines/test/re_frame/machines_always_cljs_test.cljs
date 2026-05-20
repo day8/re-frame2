@@ -29,9 +29,9 @@
     (let [machine
           {:initial :asking
            :data    {:correct-count 9}
-           :guards  {:enough? (fn [data _]
+           :guards  {:enough? (fn [{data :data}]
                                 (>= (:correct-count data) 10))}
-           :actions {:count   (fn [data _]
+           :actions {:count   (fn [{data :data}]
                                 {:data {:correct-count
                                         (inc (:correct-count data))}})}
            :states
@@ -55,9 +55,9 @@
     (let [machine
           {:initial :asking
            :data    {:correct-count 5}
-           :guards  {:enough? (fn [data _]
+           :guards  {:enough? (fn [{data :data}]
                                 (>= (:correct-count data) 10))}
-           :actions {:count   (fn [data _]
+           :actions {:count   (fn [{data :data}]
                                 {:data {:correct-count
                                         (inc (:correct-count data))}})}
            :states
@@ -80,7 +80,7 @@
           {:initial :start
            :data    {}
            :always-depth-limit 5
-           :guards  {:p? (fn [_ _] true)}
+           :guards  {:p? (fn [_] true)}
            :states
            {:start {:on {:go {:target :a}}}
             :a     {:always [{:guard :p? :target :b}]}

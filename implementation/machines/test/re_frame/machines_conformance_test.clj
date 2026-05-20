@@ -159,11 +159,12 @@
 ;; artefact's classpath.
 
 (defn- realise-machine-action
-  "Build a `(fn [data event])` from a DSL body. The fn returns
+  "Build a `(fn [{:keys [data event]}])` from a DSL body. The fn returns
   `{:data <maybe-new-data> :fx <vec-of-fx>}` matching the action's
-  canonical 2-arity return shape per Spec 005 §Actions."
+  canonical return shape per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr —
+  single context-map arg)."
   [steps]
-  (fn [data event]
+  (fn [{:keys [data event]}]
     (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
           final
           (reduce
@@ -185,10 +186,11 @@
         (seq (:fx final))         (assoc :fx (:fx final))))))
 
 (defn- realise-machine-guard
-  "Build a `(fn [data event])` from a DSL body — returns a boolean.
-  Per Spec 005 §Guards canonical 2-arity."
+  "Build a `(fn [{:keys [data event]}])` from a DSL body — returns a
+  boolean. Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr — single context-
+  map arg)."
   [steps]
-  (fn [data event]
+  (fn [{:keys [data event]}]
     (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
           step       (first steps)]
       (when (and (vector? step) (= :fn (first step)))

@@ -191,13 +191,13 @@
      :guards
      {:under-retry-limit
       ;; True if the flow has had fewer than 3 prior failed attempts.
-      (fn [data _event]
+      (fn [{data :data}]
         (< (:attempts data) 3))}
 
      :actions
      {:clear-error
       ;; Reset error and prepare to submit.
-      (fn [_data _event]
+      (fn [_]
         {:data {:error nil}})
 
       :issue-request
@@ -205,7 +205,7 @@
       ;; Spec 014 reply: explicit :on-success / :on-failure events have the
       ;; reply payload (`{:kind :success :value ...}` / `{:kind :failure
       ;; :failure ...}`) appended as their last arg by the runtime.
-      (fn [_data [_ creds]]
+      (fn [{[_ creds] :event}]
         {:fx [[:rf.http/managed
                {:request    {:method :post
                              :url    "/api/login"
@@ -217,20 +217,20 @@
 
       :record-error
       ;; Record the failure into :data and bump the attempt counter.
-      (fn [data [_ {:keys [failure]}]]
+      (fn [{data :data [_ {:keys [failure]}] :event}]
         {:data (-> data
                    (update :attempts inc)
                    (assoc :error (or (:message failure) "Login failed.")))})
 
       :lock-account
       ;; Mark the account as locked after too many failed attempts.
-      (fn [_data _event]
+      (fn [_]
         {:fx [[:rf.http/managed
                {:request {:method :post :url "/api/auth/lock"}}]]})
 
       :store-session
       ;; Persist the session token returned by a successful login.
-      (fn [_data [_ {:keys [value]}]]
+      (fn [{[_ {:keys [value]}] :event}]
         {:fx [[:auth.session/store {:token (:token value)}]]})}
 
      :states

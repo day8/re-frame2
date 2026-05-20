@@ -118,8 +118,8 @@
   (testing ":always microstep recomputes :tags on the committed snapshot"
     (let [m {:initial :asking
              :data    {:correct-count 0}
-             :guards  {:enough? (fn [d _] (>= (:correct-count d) 1))}
-             :actions {:bump   (fn [d _] {:data (update d :correct-count inc)})}
+             :guards  {:enough? (fn [{d :data}] (>= (:correct-count d) 1))}
+             :actions {:bump   (fn [{d :data}] {:data (update d :correct-count inc)})}
              :states
              {:asking
               {:tags   #{:active}
@@ -250,7 +250,7 @@
   (testing "internal transition (no :target) leaves state unchanged; :tags also unchanged"
     (let [m {:initial :idle
              :data    {:count 0}
-             :actions {:bump (fn [d _] {:data (update d :count inc)})}
+             :actions {:bump (fn [{d :data}] {:data (update d :count inc)})}
              :states  {:idle {:tags #{:steady}
                               :on   {:tick {:action :bump}}}}}]
       (rf/reg-machine :tags/internal m)

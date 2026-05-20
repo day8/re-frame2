@@ -141,7 +141,7 @@
   (testing "multiple :after entries; guard-false suppresses one, sibling continues"
     (let [m {:initial :idle
              :data    {:rf/after-epoch 0 :slow? false}
-             :guards  {:slow? (fn [data _] (:slow? data))}
+             :guards  {:slow? (fn [{data :data}] (:slow? data))}
              :states
              {:idle    {:on {:fetch :loading}}
               :loading {:after {5000  {:guard :slow? :target :warn}

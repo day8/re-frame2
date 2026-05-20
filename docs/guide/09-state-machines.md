@@ -76,14 +76,14 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
 
    :guards
    {:under-retry-limit
-    (fn [data _event] (< (:attempts data) 3))}
+    (fn [{data :data}] (< (:attempts data) 3))}
 
    :actions
    {:clear-error
-    (fn [_ _] {:data {:error nil}})
+    (fn [_] {:data {:error nil}})
 
     :issue-request
-    (fn [_data [_ creds]]
+    (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
              {:request    {:method :post
                            :url    "/api/login"
@@ -96,18 +96,18 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
     ;; The reply lands folded into the inner event by managed-HTTP's
     ;; extras-fold — see §"Dispatching to a machine" below for the
     ;; {:kind :failure :failure <reply>} envelope shape.
-    (fn [data [_ {:keys [failure]}]]
+    (fn [{data :data [_ {:keys [failure]}] :event}]
       {:data (-> data
                  (update :attempts inc)
                  (assoc :error (or (:message failure) "Login failed.")))})
 
     :lock-account
-    (fn [_ _]
+    (fn [_]
       {:fx [[:rf.http/managed
              {:request {:method :post :url "/api/auth/lock"}}]]})
 
     :store-session
-    (fn [_data [_ {:keys [token]}]]
+    (fn [{[_ {:keys [token]}] :event}]
       {:fx [[:auth.session/store {:token token}]]})}
 
    :states
@@ -212,7 +212,7 @@ Guards are predicates. They live in the spec's `:guards` map and are referenced 
 ```clojure
 :guards
 {:under-retry-limit
- (fn [data _event] (< (:attempts data) 3))}
+ (fn [{data :data}] (< (:attempts data) 3))}
 ```
 
 A guard sees `(fn [data event] boolean)` — `data` is the snapshot's `:data` slot directly. Returning truthy lets the transition fire; returning falsy makes the runtime walk to the next candidate (or fall through to the parent state, if any).
@@ -222,7 +222,7 @@ Actions are functions producing data updates and / or effects. They live in `:ac
 ```clojure
 :actions
 {:record-error
- (fn [data [_ {:keys [failure]}]]
+ (fn [{data :data [_ {:keys [failure]}] :event}]
    {:data (-> data
               (update :attempts inc)
               (assoc :error (or (:message failure) "Login failed.")))})}
@@ -368,8 +368,8 @@ Parallel regions are the substrate answer. A machine declares `:type :parallel` 
   {:type :parallel
    :data {:items [] :error nil}            ;; shared across every region
 
-   :guards  {:empty? (fn [d _] (zero? (count (:items d))))}
-   :actions {:set-items (fn [d [_ {:keys [items]}]]
+   :guards  {:empty? (fn [{d :data}] (zero? (count (:items d))))}
+   :actions {:set-items (fn [{d :data [_ {:keys [items]}] :event}]
                           {:data (assoc d :items (vec items))})}
 
    :regions

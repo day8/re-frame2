@@ -77,8 +77,14 @@
       (rf/dispatch-sync [:auth3/flow [:submit]])
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
-        (is (= :http/post#1 (get-in s [:data :pending]))
-            "on-spawn callback recorded the deterministic actor id"))
+        ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is purely advisory —
+        ;; the runtime tracks the spawned id at [:rf/spawned <parent>
+        ;; <invoke-id>] instead of relying on the user-supplied callback
+        ;; to write into `:data`.
+        (is (= :http/post#1
+               (get-in (rf/get-frame-db :rf/default)
+                       [:rf/spawned :auth3/flow [:authenticating]]))
+            "runtime-tracked spawn slot binds the deterministic actor id"))
       (is (some (fn [ev]
                   (and (= :rf.machine/spawned (:operation ev))
                        (= :http/post (:machine-id (:tags ev)))))
@@ -111,7 +117,7 @@
                    :states
                    {:idle    {:on {:start :working}}
                     :working {:spawn {:machine-id :h131/worker
-                                       :data       (fn [snap _]
+                                       :data       (fn [{snap :snapshot}]
                                                      {:url    (-> snap :data :endpoint)
                                                       :method :post})}}}}]
       (rf/reg-machine :h131/worker child)
@@ -128,13 +134,13 @@
     (let [child   {:initial :running :data {} :states {:running {}}}
           parent  {:initial :idle
                    :data    {:base "https://api.example.com"}
-                   :actions {:assemble (fn [data _]
+                   :actions {:assemble (fn [{data :data}]
                                          {:data (assoc data :endpoint
                                                        (str (:base data) "/v1/me"))})}
                    :states
                    {:idle    {:on {:go {:target :working :action :assemble}}}
                     :working {:spawn {:machine-id :h131b/worker
-                                       :data       (fn [snap _]
+                                       :data       (fn [{snap :snapshot}]
                                                      {:url (-> snap :data :endpoint)})}}}}]
       (rf/reg-machine :h131b/worker child)
       (rf/reg-machine :h131b/sup parent)
@@ -158,7 +164,7 @@
           parent {:initial :idle
                   :data    {:rf/after-epoch 0}
                   :on-spawn-actions
-                  {:record (fn [data id] (assoc data :pending id))}
+                  {:record (fn [{data :data id :id}] (assoc data :pending id))}
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating

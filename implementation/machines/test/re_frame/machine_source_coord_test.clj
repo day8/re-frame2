@@ -22,7 +22,7 @@
   (`[:states :idle :on :submit]`). Synthesising a duplicate slot entry
   (`[:states :idle :on :submit :guard]`) at the same coord adds no
   information for tools — they walk the path tree to find the closest
-  ancestor coord. Inline-fn references (`:guard (fn [_ _] ...)`) carry
+  ancestor coord. Inline-fn references (`:guard (fn [_] ...)`) carry
   their own reader metadata, so the reference site gets a distinct
   coord and IS stamped.
 
@@ -75,8 +75,8 @@
     (rf/reg-machine :rf2-8bp3/guard-defs
       {:initial :idle
        :data    {}
-       :guards  {:always-true (fn [_ _] true)
-                 :n-positive? (fn [data _] (pos? (or (:n data) 0)))}
+       :guards  {:always-true (fn [_] true)
+                 :n-positive? (fn [{data :data}] (pos? (or (:n data) 0)))}
        :states  {:idle {}}})
     (let [idx (per-element-coords :rf2-8bp3/guard-defs)]
       (is (some? idx) "the spec carries :rf.machine/source-coords")
@@ -94,8 +94,8 @@
     (rf/reg-machine :rf2-8bp3/action-defs
       {:initial :idle
        :data    {}
-       :actions {:bump   (fn [data _] {:data (update data :n (fnil inc 0))})
-                 :reset  (fn [data _] {:data (assoc data :n 0)})}
+       :actions {:bump   (fn [{data :data}] {:data (update data :n (fnil inc 0))})
+                 :reset  (fn [{data :data}] {:data (assoc data :n 0)})}
        :states  {:idle {}}})
     (let [idx (per-element-coords :rf2-8bp3/action-defs)]
       (is (some? (get idx [:actions :bump])))
@@ -110,7 +110,7 @@
     (rf/reg-machine :rf2-8bp3/on-spawn-defs
       {:initial :idle
        :data    {}
-       :on-spawn-actions {:capture-id (fn [data id] (assoc data :pending id))}
+       :on-spawn-actions {:capture-id (fn [{data :data id :id}] (assoc data :pending id))}
        :states  {:idle {}}})
     (let [idx (per-element-coords :rf2-8bp3/on-spawn-defs)]
       (is (some? (get idx [:on-spawn-actions :capture-id]))
@@ -127,8 +127,8 @@
     (rf/reg-machine :rf2-8bp3/on-refs
       {:initial :idle
        :data    {}
-       :guards  {:ok? (fn [_ _] true)}
-       :actions {:do  (fn [_ _] {})}
+       :guards  {:ok? (fn [_] true)}
+       :actions {:do  (fn [_] {})}
        :states
        {:idle
         {:on
@@ -151,10 +151,10 @@
        :data    {}
        :states
        {:idle
-        {:entry (fn [_ _] {})
+        {:entry (fn [_] {})
          :on    {:submit {:target :done
-                          :guard  (fn [_ _] true)
-                          :action (fn [_ _] {})}}}
+                          :guard (fn [_] true)
+                          :action (fn [_] {})}}}
         :done {}}})
     (let [idx (per-element-coords :rf2-8bp3/inline-refs)]
       (is (some? (get idx [:states :idle :entry]))
@@ -172,8 +172,8 @@
     (rf/reg-machine :rf2-8bp3/on-vec
       {:initial :idle
        :data    {}
-       :guards  {:a? (fn [_ _] true)
-                 :b? (fn [_ _] false)}
+       :guards  {:a? (fn [_] true)
+                 :b? (fn [_] false)}
        :states
        {:idle
         {:on
@@ -198,8 +198,8 @@
     (rf/reg-machine :rf2-8bp3/entry-exit
       {:initial :a
        :data    {}
-       :actions {:enter-a (fn [_ _] {})
-                 :exit-a  (fn [_ _] {})}
+       :actions {:enter-a (fn [_] {})
+                 :exit-a  (fn [_] {})}
        :states
        {:a {:entry :enter-a
             :exit  :exit-a
@@ -218,7 +218,7 @@
     (rf/reg-machine :rf2-8bp3/always
       {:initial :a
        :data    {}
-       :guards  {:enough? (fn [_ _] true)}
+       :guards  {:enough? (fn [_] true)}
        :states
        {:a {:always [{:guard :enough? :target :b}]}
         :b {}}})
@@ -231,7 +231,7 @@
     (rf/reg-machine :rf2-8bp3/invoke-os
       {:initial :idle
        :data    {}
-       :on-spawn-actions {:cap (fn [data id] (assoc data :pending id))}
+       :on-spawn-actions {:cap (fn [{data :data id :id}] (assoc data :pending id))}
        :states
        {:idle {:spawn {:machine-id :child :on-spawn :cap}}}})
     (let [idx (per-element-coords :rf2-8bp3/invoke-os)]
@@ -249,7 +249,7 @@
        :states
        {:outer {:initial :inner
                 :states
-                {:inner   {:entry (fn [_ _] {})
+                {:inner   {:entry (fn [_] {})
                            :on    {:go {:target :sibling}}}
                  :sibling {}}}}})
     (let [idx (per-element-coords :rf2-8bp3/hier)]

@@ -46,13 +46,13 @@
   {:initial :running
    :data    {:id nil}
    :actions {:dispatch-done
-             (fn [data _]
+             (fn [{data :data}]
                {:fx [[:dispatch [parent-id [done-event-kw (:id data)]]]]})
              :dispatch-error
-             (fn [data _]
+             (fn [{data :data}]
                {:fx [[:dispatch [parent-id [error-event-kw (:id data)]]]]})
              :record-id
-             (fn [data ev]
+             (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}
@@ -320,16 +320,16 @@
   {:initial :running
    :data    {:id nil}
    :actions {:dispatch-done
-             (fn [data _]
+             (fn [{data :data}]
                {:fx [[:dispatch [parent-id [done-event-kw (:id data) payload]]]]})
              :dispatch-error
-             (fn [data _]
+             (fn [{data :data}]
                {:fx [[:dispatch [parent-id [error-event-kw (:id data) payload]]]]})
              :record-id
-             (fn [data ev]
+             (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})
              :record-join-event
-             (fn [data ev]
+             (fn [{data :data ev :event}]
                {:data (assoc data :join-event ev)})}
    :states
    {:running {:on {:set-id {:action :record-id}
@@ -344,7 +344,7 @@
                                         {:bytes 4242 :status :ok})
           parent {:initial :idle
                   :actions {:record-payload
-                            (fn [data ev]
+                            (fn [{data :data ev :event}]
                               {:data (assoc data :join-event ev)})}
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -458,7 +458,7 @@
   {:initial :running
    :data    {:id nil}
    :actions {:record-id
-             (fn [data ev]
+             (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}}}}})

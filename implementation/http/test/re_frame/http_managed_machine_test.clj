@@ -136,7 +136,7 @@
           {:initial :idle
            :data    {:result nil}
            :actions {:store-result
-                     (fn [data ev]
+                     (fn [{data :data ev :event}]
                        ;; The :succeeded event carries the value as the
                        ;; second element (the runtime folded :rf/parent-id
                        ;; dispatch's payload into the inner event).
@@ -178,7 +178,7 @@
           {:initial :idle
            :data    {:failure nil}
            :actions {:record-failure
-                     (fn [data ev]
+                     (fn [{data :data ev :event}]
                        {:data (assoc data :failure (second ev))})}
            :states
            {:idle {:on {:login :authenticating}}

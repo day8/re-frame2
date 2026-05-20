@@ -147,7 +147,7 @@
          :states  {:idle    {:on {:go {:target :acting :action :record-role}}}
                    :acting  {}}
          :actions {:record-role
-                   (fn [_data _event]
+                   (fn [_]
                      ;; Read a sub from inside the action — the machine
                      ;; cascade has not committed yet but the sub sees
                      ;; the *current* committed app-db.
@@ -800,7 +800,7 @@
                  :data    {}
                  :states  {:idle  {:on {:bang {:target :angry :action :boom}}}
                            :angry {}}
-                 :actions {:boom (fn [_ _]
+                 :actions {:boom (fn [_]
                                    (throw (ex-info "kaboom" {})))}}]
     (rf/reg-machine :test/m machine)
     (let [traces (collect-traces ::xspec-11)]
@@ -841,7 +841,7 @@
                    :states  {:idle {:on {:go {:target :done :action :emit-fx}}}
                              :done {}}
                    :actions {:emit-fx
-                             (fn [_data _event]
+                             (fn [_]
                                {:fx [[:throwy :a]
                                      [:record :b]]})}}]
       (rf/reg-machine :test/m machine)
@@ -874,7 +874,7 @@
                                                   :action :tag}}}
                               :working {:on {:go {:target :idle
                                                   :action :tag}}}}
-                    :actions {:tag (fn [data _]
+                    :actions {:tag (fn [{data :data}]
                                      {:data (assoc data :who :v1)})}}
         machine-v2 (assoc-in machine-v1 [:actions :tag]
                              (fn [data _] {:data (assoc data :who :v2)}))]
@@ -1024,7 +1024,7 @@
                  :data    {}
                  :states  {:idle  {:on {:bang {:target :angry :action :boom}}}
                            :angry {}}
-                 :actions {:boom (fn [_ _]
+                 :actions {:boom (fn [_]
                                    (throw (ex-info "ssr-bang" {})))}}]
     (rf/reg-machine :test/m machine)
     (let [traces (collect-traces ::xspec-17)]
