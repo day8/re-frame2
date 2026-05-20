@@ -306,17 +306,40 @@ check on the emitted tree is the spike's effective signal.
   the clj-new test suite; the with-stories emission test in
   `template_emission_test.clj` is also ported and green.
 
-### §2.5 — Drop clj-new (rf2 follow-on bead)
+### §2.5 — Drop clj-new (rf2-40vmd — DONE 2026-05-20)
 
-- Remove `tools/template/src/clj/new/` resource tree (the Mustache
+- ✓ Removed `tools/template/src/clj/new/` resource tree (the Mustache
   resources) and the `re-frame2.clj` entry fn.
-- Remove `:clein` and `:clein/build` aliases from
+- ✓ Removed `tools/template/test/clj/new/` test suite — coverage
+  carried over to `tools/template/test/day8/re_frame2_template/` in
+  §2.3 (rf2-c2770).
+- ✓ Removed `:clein` and `:clein/build` aliases from
+  `tools/template/deps.edn` together with their Clojars-publish
+  rationale comments.
+- ✓ Removed `com.github.seancorfield/clj-new` dep from
   `tools/template/deps.edn`.
-- Remove `com.github.seancorfield/clj-new` dep.
-- The repo no longer publishes to Clojars. The
+- ✓ Bumped `tools/template/README.md` to the deps-new invocation
+  surface (`clojure -Tnew create :template
+  io.github.day8/re-frame2-template`) — replaces the clj-new
+  `:project/new` examples.
+- ✓ Renamed the in-repo coord from `day8/clj-template.re-frame2`
+  to `day8/re-frame2-template` in `tools/deps.edn` (the `:test`
+  alias's `:local/root "template"` entry) and in the bundle-isolation
+  rationale comments. **Lockstep contract impact:** the template's
+  `:test` alias no longer carries a `:clein/build` descriptor, so it
+  no longer participates in `.github/scripts/verify-version-lockstep.sh`
+  — the entry has been removed from the script's `TOOLS` set
+  alongside its `TOOLS_PATHS` and `TOOLS_LOCAL_ROOTS` references.
+- ✓ The repo no longer publishes to Clojars. The
   `day8/clj-template.re-frame2` Clojars artefact stays in place
   (older versions remain resolvable for legacy users) — we just stop
   pushing new versions.
+- ⚠ Spec sweeps for `000-Vision.md`, `001-Substrate-Variants.md`,
+  `002-Generated-Shape.md`, `API.md`, `DESIGN-RATIONALE.md`, and
+  `Principles.md` (the steady-state docs that still narrate the
+  clj-new + `:edn-args` invocation surface) are deferred to §3.2
+  per the §3 decomposition above. §2.5 closes out the **code** drop;
+  §3.2 closes out the **spec narrative** drop.
 
 ## §3 Stage 3 — git-coord release + tag pipeline
 

@@ -4,13 +4,15 @@
 ;; Per tools/README.md the artefact is a downstream build-time tool —
 ;; it generates fresh re-frame2 apps, it does not run inside them. The
 ;; bundle-isolation contract is satisfied trivially: this jar is never
-;; on a consumer's runtime classpath; consumers invoke it via clj-new
-;; (`clojure -X:project/new :template re-frame2 :name acme/my-app`) and
-;; what lands in their project is the generated source tree, not this
-;; jar.
+;; on a consumer's runtime classpath; consumers invoke it via deps-new
+;; (`clojure -Tnew create :template io.github.day8/re-frame2-template
+;; :name acme/my-app`) and what lands in their project is the
+;; generated source tree, not this jar.
 ;;
-;; Implementation shape: clj-new template (Option A per the bead).
-;; Rationale documented in README.md §Implementation choice.
+;; Implementation shape: deps-new template (rf2-dolpf — switched from
+;; clj-new + Clojars to deps-new + git-coord distribution per the
+;; template walkthrough Q2 lock, 2026-05-12). Rationale documented in
+;; spec/003-DepsNew-Rebuild-Plan.md and spec/DESIGN-RATIONALE.md.
 ;;
 ;; The template ships three substrate variants — Reagent (default), UIx,
 ;; and Helix — selected at scaffold time via the `:substrate` arg. The
@@ -20,32 +22,39 @@
 ;; at the alpha-channel coord (see VERSION at the repo root: 0.0.1.alpha).
 ;;
 ;; This deps.edn is the contract; the template logic lives under
-;; src/clj/new/re_frame2.clj and its resource tree under
-;; src/clj/new/re_frame2/. clj-new's renderer discovers both via the
-;; classpath (`clj/new/<template>/<file>`).
-;; `:paths` exposes both the existing clj-new tree (`src/clj/new/`)
-;; and the new deps-new tree:
+;; src/day8/re_frame2_template/hooks.clj (the `:data-fn` /
+;; `:template-fn` / `:post-process-fn` hooks) and its resource tree
+;; under resources/day8/re_frame2_template/ (`template.edn` + `root/`
+;; + per-substrate `_reagent/` / `_uix/` / `_helix/` + `_shared/`).
+;; deps-new's renderer discovers both via the classpath
+;; (`day8/re_frame2_template/template.edn` for the template body;
+;; `day8.re-frame2-template.hooks` for the hooks ns).
 ;;
-;;   - `src` puts the clj-new entry ns AND the deps-new hooks ns
-;;     (`day8.re-frame2-template.hooks`) on the classpath.
+;; `:paths` exposes both the hooks ns (`src/`) and the template body
+;; (`resources/`):
+;;
+;;   - `src` puts `day8.re-frame2-template.hooks` on the classpath so
+;;     deps-new's `requiring-resolve` can find it via `template.edn`.
 ;;   - `resources` puts the deps-new template body
 ;;     (`day8/re_frame2_template/template.edn` + `root/`) on the
-;;     classpath so `org.corfield.new.impl/find-root` resolves
-;;     `:template day8/re-frame2-template` via classpath lookup.
-;;     §3 moves it to the `io/github/day8/...` path inside a
-;;     dedicated repo for production-canonical resolution.
+;;     classpath so `org.corfield.new.impl/find-root` resolves the
+;;     `:template day8/re-frame2-template` argument via classpath
+;;     lookup. §3 of the rebuild plan moves it to the
+;;     `io/github/day8/...` path inside a dedicated repo for
+;;     production-canonical resolution.
 ;;
 ;; Local-root consumers (a downstream `:local/root "tools/template"`
 ;; dep) inherit both `:paths`, so they pick up both the hooks ns and
-;; the template body. The clj-new tree at `src/clj/new/re_frame2/`
-;; remains on the classpath for the duration of the transition
-;; (Stage 2.5 / rf2-40vmd drops it).
+;; the template body.
+;;
+;; Per spec/003-DepsNew-Rebuild-Plan.md §2.5 (rf2-40vmd) this artefact
+;; no longer publishes to Clojars. The existing
+;; `day8/clj-template.re-frame2` Clojars artefact stays in place
+;; (older versions remain resolvable for legacy users); we just stop
+;; pushing new versions. §3 of the plan replaces Clojars with a
+;; tag-on-release git-coord pipeline.
 {:paths ["src" "resources"]
- :deps  {org.clojure/clojure {:mvn/version "1.12.0"}
-         ;; clj-new supplies clj.new.templates: renderer / project-data /
-         ;; ->files / name-to-path / sanitize-ns. Pinning to the same
-         ;; current line the rest of the Clojure community uses.
-         com.github.seancorfield/clj-new {:mvn/version "1.3.415"}}
+ :deps  {org.clojure/clojure {:mvn/version "1.12.0"}}
 
  :aliases
  {:test {:extra-paths ["test"]
@@ -54,7 +63,7 @@
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}
                        ;; deps-new is pulled in under :test so the
-                       ;; deps-new template_test.clj can drive
+                       ;; template_test.clj suite can drive
                        ;; `org.corfield.new/create` in-process (the
                        ;; full pipeline runs through `data-fn` /
                        ;; `template-fn` / `post-process-fn` exactly as
@@ -67,7 +76,7 @@
                        {:git/tag "v0.12.1" :git/sha "883e82c"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; deps-new bridge for in-repo smoke testing of the §2.1 spike.
+  ;; deps-new bridge for in-repo smoke testing.
   ;;
   ;; Usage (from a fresh empty directory):
   ;;
@@ -82,42 +91,15 @@
   ;; the `day8.re-frame2-template.hooks` ns AND `find-root` the
   ;; template body. End users will eventually invoke deps-new via
   ;; the official tool install or a global `:new` alias in
-  ;; ~/.clojure/deps.edn — §3 ports this into a proper release
-  ;; pipeline.
+  ;; ~/.clojure/deps.edn — §3 of the rebuild plan ports this into a
+  ;; proper tag-on-release pipeline.
   ;;
   ;; Note: we use `day8/re-frame2-template` (not
-  ;; `io.github.day8/re-frame2-template`) as the template name in
-  ;; the §2.1 spike to bypass `auto-git-url` — the `io.github.*`
+  ;; `io.github.day8/re-frame2-template`) as the template name in the
+  ;; local-dev smoke to bypass `auto-git-url` — the `io.github.*`
   ;; prefix triggers an automatic git-clone of the published repo,
   ;; which doesn't exist yet. §3 publishes the repo + flips the
   ;; on-disk path to `io/github/day8/re_frame2_template/`.
   :new {:replace-deps {io.github.seancorfield/deps-new
                        {:git/tag "v0.12.1" :git/sha "883e82c"}}
-        :ns-default org.corfield.new}
-
-  ;; Clojars deploy — modelled on the per-adapter deploy aliases. The
-  ;; published artefact is consumed by users via clj-new, which resolves
-  ;; templates from Clojars/Maven Central automatically. Per the
-  ;; clj-new convention, the artefact published here is named
-  ;; day8/clj-template.re-frame2 (clj-new's resolution rule: when a
-  ;; user passes `:template re-frame2` to `clj-new/create`, it searches
-  ;; for `<group>/clj-template.re-frame2`).
-  :clein {:extra-deps {io.github.noahtheduke/clein
-                       {:git/url "https://github.com/day8/clein.git"
-                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
-          :main-opts  ["-m" "noahtheduke.clein"]}
-
-  :clein/build
-  {:lib      day8/clj-template.re-frame2
-   :main     clj.new.re-frame2
-   :url      "https://github.com/day8/re-frame2"
-   :version  "../../VERSION"
-   :license  {:name "MIT"
-              :url  "https://opensource.org/licenses/MIT"}
-   :src-dirs ["src"]
-   ;; The template's resource tree (src/clj/new/re_frame2/) is part of
-   ;; the published jar — clj-new's renderer loads it from the
-   ;; classpath. clein's default :src-dirs ["src"] already includes
-   ;; the resource tree because clj-new keeps templates under
-   ;; src/clj/new/<name>/.
-   }}}
+        :ns-default org.corfield.new}}}

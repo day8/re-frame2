@@ -159,13 +159,15 @@ wired into the build, and consumers can use it today.
   `--allow-writes`). Lands as Stage 7 of the Story epic (`rf2-tgci`).
   See [`tools/story-mcp/README.md`](./story-mcp/README.md).
 
-- **`tools/template/`** — `day8/clj-template.re-frame2`. The front-door
-  scaffolding tool for new re-frame2 apps (rf2-lrtc). A
-  [clj-new](https://github.com/seancorfield/clj-new) template; users
-  invoke it via `clojure -X:project/new :template re-frame2 :name
-  acme/my-app` and receive a working CLJS app wired against the alpha
-  `day8/re-frame2-*` coords. Three substrate variants (Reagent / UIx /
-  Helix) selectable via `:edn-args '[:substrate ...]'`.
+- **`tools/template/`** — `day8/re-frame2-template`. The front-door
+  scaffolding tool for new re-frame2 apps (rf2-lrtc; rf2-dolpf). A
+  [deps-new](https://github.com/seancorfield/deps-new) template; users
+  invoke it via `clojure -Tnew create :template
+  io.github.day8/re-frame2-template :name acme/my-app` and receive a
+  working CLJS app wired against the alpha `day8/re-frame2-*` coords.
+  Three substrate variants (Reagent / UIx / Helix) selectable via the
+  top-level `:substrate :uix|:helix` k/v. Distribution is git-coord,
+  not Clojars (rf2-dolpf §2.5).
 
   Note: `tools/template/` is **build-time only**; the template jar is
   never on a consumer's runtime classpath, so the bundle-isolation

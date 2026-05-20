@@ -19,11 +19,15 @@
 # (for non-core) :local/root "../core".
 #
 # Per rf2-lwtke the deployable jars under tools/* also participate in
-# lockstep — every Clojars-publishable tool (causa, story, story-mcp,
-# template) carries :clein/build :version "../../VERSION" and must not
-# hand-edit a literal :mvn/version for any day8/re-frame2-* artefact.
+# lockstep — every Clojars-publishable tool (causa, story, story-mcp)
+# carries :clein/build :version "../../VERSION" and must not hand-edit
+# a literal :mvn/version for any day8/re-frame2-* artefact.
 # tools/re-frame2-pair-mcp/ ships as a Node binary on npm and carries no
-# :clein/build alias, so it is intentionally excluded.
+# :clein/build alias, so it is intentionally excluded. tools/template/
+# is similarly excluded as of rf2-40vmd (rf2-dolpf §2.5): it ships via
+# git-coord (no Clojars publish, no :clein/build alias) and the version
+# literals consumed by the emitted app are guarded by the in-template
+# `version_lockstep_test.clj` suite rather than by this script.
 #
 # This script is the single source of truth for the lockstep contract;
 # both .github/workflows/test.yml (PR-time drift detection) and
@@ -201,21 +205,25 @@ done
 # on npm (@day8/re-frame2-pair-mcp) and carries no :clein/build alias —
 # there is no Clojars publish path for it to drift on. Per its
 # deps.edn header it has no :local/root dep on implementation/ either.
+#
+# tools/template/ is similarly excluded as of rf2-40vmd (rf2-dolpf §2.5):
+# it ships via git-coord rather than Clojars and no longer carries a
+# :clein/build alias. The template's pin literals (rf2-version,
+# shadow-version, react-version) are guarded by an in-template lockstep
+# test (`test/day8/re_frame2_template/version_lockstep_test.clj`) which
+# reads the same sources of truth this script does (repo-root VERSION,
+# implementation/package.json).
 declare -A TOOLS_PATHS=(
   [causa]="causa"
   [story]="story"
   [story-mcp]="story-mcp"
-  [template]="template"
 )
 
 # Newline-separated `tool|"day8/re-frame2-x {:local/root \"…\"}"` pairs
 # expressing every re-frame2-* :local/root coordinate the release workflow
-# would need to rewrite to :mvn/version at deploy time. Tools that
-# legitimately reference zero re-frame2-* artefacts in deps.edn (i.e.
-# template — a clj-new scaffolding tool with no runtime re-frame2 dep)
-# simply contribute zero entries. A bash associative array can't carry
-# multi-valued entries cleanly, so we use a single multi-line string and
-# split on `|`.
+# would need to rewrite to :mvn/version at deploy time. A bash
+# associative array can't carry multi-valued entries cleanly, so we use
+# a single multi-line string and split on `|`.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
 causa|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2 {:local/root "../../implementation/core"}
@@ -225,7 +233,7 @@ story-mcp|day8/re-frame2-story {:local/root "../story"}
 EOF
 )
 
-TOOLS=(causa story story-mcp template)
+TOOLS=(causa story story-mcp)
 
 for tool in "${TOOLS[@]}"; do
   subpath="${TOOLS_PATHS[$tool]}"

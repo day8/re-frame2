@@ -217,8 +217,9 @@ else
         cljs_browser=true
         ;;
       tools/template/*)
-        # rf2-os0c1 — tools/template is a clj-new template that scaffolds
-        # new projects; it does not share runtime with causa/story/story-mcp/
+        # rf2-os0c1 + rf2-40vmd — tools/template is a deps-new template
+        # that scaffolds new projects (migrated from clj-new in rf2-dolpf
+        # §2); it does not share runtime with causa/story/story-mcp/
         # mcp-base. The template_expensive gate fires jvm-tools-template
         # (its only PR-time job); tools_jvm would unnecessarily fire the
         # four sibling jvm-tools-* probes.
