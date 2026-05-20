@@ -178,6 +178,151 @@
       (is (re-find #"outline-offset:\s*2px" css)
           "2px outline-offset so the ring doesn't graze the element"))))
 
+;; ---- rf2-wxepo — forced-colors (Windows High Contrast Mode) ------------
+;;
+;; Windows HCM forces the UA palette onto every element — inline
+;; `:background` + `:color` declarations are overridden and box-shadow
+;; is dropped, which collapses every author-encoded signal across the
+;; Causa chrome. `@media (forced-colors: active)` re-introduces the
+;; signals using CSS system colour keywords (Canvas / CanvasText /
+;; Highlight / Mark / GrayText / ButtonText / LinkText) which the UA
+;; accepts and honours.
+;;
+;; Signal-preservation criterion: under HCM the operator must still
+;; distinguish focused-vs-not, error-vs-success, in-flight-vs-stale,
+;; primary-vs-secondary text. Each test below asserts one of those
+;; signals has a system-token landing inside the forced-colors block.
+
+(deftest motion-css-declares-forced-colors-block
+  (testing "rf2-wxepo — the motion stylesheet ships a
+            `@media (forced-colors: active)` block so HCM users get a
+            chrome that preserves the author-encoded signals via
+            system colour tokens."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"@media\s*\(forced-colors:\s*active\)" css)
+          "forced-colors media query is present"))))
+
+(deftest motion-css-forced-colors-maps-focus-ring-to-highlight
+  (testing "rf2-wxepo — the global :focus-visible amber outline
+            (#FBBF24) overrides to `Highlight` under HCM so keyboard-
+            only users see the user's selected-emphasis hue rather
+            than the UA's forced override of the amber hex."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"outline-color:\s*Highlight" css)
+          "focus-visible outline-color is Highlight inside the block"))))
+
+(deftest motion-css-forced-colors-maps-ribbon-stripe-to-highlight
+  (testing "rf2-wxepo — the L1 ribbon's 2px left-edge mode stripe
+            (runtime violet / static cyan) maps to `Highlight` so the
+            mode signal is preserved under HCM."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"\[data-testid=\"rf-causa-ribbon\"\]\s*\{[^}]*border-left-color:\s*Highlight"
+                   css)
+          "ribbon border-left-color is Highlight"))))
+
+(deftest motion-css-forced-colors-distinguishes-status-accents
+  (testing "rf2-wxepo — the four lifecycle-status accents map onto
+            DISTINCT system tokens so the operator still tells error
+            from success from in-flight from stale/paused under HCM.
+            Highlight (in-flight = active), Mark (error = important
+            emphasis), CanvasText (success = quiet ink), GrayText
+            (stale / paused = muted)."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"data-rf-causa-status=\"settled-error\"[^}]*Mark" css)
+          "settled-error → Mark")
+      (is (re-find #"data-rf-causa-status=\"in-flight\"[^}]*Highlight" css)
+          "in-flight → Highlight")
+      (is (re-find #"data-rf-causa-status=\"settled-success\"[^}]*CanvasText" css)
+          "settled-success → CanvasText")
+      (is (re-find #"data-rf-causa-status=\"stale\"" css)
+          "stale rule present")
+      (is (re-find #"data-rf-causa-status=\"paused-by-tool\"" css)
+          "paused-by-tool rule present")
+      (is (re-find #"data-rf-causa-status=\"stale\"[^{]*\{[^}]*GrayText"
+                   (or (re-find #"data-rf-causa-status=\"stale\"[\s\S]*?\}" css)
+                       ""))
+          "stale → GrayText"))))
+
+(deftest motion-css-forced-colors-maps-focused-row-to-highlight
+  (testing "rf2-wxepo — the focused L2 event row (aria-pressed=\"true\")
+            picks up a Highlight outline under HCM so the selection
+            signal is preserved when the cyan border is stripped."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"aria-pressed=\"true\"[^}]*outline:[^}]*Highlight" css)
+          "focused row outline uses Highlight"))))
+
+(deftest motion-css-forced-colors-maps-gutter-thread-to-highlight
+  (testing "rf2-wxepo — the L2 row gutter's 1px causal-chain thread
+            (violet inset box-shadow) and focus markers map to
+            Highlight under HCM so the spine's vertical thread + the
+            focus-set anchors stay visible."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"data-testid\^=\"rf-causa-row-gutter-\"[^}]*Highlight"
+                   css)
+          "gutter rule uses Highlight"))))
+
+(deftest motion-css-forced-colors-maps-panel-accent-stripe-to-canvastext
+  (testing "rf2-wxepo — every L4 panel-domain accent stripe
+            (violet/cyan/orange/green/yellow/red) collapses to
+            CanvasText under HCM. Panels remain distinguishable by
+            their tab label + content; the stripe keeps its presence
+            as a rhythm marker without colour information."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"data-testid\^=\"rf-causa-detail-panel-\"[^}]*border-left-color:\s*CanvasText"
+                   css)
+          "panel <h1> border-left-color is CanvasText"))))
+
+(deftest motion-css-forced-colors-maps-interactive-icons-to-buttontext
+  (testing "rf2-wxepo — the ribbon icons (settings ✕, close ✕,
+            nav chevrons, focus-chip clear) map to ButtonText under
+            HCM so they read as actionable controls in the HCM
+            theme's interactive-ink hue."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"data-testid=\"rf-causa-icon-settings\"" css))
+      (is (re-find #"data-testid=\"rf-causa-icon-close\"" css))
+      (is (re-find #"data-testid=\"rf-causa-nav-prev\"" css))
+      (is (re-find #"data-testid=\"rf-causa-nav-next\"" css))
+      (is (re-find #"data-testid=\"rf-causa-focus-chip-clear\"" css))
+      (is (re-find #"ButtonText" css)
+          "ButtonText system token is used"))))
+
+(deftest motion-css-forced-colors-maps-anchors-to-linktext
+  (testing "rf2-wxepo — hyperlinks inside the Causa shell roots
+            map to LinkText under HCM so the hyperlink-ink hue is
+            picked up from the HCM theme."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"\[data-testid=\"rf-causa-shell\"\]\s*a[^}]*LinkText"
+                   css)
+          "anchor rule under runtime shell uses LinkText")
+      (is (re-find #"\[data-testid=\"rf-causa-static-shell\"\]\s*a[^}]*LinkText"
+                   css)
+          "anchor rule under static shell uses LinkText"))))
+
+(deftest motion-css-forced-colors-uses-important-to-beat-inline-styles
+  (testing "rf2-wxepo — every rule inside the forced-colors block
+            uses `!important` so the per-element inline-style
+            declarations (the 357 call sites that paint background /
+            color / border directly) are beaten on specificity.
+            Inline style normally wins over external CSS; !important
+            in the external CSS reverses that. A spot-check on a
+            handful of declarations is enough — the block author
+            convention is uniform."
+    (let [css @#'gs/motion-css
+          ;; Extract just the forced-colors block so we don't pick up
+          ;; !important from elsewhere (there shouldn't be any, but
+          ;; defensive).
+          block (re-find #"@media\s*\(forced-colors:\s*active\)[\s\S]*?\n\}\n"
+                        css)]
+      (is (some? block)
+          "forced-colors block found")
+      (when block
+        (is (re-find #"Highlight\s*!important" block)
+            "Highlight rule carries !important")
+        (is (re-find #"CanvasText\s*!important" block)
+            "CanvasText rule carries !important")
+        (is (re-find #"Mark\s*!important" block)
+            "Mark rule carries !important")))))
+
 ;; ---- rf2-5kfxe.6 — light theme CSS variables ---------------------------
 
 (deftest themes-css-publishes-root-defaults
