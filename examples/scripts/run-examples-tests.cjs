@@ -70,7 +70,16 @@ const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
 // the spec file's absolute path, so values like `realworld` match
 // `examples/reagent/realworld/realworld.spec.cjs` cleanly. Unset (or
 // empty) = the full sweep.
+//
+// rf2-9grp6 — comma-separated alternatives, OR-matched. Mirrors the
+// orchestrator's multi-pattern filter so the CI split (adapter smokes
+// vs framework testbeds) can pass a single shape through both stages.
 const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
+function parseFilterPatterns(raw) {
+  if (!raw) return [];
+  return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+}
+const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // rf2-mpa3x — normalize before substring-matching. Two cosmetic
 // conventions diverge between build ids and spec paths:
 //
@@ -94,8 +103,9 @@ function normalizeForFilter(s) {
   return s.replace(/_/g, '-').replace(/\\/g, '/');
 }
 function matchesFilter(filePath) {
-  if (FILTER === '') return true;
-  return normalizeForFilter(filePath).includes(normalizeForFilter(FILTER));
+  if (FILTER_PATTERNS.length === 0) return true;
+  const normalized = normalizeForFilter(filePath);
+  return FILTER_PATTERNS.some((p) => normalized.includes(normalizeForFilter(p)));
 }
 // __dirname is <repo>/examples/scripts; the example tree sits at
 // <repo>/examples (one level up).
