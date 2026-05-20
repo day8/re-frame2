@@ -180,7 +180,7 @@ related error, that's the fix.
 ├── .clj-kondo/
 │   └── config.edn           ; linter config (empty by default)
 ├── .cljfmt.edn              ; cljfmt formatter config — `clojure -M:cljfmt check` / `fix`
-├── .lefthook.yml            ; pre-commit format + lint hook (see lefthook.dev/installation)
+├── lefthook.yml             ; pre-commit format + lint hook (see lefthook.dev/installation)
 ├── resources/public/
 │   ├── index.html           ; host page; loads shadow-cljs's compiled output
 │   └── css/app.css          ; minimal plain CSS — body / button / h1
