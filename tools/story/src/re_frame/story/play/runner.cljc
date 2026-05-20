@@ -74,6 +74,29 @@
   "Steps whose outcome contributes to the play's pass/fail status."
   #{:assert-db :assert-dom})
 
+(def async-yield-step-types
+  "Steps that put work on an async queue the runner cannot directly
+  flush — `:dispatch` (re-frame router), `:click` / `:type` (synthetic
+  DOM events whose handlers re-enter the dispatch chain), and `:wait`
+  (the runner sleeps explicitly). The driver yields one tick AFTER these
+  steps so the queued effects drain before the next step runs.
+
+  Steps NOT in this set (`:dispatch-sync`, `:assert-db`, `:assert-dom`)
+  are pure-synchronous on CLJS — yielding between them is what allowed
+  concurrent `auto-run!` calls to interleave and overshoot counter
+  increments in the Playwright matrix (rf2-ftow6)."
+  #{:dispatch :click :type :wait})
+
+(declare step-type)
+
+(defn async-yield?
+  "True iff the step's after-effects need a setTimeout-0 yield to drain
+  before the next step runs. Pure data → data. Used by the driver
+  (`runner-events/run-loop!`) on CLJS to decide whether to recur
+  synchronously or schedule the next step."
+  [step]
+  (contains? async-yield-step-types (step-type step)))
+
 (defn step-type
   "Return the tag at the head of a step vector, or nil if `step` is
   not a vector / has no head keyword."

@@ -532,3 +532,71 @@
                "first read prints the both-slots warning")
            (is (empty? out2)
                "subsequent reads stay silent — warning is one-shot per variant"))))))
+
+;; ---- rf2-ftow6: concurrent-run race fix ---------------------------------
+;;
+;; The Playwright matrix-before-load scenario could overshoot counter
+;; increments when `runtime/run-phase-4!` and the shell's
+;; `selection-watcher` both fired `runner-events/run!` against the same
+;; variant in quick succession. The blanket setTimeout-0 between every
+;; step let the second `run!` reset state mid-script, and BOTH loops
+;; then walked the shared state, double-dispatching the increment
+;; events. The fix stamps a unique `:run-token` on every fresh run and
+;; bails any loop whose token no longer matches the state slot — see
+;; `run-loop!`.
+
+#?(:clj
+   (deftest run-stamps-token-on-state
+     (testing "run! writes a :run-token onto the started state map so
+              concurrent-run detection can compare loops"
+       (rf/reg-event-db :rt/touch (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.runner/token
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/touch]]]}})
+       (async/deref-blocking (story/run-variant :story.runner/token) 5000)
+       (let [final (run-blocking :story.runner/token)]
+         (is (some? (:run-token final))
+             "every run! call stamps a non-nil token onto the started state")))))
+
+#?(:clj
+   (deftest fresh-run-token-replaces-prior
+     (testing "back-to-back run! calls stamp DIFFERENT tokens — the newer
+              token wins and the stale loop (had it still been queued)
+              would bail on mismatch"
+       (rf/reg-event-db :rt/touch (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.runner/token-rotate
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/touch]]]}})
+       (async/deref-blocking (story/run-variant :story.runner/token-rotate) 5000)
+       (let [first-final  (run-blocking :story.runner/token-rotate)
+             _            (run-blocking :story.runner/token-rotate)
+             second-state (re/current-state :story.runner/token-rotate)]
+         (is (some? (:run-token first-final)))
+         (is (some? (:run-token second-state)))
+         (is (not= (:run-token first-final) (:run-token second-state))
+             "the second run! stamps a fresh token — concurrent stale loops
+              detect the swap and abort")))))
+
+#?(:clj
+   (deftest sync-steps-do-not-yield-between
+     (testing "rf2-ftow6: a script of pure :dispatch-sync + :assert-db steps
+              runs end-to-end without intermediate yields — no extra event
+              dispatches sneak in mid-script. Probes the legacy execute-play!
+              semantics the migration accidentally lost."
+       (let [n (atom 0)]
+         (rf/reg-event-db :rt/inc (fn [db _] (swap! n inc) (update db :n (fnil inc 0))))
+         (story/reg-variant :story.runner/sync-tight
+           {:events      [[:rt/inc] [:rt/inc] [:rt/inc]] ; seed: n=3
+            :play-script {:auto-run? false
+                          :script    [[:dispatch-sync [:rt/inc]]
+                                      [:dispatch-sync [:rt/inc]]
+                                      [:dispatch-sync [:rt/inc]]
+                                      [:assert-db [:n] 6]]}})
+         (async/deref-blocking (story/run-variant :story.runner/sync-tight) 5000)
+         (let [final (run-blocking :story.runner/sync-tight)]
+           (is (= :pass (:status final))
+               "the three increments + assertion run atomically — final count is exactly 6")
+           (is (= 6 @n)
+               "no stray increments leaked from concurrent paths"))))))

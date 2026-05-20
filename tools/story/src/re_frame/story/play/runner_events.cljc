@@ -475,12 +475,33 @@
   "Iterate over the script, running each step. `:wait` steps yield
   to the scheduler and resume from the wait time onwards.
 
-  `done-cb` is invoked with the final run-state once the loop ends."
-  [frame-id play-key done-cb]
+  `done-cb` is invoked with the final run-state once the loop ends.
+
+  rf2-ftow6 (race fix): each call to `run!` stamps a unique
+  `:run-token` on the state map. The loop carries the token it started
+  with and aborts if a fresh `run!` has overwritten the state with a
+  newer token — that way a concurrent `runner-events/run!`
+  (e.g. selection-watcher fires while runtime's `run-phase-4!` is
+  mid-script) does not result in TWO loops walking the same shared
+  state and double-dispatching events.
+
+  Sync-class steps (`:dispatch-sync`, `:assert-db`, `:assert-dom`)
+  recur synchronously; async-class steps (`:dispatch`, `:click`,
+  `:type`, `:wait`) yield one tick so the queued effects drain before
+  the next step runs. The blanket setTimeout-0 between every step that
+  the original (rf2-8i2a9) implementation used was the source of the
+  re-mount race — see `runner/async-yield?`."
+  [frame-id play-key token done-cb]
   (let [state (current-state-for-play frame-id play-key)]
     (cond
       ;; abort if state has gone missing (frame torn down mid-run)
       (nil? state)
+      nil
+
+      ;; abort if a newer run! has taken over the state slot — the
+      ;; newer loop owns continuation now, so the stale loop bails
+      ;; silently rather than racing it. rf2-ftow6.
+      (and token (some? (:run-token state)) (not= token (:run-token state)))
       nil
 
       (runner/done? state)
@@ -494,7 +515,7 @@
           (= :wait (runner/step-type step))
           (let [ms (runner/step-wait-ms step)]
             (record-result! frame-id play-key nm idx step (runner/step-skip idx step))
-            (schedule! (or ms 0) #(run-loop! frame-id play-key done-cb)))
+            (schedule! (or ms 0) #(run-loop! frame-id play-key token done-cb)))
 
           :else
           (let [result (try
@@ -502,13 +523,21 @@
                          (catch #?(:clj Throwable :cljs :default) e
                            (runner/step-exception idx step
                                                   #?(:clj  (.getMessage ^Throwable e)
-                                                     :cljs (str e)))))]
+                                                     :cljs (str e)))))
+                yield? (runner/async-yield? step)]
             (record-result! frame-id play-key nm idx step result)
-            ;; Tail-call into the loop. On CLJS we yield via a 0-ms
-            ;; setTimeout so a long async script doesn't blow the stack
-            ;; and the UI gets a chance to repaint between steps.
-            #?(:cljs (js/setTimeout #(run-loop! frame-id play-key done-cb) 0)
-               :clj  (recur frame-id play-key done-cb))))))))
+            ;; Sync-class step → recur synchronously so the next step
+            ;; observes the just-committed effects atomically (the
+            ;; legacy `execute-play!`/`doseq` semantics rf2-ftow6
+            ;; restores).
+            ;;
+            ;; Async-class step → yield one tick on CLJS so the
+            ;; queued router work / synthetic DOM event handlers drain
+            ;; before the next step runs.
+            #?(:cljs (if yield?
+                       (js/setTimeout #(run-loop! frame-id play-key token done-cb) 0)
+                       (recur frame-id play-key token done-cb))
+               :clj  (recur frame-id play-key token done-cb))))))))
 
 ;; ---- public driver -------------------------------------------------------
 
@@ -556,10 +585,17 @@
                    (variant-play-script variant-id))
          pk    (or play-key (:name spec))
          init  (runner/initial-state spec)
-         started (runner/start init (now-ms))]
+         ;; rf2-ftow6: stamp a fresh token on every run. The loop
+         ;; reads it back from the state map; if a concurrent run!
+         ;; replaces the state mid-loop, the stale loop sees a
+         ;; mismatched token and aborts before re-dispatching.
+         token   #?(:clj (java.util.UUID/randomUUID)
+                    :cljs (.toString (js/Math.random)))
+         started (-> (runner/start init (now-ms))
+                     (assoc :run-token token))]
      (set-state! variant-id pk started)
      (set-active-play! variant-id pk)
-     (run-loop! variant-id pk done-cb)
+     (run-loop! variant-id pk token done-cb)
      started)))
 
 (defn re-run!
