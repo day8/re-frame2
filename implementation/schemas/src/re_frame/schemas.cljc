@@ -36,6 +36,23 @@
 ;; Atoms re-exported as Vars so test fixtures can `(reset! schemas/
 ;; schemas-by-frame {})` and `@schemas/validator-fn` against the same
 ;; underlying atom value.
+;;
+;; Posture (rf2-1gm0o — public-by-design): the four atom Vars are an
+;; **intentional fixture-composition primitive**, not a backdoor. Test
+;; fixtures across the implementation tree (~70+ test namespaces under
+;; `implementation/{core,epoch,flows,http,routing,schemas,ssr}/test/`)
+;; compose `(reset! schemas/schemas-by-frame {})` directly alongside
+;; `(reset! re-frame.flows/flows {})` and the other per-feature atom
+;; resets to express "wipe per-feature state to a known shape, atomically,
+;; before this test." The dedicated `snapshot-schemas-by-frame` /
+;; `restore-schemas-by-frame!` / `clear-schemas-by-frame!` /
+;; `reset-schema-validator!` fns serve the **registered-test-fixture
+;; pathway** (consumed by `re-frame.test-support`'s `reset-runtime-
+;; fixture` via the late-bind hook table); the raw atom Vars serve the
+;; **ad-hoc-test-fixture pathway** where the test author composes the
+;; setup without going through the registered fixture. Both surfaces are
+;; documented as supported. The atoms are NOT marked `^:private` because
+;; the dual pathway is by design — see rf2-ycqtv audit Finding #5.
 
 (def schemas-by-frame storage/schemas-by-frame)
 (def validator-fn     validator/validator-fn)
@@ -63,6 +80,8 @@
 (def on-frame-destroyed!       storage/on-frame-destroyed!)
 (def clear-validator-unavailable-warned!
   storage/clear-validator-unavailable-warned!)
+(def clear-walker-opaque-warned!
+  storage/clear-walker-opaque-warned!)
 
 ;; Per-slot flag walker (rf2-nwv63 / rf2-kj51z / rf2-oghml).
 (def walk-flagged-schema              walker/walk-flagged-schema)
