@@ -363,11 +363,11 @@
 
 ;; ---- (6) row interactions -----------------------------------------------
 
-(deftest row-click-pivots-to-event-tab-when-dispatch-id-present
-  (testing "clicking a row whose event carries a :dispatch-id dispatches
-            :rf.causa/select-dispatch-id + :rf.causa/select-tab :event
-            (rf2-qy0nu — the legacy :select-panel slot is no longer
-            read by the 4-layer shell)"
+(deftest row-click-toggles-inline-payload-expansion
+  (testing "rf2-7dyi8 — clicking a row dispatches
+            :rf.causa/toggle-trace-row-expand with the row's :id rather
+            than pivoting to event-detail. Per spec/021 §5.4 the Trace
+            panel surfaces row payloads inline; no nav."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 7 :op-type :event :operation :event/dispatched
@@ -382,14 +382,65 @@
             (is (some? row) "row node present")
             (is (some? handler) "row carries an :on-click handler")
             (when handler (handler))))
-        (is (some #(= [:rf.causa/select-dispatch-id 42 :rf/default] %) @dispatches)
-            "select-dispatch-id fired with the row's dispatch-id and frame")
-        (is (some #(= [:rf.causa/select-tab :event] %) @dispatches)
-            "select-tab fired to flip the visible tab")))))
+        (is (some #(= [:rf.causa/toggle-trace-row-expand 7] %) @dispatches)
+            ":rf.causa/toggle-trace-row-expand fired with the row's :id")
+        (is (not-any? #(and (vector? %)
+                            (= :rf.causa/select-dispatch-id (first %)))
+                      @dispatches)
+            "the legacy pivot is gone — no select-dispatch-id fired")
+        (is (not-any? #(and (vector? %)
+                            (= :rf.causa/select-tab (first %)))
+                      @dispatches)
+            "no select-tab fired (no nav per spec/021 §5.4)")))))
+
+(deftest toggle-trace-row-expand-event-mutates-set
+  (testing "rf2-7dyi8 — :rf.causa/toggle-trace-row-expand toggles row
+            membership in :trace-expanded-row-ids set."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/toggle-trace-row-expand 11])
+      (is (= #{11} @(rf/subscribe [:rf.causa/trace-expanded-row-ids]))
+          "first toggle adds the id")
+      (rf/dispatch-sync [:rf.causa/toggle-trace-row-expand 22])
+      (is (= #{11 22} @(rf/subscribe [:rf.causa/trace-expanded-row-ids]))
+          "second toggle on a different id appends")
+      (rf/dispatch-sync [:rf.causa/toggle-trace-row-expand 11])
+      (is (= #{22} @(rf/subscribe [:rf.causa/trace-expanded-row-ids]))
+          "toggling an already-expanded row removes it")
+      (rf/dispatch-sync [:rf.causa/clear-trace-expand])
+      (is (= #{} @(rf/subscribe [:rf.causa/trace-expanded-row-ids]))
+          ":rf.causa/clear-trace-expand drops every expanded id"))))
+
+(deftest expanded-row-renders-data-display-payload
+  (testing "rf2-7dyi8 — when a row's :id is in the expanded set, the
+            shared rf2-jgip1 data-display renderer mounts below the row."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (push-trace! (mk-trace {:id 13 :op-type :event :operation :event/dispatched
+                              :dispatch-id 1 :source :ui :origin :app}))
+      ;; Pre-expansion — no payload.
+      (let [tree (trace/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-trace-row-13-payload"))
+            "payload block absent when row is not in expanded set"))
+      ;; Toggle expand → payload renders.
+      (rf/dispatch-sync [:rf.causa/toggle-trace-row-expand 13])
+      (let [tree    (trace/Panel)
+            payload (find-by-testid tree "rf-causa-trace-row-13-payload")]
+        (is (some? payload) "payload block renders when row is expanded")
+        ;; rf2-jgip1's render-tree always renders a wrapper div with
+        ;; data-testid `rf-causa-data-display-trace-<render-id>`; pin
+        ;; that the panel's render-id wiring lands in the canonical
+        ;; per-row slot so two adjacent expansions don't collide on
+        ;; sticky expansion state.
+        (is (some? (find-by-testid tree
+                                   "rf-causa-data-display-trace-trace-row-13"))
+            "shared rf2-jgip1 renderer mounted with per-row render-id")))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord chip fires :rf.causa/open-in-editor;
-            stopPropagation prevents the row's pivot from also firing"
+            stopPropagation prevents the row's expand-toggle from also
+            firing (rf2-7dyi8 — the row click toggles inline expansion
+            now, the source-coord button bubbles must not toggle it)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Push a trace whose :rf.trace/trigger-handler carries a source-coord.
@@ -921,3 +972,121 @@
             "LIVE auto-snap → focus has :dispatch-id 100 → no :no-focus")
         (is (= 100 (:cascade-dispatch-id feed))
             "scope landed on the head cascade automatically")))))
+
+;; ---- (10) film-strip header — rf2-7dyi8 --------------------------------
+;;
+;; Per spec/021 §5.2 the Trace panel header carries a `[◀ Prev] [Next ▶]`
+;; film-strip on the right. Per §5.5 prev/next semantics are chronological
+;; — the shared component delegates to the spine's
+;; `:rf.causa/focus-cascade-prev` / `:rf.causa/focus-cascade-next` events.
+
+(deftest film-strip-header-renders-in-trace-panel
+  (testing "the film-strip header sits in the Trace panel header with
+            the canonical panel-id testid prefix"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :dispatch-id 1}))
+      (let [tree (trace/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-trace-film-strip"))
+            "film-strip wrapper present")
+        (is (some? (find-by-testid tree "rf-causa-trace-film-strip-prev"))
+            "prev button present")
+        (is (some? (find-by-testid tree "rf-causa-trace-film-strip-next"))
+            "next button present")
+        (is (some? (find-by-testid tree "rf-causa-trace-film-strip-indicator"))
+            "indicator slot present")
+        (is (some? (find-by-testid tree "rf-causa-trace-epoch-indicator"))
+            "indicator carries the 'epoch #N · X ops' content")))))
+
+(deftest film-strip-prev-dispatches-focus-cascade-prev
+  (testing "rf2-7dyi8 — clicking the film-strip prev button dispatches
+            :rf.causa/focus-cascade-prev (the canonical spine prev
+            event the L1 ribbon also uses). Requires at least two
+            cascades so the boundary doesn't disable the button."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Two cascades + focus on the head — prev should be enabled.
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :dispatch-id 1}))
+      (sync-push! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
+                             :dispatch-id 2}))
+      (let [dispatches (atom [])]
+        (with-redefs [rf/dispatch* (fn
+                                     ([ev]      (swap! dispatches conj ev) nil)
+                                     ([ev _o]   (swap! dispatches conj ev) nil))]
+          (let [tree    (trace/Panel)
+                btn     (find-by-testid tree "rf-causa-trace-film-strip-prev")
+                handler (:on-click (second btn))]
+            (is (some? btn) "prev button found")
+            (is (some? handler)
+                "prev button is enabled (two cascades, focused on head)")
+            (when handler (handler))))
+        (is (some #(= [:rf.causa/focus-cascade-prev] %) @dispatches)
+            ":rf.causa/focus-cascade-prev fired on prev click")))))
+
+(deftest film-strip-next-dispatches-focus-cascade-next
+  (testing "rf2-7dyi8 — clicking the film-strip next button dispatches
+            :rf.causa/focus-cascade-next. Pin focus to the tail so
+            next is enabled."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :dispatch-id 1}))
+      (sync-push! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
+                             :dispatch-id 2}))
+      ;; Step focus to the tail (cascade 1) so next is enabled.
+      (rf/dispatch-sync [:rf.causa/focus-cascade 1])
+      (let [dispatches (atom [])]
+        (with-redefs [rf/dispatch* (fn
+                                     ([ev]      (swap! dispatches conj ev) nil)
+                                     ([ev _o]   (swap! dispatches conj ev) nil))]
+          (let [tree    (trace/Panel)
+                btn     (find-by-testid tree "rf-causa-trace-film-strip-next")
+                handler (:on-click (second btn))]
+            (is (some? btn) "next button found")
+            (is (some? handler)
+                "next button is enabled (focused on tail with newer cascade)")
+            (when handler (handler))))
+        (is (some #(= [:rf.causa/focus-cascade-next] %) @dispatches)
+            ":rf.causa/focus-cascade-next fired on next click")))))
+
+(deftest film-strip-prev-disabled-at-tail
+  (testing "rf2-7dyi8 — when focused on the tail cascade (oldest), the
+            prev button renders in the disabled visual state with no
+            on-click handler attached."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :dispatch-id 1}))
+      (sync-push! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
+                             :dispatch-id 2}))
+      (rf/dispatch-sync [:rf.causa/focus-cascade 1])  ;; tail
+      (let [tree    (trace/Panel)
+            btn     (find-by-testid tree "rf-causa-trace-film-strip-prev")
+            handler (:on-click (second btn))]
+        (is (some? btn) "prev button still rendered (in disabled state)")
+        (is (nil? handler)
+            "prev button has no on-click when at the tail boundary")
+        (is (true? (:disabled (second btn)))
+            "prev button carries the HTML disabled attribute")))))
+
+(deftest film-strip-next-disabled-at-head
+  (testing "rf2-7dyi8 — when focused on the head cascade (newest), the
+            next button renders in the disabled visual state with no
+            on-click handler attached."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :dispatch-id 1}))
+      (sync-push! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
+                             :dispatch-id 2}))
+      ;; LIVE auto-snap puts focus on the head (dispatch-id 2).
+      (let [tree    (trace/Panel)
+            btn     (find-by-testid tree "rf-causa-trace-film-strip-next")
+            handler (:on-click (second btn))]
+        (is (some? btn) "next button still rendered (in disabled state)")
+        (is (nil? handler)
+            "next button has no on-click when at the head boundary")
+        (is (true? (:disabled (second btn)))
+            "next button carries the HTML disabled attribute")))))
