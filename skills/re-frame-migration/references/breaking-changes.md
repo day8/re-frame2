@@ -70,6 +70,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `(rf/with-overrides ...)` test-support macro | **M-50** | A | Mechanical rename to `with-fx-overrides`. Body, override-map shape, and composition with `with-frame` are unchanged — only the macro name moves, for symmetry with the `:fx-overrides` opt key and `*fx-overrides*` dynvar. |
 | Unary `reg-fx` handler `(fn [args] ...)` | **M-51** | A | Mechanical: `(fn [args] body)` → `(fn [_ args] body)`. The unary back-compat path is cut; the runtime invokes every fx with two args. Async handlers should additionally capture `(rf/dispatcher)` for frame-aware callbacks. |
 | `(ts/run-test-sync ...)` / `(re-frame-test/run-test-sync ...)` | **M-52** | A | Removed. Hoist body to inline `dispatch-sync` calls under the standard `reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bracketing). v2's `dispatch-sync` is already settle-by-default; the macro was pure migration tax. |
+| `(rf/dispose-adapter!)` | **M-53** | A | Tear-down verb axis discipline (rf2-cmabc). `dispose-adapter!` → `destroy-adapter!` (lifecycle boundary on the `destroy-` cluster). Old name retained as deprecated alias for one cycle. Adapter-spec **map key** `:dispose-adapter!` is unchanged. `rf/unsubscribe` is carved out (not renamed — `clear-sub` is already taken by the registrar decrement). |
 
 The M-numbered slots that are "informational only" / "additive" / "—" still appear so an agent walking the rule list doesn't get confused by gaps. There is no user-side action required for those rules.
 
@@ -99,7 +100,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 
 ## Type A vs Type B — at a glance
 
-**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42, M-50, M-51, M-52.
+**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42, M-50, M-51, M-52, M-53.
 
 **Type B — ask before applying.** The rewrite depends on intent the agent cannot recover statically. M-3, M-5 (Var-aliasing half), M-10, M-11, M-12, M-13, M-14, M-15, M-17 (multi-frame half), M-18, M-19, M-21 (`on-changes` / `enrich` / `after` half), M-23 (lifecycle policy half), M-26 (`add-post-event-callback` / error-handler half).
 
