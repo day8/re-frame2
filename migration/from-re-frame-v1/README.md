@@ -2201,7 +2201,7 @@ Per rf2-aas6o (audit-of-audits naming): the `with-redacted` factory's `with-*` p
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
 
-**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md#value-vs-fn-naming--interceptor-suffix-telegraphs-value-shape); [API.md §Privacy](../../spec/API.md); [Spec 009 §Privacy](../../spec/009-Instrumentation.md); [Security.md §Behavioural MUSTs across the privacy surface](../../spec/Security.md).
+**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md); [API.md §Privacy](../../spec/API.md); [Spec 009 §Privacy](../../spec/009-Instrumentation.md); [Security.md §Behavioural MUSTs across the privacy surface](../../spec/Security.md).
 
 ---
 
@@ -2209,7 +2209,7 @@ Per rf2-aas6o (audit-of-audits naming): the `with-redacted` factory's `with-*` p
 
 **Type A** (mechanical). Two-symbol rename across all source files.
 
-Per rf2-k367k (audit-of-audits naming): the public Vars holding pre-built interceptor maps must carry an `-interceptor` suffix to telegraph value-shape at the call site (per [Conventions §Value-vs-fn naming — `-interceptor` suffix telegraphs value-shape](../../spec/Conventions.md#value-vs-fn-naming--interceptor-suffix-telegraphs-value-shape)). Combined with rf2-todvi (the `at-boundary` Var carries a *time/build-mode* axis, not a *location* axis — the `validate-` prefix telegraphs the mode-gated semantic), the rename folds into a single sweep.
+Per rf2-k367k (audit-of-audits naming): the public Vars holding pre-built interceptor maps must carry an `-interceptor` suffix to telegraph value-shape at the call site (per [Conventions §Value-vs-fn naming](../../spec/Conventions.md), rf2-nalp6). Combined with rf2-todvi (the `at-boundary` Var carries a *time/build-mode* axis, not a *location* axis — the `validate-` prefix telegraphs the mode-gated semantic), the rename folds into a single sweep.
 
 | Old | New | Surface |
 |---|---|---|
@@ -2238,7 +2238,7 @@ The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **uncha
 
 **No alias.** Per pre-alpha posture, the old names are **removed** — stale call sites raise unresolved-symbol at compile time.
 
-**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md#value-vs-fn-naming--interceptor-suffix-telegraphs-value-shape) (the rule); [Spec 004 §Standard interceptors](../../spec/004-Interceptors.md) (the family catalogue); [Spec 010 §Production builds](../../spec/010-Schemas.md) (`validate-at-boundary-interceptor`'s mode-gated semantic); [API.md §Standard interceptors](../../spec/API.md); [M-54](#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) (the prior `:spec` → `:schema` keyword unification, sibling pass).
+**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md) (the rule, rf2-nalp6); [API.md §Standard interceptors](../../spec/API.md) (the family catalogue); [Spec 010 §Production builds](../../spec/010-Schemas.md) (`validate-at-boundary-interceptor`'s mode-gated semantic); [M-54](#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) (the prior `:spec` → `:schema` keyword unification, sibling pass).
 
 ---
 
