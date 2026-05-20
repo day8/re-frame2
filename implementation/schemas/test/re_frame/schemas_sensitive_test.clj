@@ -21,7 +21,7 @@
        runtime's `emit-error!` promotes it to the top-level slot per
        Spec 009 line 1175 'hoisted to top-level, not :tags'.)
 
-  Structural slots (`:path`, `:failing-id`, `:spec-id`, `:reason`) ride
+  Structural slots (`:path`, `:failing-id`, `:schema-id`, `:reason`) ride
   unchanged — consumers need them to locate the broken slot without
   leaking user data.
 
@@ -256,7 +256,7 @@
           (is (= :event (-> v :tags :where)))
           (is (= :auth/sign-in (-> v :tags :event-id)))
           (is (= :auth/sign-in (-> v :tags :failing-id)))
-          (is (= :auth/sign-in (-> v :tags :spec-id))))))))
+          (is (= :auth/sign-in (-> v :tags :schema-id))))))))
 
 (deftest event-validation-non-sensitive-passes-through-verbatim
   (testing "Backward-compat — a handler without :sensitive? emits the

@@ -6,7 +6,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 
 ## Contents
 
-- Framework keyword renames (M-20, M-35)
+- Framework keyword renames (M-20, M-35, M-54)
 - Tear-down verb renames (M-53)
 - Interceptor list cleanup (M-21 mechanical half)
 - View / hiccup rewrites (M-22, M-24)
@@ -44,6 +44,48 @@ Also rewrite the app-db slice key `[:route]` → `[:rf/route]` and the subscript
 [:spawn ...]              → [:rf.machine/spawn ...]
 [:destroy-machine ...]    → [:rf.machine/destroy ...]
 ```
+
+### M-54 — schema vocabulary unification (`:spec` → `:schema`, rf2-ieu0i)
+
+Closed mechanical rename set. Apply across all source files; the framework accepts the old key as a deprecated alias for one cycle so partial rewrites compile.
+
+```
+;; Framework-reserved keyword renames — single-token global rewrites:
+:rf.spec/violation               → :rf.schema/violation
+:spec/at-boundary                → :rf.schema/at-boundary
+
+;; Trace-tag rename — only inside trace-handler destructures or tag maps:
+:spec-id                         → :schema-id
+
+;; Per-`reg-*` metadata key rename — only inside registration metadata maps
+;; (the position immediately after the reg-* id, before any interceptor
+;; vector / handler-fn):
+{:spec <schema>}                 → {:schema <schema>}
+```
+
+**What to rewrite (positional rule for `:spec` → `:schema`).**
+
+```clojure
+;; SEARCH — :spec inside a reg-* metadata map
+(rf/reg-event-fx :auth/login
+  {:doc "..." :spec LoginSchema}                          ;; <- target
+  (fn ...))
+
+;; REWRITE
+(rf/reg-event-fx :auth/login
+  {:doc "..." :schema LoginSchema}
+  (fn ...))
+```
+
+**What to NOT rewrite.** Do NOT rewrite the bare `:spec` keyword outside a registration metadata-map slot:
+
+- `{:keys [spec]}` destructure of a non-framework data shape — leave alone.
+- `(:spec invoke-all-state)` — the machine `:invoke-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`InvokeAllJoinState`](../../../spec/Spec-Schemas.md#rfspawned)); that `:spec` is a different domain and is NOT renamed by M-54.
+- The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/at-boundary` going forward.
+
+**Deprecation alias semantics.** The framework emits `:rf.warning/deprecated-schema-alias` once per `(kind, id)` at registration time when `:spec` is still present on `reg-*` metadata; the warning's `:source-coords` slot points the rewriter at every offending call site without breaking the build. After the one-cycle deprecation window the alias support is removed.
+
+**Cross-references.** [`MIGRATION.md` §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) for the full table and rationale; [`breaking-changes.md`](breaking-changes.md) for the surface-level breakage summary.
 
 ---
 

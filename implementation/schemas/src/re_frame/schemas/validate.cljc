@@ -4,11 +4,15 @@
   Owns the five dev-time validate-*! fns the framework calls at the
   locked validation sites:
 
-    - validate-event!       — pre-handler (event vector vs handler :spec)
-    - validate-cofx!        — post-injection (cofx value vs cofx :spec)
-    - validate-fx!          — pre-fx-handler (fx args vs fx :spec)
+    - validate-event!       — pre-handler (event vector vs handler :schema)
+    - validate-cofx!        — post-injection (cofx value vs cofx :schema)
+    - validate-fx!          — pre-fx-handler (fx args vs fx :schema)
     - validate-app-db!      — post-handler-commit (frame's app-schemas)
-    - validate-sub-return!  — post-sub-recompute (return value vs sub :spec)
+    - validate-sub-return!  — post-sub-recompute (return value vs sub :schema)
+
+  The metadata key is `:schema` (canonical per rf2-ieu0i); the v1
+  `:spec` key is accepted as a deprecated alias for one cycle — every
+  lookup-site here reads `:schema` first and falls back to `:spec`.
 
   Also owns the production-side boundary-validation seam
   (`validate-with-registered-fn` / `explain-with-registered-fn`) that
@@ -22,7 +26,7 @@
   its sensitivity-source check, its tag shape (`:where`,
   `:reason`, etc.), and any fx-specific post-redaction step.
   `validate-app-db!` stays a sibling of the four; it walks N schemas
-  via doseq (no single :spec lookup, no true/false return contract)
+  via doseq (no single :schema lookup, no true/false return contract)
   and so doesn't share the wrapper's shape.
 
   Per Spec 009 §Production builds every dev-time validate-*! body lives
@@ -57,7 +61,7 @@
   `:explain`, plus `:fx-args` on `:where :fx-args` emissions and
   `:query-v` on `:where :sub-return` emissions — see `redact-tags`);
   the structural / categorical slots (`:path`, `:failing-id`,
-  `:spec-id`, `:reason`) are kept — consumers need them to locate
+  `:schema-id`, `:reason`) are kept — consumers need them to locate
   the broken slot without leaking user data.
 
   Per rf2-4fbsd the emit-sites carry two slots for the failing value
@@ -194,13 +198,15 @@
 (defn- run-validation
   "Shared core of the four meta-bearing validate-*! fns (event / cofx /
   fx / sub-return). Performs the registered-validator deref, the
-  `:spec`-on-meta lookup, the validate / explain calls, the
+  `:schema`-on-meta lookup (with `:spec` accepted as a deprecated
+  alias per rf2-ieu0i), the validate / explain calls, the
   sensitivity decision, and the trace emit. Returns true on pass / no
   schema / no validator; false on a logged failure.
 
   Parameters:
     - `meta`         the registration metadata (handler / cofx / sub /
-                     fx) — its `:spec` slot, if any, is the schema.
+                     fx) — its `:schema` slot (or `:spec` alias), if
+                     any, is the schema.
     - `value`        the value being checked (event vector, cofx
                      value, sub return, fx args).
     - `meta-sensitive?` boolean — historical handler-meta sensitivity
@@ -239,7 +245,9 @@
   slot), so a single redactor covers every meta-bearing emit site."
   [meta value meta-sensitive? walk-schema? build-base-tags]
   (if-let [vf @validator/validator-fn]
-    (if-let [schema (:spec meta)]
+    ;; Accept :schema (canonical, rf2-ieu0i) or :spec (deprecated alias
+    ;; kept for one cycle).
+    (if-let [schema (or (:schema meta) (:spec meta))]
       (if (vf schema value)
         true
         (let [explanation (validator/run-explainer schema value)
@@ -285,7 +293,7 @@
 
   Structurally distinct from the four meta-bearing validate-*! fns
   (event / cofx / fx / sub-return): walks N schemas via doseq, has no
-  single `:spec`-on-meta lookup, and emits a trace per failure (rather
+  single `:schema`-on-meta lookup, and emits a trace per failure (rather
   than at-most-one). Returns a single boolean conjoining every entry's
   result so the caller can decide rollback deterministically — but
   every failing schema is still surfaced as its own trace so consumers
@@ -395,7 +403,8 @@
 
 (defn validate-event!
   "Per Spec 010 §Validation order step 1 — before an event handler runs,
-  validate the event vector against any :spec on the handler's metadata.
+  validate the event vector against any :schema on the handler's metadata
+  (with `:spec` accepted as a deprecated alias per rf2-ieu0i).
   Failures emit `:rf.error/schema-validation-failure :where :event`; the
   caller skips the handler (recovery: `:no-recovery`). Returns
   true/false per the `run-validation` contract."
@@ -410,7 +419,7 @@
         {:where      :event
          :event-id   event-id
          :failing-id event-id
-         :spec-id    event-id
+         :schema-id  event-id
          :received   event
          :value      event
          :explain    explanation
@@ -422,7 +431,8 @@
 
 (defn validate-sub-return!
   "Per Spec 010 §Validation order step 6 — after a sub recomputes,
-  validate its return value against any :spec on the sub's metadata.
+  validate its return value against any :schema on the sub's metadata
+  (with `:spec` accepted as a deprecated alias per rf2-ieu0i).
   Failures emit `:rf.error/schema-validation-failure :where
   :sub-return`; the caller replaces the value with the default (nil)
   per the `:replaced-with-default` recovery. Returns true/false per
@@ -438,7 +448,7 @@
         {:where      :sub-return
          :sub-id     sub-id
          :failing-id sub-id
-         :spec-id    sub-id
+         :schema-id  sub-id
          :query-v    query-v
          :received   value
          :value      value
@@ -452,7 +462,8 @@
 (defn validate-cofx!
   "Per Spec 010 §Validation order step 2 — after a cofx injects its
   value into the merged context, validate that value against any
-  :spec on the cofx's metadata. Failures emit
+  :schema on the cofx's metadata (with `:spec` accepted as a
+  deprecated alias per rf2-ieu0i). Failures emit
   `:rf.error/schema-validation-failure :where :cofx`; the caller
   skips the handler (recovery: `:no-recovery`). Returns true/false
   per the `run-validation` contract."
@@ -468,7 +479,7 @@
          :cofx-id    cofx-id
          :event-id   event-id
          :failing-id event-id
-         :spec-id    cofx-id
+         :schema-id  cofx-id
          :received   value
          :value      value
          :explain    explanation
@@ -480,7 +491,8 @@
 
 (defn validate-fx!
   "Per Spec 010 §Validation order step 5 — before an fx handler runs,
-  validate its args against any :spec on the fx's metadata. Failures
+  validate its args against any :schema on the fx's metadata (with
+  `:spec` accepted as a deprecated alias per rf2-ieu0i). Failures
   emit `:rf.error/schema-validation-failure :where :fx-args`; per
   Spec 010 §Per-step recovery row 5 the caller skips the offending fx
   only (recovery: `:skipped`) — sibling fx in the same `:fx` vector
@@ -505,7 +517,7 @@
                  :fx-id      fx-id
                  :fx-args    args
                  :failing-id fx-id
-                 :spec-id    fx-id
+                 :schema-id  fx-id
                  :received   args
                  :value      args
                  :explain    explanation
@@ -519,8 +531,9 @@
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
 ;;
 ;; The boundary-validation interceptor (`re-frame.spec/at-boundary`,
-;; rf2-r2uh) runs `:spec` validation on a handler at production-build
-;; time — outside the `interop/debug-enabled?` gate that guards the
+;; interceptor id `:rf.schema/at-boundary` per rf2-ieu0i; rf2-r2uh)
+;; runs `:schema` validation on a handler at production-build time —
+;; outside the `interop/debug-enabled?` gate that guards the
 ;; hot-path validate-*! fns above. Per Spec 010 §Production builds the
 ;; boundary interceptor MUST route through the same registered validator
 ;; the dev-mode hot path uses (so a substituted validator covers both

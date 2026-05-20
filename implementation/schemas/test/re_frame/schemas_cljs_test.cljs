@@ -267,7 +267,7 @@
       (finally
         (schemas/reset-schema-validator!)))))
 
-;; ---- rf2-r2uh — :spec/at-boundary dev-mode no-op (rf2-84e9) --------------
+;; ---- rf2-r2uh — :rf.schema/at-boundary dev-mode no-op (rf2-84e9) ---------
 ;;
 ;; The :node-test build compiles with `goog.DEBUG=true` (cljs default,
 ;; no closure-define override) — the runtime-equivalent of a dev build.

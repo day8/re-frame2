@@ -71,6 +71,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | Unary `reg-fx` handler `(fn [args] ...)` | **M-51** | A | Mechanical: `(fn [args] body)` → `(fn [_ args] body)`. The unary back-compat path is cut; the runtime invokes every fx with two args. Async handlers should additionally capture `(rf/dispatcher)` for frame-aware callbacks. |
 | `(ts/run-test-sync ...)` / `(re-frame-test/run-test-sync ...)` | **M-52** | A | Removed. Hoist body to inline `dispatch-sync` calls under the standard `reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bracketing). v2's `dispatch-sync` is already settle-by-default; the macro was pure migration tax. |
 | `(rf/dispose-adapter!)` | **M-53** | A | Tear-down verb axis discipline (rf2-cmabc). `dispose-adapter!` → `destroy-adapter!` (lifecycle boundary on the `destroy-` cluster). Old name retained as deprecated alias for one cycle. Adapter-spec **map key** `:dispose-adapter!` is unchanged. `rf/unsubscribe` is carved out (not renamed — `clear-sub` is already taken by the registrar decrement). |
+| `:spec` per-`reg-*` metadata key; `:rf.spec/violation` trace; `:spec/at-boundary` interceptor `:id`; `:spec-id` trace tag | **M-54** | A | Vocabulary unification: framework speaks `:schema` end-to-end after rf2-ieu0i. Closed mechanical rename: `:spec` → `:schema` (metadata-map slot only), `:rf.spec/violation` → `:rf.schema/violation`, `:spec/at-boundary` → `:rf.schema/at-boundary`, `:spec-id` → `:schema-id`. The `re-frame.spec` namespace is NOT renamed; the v1 `:spec` key on `reg-*` metadata is accepted as a deprecated alias for one cycle (registrar emits `:rf.warning/deprecated-schema-alias` once per handler-id). |
 
 The M-numbered slots that are "informational only" / "additive" / "—" still appear so an agent walking the rule list doesn't get confused by gaps. There is no user-side action required for those rules.
 
@@ -80,7 +81,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 
 | Trigger / motivation | Rule | One-line summary |
 |---|---|---|
-| Register `:doc` / `:spec` / `:tags` metadata on existing events / subs / fx | **O-1** | Replace plain `[interceptors]` slot with `{:doc ... :spec ... :tags ...}` metadata map + positional `[interceptors]` afterward. |
+| Register `:doc` / `:schema` / `:tags` metadata on existing events / subs / fx | **O-1** | Replace plain `[interceptors]` slot with `{:doc ... :schema ... :tags ...}` metadata map + positional `[interceptors]` afterward. (`:schema` is the canonical name post-rf2-ieu0i; the legacy `:spec` key is accepted as a deprecated alias.) |
 | Adopt `reg-view` for plain Reagent fns | **O-2** | Drop `defn`; replace with `(rf/reg-view view-name [args] body)`. Frame-aware. |
 | Add Malli schemas on `app-db` paths and on event payloads | **O-3** | Pull `day8/re-frame2-schemas`; register via `reg-app-schema`. Boundary-only — don't schema-fence every internal key. |
 | Lift a namespaced sub-tree of `app-db` into its own frame | **O-4** | Use `reg-frame :feature-name`; existing `:rf/default`-targeted events stay where they are. Multi-instance enabler. |
@@ -100,7 +101,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 
 ## Type A vs Type B — at a glance
 
-**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42, M-50, M-51, M-52, M-53.
+**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42, M-50, M-51, M-52, M-53, M-54.
 
 **Type B — ask before applying.** The rewrite depends on intent the agent cannot recover statically. M-3, M-5 (Var-aliasing half), M-10, M-11, M-12, M-13, M-14, M-15, M-17 (multi-frame half), M-18, M-19, M-21 (`on-changes` / `enrich` / `after` half), M-23 (lifecycle policy half), M-26 (`add-post-event-callback` / error-handler half).
 

@@ -9,9 +9,9 @@ of the five check-points fired; each `:where` carries a different
 | Button | `data-testid` | `:where` | Recovery (per [spec/010 §Per-step recovery](../../spec/010-Schemas.md)) | Observable diff in app-db |
 |---|---|---|---|---|
 | A · :where :app-db | `violate-app-db` | `:app-db` | `:rollback? true`, `:recovery :no-recovery`. The `:db` effect is rolled back to its pre-handler value; flows do NOT evaluate and `:fx` does NOT walk for this dispatch. Downstream queued events still drain. | `[:auth :token]` stays at `"seed-token"`. The handler tried to commit `42` (an int) at a slot whose registered schema demands `:string`. |
-| B · :where :event | `violate-event` | `:event` | `:no-recovery` — handler not invoked; downstream queue continues. | `[:click-count :event]` stays at `0`. The handler's `:spec` is `[:cat [:= ::violate-event] pos-int?]`; the button dispatches it with the string `"not-a-number"`. |
-| C · :where :cofx | `violate-cofx` | `:cofx` | `:no-recovery` — handler not invoked; downstream queue continues. | `[:click-count :cofx]` stays at `0`. The cofx's `:spec` is `pos-int?`; the cofx body deliberately injects `-1`. |
-| D · :where :fx-args | `violate-fx-args` | `:fx-args` | `:recovery :skipped` — the offending fx is skipped; sibling fx continue. The handler's `:db` already committed. | `[:click-count :fx]` increments per click (the handler's `:db` ran). The fx body never ran — its `:spec` (`[:map [:url :string]]`) rejected the vector args. |
+| B · :where :event | `violate-event` | `:event` | `:no-recovery` — handler not invoked; downstream queue continues. | `[:click-count :event]` stays at `0`. The handler's `:schema` is `[:cat [:= ::violate-event] pos-int?]`; the button dispatches it with the string `"not-a-number"`. |
+| C · :where :cofx | `violate-cofx` | `:cofx` | `:no-recovery` — handler not invoked; downstream queue continues. | `[:click-count :cofx]` stays at `0`. The cofx's `:schema` is `pos-int?`; the cofx body deliberately injects `-1`. |
+| D · :where :fx-args | `violate-fx-args` | `:fx-args` | `:recovery :skipped` — the offending fx is skipped; sibling fx continue. The handler's `:db` already committed. | `[:click-count :fx]` increments per click (the handler's `:db` ran). The fx body never ran — its `:schema` (`[:map [:url :string]]`) rejected the vector args. |
 
 ## Trace shape per click (per [spec/009 §Error contract](../../spec/009-Instrumentation.md))
 
@@ -40,7 +40,7 @@ suffix). Consumers that want the registration anchor reach
 
 - No `:on-error` policy fn — the default per-`:where` recovery is what
   consumers verify against.
-- No `:spec/at-boundary` interceptor — that interceptor is for
+- No `:rf.schema/at-boundary` interceptor — that interceptor is for
   production-mode schema enforcement on untrusted-input handlers, not
   for the dev-mode validation surfaces this testbed exercises.
 - No `:sensitive?` slots in the schemas. The privacy/redaction surface

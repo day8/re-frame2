@@ -26,41 +26,40 @@ Verified: `reg-app-schema` macro at `implementation/core/src/re_frame/core.cljc:
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame)`; pass `{:frame :other}` in `opts` to target another.
 
-## What `:spec` does on a handler
+## What `:schema` does on a handler
 
-Every `reg-*` macro accepts a `:spec` key in its metadata-map:
+Every `reg-*` macro accepts a `:schema` key in its metadata-map (the canonical name post-rf2-ieu0i; the v1 `:spec` key is accepted as a deprecated alias for one cycle and emits `:rf.warning/deprecated-schema-alias`):
 
 ```clojure
 (rf/reg-event-db :flight/set-trip-type
-  {:doc "User changed the trip-type combo."
-   :spec [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
+  {:doc    "User changed the trip-type combo."
+   :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
   (fn [db [_ trip-type]] (assoc-in db [:flight :trip-type] trip-type)))
 ```
 
-In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched event vector is validated against the handler's `:spec` before the handler runs. Failure emits `:rf.error/schema-validation-failure` and skips the handler (`spec.cljc:154-238`). In **`:advanced` + `goog.DEBUG=false` production builds** these dev-time call sites are elided.
+In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched event vector is validated against the handler's `:schema` before the handler runs. Failure emits `:rf.error/schema-validation-failure` and skips the handler (`spec.cljc:154-238`). In **`:advanced` + `goog.DEBUG=false` production builds** these dev-time call sites are elided.
 
 ## `at-boundary` — opt-in production validation
 
-For handlers that **must** validate even in production (HTTP response ingestion, websocket payload, postMessage), attach the boundary interceptor:
+For handlers that **must** validate even in production (HTTP response ingestion, websocket payload, postMessage), attach the boundary interceptor (`:rf.schema/at-boundary`, Var `rf/at-boundary`):
 
 ```clojure
 (ns my-app.api
-  (:require [re-frame.core :as rf]
-            [re-frame.spec :as spec]))
+  (:require [re-frame.core :as rf]))
 
 (rf/reg-event-fx :api/response-received
-  {:spec ApiResponseSchema}
-  [spec/at-boundary]
+  {:schema ApiResponseSchema}
+  [rf/at-boundary]
   (fn [_ [_ payload]] ...))
 ```
 
-`rf/at-boundary` is a re-export (`core.cljc:1188`); either spelling works. The interceptor reuses the handler's existing `:spec` — it does NOT introduce a parallel schema (`spec.cljc:30-31`).
+The interceptor reuses the handler's existing `:schema` (or the deprecated `:spec` alias) — it does NOT introduce a parallel schema (`spec.cljc:30-31`).
 
 Behaviour matrix (`spec.cljc:36-43`):
 
 - **Dev build** — no-op (step-1 validation already runs).
-- **Production with `:spec`** — runs the same validation inline.
-- **Production with no `:spec`** — no-op + once-per-handler `:rf.warning/boundary-without-spec`.
+- **Production with `:schema`** — runs the same validation inline.
+- **Production with no `:schema`** — no-op + once-per-handler `:rf.warning/boundary-without-spec`.
 
 ## Canonical mini-example
 
@@ -76,12 +75,12 @@ From `examples/reagent/7Guis/flight_booker/flight_booker.cljs`:
 (rf/reg-app-schema [:flight] FlightState)
 
 (rf/reg-event-db :flight/set-trip-type
-  {:doc  "User changed the trip-type combo."
-   :spec [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
+  {:doc    "User changed the trip-type combo."
+   :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
   (fn [db [_ trip-type]] (assoc-in db [:flight :trip-type] trip-type)))
 ```
 
-The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:spec` on the handler validates the dispatched event vector.
+The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:schema` on the handler validates the dispatched event vector.
 
 ## Swapping the validator
 
@@ -98,8 +97,8 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:spe
 ## Common gotchas
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
-- **`:spec` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
-- **Boundary interceptor without `:spec` is a misconfiguration.** Adding `[spec/at-boundary]` to a handler that has no `:spec` metadata emits `:rf.warning/boundary-without-spec` once and passes the dispatch through unchecked.
+- **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
+- **Boundary interceptor without `:schema` is a misconfiguration.** Adding `[rf/at-boundary]` to a handler that has no `:schema` metadata emits `:rf.warning/boundary-without-spec` once and passes the dispatch through unchecked.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
 

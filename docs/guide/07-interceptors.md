@@ -219,7 +219,7 @@ re-frame2 has two attachment points for interceptors, and the distinction is new
 ```clojure
 (rf/reg-event-db :cart.item/add
   {:doc "Add an item to the cart."}              ;; optional reflection metadata
-  [undoable spec/at-boundary]                     ;; ← the interceptors slot
+  [undoable rf/at-boundary]                       ;; ← the interceptors slot
   (fn [db [_ item]] (update db :items conj item)))
 ```
 

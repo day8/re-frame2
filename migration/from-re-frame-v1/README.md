@@ -1925,13 +1925,84 @@ One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface w
 
 ---
 
+### M-54. Schema vocabulary unification — `:spec` → `:schema` (rf2-ieu0i)
+
+**Type A** (mechanical, per-file token rewrite + reserved-keyword rename).
+
+Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` reserved trace namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag — under a single canonical name: **schema**. The framework speaks `:schema` end-to-end after the rename; the framework accepts the v1 `:spec` metadata key as a deprecated alias for one cycle (emits `:rf.warning/deprecated-schema-alias` once per handler-id) so migration scaffolding can find the call sites without breaking compilation on first contact.
+
+**The rename table.**
+
+| Old (v1 / early v2) | New (rf2-ieu0i) | Surface |
+|---|---|---|
+| `:spec` (per-`reg-*` metadata key) | `:schema` | every `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` / `reg-view` registration's metadata map; `:rf/registration-metadata` shape per [Spec-Schemas §`:rf/registration-metadata`](../../spec/Spec-Schemas.md#rfregistration-metadata) |
+| `:rf.spec/violation` | `:rf.schema/violation` | hot-reload schema-mismatch trace category (warning); [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) |
+| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on `rf/at-boundary`; the Var alias `re-frame.core/at-boundary` is unchanged (the rename is the `:id`, not the surface) |
+| `:spec-id` | `:schema-id` | trace tag on `:rf.error/schema-validation-failure` (every `:where`); locator for the failing registration's id |
+| `:rf.spec/*` reserved namespace | `:rf.schema/*` | [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) — the `:rf.spec/*` + bare `:spec/*` rows collapsed into a single `:rf.schema/*` row |
+
+**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/at-boundary`. The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
+
+**What to look for.**
+
+```clojure
+;; v1 / early v2 — :spec metadata, :spec-id trace tag, :rf.spec/violation warning,
+;; :spec/at-boundary interceptor :id reads, and any direct registrar-introspection
+;; that pulls (-> reg-meta :spec) out by hand.
+
+(rf/reg-event-fx :auth/login
+  {:doc "..." :spec LoginSchema}                 ;; <- :spec metadata key
+  (fn ...))
+
+(when (:rf.spec/violation (:operation trace-ev)) ...) ;; <- trace category match
+(:spec-id tags)                                       ;; <- trace tag lookup
+(= :spec/at-boundary (:id interceptor))               ;; <- interceptor :id assertion
+```
+
+**What to do (Type A — mechanical per-token).**
+
+```clojure
+;; after — every surface speaks `schema`. The framework accepts :spec on
+;; reg-* metadata as a deprecated alias for one cycle, but new code MUST
+;; emit :schema; the registrar emits :rf.warning/deprecated-schema-alias
+;; once per handler-id at registration time when :spec is still present.
+
+(rf/reg-event-fx :auth/login
+  {:doc "..." :schema LoginSchema}
+  (fn ...))
+
+(when (= :rf.schema/violation (:operation trace-ev)) ...)
+(:schema-id tags)
+(= :rf.schema/at-boundary (:id interceptor))
+```
+
+**Migration agent token rewrites** (the canonical search-and-replace set):
+
+1. `:spec` → `:schema` **only inside a registration metadata-map** (the position immediately after the registration id, before the optional interceptor vector / handler-fn). Do NOT rewrite `:spec` when it appears as a destructure key, fn arg, or other binding — the rename targets the v1-fixed metadata-map slot, not the keyword in general.
+2. `:rf.spec/violation` → `:rf.schema/violation` (single global token; safe to rewrite verbatim).
+3. `:spec/at-boundary` → `:rf.schema/at-boundary` (single global token; the namespace segment `:spec/` is reserved at the *keyword* level, so the only conformant tail is `at-boundary`).
+4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
+5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/at-boundary` (recommended) or `re-frame.spec/at-boundary` (legacy).
+
+**Deprecation discipline (one cycle).**
+
+The CLJS reference accepts `:spec` on `reg-*` metadata as an alias of `:schema` for **one release cycle following rf2-ieu0i**:
+
+- The validate-`*`! sites read `(or (:schema meta) (:spec meta))` so registrations using either key validate identically.
+- The registrar emits `:rf.warning/deprecated-schema-alias` at registration time, at most once per `(kind, id)` (suppression cache reset across frame destruction via `clear-warning-caches!`). The warning carries `:source-coords` when the call site rode the macro path — your migration scaffolding can use it to find every offending call site without breaking the build.
+- After the deprecation cycle the alias support is removed; only `:schema` is recognised.
+
+**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the renamed boundary interceptor), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row and the new `:rf.warning/deprecated-schema-alias` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename from rf2-cmabc — same per-token pattern, different surface).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.
 
 ### O-1. Convert interceptor vectors to metadata maps for richer registrations
 
-re-frame2 lets the middle argument of `reg-event-db`/`reg-event-fx`/etc. be either the legacy interceptor vector or a metadata map. The map form lets you attach `:doc`, `:spec` (Malli), and other introspection-friendly fields.
+re-frame2 lets the middle argument of `reg-event-db`/`reg-event-fx`/etc. be either the legacy interceptor vector or a metadata map. The map form lets you attach `:doc`, `:schema` (Malli), and other introspection-friendly fields.
 
 **Transformation:**
 
@@ -1943,8 +2014,8 @@ re-frame2 lets the middle argument of `reg-event-db`/`reg-event-fx`/etc. be eith
 
 ;; after
 (rf/reg-event-fx :load-todo
-  {:doc  "Loads a todo by id from the API."
-   :spec [:cat [:= :load-todo] :int]}                     ;; Malli, optional
+  {:doc    "Loads a todo by id from the API."
+   :schema [:cat [:= :load-todo] :int]}                   ;; Malli, optional
   [interceptor-1 interceptor-2]                           ;; positional; NOT a metadata-map key
   (fn load-todo-handler [ctx]
     ...))
