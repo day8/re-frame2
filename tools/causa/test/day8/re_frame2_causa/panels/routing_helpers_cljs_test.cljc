@@ -451,3 +451,227 @@
       ;; Slot shape still carries path (registered) but no params (no match).
       (is (= "/cart" (:path pv)))
       (is (not (contains? (:slot-shape pv) :params))))))
+
+;; ---- project-topology (rf2-3kjlo) ---------------------------------------
+
+(def parented-routes
+  "Registrar with explicit `:parent` references so the topology
+  projection can build a non-trivial tree. /checkout has two child
+  routes; the rest sit at depth 0."
+  {:route/root      (route "/")
+   :route/cart      (route "/cart")
+   :route/checkout  (route "/checkout")
+   :route/payment   (route "/checkout/payment"
+                           :parent :route/checkout)
+   :route/confirm   (route "/checkout/confirm"
+                           :parent :route/checkout)
+   :route/admin     (route "/admin")})
+
+(deftest project-topology-empty-test
+  (testing "empty registrar yields []"
+    (is (= [] (h/project-topology {})))))
+
+(deftest project-topology-depth-and-shape-test
+  (testing "every registered route appears exactly once in the projection"
+    (let [topology (h/project-topology parented-routes)
+          by-id    (group-by #(-> % :row :route-id) topology)]
+      (is (= (count parented-routes) (count topology))
+          "topology row count equals registrar size")
+      (doseq [rid (keys parented-routes)]
+        (is (= 1 (count (get by-id rid)))
+            (str rid " appears exactly once in the projection")))))
+
+  (testing "parented children land at depth = parent depth + 1"
+    (let [topology (h/project-topology parented-routes)
+          by-id    (into {} (map (juxt #(-> % :row :route-id) :depth))
+                         topology)]
+      (is (= 0 (get by-id :route/checkout))
+          ":route/checkout sits at depth 0 (no parent)")
+      (is (= 1 (get by-id :route/payment))
+          ":route/payment sits at depth 1 under :route/checkout")
+      (is (= 1 (get by-id :route/confirm))
+          ":route/confirm sits at depth 1 under :route/checkout")
+      (is (= 0 (get by-id :route/admin)) ":route/admin stays at depth 0")))
+
+  (testing "children appear after their parent (DFS order)"
+    (let [topology (h/project-topology parented-routes)
+          ids      (mapv #(-> % :row :route-id) topology)
+          ck-idx   (.indexOf ids :route/checkout)
+          pay-idx  (.indexOf ids :route/payment)
+          conf-idx (.indexOf ids :route/confirm)]
+      (is (< ck-idx pay-idx) ":route/checkout precedes :route/payment")
+      (is (< ck-idx conf-idx) ":route/checkout precedes :route/confirm")))
+
+  (testing "last-at-depth? flag marks last sibling at each depth"
+    (let [topology (h/project-topology parented-routes)
+          last-by-id (into {} (map (juxt #(-> % :row :route-id) :last-at-depth?))
+                           topology)]
+      ;; Within :route/checkout's children paths sort lexicographically:
+      ;; "/checkout/confirm" < "/checkout/payment", so :route/payment is
+      ;; the last child at depth 1.
+      (is (true? (get last-by-id :route/payment))
+          ":route/payment is the last sibling at depth 1 under /checkout")
+      (is (false? (get last-by-id :route/confirm))
+          ":route/confirm is not the last sibling at depth 1"))))
+
+(deftest project-topology-orphan-parent-test
+  (testing "rows whose :parent points to an unregistered route become roots"
+    (let [orphan-routes {:route/orphan
+                         (route "/orphan" :parent :route/missing)
+                         :route/root (route "/")}
+          topology (h/project-topology orphan-routes)
+          orphan-entry (some #(when (= :route/orphan (-> % :row :route-id)) %)
+                             topology)]
+      (is (some? orphan-entry) "orphan still appears in topology")
+      (is (= 0 (:depth orphan-entry))
+          "orphan rendered at depth 0 (parent reference broken)"))))
+
+(deftest project-topology-cycle-protection-test
+  (testing "a cycle in the :parent graph does not loop"
+    ;; A → B → A. Neither has a nil parent; both should still appear
+    ;; (the rooted? predicate treats them as roots since neither's
+    ;; parent points to nil, BUT the registered-ids set DOES contain
+    ;; both ids — so they're NOT rooted via the orphan branch. They
+    ;; ARE rooted only when their parent isn't in registered-ids.
+    ;; With both parents registered they wouldn't be roots — which
+    ;; means the walk-from-roots never includes them. Test the milder
+    ;; cycle case: a self-cycle.
+    (let [self-cycle {:route/self
+                      (route "/self" :parent :route/self)
+                      :route/root (route "/")}
+          topology (h/project-topology self-cycle)
+          ids      (mapv #(-> % :row :route-id) topology)]
+      ;; :route/root appears; :route/self may or may not (it's a self-
+      ;; root via the cycle-protection branch). Critically, the call
+      ;; must terminate and return a vector.
+      (is (vector? topology) "projection terminates on self-cycle")
+      (is (contains? (set ids) :route/root)
+          "non-cycling routes still appear"))))
+
+;; ---- epoch-routing-activity (rf2-3kjlo) ---------------------------------
+
+(deftest epoch-routing-activity-no-cascade-test
+  (testing "nil cascade → nil activity"
+    (is (nil? (h/epoch-routing-activity nil nil)))
+    (is (nil? (h/epoch-routing-activity nil {:id :route/cart})))))
+
+(deftest epoch-routing-activity-no-routing-trace-test
+  (testing "cascade with no routing trace events → nil (no activity)"
+    (let [c (cascade 1 [:counter/inc])]
+      (is (nil? (h/epoch-routing-activity c {:id :route/cart}))))))
+
+(deftest epoch-routing-activity-on-match-test
+  (testing "nav-token-allocated emit → phase :on-match + match params"
+    (let [c (cascade 7 [:rf.route/navigate :route/confirm]
+              :other [(nav-allocated-trace :route/confirm "nav-1")])
+          activity (h/epoch-routing-activity c {:id :route/confirm
+                                                :params {:order-id "x"}})]
+      (is (some? activity))
+      (is (= :on-match (:phase activity)))
+      (is (= {:order-id "x"} (:match activity))
+          "match surfaces the slice's params when phase is :on-match"))))
+
+(deftest epoch-routing-activity-events-test
+  (testing "events list carries root event vector + downstream dispatches"
+    (let [downstream {:id 8 :op-type :event :operation :event/dispatched
+                      :tags {:event [:cart/route-entered]}}
+          c (cascade 7 [:rf.route/navigate :route/cart]
+              :other [(nav-allocated-trace :route/cart "nav-1")
+                      downstream])
+          activity (h/epoch-routing-activity c {:id :route/cart})]
+      (is (= [[:rf.route/navigate :route/cart]
+              [:cart/route-entered]]
+             (:events activity))))))
+
+(deftest epoch-routing-activity-navigation-blocked-test
+  (testing "navigation-blocked emit → phase :navigation-blocked + nil match"
+    (let [blocked-ev {:id 1 :op-type :event
+                      :operation :rf.route/navigation-blocked
+                      :tags {:route-id :route/admin}}
+          c (cascade 1 [:rf.route/navigate :route/admin]
+              :other [blocked-ev])
+          activity (h/epoch-routing-activity c {:id :route/cart})]
+      (is (= :navigation-blocked (:phase activity)))
+      (is (nil? (:match activity))
+          "match is only surfaced when phase is :on-match"))))
+
+(deftest epoch-routing-activity-fragment-changed-test
+  (testing "fragment-changed emit → phase :fragment-changed"
+    (let [frag-ev {:id 1 :op-type :event
+                   :operation :rf.route/fragment-changed
+                   :tags {:fragment "step-2"}}
+          c (cascade 1 [:foo] :other [frag-ev])
+          activity (h/epoch-routing-activity c {:id :route/cart})]
+      (is (= :fragment-changed (:phase activity))))))
+
+;; ---- project-topology-data composite (rf2-3kjlo) ------------------------
+
+(deftest project-topology-data-silent-test
+  (testing "no routes registered → silent? true, empty topology, nil activity"
+    (let [data (h/project-topology-data {} {:id :route/cart} nil)]
+      (is (true? (:silent? data)))
+      (is (= [] (:topology data)))
+      (is (nil? (:activity data)))
+      (is (false? (:navigated? data))))))
+
+(deftest project-topology-data-topology-shape-test
+  (testing "topology vector mirrors project-topology + carries marker"
+    (let [data (h/project-topology-data parented-routes
+                                        {:id :route/cart}
+                                        nil)
+          ids  (mapv #(-> % :row :route-id) (:topology data))]
+      (is (false? (:silent? data)))
+      (is (= (count parented-routes) (count (:topology data))))
+      (is (contains? (set ids) :route/cart))
+      ;; No focused cascade ⇒ no activity; current slice ⇒ HERE marker
+      ;; on :route/cart only.
+      (let [marker-by-id (into {}
+                               (map (juxt #(-> % :row :route-id) :marker))
+                               (:topology data))]
+        (is (= :here (get marker-by-id :route/cart))
+            ":route/cart carries :here marker (current slice id)")
+        (is (nil? (get marker-by-id :route/admin))
+            "non-current routes carry no marker")))))
+
+(deftest project-topology-data-overlay-test
+  (testing "focused cascade caused navigation → :to overlay + :on-match phase"
+    (let [c (cascade 42 [:rf.route/navigate :route/confirm]
+              :other [(nav-allocated-trace :route/confirm "nav-9" 42)])
+          data (h/project-topology-data parented-routes
+                                        {:id :route/confirm
+                                         :params {:x 1}}
+                                        c)
+          marker-by-id (into {}
+                             (map (juxt #(-> % :row :route-id) :marker))
+                             (:topology data))]
+      (is (true? (:navigated? data)))
+      (is (= :route/confirm (:to-id data)))
+      (is (= :to (get marker-by-id :route/confirm)))
+      (is (some? (:activity data)))
+      (is (= :on-match (-> data :activity :phase)))
+      (is (= {:x 1} (-> data :activity :match)))))
+
+  (testing "focused cascade with distinct prior slice paints both :from and :to"
+    (let [c (cascade 1 [:rf.route/navigate :route/confirm]
+              :other [(nav-allocated-trace :route/confirm "nav-3")])
+          data (h/project-topology-data parented-routes {:id :route/cart} c)
+          marker-by-id (into {}
+                             (map (juxt #(-> % :row :route-id) :marker))
+                             (:topology data))]
+      (is (= :from (get marker-by-id :route/cart)))
+      (is (= :to   (get marker-by-id :route/confirm))))))
+
+(deftest project-topology-data-no-activity-test
+  (testing "focused cascade has no routing trace events → activity nil; HERE still paints"
+    (let [c (cascade 9 [:counter/inc])
+          data (h/project-topology-data parented-routes
+                                        {:id :route/cart}
+                                        c)
+          marker-by-id (into {}
+                             (map (juxt #(-> % :row :route-id) :marker))
+                             (:topology data))]
+      (is (false? (:navigated? data)))
+      (is (nil? (:activity data))
+          "activity is nil when cascade has no routing trace events")
+      (is (= :here (get marker-by-id :route/cart))
+          "current route still gets :here marker"))))
