@@ -439,6 +439,9 @@ For knobs that apply globally to the framework runtime, are addressed by a **key
 - `(rf/configure :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
 - `(rf/configure :trace-buffer {:depth 200})` — ring-buffer depth for trace events
 - `(rf/configure :sub-cache {:grace-period-ms 50})` — deferred ref-counting grace period
+- `(rf/configure :elision {:rf.size/threshold-bytes 16384})` — wire-elision size threshold
+
+The opts-map sub-keys mix two shapes deliberately: cross-surface policy slots use a namespaced keyword under the area's reserved `:rf.<area>/*` sub-namespace (e.g. `:rf.size/threshold-bytes` — the same key the wire-elision walker reads); one-off per-knob settings stay bare (e.g. `:depth`, `:grace-period-ms`). The rule is closed and the discriminator is **whether the sub-key names a cross-spec policy slot or a one-off knob** — full statement at [API.md §Configure keys — Opts-key naming rule](API.md#opts-key-naming-rule).
 
 ### 2. `set-!` / `install-!` fns — adapter-pluggable hooks
 

@@ -677,6 +677,19 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 
 SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure` key — it is per-frame metadata on the frame's `:ssr` map (see [Conventions §Configuration surfaces](Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucket 3 and [011 §Server error projection](011-SSR.md#server-error-projection)). Different frames in the same process can carry different projector / dev-detail settings, so the natural lifetime is per-frame, not process-global.
 
+### Opts-key naming rule
+
+The opts map for any `configure` key mixes two shapes deliberately, and the choice is **not** stylistic — it encodes which contract owns the sub-key:
+
+- **Framework-owned semantic sub-keys use a namespaced keyword** under a reserved `:rf.<area>/*` sub-namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). The namespace identifies the cross-spec policy area the sub-key participates in — the same key shape appears verbatim wherever that policy is consumed, not only inside `configure`. Example: `:elision` carries `{:rf.size/threshold-bytes N}` because `:rf.size/threshold-bytes` is the same per-call policy key consumed by `rf/elide-wire-value` and the wire-elision walker (per [Conventions §Reserved namespaces — `:rf.size/*`](Conventions.md#the-single-root-reserved-set)). The namespaced form makes the cross-surface identity grep-visible and prevents collision with adjacent per-knob settings.
+- **Ergonomic per-knob sub-keys are unqualified bare keywords** (`:depth`, `:grace-period-ms`, `:trace-events-keep`, `:redact-fn`). These sub-keys are local to a single `configure` key's opts map — they do not appear elsewhere in the framework's vocabulary, so a framework-owned namespace would add noise without adding identity. The bare form is the default at this leaf position; reach for it whenever the knob is unique to one `configure` key.
+
+The discriminator is **whether the sub-key names a cross-surface policy slot or a one-off knob**. A sub-key earns a `:rf.<area>/*` namespace when it names a contract that lives in more than one place (`:rf.size/threshold-bytes` is read by `:elision`, by `elide-wire-value`, and by the MCP wire walker). A sub-key stays bare when it is local to its parent `configure` key (`:depth` under `:trace-buffer` has nothing to do with `:depth` under `:epoch-history` — same English word, separate knobs, no shared contract).
+
+New `configure` keys MUST apply the same rule: if a sub-key participates in a cross-spec policy area, qualify it under the area's reserved namespace; otherwise leave it bare. The rule is closed — there is no third shape (no `:configure/depth`, no `:rf.configure/*` prefix). A sub-key that would want a third shape is evidence the proposed knob is doing two things and should be split.
+
+### Fixed-and-additive
+
 The configure-keys vocabulary is fixed-and-additive (Spec-ulation): existing keys cannot be renamed or removed; new keys are added by extending the table. User code that wraps `configure` should pattern-match on known keys and ignore unknown ones.
 
 ---
