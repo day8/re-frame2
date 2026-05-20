@@ -8,9 +8,11 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 
 - Framework keyword renames (M-20, M-35, M-54)
 - Tear-down verb renames (M-53)
+- Listener-registration verb unification (M-55)
 - Interceptor list cleanup (M-21 mechanical half)
 - View / hiccup rewrites (M-22, M-24)
 - `reg-event-fx` shape (M-26 mechanical half)
+- `:rf.http/managed` `:retry :on` closed-set (M-31b)
 - Init / adapter (M-40)
 - Per-feature artefact adds (M-27 through M-33)
 
@@ -47,7 +49,7 @@ Also rewrite the app-db slice key `[:route]` → `[:rf/route]` and the subscript
 
 ### M-54 — schema vocabulary unification (`:spec` → `:schema`, rf2-ieu0i)
 
-Closed mechanical rename set. Apply across all source files; the framework accepts the old key as a deprecated alias for one cycle so partial rewrites compile.
+Closed mechanical rename set. Apply across all source files. Per rf2-0zlcd (pre-alpha posture: no back-compat shims), the dual-key read `(or (:schema meta) (:spec meta))` was stripped — `:spec` on `reg-*` metadata is no longer accepted, and the `:rf.warning/deprecated-schema-alias` warning is gone with it. Stale `:spec` slots are silently ignored (schemaless registrations), so an incomplete rewrite is a correctness hazard — sweep every slot.
 
 ```
 ;; Framework-reserved keyword renames — single-token global rewrites:
@@ -83,7 +85,7 @@ Closed mechanical rename set. Apply across all source files; the framework accep
 - `(:spec invoke-all-state)` — the machine `:invoke-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`:rf/spawned`](../../../spec/Spec-Schemas.md#rfspawned-reserved-app-db-key)); that `:spec` is a different domain and is NOT renamed by M-54.
 - The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/at-boundary` going forward.
 
-**Deprecation alias semantics.** The framework emits `:rf.warning/deprecated-schema-alias` once per `(kind, id)` at registration time when `:spec` is still present on `reg-*` metadata; the warning's `:source-coords` slot points the rewriter at every offending call site without breaking the build. After the one-cycle deprecation window the alias support is removed.
+**No alias semantics (rf2-0zlcd).** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata is silently ignored (the registration becomes schemaless), so an incomplete rewrite is a correctness hazard. Sweep every `:spec` metadata-map slot to `:schema` in one pass; do not rely on a deprecation warning to find stragglers.
 
 **Cross-references.** [`MIGRATION.md` §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) for the full table and rationale; [`breaking-changes.md`](breaking-changes.md) for the surface-level breakage summary.
 
@@ -97,11 +99,54 @@ Closed mechanical rename table. Per the tear-down verb axis discipline (rf2-cmab
 (rf/dispose-adapter!)       → (rf/destroy-adapter!)
 ```
 
-The old name remains as a deprecated alias for one cycle (`{:deprecated "..."}` metadata on the Var). Linters / `clojure.repl/doc` will flag stale call sites. The adapter-spec **map key** `:dispose-adapter!` (the slot adapter implementations provide) is unchanged — adapters keep returning `{:dispose-adapter! (fn [] ...)}` in their spec map. Only the public `re-frame.core` wrapper name moves.
+Per rf2-0zlcd (pre-alpha posture: no back-compat shims), the public `re-frame.core/dispose-adapter!` Var is **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle. The adapter-spec **map key** `:dispose-adapter!` (the slot adapter implementations provide) is unchanged — adapters keep returning `{:dispose-adapter! (fn [] ...)}` in their spec map. Only the public `re-frame.core` wrapper name moves.
 
 `rf/unsubscribe` is **not** renamed: the natural target `clear-sub` is already taken by the symmetric inverse of `reg-sub` (the registrar decrement). The `un-` prefix is carved out as the singular form for the sub-cache ref-count decrement. See the [Conventions §Tear-down verb axis — Carve-out](../../../spec/Conventions.md#carve-out-unsubscribe).
 
 The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cache!` / `destroy-frame!` / `clear-trace-buffer!` / `clear-fx` / `clear-flow` / `clear-http-interceptor` / `clear-trace-listeners!`) is already on the two-verb axis and needs no rewrite.
+
+---
+
+## Listener-registration verb unification (M-55)
+
+Closed mechanical rename table. Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and epoch listener APIs collapse onto the same `register-*-listener!` / `unregister-*-listener!` shape already used by `register-event-emit-listener!` / `register-error-emit-listener!`. Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
+
+```
+(rf/register-trace-cb!  ...)     → (rf/register-trace-listener!  ...)
+(rf/remove-trace-cb!    ...)     → (rf/unregister-trace-listener! ...)
+(rf/clear-trace-cbs!    ...)     → (rf/clear-trace-listeners!     ...)
+(rf/register-epoch-cb!  ...)     → (rf/register-epoch-listener!   ...)
+(rf/remove-epoch-cb!    ...)     → (rf/unregister-epoch-listener! ...)
+(rf/clear-epoch-cbs!    ...)     → (rf/clear-epoch-listeners!     ...)
+```
+
+**Late-bind hook keys** (tool authors only — most apps will not touch these):
+
+```
+:trace.tooling/register-trace-cb!  → :trace.tooling/register-trace-listener!
+:trace.tooling/remove-trace-cb!    → :trace.tooling/unregister-trace-listener!
+:epoch/register-epoch-cb!          → :epoch/register-epoch-listener!
+:epoch/remove-epoch-cb!            → :epoch/unregister-epoch-listener!
+:epoch/clear-epoch-cbs!            → :epoch/clear-epoch-listeners!
+```
+
+Per rf2-dcyjm (pre-alpha posture: no back-compat shims), the old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.
+
+**Cross-references.** [`MIGRATION.md` §M-55](../../../migration/from-re-frame-v1/README.md#m-55-listener-registration-verb-unification--register--cb--register--listener-rf2-dcyjm) for the full table; [009 §The trace event model](../../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API).
+
+---
+
+## `:rf.http/managed` `:retry :on` closed-set (M-31b)
+
+Per rf2-apwkm, the `:retry :on` set on `:rf.http/managed` requests no longer accepts arbitrary `:rf.http/*` keywords. The closed retryable subset is:
+
+```
+#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
+```
+
+Any keyword outside this set in `:retry :on` raises `:rf.error/http-bad-retry-on` at fx-call time, before the request is issued. The three excluded `:rf.http/*` categories (`:rf.http/aborted` / `:rf.http/decode-failure` / `:rf.http/accept-failure`) are deterministic on retry and were silently retrying as a no-op pre-rf2-apwkm. Sweep `:retry :on` sets, drop excluded categories. v1 had no `:rf.http/managed` fx; v2-pre-rename codebases only.
+
+**Cross-references.** [`MIGRATION.md` §M-31b](../../../migration/from-re-frame-v1/README.md#m-31b-rfhttpmanaged-retry-on-is-a-closed-set-rf2-apwkm); [Spec 014 §Closed-set `:retry :on` validation](../../../spec/014-HTTPRequests.md#closed-set-retry-on-validation--rf2-apwkm).
 
 ---
 

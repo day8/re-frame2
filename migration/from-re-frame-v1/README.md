@@ -1275,6 +1275,44 @@ Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` d
 
 **Why:** rf2-zk08x's security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [rf2-cdmle](#) and [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-canned-stub-gate-rf2-cdmle).
 
+#### M-31b. `:rf.http/managed` `:retry :on` is a closed-set (rf2-apwkm)
+
+**Type A** (mechanical). Affects v2-pre-rename codebases only — v1 had no `:rf.http/managed` fx.
+
+Per rf2-apwkm (audit Finding 7 on `:retry :on` open-set acceptance), the `:retry :on` field on `:rf.http/managed` requests no longer accepts arbitrary `:rf.http/*` keywords. The closed retryable subset is:
+
+```
+#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
+```
+
+Any keyword outside this set in `:retry :on` (the three non-retryable `:rf.http/*` categories `:rf.http/aborted` / `:rf.http/decode-failure` / `:rf.http/accept-failure`, or any non-`:rf.http/*` keyword) raises **`:rf.error/http-bad-retry-on`** at fx-call time, **before** the middleware chain and **before** any request is issued.
+
+**Detect.**
+
+```clojure
+;; before (now raises :rf.error/http-bad-retry-on)
+{:rf.http/managed
+ {:request {...}
+  :retry   {:on #{:rf.http/timeout :rf.http/decode-failure} ;; <- decode-failure rejected
+            :max-attempts 3}
+  :on-success [...]
+  :on-failure [...]}}
+```
+
+**Rewrite.**
+
+```clojure
+;; after — drop non-retryable categories from :on
+{:rf.http/managed
+ {:request {...}
+  :retry   {:on #{:rf.http/timeout}
+            :max-attempts 3}
+  :on-success [...]
+  :on-failure [...]}}
+```
+
+**Why.** The three excluded categories are deterministic on retry — `:rf.http/aborted` means the actor that issued the request was destroyed, `:decode-failure` / `:accept-failure` mean the reply body or content-type was malformed and would be re-decoded identically. Silently retrying those wastes request budget. Per [Spec 014 §Closed-set `:retry :on` validation](../../spec/014-HTTPRequests.md#closed-set-retry-on-validation--rf2-apwkm) and [009 §Error event catalogue — `:rf.error/http-bad-retry-on`](../../spec/009-Instrumentation.md#error-event-catalogue).
+
 ---
 
 ### M-32. SSR & hydration (Spec 011) ships in a separate artefact — `day8/re-frame2-ssr`
@@ -1915,7 +1953,7 @@ One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface w
 (rf/destroy-adapter!)
 ```
 
-**Deprecation alias.** The old name ships as a deprecated alias pointing at the same Var for one deprecation cycle — code that does not migrate keeps working but tooling that reads `:deprecated` metadata (linters, refactor tools, `clojure.repl/doc`) flags the call sites. The alias is removed in the next breaking-change cycle.
+**No alias.** Per rf2-0zlcd (pre-alpha posture: no back-compat shims), the public `re-frame.core/dispose-adapter!` Var is **removed**. Stale call sites raise an unresolved-symbol at compile time. There is no deprecation cycle; the rename is hard.
 
 **Adapter-spec map key is unchanged.** The adapter contract still uses the `:dispose-adapter!` key inside the adapter spec map (the slot adapter implementations provide). That key is an internal contract surface — adapters keep implementing `{:dispose-adapter! (fn [] ...)}`. Only the public `re-frame.core` wrapper name moves.
 
@@ -1929,7 +1967,7 @@ One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface w
 
 **Type A** (mechanical, per-file token rewrite + reserved-keyword rename).
 
-Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` reserved trace namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag — under a single canonical name: **schema**. The framework speaks `:schema` end-to-end after the rename; the framework accepts the v1 `:spec` metadata key as a deprecated alias for one cycle (emits `:rf.warning/deprecated-schema-alias` once per handler-id) so migration scaffolding can find the call sites without breaking compilation on first contact.
+Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` reserved trace namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag — under a single canonical name: **schema**. The framework speaks `:schema` end-to-end after the rename. Per rf2-0zlcd (pre-alpha posture: no back-compat shims), the dual-key read `(or (:schema meta) (:spec meta))` is **removed** — `:spec` on `reg-*` metadata is no longer accepted. The `:rf.warning/deprecated-schema-alias` trace category is gone with it.
 
 **The rename table.**
 
@@ -1962,10 +2000,9 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 **What to do (Type A — mechanical per-token).**
 
 ```clojure
-;; after — every surface speaks `schema`. The framework accepts :spec on
-;; reg-* metadata as a deprecated alias for one cycle, but new code MUST
-;; emit :schema; the registrar emits :rf.warning/deprecated-schema-alias
-;; once per handler-id at registration time when :spec is still present.
+;; after — every surface speaks `schema`. Per rf2-0zlcd (pre-alpha posture)
+;; the framework no longer accepts :spec on reg-* metadata; the dual-key
+;; read was removed. Migrations MUST rewrite every :spec slot.
 
 (rf/reg-event-fx :auth/login
   {:doc "..." :schema LoginSchema}
@@ -1984,15 +2021,60 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
 5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/at-boundary` (recommended) or `re-frame.spec/at-boundary` (legacy).
 
-**Deprecation discipline (one cycle).**
+**No deprecation alias (pre-alpha posture, rf2-0zlcd).**
 
-The CLJS reference accepts `:spec` on `reg-*` metadata as an alias of `:schema` for **one release cycle following rf2-ieu0i**:
+The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprecated-schema-alias` once-per-`(kind, id)` warning shipped briefly with rf2-ieu0i but were stripped under rf2-0zlcd alongside the M-53 `dispose-adapter!` alias. The framework now reads `:schema` only; `:spec` on `reg-*` metadata is a stale key that registrations silently ignore (and that schema validators treat as "no schema declared" — every read at the boundary will pass with a soft-pass, hiding bugs). Migration agents MUST rewrite every `:spec` slot.
 
-- The validate-`*`! sites read `(or (:schema meta) (:spec meta))` so registrations using either key validate identically.
-- The registrar emits `:rf.warning/deprecated-schema-alias` at registration time, at most once per `(kind, id)` (suppression cache reset across frame destruction via `clear-warning-caches!`). The warning carries `:source-coords` when the call site rode the macro path — your migration scaffolding can use it to find every offending call site without breaking the build.
-- After the deprecation cycle the alias support is removed; only `:schema` is recognised.
+**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the renamed boundary interceptor), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename from rf2-cmabc — same per-token pattern, different surface), rf2-0zlcd (the strip-back-compat pass that removed both M-53 and M-54 deprecation aliases).
 
-**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the renamed boundary interceptor), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row and the new `:rf.warning/deprecated-schema-alias` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename from rf2-cmabc — same per-token pattern, different surface).
+---
+
+### M-55. Listener-registration verb unification — `register-*-cb!` → `register-*-listener!` (rf2-dcyjm)
+
+**Type A** (mechanical). Closed rename table; apply across all source files.
+
+Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and epoch listener APIs collapse onto the same shape already used by `register-event-emit-listener!` / `register-error-emit-listener!` and their `unregister-*-listener!` counterparts. v2-pre-rename codebases trip this; v1 codebases did not have a trace-listener or epoch-listener concept (the v1 equivalent was `add-post-event-callback`, which is covered by [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)). v1-→-v2 migrations land directly on the new names via M-26's rewrite.
+
+| v2 pre-rename | v2 post-rename | Surface |
+|---|---|---|
+| `rf/register-trace-cb!` | `rf/register-trace-listener!` | trace listener registration (dev-only; elides under `:advanced + goog.DEBUG=false`) |
+| `rf/remove-trace-cb!` | `rf/unregister-trace-listener!` | trace listener unregistration |
+| `rf/clear-trace-cbs!` | `rf/clear-trace-listeners!` | clear all trace listeners |
+| `rf/register-epoch-cb!` | `rf/register-epoch-listener!` | epoch listener registration (via `day8/re-frame2-epoch`) |
+| `rf/remove-epoch-cb!` | `rf/unregister-epoch-listener!` | epoch listener unregistration |
+| `rf/clear-epoch-cbs!` | `rf/clear-epoch-listeners!` | clear all epoch listeners |
+
+**Late-bind hook keys** (only relevant to tool authors that publish into the framework's late-bind hook table — most apps will not touch this surface):
+
+```
+:trace.tooling/register-trace-cb!  → :trace.tooling/register-trace-listener!
+:trace.tooling/remove-trace-cb!    → :trace.tooling/unregister-trace-listener!
+:epoch/register-epoch-cb!          → :epoch/register-epoch-listener!
+:epoch/remove-epoch-cb!            → :epoch/unregister-epoch-listener!
+:epoch/clear-epoch-cbs!            → :epoch/clear-epoch-listeners!
+```
+
+**Detect.** v2-pre-rename codebases trip this. v1 codebases land on the new names directly via M-26.
+
+```clojure
+;; before
+(rf/register-trace-cb! :my-app/audit (fn [ev] ...))
+(rf/remove-trace-cb! :my-app/audit)
+(rf/register-epoch-cb! :my-app/post-mortem-shipper (fn [epoch] ...))
+```
+
+**Rewrite.**
+
+```clojure
+;; after
+(rf/register-trace-listener! :my-app/audit (fn [ev] ...))
+(rf/unregister-trace-listener! :my-app/audit)
+(rf/register-epoch-listener! :my-app/post-mortem-shipper (fn [epoch] ...))
+```
+
+**No alias.** Per rf2-dcyjm (pre-alpha posture: no back-compat shims), the old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.
+
+**Cross-references.** [009 §The trace event model](../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API); [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) (the v1 `add-post-event-callback` → `register-trace-listener!` mapping); [M-33](#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch) (the `day8/re-frame2-epoch` artefact that hosts `register-epoch-listener!`); rf2-dcyjm Finding #2 (the parent rf2-k6xyr API-cleanup audit's listener-registration-unification decision).
 
 ---
 
