@@ -1,31 +1,22 @@
 #!/usr/bin/env node
 /*
- * Playwright runner for adapter smokes + framework testbeds.
+ * Playwright runner for the adapter smokes.
  *
  * Each surface is built by shadow-cljs into out/examples/<name>/main.js
  * and is paired with a hand-written index.html (staged into the same
  * directory by the orchestrator). This runner spins up a Chromium
  * browser and executes the spec.cjs files that sit alongside each
- * testbed under the SPEC_ROOTS below. Each spec navigates to the
- * surface's URL and asserts a user-visible behaviour (initial render +
- * an interaction + post-interaction state).
+ * adapter testbed under the SPEC_ROOTS below. Each spec navigates to
+ * the surface's URL and asserts a user-visible behaviour (initial
+ * render + an interaction + post-interaction state).
  *
- * Test surface inventory (post rf2-8cevm, Mike directive 2026-05-19 —
- * `examples/` tree is TEST-FREE):
+ * Test surface inventory (post rf2-8cevm + rf2-t5slp — `examples/`
+ * tree is TEST-FREE; the framework-testbeds Playwright gate was
+ * retired after the rf2-tglku migration waves moved every framework +
+ * top-level testbed assertion to CLJS/JVM unit tests):
  *
  *   - 3 adapter smokes   (implementation/adapters/<name>/testbed/spec.cjs)
  *     Reagent / UIx / Helix mount + dispatch + render.
- *
- *   - 0 framework testbeds under tools/causa/testbeds/. Both Causa-
- *     owned testbeds shed their Playwright specs in the rf2-tglku
- *     migration: perf_counter (Wave 4, rf2-e3j8l) and parallel_frames
- *     (Wave 2, rf2-lcg1z). Their data-layer contracts live as pure
- *     CLJS unit tests under implementation/core/test/re_frame/. The
- *     testbed surfaces themselves stay in-tree as the canonical
- *     Causa-displayable observation targets.
- *
- *   - top-level testbeds/  (testbeds/<surface>/spec.cjs)
- *     rf2-fe84r framework-behaviour cross-cutting + rf2-ik4io SSR.
  *
  * Real-regression coverage for everything else lives in: substrate
  * contract tests under `npm run test:cljs`, the Causa feature-matrix
@@ -75,8 +66,8 @@ const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
 // empty) = the full sweep.
 //
 // rf2-9grp6 — comma-separated alternatives, OR-matched. Mirrors the
-// orchestrator's multi-pattern filter so the CI split (adapter smokes
-// vs framework testbeds) can pass a single shape through both stages.
+// orchestrator's multi-pattern filter so a single EXAMPLES_FILTER
+// shape gates compile/stage/spec selection identically.
 const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
 function parseFilterPatterns(raw) {
   if (!raw) return [];
@@ -115,26 +106,15 @@ function matchesFilter(filePath) {
 //
 // Spec discovery (post rf2-8cevm, Mike directive 2026-05-19): the
 // `examples/` tree is TEST-FREE — no `*.spec.cjs` is permitted under
-// it. Discovery now scans only the spec-bearing roots:
+// it. Per rf2-t5slp the framework-testbeds Playwright gate was
+// retired after all four rf2-tglku migration waves moved every
+// framework + top-level testbed assertion to CLJS/JVM unit tests.
+// Discovery now scans only the per-adapter smoke root:
 //
-//   - tools/<tool>/testbeds/        — framework testbeds owned by Causa.
-//                                     Currently empty for Playwright
-//                                     specs — perf_counter (Wave 4)
-//                                     and parallel_frames (Wave 2) of
-//                                     the rf2-tglku migration both
-//                                     migrated their assertions to
-//                                     CLJS unit tests; the testbed
-//                                     dirs themselves stay in-tree
-//                                     as Causa-displayable demos.
-//   - testbeds/                     — top-level cross-cutting testbeds
-//                                     (rf2-fe84r framework-behaviour +
-//                                     rf2-ik4io SSR)
 //   - implementation/adapters/      — per-adapter end-to-end smokes
 //                                     (rf2-eceuv: Reagent/UIx/Helix)
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SPEC_ROOTS = [
-  path.join(REPO_ROOT, 'tools'),
-  path.join(REPO_ROOT, 'testbeds'),
   path.join(REPO_ROOT, 'implementation', 'adapters'),
 ];
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
@@ -146,14 +126,11 @@ const { isVerboseTests } = require(path.join(
 ));
 const VERBOSE_TESTS = isVerboseTests();
 
-// Specs live alongside the example or testbed they exercise. Under
-// examples/ they sit two or three levels deep with file shape
-// `<name>.spec.cjs` (e.g. examples/reagent/counter/counter.spec.cjs).
-// Under tools/<tool>/testbeds/<scenario>/ the convention (rf2-p8f2s) is
-// the unprefixed `spec.cjs` — one spec per scenario directory, no name
-// repetition. Walk every root and pick up any file matching either
-// `*.spec.cjs` (legacy / examples convention) or exactly `spec.cjs`
-// (testbed convention).
+// Specs live alongside the adapter testbed they exercise: each adapter
+// (Reagent / UIx / Helix) ships `implementation/adapters/<name>/testbed/
+// spec.cjs` (the unprefixed-`spec.cjs` convention from rf2-p8f2s).
+// The walker also picks up `*.spec.cjs` for the historic examples shape,
+// though `examples/` is test-free today (rf2-8cevm).
 function isSpecFile(name) {
   return name === 'spec.cjs' || name.endsWith('.spec.cjs');
 }
@@ -161,7 +138,7 @@ function isSpecFile(name) {
 function listSpecFiles(roots) {
   const out = [];
   for (const root of roots) {
-    if (!fs.existsSync(root)) continue;       // testbeds/ is optional
+    if (!fs.existsSync(root)) continue;
     const stack = [root];
     while (stack.length > 0) {
       const dir = stack.pop();

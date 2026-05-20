@@ -41,7 +41,6 @@ jobs:
       bundle_isolation: ${{ steps.detect.outputs.bundle_isolation }}
       reagent_slim_bundle: ${{ steps.detect.outputs.reagent_slim_bundle }}
       adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
-      framework_testbeds: ${{ steps.detect.outputs.framework_testbeds }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
       template_expensive: ${{ steps.detect.outputs.template_expensive }}
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
@@ -1039,108 +1038,18 @@ jobs:
       # comma-separated EXAMPLES_FILTER (substring OR-match against
       # shadow-cljs build ids). `adapters/` matches exactly the 3
       # adapter smokes (adapters/reagent-testbed, adapters/uix-testbed,
-      # adapters/helix-testbed); all other surfaces (framework testbeds
-      # under tools/causa/testbeds/* and top-level testbeds/*) skip
-      # compile/stage/spec-discovery. The split-out framework-testbeds
-      # job below carries that scope. Per rf2-8cevm the `examples/`
-      # tree is TEST-FREE.
+      # adapters/helix-testbed). Per rf2-8cevm the `examples/` tree
+      # is TEST-FREE. Per rf2-t5slp the framework-testbeds gate was
+      # retired — the four migration waves under rf2-tglku
+      # (rf2-4j0tb / rf2-lcg1z / rf2-pxb7t / rf2-e3j8l) migrated every
+      # framework + top-level testbed Playwright spec.cjs to CLJS/JVM
+      # unit tests, leaving zero surfaces for the split-out gate to run.
       #
       # NOT a required check on main initially — mirrors the rollout
       # pattern used for cljs-browser (rf2-zoem).
       - name: Compile adapter smokes, serve, and run Playwright specs
         env:
           EXAMPLES_FILTER: "adapters/"
-        run: npm run test:examples
-
-  framework-testbeds:
-    name: Framework testbeds (Playwright)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.framework_testbeds == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-framework-testbeds-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-framework-testbeds-
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
-
-      # rf2-9grp6 — framework + top-level testbed Playwright surfaces.
-      # Split out of `adapter-testbed-smokes` (rf2-cjp0i narrowed the
-      # adapter gate's trigger; this bead narrowed its scope to match).
-      # The EXAMPLES_FILTER pattern OR-matches the residual top-level
-      # testbed builds (testbeds/ssr-basic, testbeds/ssr-hydration-
-      # mismatch, testbeds/ssr-multi-frame) while excluding the 3
-      # adapter builds. RF2_CAUSA_RUN_GALLERY_SMOKES=1 (rf2-1w76p)
-      # additionally compiles + runs the panel-gallery stand-alone
-      # smokes (gate the rf2-kgn0c workspace-teardown regression) —
-      # those run AFTER the main spec sweep inside the same orchestrator
-      # invocation.
-      #
-      # (rf2-e3j8l, Wave 4) `examples/counter-perf` removed from this
-      # filter — the perf_counter Playwright assertions migrated to the
-      # CLJS nightly suite at
-      # `implementation/core/test/re_frame/performance_emit_nightly_test.cljs`.
-      # The shadow-cljs `examples/counter-perf` build target is retained
-      # for `npm run test:perf-bundle` (bundle-presence grep) but no
-      # longer has a Playwright spec.cjs to run.
-      #
-      # (rf2-lcg1z, Wave 2) `examples/parallel-frames` removed from
-      # this filter — the parallel_frames Playwright spec.cjs was
-      # deleted and its isolation assertions migrated to the CLJS
-      # node-test suite at
-      # `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs`.
-      # The testbed surface itself stays in-tree as the canonical
-      # Causa-displayable multi-frame demo.
-      #
-      # (rf2-pxb7t, Wave 3) The 3 SSR testbed Playwright spec.cjs files
-      # (`ssr_basic`, `ssr_hydration_mismatch`, `ssr_multi_frame`)
-      # retired — assertions migrated to JVM tests at
-      # `implementation/ssr/test/re_frame/ssr_{hydration,hydration_mismatch,
-      # multi_frame_isolation}_test.clj` using `rf/subscribe-once`.
-      # Their `testbeds/ssr-*` shadow-cljs build targets are retained
-      # (Causa observation targets) but no longer have spec.cjs files
-      # to run; the orchestrator's EXAMPLES list was trimmed to drop the
-      # three SSR entries (no surface staged that nothing tests). The
-      # `testbeds/` filter pattern below remains the residual after-Wave-2
-      # shape; the SSR entries simply no longer match any EXAMPLES row.
-      - name: Compile framework + top-level testbeds, serve, and run Playwright specs
-        env:
-          EXAMPLES_FILTER: "testbeds/"
-          RF2_CAUSA_RUN_GALLERY_SMOKES: "1"
         run: npm run test:examples
 
   story-causa-browser:
