@@ -2310,7 +2310,7 @@ Per rf2-s2jgz (audit-of-audits #20): the five dev-time validator fns the framewo
 
 ---
 
-### M-61. `reg-http-interceptor` reshaped to positional id + opts kwarg (rf2-eyjbn)
+### M-63. `reg-http-interceptor` reshaped to positional id + opts kwarg (rf2-eyjbn)
 
 **Type A** (mechanical). Closed signature change; applies to every `rf/reg-http-interceptor` call site. v1 codebases never had this surface; v2-pre-rename codebases only.
 
@@ -2346,7 +2346,7 @@ Per rf2-eyjbn the public surface aligns with the rest of the `reg-*` family — 
 
 ---
 
-### M-61. Test-fixture builder verb unification — `reset-runtime-fixture-factory` → `make-reset-runtime-fixture` (rf2-v779c)
+### M-64. Test-fixture builder verb unification — `reset-runtime-fixture-factory` → `make-reset-runtime-fixture` (rf2-v779c)
 
 **Type A** (mechanical). Single-symbol global rename.
 

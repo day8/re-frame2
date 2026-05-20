@@ -38,7 +38,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 7 | **M-23** | `re-frame.alpha` namespace removed. Compile-level (require fails). |
 | 8 | **M-24** | `rf/h` removed. Compile-level (symbol unresolved). |
 | 9 | **M-25** | `re-frame.test` renamed to `re-frame.test-support`. Compile-level. |
-| 9a | **M-61** (test fixture) | If the codebase uses `reset-runtime-fixture-factory`. Rename to `make-reset-runtime-fixture` (rf2-v779c). Closed mechanical rename. Pairs with M-25 (same `re-frame.test-support` ns). v2-pre-rename only. |
+| 9a | **M-64** | If the codebase uses `reset-runtime-fixture-factory`. Rename to `make-reset-runtime-fixture` (rf2-v779c). Closed mechanical rename. Pairs with M-25 (same `re-frame.test-support` ns). v2-pre-rename only. |
 | 9b | **M-62** | If the codebase uses `assert-state`. Split into `assert-path-equals` (vector path form) + `assert-db-equals` (full-db form) per rf2-8j9m6. Disambiguation moves from arity to call site. Pairs with M-25. v1's `assert-state` (path form only) → `assert-path-equals` directly. |
 | 10 | **M-26** | Drift-sweep drops — most are symbol-not-found at compile time. The Type B `add-post-event-callback` half waits for behavioural review. |
 
@@ -96,7 +96,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | Order | Rule | Pairs with |
 |---|---|---|
 | 31 | **M-27** | Triggered by `reg-app-schema` / `:spec` keys / `reg-event-schema`. Add `day8/re-frame2-schemas`. |
-| 31a | **M-61** (validator) | If the codebase calls `re-frame.schemas/validate-app-db!` / `validate-sub-return!` directly or publishes the matching late-bind hook keys. Rename to `validate-app-schema!` / `validate-sub!` (rf2-s2jgz). Pairs with M-27. v2-pre-rename only. |
+| 31a | **M-61** | If the codebase calls `re-frame.schemas/validate-app-db!` / `validate-sub-return!` directly or publishes the matching late-bind hook keys. Rename to `validate-app-schema!` / `validate-sub!` (rf2-s2jgz). Pairs with M-27. v2-pre-rename only. |
 | 32 | **M-28** | Triggered by `reg-machine` / `sub-machine`. Add `day8/re-frame2-machines`. |
 | 32a | **M-57** | If the codebase uses `(rf/create-machine-handler ...)`. Rename to `make-machine-handler` (rf2-g0bbk). Also rename `:machines/create-machine-handler` late-bind hook key. Pairs with M-28. v2-pre-rename only. |
 | 33 | **M-29** | Triggered by `reg-route` / `:rf.route/*` events. Add `day8/re-frame2-routing`. Pairs with M-14 (the `not-found` requirement). |
@@ -105,7 +105,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 36 | **M-32** | Triggered by `render-to-string` (SSR). Add `day8/re-frame2-ssr`. |
 | 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch`. Add `day8/re-frame2-epoch`. |
 | 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `clear-http-interceptor`. Pairs with M-31. |
-| 38a | **M-61** (`reg-http-interceptor`) | If the codebase uses `reg-http-interceptor`. Reshape signature to positional id + opts kwarg + positional handler (rf2-eyjbn). Pairs with M-39. The README carries two distinct rules numbered "M-61" — see also the validator-rename row at step 31a. |
+| 38a | **M-63** | If the codebase uses `reg-http-interceptor`. Reshape signature to positional id + opts kwarg + positional handler (rf2-eyjbn). Pairs with M-39. |
 
 ### Group 9 — Conditional / opt-trigger rules
 
