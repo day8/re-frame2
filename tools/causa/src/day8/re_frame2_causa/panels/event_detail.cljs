@@ -65,6 +65,7 @@
     - tier-dot (reused in cascade-outcome + per-fx duration)"
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
+            [day8.re-frame2-causa.data-display.render :as data-display]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
@@ -383,6 +384,15 @@
                       :border-bottom (str "1px solid " (:border-subtle tokens))
                       :font-family   sans-stack
                       :font-size     "13px"}}
+     ;; spec/021 §17.1.5 — Event panel header icon: ⚡ in
+     ;; :accent-violet. Renders to the LEFT of the lifecycle status
+     ;; dot.
+     [:span {:data-testid "rf-causa-event-detail-panel-icon"
+             :aria-hidden "true"
+             :style {:color (:accent-violet tokens)
+                     :font-weight 600
+                     :font-size "14px"}}
+      "⚡"]
      ;; rf2-b76v4 — leading lifecycle-status dot. Rides the canonical
      ;; vocabulary the L2 row + Trace panel also consume; one fn
      ;; drives the colour across the whole devtool.
@@ -617,10 +627,54 @@
 
 ;; ---- §5 HANDLER --------------------------------------------------------
 
+(defn handler-source-string
+  "Read the registered handler's source-form string from `(rf/handler-meta
+  :event event-id)`. Per spec/021 §11.2 the substrate stamps this via a
+  DEBUG-gated `goog.DEBUG`-elided macro under the `:rf.handler/source`
+  meta key (rf2-xgfuy in flight). Returns the source string when
+  present, otherwise nil. Pure fn; JVM-portable."
+  [meta]
+  (let [s (:rf.handler/source meta)]
+    (when (and (string? s) (seq s))
+      s)))
+
+(defn- handler-source-line
+  "Renders the `↳ source` block under the handler flavour+coord row.
+  Per spec/021 §2.2 the source string is the inline body of step 3 —
+  one-glance proof of the handler's intent. When the substrate meta
+  hasn't yet been captured (e.g. before rf2-xgfuy lands, or in a
+  production goog.DEBUG=false build) the row renders the
+  `<source not yet captured>` placeholder per the task brief."
+  [meta]
+  (let [src (handler-source-string meta)]
+    [:div {:data-testid "rf-causa-event-detail-handler-source"
+           :style {:margin-top "4px"
+                   :padding-left "16px"
+                   :font-family mono-stack
+                   :font-size   "12px"
+                   :white-space "pre"
+                   :overflow-x  "auto"
+                   :color       (if src
+                                  (:text-primary tokens)
+                                  (:text-tertiary tokens))}}
+     [:span {:data-testid "rf-causa-event-detail-handler-source-arrow"
+             :style {:color       (:text-tertiary tokens)
+                     :margin-right "6px"
+                     :font-size   "11px"}}
+      "↳ source"]
+     (if src
+       [:span {:data-testid "rf-causa-event-detail-handler-source-body"} src]
+       [:span {:data-testid "rf-causa-event-detail-handler-source-placeholder"
+               :style {:font-style "italic"}}
+        "<source not yet captured>"])]))
+
 (defn- handler-section
   "Renders the handler-meta read off `(rf/handler-meta :event id)`.
-  Per Q2: shows `reg-event-<kind>` flavour + source coord; does NOT
-  duplicate the event-id (already shown in §1)."
+  Per spec/021 §2.2 (step 3 HANDLER INVOKED) shows `reg-event-<kind>`
+  flavour + source coord; below that a `↳ source` line surfaces the
+  handler-form source string when the substrate captured it
+  (`:rf.handler/source` meta, DEBUG-gated · rf2-xgfuy). When absent the
+  source slot renders the `<source not yet captured>` placeholder."
   [event-id meta]
   (let [kind   (:event/kind meta)
         coord  (when (string? (:file meta))
@@ -634,26 +688,28 @@
     (section/section-row
       {:label "HANDLER"
        :testid "rf-causa-event-detail-section-handler"}
-      [:div {:style {:display "flex" :align-items "center"}}
-       [:span {:data-testid "rf-causa-event-detail-handler-flavour"
-               :style {:color (:cyan tokens)
-                       :font-weight 600
-                       :margin-right "8px"}}
-        flavour]
-       [:span {:style {:color (:text-tertiary tokens)
-                       :margin-right "8px"}}
-        "·"]
-       (if display
-         [:span {:data-testid "rf-causa-event-detail-handler-coord"
-                 :style {:color (:text-primary tokens)}}
-          display]
-         [:span {:data-testid "rf-causa-event-detail-handler-coord-absent"
-                 :style {:color (:text-tertiary tokens)
-                         :font-style "italic"}}
-          (if event-id
-            (str "no registration found for " (pr-str event-id))
-            "no handler registered")])
-       (coord-chip coord "rf-causa-event-detail-handler-open-chip")])))
+      [:div
+       [:div {:style {:display "flex" :align-items "center"}}
+        [:span {:data-testid "rf-causa-event-detail-handler-flavour"
+                :style {:color (:cyan tokens)
+                        :font-weight 600
+                        :margin-right "8px"}}
+         flavour]
+        [:span {:style {:color (:text-tertiary tokens)
+                        :margin-right "8px"}}
+         "·"]
+        (if display
+          [:span {:data-testid "rf-causa-event-detail-handler-coord"
+                  :style {:color (:text-primary tokens)}}
+           display]
+          [:span {:data-testid "rf-causa-event-detail-handler-coord-absent"
+                  :style {:color (:text-tertiary tokens)
+                          :font-style "italic"}}
+           (if event-id
+             (str "no registration found for " (pr-str event-id))
+             "no handler registered")])
+        (coord-chip coord "rf-causa-event-detail-handler-open-chip")]
+       (handler-source-line meta)])))
 
 ;; ---- §6 EFFECTS RETURNED -----------------------------------------------
 
@@ -1067,26 +1123,170 @@
    [:span {:style {:color (:red tokens) :font-weight 600}} "⚠"]
    " for the exception detail."])
 
-;; ---- the lens (replaces v1 cascade-detail) -----------------------------
+;; ---- §2 canonical step-pipeline chrome --------------------------------
+;;
+;; Per spec/021-Dynamic-Panel-Designs.md §2 the Event panel renders the
+;; handling perspective as a 6-step ONE-WAY PIPELINE with explicit
+;; `▼` arrows between steps. Each step's body remains an existing
+;; section (carrying its established testid + helpers); the chrome added
+;; here gives the visual rhythm the spec mandates — `[N] TITLE` headers
+;; + arrows. Stripe color is `:accent-violet` per §17.1.3.
+
+(defn- step-header
+  "Per spec/021 §2.2 — `[N] TITLE` label that precedes each step's body.
+  Renders the step number in `:accent-violet` 600-weight followed by the
+  uppercase title (12px, sans-stack, weight 500, letter-spacing 0.6px).
+  testid: `rf-causa-event-detail-step-<n>-header`."
+  [n title]
+  [:div {:data-testid (str "rf-causa-event-detail-step-" n "-header")
+         :style {:display       "flex"
+                 :align-items   "baseline"
+                 :gap           "8px"
+                 :padding       "8px 12px 4px 12px"
+                 :font-family   sans-stack
+                 :font-size     "12px"
+                 :font-weight   600
+                 :letter-spacing "0.6px"
+                 :text-transform "uppercase"}}
+   [:span {:style {:color (:accent-violet tokens)
+                   :font-family mono-stack
+                   :font-weight 700}}
+    (str "[" n "]")]
+   [:span {:style {:color (:text-secondary tokens)}}
+    title]])
+
+(defn- step-arrow
+  "Per spec/021 §2.2 — the `▼` arrow between adjacent pipeline steps.
+  Visually anchors the one-way flow; mirrors the ASCII mockup. testid:
+  `rf-causa-event-detail-step-arrow-<n>` where `n` is the FROM step."
+  [from-n]
+  [:div {:data-testid (str "rf-causa-event-detail-step-arrow-" from-n)
+         :aria-hidden "true"
+         :style {:padding-left "20px"
+                 :color        (:text-tertiary tokens)
+                 :font-family  mono-stack
+                 :font-size    "11px"
+                 :line-height  1}}
+   "▼"])
+
+;; ---- §2 Step 6 — :db + :fx (app-db diff via data-display) ------------
+
+(defn- db-fx-evicted?
+  "True when the focused epoch has aged out of the buffer — the
+  `:rf.causa/selected-epoch-record` sub returns nil but a non-nil
+  selection exists. Drives the data-display renderer's evicted-epoch
+  placeholder (§10.7)."
+  [selected-record selected-id]
+  (and (some? selected-id) (nil? selected-record)))
+
+(defn- db-fx-section
+  "§2 Step 6 — `:db + :fx`. Renders the app-db diff for the focused
+  epoch using the shared data-display renderer (`render-tree` with
+  `:diff? true` against the epoch's `:db-before` / `:db-after`
+  snapshots). The fx column is rendered alongside as a single line of
+  fx-ids that ran this epoch (a thin index into the §7 row detail).
+
+  Per spec/021 §2.2 this step closes the pipeline with the
+  `━━━ db now committed for epoch #N ━━━` rule.
+
+  Reads:
+    `:rf.causa/selected-epoch-record` — `{:epoch-id … :db-before …
+                                          :db-after …}` produced by
+                                          app_db_diff_subs/install!.
+
+  Per the spec §10 contract the renderer is configured with
+  `:diff? true` + `:default-depth 3` (App-db's setting) + a stable
+  `:render-id` so per-node expansion is sticky across re-renders."
+  [{:keys [dispatch-id] :as _cascade}]
+  (let [record       @(rf/subscribe [:rf.causa/selected-epoch-record])
+        epoch-id     (:epoch-id record)
+        db-before    (:db-before record)
+        db-after     (:db-after record)
+        evicted?     (db-fx-evicted? record dispatch-id)]
+    (section/section-row
+      {:label ":db + :fx"
+       :testid "rf-causa-event-detail-section-db-fx"}
+      [:div {:data-testid "rf-causa-event-detail-step-6-body"}
+       (if evicted?
+         [:div {:data-testid "rf-causa-event-detail-step-6-evicted"
+                :style {:padding "6px 0"
+                        :color (:text-tertiary tokens)
+                        :font-style "italic"
+                        :font-family sans-stack
+                        :font-size "12px"}}
+          "Epoch evicted from buffer — increase :epoch-history to retain more."]
+         [:div {:data-testid "rf-causa-event-detail-db-diff"
+                :style {:padding "4px 0"}}
+          (if (and (some? record) (or (some? db-before) (some? db-after)))
+            (data-display/render-tree
+              {:value         db-after
+               :before        db-before
+               :diff?         true
+               :panel-id      :event-db-fx
+               :render-id     (str "epoch-" (or epoch-id dispatch-id "x"))
+               :default-depth 3})
+            [:div {:data-testid "rf-causa-event-detail-step-6-empty"
+                   :style {:color (:text-tertiary tokens)
+                           :font-style "italic"
+                           :font-family sans-stack
+                           :font-size "12px"}}
+             "no app-db change this epoch"])
+          [:div {:data-testid "rf-causa-event-detail-step-6-committed"
+                 :style {:margin-top "6px"
+                         :padding-top "4px"
+                         :border-top (str "1px solid " (:border-subtle tokens))
+                         :color (:text-tertiary tokens)
+                         :font-family sans-stack
+                         :font-size "11px"
+                         :text-align "center"}}
+           (str "db now committed for epoch #"
+                (or epoch-id dispatch-id "?"))]])])))
+
+;; ---- the lens (canonical §2 6-step pipeline) ---------------------------
 
 (defn- event-lens
-  "Render the 8-section Event lens for a cascade. Replaces the v1
-  `cascade-detail` six-domino renderer per rf2-zh2qc; COEFFECTS slot
-  added in rf2-jhhqt + section order corrected to honour Mike's Q1
-  answer (DISPATCH SITE first, then EVENT); FLOWS slot added in
-  rf2-lo37i — peer section after EFFECTS HANDLERS RAN that surfaces
-  the framework's automatic-after-fx flow firings (Spec 013 cascade
-  step 4 — previously invisible to Causa).
+  "Render the canonical 6-step Event-panel pipeline for a cascade, per
+  spec/021-Dynamic-Panel-Designs.md §2 (merged in #1720; rebuilt under
+  rf2-zv9r9).
 
-  Order (top → bottom):
-    §1 DISPATCH SITE         where the dispatch happened (source coord)
-    §2 EVENT                 the dispatched event vector
-    §3 COEFFECTS             user-injected coeffects (silent when zero)
-    §4 INTERCEPTORS          non-standard chain (silent when zero)
-    §5 HANDLER               where the handler is defined (source coord)
-    §6 EFFECTS RETURNED      {:db ... :fx [...]} the handler returned
-    §7 EFFECTS HANDLERS RAN  per-fx-handler rows + managed-fx inline
-    §8 FLOWS                 auto-fired flow recomputes in cascade order"
+  Layout follows the §2.2 mockup verbatim — a one-way pipeline with
+  explicit `▼` arrows between steps. Stripe colour `:accent-violet`
+  applied at the outer container per §17.1.3.
+
+  Steps (top → bottom):
+    [1] DISPATCH          event-id + payload + :rf/dispatch-origin
+                          + call-site coord  (combines the prior
+                          DISPATCH SITE + EVENT sub-sections, which
+                          retain their testids for back-compat with
+                          existing tests that target the inner rows)
+    [2] COEFFECTS         user-injected coeffects map
+    [3] HANDLER           reg-event-<kind> + source coord
+                          + handler-source string (DEBUG-gated
+                          `:rf.handler/source` registry meta · placeholder
+                          when nil per rf2-xgfuy still in flight)
+    [4] EFFECTS RETURNED  {:db … :fx […]} the handler returned
+    [5] FLOWS             auto-fired flow recomputes in cascade order
+                          (Spec 013 cascade step 4 — flows run AFTER
+                          fx handlers)
+    [6] :db + :fx         inline diff of the epoch's :db-before/
+                          :db-after via the shared data-display
+                          renderer (rf2-jgip1 · spec/021 §10) +
+                          `db now committed for epoch #N` close rule
+
+  ## Diagnostic peers (silent-by-default)
+
+  INTERCEPTORS sits between [3] HANDLER and [4] EFFECTS RETURNED as a
+  silent-by-default diagnostic peer — present only when the handler
+  carries non-default interceptors. It is NOT one of the canonical 6
+  steps (spec/021 §2 dropped INTERCEPTORS from the pipeline; it was a
+  v0 artefact). Kept here as a non-counted peer until a follow-on bead
+  promotes it to a Trace-panel surface.
+
+  ## Handler-threw branch
+
+  When the cascade carries a handler exception ([4] / [5] / [6] are
+  suppressed — the handler never returned), the panel renders the
+  `handler-threw-footer` cross-reference to the Issues tab instead."
   [{:keys [dispatch-id frame event] :as cascade}]
   (let [event-id   (when (vector? event) (first event))
         meta       (when event-id (rf/handler-meta :event event-id))
@@ -1094,19 +1294,122 @@
         threw?     (has-handler-exception? cascade)]
     [:div {:data-testid "rf-causa-event-detail-cascade"
            :data-dispatch-id (str dispatch-id)
-           :data-frame (str frame)}
+           :data-frame (str frame)
+           ;; §17.1.3 — Event panel domain stripe is :accent-violet.
+           :style {:border-left  (str "3px solid " (:accent-violet tokens))}}
      (cascade-outcome-line cascade)
-     (dispatch-site-section cascade)
+
+     ;; [1] DISPATCH — event vector + origin + call-site. Two existing
+     ;; sub-sections (event-section + dispatch-site-section) compose
+     ;; into one §2 step; their testids stay so finer-grained tests
+     ;; continue to resolve.
+     (step-header 1 "DISPATCH")
      (event-section event)
-     (coeffects-section cascade)
-     (interceptors-section user-icpts)
+     (dispatch-site-section cascade)
+
+     (step-arrow 1)
+
+     ;; [2] COEFFECTS — silent-by-default; renders the step header
+     ;; regardless so the pipeline rhythm holds even when the body
+     ;; collapses to an "(empty)" line.
+     (step-header 2 "COEFFECTS")
+     (or (coeffects-section cascade)
+         [:div {:data-testid "rf-causa-event-detail-step-2-empty"
+                :style {:padding "2px 12px 6px 12px"
+                        :color (:text-tertiary tokens)
+                        :font-style "italic"
+                        :font-family sans-stack
+                        :font-size "11px"}}
+          "no user-injected coeffects"])
+
+     (step-arrow 2)
+
+     ;; [3] HANDLER — flavour + coord + source (rf2-xgfuy placeholder
+     ;; until the substrate stamp lands). INTERCEPTORS peer sits
+     ;; underneath as silent-by-default diagnostic (kept off the
+     ;; canonical step count per spec/021 §2).
+     (step-header 3 "HANDLER")
      (handler-section event-id meta)
-     (when-not threw?
-       (effects-returned-section cascade))
+     (interceptors-section user-icpts)
+
+     (step-arrow 3)
+
+     ;; [4] EFFECTS RETURNED — suppressed when the handler threw
+     ;; (no map ever returned).
+     (step-header 4 "EFFECTS RETURNED")
+     (cond
+       threw?
+       [:div {:data-testid "rf-causa-event-detail-step-4-suppressed"
+              :style {:padding "2px 12px 6px 12px"
+                      :color (:text-tertiary tokens)
+                      :font-style "italic"
+                      :font-family sans-stack
+                      :font-size "11px"}}
+        "handler threw — no effects returned"]
+
+       :else
+       (or (effects-returned-section cascade)
+           [:div {:data-testid "rf-causa-event-detail-step-4-empty"
+                  :style {:padding "2px 12px 6px 12px"
+                          :color (:text-tertiary tokens)
+                          :font-style "italic"
+                          :font-family sans-stack
+                          :font-size "11px"}}
+            "no :db or :fx returned"]))
+
+     ;; EFFECTS HANDLERS RAN — diagnostic peer under [4] (the §2
+     ;; pipeline collapses 'returned' + 'applied' into one step; this
+     ;; renders the per-fx-handler detail below the returned map for
+     ;; operators who want the row breakdown).
      (when-not threw?
        (effects-handlers-ran-section cascade))
-     (when-not threw?
-       (flows-section cascade))
+
+     (step-arrow 4)
+
+     ;; [5] FLOWS — Spec 013 step 4 (after fx handlers). Silent when
+     ;; the cascade fired no flows; renders the empty-state caption
+     ;; so the pipeline rhythm holds.
+     (step-header 5 "FLOWS")
+     (cond
+       threw?
+       [:div {:data-testid "rf-causa-event-detail-step-5-suppressed"
+              :style {:padding "2px 12px 6px 12px"
+                      :color (:text-tertiary tokens)
+                      :font-style "italic"
+                      :font-family sans-stack
+                      :font-size "11px"}}
+        "handler threw — no flows fired"]
+
+       :else
+       (or (flows-section cascade)
+           [:div {:data-testid "rf-causa-event-detail-step-5-empty"
+                  :style {:padding "2px 12px 6px 12px"
+                          :color (:text-tertiary tokens)
+                          :font-style "italic"
+                          :font-family sans-stack
+                          :font-size "11px"}}
+            "no flow inputs changed"]))
+
+     (step-arrow 5)
+
+     ;; [6] :db + :fx — the final pipeline step. Inline app-db diff
+     ;; via the shared data-display renderer + `db now committed`
+     ;; close rule. Suppressed on the handler-threw branch (nothing
+     ;; was committed).
+     (step-header 6 ":db + :fx")
+     (cond
+       threw?
+       [:div {:data-testid "rf-causa-event-detail-step-6-suppressed"
+              :style {:padding "2px 12px 6px 12px"
+                      :color (:text-tertiary tokens)
+                      :font-style "italic"
+                      :font-family sans-stack
+                      :font-size "11px"}}
+        "handler threw — nothing committed to app-db"]
+
+       :else
+       (db-fx-section cascade))
+
      (when threw?
        (handler-threw-footer))]))
 
