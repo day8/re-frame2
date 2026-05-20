@@ -109,7 +109,17 @@
   `mcp-base/overflow.cljc/overflow-payload`). Every emit carries
   `:cap-tokens` + `:token-count` + `:tool` + `:hint` plus the `:limit
   :reached` sentinel. Required-not-optional — an emit missing any of
-  these is a contract break, not a degenerate but tolerated marker."
+  these is a contract break, not a degenerate but tolerated marker.
+
+  Single-emitter today; the per-server name IS the canonical name.
+  Pinned cross-server as a re-frame2-pair-mcp-only shape; if a future
+  MCP server ships an `:rf.mcp/overflow` emit, the wrapper's body
+  slot below becomes `[:or ReFrame2PairOverflowBody PairXOverflowBody]`
+  rather than a one-arm canonical alias. (Same posture as
+  `ReFrame2PairProgressNotificationParams`.) Cap renames (`cap-tokens`
+  vs `cap_tokens`), field renames (`hint` vs `next-step`), or empty
+  bodies all trip the schema. Per rf2-kn8cj (refactor-audit r2 of
+  rf2-azk9c §F-VOCAB-2)."
   [:map
    {:closed false}
    [:limit       [:enum :reached]]
@@ -118,31 +128,9 @@
    [:token-count :int]
    [:hint        [:or :string :keyword]]])
 
-(def OverflowBody
-  "`{:rf.mcp/overflow {...}}` body — the token-budget overflow marker.
-
-  Per re-frame2-pair-mcp `mcp-base/overflow.cljc/overflow-payload`. The shape
-  pins required fields:
-
-  - **re-frame2-pair-mcp shape:** `:limit :reached` + `:cap-tokens` +
-    `:token-count` + `:tool` + `:hint`. Hyphen-separated child names;
-    `:cap-tokens` is the cap, `:token-count` is the over-budget count.
-
-  An emit shaped as `{:rf.mcp/overflow {:limit :reached}}` alone is
-  NOT conformant — every required field MUST be present. Cap renames
-  (`cap-tokens` vs `cap_tokens`), field renames (`hint` vs `next-step`),
-  or empty bodies all trip the schema. Per rf2-kn8cj (refactor-audit r2
-  of rf2-azk9c §F-VOCAB-2).
-
-  When a second MCP server (re-)adopts the cross-MCP overflow shape
-  with a different field name set, extend this as `[:or Pair2Body
-  OtherBody]` (the historical pattern from when causa-mcp was an MCP
-  server, dropped in rf2-bu21t)."
-  ReFrame2PairOverflowBody)
-
 (def Overflow
-  "`{:rf.mcp/overflow OverflowBody}` — the wrapper shape."
-  [:map [:rf.mcp/overflow OverflowBody]])
+  "`{:rf.mcp/overflow ReFrame2PairOverflowBody}` — the wrapper shape."
+  [:map [:rf.mcp/overflow ReFrame2PairOverflowBody]])
 
 (def SummaryBody
   "`{:rf.mcp/summary {...}}` body — the lazy tree-summary marker.
@@ -297,7 +285,7 @@
   Pinned cross-server today as a re-frame2-pair-mcp-only shape; if a future
   MCP server ships a `subscribe`/`unsubscribe` pair (per NAMING.md),
   its emit MUST satisfy this schema or extend it as a `[:or ...]`
-  (same posture as OverflowBody)."
+  (same posture as `ReFrame2PairOverflowBody`)."
   [:map
    {:closed false}
    [:progressToken :any]                          ;; opaque per MCP spec
@@ -552,12 +540,13 @@
 
 (deftest overflow-empty-body-is-rejected
   ;; rf2-kn8cj (refactor-audit r2 of rf2-azk9c §F-VOCAB-2): the previous
-  ;; `OverflowBody` schema marked every slot except `:limit` `{:optional
-  ;; true}`, so an emit shaped as `{:rf.mcp/overflow {:limit :reached}}`
-  ;; alone validated. That under-constrained the cross-server contract:
-  ;; an emit MUST carry re-frame2-pair-mcp's shape (`:cap-tokens` + `:token-count`
-  ;; + `:tool` + `:hint`). The schema now requires every field; this
-  ;; gate pins the regression directly.
+  ;; `ReFrame2PairOverflowBody` schema marked every slot except `:limit`
+  ;; `{:optional true}`, so an emit shaped as
+  ;; `{:rf.mcp/overflow {:limit :reached}}` alone validated. That
+  ;; under-constrained the cross-server contract: an emit MUST carry
+  ;; re-frame2-pair-mcp's shape (`:cap-tokens` + `:token-count` + `:tool` +
+  ;; `:hint`). The schema now requires every field; this gate pins the
+  ;; regression directly.
   (testing "empty body (only :limit :reached) fails validation"
     (is (not (m/validate Overflow {:rf.mcp/overflow {:limit :reached}}))
         "Overflow schema must reject an emit with only :limit :reached — the re-frame2-pair shape requires more fields."))
@@ -758,7 +747,7 @@
                "form is " (marker-key->literal key))))))
 
 ;; ---------------------------------------------------------------------------
-;; JS-vs-Malli `OverflowBody` cross-encoding sanity (rf2-0zqox).
+;; JS-vs-Malli `ReFrame2PairOverflowBody` cross-encoding sanity (rf2-0zqox).
 ;;
 ;; `test/live-re-frame2-pair-overflow.cjs` hand-rolls `assertOverflowBody` as a JS
 ;; re-encoding of `ReFrame2PairOverflowBody`. The two encodings must agree on
@@ -1234,7 +1223,7 @@
 ;;   - `live-re-frame2-pair-overflow.cjs` only exercised `eval-cljs`.
 ;;   - No test observed a real `notifications/progress` frame.
 ;;
-;; The pin shape mirrors the OverflowBody cross-encoding posture above:
+;; The pin shape mirrors the ReFrame2PairOverflowBody cross-encoding posture above:
 ;;
 ;;   1. fixture validates against `ReFrame2PairProgressNotificationParams`.
 ;;   2. literal `"notifications/progress"` appears in re-frame2-pair-mcp's emit
@@ -1323,15 +1312,15 @@
 
 (def ^:private live-re-frame2-pair-subscribe-js-rel
   "Relative path to the hand-rolled JS `notifications/progress`
-  assertion. Mirrors `live-re-frame2-pair-overflow-js-rel` for the OverflowBody
-  cross-encoding gate."
+  assertion. Mirrors `live-re-frame2-pair-overflow-js-rel` for the
+  ReFrame2PairOverflowBody cross-encoding gate."
   "tools/mcp-conformance/test/live-re-frame2-pair-subscribe.cjs")
 
 (def ^:private re-frame2-pair-progress-js-required-grep-markers
   "Substrings the JS `assertProgressParams` MUST contain to pin every
   required field on `ReFrame2PairProgressNotificationParams`. Each entry is
   `[malli-path js-substring]` — the path for error reporting, the
-  substring as the grep target. Mirrors the OverflowBody table above:
+  substring as the grep target. Mirrors the ReFrame2PairOverflowBody table above:
   a field added to the Malli schema MUST add a row here; a field
   removed MUST remove a row."
   [[":progressToken"
@@ -1353,7 +1342,7 @@
 
 (deftest js-assertProgressParams-pins-every-re-frame2-pair-progress-required-field
   ;; Cross-encoding sanity gate (rf2-i3ffz F-GAP-1, mirrors rf2-0zqox
-  ;; for OverflowBody). For every required field on the Malli
+  ;; for ReFrame2PairOverflowBody). For every required field on the Malli
   ;; `ReFrame2PairProgressNotificationParams` schema, the JS
   ;; `assertProgressParams` function MUST carry a substring that
   ;; asserts the same shape. Missing fields trip this gate with the

@@ -69,7 +69,7 @@ on the server side surfaces as an SDK parse-error.
   under a real over-budget eval. **Gated on `$SHADOW_CLJS_NREPL_PORT`**:
   unset = clean SKIP (degraded mode can't trip the cap naturally),
   set = full live-runtime cap-trigger conformance against the
-  canonical `OverflowBody` schema pinned by `wire-vocab/`.
+  canonical `ReFrame2PairOverflowBody` schema pinned by `wire-vocab/`.
 - `test/live-re-frame2-pair-subscribe.cjs` — re-frame2-pair-mcp **live**-runtime variant
   (rf2-zb5z6) that exercises the `notifications/progress` streaming
   wire surface. Subscribes to `:trace`, dispatches a known event,
@@ -137,8 +137,8 @@ SKIP. When attached:
 3. SDK's `CallToolResultSchema` accepts the envelope; `isError` is
    `false` (overflow is a signal, not an error).
 4. Response text carries `:rf.mcp/overflow`.
-5. Marker body validates against canonical `OverflowBody` schema
-   pinned by `wire-vocab/`: `:limit :reached`, integer `:cap-tokens`
+5. Marker body validates against canonical `ReFrame2PairOverflowBody`
+   schema pinned by `wire-vocab/`: `:limit :reached`, integer `:cap-tokens`
    and `:token-count` with `:token-count > :cap-tokens`, string
    `:tool` and `:hint`.
 6. Pin per-tool facts: `:cap-tokens = 5000` (default), `:tool =

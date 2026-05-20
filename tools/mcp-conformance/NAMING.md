@@ -77,7 +77,12 @@ the post-rename state — pair-mcp's two former deviations
 follow-on C5). The convention is the lock for **any future extension**
 to re-frame2-pair-mcp / story-mcp.
 
-### re-frame2-pair-mcp (14 tools)
+### re-frame2-pair-mcp
+
+(Live tool count: see
+[`tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md`](../re-frame2-pair-mcp/spec/003-Tool-Catalogue.md)
+— the canonical count site per §"Single source of truth for tool
+counts" below.)
 
 | Tool | Verb shape | Notes |
 |---|---|---|
@@ -95,7 +100,12 @@ to re-frame2-pair-mcp / story-mcp.
 | `list-handlers` | `list-` | Conformant — renamed from `registry-list` per rf2-4y595 (NAMING.md follow-on). The `<noun>-list` suffix was flagged as rejected in §"What's NOT a locked verb" above; `list-<things>` prefix is the catalogued shape. The runtime's `(rf/registry-list kind)` accessor keeps its name (separate naming surface). Added by rf2-pctf8. |
 | `get-re-frame2-pair-instructions` | `get-` | Conformant — single-record read of the agent-onboarding instructions blob (rf2-fnpqg). Mirrors story-mcp's `get-story-instructions`. |
 
-### Story-mcp (19 tools)
+### Story-mcp
+
+(Live tool count: see
+[`tools/story-mcp/spec/002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md)
+— the canonical count site per §"Single source of truth for tool
+counts" below.)
 
 | Tool | Verb shape | Notes |
 |---|---|---|
@@ -150,11 +160,13 @@ The convention for per-server tool-catalogue docs:
   it or convert it to a count-free link. The cross-MCP audit walks the
   triplet once per release looking for the pattern; until that audit is
   automated, the discipline lives here.
-- **`Server alignment today` (above)** carries explicit counts because the
-  audit table is the canonical comparison — those counts WILL drift unless
-  this NAMING.md is itself updated when the catalogues are. The table's
-  counts are pinned **to this doc's last audit pass**, not asserted as
-  always-current; the catalogue is always the live source.
+- **`Server alignment today` (above) carries no integer counts in its
+  headings.** Per-server subsections link to the catalogue for the live
+  count rather than pinning an integer that would silently age past the
+  next add/remove. The audit table itself enumerates the verb-conformance
+  judgement for each tool by name — a tool added after this doc's last
+  audit pass simply isn't in the table yet, which is the correct signal
+  ("re-audit needed") rather than a contradicted count.
 
 This is the same single-source-of-truth principle that governs the verb
 table above — the table is the lock, the per-server catalogues are the
@@ -181,6 +193,45 @@ markers (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`,
 `:rf.mcp/diff-from`, `:rf.mcp/cache-hit`, `:rf.size/large-elided`,
 `:rf.elision/at`) — see [`wire-vocab/README.md`](./wire-vocab/README.md)
 for the shape contract and the conformance gate.
+
+### JSON-RPC error codes
+
+Underneath the `:reason` keyword layer above sits the **JSON-RPC 2.0
+numeric error-code** layer — the codes the SDK / framework return
+when a request is malformed at the protocol level rather than failing
+in tool-result space. Per JSON-RPC §5.1 and MCP's reuse, the same
+numeric codes apply across the triplet; the canonical home for every
+code constant is
+[`tools/mcp-base/src/re_frame/mcp_base/vocab.cljc`](../mcp-base/src/re_frame/mcp_base/vocab.cljc)
+(see the `code-*` defs).
+
+The conformance contract pins:
+
+- **`-32601 MethodNotFound`** — the canonical code for an unknown
+  JSON-RPC method. Pinned by `mcp-base/vocab.cljc/code-method-not-found`.
+  Every server in the triplet MUST yield this code for an unrecognised
+  method name; the conformance harness asserts the exact value (see
+  `tools/mcp-conformance/test/_runner.cjs/assertJsonRpcErrorCodes`).
+- **`-32602 InvalidParams` / `-32603 InternalError`** — both are
+  conformant today for a malformed `tools/call` request (e.g. one
+  missing the `:name` slot). JSON-RPC §5.1's plain reading says
+  `-32602`; the npm MCP SDK in practice wraps the underlying zod
+  parse failure as `-32603`. Both are pinned by `mcp-base/vocab.cljc`
+  (`code-invalid-params` / `code-internal-error`). The conformance
+  gate accepts the **union** — either code passes
+  `assertJsonRpcErrorCodes` — so an SDK tightening that flips the
+  emit from one to the other does not break the contract. A future
+  bead may collapse to a single code if upstream converges; until
+  then the union is the locked surface.
+
+Note the relationship to MCP tool-result errors: tool-execution
+failures (a `dispatch` that throws, a `run-variant` that asserts) do
+NOT use these JSON-RPC codes. They surface via the MCP tool-result
+shape (`isError: true` plus the `:reason` keyword vocabulary above)
+so the agent host can present the failure to the LLM without
+aborting the conversation. JSON-RPC codes are reserved for
+protocol-level failures the SDK detects before (or instead of)
+dispatching a tool.
 
 ## How to extend this table
 

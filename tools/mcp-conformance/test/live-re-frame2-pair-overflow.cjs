@@ -267,7 +267,7 @@ runWithWatchdog(
     console.log('OK   response text carries :rf.mcp/overflow marker key');
 
     // 5. Schema-validate the marker body against the canonical
-    // OverflowBody shape pinned by wire-vocab. This is the
+    // ReFrame2PairOverflowBody shape pinned by wire-vocab. This is the
     // cross-server vocabulary assertion: re-frame2-pair-mcp's wire emission
     // MUST satisfy the same shape as the wire-vocab fixture.
     const body = parseOverflowMarker(text);
@@ -279,7 +279,7 @@ runWithWatchdog(
       );
     }
     assertOverflowBody(body, 'eval-cljs live overflow');
-    console.log('OK   marker body validates against canonical OverflowBody schema');
+    console.log('OK   marker body validates against canonical ReFrame2PairOverflowBody schema');
 
     // 6. Pin the load-bearing semantic facts about the marker:
     //   - :cap-tokens MUST equal the documented default (5000).
