@@ -5,6 +5,36 @@
 > cross-links to the capability doc where the contract is spelled
 > out in full.
 
+## Facade re-export discipline
+
+`re-frame.story` is the **user-callable facade** for Story. The
+re-export rule is:
+
+- **User-callable surfaces re-export.** The registration macros + their
+  `*`-fn partners, the run/reset/watch/destroy lifecycle, the registry
+  query family, the assertion + recorder facades, the canonical
+  vocabulary tables, `configure!`, the `*-id` Vars for built-in
+  decorators, the shell-mount surface (CLJS-only), `variant-share-url`,
+  and `reg-marks` (privacy primitive re-export per
+  [Conventions §Privacy primitive — `reg-marks` re-export](Conventions.md#privacy-primitive--reg-marks-re-export))
+  all sit on the facade.
+- **Chrome internals + theme tokens require sub-ns access.** Theme
+  tokens (`re-frame.story.theme.*`), the chrome-host surface
+  (`re-frame.story.ui.causa-embed/*`, `re-frame.story.causa-preset/*`,
+  `re-frame.story.ui.keybindings/*`), the URL-state engine
+  (`re-frame.story.ui.url-state/*`), and the schema-validation panel
+  installer all require a direct `:require` of the sub-namespace. They
+  are public but called from the chrome itself, the shell bootstrap, or
+  the Causa preset — not from user story bodies.
+
+The split mirrors `re-frame.core`'s practice: the facade carries the
+ergonomic surface; sub-namespace requires are the discoverability
+signal that a surface is chrome-internal even when public. The rule is
+de-facto in the code today; this paragraph names it so authors writing
+to `re-frame.story` know which side of the line a given surface lives
+on (rf2-u3e4q follow-on, [`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
+Finding #6).
+
 ## Registration macros
 
 All under `re-frame.story`. All DCE under `:advanced` (see
@@ -79,6 +109,39 @@ public; their unsuffixed macro counterparts cover authored cases.
 | `unregister!` | `(unregister! kind id)` | Remove a registration. |
 | `clear-kind!` | `(clear-kind! kind)` | Remove all of a kind. |
 | `clear-all!` | `(clear-all!)` | Reset Story state entirely. |
+
+## Recorder facade
+
+The recorder captures canvas-dispatched events into a `:play` body for
+codegen back into a `reg-variant` snippet. The facade exposes six
+entries on `re-frame.story` (per spec/005 §Recorder + [001-Authoring.md](001-Authoring.md)
+§Recorder); the rich `:play-script` translator lives under the
+recorder's sub-namespace.
+
+| Fn | Signature | Purpose |
+|---|---|---|
+| `start-recording!` | `(start-recording! variant-id)` | Begin recording dispatched events against `variant-id`'s frame. |
+| `stop-recording!` | `(stop-recording!)` | Stop the in-flight recording; return the captured events. |
+| `clear-recording!` | `(clear-recording!)` | Drop the buffer + return the recorder to idle. |
+| `recording?` | `(recording?)` | Predicate — is a recording in flight? |
+| `recorder-state` | `(recorder-state)` | Read-only view of the current recorder state map. |
+| `gen-play-snippet` | `(gen-play-snippet events opts)` | Pure codegen: render a captured `events` vector as a `(reg-variant <id> {... :play [...]})` EDN snippet. Produces the **legacy `:play` body** (vector of event vectors). See [005-SOTA-Features.md](005-SOTA-Features.md) §Recorder for the round-trip contract. |
+
+### `:play-script` export — out of facade
+
+The richer `:play-script` DSL (tagged `:click` / `:type` / `:wait` /
+`:assert` steps, derived from the recorder's `:entries` capture
+stream — rf2-d5u89 / rf2-8i2a9) is exported by **`re-frame.story.recorder.play-export`**
+(sub-namespace; not re-exported through `re-frame.story`). The entry
+fns are `recording->play-script` (translate captured events / entries
+into the normalised `:play-script` body map) and `render-play-script`
+/ `render-variant-form` (render the map to EDN). The translator is
+**experimental / v2-staging** — usable today, but the facade exposes
+only `gen-play-snippet` (the legacy `:play` body) as the canonical v1
+codegen entry. Consumers wanting the rich DSL `:require` the
+sub-namespace directly (rf2-hbfko follow-on,
+[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
+Finding #10).
 
 ## Effects (fx) registered by Story
 
@@ -182,6 +245,30 @@ Finding #3):
 | `keybindings/bindings` | `re-frame.story.ui.keybindings` | Pure data table | `pure-data-for-help` | The canonical `{key → handler}` table for the chrome-visibility hotkeys (`f` / `s` / `a` / `t`). Public so the help overlay's cheat-sheet section and the `015-Test-Coverage.md` matrix row can both walk the table. See [`014-Chrome-Features.md`](014-Chrome-Features.md) §Chrome-visibility hotkeys. |
 | `keybindings/shortcut-keys` | `re-frame.story.ui.keybindings` | Pure data → data | `pure-data-for-help` | Pure data → data: the sorted list of bound keys. Consumed by the first-visit help overlay so the rendered shortcut table stays in lockstep with the registry. |
 | `keybindings/install!` / `keybindings/uninstall!` | `re-frame.story.ui.keybindings` | Installer pair (canonical shape) | `chrome-shell` | Install / teardown the single `window#keydown` capture-phase listener that backs the hotkey registry. Idempotent; no listener leak across re-mounts. Production builds with `re-frame.story.config/enabled?` false never install. The pair follows the canonical chrome-installer shape per [Conventions §Chrome-installer pair shape](Conventions.md#chrome-installer-pair-shape). |
+
+## URL surfaces
+
+Story carries **three** URL surfaces, each with distinct rules. Only
+the share-URL builder sits on the facade; the other two are
+chrome-internal (per the [facade re-export
+discipline](#facade-re-export-discipline) above). They are documented
+together as a cluster so authors generating share / address-bar / embed
+code can see the three axes at a glance (rf2-zex19 follow-on,
+[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
+Finding #9):
+
+| Surface | Lives in | Source of truth | Persistence | Encodes | Consumer |
+|---|---|---|---|---|---|
+| `variant-share-url` | `re-frame.story` (facade) / `re-frame.story.share` | The arguments passed in (variant-id + active modes + cell-overrides + substrate) | URL only — share popover copies the URL | Variant id, active modes, cell-overrides, substrate | Share popover; pasted into chat / docs / bug reports. Variant-scoped, includes cell-overrides. |
+| `url-from-state` (+ `params-from-state`) | `re-frame.story.ui.url-state` (sub-ns) | The live shell state (selected workspace, mode tab, viewport, background, tag filter) | URL + localStorage round-trip (see [`014-Chrome-Features.md`](014-Chrome-Features.md) §URL state) | Chrome-scoped state — no cell-overrides | Address bar; the chrome's own URL during interactive use. |
+| `embed-flag-from-current-url` (+ `hydrate-embed-flag!`) | `re-frame.story.ui.url-state` (sub-ns) | The current page URL's `?embed=1` query string | URL only — never persisted to localStorage; one-shot at shell mount | The `:embed?` chrome-state flag (boolean) | The embed-mode flag (rf2-pucku). Hydrated once at mount, then ignored on subsequent navigations. |
+
+The cluster gives the user three different "URLs from one shell":
+the **share** URL (variant-scoped, includes cell-overrides),
+the **address-bar** URL (chrome-scoped, no cell-overrides), and
+the **embed flag** (chrome-state, URL-only, one-shot). A reader
+generating URL-handling code consults this table to find the right
+axis before reaching into the implementation.
 
 ## Configuration
 

@@ -365,3 +365,81 @@ Every browser failure in the full feature-load gate should include:
 
 If a gate cannot provide these diagnostics, its status should remain
 Partial even if it exercises the happy path.
+
+## Browser assert-helper inventory (bi-directional cross-reference)
+
+The `tools/story/test/story_feature_load.cjs` gate carries ~30 JS
+`assert*` helper fns that exercise user contracts in the running
+browser. The `COVERAGE_MATRIX` table inside the JS file (per the
+[Coverage Status Vocabulary §row-level binding rule](#coverage-status-vocabulary))
+binds each matrix row to its probe; this section provides the inverse
+mapping — given an `assert*` fn, which spec section + matrix row does
+it exercise? — so a reader hunting "where is the user-contract for
+feature X" can pivot through either axis (rf2-w3apf follow-on,
+[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
+Finding #11).
+
+The bi-directional cross-reference exists in code (every helper has a
+matching matrix row above, and many matrix rows above name the helper
+directly in their "Direct exercise path" cell); this section names the
+rule explicitly so a contributor adding a new helper or matrix row
+keeps the two in lockstep.
+
+### Rule
+
+- **Every `assert*` helper in `story_feature_load.cjs` binds to one or
+  more matrix rows above.** The matrix row's "Direct exercise path" or
+  "Owning command/gate" cell SHOULD name the helper. The helper's
+  surrounding comment block SHOULD name the matrix-row feature it
+  exercises.
+- **Adding a new helper requires either (a) extending a matrix row's
+  exercise-path cell to name it, or (b) adding a new matrix row + a
+  `COVERAGE_MATRIX` entry that points at the helper.** The
+  `validateCoverageMatrix()` runtime check in the JS file enforces the
+  forward direction (every `COVERAGE_MATRIX` row resolves to a probe
+  fn); the inverse — every helper resolves to a matrix row — is
+  enforced by spec discipline, not code.
+- **Helpers that exercise multiple matrix rows MAY appear in multiple
+  exercise-path cells.** The wide matrix's "Direct exercise path" cell
+  is the authoritative cross-reference for which spec rows a helper
+  binds to.
+
+### Cross-reference index
+
+| Helper | Matrix row(s) bound | Spec section(s) |
+|---|---|---|
+| `assertHealthyLoaded` | Render shell mount/unmount; Canonical vocabulary install (smoke prelude) | [003](003-Render-Shell.md) §Shell lifecycle |
+| `assertMainContains` / `assertMainNotContains` / `assertAsideContains` | Generic DOM helpers — bound to whichever row's probe calls them (e.g. `reg-story`, `reg-decorator composition`) | n/a — generic primitives |
+| `assertMatrixVariant` | `reg-variant`; `reg-decorator composition` | [001](001-Authoring.md) §reg-variant |
+| `assertWorkspaceLayouts` | `reg-workspace` layouts | [001](001-Authoring.md) §reg-workspace + [003](003-Render-Shell.md) §Workspace dispatch |
+| `assertSidebarFilters` | `reg-tag` and sidebar filters | [014](014-Chrome-Features.md) §Sidebar tag-as-badge |
+| `assertSidebarTagBadges` | Sidebar tag-as-badge | [014](014-Chrome-Features.md) §Sidebar tag-as-badge |
+| `assertSidebarNavigationSelectsEveryRow` | Sidebar navigation | [003](003-Render-Shell.md) §Sidebar |
+| `assertArgsPrecedence` | Args precedence | [002](002-Runtime.md) §Args resolution precedence |
+| `assertNestedControls` | Controls nested widgets | [001](001-Authoring.md) §`:argtypes` |
+| `assertSchemaInvalid` | Schema/args validation panel | [014](014-Chrome-Features.md) §Schema-validation panel |
+| `assertIsolationPair` | Per-variant frame allocation | [002](002-Runtime.md) §Per-variant frame allocation |
+| `assertLoaderLifecyclePhases` | Lifecycle phases | [002](002-Runtime.md) §Four-phase lifecycle |
+| `assertLoaderCompletion` / `assertLoaderSuccess` | Loader completion | [002](002-Runtime.md) §Phase 1 — Loaders |
+| `assertDiagnostics` / `assertDecoratorFailure` / `assertRenderFailure` / `assertFailureDetailIncludes` | Error projection | [002](002-Runtime.md) §Error projection |
+| `assertSnapshotIdentityStable` | Snapshot identity | [002](002-Runtime.md) §Snapshot-identity computation |
+| `assertCounterCore` | Composite — exercises canvas + sidebar + toolbar after burst | n/a — composite smoke |
+| `assertLoginStory` | Composite — login flow happy/error/retry | n/a — composite smoke |
+| `assertCommandPalette` | Command palette | [014](014-Chrome-Features.md) §Command palette |
+| `assertTestPaneStatus` | Test mode pane; Test watch mode | [009](009-Test-Mode.md) §Test pane |
+| `assertNoPlayEmptyState` | Test mode pane (empty state) | [009](009-Test-Mode.md) §Empty state |
+| `assertPlayStepDebugger` | Play step-debugger | [009](009-Test-Mode.md) §Step-debugger |
+| `assertTestWidgetRunAll` | Chrome test widget | [014](014-Chrome-Features.md) §Sidebar test widget |
+| `assertTestWatchToggle` | Test watch mode | [009](009-Test-Mode.md) §Watch mode |
+| `assertShareUrlIntegrity` | Share and QR | [005](005-SOTA-Features.md) §QR code in share menu + [URL surfaces](API.md#url-surfaces) |
+| `assertA11y` | A11y panel | [014](014-Chrome-Features.md) §A11y panel |
+| `assertToolbarRecorder` | Recorder / test codegen; Chrome-visibility hotkeys (recorder chip route) | [005](005-SOTA-Features.md) §Recorder |
+| `assertMultiSubstrate` | Multi-substrate rendering | [003](003-Render-Shell.md) §Multi-substrate |
+| `assertNoUnexpectedThirdPartyEgress` / `assertNoRecordedRequestMatching` | Third-party egress | [014](014-Chrome-Features.md) §Network egress |
+| `assertCoverageMatrix` / `assertFeatureSet` | Meta — drive every `COVERAGE_MATRIX` row through its probe in declared order | n/a — gate orchestrator |
+
+The index above is a contributor aid, not a re-spec — the authoritative
+binding is the matrix row above + the `COVERAGE_MATRIX` entry in the
+JS file. New helpers MUST be added to both axes (a matrix-row exercise
+path cell naming the helper AND a `COVERAGE_MATRIX` entry routing
+through it).
