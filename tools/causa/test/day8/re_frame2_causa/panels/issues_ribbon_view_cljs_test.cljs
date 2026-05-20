@@ -1,6 +1,6 @@
 (ns day8.re-frame2-causa.panels.issues-ribbon-view-cljs-test
-  "CLJS-side wiring + view tests for Causa's Issues ribbon panel
-  (Phase 5, rf2-d1p4o; view-test coverage filed under rf2-zvrbw).
+  "CLJS-side wiring + view tests for Causa's Issues panel
+  (rf2-jio48 rebuild; spec/021 §8).
 
   ## What's under test (in addition to the pure-data tests in
   `issues_ribbon_helpers_cljs_test.cljc`)
@@ -8,34 +8,34 @@
     1. **Registry wires the composite sub** under
        `:rf.causa/issues-ribbon` + every filter event.
 
-    2. **Render contract** — the section + header + chip rows + since
-       input + counts + data-testid wiring matches the production view
-       tree.
+    2. **Render contract** — the section + header + chip rows +
+       counts + data-testid wiring matches the production view tree.
 
-    3. **Empty states** — `:no-issues` (the desired state — All clear)
-       and `:no-matches` (filters hide everything) each render their
-       distinct container.
+    3. **Focused-epoch scope** (spec/021 §1.2 + §8) — when the spine
+       focuses an epoch the panel surfaces ONLY that epoch's
+       `:trace-events`; refocusing changes the rendered feed.
 
-    4. **Sub-driven rendering** — when issues are in the buffer the
-       panel renders one `<li>` per issue.
+    4. **Evicted-epoch placeholder** (spec/021 §10.7) — when focus
+       pins an `:epoch-id` no longer in `:epoch-history` the panel
+       paints the canonical placeholder block.
 
-    5. **Issue category pills** — every issue surfaces a category
-       prefix; the prefix chip-row only renders when at least one
-       prefix has issues.
+    5. **Empty states** — `:no-focus`, `:no-issues` (positive),
+       `:epoch-evicted` (placeholder), `:no-matches` (filters hide
+       everything) each render their distinct container.
 
-    6. **Severity filter** — `:rf.causa.issues/toggle-severity` adds/
+    6. **Sub-driven rendering** — when issues live in the focused
+       epoch the panel renders one `<li>` per issue.
+
+    7. **Severity filter** — `:rf.causa.issues/toggle-severity` adds/
        removes severities from the active set and the rendered rows
        narrow to match.
 
-    7. **Prefix filter** — `:rf.causa.issues/toggle-prefix` works the
+    8. **Prefix filter** — `:rf.causa.issues/toggle-prefix` works the
        same way for category prefixes.
 
-    8. **Since-ms filter** — `:rf.causa.issues/set-since-seconds`
-       sets/clears the time window.
-
-    9. **Row interactions** — clicking a row pivots to event-detail
-       when the dispatch-id is present; clicking the source chip
-       fires :open-in-editor and does NOT also pivot.
+    9. **Row interactions** — clicking a row pivots to event-detail;
+       clicking the source chip fires :open-in-editor and does NOT
+       also pivot.
 
    10. **Frame isolation** — the panel's filter state lives on
        `:rf/causa`, never on `:rf/default`.
@@ -54,53 +54,75 @@
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
-            [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- causa-init! []
-  (causa-test-support/reset-all!)
-  (trace-bus/clear-buffer!))
-
 (use-fixtures :each
   (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
-     :init-fn causa-init!}))
+     :init-fn causa-test-support/reset-all!}))
 
 ;; ---- hiccup walkers ----------------------------------------------------
 ;; Thin aliases over re-frame.test-helpers so the local call sites read
 ;; identically to before.
 
 (def ^:private find-by-testid           th/find-by-testid)
-(def ^:private find-all-by-testid-prefix th/find-by-testid-prefix)
 
 (defn- setup-causa-frame! []
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {}))
 
-(defn- push-trace! [ev]
-  ;; Per rf2-e9s81: `:rf.causa/trace-buffer` thunks the trace-bus
-  ;; atom; pushing via `collect-trace!` (the production path) lands
-  ;; the event in the atom and the next subscribe sees it.
-  (trace-bus/collect-trace! ev))
-
-;; Synthetic issue trace event.
+;; Synthetic issue trace event — `mk-issue` is the per-`:trace-events`
+;; shape (lives INSIDE an `:rf/epoch-record`). The panel scopes by
+;; epoch record, so issues are seeded by attaching them to a record's
+;; `:trace-events` slot — not pushed to the trace bus.
 (defn- mk-issue
-  [{:keys [id time op-type operation dispatch-id reason]
+  [{:keys [id time op-type operation reason]
     :or   {time 1000}}]
-  {:id        id
-   :time      time
-   :op-type   op-type
-   :operation operation
-   :tags      (cond-> {}
-                dispatch-id (assoc :dispatch-id dispatch-id)
-                reason      (assoc :reason reason))})
+  (cond-> {:id        id
+           :time      time
+           :op-type   op-type
+           :operation operation
+           :tags      (cond-> {}
+                        reason (assoc :reason reason))}))
+
+(defn- mk-epoch
+  "Build a minimal `:rf/epoch-record` shape carrying the supplied
+  `trace-events`. `dispatch-id` defaults to (10 + epoch-id) so the
+  spine resolver pairs the record with `:rf.causa/focus-cascade
+  <dispatch-id>` deterministically."
+  ([epoch-id trace-events]
+   (mk-epoch epoch-id (+ 10 epoch-id) trace-events))
+  ([epoch-id dispatch-id trace-events]
+   {:epoch-id      epoch-id
+    :dispatch-id   dispatch-id
+    :event-id      :test/event
+    :trigger-event [:test/event]
+    :db-before     {}
+    :db-after      {}
+    :renders       []
+    :sub-runs      []
+    :committed-at  (* 1000 epoch-id)
+    :trace-events  (vec trace-events)}))
+
+(defn- seed-history!
+  "Dispatch `:rf.causa/sync-epoch-history` to seed the per-frame ring
+  buffer. Must be called inside `(rf/with-frame :rf/causa ...)`."
+  [records]
+  (rf/dispatch-sync [:rf.causa/sync-epoch-history (vec records)]))
+
+(defn- focus!
+  "Pin focus to the cascade with the given `dispatch-id`. Per
+  `spine/focus-cascade-reducer` the spine resolves the matching
+  `:epoch-id` from `:epoch-history`."
+  [dispatch-id]
+  (rf/dispatch-sync [:rf.causa/focus-cascade dispatch-id nil]))
 
 ;; ---- (1) registry wiring ------------------------------------------------
 
-(deftest registry-installs-issues-ribbon-handlers
-  (testing "register-causa-handlers! installs the Phase 5 (rf2-d1p4o)
+(deftest registry-installs-issues-panel-handlers
+  (testing "register-causa-handlers! installs the rf2-jio48 rebuild's
             composite sub + every supporting event"
     (registry/register-causa-handlers!)
     (is (some? (registrar/handler :sub :rf.causa/issues-ribbon))
@@ -111,42 +133,40 @@
         ":rf.causa.issues/toggle-severity event registered")
     (is (some? (registrar/handler :event :rf.causa.issues/toggle-prefix))
         ":rf.causa.issues/toggle-prefix event registered")
-    (is (some? (registrar/handler :event :rf.causa.issues/set-since-seconds))
-        ":rf.causa.issues/set-since-seconds event registered")
     (is (some? (registrar/handler :event :rf.causa.issues/clear-filters))
         ":rf.causa.issues/clear-filters event registered")))
 
-(deftest issues-ribbon-defaults-to-no-issues
-  (testing "with no events the composite returns empty-kind :no-issues"
+(deftest legacy-since-ms-axis-is-gone
+  (testing "rf2-jio48 dropped the since-ms axis (focused-epoch scoping
+            makes it meaningless) — `:rf.causa.issues/set-since-seconds`
+            MUST NOT register"
+    (registry/register-causa-handlers!)
+    (is (nil? (registrar/handler :event :rf.causa.issues/set-since-seconds))
+        "since-seconds event NOT registered post-rebuild")))
+
+(deftest legacy-ungrouped-lane-sub-is-gone
+  (testing "rf2-jio48 dropped the `:ungrouped` lane (focused-epoch
+            scoping renders it redundant — L2 row badges per spec/021
+            §1.2 carry the cross-epoch navigation)"
+    (registry/register-causa-handlers!)
+    (is (nil? (registrar/handler :sub :rf.causa.issues/ungrouped))
+        ":ungrouped lane sub NOT registered post-rebuild")))
+
+;; ---- (2) defaults & render contract -----------------------------------
+
+(deftest issues-ribbon-no-focus-empty
+  (testing "with no focus + no history the composite returns
+            :empty-kind :no-focus"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
         (is (= [] (:issues data)))
         (is (= 0 (:total data)))
-        (is (= :no-issues (:empty-kind data)))))))
-
-(deftest issues-ribbon-filters-non-issue-events
-  (testing "success-path traces (`:op-type :event`, `:fx`, `:frame`,
-            `:sub/run`, `:view/render`) are NOT issues and never reach
-            the ribbon — only `:error / :warning / :info` do"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; Three non-issue events + two real issues.
-      (push-trace! (mk-issue {:id 1 :op-type :event :operation :event/dispatched}))
-      (push-trace! (mk-issue {:id 2 :op-type :fx    :operation :rf.fx/handled}))
-      (push-trace! (mk-issue {:id 3 :op-type :view  :operation :view/render}))
-      (push-trace! (mk-issue {:id 4 :op-type :error :operation :rf.error/handler-threw
-                              :dispatch-id 1 :reason "kaboom"}))
-      (push-trace! (mk-issue {:id 5 :op-type :warning :operation :rf.warning/recoverable
-                              :dispatch-id 1}))
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= 2 (:total data)) "only issues land on the ribbon")
-        (is (= #{4 5} (set (map :id (:issues data)))))))))
-
-;; ---- (2) render contract ------------------------------------------------
+        (is (= :no-focus (:empty-kind data)))
+        (is (nil? (:epoch-id data)))))))
 
 (deftest panel-container-renders
-  (testing "the panel renders its root container regardless of buffer state"
+  (testing "the panel renders its root container regardless of focus state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (let [tree (issues-ribbon/Panel)]
@@ -156,32 +176,80 @@
             "counts span in header present")
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chips"))
             "severity chip row present")
-        (is (some? (find-by-testid tree "rf-causa-issues-since-input"))
-            "since-ms input present")
         ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
         (is (some? (find-by-testid tree "rf-causa-issues-panel-icon"))
             "panel header icon (⚠ in :red) present")))))
 
+(deftest since-input-removed
+  (testing "rf2-jio48 dropped the since-ms axis — the since input MUST
+            NOT render in the header"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (is (nil? (find-by-testid (issues-ribbon/Panel)
+                                "rf-causa-issues-since-input"))
+          "since-ms input is gone post-rebuild"))))
+
 ;; ---- (3) empty states ---------------------------------------------------
 
-(deftest empty-state-no-issues-renders
-  (testing "with no issues the panel renders the :no-issues empty-state
-            (the 'All clear' positive-result branch)"
+(deftest empty-state-no-focus-renders
+  (testing "with no focused epoch the panel renders the :no-focus
+            empty-state — the cold-start surface"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (let [tree (issues-ribbon/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-issues-empty-no-focus"))
+            ":no-focus empty-state container present")
+        (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
+            "no feed list when no focus")))))
+
+(deftest empty-state-no-issues-renders
+  (testing "with a focused epoch carrying no issues the panel renders
+            the :no-issues empty-state (the 'No issues in this epoch.'
+            positive-state per spec/021 §8.2)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history! [(mk-epoch 1 11 [])])
+      (focus! 11)
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])
+            tree (issues-ribbon/Panel)]
+        (is (= :no-issues (:empty-kind data)))
         (is (some? (find-by-testid tree "rf-causa-issues-empty-no-issues"))
             ":no-issues empty-state container present")
         (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
-            "no feed list when buffer carries no issues")))))
+            "no feed list when focused epoch carries no issues")))))
 
-(deftest empty-state-no-matches-renders-when-filters-hide-all
-  (testing "with issues present but a filter that matches nothing the
-            panel renders the :no-matches empty-state with clear button"
+(deftest empty-state-epoch-evicted-renders
+  (testing "spec/021 §10.7 — when focus pins an :epoch-id no longer in
+            :epoch-history the panel paints the canonical evicted-epoch
+            placeholder"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw}))
+      ;; Seed history with epoch 1, then explicitly mutate the
+      ;; per-frame app-db focus to pin :epoch-id 999 (evicted).
+      (seed-history! [(mk-epoch 1 11 [])])
+      ;; Force the focus map onto an epoch-id that's not in history.
+      (rf/dispatch-sync
+        [:day8.re-frame2-causa.panels.issues-ribbon-view-cljs-test/seed-evicted-focus])
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])
+            tree (issues-ribbon/Panel)]
+        (is (= :epoch-evicted (:empty-kind data))
+            "composite signals :epoch-evicted when no record matches focus")
+        (is (some? (find-by-testid tree "rf-causa-issues-empty-epoch-evicted"))
+            "canonical placeholder container rendered")
+        (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
+            "no feed list when the focused epoch has been evicted")))))
+
+(deftest empty-state-no-matches-renders-when-filters-hide-all
+  (testing "with issues in the focused epoch but a chip filter that
+            matches nothing the panel renders the :no-matches empty-
+            state with clear-filters button"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})])])
+      (focus! 11)
       ;; Toggle in a severity the issue doesn't carry — filter excludes it.
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :advisory])
       (let [tree (issues-ribbon/Panel)]
@@ -194,17 +262,18 @@
 
 ;; ---- (4) sub-driven rendering -------------------------------------------
 
-(deftest feed-list-renders-when-issues-present
-  (testing "with issues in the buffer the panel renders the <ul> feed
-            with one <li> per issue"
+(deftest feed-list-renders-when-focused-epoch-has-issues
+  (testing "with issues in the focused epoch's :trace-events the panel
+            renders the <ul> feed with one <li> per issue"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 1}))
-      (push-trace! (mk-issue {:id 2 :op-type :warning
-                              :operation :rf.warning/missing
-                              :dispatch-id 1}))
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})
+                    (mk-issue {:id 2 :op-type :warning
+                               :operation :rf.warning/missing})])])
+      (focus! 11)
       (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-feed"))
             "feed <ul> present")
@@ -213,14 +282,34 @@
         (is (some? (find-by-testid tree "rf-causa-issues-row-2"))
             "row for issue id 2 present")))))
 
-;; ---- (5) issue category pills -------------------------------------------
+(deftest header-surfaces-focused-epoch-id
+  (testing "the header carries the focused epoch's id chip so the
+            operator sees which epoch is in view"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 42 142
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})])])
+      (focus! 142)
+      (let [tree (issues-ribbon/Panel)
+            chip (find-by-testid tree "rf-causa-issues-epoch-chip")]
+        (is (some? chip)
+            "epoch chip rendered when focus resolves")
+        (is (re-find #"#42" (last chip))
+            "chip surfaces the focused :epoch-id")))))
+
+;; ---- (5) per-row chrome ---------------------------------------------
 
 (deftest each-row-surfaces-severity-glyph-and-category
   (testing "every row surfaces the severity glyph + the category prefix"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 3 :op-type :error
-                              :operation :rf.error/handler-threw}))
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 3 :op-type :error
+                               :operation :rf.error/handler-threw})])])
+      (focus! 11)
       (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-row-3-time"))
             "row timestamp span present")
@@ -236,7 +325,6 @@
             severity-order — error / warning / advisory"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      ;; Push at least one issue so any-filter? is false initially.
       (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-error")))
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-warning")))
@@ -244,25 +332,26 @@
 
 (deftest prefix-chip-row-suppressed-when-no-issues
   (testing "the prefix chip-row only renders when at least one issue
-            carries a prefix — with an empty buffer the chip-row is
-            suppressed"
+            carries a prefix — with an empty focused epoch the chip-
+            row is suppressed"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      ;; No issues — prefix chip-row suppressed.
+      (seed-history! [(mk-epoch 1 11 [])])
+      (focus! 11)
       (is (nil? (find-by-testid (issues-ribbon/Panel)
                                 "rf-causa-issues-prefix-chips"))
-          "no prefix chip-row when buffer carries no issues"))))
+          "no prefix chip-row when focused epoch carries no issues"))))
 
 (deftest prefix-chip-row-renders-when-issues-have-prefixes
   (testing "with an issue carrying a category prefix the chip-row
-            renders the corresponding prefix chip. Seed the trace
-            buffer BEFORE the first subscribe — mirrors the production
-            sequencing where preload's trace-cb fires before any panel
-            mounts."
+            renders the corresponding prefix chip"
     (setup-causa-frame!)
-    (push-trace! (mk-issue {:id 1 :op-type :error
-                            :operation :rf.error/handler-threw}))
     (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})])])
+      (focus! 11)
       (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-prefix-chips"))
             "prefix chip-row renders once at least one prefix exists")
@@ -291,12 +380,15 @@
   (testing "an active severity filter cuts the row list down to matching rows"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw}))
-      (push-trace! (mk-issue {:id 2 :op-type :warning
-                              :operation :rf.warning/recoverable}))
-      (push-trace! (mk-issue {:id 3 :op-type :info
-                              :operation :rf.info/note}))
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})
+                    (mk-issue {:id 2 :op-type :warning
+                               :operation :rf.warning/recoverable})
+                    (mk-issue {:id 3 :op-type :info
+                               :operation :rf.info/note})])])
+      (focus! 11)
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :warning])
       (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
         (is (= 3 (:total data)))
@@ -321,51 +413,27 @@
   (testing "an active prefix filter cuts the row list down to matching prefixes"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw}))
-      (push-trace! (mk-issue {:id 2 :op-type :error
-                              :operation :rf.ssr/hydration-mismatch}))
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})
+                    (mk-issue {:id 2 :op-type :error
+                               :operation :rf.ssr/hydration-mismatch})])])
+      (focus! 11)
       (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.ssr"])
       (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
         (is (= 1 (:rendered data)))
         (is (= [2] (mapv :id (:issues data))))))))
-
-;; ---- (8) since-ms filter ------------------------------------------------
-
-(deftest set-since-seconds-converts-to-ms
-  (testing ":rf.causa.issues/set-since-seconds takes seconds and stores ms"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 30])
-      (is (= 30000 (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))
-          "30s stored as 30000ms")
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds nil])
-      (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))
-          "nil clears the axis")
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 0])
-      (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))
-          "0 / non-positive clears the axis"))))
-
-(deftest clear-issues-filters-drops-every-axis
-  (testing ":rf.causa.issues/clear-filters drops all three axes in one shot"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 60])
-      (rf/dispatch-sync [:rf.causa.issues/clear-filters])
-      (let [filters @(rf/subscribe [:rf.causa/issues-filters])]
-        (is (or (nil? (:severities filters)) (empty? (:severities filters))))
-        (is (or (nil? (:prefixes filters)) (empty? (:prefixes filters))))
-        (is (nil? (:since-ms filters)))))))
 
 (deftest clear-filters-button-renders-when-filter-active
   (testing "the header's Clear filters button surfaces iff at least one
             filter axis is active"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw}))
+      (seed-history!
+        [(mk-epoch 1 11 [(mk-issue {:id 1 :op-type :error
+                                    :operation :rf.error/handler-threw})])])
+      (focus! 11)
       (is (nil? (find-by-testid (issues-ribbon/Panel)
                                 "rf-causa-issues-clear-filters"))
           "no Clear filters button when no axis is active")
@@ -374,18 +442,87 @@
                                  "rf-causa-issues-clear-filters"))
           "Clear filters button surfaces once a severity is active"))))
 
-;; ---- (9) row interactions ------------------------------------------------
+;; ---- (8) focused-epoch scope (spec/021 §1.2 + §8) ---------------------
 
-(deftest row-click-pivots-to-event-tab-when-dispatch-id-present
-  (testing "clicking an issue row dispatches :rf.causa/select-dispatch-id
-            and :rf.causa/select-tab :event — same cross-panel pivot as
-            the other ribbons (rf2-qy0nu — the legacy :select-panel
-            slot is no longer read by the 4-layer shell)"
+(deftest issues-panel-scopes-to-focused-epoch
+  (testing "with two epochs in history the composite renders only
+            issues from the spine's focused epoch — strict focused-
+            epoch scope per spec/021 §1.2"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 4 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 99}))
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})
+                    (mk-issue {:id 2 :op-type :warning
+                               :operation :rf.warning/recoverable})])
+         (mk-epoch 2 12
+                   [(mk-issue {:id 3 :op-type :error
+                               :operation :rf.error/handler-threw})
+                    (mk-issue {:id 4 :op-type :warning
+                               :operation :rf.warning/recoverable})])])
+      ;; Pin the spine focus to epoch 1 (defaults to head = 2 in LIVE).
+      (focus! 11)
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= 2 (:total data))
+            "focused-epoch total reflects only the focused epoch")
+        (is (= #{1 2} (set (map :id (:issues data))))
+            "only issues from the focused epoch pass")))))
+
+(deftest issues-panel-rebinds-when-focus-changes
+  (testing "clicking a different L2 event re-renders the Issues panel
+            for the newly-focused epoch"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})])
+         (mk-epoch 2 12
+                   [(mk-issue {:id 2 :op-type :error
+                               :operation :rf.error/handler-threw})])])
+      ;; Initially focus epoch 1.
+      (focus! 11)
+      (let [data-a @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= [1] (mapv :id (:issues data-a)))))
+      ;; Pivot focus to epoch 2.
+      (focus! 12)
+      (let [data-b @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= [2] (mapv :id (:issues data-b))))))))
+
+(deftest issues-panel-focused-epoch-ands-with-chip-filters
+  (testing "user chip filters AND on top of focused-epoch scope —
+            both axes restrict the rendered feed"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 1 :op-type :error
+                               :operation :rf.error/handler-threw})
+                    (mk-issue {:id 2 :op-type :warning
+                               :operation :rf.warning/recoverable})])
+         (mk-epoch 2 12
+                   [(mk-issue {:id 3 :op-type :error
+                               :operation :rf.error/handler-threw})])])
+      (focus! 11)
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= 2 (:total data)) "focused-epoch scope: 2 in epoch 1")
+        (is (= 1 (:rendered data)) "severity chip narrows to 1")
+        (is (= [1] (mapv :id (:issues data))))))))
+
+;; ---- (9) row interactions ------------------------------------------------
+
+(deftest row-click-pivots-to-event-tab
+  (testing "clicking an issue row dispatches :rf.causa/select-tab :event
+            so the operator pivots to the Event panel for the cascade"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-issue {:id 4 :op-type :error
+                               :operation :rf.error/handler-threw})])])
+      (focus! 11)
       (let [dispatches (atom [])]
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
@@ -396,22 +533,21 @@
             (is (some? row) "row node present in rendered tree")
             (is (some? handler) "row carries an :on-click handler")
             (when handler (handler))))
-        (is (some #(= [:rf.causa/select-dispatch-id 99] %) @dispatches)
-            "select-dispatch-id fired with the issue's dispatch-id")
         (is (some #(= [:rf.causa/select-tab :event] %) @dispatches)
-            "select-tab fired to flip the visible tab")))))
+            "select-tab fired to flip the visible tab to Event")))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord chip fires :rf.causa/open-in-editor;
             stopPropagation prevents the row's pivot from also firing"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      ;; Push an issue whose :rf.trace/trigger-handler carries source-coord.
-      (push-trace! (-> (mk-issue {:id 8 :op-type :error
-                                  :operation :rf.error/handler-threw
-                                  :dispatch-id 1})
-                       (assoc :rf.trace/trigger-handler
-                              {:source-coord {:file "events.cljs" :line 17}})))
+      ;; Issue whose :rf.trace/trigger-handler carries source-coord.
+      (let [iss (-> (mk-issue {:id 8 :op-type :error
+                               :operation :rf.error/handler-threw})
+                    (assoc :rf.trace/trigger-handler
+                           {:source-coord {:file "events.cljs" :line 17}}))]
+        (seed-history! [(mk-epoch 1 11 [iss])]))
+      (focus! 11)
       (let [dispatches (atom [])
             stop-evt   (atom nil)]
         (with-redefs [rf/dispatch* (fn
@@ -432,219 +568,6 @@
         (is @stop-evt "stopPropagation was called so the row's pivot
                        handler doesn't also fire")))))
 
-;; ---- cascade scope (rf2-u6dhp) -----------------------------------------
-
-(deftest issues-ribbon-scopes-to-focused-event-cascade
-  (testing "with two cascades in the buffer the composite renders only
-            issues from the spine's focused cascade — strict cascade
-            scope per rf2-u6dhp"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; Two cascades worth of issues: dispatch-id 7 carries ids 1+2,
-      ;; dispatch-id 9 carries ids 3+4.
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 2 :op-type :warning
-                              :operation :rf.warning/recoverable
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 3 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 9}))
-      (push-trace! (mk-issue {:id 4 :op-type :warning
-                              :operation :rf.warning/recoverable
-                              :dispatch-id 9}))
-      ;; Pin the spine focus to cascade 7 (defaults to head = 9 in LIVE).
-      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= 2 (:total data))
-            "cascade-scoped total reflects only the focused cascade")
-        (is (= #{1 2} (set (map :id (:issues data))))
-            "only issues from the focused cascade pass")))))
-
-(deftest issues-ribbon-rebinds-when-focus-changes
-  (testing "clicking a different L2 event re-renders the Issues tab
-            for the newly-focused cascade"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 2 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 9}))
-      ;; Initially focus cascade 7.
-      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
-      (let [data-a @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= [1] (mapv :id (:issues data-a)))))
-      ;; Pivot focus to cascade 9 (L2-click equivalent).
-      (rf/dispatch-sync [:rf.causa/focus-cascade 9])
-      (let [data-b @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= [2] (mapv :id (:issues data-b))))))))
-
-(deftest issues-ribbon-cascade-scope-ands-with-chip-filters
-  (testing "user chip filters AND on top of cascade scope — both
-            axes restrict the rendered feed"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 2 :op-type :warning
-                              :operation :rf.warning/recoverable
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 3 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 9}))
-      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= 2 (:total data)) "cascade scope: 2 in cascade 7")
-        (is (= 1 (:rendered data)) "severity chip narrows to 1")
-        (is (= [1] (mapv :id (:issues data))))))))
-
-(deftest issues-ribbon-renders-no-issues-for-event-empty-state
-  (testing "when the buffer carries issues but the focused cascade
-            has none, the panel renders the :no-issues-for-event
-            empty state — distinct from :no-issues (global empty)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 7}))
-      ;; Focus a cascade that has no issues. We need this cascade to
-      ;; actually exist in the buffer for `compose-focus` to honour
-      ;; the pin — seed a benign trace event with dispatch-id 99.
-      (push-trace! {:id 99 :time 1000 :op-type :event
-                    :operation :event/dispatched
-                    :tags {:dispatch-id 99 :event [:noop]}})
-      (rf/dispatch-sync [:rf.causa/focus-cascade 99])
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])
-            tree (issues-ribbon/Panel)]
-        (is (= :no-issues-for-event (:empty-kind data)))
-        (is (= 0 (:total data)))
-        (is (some? (find-by-testid tree "rf-causa-issues-empty-no-issues-for-event"))
-            ":no-issues-for-event empty-state container present")
-        (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
-            "no feed list rendered when the focused cascade has no issues")))))
-
-;; ---- :ungrouped escape-hatch lane (rf2-2f40y) --------------------------
-
-(deftest registry-installs-ungrouped-sub
-  (testing "register-causa-handlers! installs the :ungrouped escape-
-            hatch sub (rf2-2f40y)"
-    (registry/register-causa-handlers!)
-    (is (some? (registrar/handler :sub :rf.causa.issues/ungrouped))
-        ":rf.causa.issues/ungrouped sub registered")))
-
-(deftest ungrouped-sub-filters-to-ungrouped-only
-  (testing ":rf.causa.issues/ungrouped surfaces only issues whose
-            :dispatch-id is the :ungrouped sentinel"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.ssr/hydration-mismatch}))
-      (push-trace! (mk-issue {:id 2 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 3 :op-type :warning
-                              :operation :rf.warning/recoverable}))
-      (let [data @(rf/subscribe [:rf.causa.issues/ungrouped])]
-        (is (= 2 (:total data))
-            "two issues lack :dispatch-id → :ungrouped sentinel")
-        (is (= #{1 3} (set (map :id (:issues data))))
-            "cascade-attached issue id 2 stays out of the lane")))))
-
-(deftest ungrouped-lane-renders-when-focus-has-no-issues-but-ungrouped-exists
-  (testing "the :ungrouped lane surfaces when the focused cascade has
-            no issues but :ungrouped issues exist — the navigation
-            escape hatch for issues emitted outside any dispatch.
-
-            Seed a real focusable cascade (so cascade scope engages)
-            with no issues, plus an :ungrouped issue — the production
-            scenario the bead describes (e.g. `verify-hydration!` firing
-            `:rf.ssr/hydration-mismatch` outside any dispatch while the
-            user is focused on a real cascade)."
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; Real focusable cascade with no issues — so the user lands on
-      ;; the `:no-issues-for-event` branch.
-      (push-trace! {:id 99 :time 1000 :op-type :event
-                    :operation :event/dispatched
-                    :tags {:dispatch-id 99 :event [:noop]}})
-      (rf/dispatch-sync [:rf.causa/focus-cascade 99])
-      ;; :ungrouped issue — the escape-hatch case.
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.ssr/hydration-mismatch}))
-      (let [tree (issues-ribbon/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
-            ":ungrouped lane container rendered")
-        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane-header"))
-            ":ungrouped lane header rendered")
-        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane-feed"))
-            ":ungrouped lane feed rendered")
-        ;; The issue row uses the same per-row chrome as the main feed.
-        (is (some? (find-by-testid tree "rf-causa-issues-row-1"))
-            "the :ungrouped issue renders with the shared row chrome")))))
-
-(deftest ungrouped-lane-hidden-when-focused-cascade-has-issues
-  (testing "when the focused cascade carries issues the :ungrouped lane
-            stays hidden — it doesn't compete with the user's current
-            lens. The focused-cascade feed is the user's surface; the
-            lane is only the escape-hatch fallback."
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; One in-cascade issue + one :ungrouped issue.
-      (push-trace! (mk-issue {:id 1 :op-type :error
-                              :operation :rf.error/handler-threw
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 2 :op-type :error
-                              :operation :rf.ssr/hydration-mismatch}))
-      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
-      (let [tree (issues-ribbon/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-issues-feed"))
-            "the cascade-scoped feed renders with focused-cascade issues")
-        (is (nil? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
-            ":ungrouped lane hidden while the focused cascade has issues")))))
-
-(deftest ungrouped-lane-hidden-when-no-ungrouped-issues
-  (testing "the :ungrouped lane stays hidden when no :ungrouped issues
-            exist — even when the focused cascade has no issues (the
-            'All clear' / 'No issues for this event' state)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; No :ungrouped issues; buffer is fully empty → :no-issues.
-      (let [tree (issues-ribbon/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-issues-empty-no-issues"))
-            "All-clear empty state present")
-        (is (nil? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
-            ":ungrouped lane hidden when no :ungrouped issues exist")))))
-
-(deftest ungrouped-lane-surfaces-on-no-matches-state
-  (testing "the lane also surfaces when chip filters hide every
-            cascade-scoped issue (:no-matches) — :no-matches is one of
-            the 'focus has nothing to show' branches the visibility
-            contract honours, distinct from :no-issues-for-event"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; Focused cascade with one warning + an :ungrouped error.
-      (push-trace! (mk-issue {:id 1 :op-type :warning
-                              :operation :rf.warning/recoverable
-                              :dispatch-id 7}))
-      (push-trace! (mk-issue {:id 2 :op-type :error
-                              :operation :rf.ssr/hydration-mismatch}))
-      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
-      ;; Toggle a severity the focused cascade's only issue doesn't carry —
-      ;; the cascade-scoped feed lands on :no-matches.
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :advisory])
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])
-            tree (issues-ribbon/Panel)]
-        (is (= :no-matches (:empty-kind data)))
-        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
-            ":ungrouped lane surfaces alongside the :no-matches empty
-             state — the user can still navigate to :ungrouped issues
-             while filters hide everything else")))))
-
 ;; ---- (10) frame isolation ----------------------------------------------
 
 (deftest issues-filter-state-does-not-leak-into-default-frame
@@ -652,14 +575,29 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 60]))
+      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"]))
     (let [causa-db   (frame/frame-app-db-value :rf/causa)
           default-db (frame/frame-app-db-value :rf/default)]
       (is (= #{:error} (:issues-active-severities causa-db))
           "severities land on Causa")
-      (is (= 60000 (:issues-since-ms causa-db))
-          "since-ms lands on Causa")
+      (is (= #{"rf.error"} (:issues-active-prefixes causa-db))
+          "prefixes land on Causa")
       (is (nil? (:issues-active-severities default-db))
           "severities did NOT leak into :rf/default")
-      (is (nil? (:issues-since-ms default-db))
-          "since-ms did NOT leak into :rf/default"))))
+      (is (nil? (:issues-active-prefixes default-db))
+          "prefixes did NOT leak into :rf/default"))))
+
+;; ---- evicted-focus helper ---------------------------------------------
+
+;; A test-only event that pins :focus to an :epoch-id that's not in
+;; history — exercises the :epoch-evicted classifier path. Production
+;; only reaches this state when the framework's `:epoch-history`
+;; setting caps the buffer and older epochs roll off; in tests we
+;; synthesise the same in-memory shape directly.
+(rf/reg-event-db
+  :day8.re-frame2-causa.panels.issues-ribbon-view-cljs-test/seed-evicted-focus
+  (fn [db _event]
+    (assoc db :focus {:dispatch-id 999
+                      :epoch-id    999
+                      :mode        :retro
+                      :frame       nil})))

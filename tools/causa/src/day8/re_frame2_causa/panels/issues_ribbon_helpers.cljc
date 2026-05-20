@@ -1,21 +1,21 @@
 (ns day8.re-frame2-causa.panels.issues-ribbon-helpers
-  "Pure-data helpers for Causa's Issues ribbon panel (Phase 5, rf2-d1p4o).
+  "Pure-data helpers for Causa's Issues panel (rf2-jio48 rebuild).
 
   ## Why a separate `.cljc` ns
 
   The panel view in `issues_ribbon.cljs` paints the per-row issue feed
-  and dispatches into the Causa frame. The *logic* — filter the trace
-  buffer to the issue subset (errors + warnings + hydration mismatches
-  + schema violations), project each trace event into a flat row
-  shape, derive severity / category-prefix groupings, and apply the
-  three filter axes (severity / category-prefix / since-ms) — is pure
-  data → data. Splitting the algebra into `.cljc` so it runs under
-  the JVM unit-test target (`clojure -M:test`) is required by the
-  standing rule `feedback_jvm_interop_must_work.md`.
+  and dispatches into the Causa frame. The *logic* — filter the focused
+  epoch's `:trace-events` to the issue subset (errors + warnings +
+  hydration mismatches + schema violations), project each trace event
+  into a flat row shape, derive severity / category-prefix groupings,
+  and apply the two chip-filter axes (severity / category-prefix) —
+  is pure data → data. Splitting the algebra into `.cljc` so it runs
+  under the JVM unit-test target (`clojure -M:test`) is required by
+  the standing rule `feedback_jvm_interop_must_work.md`.
 
   ## Substrate (per `spec/009-Instrumentation.md` §Error event catalogue)
 
-  The Issues ribbon is the unified feed across the catalogue Spec 009
+  The Issues panel is the unified feed across the catalogue Spec 009
   enumerates. Per the catalogue (the single normative source) every
   issue trace event carries:
 
@@ -31,7 +31,7 @@
   writing the catalogue spans `:rf.error/`, `:rf.warning/`, `:rf.fx/`,
   `:rf.cofx/`, `:rf.ssr/`, `:rf.epoch/`, `:rf.http/`,
   `:rf.http.interceptor/`, `:rf.frame/`, and `:rf.route.nav-token/`,
-  with more added as the catalogue grows. The ribbon's projection
+  with more added as the catalogue grows. The panel's projection
   reads the keyword namespace directly (see `category-prefix` below),
   so new prefixes flow through without code change — consult the
   catalogue for the authoritative list rather than this comment.
@@ -39,7 +39,7 @@
   ## Severity
 
   Spec 009's `:op-type` field is the universal severity discriminator.
-  The ribbon ladders it onto three buckets:
+  The panel ladders it onto three buckets:
 
       :error    — `:op-type :error`
       :warning  — `:op-type :warning`
@@ -47,57 +47,68 @@
 
   Lifecycle / success-path traces (`:op-type` `:event`, `:fx`,
   `:frame`, `:sub/*`, `:view/*`, etc.) are NOT issues and never reach
-  the ribbon.
+  the panel.
 
   ## Category prefix
 
-  The ribbon groups by the keyword namespace of `:operation`. Per
+  The panel groups by the keyword namespace of `:operation`. Per
   Spec 009 a consumer routing on the prefix gets the domain
   provenance (`:rf.error/*` vs `:rf.warning/*` vs `:rf.ssr/*` ...).
   The helper exposes `category-prefix` as the canonical projection.
 
-  ## Filter axes (per the bead's minimum-viable contract)
+  ## Filter axes (per spec/021 §8 + §0 density rule)
 
       severity         — #{:error :warning :advisory}
       category-prefix  — #{\"rf.error\" \"rf.warning\" \"rf.ssr\" ...}
-      since-ms         — relative time window; events older than
-                         `(- now-ms since-ms)` drop from the feed
 
-  Each axis is independent; empty filters disable the axis.
+  Each axis is independent; empty filters disable the axis. The
+  legacy `since-ms` axis is gone: per spec/021 §1.2 every L4 panel
+  is focused-epoch-scoped, and an epoch's lifetime is shorter than
+  any time window a `since-ms` filter could narrow.
 
-  ## Cascade scope (rf2-u6dhp)
+  ## Focused-epoch scope (spec/021 §1.2 + §8)
 
-  Per spec/018 §Tabs honour the focused-event invariant the Issues
-  tab is a lens on the focused cascade — NOT a global firehose. The
-  composite pre-filters the feed to issues whose `:dispatch-id`
-  matches the spine's focused cascade. The user chip filters
-  (severity / prefix / since-ms) AND on top of cascade scope.
+  The panel is a lens on the focused epoch's `:trace-events` — NOT
+  the global trace bus. The composite is fed the epoch record looked
+  up by `:rf.causa/focus`'s `:epoch-id` against `:rf.causa/epoch-
+  history`; the helper extracts the record's `:trace-events`, projects
+  the issue subset, applies the chip filters, and computes the row
+  shape + histograms over the resulting slice.
 
-  No 'cascade only · all issues' toggle, no counter ribbon — strict
-  cascade scope is the panel's contract. When the focused event has
-  no issues the feed renders empty (silent-by-default per rf2-g3ghh,
-  with a terse one-liner so the panel-skeleton doesn't look broken)."
+  When the operator scrubs onto an epoch evicted from the history
+  ring buffer (history capped per the framework's `:epoch-history`
+  configuration) the helper surfaces `:empty-kind :epoch-evicted`
+  so the view renders the canonical evicted-epoch placeholder per
+  spec/021 §10.7.
+
+  ## Head-fallback when focus is nil (rf2-h0120)
+
+  When `:rf.causa/focus` carries no `:epoch-id` (cold start before
+  any user click; test rigs that don't pre-set focus) BUT
+  `:rf.causa/epoch-history` is non-empty, the resolver falls back
+  to the HEAD of `epoch-history` (the most recent epoch — recall
+  `epoch-history` is oldest-first per `re-frame.epoch/epoch-history`,
+  so head = `peek`). This is the natural debugging UX: show the
+  latest unless the operator explicitly clicks an earlier row. The
+  resolver returns `:focused` for this case; `find-epoch-record`
+  returns the head record. The `:no-focus` empty-state is reserved
+  for the truly degenerate case where focus is nil AND history is
+  empty (no cascades have settled yet)."
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- defaults ------------------------------------------------------------
 
-(def default-since-ms
-  "Default 'since' window in ms. The ribbon shows issues from this
-  many ms ago to now. 10 minutes — long enough that a programmer
-  stepping back from the screen can return and still see the burst."
-  600000)
-
 (def severity-order
-  "Render order for severity in the empty filter chip-row. Errors
-  first because they're the most urgent; advisories last."
+  "Render order for severity in the chip-row. Errors first because
+  they're the most urgent; advisories last."
   [:error :warning :advisory])
 
 ;; ---- severity classification --------------------------------------------
 
 (defn op-type->severity
-  "Map a trace event's `:op-type` onto the ribbon's three severity
+  "Map a trace event's `:op-type` onto the panel's three severity
   buckets. Returns nil for `:op-type` values that are not issues
   (`:event`, `:fx`, `:frame`, `:sub/run`, `:view/render`, etc.).
   Pure data → keyword-or-nil; JVM-testable."
@@ -113,8 +124,8 @@
   `op-type->severity`). Pure data → bool; JVM-testable.
 
   Excluded by design: every success-path / lifecycle op-type. The
-  ribbon is the issues-only feed; success traces have their own
-  panels (Event detail, Subscriptions)."
+  panel is the issues-only lens; success traces have their own
+  panels (Event detail, Reactive, Trace)."
   [{:keys [op-type] :as _ev}]
   (some? (op-type->severity op-type)))
 
@@ -174,7 +185,7 @@
 ;; ---- short description --------------------------------------------------
 
 (defn short-description
-  "Build the per-row one-line description. Per the bead's contract
+  "Build the per-row one-line description. Per the panel's contract
   rows render: `timestamp · category · severity · short description`.
   The description is the `:operation` keyword + (when available) a
   terse summary lifted from `:tags`.
@@ -221,7 +232,7 @@
 ;; ---- per-issue projection ------------------------------------------------
 
 (defn project-issue
-  "Project one raw trace event into the ribbon's row shape:
+  "Project one raw trace event into the panel's row shape:
 
       {:id              <int>           ;; the trace event's :id
        :time            <ms>
@@ -231,21 +242,13 @@
        :category-prefix <string-or-nil>
        :description     <string>
        :source-coord    <string-or-nil>
-       :dispatch-id     <int-or-:ungrouped>
        :recovery        <kw-or-nil>
        :raw             <trace-event>}
 
   Pure data → data; JVM-testable. Returns nil when `ev` is not an
   issue (success-path / lifecycle trace) so callers can `keep` over
-  a mixed stream.
-
-  `:dispatch-id` defaults to `:ungrouped` (the sentinel that
-  `re-frame.trace.projection/group-cascades` uses for events outside
-  any cascade) so cascade-scope filtering (rf2-u6dhp) treats
-  unscoped issues consistently with how the cascade projection groups
-  them — focusing the `:ungrouped` cascade surfaces them; focusing a
-  real cascade hides them."
-  [{:keys [id time op-type operation recovery tags] :as ev}]
+  a mixed stream."
+  [{:keys [id time op-type operation recovery] :as ev}]
   (when (issue-event? ev)
     {:id              id
      :time            time
@@ -255,9 +258,6 @@
      :category-prefix (category-prefix ev)
      :description     (short-description ev)
      :source-coord    (source-coord ev)
-     :dispatch-id     (or (:dispatch-id tags)
-                          (get-in ev [:tags :dispatch-id])
-                          :ungrouped)
      :recovery        recovery
      :raw             ev}))
 
@@ -292,54 +292,18 @@
   (or (empty? active-prefixes)
       (contains? active-prefixes category-prefix)))
 
-(defn passes-since?
-  "True iff `issue`'s `:time` is within `since-ms` of `now`. Pure
-  data → bool; JVM-testable.
-
-  `nil` `since-ms` disables the axis (any time is acceptable).
-  `nil` `:time` falls back to 'in window' so issues without a stamp
-  still surface — defensive against malformed trace events."
-  [now since-ms {:keys [time] :as _issue}]
-  (or (nil? since-ms)
-      (nil? time)
-      (and (number? time)
-           (number? now)
-           (>= time (- now since-ms)))))
-
-(defn passes-cascade?
-  "True iff `issue`'s `:dispatch-id` matches `focus-dispatch-id`. Pure
-  data → bool; JVM-testable.
-
-  `nil` `focus-dispatch-id` disables the axis (no cascade scope) —
-  used in test rigs that don't seed the spine. In production the spine
-  always carries a focused dispatch-id (head in LIVE, pinned in RETRO)
-  per spec/018 §Spine binding.
-
-  An issue with no `:dispatch-id` (defensive — malformed trace event,
-  or an issue raised outside any dispatch) DOES NOT pass when a focus
-  is set; cascade scope is strict per rf2-u6dhp."
-  [focus-dispatch-id {:keys [dispatch-id] :as _issue}]
-  (or (nil? focus-dispatch-id)
-      (= focus-dispatch-id dispatch-id)))
-
 (defn apply-filters
-  "Apply the four filter axes to `issues`. Pure data → vector;
-  JVM-testable. Each user-chip axis is independent — empty filter
-  sets / nil since-ms disable the axis. Cascade scope (when
-  `:focus-dispatch-id` is set) ANDs over the chip axes.
+  "Apply the two chip-filter axes to `issues`. Pure data → vector;
+  JVM-testable. Each axis is independent — empty filter sets disable
+  the axis.
 
-  `filters` is `{:severities #{...} :prefixes #{...} :since-ms <ms>
-                 :focus-dispatch-id <id-or-nil>}`.
-  `now` is the wall-clock 'now' to test :time against (helper-
-  injected so tests don't depend on the system clock)."
-  [issues filters now]
-  (let [{:keys [severities prefixes since-ms focus-dispatch-id]} filters]
+  `filters` is `{:severities #{...} :prefixes #{...}}`."
+  [issues filters]
+  (let [{:keys [severities prefixes]} filters]
     (filterv
       (fn [issue]
-        (and (passes-cascade? focus-dispatch-id issue)
-             (passes-severity? severities issue)
-             (passes-category-prefix? prefixes issue)
-             (passes-since? now since-ms issue)))
+        (and (passes-severity? severities issue)
+             (passes-category-prefix? prefixes issue)))
       issues)))
 
 ;; ---- category-prefix enumeration ----------------------------------------
@@ -362,109 +326,152 @@
   "Top-level projection — produces every slot the view needs. Pure
   data → data; JVM-testable.
 
-  Walks the trace buffer once via `project-issues`, applies the
-  filter pass via `apply-filters`, and computes the severity
-  histogram + distinct-prefix axis off the projection. Cost is
-  bounded by the trace ring depth (Spec 009 §Trace bus). The
-  single-pass collapse is deferred until row caps have landed and
-  measurable residual cost remains (rf2-60vcu).
+  Per spec/021 §8 the panel is focused-epoch-scoped: `epoch-record`
+  is the looked-up `:rf/epoch-record` from `:rf.causa/epoch-history`
+  whose `:epoch-id` matches the focused `:epoch-id` from
+  `:rf.causa/focus`. Walks the record's `:trace-events` via
+  `project-issues`, applies chip filters via `apply-filters`, and
+  computes the severity histogram + distinct-prefix axis over the
+  projection.
 
-  Per rf2-u6dhp the feed is cascade-scoped — only issues whose
-  `:dispatch-id` matches `filters`' `:focus-dispatch-id` survive.
-  The chip-filter histograms (severity-counts, distinct-prefixes)
-  are computed over the cascade-scoped projection, NOT the global
-  buffer — chips reflect what's IN the focused event's cascade, so
-  the user never sees a chip for a prefix that's not in their lens.
+  `focus-status` is one of:
+    :no-focus       — no focused epoch AND no history (cold start
+                      before any cascade has settled)
+    :epoch-evicted  — focus has an :epoch-id but the matching record
+                      is gone from history (capped per :epoch-history)
+    :focused        — focus resolved to a real epoch record (either
+                      explicit pin or head-fallback per rf2-h0120)
 
   Returns:
 
       {:issues               [<row> ...]      ;; post-filter, newest first
-       :total                <int>            ;; cascade-scoped count
+       :total                <int>            ;; pre-filter issue count
        :rendered             <int>            ;; post-chip-filter count
-       :severity-counts      {severity count} ;; cascade-scoped histogram
-       :distinct-prefixes    [<prefix> ...]   ;; cascade-scoped prefixes
+       :severity-counts      {severity count} ;; over the focused epoch
+       :distinct-prefixes    [<prefix> ...]   ;; over the focused epoch
        :filters              <pass-through>
-       :empty-kind           <:no-issues / :no-issues-for-event / :no-matches / nil>}
+       :epoch-id             <int-or-nil>     ;; the focused epoch's id
+       :empty-kind           <:no-issues / :no-focus / :epoch-evicted /
+                              :no-matches / nil>}
 
-  `events` is the raw trace-buffer. `filters` is the current filter
-  state. `now` is wall-clock ms.
+  `:empty-kind` discriminates the empty-state branches:
 
-  `:empty-kind` discriminates the four empty-state branches:
-
-      :no-issues           — the global buffer carries no issues at
-                             all. The view paints the 'All clear'
-                             positive-result badge.
-      :no-issues-for-event — issues exist somewhere in the buffer but
-                             none belong to the focused cascade. The
-                             view paints a terse one-liner per
-                             rf2-g3ghh silent-by-default.
-      :no-matches          — cascade-scoped issues exist but the active
-                             chip filters hide them all. The view paints
-                             'No issues match filters' with a clear-
-                             filters affordance.
-      nil                  — at least one issue passed; render the feed."
-  [events filters now]
-  (let [all-global       (project-issues events)
-        focus-dispatch-id (:focus-dispatch-id filters)
-        ;; Cascade scope is the OUTER filter — chip histograms and the
-        ;; 'total in lens' count are all derived from this slice, so the
-        ;; UI surfaces what's IN the focused cascade and only that.
-        in-cascade       (filterv (partial passes-cascade? focus-dispatch-id)
-                                  all-global)
-        filtered         (apply-filters in-cascade
-                                        (dissoc filters :focus-dispatch-id)
-                                        now)
-        ;; Newest first for display per the bead's contract
-        ;; (timestamp · category · severity · short description).
+      :no-focus       — spine carries no focused epoch AND history
+                        is empty (cold start, no cascades have
+                        settled). Render a terse 'No epoch focused.'
+                        line so the panel skeleton doesn't look
+                        broken. Per rf2-h0120 a nil-focus with
+                        non-empty history falls back to head and
+                        renders the feed, not this empty state.
+      :epoch-evicted  — focused epoch's record has been evicted from
+                        the history ring buffer; view paints the
+                        canonical placeholder per spec/021 §10.7.
+      :no-issues      — focused epoch carries no issues. Render the
+                        positive 'No issues in this epoch.' line per
+                        spec/021 §8.2.
+      :no-matches     — issues exist in the focused epoch but the
+                        active chip filters hide them all. View
+                        paints 'No issues match filters' with a
+                        clear-filters affordance.
+      nil             — at least one issue passed; render the feed."
+  [epoch-record filters focus-status]
+  (let [record-present?  (= :focused focus-status)
+        trace-events     (when record-present?
+                           (:trace-events epoch-record))
+        all-issues       (project-issues (or trace-events []))
+        filtered         (apply-filters all-issues filters)
+        ;; Newest first for display parity with the legacy ribbon.
         sorted-display   (vec (reverse filtered))
         severity-counts  (reduce
                            (fn [acc {:keys [severity]}]
                              (update acc severity (fnil inc 0)))
                            {}
-                           in-cascade)
+                           all-issues)
         empty-kind       (cond
-                           (empty? all-global)  :no-issues
-                           (empty? in-cascade)  :no-issues-for-event
-                           (empty? filtered)    :no-matches
-                           :else                nil)]
+                           (= focus-status :no-focus)      :no-focus
+                           (= focus-status :epoch-evicted) :epoch-evicted
+                           (empty? all-issues)             :no-issues
+                           (empty? filtered)               :no-matches
+                           :else                           nil)]
     {:issues            sorted-display
-     :total             (count in-cascade)
+     :total             (count all-issues)
      :rendered          (count filtered)
      :severity-counts   severity-counts
-     :distinct-prefixes (distinct-prefixes in-cascade)
+     :distinct-prefixes (distinct-prefixes all-issues)
      :filters           filters
+     :epoch-id          (:epoch-id epoch-record)
      :empty-kind        empty-kind}))
 
-;; ---- :ungrouped escape-hatch projection (rf2-2f40y) --------------------
+;; ---- film-strip filter slot (spec/021 §8.5 stretch) ---------------------
 
-(defn project-ungrouped-feed
-  "Top-level projection for the `:ungrouped` lane — issues emitted
-  outside any dispatch context (canonical example: `verify-hydration!`
-  firing `:rf.ssr/hydration-mismatch` with `:dispatch-id :ungrouped`).
+(defn epoch-has-issues?
+  "True iff `epoch-record`'s `:trace-events` carry at least one issue
+  (any severity). Pure data → bool; JVM-testable.
 
-  Per rf2-u6dhp the main Issues feed is cascade-scoped, and per
-  rf2-fzbrw `:ungrouped` cascades are structurally unfocusable
-  (`compose-focus` snaps to the head of a real cascade). The two
-  invariants are individually correct but together create a navigation
-  hole: `:ungrouped` issues cannot be reached via L2/focus. This
-  projection is the deliberate surface that closes the gap (per the
-  rf2-2f40y operator decision — option (a), dedicated lane).
+  Consumed by the film-strip header's `:filter-fn` slot per
+  spec/021 §8.5 — the operator stepping through bug repro lands on
+  issue-bearing epochs only ('next epoch with ⚠'). When the film-
+  strip header lands (rf2-h7nqh) this fn becomes the panel's contract
+  callback; until then it's wired internally so the algebra is
+  test-covered."
+  [epoch-record]
+  (boolean
+    (some issue-event?
+          (or (:trace-events epoch-record) []))))
 
-  Returns:
+;; ---- focus-status resolver ----------------------------------------------
 
-      {:issues   [<row> ...]   ;; newest first
-       :total    <int>}        ;; count of :ungrouped issues
+(defn resolve-focus-status
+  "Classify the focus + history pair into one of the three focus
+  statuses the projection consumes. Pure data → keyword; JVM-testable.
 
-  Cascade chip-filter histograms are intentionally omitted — the lane
-  is a compact escape hatch, not a second filterable feed. Pure data →
-  data; JVM-testable."
-  [events]
-  (let [all          (project-issues events)
-        ungrouped    (filterv #(= :ungrouped (:dispatch-id %)) all)
-        ;; Newest first for display parity with the main feed.
-        sorted       (vec (reverse ungrouped))]
-    {:issues sorted
-     :total  (count ungrouped)}))
+      :no-focus       — focus carries no :epoch-id AND epoch-history
+                        is empty (cold start, no cascades yet)
+      :epoch-evicted  — focus has :epoch-id but no matching record
+                        survives in epoch-history
+      :focused        — focus has :epoch-id and matches a record, OR
+                        focus is nil but epoch-history has at least
+                        one record (head-fallback per rf2-h0120)
+
+  `focus-epoch-id` is `(:epoch-id focus)`. `epoch-history` is the
+  vector of `:rf/epoch-record` maps the framework keeps (oldest-first
+  per `re-frame.epoch/epoch-history`)."
+  [focus-epoch-id epoch-history]
+  (cond
+    ;; Head-fallback: focus unset but history exists. Per rf2-h0120
+    ;; this is the natural debugging UX — show the latest epoch
+    ;; rather than the empty 'no focus' line.
+    (and (nil? focus-epoch-id)
+         (seq epoch-history))                 :focused
+    (nil? focus-epoch-id)                     :no-focus
+    (some (fn [r] (= focus-epoch-id (:epoch-id r)))
+          epoch-history)                      :focused
+    :else                                     :epoch-evicted))
+
+(defn find-epoch-record
+  "Look up the `:rf/epoch-record` in `epoch-history` whose `:epoch-id`
+  matches `focus-epoch-id`. When `focus-epoch-id` is nil but
+  `epoch-history` is non-empty, returns the HEAD (most-recent) record
+  per the head-fallback contract (rf2-h0120) — `epoch-history` is
+  oldest-first, so the head is `(peek epoch-history)`. Returns nil
+  when no match (and no history). Pure data → record-or-nil; JVM-
+  testable."
+  [focus-epoch-id epoch-history]
+  (cond
+    (and (nil? focus-epoch-id) (seq epoch-history))
+    ;; `peek` on a vector is O(1); `last` is the safe fall-back when
+    ;; a caller hands in a seq. Production sub joins on the
+    ;; framework's vector-backed `:rf.causa/epoch-history`, so the
+    ;; vector branch is the hot path.
+    (if (vector? epoch-history)
+      (peek epoch-history)
+      (last epoch-history))
+
+    (some? focus-epoch-id)
+    (some (fn [r] (when (= focus-epoch-id (:epoch-id r)) r))
+          epoch-history)
+
+    :else nil))
 
 ;; ---- selection ----------------------------------------------------------
 
@@ -477,6 +484,6 @@
 ;; ---- formatting ---------------------------------------------------------
 
 ;; Re-export the shared `HH:MM:SS.mmm` formatter — body lives once in
-;; `common-helpers` so trace / routes / issues-ribbon / mcp-server all
-;; share a single clock format.
+;; `common-helpers` so trace / routes / issues / mcp-server all share
+;; a single clock format.
 (def format-time common/format-time-hms)

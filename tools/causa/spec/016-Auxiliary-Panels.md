@@ -207,93 +207,25 @@ A registered-flows-overview is reachable via the Cmd-K palette under
 the `:flow` source: flow-id, inputs, output path, last recompute. No
 standalone tab.
 
-## Issues ribbon
+## Issues panel
 
-The unified feed of errors, warnings, schema violations, and
-hydration mismatches per [`000-Vision.md`](./000-Vision.md) L94 +
-[`007-UX-IA.md`](./007-UX-IA.md) §Sidebar groups. Consumer of the
-~95-category emit stream catalogued in
+The Issues panel is a **focused-epoch lens** per
+[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8
+(canonical). Reads the focused epoch's `:trace-events` and projects
+the issue subset (errors + warnings + advisories) per
 [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
 §Error event catalogue.
 
-### Inputs
+The legacy aggregate-feed shape (cascade-scoped global ribbon +
+`:ungrouped` escape-hatch lane + `since-ms` axis) is **gone** as of
+rf2-jio48 — spec/021 §1.2 binds every L4 panel to the focused-epoch
+scope; cross-epoch navigation lives on the L2 timeline's per-row
+badges. Evicted-epoch surfaces use the canonical placeholder per
+spec/021 §10.7.
 
-- `:rf.causa/trace-buffer` filtered to issue trace events
-  (severity ∈ #{`:error` `:warning` `:advisory`}).
-- The active filter set across three independent axes:
-  - **severity** (chip row): error / warning / advisory.
-  - **category-prefix** (chip row): `:rf.error/*` vs
-    `:rf.warning/*` etc.
-  - **since-ms** (numeric input): within this many ms of now.
-
-Empty filter sets disable the axis.
-
-### Main interactions
-
-- **Click a row** → `:rf.causa/select-dispatch-id` for the parent
-  dispatch and pivot to the event-detail panel for the cascade that
-  produced the issue.
-- **Click the source-coord chip** → `:rf.causa/open-in-editor` (the
-  editor jump itself rides on the open-in-editor module).
-- **Toggle a chip** → flips the corresponding filter axis.
-- **Adjust since-ms** → narrows the temporal window.
-
-### Outputs
-
-One row per issue trace event, oldest-first (per the bead's
-minimum-viable contract):
-
-    timestamp · category · severity · short description · jump-to-source
-
-The bottom-rail issue-count badge mirrors the visible-after-filter
-count.
-
-### Empty states
-
-Two distinguished states:
-
-- **`:no-issues`** — "No issues observed in this session." Carries
-  the `✓ All clear` badge — the desired state.
-- **`:no-matches`** — issues exist but the active filters hide them
-  all. Carries a `Clear filters` affordance.
-
-### `:ungrouped` escape-hatch lane (rf2-2f40y)
-
-The main feed is cascade-scoped (rf2-u6dhp) and `:ungrouped` cascades
-are structurally unfocusable (rf2-fzbrw — `compose-focus` snaps to the
-head of a real cascade). Together, the two invariants leave issues
-with `:dispatch-id :ungrouped` — issues emitted outside any dispatch
-context, e.g. `verify-hydration!` firing `:rf.ssr/hydration-mismatch`
-during SSR — un-navigable via L2/focus. Both invariants are
-individually correct; the gap was the missing surface.
-
-The Issues panel renders a dedicated **`:ungrouped` lane** below the
-cascade-scoped feed as the deliberate escape hatch. Per the rf2-2f40y
-operator decision (option (a), recorded in the bead notes) the lane
-preserves both invariants without relaxing `compose-focus` semantics.
-
-**Inputs:** `:rf.causa.issues/ungrouped` — a thin derivation off
-`:rf.causa/trace-buffer` returning `{:issues [<row> ...] :total <int>}`
-(newest first). No chip-filter histograms; the lane is a compact
-escape hatch, not a second filterable feed.
-
-**Visibility contract:** the lane is rendered iff
-- the cascade-scoped feed has no issues to surface (the panel's
-  `:empty-kind` is one of `:no-issues`, `:no-issues-for-event`, or
-  `:no-matches`), AND
-- at least one `:ungrouped` issue exists.
-
-While the focused cascade has its own issues the lane stays hidden
-so it doesn't compete with the user's current lens.
-
-**Visual treatment:** muted uppercase header `Issues outside any
-cascade` + a one-line clarifier (`Emitted outside any dispatch — no
-cascade to focus.`) above the per-issue rows. The rows reuse the same
-chrome as the cascade-scoped feed (`issue-row`); per-row click pivots
-are intentionally inert for `:ungrouped` (the existing `pivotable?`
-guard in `issue-row` checks `(not= :ungrouped dispatch-id)`), so the
-lane is a read-only surface — open-in-editor on the source-coord chip
-is the only outgoing affordance.
+For the full per-panel contract (layout, queries, empty states,
+cross-panel navigation, film-strip) see
+[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8.
 
 ## Performance — dropped (see §Performance cross-link at top of file)
 

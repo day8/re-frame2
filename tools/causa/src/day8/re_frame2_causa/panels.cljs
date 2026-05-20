@@ -76,7 +76,7 @@
   | **machine-inspector** | `:rf.causa/machine-chart-data` · `:rf.causa/active-timers-for-focused-machine` · `:rf.causa/machine-scrubber-position` | scrubber events · `:rf.causa/focus-cascade` |
   | **machines-canvas** | `:rf.causa/registered-machines` · `:rf.causa/machine-definitions` · `:rf.causa.machines-canvas/selected-id` · `:rf.causa.machine-canvas/viewport-for` | `:rf.causa.machines-canvas/select` · `:rf.causa.machine-canvas/apply-action` (via Chart) |
   | **routing** | `:rf.causa/registered-routes` · `:rf.causa/current-route-slice` · `:rf.causa/routing-tab-data` | route-simulation events |
-  | **issues-ribbon** | `:rf.causa/issues-ribbon` (composite over trace buffer + filters + focus) | `:rf.causa.issues/toggle-severity` · `:rf.causa.issues/toggle-prefix` · `:rf.causa/select-dispatch-id` |
+  | **issues-ribbon** | `:rf.causa/issues-ribbon` (composite over focused epoch's `:trace-events` + filter chips per spec/021 §8) | `:rf.causa.issues/toggle-severity` · `:rf.causa.issues/toggle-prefix` · `:rf.causa.issues/clear-filters` |
   | **segment-inspector** | `:rf.causa/segment-inspector-open?` · `:rf.causa/segment-inspector-value` | `:rf.causa/close-segment-inspector` |
   | **cancellation-cascade** (side-panel + popover) | `:rf.causa/cancellation-cascade-for-focused-machine` · `:rf.causa/cancellation-cascade-for-focused-event` · `:rf.causa/cancellation-cascade-popover-open?` · `:rf.causa/modal-positioning` | `:rf.causa/cancellation-cascade-close` |
   | **managed-fx** | `:rf.causa/managed-fx-for-focused-event` | `:rf.causa/focus-event` |
@@ -230,7 +230,7 @@
 
 (defn mount-issues-ribbon!
   "Mount Causa's Issues tab in isolation at `mount-point`. Renders
-  the cascade-scoped issues feed + the ungrouped escape-hatch lane."
+  the focused-epoch issue feed per spec/021 §8 (rf2-jio48)."
   ([mount-point]      (mount-issues-ribbon! mount-point nil))
   ([mount-point opts] (render-panel! issues-ribbon/Panel mount-point opts)))
 

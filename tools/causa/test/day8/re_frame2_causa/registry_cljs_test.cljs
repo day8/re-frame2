@@ -47,7 +47,7 @@
         site via reg-fx replacement (same pattern as time_travel_
         cljs_test.cljs) and assert the args round-trip.
     (5) **Edge cases** — empty app-db, override-takes-precedence,
-        clear-all-filter events, set-since-seconds normalisation.
+        clear-all-filter events.
 
   Aim: ~30-50 deftests. The panel tests cover most paths transitively;
   this file's job is the smoke surface + the registered-fx isolation
@@ -166,10 +166,6 @@
    :rf.causa/focused-slice-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
-   ;; rf2-39n8h discovered — Issues-ribbon ungrouped-bucket sub
-   ;; (panel-internal). Lives under :rf.causa.issues/* per the
-   ;; per-panel namespace convention.
-   :rf.causa.issues/ungrouped
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
@@ -357,7 +353,6 @@
    :rf.causa.data-inspector/set-expanded
    :rf.causa.data-inspector/toggle-expanded
    :rf.causa.issues/clear-filters
-   :rf.causa.issues/set-since-seconds
    :rf.causa.issues/toggle-prefix
    :rf.causa.issues/toggle-severity
    :rf.causa/add-filter
@@ -1127,14 +1122,16 @@
         (is (= [] (:focused-hits data)))))))
 
 (deftest sub-issues-ribbon-shape-on-empty-buffer
-  (testing ":rf.causa/issues-ribbon returns :no-issues empty-kind initially"
+  (testing ":rf.causa/issues-ribbon returns :no-focus empty-kind when
+            no focused epoch yet (rf2-jio48 — panel is focused-epoch-
+            scoped per spec/021 §1.2; cold-start surfaces :no-focus)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
         (is (contains? data :issues))
         (is (= 0 (:total data)))
         (is (= 0 (:rendered data)))
-        (is (= :no-issues (:empty-kind data)))))))
+        (is (= :no-focus (:empty-kind data)))))))
 
 (deftest sub-trace-feed-shape-on-empty-buffer
   (testing ":rf.causa/trace-feed returns :no-events empty-kind initially"
@@ -1210,30 +1207,17 @@
              (:severities @(rf/subscribe [:rf.causa/issues-filters])))))))
 
 (deftest event-clear-issues-filters
-  (testing ":rf.causa.issues/clear-filters drops all three axes"
+  (testing ":rf.causa.issues/clear-filters drops both chip-filter axes
+            (rf2-jio48 — since-ms axis dropped with focused-epoch
+            re-scoping; spec/021 §8)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
       (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 60])
       (rf/dispatch-sync [:rf.causa.issues/clear-filters])
       (let [f @(rf/subscribe [:rf.causa/issues-filters])]
         (is (= #{} (:severities f)))
-        (is (= #{} (:prefixes f)))
-        (is (nil? (:since-ms f)))))))
-
-(deftest event-set-issues-since-seconds-normalises
-  (testing ":rf.causa.issues/set-since-seconds — positive sets ms; nil clears"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 30])
-      (is (= 30000 (:since-ms @(rf/subscribe [:rf.causa/issues-filters]))))
-      ;; non-positive clears
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 0])
-      (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds 15])
-      (rf/dispatch-sync [:rf.causa.issues/set-since-seconds nil])
-      (is (nil? (:since-ms @(rf/subscribe [:rf.causa/issues-filters])))))))
+        (is (= #{} (:prefixes f)))))))
 
 (deftest event-set-trace-filter-axis-and-clear
   (testing ":rf.causa/set-trace-filter sets/clears a single axis"
