@@ -502,6 +502,65 @@ The convention applies **only where adding the `*` partner buys something** — 
 
 **Coverage is asymmetric on purpose — and the asymmetry is invisible from a scan of the API.** A reader sees `dispatch*` / `subscribe*` / `inject-cofx*` / `reg-view*` / `reg-machine*` and may infer a uniform convention; reaching for `reg-event-db*` then fails to resolve. The asymmetry is principled (only the macros above have a reason for a `*` partner) but easy to misread — surface this footnote when documenting new `reg-*` rows in [`spec/API.md`](API.md) §Registration. Per rf2-4wj7a.
 
+## Value-vs-fn naming — `-interceptor` suffix telegraphs value-shape
+
+re-frame2 ships two classes of named, public, **callable-looking** surfaces. They share kebab-case identifiers and live side-by-side in user code, but only one class is actually a function. The convention answers a single question — *"if I see this name, is it a Var holding a value or a callable fn?"* — and lets future audit passes stop re-flagging the same fn-shaped callbacks as "name lies about value". Per rf2-nalp6 (Mike-raised during audit-of-audits walkthrough, 2026-05-20).
+
+The discriminator is mechanical, not stylistic. Every public surface that *looks* callable slots into exactly one of the two classes below; new surfaces pick their class by mechanism.
+
+### Class 1 — Interceptor values (Vars holding maps · **NOT callable**)
+
+A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event-*` interceptor chain](#interceptors-is-positional-not-metadata-reg-event-)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/at-boundary ...)`) raises `ArityException`.
+
+Current Class-1 surfaces in [API.md](API.md): `at-boundary` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/with-redacted paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
+
+**Rule.** Class-1 surfaces MUST carry the `-interceptor` suffix on the Var name. The suffix telegraphs *value-shape* at the call site — a reader scanning an `:interceptors` vector sees the suffix and knows the slot holds a pre-built interceptor map, not a fn that needs invoking. The factory variant (`with-redacted` style) returns a `-interceptor`-suffixed value; the factory itself does not carry the suffix because it IS a fn.
+
+```clojure
+;; correct — suffix telegraphs value-shape
+(rf/reg-event-db :cart.item/add
+  [at-boundary-interceptor                                ;; Var · value
+   (with-redacted [[:credit-card]])                       ;; factory returns value
+   unwrap-interceptor]                                    ;; Var · value
+  (fn [db payload] ...))
+
+;; reading this without the convention — is `at-boundary` a fn? a Var? Did the
+;; author mean `(at-boundary)`? The suffix removes the ambiguity.
+```
+
+### Class 2 — Function callbacks in spec-keyed slots (slot values that ARE fns · **callable**)
+
+A slot in a registration map whose value the framework invokes as a fn at runtime. The slot-keyword identifies the surface (`:on-spawn`, `:on-done`, `:on-error`, `:guard`, `:action`, `:entry`, `:exit`, `:after`); the value MAY be a `(fn [...])` literal OR a registered keyword id the framework resolves through a registrar (machines resolve `:action` / `:entry` / `:exit` through the action registry per [Spec 005](005-StateMachines.md)).
+
+Current Class-2 slots: `:on-spawn`, `:on-done`, `:on-error`, `:on-create`, `:on-destroy` (lifecycle callbacks per [Spec 002](002-Frames.md), [Spec 005](005-StateMachines.md), [Spec 014](014-HTTPRequests.md)); `:guard`, `:action`, `:entry`, `:exit`, `:after` (machine-spec slots per [Spec 005](005-StateMachines.md)).
+
+**Rule.** Class-2 slot-keywords keep their natural verb / noun naming. They do **NOT** carry an `-fn` suffix, an `-interceptor` suffix, or any other shape annotation. The slot-keyword's surrounding context — the spec-document that defines the slot, the registration map's enclosing macro — makes the fn-shape unambiguous. A reader meeting `:on-spawn` in a machine spec does not need a suffix to know the slot value is a fn; the slot-keyword's spec entry tells them so.
+
+```clojure
+;; correct — no suffix on slot-keywords; the slot's spec defines the value-shape
+(rf/reg-machine :auth.login/flow
+  {:initial :idle
+   :states  {:idle      {:on {:submit :submitting}}
+             :submitting {:entry :fire-request                  ;; registered action id
+                          :on    {:success :complete
+                                  :fail    :failed}}
+             :complete   {:on-done   (fn [ctx] ...)             ;; fn literal
+                          :on-error  ::handle-error}}})         ;; registered fn id
+```
+
+### How to slot a new surface
+
+When adding a callable-looking public surface, ask in order:
+
+1. Is the surface a Var bound to a pre-built interceptor map (calling it as a fn would raise `ArityException`)? → Class 1, carry the `-interceptor` suffix.
+2. Is the surface a slot-keyword in a registration map whose value the framework invokes as a fn? → Class 2, keep natural verb / noun naming; **no suffix**.
+
+If the surface seems to want both shapes — a name that doubles as both a Var and a fn — split it into two surfaces with distinct names. If it fits neither, file a bead against this section rather than coining a third shape.
+
+**Why two classes need two rules.** The Class-1 / Class-2 split is real because the two surfaces resolve at *different times*: Class-1 Vars resolve at *read* time (the reader knows immediately whether the slot is a value or a call); Class-2 slot-values resolve at *runtime* through the slot's keyword identity (the reader looks up the slot's spec to learn the value-shape). The `-interceptor` suffix gives the Class-1 reader the same up-front clarity that the slot-keyword + spec gives the Class-2 reader. Surfacing this here saves future audit passes from re-flagging Class-2 fn-callbacks as "name lies about value" — they don't lie, the slot-keyword is the disambiguator.
+
+Cross-references: [API.md §Standard interceptors](API.md#standard-interceptors) (Class-1 surfaces · current); [Spec 005 §Machine spec](005-StateMachines.md) (Class-2 slots · machines); [Spec 002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) (Class-2 slots · frame lifecycle).
+
 ## High-frequency abbreviations — `fx`, `cofx`, `db` are brand tokens, not aliases
 
 `fx`, `cofx`, and `db` are **deliberate terse abbreviations for the highest-frequency tokens in re-frame's vocabulary** — they are not aliases for `effect`, `coeffect`, and `app-db` and the longer forms are not part of the API surface. The choice is inherited from re-frame v1 and preserved in v2 (per rf2-0azca).
