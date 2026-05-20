@@ -51,7 +51,8 @@
   `rf/dispatch` and subscribe via Reactions, not synchronous reads.
   Per IMPL-SPEC §5 the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
-  (:require [re-frame.story.config      :as config]
+  (:require [re-frame.core              :as rf]
+            [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             ;; Phase-2 cohesive internal nss — own the implementation
             ;; weight for query / canonical-boot / lifecycle surfaces.
@@ -468,6 +469,45 @@
   `:rf.error/unknown-tag`."
   []
   (canonical/install!))
+
+;; ---- reg-marks re-export (rf2-l6hzv) ------------------------------------
+;;
+;; Story-author ergonomic alias for `re-frame.core/reg-marks`. The
+;; primitive lives in the framework (`re-frame.core`) — variant bodies
+;; declare per-frame path-marks via `(story/reg-marks <variant-id>
+;; {:sensitive [paths] :large [paths]})` exactly the same shape they
+;; would call `re-frame.core/reg-marks` directly. No fork, no shim;
+;; the re-export is purely for discoverability so authors scanning
+;; `re-frame.story`'s public surface for privacy primitives find one
+;; without chasing cross-references into `re-frame.core`.
+;;
+;; Per Conventions.md §Privacy primitive — `reg-marks` re-export.
+
+(def ^{:doc "Declare per-frame path-marks against `app-db`, per
+  [framework spec/015 §reg-marks](../../../../spec/015-Data-Classification.md).
+  Variants typically scope the declaration to the variant's frame id —
+  per-variant frames each get their own marks declaration:
+
+      (story/reg-variant :story.auth/login-form
+        {:component login-form
+         :args {:user/email \"ada@example.com\"
+                :user/password \"•••••\"}})
+
+      (story/reg-marks :story.auth/login-form
+        {:sensitive [[:user :password]
+                     [:auth :token]]
+         :large     [[:docs :csv-upload]]})
+
+  Re-export of `re-frame.core/reg-marks` per rf2-l6hzv — Story-author
+  discoverability alias; same primitive, same data model, same per-
+  frame semantics. See [Conventions.md §Privacy primitive — `reg-marks`
+  re-export](../spec/Conventions.md#privacy-primitive--reg-marks-re-export)
+  for the convention rationale.
+
+  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
+  does NOT install an interceptor, does NOT change any handler's view
+  of the data."}
+  reg-marks rf/reg-marks)
 
 ;; ---- configure! ---------------------------------------------------------
 

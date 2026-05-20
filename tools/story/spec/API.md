@@ -160,17 +160,28 @@ wiring helper. The contract Story consumes from Causa is
 `day8.re-frame2-causa.panels`); Story owns the panel-host that drives
 the lifecycle.
 
-| Surface | Where it lives | Purpose |
-|---|---|---|
-| `causa-embed-panel` | `re-frame.story.ui.causa-embed` | The RHS Causa-host Reagent component. Renders the chip-row picker plus the Causa panel-host `<div>` that one of `panels/mount-<panel>!` mounts into. Feature-detect-safe: renders a graceful no-op when Causa's preload is not on the classpath. See [`003-Render-Shell.md`](003-Render-Shell.md) §Causa per-panel embed. |
-| `mount-fn-for` | `re-frame.story.ui.causa-embed` | Pure dispatch: `(mount-fn-for panel-id)` returns the Causa `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution via a `case` dispatch — no runtime namespace walk. See [`003-Render-Shell.md`](003-Render-Shell.md) §The contract — `panels/mount-<panel>!`. |
-| `popout-full-shell!` | `re-frame.story.ui.causa-embed` | Pop out the full Causa 4-layer shell into a second window via `day8.re-frame2-causa.mount/popout!`. Gated on `causa-preset/causa-available?` so the chip remains a graceful no-op when Causa's preload is not on the build. |
-| `causa-preset/wire-cross-host!` | `re-frame.story.causa-preset` | Bridges-only host-wiring helper. Called by the shell on every variant selection; threads through Causa's host-installation hooks (project-root propagation, keybinding installation) but does NOT mount Causa — the embed's panel-host owns the per-panel mount. See [`003-Render-Shell.md`](003-Render-Shell.md) §`wire-cross-host!` — bridges-only, no mount. |
-| `causa-preset/causa-available?` | `re-frame.story.causa-preset` | Pure predicate: true when Causa's preload is on the build (the preload namespace resolved at compile time). The chip-row, popout, and `wire-cross-host!` all check this — Story is feature-detect-safe and degrades gracefully when Causa is absent. |
-| `causa-preset/propagate-project-root!` | `re-frame.story.causa-preset` | Bridges Story's `:project-root` from `configure!` into Causa's slot so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). |
-| `keybindings/bindings` | `re-frame.story.ui.keybindings` | The canonical `{key → handler}` table for the chrome-visibility hotkeys (`f` / `s` / `a` / `t`). Public so the help overlay's cheat-sheet section and the `015-Test-Coverage.md` matrix row can both walk the table. See [`014-Chrome-Features.md`](014-Chrome-Features.md) §Chrome-visibility hotkeys. |
-| `keybindings/shortcut-keys` | `re-frame.story.ui.keybindings` | Pure data → data: the sorted list of bound keys. Consumed by the first-visit help overlay so the rendered shortcut table stays in lockstep with the registry. |
-| `keybindings/install!` / `keybindings/uninstall!` | `re-frame.story.ui.keybindings` | Install / teardown the single `window#keydown` capture-phase listener that backs the hotkey registry. Idempotent; no listener leak across re-mounts. Production builds with `re-frame.story.config/enabled?` false never install. |
+The **Audience** column names who's expected to call each surface
+(rf2-8ns6j follow-on, [`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
+Finding #3):
+
+- `user-app` — the host application; safe to call from app code.
+- `chrome-shell` — Story's own shell; called by the embed component,
+  the Causa preset, or the shell's bootstrap. Not part of the user
+  surface but unavoidably public because the shell needs it.
+- `pure-data-for-help` — pure-data tables consumed by the help-overlay
+  / cheat-sheet renderer. Public so consumers can walk the same data.
+
+| Surface | Where it lives | Kind | Audience | Purpose |
+|---|---|---|---|---|
+| `causa-embed-panel` | `re-frame.story.ui.causa-embed` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Causa-host Reagent component. Renders the chip-row picker plus the Causa panel-host `<div>` that one of `panels/mount-<panel>!` mounts into. Feature-detect-safe: renders a graceful no-op when Causa's preload is not on the classpath. See [`003-Render-Shell.md`](003-Render-Shell.md) §Causa per-panel embed. |
+| `mount-fn-for` | `re-frame.story.ui.causa-embed` | Pure dispatch fn | `chrome-shell` | Pure dispatch: `(mount-fn-for panel-id)` returns the Causa `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution via a `case` dispatch — no runtime namespace walk. See [`003-Render-Shell.md`](003-Render-Shell.md) §The contract — `panels/mount-<panel>!`. |
+| `popout-full-shell!` | `re-frame.story.ui.causa-embed` | User-callable lifecycle | `user-app` | Pop out the full Causa 4-layer shell into a second window via `day8.re-frame2-causa.mount/popout!`. Gated on `causa-preset/causa-available?` so the chip remains a graceful no-op when Causa's preload is not on the build. |
+| `causa-preset/wire-cross-host!` | `re-frame.story.causa-preset` | Internal bridge | `chrome-shell` | Bridges-only host-wiring helper. Called by the shell on every variant selection; threads through Causa's host-installation hooks (project-root propagation, keybinding installation) but does NOT mount Causa — the embed's panel-host owns the per-panel mount. See [`003-Render-Shell.md`](003-Render-Shell.md) §`wire-cross-host!` — bridges-only, no mount. |
+| `causa-preset/causa-available?` | `re-frame.story.causa-preset` | Pure predicate | `user-app` / `chrome-shell` | Pure predicate: true when Causa's preload is on the build (the preload namespace resolved at compile time). The chip-row, popout, and `wire-cross-host!` all check this — Story is feature-detect-safe and degrades gracefully when Causa is absent. App code MAY call this to gate UI affordances that depend on Causa being present. |
+| `causa-preset/propagate-project-root!` | `re-frame.story.causa-preset` | Internal bridge | `chrome-shell` | Bridges Story's `:project-root` from `configure!` into Causa's slot so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). |
+| `keybindings/bindings` | `re-frame.story.ui.keybindings` | Pure data table | `pure-data-for-help` | The canonical `{key → handler}` table for the chrome-visibility hotkeys (`f` / `s` / `a` / `t`). Public so the help overlay's cheat-sheet section and the `015-Test-Coverage.md` matrix row can both walk the table. See [`014-Chrome-Features.md`](014-Chrome-Features.md) §Chrome-visibility hotkeys. |
+| `keybindings/shortcut-keys` | `re-frame.story.ui.keybindings` | Pure data → data | `pure-data-for-help` | Pure data → data: the sorted list of bound keys. Consumed by the first-visit help overlay so the rendered shortcut table stays in lockstep with the registry. |
+| `keybindings/install!` / `keybindings/uninstall!` | `re-frame.story.ui.keybindings` | Installer pair (canonical shape) | `chrome-shell` | Install / teardown the single `window#keydown` capture-phase listener that backs the hotkey registry. Idempotent; no listener leak across re-mounts. Production builds with `re-frame.story.config/enabled?` false never install. The pair follows the canonical chrome-installer shape per [Conventions §Chrome-installer pair shape](Conventions.md#chrome-installer-pair-shape). |
 
 ## Configuration
 
@@ -187,7 +198,8 @@ for the marquee posture statement, and the per-surface entries:
 
 | Surface | Behaviour | Spec |
 |---|---|---|
-| `reg-variant` body — per-frame marks | Variant body MAY include `(re-frame.core/reg-marks <variant-id> {:sensitive [[paths]] :large [[paths]]})` to declare `app-db` marks scoped to that variant's frame. The `:loaders` / `:events` / `:play` registrations honour the standard `:sensitive` / `:large` registration grammar. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) + [spec/015](../../../spec/015-Data-Classification.md) |
+| `story/reg-marks` (re-export of `re-frame.core/reg-marks`) | Declare per-frame path-marks against `app-db`. Re-export of the framework primitive (rf2-l6hzv) — same primitive, same data model, same per-frame semantics. Story-author discoverability alias so authors scanning `re-frame.story`'s public surface for privacy primitives find one without chasing cross-references. See [Conventions.md §Privacy primitive — `reg-marks` re-export](Conventions.md#privacy-primitive--reg-marks-re-export). | [framework spec/015](../../../spec/015-Data-Classification.md) §reg-marks |
+| `reg-variant` body — per-frame marks | Variant body MAY include `(story/reg-marks <variant-id> {:sensitive [[paths]] :large [[paths]]})` to declare `app-db` marks scoped to that variant's frame. The `:loaders` / `:events` / `:play` registrations honour the standard `:sensitive` / `:large` registration grammar. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) + [spec/015](../../../spec/015-Data-Classification.md) |
 | Assertion records | `:rf.assert/*` records build `:actual` / `:expected` / `:payload` slots through `re-frame.elision/elide-wire-value` before landing in `:assertions`. The `:rf/redacted` sentinel is a legal `:expected` value for pinning the redaction contract. | [`004-Assertions.md`](004-Assertions.md) §Privacy |
 | Error-projection records | `:rf.error/exception` records pass `ex-data` through `re-frame.elision/elide-wire-value`; exception `:message` strings are NOT auto-walked (author responsibility — see spec/Security.md §Author guidance for exceptions under path-level `:sensitive?`). | [`002-Runtime.md`](002-Runtime.md) §Error projection §Privacy |
 | MCP read surface | Story core returns marks-as-data; wire substitution to `:rf/redacted` happens at the MCP jar's egress boundary, not in Story core. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) §MCP read surface |
@@ -228,6 +240,10 @@ for the marquee posture statement, and the per-surface entries:
 - [`016-Design-Tokens.md`](016-Design-Tokens.md) — chrome-identity
   typography / colour / motion / depth / iconography / toolbar 5-cluster
   token contracts.
+- [`Conventions.md`](Conventions.md) — Story-specific naming and
+  structural conventions (reserved namespaces, id grammars, macro/`*`-
+  fn split, chrome-installer pair shape, `*-id` Var pattern, token-
+  banning, `reg-marks` re-export).
 - [`Principles.md`](Principles.md) — design principles.
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — why each call was
   made.

@@ -4,6 +4,10 @@
 > folder. When a contributor sketches a new feature or fix, these
 > principles are the test it passes against. The numbered capability
 > docs are the *what*; this document is the *why-must*.
+> [`Conventions.md`](Conventions.md) catalogues the *how-named* — the
+> reserved namespaces, id grammars, macro/`*`-fn split, chrome-installer
+> pair shape, and token-banning rules that operationalise these
+> principles.
 
 ## EDN-first
 
