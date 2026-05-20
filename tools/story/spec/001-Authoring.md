@@ -159,6 +159,7 @@ no fn-slots):
  :decorators            [[:dec-id args ...]]
  :loaders               [[:loader-event-id ...]] ; async setup; phase 1
  :loaders-complete-when <pred>                   ; vector or registered event-id; see 002-Runtime
+ :loaders-teardown      [[:cleanup-event-id ...]]; symmetric counterpart of :loaders; runs on destroy-variant!
  :args->events          {<arg-key> <event-id>}   ; arg → app-db mapping (spec/007 §Args mapping)
  :platforms             #{:server :client}
  :substrates            #{:reagent :uix ...}
@@ -910,6 +911,55 @@ discussion.
 The `:websocket` fx never "completes"; `:loaders-complete-when`
 declares the predicate that means "we've received enough data to
 render."
+
+### `:loaders-teardown` — symmetric counterpart of `:loaders` (rf2-lqs0b)
+
+A variant whose `:loaders` event opens a long-lived fx (websocket
+subscription, polling interval, geolocation watch, Firestore listener)
+owns the cleanup of that fx when the variant is destroyed.
+`:loaders-teardown` is a vector of event vectors the runtime
+dispatch-syncs into the variant frame on `destroy-variant!`, BEFORE
+the frame's `:frame-setup` decorator `:teardown` walk. Per
+[`002-Runtime.md`](002-Runtime.md) §Loader teardown contract pattern
+#3.
+
+```clojure
+(rf/reg-event-fx :charts.heatmap/subscribe
+  (fn [_ _]
+    {:fx [[:websocket {:url        "wss://api/heatmap"
+                       :on-message [:charts/heatmap-tick]}]]}))
+
+(rf/reg-event-fx :charts.heatmap/unsubscribe
+  (fn [_ _]
+    {:fx [[:websocket-close {:url "wss://api/heatmap"}]]}))
+
+(story/reg-variant :story.charts.heatmap/live
+  {:doc              "Renders against a live websocket fixture; cleans
+                      up on destroy so navigating away doesn't leak the
+                      subscription."
+   :loaders          [[:charts.heatmap/subscribe]]
+   :loaders-teardown [[:charts.heatmap/unsubscribe]]
+   :loaders-complete-when [[:rf.assert/dispatched? [:charts/heatmap-tick]]]
+   :events           []
+   :tags             #{:dev}})
+```
+
+Events fire in declared order on destroy (symmetric with `:loaders`).
+Exceptions thrown by `:loaders-teardown` events are caught and
+projected into the variant frame's `[:rf.story/assertions]` as
+`:rf.error/exception` records with `:phase :phase-loaders-teardown`;
+the walk continues — no event in the vector is skipped, and
+subsequent teardown phases still run.
+
+**When to use which pattern.** For any resource with a non-trivial
+lifetime (reconnect logic, backoff, multi-step shutdown), spec/005
+state-machines (the `:rf.machine/spawn` + `:exit` pattern) are the
+better surface — see [`002-Runtime.md`](002-Runtime.md) §Machine
+lifecycle on variant unmount. For cleanup that belongs to a decorator
+stack (the decorator's `:init` opened the resource), put the cleanup
+in the same decorator's `:teardown` slot — see §`:teardown` —
+symmetric counterpart of `:init` above. For variant-local cleanup that
+fits in a single event, `:loaders-teardown` is the lightweight option.
 
 ### Composed variant via `:extends`
 

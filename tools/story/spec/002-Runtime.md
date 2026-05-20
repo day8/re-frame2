@@ -221,6 +221,137 @@ paths against `run-variant` (see
 "Loaders + async" walkthrough should cite these variants as the
 contract demonstration.
 
+### Loader error states
+
+This section expands the table above into the per-mode mechanics —
+what is observable, how the record lands, how the lifecycle settles,
+and how `:loaders-complete-when` interacts with each mode. The
+failures land via the same `:rf.error/exception` /
+`:rf.error/loader-incomplete` record shape as every other Story
+emission site, but the *route* an exception takes from the failing
+handler to `[:rf.story/assertions]` differs by failure mode and by
+how the exception was raised. Authors writing loader code should be
+able to predict which route they'll trip and what the resulting
+assertion record will contain.
+
+**Throw — synchronous exception from a loader handler.** A `:loaders`
+event handler that throws (any `Throwable` on JVM, any thrown value on
+CLJS — typically a `js/Error` or `ExceptionInfo`) is caught by the
+runtime's phase-1 driver in two complementary places:
+
+1. **Direct `try/catch` around `dispatch-sync`** inside
+   `runtime/run-loaders!`. Catches synchronous throws that escape
+   re-frame's interceptor chain (rare — most handler throws are
+   caught one level deeper).
+2. **Per-phase trace listener (rf2-z2dq8)** registered around the
+   loader walk. re-frame's interceptor chain catches handler-internal
+   throws and emits `:rf.error/handler-exception` trace events rather
+   than re-throwing. The listener collects these events into a
+   per-frame `pending-exceptions` atom; the driver's `finally` block
+   then calls `play/drain-pending-exceptions! variant-id
+   :phase-1-loaders` to project each captured event onto
+   `[:rf.story/assertions]` as a `:rf.error/exception` record.
+
+The record carries `:phase :phase-1-loaders` (distinguishing the
+loader phase from `:phase-2-events`, `:phase-3-render`, and
+`:phase-4-play` — every other re-frame phase records exceptions with
+the same shape but a different `:phase` tag). The `:error` map
+captures `:message`, `:stack`, and `:data` (the latter populated from
+`ex-data` for `ExceptionInfo`, nil otherwise). The lifecycle machine
+transitions to `:error` via `event-errored`; phases 2, 3, and 4 do
+NOT run; `run-variant` resolves with the assertion vector populated
+and `:lifecycle :error`. See §Error projection §Privacy below for the
+elision contract on `:error :data`.
+
+**Reject — typed rejection from a loader handler.** Story does not
+distinguish "throw" from "reject" at the runtime level — both routes
+produce the same `:rf.error/exception` record shape via the same
+two-route capture path above. The convention is purely author-side:
+when a loader emits a typed rejection it throws an `ex-info` whose
+`ex-data` carries a marker key (`:kind :loader-rejection`,
+`:kind :http/400`, or any author-chosen taxonomy). The marker
+round-trips through `re-frame.elision/elide-wire-value` into the
+record's `:error :data` slot so downstream test assertions and
+diagnostic panes can pattern-match on the rejection kind. The
+lifecycle settlement, phase-2/3/4 skip, and `run-variant` return
+shape are identical to Throw. Authors who want different recovery
+semantics per rejection-kind implement that in their own loader
+handler (e.g. catch the rejection, dispatch a recovery event, do not
+re-throw); the runtime records only what escapes the handler.
+
+JS-side note. A `:loaders` handler that returns a rejected
+`js/Promise` (rather than throwing synchronously) does not raise an
+exception the runtime can capture — re-frame's event loop does not
+await handler return values. Authors writing async loader work
+should:
+
+1. Use `:loaders-complete-when` (a predicate-event or vector-of-events)
+   to hold the lifecycle in `:loading` until the async work settles, and
+2. Dispatch a follow-up event from the promise's `.catch` handler that
+   either re-raises (taking the Throw route above) or records its own
+   assertion via `:rf.assert/*`.
+
+The runtime's role is to record exceptions that escape, not to
+discover async failures the host code chose not to surface.
+
+**Never-complete — drain settles, predicate stays false.** This is the
+non-exception failure mode. The runtime's phase-1 driver dispatches
+every `:loaders` event, drains re-frame's run-to-completion queue,
+then evaluates `:loaders-complete-when`. When the predicate returns
+falsy after the drain settles, the runtime records a
+`:rf.error/loader-incomplete` assertion (note: NOT
+`:rf.error/exception` — never-complete is a contract failure, not an
+exception) onto `[:rf.story/assertions]` with `:phase :phase-1-loaders`,
+the predicate value verbatim in `:predicate`, and a human-readable
+`:reason` string. The lifecycle machine PARKS at `:loading` — it does
+NOT transition to `:error`. Phases 2, 3, and 4 do NOT run; the
+canvas's loading skeleton (rf2-0s4p1) stays engaged; `run-variant`
+resolves with `:lifecycle :loading` and the assertion vector
+populated.
+
+No built-in wall-clock timeout. The runtime evaluates the predicate
+exactly once per loader-cascade settlement; it does NOT poll. Authors
+who want a deterministic deadline write a `:loaders-complete-when`
+that combines the async predicate with a timeout event
+(e.g. `[[:my.fixture/ready?] [:my.fixture/timeout-after 5000]]`) and
+have their timeout handler assoc `:rf.story/loaders-complete? false`
+into the variant frame's app-db. Story does not own wall-clock; the
+host's timeout fx + a custom predicate-event is the supported pattern.
+
+**`:loaders-complete-when` interaction with errors.** When a loader
+THROWS (or REJECTS), `:loaders-complete-when` is NOT evaluated — the
+machine transitions to `:error` from inside the loader walk, before
+the predicate-evaluation step runs. So an author whose predicate
+asserts on app-db state will not see it reached on a throw; the
+`:rf.error/exception` record stands alone. Conversely a predicate
+that returns falsy via a soft branch (no exception thrown, just
+"not ready yet") routes to Never-complete; the
+`:rf.error/loader-incomplete` record stands alone. The two failure
+modes are mutually exclusive on a single `run-variant` invocation.
+
+**Phase-1 vs phase-4 exception records.** The `:phase` tag on the
+record is the primary disambiguator. Both phases use the same
+`:rf.error/exception` shape and the same `play/drain-pending-
+exceptions!` capture path (the function takes a `phase` argument
+specifically so callers stamp the originating phase). Tools reading
+`[:rf.story/assertions]` filter on `:phase :phase-1-loaders` to
+isolate loader failures from event / render / play failures. Failures
+in phase 2 (`:events`) record with `:phase :phase-2-events`; render
+errors in phase 3 record with `:phase :phase-3-render`; play errors
+in phase 4 record with `:phase :phase-4-play`. The shape uniformity
+makes assertion-list consumers shape-agnostic; the `:phase` tag is
+the only per-phase distinction.
+
+**`run-variant` return shape under each mode.** The result map's
+`:lifecycle` slot reflects the parked discrete state:
+`:error` (Throw / Reject) or `:loading` (Never-complete). The
+`:assertions` slot carries the record. `:app-db` reflects whatever
+state the frame held at the failure boundary (loader phase may have
+written some intermediate state before throwing; the runtime does not
+roll back). `:rendered-hiccup` is nil under failure (phase 3 is
+skipped). Consumers querying `passed?` aggregate over `:assertions`;
+any `:rf.error/*` record drops the aggregate to false.
+
 ### Loader teardown contract
 
 A `:loaders` event handler that opens a long-lived fx — a websocket
@@ -235,7 +366,7 @@ variant's websocket keeps dispatching events (which now land into a
 torn-down frame and may either no-op or surface as
 `:rf.error/dispatched-into-destroyed-frame` warnings).
 
-**Two recommended patterns**, in preferred order:
+**Three recommended patterns**, in preferred order:
 
 1. **Spawn a state machine in the loader; rely on `:rf.machine/destroy`.**
    The state-machine path described in §Machine lifecycle on variant
@@ -264,21 +395,51 @@ torn-down frame and may either no-op or surface as
    slot to learn. Recommended for any production-shape loader.
 
 2. **`:teardown` slot on `:frame-setup` decorators** — symmetric with
-   `:init`. For loaders whose cleanup is too small to justify a
-   machine actor (single `dispatch-sync` of a `:foo/cancel` event),
-   `:frame-setup` decorators carry an optional `:teardown` events
-   vector that fires into the variant frame just before
-   `destroy-frame!` runs. See
-   [`001-Authoring.md`](001-Authoring.md) §reg-decorator `:teardown`.
+   `:init`. When a `:frame-setup` decorator's `:init` opened the
+   resource, the matching `:teardown` events vector closes it at
+   destroy. Best fit when the resource is owned by a decorator stack
+   the variant references (the resource scope matches the decorator
+   scope). See [`001-Authoring.md`](001-Authoring.md) §reg-decorator
+   `:teardown`.
+
+3. **`:loaders-teardown` slot on the variant body** (rf2-lqs0b) —
+   symmetric with `:loaders` on the variant body itself. Best fit when
+   the resource is opened by a variant-level `:loaders` event and the
+   cleanup is too small to justify spawning a machine actor (single
+   `dispatch-sync` of a `:foo/cancel` event).
+
+   ```clojure
+   (rf/reg-event-fx :ws/subscribe
+     (fn [{:keys [db]} _]
+       {:fx [[:rf.host/open-socket {:url "wss://..."}]]
+        :db (assoc db :ws/subscribed? true)}))
+
+   (rf/reg-event-fx :ws/unsubscribe
+     (fn [{:keys [db]} _]
+       {:fx [[:rf.host/close-socket]]
+        :db (dissoc db :ws/subscribed?)}))
+
+   (story/reg-variant :story.feed/live
+     {:loaders          [[:ws/subscribe]]
+      :loaders-teardown [[:ws/unsubscribe]]
+      :loaders-complete-when [[:ws/first-tick-received]]})
+   ```
+
+   `:loaders-teardown` events fire BEFORE the decorator `:teardown`
+   walk — see §What the runtime guarantees below for the ordering
+   rule. The slot is open-ended: a variant may declare any number of
+   teardown events, dispatched in declared order (symmetric with
+   `:loaders`). Exceptions are recorded, not aborted (same shape as
+   decorator `:teardown`).
 
 **Anti-pattern: a bare `:loaders` event that opens a websocket without
-either of the above.** A reader who lands on Chapter 8 of the tutorial
-and writes `:loaders [[:ws/subscribe]]` without spawning a machine or
-using a teardown-bearing decorator will leak the subscription past
-variant destroy. The diagnostic is a console flood when navigating
-between variants. The fix is to wrap the subscription in a machine
-actor (pattern #1) or in a `:frame-setup` decorator with `:teardown`
-(pattern #2).
+any of the above.** A reader who lands on Chapter 8 of the tutorial
+and writes `:loaders [[:ws/subscribe]]` without spawning a machine,
+using a teardown-bearing decorator, or declaring `:loaders-teardown`
+will leak the subscription past variant destroy. The diagnostic is a
+console flood when navigating between variants. The fix is one of the
+three patterns above; the cheapest is pattern #3 (one extra slot on
+the variant body).
 
 **What the runtime guarantees.** On `destroy-variant!`:
 
@@ -286,25 +447,42 @@ actor (pattern #1) or in a `:frame-setup` decorator with `:teardown`
    (`frames/clear-stub-call-log!`).
 2. Lifecycle watchers are cleared
    (`loaders/clear-watchers!`).
-3. **Any `:teardown` events declared on the variant's `:frame-setup`
-   decorators dispatch-sync into the variant frame** (in reverse-
-   declaration order — innermost decorator's teardown runs first,
-   outermost last). This is the symmetric counterpart of `:init`
-   running at allocation.
-4. Spec/005 machines spawned into the variant frame receive
+3. **The variant body's `:loaders-teardown` events dispatch-sync into
+   the variant frame in declared order.** Symmetric counterpart of
+   `:loaders` (rf2-lqs0b).
+4. **The variant's `:frame-setup` decorator `:teardown` events
+   dispatch-sync into the variant frame** in reverse-declaration order
+   (innermost decorator's teardown runs first, outermost last).
+   Symmetric counterpart of decorator `:init`.
+5. Spec/005 machines spawned into the variant frame receive
    `:rf.machine/destroy` (existing contract).
-5. `rf/destroy-frame!` runs the frame's own teardown walk.
+6. `rf/destroy-frame!` runs the frame's own teardown walk.
 
-Steps 3 and 4 are author-observable; steps 1, 2, and 5 are framework
-internals. Author-side teardown work belongs in step 3 (small) or
-step 4 (machine actor with `:exit`).
+Steps 3, 4, and 5 are author-observable; steps 1, 2, and 6 are
+framework internals.
+
+**Ordering rule.** Step 3 (variant body `:loaders-teardown`) runs
+BEFORE step 4 (decorator `:teardown`). Intuition: a variant's loaders
+open the narrowest, most-recently-installed resources; the decorator
+stack opens wider, longer-lived resources. Cleanup walks innermost-
+first, mirroring function-scope cleanup. Within step 4 the
+reverse-declaration walk (variant-level decorators before story-level
+decorators) extends the same rule across the decorator stack.
+
+**Exception handling.** Events that throw in steps 3 or 4 are caught
+and projected onto the variant frame's `[:rf.story/assertions]` as
+`:rf.error/exception` records — `:phase :phase-loaders-teardown` for
+step 3, `:phase :phase-teardown` for step 4. The walk continues; the
+next event in the vector still runs; subsequent teardown phases still
+run; `rf/destroy-frame!` still completes. Teardown never aborts
+destroy.
 
 **What the runtime does NOT guarantee.** Wall-clock timeout for
 teardown; cancellation of in-flight async fx (HTTP request, websocket
 message in transit) that were dispatched before teardown but resolve
-after; deterministic ordering when both a machine `:exit` action and
-a decorator `:teardown` event target the same resource (don't do
-this — pick one pattern per resource).
+after; deterministic ordering when more than one of patterns #1, #2,
+or #3 target the same resource (don't do this — pick one pattern per
+resource).
 
 ## Error projection
 

@@ -487,6 +487,14 @@
      [:or
       :keyword                                ; registered predicate-event id
       [:vector EventVector]]]                 ; literal data form
+    ;; rf2-lqs0b — `:loaders-teardown` is the symmetric counterpart of
+    ;; `:loaders` on the variant body itself. Vector of event vectors
+    ;; dispatched into the variant frame on `destroy-variant!` BEFORE
+    ;; the frame's `:frame-setup` decorator `:teardown` walk runs. Used
+    ;; to close long-lived fx a `:loaders` event opened (websocket open,
+    ;; polling interval, geolocation watch). Per `002-Runtime.md`
+    ;; §Loader teardown contract.
+    [:loaders-teardown      {:optional true} [:vector EventVector]]
     [:args->events          {:optional true} [:map-of :keyword :keyword]]
     [:platforms             {:optional true} PlatformSet]
     [:substrates            {:optional true} SubstrateSet]
