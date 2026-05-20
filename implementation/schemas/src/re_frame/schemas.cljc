@@ -94,11 +94,15 @@
 (def app-schemas-digest digest/app-schemas-digest)
 
 ;; Validation entry points (Spec 010 §Validation order).
-(def validate-app-db!     validate/validate-app-db!)
+;; Per rf2-s2jgz the family is named on the kind axis —
+;; validate-event! / validate-cofx! / validate-fx! / validate-sub! /
+;; validate-app-schema!. The earlier validate-app-db! /
+;; validate-sub-return! names were renamed for symmetry.
+(def validate-app-schema! validate/validate-app-schema!)
 (def validate-event!      validate/validate-event!)
 (def validate-cofx!       validate/validate-cofx!)
 (def validate-fx!         validate/validate-fx!)
-(def validate-sub-return! validate/validate-sub-return!)
+(def validate-sub!        validate/validate-sub!)
 
 ;; Production-side boundary-validation seam (rf2-r2uh).
 (def validate-with-registered-fn validate/validate-with-registered-fn)
@@ -121,9 +125,9 @@
 ;; publication block (flows / machines / routing / http / ssr).
 
 ;; Validation hot-path hooks (consumed by router / cofx / subs / epoch).
-(late-bind/set-fn! :schemas/validate-app-db!     validate-app-db!)
+(late-bind/set-fn! :schemas/validate-app-schema! validate-app-schema!)
 (late-bind/set-fn! :schemas/validate-event!      validate-event!)
-(late-bind/set-fn! :schemas/validate-sub-return! validate-sub-return!)
+(late-bind/set-fn! :schemas/validate-sub!        validate-sub!)
 (late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)
 (late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
 (late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)

@@ -1,8 +1,8 @@
 (ns re-frame.schemas-failure-paths-test
   "JVM tests for the precise / sensitivity-aware failure-path contract
-  on `validate-app-db!` (rf2-oh4se).
+  on `validate-app-schema!` (rf2-oh4se).
 
-  Pre-rf2-oh4se, `validate-app-db!` always emitted the registered
+  Pre-rf2-oh4se, `validate-app-schema!` always emitted the registered
   schema root as `:path` and applied coarse whole-schema redaction
   whenever any nested slot in the schema declared `:sensitive?`. The
   audit (rf2-x8x4p) flagged two consequences:
@@ -65,7 +65,7 @@
             explainer's :in (the failing value's navigation path)"
     (rf/reg-app-schema [:user] [:map [:id :int] [:email :string]])
     (let [traces (capture-trace
-                   #(schemas/validate-app-db!
+                   #(schemas/validate-app-schema!
                       {:user {:id "not-an-int" :email "alice@example.com"}}
                       :user/set-bad))]
       (is (= 1 (count traces)))
@@ -82,7 +82,7 @@
             elision-probe substring stays distinctive per surface"
     (rf/reg-app-schema [:user] [:map [:age :int]])
     (let [traces (capture-trace
-                   #(schemas/validate-app-db! {:user {:age "old"}} :u/bad))
+                   #(schemas/validate-app-schema! {:user {:age "old"}} :u/bad))
           v      (first traces)]
       (is (.contains ^String (-> v :tags :reason) "[:user :age]")
           ":reason names the leaf path"))))
@@ -92,7 +92,7 @@
             (Malli :in []), :path equals the registration root"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (capture-trace
-                   #(schemas/validate-app-db! {:count "x"} :c/bad))
+                   #(schemas/validate-app-schema! {:count "x"} :c/bad))
           v      (first traces)]
       (is (= [:count] (-> v :tags :path))
           ":path is the registered root — no leaf to narrow to")
@@ -107,7 +107,7 @@
                              [:b [:map
                                   [:c [:map [:d :int]]]]]]]])
     (let [traces (capture-trace
-                   #(schemas/validate-app-db!
+                   #(schemas/validate-app-schema!
                       {:root {:a {:b {:c {:d "not-an-int"}}}}}
                       :r/bad))
           v      (first traces)]
@@ -130,7 +130,7 @@
     ;; sibling [:user :password] is sensitive but does not appear in
     ;; the failing value. No redaction.
     (let [traces (capture-trace
-                   #(schemas/validate-app-db!
+                   #(schemas/validate-app-schema!
                       {:user {:name 42 :password "secret-pw"}}
                       :u/bad-name))
           v      (first traces)]
@@ -154,7 +154,7 @@
                         [:password {:sensitive? true} :string]])
     ;; :password is the failing leaf (int, not string).
     (let [traces (capture-trace
-                   #(schemas/validate-app-db!
+                   #(schemas/validate-app-schema!
                       {:user {:name "alice" :password 99}}
                       :u/bad-pw))
           v      (first traces)]
@@ -175,7 +175,7 @@
     ;; :token is the failing leaf (int, not string); the container
     ;; [:auth] is sensitive, so the whole subtree is sensitive.
     (let [traces (capture-trace
-                   #(schemas/validate-app-db!
+                   #(schemas/validate-app-schema!
                       {:auth {:token 42 :expiry 9999}}
                       :auth/bad))
           v      (first traces)]
@@ -192,7 +192,7 @@
                         [:name     :string]
                         [:password {:sensitive? true} :string]])
     (let [traces (capture-trace
-                   #(schemas/validate-app-db! {:user "wholly-bogus"} :u/bad))
+                   #(schemas/validate-app-schema! {:user "wholly-bogus"} :u/bad))
           v      (first traces)]
       (is (true? (:sensitive? v))
           "descendant-sensitive — the failing value is the whole map and
@@ -205,7 +205,7 @@
     (rf/reg-app-schema [:auth] [:map [:token {:sensitive? true} :string]])
     (rf/reg-app-schema [:count] [:int])
     (let [traces (capture-trace
-                   #(schemas/validate-app-db!
+                   #(schemas/validate-app-schema!
                       {:auth {:token 42} :count "not-an-int"}
                       :bulk/bad))]
       (is (= 2 (count traces)))
@@ -236,7 +236,7 @@
       (rf/reg-app-schema [:user]
                          [:map [:password {:sensitive? true} :string]])
       (let [traces (capture-trace
-                     #(schemas/validate-app-db! {:user {:password "pw"}}
+                     #(schemas/validate-app-schema! {:user {:password "pw"}}
                                                 :u/bad))
             v      (first traces)]
         (is (= 1 (count traces)))
@@ -261,7 +261,7 @@
     (try
       (rf/reg-app-schema [:count] [:int])
       (let [traces (capture-trace
-                     #(schemas/validate-app-db! {:count "x"} :c/bad))
+                     #(schemas/validate-app-schema! {:count "x"} :c/bad))
             v      (first traces)]
         (is (= [:count] (-> v :tags :path)))
         (is (= "x" (-> v :tags :value)))
@@ -276,7 +276,7 @@
             whether leaf narrowing succeeded — tooling can pivot on it"
     (rf/reg-app-schema [:user] [:map [:age :int]])
     (let [traces (capture-trace
-                   #(schemas/validate-app-db! {:user {:age "x"}} :u/bad))
+                   #(schemas/validate-app-schema! {:user {:age "x"}} :u/bad))
           v      (first traces)]
       (is (= [:user] (-> v :tags :registered-path))
           ":registered-path is the registration anchor — distinct from

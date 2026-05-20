@@ -43,7 +43,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn maybe-validate-sub-return!
+(defn maybe-validate-sub!
   "Per Spec 010 §Validation order step 6 (rf2-wcam) — after a sub
   recomputes, validate its return value against any :schema on the sub
   meta. On failure, emit :rf.error/schema-validation-failure and
@@ -56,7 +56,7 @@
   [value query-v sub-id sub-meta]
   (if (and sub-meta (:schema sub-meta))
     ;; Sticky hook (rf2-f72pd) — fires per-sub recompute.
-    (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub-return!)]
+    (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub!)]
       (if (try (validate sub-id query-v value sub-meta)
                (catch #?(:clj Throwable :cljs :default) _ true))
         value
@@ -110,7 +110,7 @@
                         (if (= 1 (count input-signals))
                           (body-fn (first in-vals) query-v)
                           (body-fn (vec in-vals) query-v))))]
-        (maybe-validate-sub-return! computed query-v query-id sub-meta))
+        (maybe-validate-sub! computed query-v query-id sub-meta))
       (catch #?(:clj Throwable :cljs :default) e
         (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
           (trace/emit-error!

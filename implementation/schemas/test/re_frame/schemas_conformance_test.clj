@@ -2,8 +2,8 @@
   "Per rf2-2l08g (audit rf2-x8x4p §TE5). Drives every
   `spec/conformance/fixtures/schema-*.edn` fixture (plus
   `error-schema-failure.edn`) through the live runtime — `reg-app-schema`,
-  `validate-app-db!`, the `:schemas/validate-event!` / `:schemas/validate-cofx!` /
-  `:schemas/validate-sub-return!` late-bind hooks, and the
+  `validate-app-schema!`, the `:schemas/validate-event!` / `:schemas/validate-cofx!` /
+  `:schemas/validate-sub!` late-bind hooks, and the
   `:rf.error/schema-validation-failure` trace contract — and asserts
   the conformance-corpus's recorded outcome against what the artefact
   actually produces.
@@ -299,7 +299,7 @@
                   (rf/reg-event-fx id handler))))))
     ;; ---- subs ----------------------------------------------------------
     ;; Per Spec 010 §step 6 (rf2-wcam): sub meta carries :spec; the
-    ;; runtime calls `:schemas/validate-sub-return!` after each compute.
+    ;; runtime calls `:schemas/validate-sub!` after each compute.
     (doseq [[id steps] (:sub hmap)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
             meta                       (get sub-meta id {})]
@@ -460,7 +460,7 @@
           ;; destroy would leak them through). Schemas must also
           ;; precede `reg-frame` so the :on-create cascade fires
           ;; with the schemas in place — the on-create's db commit
-          ;; will trigger validate-app-db! against the new slate.
+          ;; will trigger validate-app-schema! against the new slate.
           _            (realise-app-schemas fixture)
           _            (rf/reg-frame :rf/default frame-config)
           dispatches   (or (:fixture/dispatches fixture) [])]

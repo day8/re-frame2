@@ -429,7 +429,7 @@
     (doseq [[id steps] (get handlers-map :sub)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
             ;; Per Spec 010 §step 6 (rf2-wcam): pull :spec from the
-            ;; sub's registry meta so validate-sub-return! sees it.
+            ;; sub's registry meta so validate-sub! sees it.
             sub-meta (get sub-registry id {})]
         (case kind
           :layer-1 (if (seq sub-meta)

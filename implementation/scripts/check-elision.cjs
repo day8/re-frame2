@@ -49,8 +49,8 @@ const report = createGateReporter();
 //
 // Sentinels are grouped by source so failures point at the leak.
 const DEV_ONLY_SENTINELS = [
-  // re-frame.schemas — validate-app-db! reason string.
-  { source: 're-frame.schemas/validate-app-db!',
+  // re-frame.schemas — validate-app-schema! reason string.
+  { source: 're-frame.schemas/validate-app-schema!',
     sentinel: 'App-db at path ' },
   // re-frame.schemas — validate-event! reason string. Per rf2-dz71l
   // the distinctive per-surface slot-tail (" payload failed schema ")
@@ -59,8 +59,8 @@ const DEV_ONLY_SENTINELS = [
   // the (if interop/debug-enabled? ...) gated branch.
   { source: 're-frame.schemas/validate-event!',
     sentinel: ' payload failed schema ' },
-  // re-frame.schemas — validate-sub-return! reason string.
-  { source: 're-frame.schemas/validate-sub-return!',
+  // re-frame.schemas — validate-sub! reason string.
+  { source: 're-frame.schemas/validate-sub!',
     sentinel: ' return value failed schema ' },
   // re-frame.schemas — validate-cofx! reason string.
   { source: 're-frame.schemas/validate-cofx!',

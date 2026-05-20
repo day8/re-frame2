@@ -4,13 +4,19 @@
   Owns the five dev-time validate-*! fns the framework calls at the
   locked validation sites:
 
-    - validate-event!       — pre-handler (event vector vs handler :schema)
-    - validate-cofx!        — post-injection (cofx value vs cofx :schema)
-    - validate-fx!          — pre-fx-handler (fx args vs fx :schema)
-    - validate-app-db!      — post-handler-commit (frame's app-schemas)
-    - validate-sub-return!  — post-sub-recompute (return value vs sub :schema)
+    - validate-event!        — pre-handler (event vector vs handler :schema)
+    - validate-cofx!         — post-injection (cofx value vs cofx :schema)
+    - validate-fx!           — pre-fx-handler (fx args vs fx :schema)
+    - validate-app-schema!   — post-handler-commit (frame's app-schemas)
+    - validate-sub!          — post-sub-recompute (return value vs sub :schema)
 
   The metadata key is `:schema` (canonical per rf2-ieu0i).
+
+  Per rf2-s2jgz (audit-of-audits #20) the family is named on the
+  kind axis — validate-event!, validate-cofx!, validate-fx!,
+  validate-sub! and validate-app-schema!. The earlier
+  validate-app-db! / validate-sub-return! names were renamed for
+  symmetry with their siblings.
 
   Also owns the production-side boundary-validation seam
   (`validate-with-registered-fn` / `explain-with-registered-fn`) that
@@ -18,12 +24,12 @@
   reaches via the schemas-side late-bind hook.
 
   Per rf2-s7s6j the four meta-bearing validate-*! fns (event / cofx /
-  fx / sub-return) share a single core via the private
+  fx / sub) share a single core via the private
   `run-validation` primitive — each public fn is a thin wrapper that
   contributes only its registration-meta source, its checked value,
   its sensitivity-source check, its tag shape (`:where`,
   `:reason`, etc.), and any fx-specific post-redaction step.
-  `validate-app-db!` stays a sibling of the four; it walks N schemas
+  `validate-app-schema!` stays a sibling of the four; it walks N schemas
   via doseq (no single :schema lookup, no true/false return contract)
   and so doesn't share the wrapper's shape.
 
@@ -195,7 +201,7 @@
 
 (defn- run-validation
   "Shared core of the four meta-bearing validate-*! fns (event / cofx /
-  fx / sub-return). Performs the registered-validator deref, the
+  fx / sub). Performs the registered-validator deref, the
   `:schema`-on-meta lookup, the validate / explain calls, the
   sensitivity decision, and the trace emit. Returns true on pass / no
   schema / no validator; false on a logged failure.
@@ -204,7 +210,7 @@
     - `meta`         the registration metadata (handler / cofx / sub /
                      fx) — its `:schema` slot, if any, is the schema.
     - `value`        the value being checked (event vector, cofx
-                     value, sub return, fx args).
+                     value, sub return value, fx args).
     - `meta-sensitive?` boolean — historical handler-meta sensitivity
                      flag. Now always `false` from callers; the
                      handler-meta `:sensitive?` annotation has been
@@ -255,7 +261,7 @@
       true)
     true))
 
-(defn validate-app-db!
+(defn validate-app-schema!
   "After a handler commits :db, walk every registered app-schema for the
   named frame and validate the post-state. Failures trace as
   :rf.error/schema-validation-failure with the registered explainer's
@@ -269,9 +275,9 @@
   this fn is a hard no-op for every schema in the frame.
 
   Arities:
-    (validate-app-db! db)                       ;; current frame
-    (validate-app-db! db event-id)              ;; current frame, named handler
-    (validate-app-db! db event-id frame-id)     ;; explicit frame
+    (validate-app-schema! db)                       ;; current frame
+    (validate-app-schema! db event-id)              ;; current frame, named handler
+    (validate-app-schema! db event-id frame-id)     ;; explicit frame
 
   event-id (optional) names the handler whose commit prompted the
   failure — surfaced as :failing-id in the error tags.
@@ -286,14 +292,14 @@
              rf2-6m0se).
 
   Structurally distinct from the four meta-bearing validate-*! fns
-  (event / cofx / fx / sub-return): walks N schemas via doseq, has no
+  (event / cofx / fx / sub): walks N schemas via doseq, has no
   single `:schema`-on-meta lookup, and emits a trace per failure (rather
   than at-most-one). Returns a single boolean conjoining every entry's
   result so the caller can decide rollback deterministically — but
   every failing schema is still surfaced as its own trace so consumers
   see the full set."
-  ([db] (validate-app-db! db nil (frame/current-frame)))
-  ([db event-id] (validate-app-db! db event-id (frame/current-frame)))
+  ([db] (validate-app-schema! db nil (frame/current-frame)))
+  ([db event-id] (validate-app-schema! db event-id (frame/current-frame)))
   ([db event-id frame-id]
    ;; Per Spec 009 §Production builds the entire body lives inside a
    ;; `(if interop/debug-enabled? ... true)` gate as the OUTERMOST form
@@ -422,7 +428,7 @@
          :recovery   :no-recovery}))
     true))
 
-(defn validate-sub-return!
+(defn validate-sub!
   "Per Spec 010 §Validation order step 6 — after a sub recomputes,
   validate its return value against any :schema on the sub's metadata.
   Failures emit `:rf.error/schema-validation-failure :where

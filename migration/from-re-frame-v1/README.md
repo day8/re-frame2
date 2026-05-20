@@ -2273,6 +2273,41 @@ Per rf2-ixezs (audit-of-audits routing): two near-identical names (`:rf/url-chan
 
 **Cross-references.** [Spec 012 §Route-change event catalogue](../../spec/012-Routing.md); [Spec 009 §Trace event catalogue](../../spec/009-Instrumentation.md); [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the `:rf.route/*` ownership).
 
+### M-61. Validator family rename — `validate-app-db!` / `validate-sub-return!` → `validate-app-schema!` / `validate-sub!` (rf2-s2jgz)
+
+**Type A** (mechanical). Two-symbol rename plus two late-bind hook-key renames.
+
+Per rf2-s2jgz (audit-of-audits #20): the five dev-time validator fns the framework calls at the locked Spec 010 validation sites are named on the **kind axis** — `validate-event!`, `validate-cofx!`, `validate-fx!`, `validate-sub!`, `validate-app-schema!`. The two pre-rename names (`validate-app-db!` and `validate-sub-return!`) sat off-axis (one named after the *target slot*, one after the *value role*) and broke the family symmetry the other three siblings established.
+
+| Old | New | Surface |
+|---|---|---|
+| `re-frame.schemas/validate-app-db!` | `re-frame.schemas/validate-app-schema!` | post-handler-commit validator — walks every registered app-schema in the frame and trace-emits per failure. Reaches users only when they call it directly (test fixtures, custom router wiring); the standard router path lives behind the `:schemas/validate-app-schema!` late-bind hook. |
+| `re-frame.schemas/validate-sub-return!` | `re-frame.schemas/validate-sub!` | post-sub-recompute validator — checks a sub's return value against its registered `:schema`. Reaches users only when they call it directly; the standard subs path lives behind the `:schemas/validate-sub!` late-bind hook. |
+| `:schemas/validate-app-db!` | `:schemas/validate-app-schema!` | Late-bind hook key. Custom artefacts that publish their own validator via `(late-bind/set-fn! :schemas/validate-app-db! my-fn)` move to the new key; consumers (router) read the new key. |
+| `:schemas/validate-sub-return!` | `:schemas/validate-sub!` | Late-bind hook key. Same shape — publishers and consumers move to the new key. |
+
+**Detect.** Codebases that called the validator fns directly (uncommon — these are framework-internal hot-path fns) or published custom late-bind hooks under the old keys trip this. Standard re-frame v1 codebases that only register schemas (`rf/reg-app-schema`) and let the framework validate are untouched — the framework's own router / subs paths route through the renamed late-bind hooks transparently.
+
+```clojure
+;; before
+(re-frame.schemas/validate-app-db! db :my/event)
+(re-frame.schemas/validate-sub-return! :my/sub [:my/sub] value sub-meta)
+(late-bind/set-fn! :schemas/validate-app-db!     my-app-db-validator)
+(late-bind/set-fn! :schemas/validate-sub-return! my-sub-validator)
+
+;; after
+(re-frame.schemas/validate-app-schema! db :my/event)
+(re-frame.schemas/validate-sub! :my/sub [:my/sub] value sub-meta)
+(late-bind/set-fn! :schemas/validate-app-schema! my-app-db-validator)
+(late-bind/set-fn! :schemas/validate-sub!        my-sub-validator)
+```
+
+**No alias.** Per pre-alpha posture, the old names are **removed** — stale calls raise `Unable to resolve symbol` (CLJS) / `Unable to resolve var` (CLJ); stale `(late-bind/set-fn! :schemas/validate-app-db! ...)` publications dead-end (the consumer router reads only the new key, so the old-keyed publication is never read).
+
+**Internal-only ripple.** `re-frame.subs.memo/maybe-validate-sub-return!` (the in-namespace wrapper that calls the validator) is renamed to `maybe-validate-sub!` symmetric with `re-frame.cofx/maybe-validate-cofx!`. This is a private fn — call sites are inside the same namespace pair — and is not part of the user surface.
+
+**Cross-references.** [Spec 010 §Validation order](../../spec/010-Schemas.md); [Spec 009 §`schemas.cljc` trace catalogue](../../spec/009-Instrumentation.md); [Conventions §Reserved late-bind hook keys](../../spec/Conventions.md#reserved-namespaces-framework-owned).
+
 ---
 
 ## Opt-in modernisation (only if asked)
