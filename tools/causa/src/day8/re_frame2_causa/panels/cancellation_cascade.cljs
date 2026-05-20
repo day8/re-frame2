@@ -100,6 +100,8 @@
      (h/cascade-summary cascade)]]
    (when close-fn
      [:button {:data-testid "rf-causa-cancellation-cascade-close"
+               :aria-label  "Close cancellation cascade"
+               :title       "Close"
                :on-click    close-fn
                :style       {:background  "transparent"
                              :border      "none"

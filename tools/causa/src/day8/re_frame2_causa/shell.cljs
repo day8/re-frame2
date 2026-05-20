@@ -623,6 +623,7 @@
       "⚙"]
      [:button {:data-testid "rf-causa-icon-close"
                :title       "Close (Ctrl+Shift+C)"
+               :aria-label  "Close Causa"
                :on-click    #(rf/dispatch [:rf.causa/close-shell] {:frame :rf/causa})
                :style       icon-style}
       "✕"]]))
