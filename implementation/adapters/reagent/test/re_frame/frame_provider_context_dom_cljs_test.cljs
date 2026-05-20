@@ -1,4 +1,4 @@
-(ns re-frame.frame-provider-context-cljs-test
+(ns re-frame.frame-provider-context-dom-cljs-test
   "Frame-provider runtime React-context test coverage (rf2-22ds).
 
   Per Spec 002 §Reading the frame from React context and Spec 006
@@ -31,11 +31,11 @@
        across re-renders + suspense boundaries (act-wrapped).
 
   Browser-only — every scenario requires a real React render so the
-  React-context tier actually pushes the Provider's value. The same
-  ns is loaded by both :node-test (matches `cljs-test$`) and
-  :browser-test (matches `-cljs-test$`); the DOM-mounting branches
-  gate on `(browser?)` and exit early under :node-test where
-  `js/document` is absent.
+  React-context tier actually pushes the Provider's value. The
+  `-dom-cljs-test$` suffix (rf2-2hrj8) opts this file into the
+  `:browser-test` build; `:node-test` still loads it (matches
+  `cljs-test$`) and the DOM-mounting branches gate on `(browser?)`
+  and exit early under :node-test where `js/document` is absent.
 
   Adapter target: stock Reagent (the artefact on main). The
   reagent-slim track is in flight; once it lands the same scenarios

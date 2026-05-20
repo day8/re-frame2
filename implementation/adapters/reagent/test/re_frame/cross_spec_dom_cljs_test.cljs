@@ -1,4 +1,4 @@
-(ns re-frame.cross-spec-cljs-test
+(ns re-frame.cross-spec-dom-cljs-test
   "Cross-Spec interaction edge cases. One deftest per documented case in
   spec/Cross-Spec-Interactions.md.
 
@@ -6,9 +6,10 @@
 
   Browser-runner promotion (rf2-o83z): Interactions whose contracts
   require a real React render now run live on the :browser-test target
-  instead of returning a placeholder `(is true)`. The same ns is loaded
-  by :node-test (it matches the `cljs-test$` regex) AND :browser-test
-  (it matches `-cljs-test$`); browser-only branches gate on
+  instead of returning a placeholder `(is true)`. The `-dom-cljs-test$`
+  suffix (rf2-2hrj8) opts this file into the `:browser-test` build; the
+  same ns is also loaded by `:node-test` (its regex `cljs-test$` matches
+  both `-cljs-test` and `-dom-cljs-test`). Browser-only branches gate on
   `(browser?)` and exit early under :node-test.
 
   Coverage audit (rf2-suif): every interaction that previously carried
@@ -33,6 +34,16 @@
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
             [re-frame.routing]
+            ;; rf2-2hrj8 — the `:browser-test` build was narrowed to
+            ;; `-dom-cljs-test$` so the full implementation/test corpus no
+            ;; longer fans `re-frame.machines` / `re-frame.flows` /
+            ;; `re-frame.epoch` in via sibling test files. Require them
+            ;; explicitly here so the load-time hook publications
+            ;; (`reg-machine`, `reg-flow`, …) install before the cross-spec
+            ;; tests below reach into the late-bind table at call time.
+            [re-frame.machines]
+            [re-frame.flows]
+            [re-frame.epoch]
             [re-frame.ssr :as ssr]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as adapter]
@@ -310,9 +321,10 @@
    subscribe against the destroyed frame raises :rf.error/frame-destroyed).
 
    Per rf2-o83z this case is promoted from a placeholder to a real
-   browser-runner test. The :node-test target also loads this ns (it
-   matches both the `cljs-test$` and `-cljs-test$` regex), so we gate
-   the DOM-mounting branch on `(browser?)` and exit early under
+   browser-runner test. The :node-test target also loads this ns
+   (its `cljs-test$` regex matches both `-cljs-test` and the
+   `-dom-cljs-test` suffix introduced in rf2-2hrj8), so we gate the
+   DOM-mounting branch on `(browser?)` and exit early under
    :node-test where `js/document` is absent."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")

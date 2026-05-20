@@ -1,4 +1,4 @@
-(ns re-frame.dispatch-fallthrough-warn-cljs-test
+(ns re-frame.dispatch-fallthrough-warn-dom-cljs-test
   "Per rf2-nmusx — CLJS-side integration coverage for the async-escape
   fallthrough warning (`:rf.warning/dispatch-from-async-callback-fell-
   through-to-default`). The JVM test `re-frame.dispatch-fallthrough-
@@ -29,11 +29,12 @@
   string are all pinned (they are the user-facing surface the warning
   exists to deliver).
 
-  Naming convention: the `-cljs-test$` suffix means this file runs
-  under the default `:browser-test` build (Playwright + jsdom-style
-  shell). The async-callback surfaces are real browser APIs; jsdom
-  provides `setTimeout`, `addEventListener`, and `requestAnimationFrame`
-  via a polyfill where needed."
+  Naming convention (rf2-2hrj8): the `-dom-cljs-test$` suffix opts
+  this file into the `:browser-test` build (Playwright + Chromium).
+  `:node-test` still loads it (its regex `cljs-test$` matches both
+  `-cljs-test` and `-dom-cljs-test`), so the cross-runtime assertions
+  below run under both targets. The DOM-mounting branches gate on
+  `(browser?)` and exit early under `:node-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -71,7 +72,8 @@
 ;; ---- browser gate --------------------------------------------------------
 ;;
 ;; This ns is loaded by both :node-test (matches `cljs-test$`) and
-;; :browser-test (matches `-cljs-test$`). Two of the three async-callback
+;; :browser-test (matches `-dom-cljs-test$` per rf2-2hrj8). Two of the
+;; three async-callback
 ;; surfaces (`addEventListener` on a DOM node, `requestAnimationFrame`)
 ;; require a real browser. setTimeout is universal. Each test gates its
 ;; body on `(browser?)` where needed and exits early under :node-test

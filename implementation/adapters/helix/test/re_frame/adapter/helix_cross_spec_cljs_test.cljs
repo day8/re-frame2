@@ -1,6 +1,7 @@
 (ns re-frame.adapter.helix-cross-spec-cljs-test
   "Adapter-parity port of the headless subset of
-  `re-frame.cross-spec-cljs-test` to the Helix adapter (rf2-ta4b5).
+  `re-frame.cross-spec-dom-cljs-test` to the Helix adapter (rf2-ta4b5;
+  renamed rf2-2hrj8).
 
   Each deftest pins a Cross-Spec interaction (spec/Cross-Spec-Interactions.md)
   under a Helix-installed adapter. The subset ported here is the one

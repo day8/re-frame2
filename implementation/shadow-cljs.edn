@@ -209,9 +209,24 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
+  ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
+  ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
+  ;; `-dom-cljs-test` (i.e. files named `*_dom_cljs_test.cljs`). The
+  ;; selected files mount real React via `react-dom/client`'s
+  ;; `createRoot`, exercise the React-context tier, or otherwise depend
+  ;; on a live browser-runtime feature that Node can't fake (real DOM,
+  ;; real `requestAnimationFrame`, real `addEventListener` on a Node).
+  ;; Tests written to be cross-runtime (those that stub via `with-redefs`
+  ;; or `(when (browser?) ...)` and provide a node-fallback body) keep
+  ;; the plain `-cljs-test$` suffix and run under `:node-test` only —
+  ;; `:node-test`'s `cljs-test$` regex still matches both suffixes
+  ;; (`-cljs-test` AND `-dom-cljs-test`), so the DOM-tagged files run
+  ;; on BOTH targets and the cross-runtime asserts continue firing in
+  ;; Node. The split eliminates the ~14m of duplicate Chromium compile
+  ;; + run on the ~3500-test bulk that needs no browser signal.
   :browser-test
   {:target    :browser-test
-   :ns-regexp "-cljs-test$"
+   :ns-regexp "-dom-cljs-test$"
    :test-dir  "out/browser-test"
    :runner-ns shadow.test.browser
    :compiler-options

@@ -1,9 +1,9 @@
-(ns re-frame.adapter.uix-use-subscribe-cljs-test
-  "Unit coverage for the UIx adapter's `use-subscribe` hook (rf2-518sp).
+(ns re-frame.adapter.helix-use-subscribe-dom-cljs-test
+  "Unit coverage for the Helix adapter's `use-subscribe` hook (rf2-518sp).
 
-  Pre-rf2-518sp, `use-subscribe` was published as the canonical UIx
-  subscribe surface (rf2-3yij Decision 1) and exercised only through
-  the Playwright `counter_uix` smoke; no node-runtime headless test
+  Pre-rf2-518sp, `use-subscribe` was published as the canonical Helix
+  subscribe surface (rf2-2qit Decision 1) and exercised only through
+  the Playwright `counter_helix` smoke; no node-runtime headless test
   asserted that the React.useSyncExternalStore wiring sees post-
   dispatch values. A regression in `subscribe-fn`'s add-watch keying,
   `get-snap`'s reaction deref, the use-memo deps vec, or the
@@ -20,20 +20,22 @@
   (:require ["react"            :as React]
             ["react-dom/client" :as react-dom-client]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [uix.core :as uix :refer-macros [defui $]]
+            [helix.core :refer-macros [$ defnc]]
+            [helix.dom  :as d]
+            [helix.hooks :as helix-hooks]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.subs :as subs]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.helix :as helix-adapter]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+    {:adapter helix-adapter/adapter}))
 
 ;; ---- side-channel atoms ----------------------------------------------------
-;; Per-test atoms read by the UIx probe components below. The probes
-;; are defui top-levels (uix `defui` defines a Var; it cannot sit
+;; Per-test atoms read by the Helix probe components below. The probes
+;; are defnc top-levels (helix `defnc` defines a Var; it cannot sit
 ;; inside a `let`) and close over these atoms; each deftest `reset!`s
 ;; the atom it cares about at the top of its body.
 
@@ -41,50 +43,51 @@
 (def ^:private probe-fp-observed    (atom []))
 (def ^:private refcount-target      (atom nil))
 
-(defui Probe []
+(defnc Probe []
   (let [target @refcount-target
-        v (uix-adapter/use-subscribe target
-                                      [:rf.uix-use-subscribe-test/n])]
+        v (helix-adapter/use-subscribe target
+                                       [:rf.helix-use-subscribe-test/n])]
     (swap! probe-observed conj v)
-    ($ :div (str "n=" v))))
+    (d/div (str "n=" v))))
 
-(defui ProbeFp []
-  (let [v (uix-adapter/use-subscribe
-            [:rf.uix-use-subscribe-test/k])]
+(defnc ProbeFp []
+  (let [v (helix-adapter/use-subscribe
+            [:rf.helix-use-subscribe-test/k])]
     (swap! probe-fp-observed conj v)
-    ($ :div (str "k=" v))))
+    (d/div (str "k=" v))))
 
-(defui ProbeRc []
+(defnc ProbeRc []
   (let [target @refcount-target
-        v (uix-adapter/use-subscribe target
-                                      [:rf.uix-use-subscribe-test/m])]
-    ($ :div (str "m=" v))))
+        v (helix-adapter/use-subscribe target
+                                       [:rf.helix-use-subscribe-test/m])]
+    (d/div (str "m=" v))))
 
 ;; ---- rf2-mwft2 regression probes ------------------------------------------
 ;; A parent that owns a tick state (used to force re-renders) plus a child
-;; that reads a fixed query-v via use-subscribe. The literal `[:rf.uix-mwft2/p]`
+;; that reads a fixed query-v via use-subscribe. The literal `[:rf.helix-mwft2/p]`
 ;; vector evaluates to a fresh JS object each render — *exactly* the shape
 ;; the bug-without-fix walks into. The parent stashes its set-tick fn into
 ;; a side-channel atom so the test can drive forced re-renders from outside.
 
 (def ^:private mwft2-set-tick      (atom nil))
 
-(defui ProbeMwft2Child []
-  (let [v (uix-adapter/use-subscribe :rf.uix-mwft2/probe-frame
-                                      [:rf.uix-mwft2/p])]
-    ($ :div (str "p=" v))))
+(defnc ProbeMwft2Child []
+  (let [v (helix-adapter/use-subscribe :rf.helix-mwft2/probe-frame
+                                       [:rf.helix-mwft2/p])]
+    (d/div (str "p=" v))))
 
-(defui ProbeMwft2Parent []
-  (let [[tick set-tick] (uix/use-state 0)]
-    (uix/use-effect
+(defnc ProbeMwft2Parent []
+  (let [[tick set-tick] (helix-hooks/use-state 0)]
+    (helix-hooks/use-effect
       ;; React state-setters have stable identity across renders so an
-      ;; empty deps vec is correct — silences UIx's lint and matches
-      ;; React's "set-state setter is stable" guarantee. The effect runs
-      ;; once on mount to stash the setter for the test driver.
-      (fn [] (reset! mwft2-set-tick set-tick) js/undefined)
-      [])
-    ($ :div {:data-tick tick}
-       ($ ProbeMwft2Child))))
+      ;; empty deps vec is correct — matches React's "set-state setter is
+      ;; stable" guarantee. The effect runs once on mount to stash the
+      ;; setter for the test driver.
+      []
+      (reset! mwft2-set-tick set-tick)
+      (fn cleanup [] nil))
+    (d/div {:data-tick tick}
+           ($ ProbeMwft2Child))))
 
 ;; ---- browser gate ---------------------------------------------------------
 
@@ -126,10 +129,10 @@
 ;; resolves through the surrounding `frame-provider`.
 
 (deftest use-subscribe-tracks-app-db-changes
-  (testing "UIx use-subscribe sees post-dispatch values via useSyncExternalStore"
+  (testing "Helix use-subscribe sees post-dispatch values via useSyncExternalStore"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-      (let [target :rf.uix-use-subscribe-test/probe-frame
+      (let [target :rf.helix-use-subscribe-test/probe-frame
             act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
@@ -138,15 +141,15 @@
             (reset! probe-observed [])
             (reset! refcount-target target)
             (rf/reg-frame target {:doc "use-subscribe probe frame"})
-            (rf/reg-event-db :seed-uix-us (fn [_ _] {:n 1}))
-            (rf/reg-event-db :inc-uix-us  (fn [db _] (update db :n inc)))
-            (rf/dispatch-sync [:seed-uix-us] {:frame target})
-            (rf/reg-sub :rf.uix-use-subscribe-test/n
+            (rf/reg-event-db :seed-helix-us (fn [_ _] {:n 1}))
+            (rf/reg-event-db :inc-helix-us  (fn [db _] (update db :n inc)))
+            (rf/dispatch-sync [:seed-helix-us] {:frame target})
+            (rf/reg-sub :rf.helix-use-subscribe-test/n
                         (fn [db _] (:n db)))
             (let [mount-node (make-mount-node!)
                   root       (react-dom-client/createRoot mount-node)]
               (try
-                (act-fn (fn [] (.render root (uix/$ Probe))))
+                (act-fn (fn [] (.render root ($ Probe))))
                 (is (some #{1} @probe-observed)
                     "first render observed the seeded value n=1")
                 ;; Wrap dispatch in act so React commits the forceUpdate
@@ -154,17 +157,17 @@
                 ;; Plain `dispatch-sync` outside act emits the
                 ;; "update was not wrapped in act" warning AND fails to
                 ;; flush the resulting render in the test environment.
-                (act-fn (fn [] (rf/dispatch-sync [:inc-uix-us] {:frame target})))
+                (act-fn (fn [] (rf/dispatch-sync [:inc-helix-us] {:frame target})))
                 (is (some #{2} @probe-observed)
                     "post-dispatch re-render observed the incremented value n=2")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
 
 (deftest use-subscribe-frame-provider-resolution
-  (testing "UIx use-subscribe 1-arg form resolves through the surrounding frame-provider"
+  (testing "Helix use-subscribe 1-arg form resolves through the surrounding frame-provider"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-      (let [target :rf.uix-use-subscribe-test/fp-frame
+      (let [target :rf.helix-use-subscribe-test/fp-frame
             act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
@@ -172,9 +175,9 @@
             (enable-react-act-env!)
             (reset! probe-fp-observed [])
             (rf/reg-frame target {:doc "use-subscribe fp probe frame"})
-            (rf/reg-event-db :seed-uix-us-fp (fn [_ _] {:k :wrapped}))
-            (rf/dispatch-sync [:seed-uix-us-fp] {:frame target})
-            (rf/reg-sub :rf.uix-use-subscribe-test/k
+            (rf/reg-event-db :seed-helix-us-fp (fn [_ _] {:k :wrapped}))
+            (rf/dispatch-sync [:seed-helix-us-fp] {:frame target})
+            (rf/reg-sub :rf.helix-use-subscribe-test/k
                         (fn [db _] (:k db)))
             (let [mount-node (make-mount-node!)
                   root       (react-dom-client/createRoot mount-node)]
@@ -183,77 +186,12 @@
                   (fn []
                     ;; frame-provider is a plain CLJS fn returning a
                     ;; React element (NOT a React-component head), so
-                    ;; invoke it directly rather than via `(uix/$ ...)`.
+                    ;; invoke it directly rather than via `($ ...)`.
                     (.render root
-                      (uix-adapter/frame-provider
-                        {:frame target :children [(uix/$ ProbeFp)]}))))
+                      (helix-adapter/frame-provider
+                        {:frame target :children [($ ProbeFp)]}))))
                 (is (some #{:wrapped} @probe-fp-observed)
                     "use-subscribe 1-arg form read from the wrapped frame, not :rf/default")
-                (finally
-                  (try (.unmount root) (catch :default _ nil)))))))))))
-
-;; ---- 2-arg form: explicit frame-id wins over context (rf2-rcgsc) ----------
-;;
-;; The 2-arg form `(use-subscribe frame-kw query-v)` is documented to
-;; bypass the React-context tier and read from the named frame's
-;; app-db directly. Pre-rf2-rcgsc only the 1-arg context-resolved form
-;; was tested under a frame-provider; the 2-arg explicit-pin shape was
-;; exercised indirectly via the Probe component above but no test
-;; pinned that two different frame-ids in the SAME render tree (no
-;; surrounding provider) see distinct values.
-
-(def ^:private probe-2arg-a-observed (atom []))
-(def ^:private probe-2arg-b-observed (atom []))
-
-(defui Probe2ArgA []
-  (let [v (uix-adapter/use-subscribe :rf.uix-rcgsc/tenant-a
-                                     [:rf.uix-rcgsc/n])]
-    (swap! probe-2arg-a-observed conj v)
-    ($ :div (str "a=" v))))
-
-(defui Probe2ArgB []
-  (let [v (uix-adapter/use-subscribe :rf.uix-rcgsc/tenant-b
-                                     [:rf.uix-rcgsc/n])]
-    (swap! probe-2arg-b-observed conj v)
-    ($ :div (str "b=" v))))
-
-(deftest use-subscribe-2-arg-pins-explicit-frame
-  (testing "rf2-rcgsc: use-subscribe's 2-arg form
-            `(use-subscribe frame-kw query-v)` reads from the named
-            frame's app-db, bypassing the React-context tier. Two
-            probes pinning two different frames in the same render
-            tree must see each frame's distinct seed value."
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-      (let [act-fn (get-act)]
-        (if (nil? act-fn)
-          (is true "act() not reachable from this runner; skipping")
-          (do
-            (enable-react-act-env!)
-            (reset! probe-2arg-a-observed [])
-            (reset! probe-2arg-b-observed [])
-            (rf/reg-frame :rf.uix-rcgsc/tenant-a {:doc "tenant-a"})
-            (rf/reg-frame :rf.uix-rcgsc/tenant-b {:doc "tenant-b"})
-            (rf/reg-event-db :rf.uix-rcgsc/seed (fn [_ [_ n]] {:n n}))
-            (rf/dispatch-sync [:rf.uix-rcgsc/seed 10] {:frame :rf.uix-rcgsc/tenant-a})
-            (rf/dispatch-sync [:rf.uix-rcgsc/seed 100] {:frame :rf.uix-rcgsc/tenant-b})
-            (rf/reg-sub :rf.uix-rcgsc/n (fn [db _] (:n db)))
-            (let [mount-node (make-mount-node!)
-                  root       (react-dom-client/createRoot mount-node)]
-              (try
-                (act-fn (fn []
-                          (.render root
-                            (uix/$ :div
-                              (uix/$ Probe2ArgA)
-                              (uix/$ Probe2ArgB)))))
-                (is (some #{10} @probe-2arg-a-observed)
-                    "Probe2ArgA observed tenant-a's value (10) via explicit frame-pin")
-                (is (some #{100} @probe-2arg-b-observed)
-                    "Probe2ArgB observed tenant-b's value (100) via explicit frame-pin")
-                (is (not (some #{100} @probe-2arg-a-observed))
-                    "tenant-a probe did NOT leak tenant-b's value")
-                (is (not (some #{10} @probe-2arg-b-observed))
-                    "tenant-b probe did NOT leak tenant-a's value")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
 
@@ -268,10 +206,10 @@
 ;; period.
 
 (deftest use-subscribe-cleanup-decrements-sub-cache-refcount
-  (testing "UIx use-subscribe pairs subscribe with subs/unsubscribe on unmount (rf2-7g959)"
+  (testing "Helix use-subscribe pairs subscribe with subs/unsubscribe on unmount (rf2-7g959)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-      (let [target :rf.uix-use-subscribe-test/refcount-frame
+      (let [target :rf.helix-use-subscribe-test/refcount-frame
             act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
@@ -279,16 +217,16 @@
             (enable-react-act-env!)
             (reset! refcount-target target)
             (rf/reg-frame target {:doc "refcount probe frame"})
-            (rf/reg-event-db :seed-uix-us-rc (fn [_ _] {:m 0}))
-            (rf/dispatch-sync [:seed-uix-us-rc] {:frame target})
-            (rf/reg-sub :rf.uix-use-subscribe-test/m
+            (rf/reg-event-db :seed-helix-us-rc (fn [_ _] {:m 0}))
+            (rf/dispatch-sync [:seed-helix-us-rc] {:frame target})
+            (rf/reg-sub :rf.helix-use-subscribe-test/m
                         (fn [db _] (:m db)))
-            (let [cache-key-v [:rf.uix-use-subscribe-test/m]
+            (let [cache-key-v [:rf.helix-use-subscribe-test/m]
                   cache       (:sub-cache (frame/frame target))
                   mount-node  (make-mount-node!)
                   root        (react-dom-client/createRoot mount-node)]
               (try
-                (act-fn (fn [] (.render root (uix/$ ProbeRc))))
+                (act-fn (fn [] (.render root ($ ProbeRc))))
                 (is (pos? (or (get-in @cache [cache-key-v :ref-count])
                               0))
                     "mounted probe pinned a cache entry with ref-count > 0")
@@ -305,6 +243,71 @@
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
 
+;; ---- 2-arg form: explicit frame-id wins over context (rf2-y0db2) ----------
+;;
+;; The 2-arg form `(use-subscribe frame-kw query-v)` is documented to
+;; bypass the React-context tier and read from the named frame's
+;; app-db directly. Although the existing Probe defnc above uses the
+;; 2-arg form, no deftest explicitly pinned that two different
+;; frame-ids in the SAME render tree (no surrounding provider) see
+;; distinct values. Parity with UIx's `use-subscribe-2-arg-pins-
+;; explicit-frame` (rf2-rcgsc).
+
+(def ^:private probe-2arg-a-observed (atom []))
+(def ^:private probe-2arg-b-observed (atom []))
+
+(defnc Probe2ArgA []
+  (let [v (helix-adapter/use-subscribe :rf.helix-rcgsc/tenant-a
+                                       [:rf.helix-rcgsc/n])]
+    (swap! probe-2arg-a-observed conj v)
+    (d/div (str "a=" v))))
+
+(defnc Probe2ArgB []
+  (let [v (helix-adapter/use-subscribe :rf.helix-rcgsc/tenant-b
+                                       [:rf.helix-rcgsc/n])]
+    (swap! probe-2arg-b-observed conj v)
+    (d/div (str "b=" v))))
+
+(deftest use-subscribe-2-arg-pins-explicit-frame
+  (testing "rf2-y0db2 (parity with UIx rf2-rcgsc): use-subscribe's 2-arg
+            form `(use-subscribe frame-kw query-v)` reads from the named
+            frame's app-db, bypassing the React-context tier. Two
+            probes pinning two different frames in the same render
+            tree must see each frame's distinct seed value."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (do
+            (enable-react-act-env!)
+            (reset! probe-2arg-a-observed [])
+            (reset! probe-2arg-b-observed [])
+            (rf/reg-frame :rf.helix-rcgsc/tenant-a {:doc "tenant-a"})
+            (rf/reg-frame :rf.helix-rcgsc/tenant-b {:doc "tenant-b"})
+            (rf/reg-event-db :rf.helix-rcgsc/seed (fn [_ [_ n]] {:n n}))
+            (rf/dispatch-sync [:rf.helix-rcgsc/seed 10] {:frame :rf.helix-rcgsc/tenant-a})
+            (rf/dispatch-sync [:rf.helix-rcgsc/seed 100] {:frame :rf.helix-rcgsc/tenant-b})
+            (rf/reg-sub :rf.helix-rcgsc/n (fn [db _] (:n db)))
+            (let [mount-node (make-mount-node!)
+                  root       (react-dom-client/createRoot mount-node)]
+              (try
+                (act-fn (fn []
+                          (.render root
+                            ($ :div
+                              ($ Probe2ArgA)
+                              ($ Probe2ArgB)))))
+                (is (some #{10} @probe-2arg-a-observed)
+                    "Probe2ArgA observed tenant-a's value (10) via explicit frame-pin")
+                (is (some #{100} @probe-2arg-b-observed)
+                    "Probe2ArgB observed tenant-b's value (100) via explicit frame-pin")
+                (is (not (some #{100} @probe-2arg-a-observed))
+                    "tenant-a probe did NOT leak tenant-b's value")
+                (is (not (some #{10} @probe-2arg-b-observed))
+                    "tenant-b probe did NOT leak tenant-a's value")
+                (finally
+                  (try (.unmount root) (catch :default _ nil)))))))))))
+
 ;; ---- stable structural-equality deps key (rf2-mwft2) ----------------------
 ;;
 ;; Pre-rf2-mwft2, `use-subscribe-2` passed the CLJS query-v vector
@@ -318,28 +321,30 @@
 ;; With the fix the deps element is JS-ref-stable across renders
 ;; (useRef + = compare), so a stable-literal query-v causes exactly
 ;; one subs/subscribe call across N forced re-renders, and the
-;; useEffect cleanup fires only on unmount.
+;; useEffect cleanup fires only on unmount. Parity with UIx's
+;; `use-subscribe-stable-deps-key` (rf2-mwft2).
 
 (deftest use-subscribe-stable-deps-key
-  (testing "rf2-mwft2: stable-literal query-v across N re-renders ⇒ one subs/subscribe call"
+  (testing "rf2-mwft2 (parity with UIx): stable-literal query-v across N
+            re-renders ⇒ one subs/subscribe call"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-      (let [target :rf.uix-mwft2/probe-frame
+      (let [target :rf.helix-mwft2/probe-frame
             act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
           (do
             (enable-react-act-env!)
             (reset! mwft2-set-tick nil)
-            (rf/reg-frame target {:doc "rf2-mwft2 probe frame"})
-            (rf/reg-event-db :rf.uix-mwft2/seed (fn [_ _] {:p 0}))
-            (rf/dispatch-sync [:rf.uix-mwft2/seed] {:frame target})
-            (rf/reg-sub :rf.uix-mwft2/p (fn [db _] (:p db)))
+            (rf/reg-frame target {:doc "rf2-mwft2 Helix probe frame"})
+            (rf/reg-event-db :rf.helix-mwft2/seed (fn [_ _] {:p 0}))
+            (rf/dispatch-sync [:rf.helix-mwft2/seed] {:frame target})
+            (rf/reg-sub :rf.helix-mwft2/p (fn [db _] (:p db)))
             (let [subscribe-calls   (atom 0)
                   unsubscribe-calls (atom 0)
                   real-subscribe    subs/subscribe
                   real-unsubscribe  subs/unsubscribe
-                  cache-key-v       [:rf.uix-mwft2/p]
+                  cache-key-v       [:rf.helix-mwft2/p]
                   cache             (:sub-cache (frame/frame target))
                   mount-node        (make-mount-node!)
                   root              (react-dom-client/createRoot mount-node)]
@@ -380,7 +385,7 @@
                 (try
                   ;; Mount the probe — one subs/subscribe for the
                   ;; useMemo factory.
-                  (act-fn (fn [] (.render root (uix/$ ProbeMwft2Parent))))
+                  (act-fn (fn [] (.render root ($ ProbeMwft2Parent))))
                   (let [mounted-subs @subscribe-calls]
                     (is (= 1 mounted-subs)
                         "mount triggered exactly one subs/subscribe call")
@@ -389,7 +394,7 @@
                     ;; Force five re-renders by bumping the parent's
                     ;; tick state. Each parent render also re-renders
                     ;; the child probe with a freshly-allocated CLJS
-                    ;; vector for [:rf.uix-mwft2/p] — without the fix
+                    ;; vector for [:rf.helix-mwft2/p] — without the fix
                     ;; the deps mismatch would re-run useMemo (extra
                     ;; subs/subscribe) and useEffect (extra
                     ;; subs/unsubscribe) each render.
