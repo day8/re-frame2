@@ -175,23 +175,34 @@
 
 #?(:clj
    (do
-     (rm/defreg-macro reg-event-db events/reg-event-db
+     (rm/defreg-event-macro reg-event-db events/reg-event-db
        "Register a `(fn [db event-vec] new-db)` event handler under `id`.
-       Captures source-coords (Spec 001) at this call site. See
-       `re-frame.events/reg-event-db` for the full signature.")
+       Captures source-coords (Spec 001) at this call site. Additionally
+       captures the whole `(reg-event-db :id ...)` form as a string under
+       the handler's `:rf.handler/source` meta (Spec 009, rf2-xgfuy) —
+       DEBUG-gated, elided in CLJS `:advanced` + `goog.DEBUG=false`
+       production builds. See `re-frame.events/reg-event-db` for the
+       full signature.")
 
-     (rm/defreg-macro reg-event-fx events/reg-event-fx
+     (rm/defreg-event-macro reg-event-fx events/reg-event-fx
        "Register a `(fn [cofx event-vec] effect-map)` event handler under
        `id`. Effect-map is a closed shape: only `:db` and `:fx` at the
        top level. Captures source-coords (Spec 001) at this call site.
-       See `re-frame.events/reg-event-fx` for the full signature.")
+       Additionally captures the whole `(reg-event-fx :id ...)` form as
+       a string under the handler's `:rf.handler/source` meta (Spec 009,
+       rf2-xgfuy) — DEBUG-gated, elided in CLJS `:advanced` +
+       `goog.DEBUG=false` production builds. See
+       `re-frame.events/reg-event-fx` for the full signature.")
 
-     (rm/defreg-macro reg-event-ctx events/reg-event-ctx
+     (rm/defreg-event-macro reg-event-ctx events/reg-event-ctx
        "Register a `(fn [context] context)` full-context event handler
        under `id`. Advanced — most handlers want `reg-event-db` or
        `reg-event-fx` instead. Captures source-coords (Spec 001) at
-       this call site. See `re-frame.events/reg-event-ctx` for the
-       full signature.")
+       this call site. Additionally captures the whole `(reg-event-ctx
+       :id ...)` form as a string under the handler's `:rf.handler/
+       source` meta (Spec 009, rf2-xgfuy) — DEBUG-gated, elided in CLJS
+       `:advanced` + `goog.DEBUG=false` production builds. See
+       `re-frame.events/reg-event-ctx` for the full signature.")
 
      (rm/defreg-macro reg-sub subs/reg-sub
        "Register a subscription under `id`. Layer-1 subs read `app-db`

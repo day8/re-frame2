@@ -1072,6 +1072,33 @@ Shape and reservation:
 
 Production elision: the flag rides on a registry-meta surface (`handler-meta`) — not on a trace event — so the trace-surface DCE gate does not apply. The flag is one keyword + one boolean per registered event, lives in process memory only, and is consumed by dev tooling that itself does not ship to production (the framework's own dispatch path does not branch on it).
 
+#### `:rf.handler/source` — DEBUG-gated handler form-source capture (rf2-xgfuy)
+
+`reg-event-db` / `reg-event-fx` / `reg-event-ctx` each capture the WHOLE form the user wrote — `(reg-event-X :id ...)` — as a string at macro-expansion time and stamp it into the handler's registry metadata under `:rf.handler/source`. Tools (Causa's Event panel, the Event lens, IDE inspectors) render the captured source inline so the operator can read what code ran without leaving the browser to chase a `file:line` link. Per Causa Spec 021 §11.2 B.7 stretch (the Causa Event panel's §2.2 mockup renders the source inline immediately under step 3 "Handler invoked").
+
+Scope: the WHOLE form — macro name, id, optional middle slot (metadata-map or interceptor-vector), and the handler-fn body — rides under one slot. The capture is mechanically `pr-str` of `&form` at expansion time, so all documented `reg-event-*` shapes round-trip without special-casing.
+
+Consumer access:
+
+```clojure
+(->> (rf/handler-meta :event :my/event)
+     :rf.handler/source)                 ;; → string or nil
+```
+
+Shape and reservation:
+
+- Value is a string (the `pr-str` of the user-written form) or absent.
+- The keyword is owned by the framework under the `:rf.handler/*` reserved namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+- Absent on programmatic / REPL registrations that bypass the macro path (call `re-frame.events/reg-event-db` directly as a fn).
+- User-supplied `:rf.handler/source` in the registration metadata-map overrides auto-capture, mirroring the `:ns`/`:line`/`:file` override semantics of [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) so code-gen pipelines can stamp the originating source.
+- Coverage is scoped to `reg-event-{db,fx,ctx}` only. Other reg-* surfaces (`reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-view`, `reg-app-schema`, `reg-error-projector`, `reg-head`, `reg-http-interceptor`) do not stamp the slot — their primary tooling surface today is `(:ns/:file/:line) → open-in-editor`. Widening to those surfaces is a follow-up; the Causa Event panel is the load-bearing consumer for the initial slice.
+
+Production elision (CLJS): **DEBUG-gated, two-layer**. The macro emission wraps the bound source-string in `(if interop/debug-enabled? <pr-str-of-form> nil)`; the registrar-side merge in `re-frame.events/merge-form-source` is wrapped in `(if-not interop/debug-enabled? m ...)`. Under `:advanced` + `goog.DEBUG=false` Closure constant-folds both gates and DCEs (a) the literal source-string bytes from the macro expansion, AND (b) the `:rf.handler/source` keyword's reachability from the merge `assoc` slot. The elision-probe (per [§Production builds](#production-builds-zero-overhead-zero-code) and `scripts/check-elision.cjs`) asserts both absences against the production bundle.
+
+Production elision (JVM): **always-on**. `re-frame.interop/debug-enabled?` is dev-default-true on the JVM; the bundle-size argument doesn't apply to SSR / test / tooling builds. The JVM-side macro emission carries the source string into the registry meta unconditionally — JVM `clojure -M:test` users can read `(:rf.handler/source (rf/handler-meta :event id))`. The `re-frame.debug=false` JVM property (per [§JVM builds](#jvm-builds)) flips the same gate and elides capture at registration time.
+
+The mechanism is "compile-time `pr-str` + dynamic-var thread + registrar merge." The macro produces a `pr-str` literal at compile time; the binding form publishes it on `re-frame.source-coords/*pending-form-source*` around the underlying `register-event!` call; `register-event!` reads the var via `merge-form-source` and `assoc`s it into the registered handler's metadata. No new namespace or registry slot beyond the registrar; consumer access is `(:rf.handler/source (rf/handler-meta :event id))`.
+
 ### Error namespace convention — five prefix shapes
 
 Error categories use **five distinct namespace prefixes**:
