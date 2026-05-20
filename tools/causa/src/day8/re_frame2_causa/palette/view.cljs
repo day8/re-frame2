@@ -186,9 +186,26 @@
 
 ;; ---- row ----------------------------------------------------------------
 
+(def ^:private listbox-id
+  "DOM `id` of the palette result list. Stable per-modal (only one
+  palette mounts at a time), so the input's `aria-controls` +
+  `aria-activedescendant` references resolve without per-render id
+  churn. rf2-tt7ax."
+  "rf-causa-palette-listbox")
+
+(defn- row-id
+  "DOM `id` of result row `idx` — referenced by the input's
+  `aria-activedescendant` so screen readers track the cursor highlight
+  as the user arrows up/down. rf2-tt7ax."
+  [idx]
+  (str "rf-causa-palette-option-" idx))
+
 (defn- result-row
   [{:keys [source label hint icon] :as item} active? idx]
   [:li {:key          (str "row-" idx)
+        :id           (row-id idx)
+        :role         "option"
+        :aria-selected (if active? "true" "false")
         :data-testid  (str "rf-causa-palette-row-" idx)
         :data-source  (name source)
         :data-active  (str active?)
@@ -263,15 +280,41 @@
            :style       (backdrop-style)}
      [:div {:data-testid "rf-causa-palette-dialog"
             :data-rf-causa-mode "palette"
+            ;; rf2-tt7ax — modal/listbox ARIA: the dialog wrapper
+            ;; carries `role="dialog"` + `aria-modal="true"` so screen
+            ;; readers announce the surface as a modal and the assistive
+            ;; layer keeps focus inside; `aria-label` provides the
+            ;; accessible name (no visible title bar).
+            :role        "dialog"
+            :aria-modal  "true"
+            :aria-label  "Command palette"
             :on-click    #(.stopPropagation %)
             :style       (dialog-style)}
       [:div {:style (input-row-style)}
-       [:span {:style (icon-style :command)} "⌘"]
+       [:span {:aria-hidden "true"
+               :style (icon-style :command)} "⌘"]
        [:input {:data-testid  "rf-causa-palette-input"
                 :type         "text"
                 :auto-focus   true
                 :value        query
                 :placeholder  "Search panels, events, frames, commands…"
+                ;; rf2-tt7ax — combobox/listbox wiring: `aria-label`
+                ;; names the input (no visible <label>); `aria-controls`
+                ;; + `aria-activedescendant` point at the listbox + the
+                ;; active row id so screen readers track the highlight
+                ;; without focus actually moving off the input.
+                ;; `aria-autocomplete="list"` + `role="combobox"` +
+                ;; `aria-expanded` complete the WAI-ARIA APG combobox
+                ;; pattern.
+                :role         "combobox"
+                :aria-label   "Search palette"
+                :aria-controls listbox-id
+                :aria-autocomplete "list"
+                :aria-expanded (if (seq results) "true" "false")
+                :aria-activedescendant
+                              (when (and (seq results)
+                                         (< cursor (count results)))
+                                (row-id cursor))
                 :on-change    #(rf/dispatch
                                  [:rf.causa/palette-set-query
                                   (.. % -target -value)]
@@ -286,9 +329,16 @@
              (when (seq query) (str " / " (count results))))]]
       (if (empty? results)
         [:ul {:data-testid "rf-causa-palette-list"
+              ;; Empty-state list is presentational — no options to
+              ;; surface as listbox children. Keeping the ul role-less
+              ;; avoids a "listbox, 0 items" announcement.
+              :id          listbox-id
               :style       (list-style)}
          [empty-row]]
         (into [:ul {:data-testid "rf-causa-palette-list"
+                    :id          listbox-id
+                    :role        "listbox"
+                    :aria-label  "Palette results"
                     :style       (list-style)}]
               (map-indexed
                 (fn [idx item]

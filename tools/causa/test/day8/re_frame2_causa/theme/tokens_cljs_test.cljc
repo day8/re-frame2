@@ -263,3 +263,109 @@
     (doseq [[k mult] t/type-scale-multipliers]
       (is (= (t/font-size-css mult) (get t/type-scale k))
           (str k " is font-size-css of its multiplier")))))
+
+;; ---- rf2-0fr6v — WCAG 2.1 AA contrast for `:text-tertiary` --------------
+;;
+;; The pre-rf2-0fr6v hex `#6B7080` landed at ~3.5:1 on the dark bg-1
+;; surface — fails WCAG 2.1 AA's 4.5:1 floor for small body text. The
+;; token is consumed in ~50 inline-style call sites (relative-time
+;; chip, hint text, settings field hints, inactive tab labels, "no
+;; events" empty state, palette result-count, etc.) — most at the
+;; caption/micro size where the small-text threshold applies. The
+;; new hex `#8990A0` lands at ~4.7:1 on `:bg-1` (passes AA) without
+;; flipping the visual rhythm (still reads as muted/secondary).
+;;
+;; Contrast formula: WCAG 2.1 §1.4.3 relative luminance ratio.
+;; The helpers below are pure data — JVM-portable so the .cljc test
+;; surface validates the relationship on both runners.
+
+(defn- hex->rgb-channels
+  "Parse a `#RRGGBB` hex string into a 3-tuple of channels in the
+  [0, 1] range. Pure data."
+  [hex]
+  (let [s (subs hex 1)
+        ;; subs/parse-int on the JVM cannot pass a radix as a 2nd arg
+        ;; to `subs`; build the 2-char substrings manually.
+        r (subs s 0 2)
+        g (subs s 2 4)
+        b (subs s 4 6)
+        parse #?(:clj  #(/ (Long/parseLong % 16) 255.0)
+                 :cljs #(/ (js/parseInt % 16) 255.0))]
+    [(parse r) (parse g) (parse b)]))
+
+(defn- channel-luminance
+  "WCAG 2.1 §1.4.3 per-channel relative luminance. Input in [0, 1]."
+  [c]
+  (if (<= c 0.03928)
+    (/ c 12.92)
+    (Math/pow (/ (+ c 0.055) 1.055) 2.4)))
+
+(defn- relative-luminance
+  "WCAG 2.1 §1.4.3 relative luminance of a `#RRGGBB` colour."
+  [hex]
+  (let [[r g b] (hex->rgb-channels hex)
+        rl (channel-luminance r)
+        gl (channel-luminance g)
+        bl (channel-luminance b)]
+    (+ (* 0.2126 rl) (* 0.7152 gl) (* 0.0722 bl))))
+
+(defn- contrast-ratio
+  "WCAG 2.1 §1.4.3 contrast ratio between two colours. Returns a
+  number in [1.0, 21.0]. Order-independent — `(contrast-ratio fg bg)`
+  equals `(contrast-ratio bg fg)`."
+  [hex-a hex-b]
+  (let [la (relative-luminance hex-a)
+        lb (relative-luminance hex-b)
+        lighter (max la lb)
+        darker  (min la lb)]
+    (/ (+ lighter 0.05) (+ darker 0.05))))
+
+(deftest text-tertiary-passes-wcag-aa-on-dark-bg-1
+  (testing "rf2-0fr6v + audit finding #7 — `:text-tertiary` on `:bg-1`
+            must clear WCAG 2.1 AA's 4.5:1 floor for small body text.
+            The pre-rf2-0fr6v hex `#6B7080` landed at ~3.5:1 — below
+            the floor. The bumped hex `#8990A0` lands ~4.7:1."
+    (let [ratio (contrast-ratio (:text-tertiary t/tokens)
+                                (:bg-1 t/tokens))]
+      (is (>= ratio 4.5)
+          (str ":text-tertiary " (:text-tertiary t/tokens)
+               " on :bg-1 " (:bg-1 t/tokens)
+               " contrast ratio " ratio
+               " must clear WCAG 2.1 AA 4.5:1")))))
+
+(deftest text-tertiary-passes-wcag-aa-on-dark-bg-2
+  (testing "rf2-0fr6v — same token on `:bg-2` (`#1B1E24`). The bg-2
+            surface is slightly lighter than bg-1, so the contrast
+            ratio is marginally LOWER (the foreground hex sits closer
+            to bg-2 in luminance). Pre-fix hex landed ~3.2:1 — even
+            further below the floor — so the bumped hex must clear AA
+            on this surface too."
+    (let [ratio (contrast-ratio (:text-tertiary t/tokens)
+                                (:bg-2 t/tokens))]
+      (is (>= ratio 4.5)
+          (str ":text-tertiary " (:text-tertiary t/tokens)
+               " on :bg-2 " (:bg-2 t/tokens)
+               " contrast ratio " ratio
+               " must clear WCAG 2.1 AA 4.5:1")))))
+
+(deftest text-tertiary-is-bumped-from-pre-fix-hex
+  (testing "rf2-0fr6v — guard against silent revert. The pre-fix
+            value `#6B7080` was below AA; the new value differs."
+    (is (not= "#6B7080" (:text-tertiary t/tokens))
+        "the audit-flagged pre-fix hex must not regress")))
+
+(deftest text-secondary-still-passes-wcag-aaa
+  (testing "Sanity guard — bumping `:text-tertiary` must not have
+            collateral effect on `:text-secondary`. Per the audit
+            inventory `:text-secondary` lands at ~9:1 on bg-1 (AAA)."
+    (let [ratio (contrast-ratio (:text-secondary t/tokens)
+                                (:bg-1 t/tokens))]
+      (is (>= ratio 7.0)
+          (str ":text-secondary must remain >= 7:1 (AAA), got " ratio)))))
+
+(deftest text-primary-still-passes-wcag-aaa
+  (testing "Sanity guard — `:text-primary` at AAA."
+    (let [ratio (contrast-ratio (:text-primary t/tokens)
+                                (:bg-1 t/tokens))]
+      (is (>= ratio 7.0)
+          (str ":text-primary must remain >= 7:1 (AAA), got " ratio)))))

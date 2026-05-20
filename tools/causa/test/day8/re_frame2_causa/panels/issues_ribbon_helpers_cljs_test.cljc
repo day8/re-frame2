@@ -24,7 +24,8 @@
     7. **format-time** — renders a stable HH:MM:SS.mmm string."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-causa.panels.issues-ribbon-helpers :as h]))
+            [day8.re-frame2-causa.panels.issues-ribbon-helpers :as h]
+            [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -86,11 +87,13 @@
     (is (nil? (h/op-type->severity nil)))))
 
 (deftest severity-colour-mapping-honours-tokens
-  (testing "each severity gets the shell.cljs token-equivalent colour"
-    (is (= "#F87171" (h/severity-colour :error)))
-    (is (= "#FBBF24" (h/severity-colour :warning)))
-    (is (= "#43C3D0" (h/severity-colour :advisory)))
-    (is (= "#6B7080" (h/severity-colour :unknown)))))
+  (testing "each severity gets the shell.cljs token-equivalent colour
+            (resolved through `theme/tokens` so the rf2-0fr6v
+            `:text-tertiary` contrast bump round-trips automatically)"
+    (is (= (:red    tokens/tokens) (h/severity-colour :error)))
+    (is (= (:yellow tokens/tokens) (h/severity-colour :warning)))
+    (is (= (:cyan   tokens/tokens) (h/severity-colour :advisory)))
+    (is (= (:text-tertiary tokens/tokens) (h/severity-colour :unknown)))))
 
 (deftest severity-label-stable
   (is (= "error"    (h/severity-label :error)))

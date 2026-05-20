@@ -67,9 +67,19 @@
    :border-default "#2F3441"
 
    ;; ── text ──
+   ;; `:text-tertiary` was bumped from `#6B7080` to `#8990A0`
+   ;; (rf2-0fr6v, audit finding #7). The old hex landed at ~3.5:1 on
+   ;; `:bg-1` — below WCAG 2.1 AA's 4.5:1 floor for body text. The
+   ;; token is used in ~50 inline-style call sites (relative-time
+   ;; chip, hint text, settings field hints, inactive tab labels,
+   ;; "no events" empty state, palette result-count, etc.) — most
+   ;; at the caption / micro size where the small-text 4.5:1
+   ;; threshold applies. The new hex lands at ~4.7:1 on `:bg-1`
+   ;; (passes AA) without flipping the visual rhythm — still
+   ;; reads as muted/secondary against the dark surfaces.
    :text-primary   "#E8EAF0"
    :text-secondary "#A8AEC0"
-   :text-tertiary  "#6B7080"
+   :text-tertiary  "#8990A0"
 
    ;; ── accents + semantic ──
    :accent-violet  "#7C5CFF"

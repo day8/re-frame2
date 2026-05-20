@@ -34,6 +34,7 @@
   their own beads to keep this PR scoped."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.config :as config]
+            [day8.re-frame2-causa.theme.a11y :as a11y]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
 
@@ -976,19 +977,29 @@
                                       {:frame :rf/causa})
            :on-key-down handle-keydown
            :style       (backdrop-style positioning)}
-     [:div {:data-testid "rf-causa-settings-dialog"
-            :data-rf-causa-mode "settings"
-            :on-click    #(.stopPropagation %)
-            :on-key-down handle-keydown
-            :tab-index   "-1"
-            :style       (dialog-style)}
+     [:div (merge
+             ;; rf2-7389r — WAI-ARIA dialog contract: role/aria-modal/
+             ;; aria-labelledby pointing at the visible title span.
+             ;; `:ref` focuses the first focusable descendant on mount
+             ;; so keyboard users land inside the modal rather than on
+             ;; <body> (audit finding #3 + #8).
+             (a11y/dialog-attrs {:labelled-by "rf-causa-settings-title"})
+             {:data-testid "rf-causa-settings-dialog"
+              :data-rf-causa-mode "settings"
+              :ref         (a11y/focus-on-mount-ref)
+              :on-click    #(.stopPropagation %)
+              :on-key-down handle-keydown
+              :tab-index   "-1"
+              :style       (dialog-style)})
       ;; Header
       [:div {:style (header-style)}
-       [:span {:style {:font-weight 600
+       [:span {:id "rf-causa-settings-title"
+               :style {:font-weight 600
                        :color       (:text-primary tokens)
                        :font-size   (:display type-scale)}}
         "Settings"]
        [:button {:data-testid "rf-causa-settings-close"
+                 :aria-label  "Close settings"
                  :title       "Close settings (Esc)"
                  :on-click    (fn [^js e]
                                 (.stopPropagation e)

@@ -44,6 +44,7 @@
             [day8.re-frame2-causa.panels.cancellation-cascade-events :as events]
             [day8.re-frame2-causa.panels.cancellation-cascade-helpers :as h]
             [day8.re-frame2-causa.panels.cancellation-cascade-subs :as subs]
+            [day8.re-frame2-causa.theme.a11y :as a11y]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack type-scale]]))
 
@@ -471,11 +472,20 @@
              :on-key-down handle-popover-keydown
              :tab-index   -1
              :style       (backdrop-style positioning)}
-       [:div {:data-testid "rf-causa-cancellation-cascade-popover-dialog"
-              :on-click    #(.stopPropagation %)
-              :on-key-down handle-popover-keydown
-              :tab-index   0
-              :style       (dialog-style)}
+       [:div (merge
+               ;; rf2-7389r — WAI-ARIA dialog contract on the popover
+               ;; wrapper. The cancellation-cascade popover already
+               ;; carried `tab-index 0` markers hinting at focus-trap
+               ;; intent; this completes the modal contract with
+               ;; role/aria-modal/aria-label + a focus-on-mount ref
+               ;; (audit finding #3 + #19).
+               (a11y/dialog-attrs {:label "Cancellation cascade"})
+               {:data-testid "rf-causa-cancellation-cascade-popover-dialog"
+                :ref         (a11y/focus-on-mount-ref)
+                :on-click    #(.stopPropagation %)
+                :on-key-down handle-popover-keydown
+                :tab-index   0
+                :style       (dialog-style)})
         (render-cascade cascade close)]])))
 
 ;; ---- registration entry --------------------------------------------------

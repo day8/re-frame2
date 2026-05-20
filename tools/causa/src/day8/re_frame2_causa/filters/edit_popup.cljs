@@ -46,6 +46,7 @@
   and the draft from `:rf.causa/edit-popup-draft` (a working copy the
   user mutates without affecting the live filter slot)."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.theme.a11y :as a11y]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
 
@@ -274,12 +275,21 @@
            :data-rf-causa-modal-positioning (name (or positioning :fixed))
            :on-click    #(rf/dispatch [:rf.causa/close-edit-popup] {:frame :rf/causa})
            :style       (backdrop-style positioning)}
-     [:div {:data-testid "rf-causa-edit-popup-dialog"
-            :on-click    #(.stopPropagation %)
-            :style       (dialog-style)}
+     [:div (merge
+             ;; rf2-7389r — WAI-ARIA dialog contract. The edit-popup
+             ;; already auto-focuses the pattern input on mount, so a
+             ;; focus-on-mount ref would duplicate the work. The
+             ;; existing auto-focus satisfies "focus captured inside
+             ;; the dialog" without an additional ref pass.
+             (a11y/dialog-attrs {:labelled-by "rf-causa-edit-popup-title"})
+             {:data-testid "rf-causa-edit-popup-dialog"
+              :tab-index   "-1"
+              :on-click    #(.stopPropagation %)
+              :style       (dialog-style)})
       [:div {:style (header-style)}
-       [:span title]
+       [:span {:id "rf-causa-edit-popup-title"} title]
        [:button {:data-testid "rf-causa-edit-popup-close"
+                 :aria-label  "Close filter editor"
                  :on-click    #(rf/dispatch
                                  [:rf.causa/close-edit-popup]
                                  {:frame :rf/causa})
