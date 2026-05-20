@@ -1,5 +1,5 @@
 (ns day8.re-frame2-causa.panels.issues-ribbon-helpers-cljs-test
-  "Pure-data tests for Causa's Issues ribbon helpers (Phase 5, rf2-d1p4o).
+  "Pure-data tests for Causa's Issues panel helpers (rf2-jio48 rebuild).
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -18,10 +18,15 @@
     2. **issue-event?** — classifies trace events.
     3. **category-prefix** — projects `:operation`'s keyword namespace.
     4. **project-issue** — projects raw trace events onto row cells.
-    5. **filter axes** — severity / prefix / since-ms are independent;
-       empty filters disable the axis.
-    6. **project-feed** — top-level composite; empty-kind classifier.
-    7. **format-time** — renders a stable HH:MM:SS.mmm string."
+    5. **filter axes** — severity / prefix are independent; empty
+       filters disable the axis.
+    6. **project-feed** — top-level composite over a focused epoch
+       record; empty-kind classifier (incl. :no-focus, :epoch-evicted,
+       :no-issues, :no-matches branches per spec/021 §10.7).
+    7. **resolve-focus-status / find-epoch-record** — focus + history
+       resolver.
+    8. **epoch-has-issues?** — film-strip filter-fn callback.
+    9. **format-time** — renders a stable HH:MM:SS.mmm string."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as h]
@@ -63,7 +68,7 @@
     :tags      tags}))
 
 (defn- non-issue-ev
-  "A success-path trace event — should never reach the ribbon."
+  "A success-path trace event — should never reach the panel."
   [id]
   {:id        id
    :op-type   :event
@@ -71,10 +76,19 @@
    :time      1000
    :tags      {}})
 
+(defn- epoch-record
+  "Build a minimal `:rf/epoch-record`-shaped map carrying the supplied
+  trace-events. `:epoch-id` defaults to 1."
+  ([trace-events]
+   (epoch-record 1 trace-events))
+  ([epoch-id trace-events]
+   {:epoch-id     epoch-id
+    :trace-events (vec trace-events)}))
+
 ;; ---- (1) op-type → severity mapping ------------------------------------
 
 (deftest op-type-severity-mapping-honours-spec
-  (testing "the three issue op-types map to the ribbon's severity buckets"
+  (testing "the three issue op-types map to the panel's severity buckets"
     (is (= :error    (h/op-type->severity :error)))
     (is (= :warning  (h/op-type->severity :warning)))
     (is (= :advisory (h/op-type->severity :info))))
@@ -100,203 +114,300 @@
   (is (= "warning"  (h/severity-label :warning)))
   (is (= "advisory" (h/severity-label :advisory))))
 
-;; ---- (2) issue-event? classifier ---------------------------------------
+(deftest severity-glyph-stable
+  (is (= "▲" (h/severity-glyph :error)))
+  (is (= "●" (h/severity-glyph :warning)))
+  (is (= "·" (h/severity-glyph :advisory)))
+  (is (= "○" (h/severity-glyph :unknown))))
 
-(deftest issue-event-classifier
-  (testing "errors / warnings / advisories are issues"
-    (is (true? (h/issue-event? (error-ev 1 :rf.error/handler-exception))))
-    (is (true? (h/issue-event? (warning-ev 2 :rf.warning/missing-doc))))
-    (is (true? (h/issue-event? (advisory-ev 3 :rf.http/retry-attempt)))))
-  (testing "success-path / lifecycle events are NOT issues"
-    (is (false? (h/issue-event? (non-issue-ev 4))))
-    (is (false? (h/issue-event? {:id 5 :op-type :fx :operation :rf.fx/handled})))
-    (is (false? (h/issue-event? {:id 6 :op-type :sub/run})))
-    (is (false? (h/issue-event? {:id 7 :op-type :view/render})))
-    (is (false? (h/issue-event? {:id 8 :op-type :frame})))))
+;; ---- (2) issue-event? -------------------------------------------------
 
-;; ---- (3) category-prefix projection ------------------------------------
+(deftest issue-event?-classification
+  (testing "every issue op-type is an issue"
+    (is (true? (h/issue-event? (error-ev    1 :rf.error/handler-threw))))
+    (is (true? (h/issue-event? (warning-ev  2 :rf.warning/recoverable))))
+    (is (true? (h/issue-event? (advisory-ev 3 :rf.info/note)))))
+  (testing "non-issue op-types are NOT issues"
+    (is (false? (h/issue-event? (non-issue-ev 1))))
+    (is (false? (h/issue-event? {:id 1 :op-type :fx})))
+    (is (false? (h/issue-event? {:id 1 :op-type :frame})))
+    (is (false? (h/issue-event? {:id 1 :op-type :sub/run})))))
 
-(deftest category-prefix-projection
-  (testing "the five normative Spec 009 prefixes round-trip"
-    (is (= "rf.error"
-           (h/category-prefix (error-ev 1 :rf.error/handler-exception))))
-    (is (= "rf.warning"
-           (h/category-prefix (warning-ev 2 :rf.warning/missing-doc))))
-    (is (= "rf.ssr"
-           (h/category-prefix (warning-ev 3 :rf.ssr/hydration-mismatch))))
-    (is (= "rf.fx"
-           (h/category-prefix (warning-ev 4 :rf.fx/skipped-on-platform))))
-    (is (= "rf.epoch"
-           (h/category-prefix (error-ev 5 :rf.epoch/restore-unknown-epoch)))))
-  (testing "non-keyword operations return nil"
-    (is (nil? (h/category-prefix {:id 99 :op-type :error :operation nil}))))
-  (testing "non-namespaced keywords return nil"
-    (is (nil? (h/category-prefix {:id 100 :op-type :error
-                                  :operation :bare-keyword})))))
+;; ---- (3) category-prefix ----------------------------------------------
 
-;; ---- (4) project-issue --------------------------------------------------
+(deftest category-prefix-projects-keyword-namespace
+  (testing "category-prefix is the operation's keyword namespace"
+    (is (= "rf.error"   (h/category-prefix (error-ev 1 :rf.error/handler-threw))))
+    (is (= "rf.warning" (h/category-prefix (warning-ev 2 :rf.warning/recoverable))))
+    (is (= "rf.ssr"     (h/category-prefix (warning-ev 3 :rf.ssr/hydration-mismatch))))
+    (is (= "rf.info"    (h/category-prefix (advisory-ev 4 :rf.info/note))))
+    (is (= "rf.route.nav-token"
+           (h/category-prefix (error-ev 5 :rf.route.nav-token/rejected)))))
+  (testing "category-prefix returns nil when operation has no namespace"
+    (is (nil? (h/category-prefix {:operation "literal-string"})))
+    (is (nil? (h/category-prefix {:operation nil})))))
 
-(deftest project-issue-shape
-  (let [ev  (error-ev 42 :rf.error/handler-exception
-                      {:time 5000
-                       :tags {:event [:counter/inc]
-                              :exception-message "boom"
-                              :dispatch-id 99}})
-        row (h/project-issue ev)]
-    (testing "every required slot is populated"
-      (is (= 42 (:id row)))
-      (is (= 5000 (:time row)))
-      (is (= :error (:severity row)))
-      (is (= :rf.error/handler-exception (:operation row)))
-      (is (= "rf.error" (:category-prefix row)))
-      (is (= 99 (:dispatch-id row))))
-    (testing "the :raw slot carries the source event"
-      (is (= ev (:raw row))))
-    (testing "description carries the operation + a terse summary"
-      (is (re-find #"rf.error/handler-exception" (:description row)))
-      (is (re-find #"boom" (:description row))))))
+;; ---- (4) project-issue ------------------------------------------------
 
-(deftest project-issue-skips-non-issues
-  (is (nil? (h/project-issue (non-issue-ev 1))))
-  (is (nil? (h/project-issue {:id 2 :op-type :fx :operation :rf.fx/handled}))))
+(deftest project-issue-returns-nil-for-non-issues
+  (is (nil? (h/project-issue (non-issue-ev 1)))))
 
-(deftest project-issues-filters-and-orders
-  (let [stream [(error-ev 1 :rf.error/handler-exception {:time 100})
-                (non-issue-ev 2)
-                (warning-ev 3 :rf.warning/missing-doc {:time 200})
-                (non-issue-ev 4)
-                (advisory-ev 5 :rf.http/retry-attempt {:time 300})]
-        rows   (h/project-issues stream)]
-    (is (= 3 (count rows)))
-    (is (= [1 3 5] (mapv :id rows)))
-    (is (= [:error :warning :advisory] (mapv :severity rows)))))
+(deftest project-issue-builds-row-shape
+  (testing "a projected issue carries every cell the row needs"
+    (let [row (h/project-issue (error-ev 7 :rf.error/handler-threw
+                                         {:time 9999
+                                          :tags {:reason "kaboom"}}))]
+      (is (= 7                          (:id row)))
+      (is (= 9999                       (:time row)))
+      (is (= :error                     (:severity row)))
+      (is (= :error                     (:op-type row)))
+      (is (= :rf.error/handler-threw    (:operation row)))
+      (is (= "rf.error"                 (:category-prefix row)))
+      (is (re-find #"kaboom"            (:description row)))
+      (is (some?                        (:raw row))))))
 
-;; ---- (5) filter axes ---------------------------------------------------
+;; ---- (5) filter application -----------------------------------------
 
-(deftest severity-filter-passes-when-empty
-  (let [row {:severity :error}]
-    (is (true? (h/passes-severity? #{} row)))
-    (is (true? (h/passes-severity? nil row)))))
+(deftest passes-severity-empty-filter-passes-all
+  (is (true? (h/passes-severity? #{} {:severity :error}))))
 
-(deftest severity-filter-restricts-when-set
+(deftest passes-severity-filters-by-membership
   (is (true?  (h/passes-severity? #{:error} {:severity :error})))
-  (is (false? (h/passes-severity? #{:error} {:severity :warning})))
-  (is (true?  (h/passes-severity? #{:error :warning}
-                                  {:severity :warning}))))
+  (is (false? (h/passes-severity? #{:error} {:severity :warning}))))
 
-(deftest prefix-filter-restricts-when-set
-  (is (true?  (h/passes-category-prefix? #{} {:category-prefix "rf.error"})))
+(deftest passes-category-prefix-empty-filter-passes-all
+  (is (true? (h/passes-category-prefix? #{} {:category-prefix "rf.error"}))))
+
+(deftest passes-category-prefix-filters-by-membership
   (is (true?  (h/passes-category-prefix? #{"rf.error"}
                                          {:category-prefix "rf.error"})))
   (is (false? (h/passes-category-prefix? #{"rf.error"}
-                                         {:category-prefix "rf.warning"}))))
+                                         {:category-prefix "rf.ssr"}))))
 
-(deftest since-filter-when-disabled-passes-all
-  (let [row {:time 100}]
-    (is (true? (h/passes-since? 1000 nil row)))))
+(deftest apply-filters-composes-axes-intersectively
+  (let [issues [{:id 1 :severity :error    :category-prefix "rf.error"}
+                {:id 2 :severity :warning  :category-prefix "rf.error"}
+                {:id 3 :severity :error    :category-prefix "rf.ssr"}
+                {:id 4 :severity :advisory :category-prefix "rf.info"}]]
+    (testing "no filters → every issue passes"
+      (is (= 4 (count (h/apply-filters issues {})))))
+    (testing "severity only narrows"
+      (is (= #{1 3} (set (map :id (h/apply-filters issues
+                                                   {:severities #{:error}}))))))
+    (testing "prefix only narrows"
+      (is (= #{1 2} (set (map :id (h/apply-filters issues
+                                                   {:prefixes #{"rf.error"}}))))))
+    (testing "severity AND prefix"
+      (is (= #{1} (set (map :id (h/apply-filters
+                                  issues
+                                  {:severities #{:error}
+                                   :prefixes   #{"rf.error"}}))))))))
 
-(deftest since-filter-restricts-by-time
-  (is (true?  (h/passes-since? 1000 500 {:time 600})))
-  (is (true?  (h/passes-since? 1000 500 {:time 500})))
-  (is (true?  (h/passes-since? 1000 500 {:time 1000})))
-  (is (false? (h/passes-since? 1000 500 {:time 400})))
-  (is (false? (h/passes-since? 1000 500 {:time 0}))))
+;; ---- (6) distinct-prefixes ----------------------------------------
 
-(deftest apply-filters-composes-three-axes
-  (let [now 1000
-        rows [{:id 1 :severity :error    :category-prefix "rf.error"   :time 950}
-              {:id 2 :severity :warning  :category-prefix "rf.warning" :time 700}
-              {:id 3 :severity :advisory :category-prefix "rf.http"    :time 200}
-              {:id 4 :severity :error    :category-prefix "rf.error"   :time 100}]]
-    (testing "no filters → everything passes"
-      (is (= [1 2 3 4]
-             (mapv :id (h/apply-filters rows {} now)))))
-    (testing "severity-only filter restricts"
-      (is (= [1 4]
-             (mapv :id (h/apply-filters rows
-                                        {:severities #{:error}}
-                                        now)))))
-    (testing "prefix-only filter restricts"
-      (is (= [2]
-             (mapv :id (h/apply-filters rows
-                                        {:prefixes #{"rf.warning"}}
-                                        now)))))
-    (testing "since-ms filter restricts (now-500ms cutoff)"
-      (is (= [1 2]
-             (mapv :id (h/apply-filters rows
-                                        {:since-ms 500}
-                                        now)))))
-    (testing "three axes combine intersectively"
-      (is (= [1]
-             (mapv :id (h/apply-filters
-                         rows
-                         {:severities #{:error}
-                          :prefixes   #{"rf.error"}
-                          :since-ms   500}
-                         now)))))))
+(deftest distinct-prefixes-first-seen-order
+  (let [issues [{:category-prefix "rf.error"}
+                {:category-prefix "rf.ssr"}
+                {:category-prefix "rf.error"}
+                {:category-prefix "rf.warning"}
+                {:category-prefix nil}
+                {:category-prefix "rf.ssr"}]]
+    (is (= ["rf.error" "rf.ssr" "rf.warning"]
+           (h/distinct-prefixes issues)))))
 
-;; ---- (6) project-feed (top-level composite) -----------------------------
+;; ---- (7) resolve-focus-status + find-epoch-record -------------------
 
-(deftest project-feed-empty-stream
-  (let [feed (h/project-feed [] {} 1000)]
-    (is (= 0 (:total feed)))
-    (is (= 0 (:rendered feed)))
-    (is (= :no-issues (:empty-kind feed)))))
+(deftest resolve-focus-status-no-focus
+  (testing "focus nil AND history empty → cold start, :no-focus"
+    (is (= :no-focus (h/resolve-focus-status nil [])))
+    (is (= :no-focus (h/resolve-focus-status nil nil)))))
 
-(deftest project-feed-no-matches
-  (let [stream [(error-ev 1 :rf.error/handler-exception {:time 100})]
-        feed   (h/project-feed stream {:severities #{:warning}} 1000)]
-    (is (= 1 (:total feed)))
-    (is (= 0 (:rendered feed)))
-    (is (= :no-matches (:empty-kind feed)))))
+(deftest resolve-focus-status-head-fallback
+  (testing "rf2-h0120 — focus nil but history non-empty → head-fallback
+            (resolves to :focused; the find-epoch-record lookup returns
+            the most-recent record). This is the natural debugging UX —
+            show the latest unless the operator explicitly picks an
+            earlier row."
+    (let [hist [(epoch-record 1 []) (epoch-record 2 []) (epoch-record 3 [])]]
+      (is (= :focused (h/resolve-focus-status nil hist))))
+    (testing "single-record history also resolves to :focused"
+      (is (= :focused (h/resolve-focus-status nil [(epoch-record 1 [])]))))))
+
+(deftest resolve-focus-status-focused-match
+  (let [hist [(epoch-record 1 []) (epoch-record 2 []) (epoch-record 3 [])]]
+    (is (= :focused (h/resolve-focus-status 1 hist)))
+    (is (= :focused (h/resolve-focus-status 2 hist)))
+    (is (= :focused (h/resolve-focus-status 3 hist)))))
+
+(deftest resolve-focus-status-epoch-evicted
+  (testing "focus has :epoch-id but history doesn't carry it → evicted"
+    (let [hist [(epoch-record 5 []) (epoch-record 6 []) (epoch-record 7 [])]]
+      (is (= :epoch-evicted (h/resolve-focus-status 1 hist)))
+      (is (= :epoch-evicted (h/resolve-focus-status 99 hist))))))
+
+(deftest resolve-focus-status-empty-history-with-focus-id
+  (testing "focus pins an :epoch-id but the history is empty → evicted"
+    (is (= :epoch-evicted (h/resolve-focus-status 1 []))))
+  (testing "focus pins an :epoch-id but history is nil → evicted"
+    (is (= :epoch-evicted (h/resolve-focus-status 1 nil)))))
+
+(deftest find-epoch-record-returns-match
+  (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-threw)])
+              (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])]]
+    (is (= 5 (:epoch-id (h/find-epoch-record 5 hist))))
+    (is (= 6 (:epoch-id (h/find-epoch-record 6 hist))))
+    (is (nil? (h/find-epoch-record 99 hist)))))
+
+(deftest find-epoch-record-head-fallback
+  (testing "rf2-h0120 — focus nil + history non-empty returns the HEAD
+            (most-recent) record. epoch-history is oldest-first per
+            re-frame.epoch/epoch-history, so the head is the last
+            element."
+    (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-threw)])
+                (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])
+                (epoch-record 7 [])]]
+      (is (= 7 (:epoch-id (h/find-epoch-record nil hist))))))
+  (testing "single-record history's head is that single record"
+    (let [hist [(epoch-record 42 [(error-ev 1 :rf.error/handler-threw)])]]
+      (is (= 42 (:epoch-id (h/find-epoch-record nil hist))))))
+  (testing "focus nil AND history empty/nil returns nil"
+    (is (nil? (h/find-epoch-record nil [])))
+    (is (nil? (h/find-epoch-record nil nil)))))
+
+;; ---- (8) project-feed top-level composite ---------------------------
+
+(deftest project-feed-no-focus-renders-empty
+  (let [feed (h/project-feed nil {} :no-focus)]
+    (is (= []  (:issues feed)))
+    (is (= 0   (:total feed)))
+    (is (= 0   (:rendered feed)))
+    (is (= :no-focus (:empty-kind feed)))
+    (is (nil? (:epoch-id feed)))))
+
+(deftest project-feed-evicted-renders-canonical-placeholder
+  (testing "spec/021 §10.7 — :epoch-evicted is the discriminator the
+            view branches on to render the canonical placeholder."
+    (let [feed (h/project-feed nil {} :epoch-evicted)]
+      (is (= :epoch-evicted (:empty-kind feed)))
+      (is (= 0 (:total feed))))))
+
+(deftest project-feed-no-issues-empty-trace-events
+  (testing "focused epoch with empty :trace-events → :no-issues"
+    (let [record (epoch-record 42 [])
+          feed   (h/project-feed record {} :focused)]
+      (is (= [] (:issues feed)))
+      (is (= 0  (:total feed)))
+      (is (= :no-issues (:empty-kind feed)))
+      (is (= 42 (:epoch-id feed))))))
+
+(deftest project-feed-no-issues-only-non-issue-traces
+  (testing "trace-events with no issue ops → :no-issues"
+    (let [record (epoch-record 42 [(non-issue-ev 1)
+                                   (non-issue-ev 2)])
+          feed   (h/project-feed record {} :focused)]
+      (is (= [] (:issues feed)))
+      (is (= :no-issues (:empty-kind feed))))))
+
+(deftest project-feed-renders-issues-from-trace-events
+  (testing "the focused epoch's :trace-events feed the projection;
+            non-issue traces are silently dropped"
+    (let [record (epoch-record 42
+                   [(error-ev   1 :rf.error/handler-threw)
+                    (non-issue-ev 2)
+                    (warning-ev 3 :rf.warning/recoverable)
+                    (non-issue-ev 4)
+                    (advisory-ev 5 :rf.info/note)])
+          feed   (h/project-feed record {} :focused)]
+      (is (= 3 (:total feed)))
+      (is (= 3 (:rendered feed)))
+      (is (= #{1 3 5} (set (map :id (:issues feed)))))
+      (is (nil? (:empty-kind feed)))
+      (is (= 42 (:epoch-id feed))))))
+
+(deftest project-feed-head-fallback-end-to-end
+  (testing "rf2-h0120 — exercise the panel's sub call-site shape: when
+            :rf.causa/focus carries no :epoch-id but :rf.causa/epoch-
+            history has records, resolve-focus-status returns :focused,
+            find-epoch-record returns the head, and project-feed
+            renders the head's issues. This is the natural debugging
+            UX the scenarios.cjs schema-violation scenario relies on."
+    (let [hist             [(epoch-record 5 [])
+                            (epoch-record 6 [(error-ev 1 :rf.error/schema-violation
+                                                       {:tags {:path [:user :name]}})])]
+          ;; Sub call-site shape from issues_ribbon.cljs:
+          focus-epoch-id   nil
+          focus-status     (h/resolve-focus-status focus-epoch-id hist)
+          record           (h/find-epoch-record   focus-epoch-id hist)
+          feed             (h/project-feed record {} focus-status)]
+      (is (= :focused focus-status))
+      (is (= 6 (:epoch-id record)) "head record is the most-recent epoch")
+      (is (nil? (:empty-kind feed))
+          "feed renders, not an empty state")
+      (is (= 1 (:total feed)))
+      (is (= 1 (:rendered feed)))
+      (is (= [1] (mapv :id (:issues feed))))
+      (is (= 6 (:epoch-id feed)) "feed epoch-id reflects the head"))))
 
 (deftest project-feed-newest-first
-  (let [stream [(error-ev 1 :rf.error/handler-exception {:time 100})
-                (warning-ev 2 :rf.warning/missing-doc   {:time 200})
-                (advisory-ev 3 :rf.http/retry-attempt   {:time 300})]
-        feed   (h/project-feed stream {} 1000)]
-    (testing ":issues is in newest-first order for display"
-      (is (= [3 2 1] (mapv :id (:issues feed)))))
-    (testing ":empty-kind is nil when there are matches"
-      (is (nil? (:empty-kind feed))))))
+  (testing "the feed reverses the trace-events stream — newest first"
+    (let [record (epoch-record 1 [(error-ev   1 :rf.error/a {:time 100})
+                                  (warning-ev 2 :rf.warning/b {:time 200})
+                                  (error-ev   3 :rf.error/c {:time 300})])
+          feed   (h/project-feed record {} :focused)]
+      (is (= [3 2 1] (mapv :id (:issues feed)))))))
 
-(deftest project-feed-severity-counts
-  (let [stream [(error-ev 1 :rf.error/handler-exception)
-                (error-ev 2 :rf.error/no-such-fx)
-                (warning-ev 3 :rf.warning/missing-doc)
-                (advisory-ev 4 :rf.http/retry-attempt)]
-        feed   (h/project-feed stream {} 1000)]
-    (is (= {:error 2 :warning 1 :advisory 1}
-           (:severity-counts feed)))))
+(deftest project-feed-empty-kind-no-matches-when-filters-hide-all
+  (testing "issues exist in the focused epoch but the chip filters hide
+            them all → :no-matches"
+    (let [record (epoch-record 1 [(error-ev 1 :rf.error/handler-threw)])
+          feed   (h/project-feed record {:severities #{:advisory}} :focused)]
+      (is (= 1 (:total feed)))
+      (is (= 0 (:rendered feed)))
+      (is (= :no-matches (:empty-kind feed))))))
 
-(deftest project-feed-distinct-prefixes
-  (let [stream [(error-ev 1 :rf.error/handler-exception)
-                (warning-ev 2 :rf.warning/missing-doc)
-                (warning-ev 3 :rf.ssr/hydration-mismatch)
-                (error-ev 4 :rf.error/no-such-sub)]
-        feed   (h/project-feed stream {} 1000)]
-    (testing "distinct-prefixes is in first-seen order"
+(deftest project-feed-histograms-are-epoch-scoped
+  (testing "severity-counts and distinct-prefixes reflect the focused
+            epoch's :trace-events — NOT a global stream"
+    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-threw)
+                                  (warning-ev 2 :rf.warning/recoverable)
+                                  (error-ev   3 :rf.ssr/hydration-mismatch)])
+          feed   (h/project-feed record {} :focused)]
+      (is (= {:error 2 :warning 1} (:severity-counts feed)))
       (is (= ["rf.error" "rf.warning" "rf.ssr"]
              (:distinct-prefixes feed))))))
 
-(deftest project-feed-merges-all-four-bead-contract-sources
-  (testing "errors + warnings + schema violations + hydration mismatches
-            all surface in one feed per the bead's contract"
-    (let [stream [(error-ev 1 :rf.error/handler-exception     {:time 100})
-                  (warning-ev 2 :rf.warning/missing-doc       {:time 200})
-                  (error-ev 3 :rf.error/schema-validation-failure
-                              {:time 300 :tags {:path [:auth :email]}})
-                  (warning-ev 4 :rf.ssr/hydration-mismatch    {:time 400})]
-          feed   (h/project-feed stream {} 1000)]
-      (is (= 4 (:rendered feed)))
-      ;; All four sources present, regardless of order.
-      (is (= #{:rf.error/handler-exception
-               :rf.warning/missing-doc
-               :rf.error/schema-validation-failure
-               :rf.ssr/hydration-mismatch}
-             (set (mapv :operation (:issues feed))))))))
+(deftest project-feed-chip-filter-anding
+  (testing "chip filters AND on top of the focused-epoch projection"
+    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-threw)
+                                  (warning-ev 2 :rf.warning/missing-doc)
+                                  (error-ev   3 :rf.ssr/hydration-mismatch)])
+          feed   (h/project-feed record
+                                 {:severities #{:error}
+                                  :prefixes   #{"rf.error"}}
+                                 :focused)]
+      (is (= 3 (:total feed)))
+      (is (= 1 (:rendered feed)))
+      (is (= [1] (map :id (:issues feed)))))))
 
-;; ---- (7) format-time ---------------------------------------------------
+;; ---- (9) film-strip filter-fn slot ----------------------------------
+
+(deftest epoch-has-issues?-empty-record
+  (is (false? (h/epoch-has-issues? nil)))
+  (is (false? (h/epoch-has-issues? {})))
+  (is (false? (h/epoch-has-issues? (epoch-record 1 [])))))
+
+(deftest epoch-has-issues?-only-non-issues
+  (is (false? (h/epoch-has-issues?
+                (epoch-record 1 [(non-issue-ev 1) (non-issue-ev 2)])))))
+
+(deftest epoch-has-issues?-with-issue
+  (is (true? (h/epoch-has-issues?
+               (epoch-record 1 [(non-issue-ev 1)
+                                (warning-ev 2 :rf.warning/recoverable)]))))
+  (is (true? (h/epoch-has-issues?
+               (epoch-record 1 [(error-ev 1 :rf.error/handler-threw)])))))
+
+;; ---- (10) format-time ---------------------------------------------
 
 (deftest format-time-renders-hms-with-millis
   (testing "format-time returns nil on non-numeric input"
@@ -307,7 +418,7 @@
       (is (string? s))
       (is (re-find #"^\d{2}:\d{2}:\d{2}\.\d{3}$" s)))))
 
-;; ---- (8) find-issue ----------------------------------------------------
+;; ---- (11) find-issue ----------------------------------------------
 
 (deftest find-issue-by-id
   (let [rows [{:id 1 :severity :error}
@@ -316,7 +427,7 @@
     (is (= {:id 2 :severity :warning} (h/find-issue rows 2)))
     (is (nil? (h/find-issue rows 99)))))
 
-;; ---- (9) short-description --------------------------------------------
+;; ---- (12) short-description ---------------------------------------
 
 (deftest short-description-uses-priority-order
   (testing "reason is preferred when present"
@@ -339,151 +450,7 @@
            (h/short-description
              (error-ev 1 :rf.error/handler-exception {:tags {}}))))))
 
-;; ---- cascade scope (rf2-u6dhp) ------------------------------------------
-
-(deftest project-issue-defaults-dispatch-id-to-ungrouped
-  (testing "when an issue's tags carry no :dispatch-id, project-issue
-            falls back to the :ungrouped sentinel — same shape that
-            group-cascades uses for events outside any cascade so
-            cascade-scope filtering is uniform"
-    (let [row (h/project-issue (error-ev 1 :rf.error/handler-exception))]
-      (is (= :ungrouped (:dispatch-id row))))))
-
-(deftest passes-cascade-disabled-when-no-focus
-  (testing "nil focus-dispatch-id disables the cascade axis"
-    (is (true? (h/passes-cascade? nil {:dispatch-id 42})))
-    (is (true? (h/passes-cascade? nil {:dispatch-id :ungrouped})))
-    (is (true? (h/passes-cascade? nil {})))))
-
-(deftest passes-cascade-strict-match
-  (testing "with focus set the axis is strict — only issues whose
-            :dispatch-id matches pass"
-    (is (true?  (h/passes-cascade? 42 {:dispatch-id 42})))
-    (is (false? (h/passes-cascade? 42 {:dispatch-id 99})))
-    (is (false? (h/passes-cascade? 42 {:dispatch-id :ungrouped})))
-    (is (true?  (h/passes-cascade? :ungrouped {:dispatch-id :ungrouped})))))
-
-(deftest project-feed-cascade-scope-narrows-to-focused-dispatch
-  (testing "with :focus-dispatch-id set the feed renders only issues
-            from that cascade; issues from other cascades drop"
-    (let [stream [(error-ev   1 :rf.error/handler-exception
-                              {:time 100 :tags {:dispatch-id 7}})
-                  (warning-ev 2 :rf.warning/missing-doc
-                              {:time 200 :tags {:dispatch-id 7}})
-                  (advisory-ev 3 :rf.http/retry-attempt
-                               {:time 300 :tags {:dispatch-id 9}})
-                  (error-ev   4 :rf.error/no-such-fx
-                              {:time 400 :tags {:dispatch-id 9}})]
-          feed   (h/project-feed stream {:focus-dispatch-id 7} 1000)]
-      (is (= 2 (:total feed))
-          "total reflects cascade-scoped count, not global")
-      (is (= 2 (:rendered feed)))
-      (is (= #{1 2} (set (map :id (:issues feed)))))
-      (is (nil? (:empty-kind feed))))))
-
-(deftest project-feed-empty-kind-no-issues-for-event
-  (testing "when the global buffer carries issues but the focused
-            cascade has none, :empty-kind is :no-issues-for-event —
-            distinct from :no-issues (global buffer empty)"
-    (let [stream [(error-ev 1 :rf.error/handler-exception
-                            {:time 100 :tags {:dispatch-id 7}})
-                  (warning-ev 2 :rf.warning/missing-doc
-                              {:time 200 :tags {:dispatch-id 7}})]
-          feed   (h/project-feed stream {:focus-dispatch-id 99} 1000)]
-      (is (= 0 (:total feed)))
-      (is (= 0 (:rendered feed)))
-      (is (= :no-issues-for-event (:empty-kind feed))))))
-
-(deftest project-feed-cascade-scope-ands-with-chip-filters
-  (testing "cascade scope and chip filters compose intersectively —
-            an issue must pass both axes to render"
-    (let [stream [(error-ev   1 :rf.error/handler-exception
-                              {:time 100 :tags {:dispatch-id 7}})
-                  (warning-ev 2 :rf.warning/missing-doc
-                              {:time 200 :tags {:dispatch-id 7}})
-                  (error-ev   3 :rf.error/no-such-fx
-                              {:time 300 :tags {:dispatch-id 9}})]
-          feed   (h/project-feed stream
-                                 {:focus-dispatch-id 7
-                                  :severities        #{:error}}
-                                 1000)]
-      (is (= 2 (:total feed)) "cascade scope: 2 issues in cascade 7")
-      (is (= 1 (:rendered feed)) "severity chip narrows to 1")
-      (is (= [1] (map :id (:issues feed)))))))
-
-(deftest project-feed-histograms-are-cascade-scoped
-  (testing "severity-counts and distinct-prefixes reflect the cascade-
-            scoped slice, NOT the global buffer — chips never surface
-            for prefixes that aren't in the focused event's cascade"
-    (let [stream [(error-ev   1 :rf.error/handler-exception
-                              {:time 100 :tags {:dispatch-id 7}})
-                  (error-ev   2 :rf.ssr/hydration-mismatch
-                              {:time 200 :tags {:dispatch-id 9}})
-                  (warning-ev 3 :rf.warning/missing-doc
-                              {:time 300 :tags {:dispatch-id 9}})]
-          feed   (h/project-feed stream {:focus-dispatch-id 7} 1000)]
-      (is (= {:error 1} (:severity-counts feed)))
-      (is (= ["rf.error"] (:distinct-prefixes feed))))))
-
-(deftest project-feed-no-focus-falls-through-to-global
-  (testing "when :focus-dispatch-id is nil the feed renders the global
-            buffer (back-compat for callers / tests that don't seed
-            the spine)"
-    (let [stream [(error-ev 1 :rf.error/handler-exception
-                            {:time 100 :tags {:dispatch-id 7}})
-                  (warning-ev 2 :rf.warning/missing-doc
-                              {:time 200 :tags {:dispatch-id 9}})]
-          feed   (h/project-feed stream {} 1000)]
-      (is (= 2 (:total feed)))
-      (is (= 2 (:rendered feed))))))
-
-;; ---- :ungrouped escape-hatch lane (rf2-2f40y) ---------------------------
-
-(deftest project-ungrouped-feed-empty-stream
-  (testing "an empty stream produces an empty :ungrouped projection"
-    (let [feed (h/project-ungrouped-feed [])]
-      (is (= [] (:issues feed)))
-      (is (= 0  (:total feed))))))
-
-(deftest project-ungrouped-feed-keeps-only-ungrouped
-  (testing ":ungrouped lane surfaces only issues whose :dispatch-id is
-            the :ungrouped sentinel — issues attached to a real cascade
-            stay in the main cascade-scoped feed"
-    (let [stream [(error-ev   1 :rf.ssr/hydration-mismatch
-                              {:time 100})                 ;; no :dispatch-id → :ungrouped
-                  (error-ev   2 :rf.error/handler-exception
-                              {:time 200 :tags {:dispatch-id 7}})
-                  (warning-ev 3 :rf.warning/missing-doc
-                              {:time 300})]                ;; no :dispatch-id → :ungrouped
-          feed   (h/project-ungrouped-feed stream)]
-      (is (= 2 (:total feed)))
-      (is (= #{1 3} (set (map :id (:issues feed))))))))
-
-(deftest project-ungrouped-feed-newest-first
-  (testing ":ungrouped lane reverses the buffer so the newest-pushed
-            issue lands first — display parity with the main feed,
-            which also surfaces newest first."
-    ;; Stream is chronological (oldest first; mirrors the trace bus's
-    ;; collect order).
-    (let [stream [(error-ev   1 :rf.ssr/hydration-mismatch  {:time 100})
-                  (error-ev   2 :rf.error/handler-exception {:time 200})
-                  (warning-ev 3 :rf.warning/missing-doc     {:time 300})]
-          feed   (h/project-ungrouped-feed stream)]
-      (is (= [3 2 1] (mapv :id (:issues feed)))))))
-
-(deftest project-ungrouped-feed-ignores-success-traces
-  (testing "non-issue trace events never reach the :ungrouped lane —
-            success-path traces have their own panels"
-    (let [stream [{:id 1 :op-type :event :operation :event/dispatched
-                   :time 100 :tags {}}
-                  {:id 2 :op-type :fx :operation :rf.fx/handled
-                   :time 200 :tags {}}
-                  (error-ev 3 :rf.ssr/hydration-mismatch {:time 300})]
-          feed   (h/project-ungrouped-feed stream)]
-      (is (= 1 (:total feed)))
-      (is (= [3] (mapv :id (:issues feed)))))))
-
-;; ---- (10) source-coord ------------------------------------------------
+;; ---- (13) source-coord ------------------------------------------
 
 (deftest source-coord-projection
   (testing "source-coord pulls file:line from :rf.trace/trigger-handler"

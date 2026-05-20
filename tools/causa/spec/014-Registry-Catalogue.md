@@ -292,9 +292,8 @@ axis independent; empty / `nil` disables the axis.
 
 | Sub | Returns |
 |---|---|
-| `:rf.causa/issues-filters` | `{:severities :prefixes :since-ms}` — single read for atomic re-render. |
-| `:rf.causa/issues-ribbon` | Composite — `{:issues :total :rendered :severity-counts :distinct-prefixes :filters :empty-kind}`. |
-| `:rf.causa.issues/ungrouped` | `{:issues [<row> ...] :total <int>}` — escape-hatch lane (rf2-2f40y) for issues whose `:dispatch-id` is the `:ungrouped` sentinel. The main feed is cascade-scoped (rf2-u6dhp) and `:ungrouped` cascades are structurally unfocusable (rf2-fzbrw); this sub feeds the dedicated lane the panel renders when current focus has no issues but `:ungrouped` does. Newest first. |
+| `:rf.causa/issues-filters` | `{:severities :prefixes}` — single read for atomic re-render. |
+| `:rf.causa/issues-ribbon` | Composite — `{:issues :total :rendered :severity-counts :distinct-prefixes :filters :epoch-id :empty-kind}` over the focused epoch's `:trace-events`. `:empty-kind` ∈ `#{:no-focus :epoch-evicted :no-issues :no-matches nil}` per spec/021 §8 + §10.7 (rf2-jio48). |
 
 ### Events
 
@@ -302,8 +301,7 @@ axis independent; empty / `nil` disables the axis.
 |---|---|---|
 | `:rf.causa.issues/toggle-severity` | `[_ severity]` | Toggles a severity chip in/out. |
 | `:rf.causa.issues/toggle-prefix` | `[_ prefix]` | Toggles a prefix chip in/out. |
-| `:rf.causa.issues/set-since-seconds` | `[_ seconds]` | Converts s → ms; `nil` / non-positive clears the axis. |
-| `:rf.causa.issues/clear-filters` | `[_]` | Clears every axis. |
+| `:rf.causa.issues/clear-filters` | `[_]` | Clears every chip axis. |
 
 ## Flows panel
 
