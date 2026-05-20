@@ -121,7 +121,8 @@
 (defonce
   ^{:doc "Atom holding the global args map. Per IMPL-SPEC §5.2 — Layer
          1 of the args-precedence chain. Defaults to `{}`; the host
-         calls `re-frame.story/configure!` at boot to seed."}
+         calls `re-frame.story/configure!` at boot to seed via the
+         `:rf.story/global-args` key."}
   global-args
   (atom {}))
 
@@ -223,8 +224,8 @@
 ;; source-coord-bearing Story surface (variant canvas title, per-test
 ;; failure detail, etc.) renders a small 'Open' button that launches the
 ;; user's editor at the registered file:line. The user picks the editor
-;; once at boot via `(story/configure! {:editor :cursor})`; this atom
-;; holds the chosen editor.
+;; once at boot via `(story/configure! {:rf.story/editor :cursor})`;
+;; this atom holds the chosen editor.
 ;;
 ;; Defaults to `:vscode` — the most-installed editor in 2026 (Stack
 ;; Overflow Developer Survey 2025 + JetBrains DevEcosystem 2025).
@@ -238,8 +239,8 @@
 
 (defonce
   ^{:doc "Atom holding the editor preference. Default `:vscode`. Set
-         by `re-frame.story/configure!` via the `:editor` key. Read by
-         the UI shell's open-in-editor buttons."}
+         by `re-frame.story/configure!` via the `:rf.story/editor`
+         key. Read by the UI shell's open-in-editor buttons."}
   editor
   (atom :vscode))
 
@@ -267,7 +268,7 @@
 ;; the on-disk root to prepend before the URI ships.
 ;;
 ;; The host application sets this once at boot via
-;; `(story/configure! {:project-root "C:/Users/me/code/my-app/src"})`.
+;; `(story/configure! {:rf.story/project-root "C:/Users/me/code/my-app/src"})`.
 ;; Default is nil — when unset, the source-coord file ships verbatim
 ;; and the Open chip behaves exactly as it did pre-rf2-zfy1e (useful
 ;; for hosts whose source-paths are already absolute, and for tests).
@@ -280,9 +281,9 @@
   ^{:doc "Atom holding the project-root prefix for 'Open in editor'.
          Default `nil` (no prefix; ship the source-coord file
          verbatim). Set by `re-frame.story/configure!` via the
-         `:project-root` key. Read by the UI shell's open-in-editor
-         chip — prepended to the source-coord's `:file` slot when
-         building the editor URI."}
+         `:rf.story/project-root` key. Read by the UI shell's
+         open-in-editor chip — prepended to the source-coord's
+         `:file` slot when building the editor URI."}
   project-root
   (atom nil))
 
@@ -310,18 +311,21 @@
 ;;
 ;; Default is `false` (suppress sensitive events). A story author
 ;; debugging redaction policy flips this on via
-;; `(story/configure! {:trace/show-sensitive? true})`.
+;; `(story/configure! {:rf.privacy/show-sensitive? true})`. The
+;; `:rf.privacy/*` namespace is cross-tool — Causa reads the same key
+;; via its own `configure!` (rf2-xea9u).
 ;;
 ;; The flag is read at the head of every listener body, so toggling it
 ;; takes effect on the next trace event without re-registering listeners.
 
 (defonce
-  ^{:doc "Atom holding the `:trace/show-sensitive?` flag. Default
+  ^{:doc "Atom holding the `:rf.privacy/show-sensitive?` flag. Default
          `false`. When `false` (default), every Story-registered trace
          listener short-circuits on events whose `:sensitive?` field is
          true, and the UI surface tracks how many were suppressed.
          When `true`, listeners receive every event unchanged. Per
-         Spec 009 §Privacy + bead rf2-bclgj."}
+         Spec 009 §Privacy + bead rf2-bclgj. Cross-tool key shared
+         with Causa (rf2-xea9u)."}
   show-sensitive?
   (atom false))
 
@@ -391,7 +395,7 @@
         (tap> {:tag ::toggle-off-callback-failed :id id :error e})))))
 
 (defn set-show-sensitive!
-  "Replace the `:trace/show-sensitive?` flag. Story's `configure!`
+  "Replace the `:rf.privacy/show-sensitive?` flag. Story's `configure!`
   calls this. `nil` resets to the default (`false`).
 
   Per rf2-lqmje (Spec 009 §Privacy §Retroactive-scrub): when the call
@@ -414,7 +418,7 @@
   nil)
 
 (defn get-show-sensitive
-  "Return the current `:trace/show-sensitive?` flag value."
+  "Return the current `:rf.privacy/show-sensitive?` flag value."
   []
   @show-sensitive?)
 
@@ -431,7 +435,7 @@
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by a Story-registered
-  listener under the current `:trace/show-sensitive?` setting?
+  listener under the current `:rf.privacy/show-sensitive?` setting?
 
   Returns `true` iff (a) the event is `:sensitive? true` AND (b) the
   show-sensitive flag is `false`. Listeners wrap their body in

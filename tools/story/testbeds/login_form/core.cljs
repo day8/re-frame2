@@ -59,7 +59,7 @@
 ;; paths. The Story testbeds source-path under shadow-cljs is
 ;; `../tools/story/testbeds` so the on-disk root that prepends to a
 ;; coord like `login_form/stories.cljs:42` is the testbeds dir below.
-;; Plumbed via `story/configure! :project-root` and bridged into
+;; Plumbed via `story/configure! :rf.story/project-root` and bridged into
 ;; Causa's slot by `causa-preset/propagate-project-root!`. Symmetric
 ;; to shop's rf2-6jyf6.
 ;; ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@
   ;; rf2-r1uod — `:project-root` plumbed through Story; the
   ;; `causa-preset` bridge propagates it into Causa's slot so the
   ;; Causa-as-RHS open-in-editor chips resolve absolute on-disk paths.
-  (story/configure! {:project-root (resolve-project-root)})
+  (story/configure! {:rf.story/project-root (resolve-project-root)})
   ;; The live page wires `:rf.http/managed` to a demo override so
   ;; submit / retry have something to do. Story variants don't see
   ;; this — they allocate their own frames and the `force-fx-stub`

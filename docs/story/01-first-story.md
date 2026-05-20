@@ -45,7 +45,7 @@ A variant body is **plain EDN**. No fn slots; no closures; no JSX-shaped DSL. Th
 Args resolve through a three-layer chain:
 
 ```
-global-args   ← set once via (story/configure! {:global-args {...}})
+global-args   ← set once via (story/configure! {:rf.story/global-args {...}})
      ↓
 story-args    ← the :args slot on reg-story (parent default)
      ↓

@@ -154,7 +154,7 @@
 
 (deftest cljs-resolve-args-precedence
   (testing "args precedence chain works on CLJS"
-    (story/configure! {:global-args {:theme :light}})
+    (story/configure! {:rf.story/global-args {:theme :light}})
     (story/reg-story :story.cljs.args
       {:args {:label "story"}})
     (story/reg-variant :story.cljs.args/v

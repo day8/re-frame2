@@ -185,14 +185,15 @@
 ;;
 ;; Symmetric to shop's rf2-6jyf6 (#1493): the source-coord chips in
 ;; Causa-as-RHS need `causa-config/project-root` set, but Story testbeds
-;; configure only the Story side via `story/configure! {:project-root}`.
-;; Instead of asking every testbed to call BOTH configure surfaces, the
-;; preset (Story's Causa adapter) bridges the value one-way:
-;; `story/project-root → causa-config/project-root`.
+;; configure only the Story side via
+;; `story/configure! {:rf.story/project-root ...}`. Instead of asking
+;; every testbed to call BOTH configure surfaces, the preset (Story's
+;; Causa adapter) bridges the value one-way: `story/project-root →
+;; causa-config/project-root`.
 ;;
-;; Single source of truth: the host sets `:project-root` once via
-;; `story/configure!`; the bridge propagates the value into Causa's slot
-;; so both Story's own 'Open' chips (rf2-zfy1e) and Causa-as-RHS's
+;; Single source of truth: the host sets `:rf.story/project-root` once
+;; via `story/configure!`; the bridge propagates the value into Causa's
+;; slot so both Story's own 'Open' chips (rf2-zfy1e) and Causa-as-RHS's
 ;; chips (rf2-5m5n2) resolve coords against the same on-disk root.
 ;;
 ;; Fires from two seams:
@@ -209,13 +210,13 @@
 
 #?(:cljs
    (defn propagate-project-root!
-     "Read Story's configured `:project-root` and propagate it into
-     Causa's config slot via `day8.re-frame2-causa.config/configure!`.
+     "Read Story's configured `:rf.story/project-root` and propagate it
+     into Causa's config slot via `day8.re-frame2-causa.config/configure!`.
      Returns the propagated value (or nil when there was nothing to do).
 
      No-ops when:
        - Causa's `configure!` is not on the classpath (preload absent).
-       - Story has no `:project-root` configured (the slot is nil).
+       - Story has no `:rf.story/project-root` configured (the slot is nil).
 
      The propagation is one-way Story → Causa; Causa-side edits do not
      reflect back into Story's slot. Hosts that want to point Causa at

@@ -93,7 +93,7 @@
 
 (deftest resolve-args-precedence-chain
   (testing "global < story < mode < variant < cell-overrides"
-    (story/configure! {:global-args {:theme :light :verbose? false}})
+    (story/configure! {:rf.story/global-args {:theme :light :verbose? false}})
     (story/reg-story :story.ui.button
       {:doc       "btn"
        :component :app.ui/button
@@ -113,7 +113,7 @@
 
 (deftest resolve-args-deep-merge-on-nested
   (testing "nested maps deep-merge across layers"
-    (story/configure! {:global-args {:layout {:max-width 1024 :padding 8}}})
+    (story/configure! {:rf.story/global-args {:layout {:max-width 1024 :padding 8}}})
     (story/reg-story :story.layout.box
       {:args {:layout {:padding 16}}})
     (story/reg-variant :story.layout.box/deep
@@ -807,46 +807,46 @@
 
 (deftest configure-sets-global-args
   (testing "configure! writes the global-args layer"
-    (story/configure! {:global-args {:theme :dark}})
+    (story/configure! {:rf.story/global-args {:theme :dark}})
     (is (= {:theme :dark} (config/get-global-args)))
     (story/reg-variant :story.cfg/v {:events []})
     (let [r (story/resolve-args :story.cfg/v)]
       (is (= :dark (:theme r))))))
 
 (deftest configure-sets-editor-preference
-  (testing "configure! writes the :editor preference (rf2-evgf5)"
+  (testing "configure! writes the :rf.story/editor preference (rf2-evgf5)"
     ;; Default is :vscode.
     (config/set-editor! :vscode)
     (is (= :vscode (config/get-editor)))
-    (story/configure! {:editor :cursor})
+    (story/configure! {:rf.story/editor :cursor})
     (is (= :cursor (config/get-editor)))
-    (story/configure! {:editor :idea})
+    (story/configure! {:rf.story/editor :idea})
     (is (= :idea (config/get-editor)))
-    (story/configure! {:editor {:custom "zed://file/{path}:{line}"}})
+    (story/configure! {:rf.story/editor {:custom "zed://file/{path}:{line}"}})
     (is (= {:custom "zed://file/{path}:{line}"} (config/get-editor)))
     ;; Reset for downstream tests.
     (config/set-editor! :vscode))
-  (testing "configure! with no :editor leaves the preference untouched"
+  (testing "configure! with no :rf.story/editor leaves the preference untouched"
     (config/set-editor! :cursor)
-    (story/configure! {:global-args {:theme :dark}})
+    (story/configure! {:rf.story/global-args {:theme :dark}})
     (is (= :cursor (config/get-editor)))
     (config/set-editor! :vscode)))
 
 (deftest configure-sets-project-root
-  (testing "configure! writes the :project-root config slot (rf2-zfy1e)"
+  (testing "configure! writes the :rf.story/project-root config slot (rf2-zfy1e)"
     ;; Default is nil — no prefix applied to source-coord files.
     (config/set-project-root! nil)
     (is (nil? (config/get-project-root)))
-    (story/configure! {:project-root "C:/Users/me/code/my-app"})
+    (story/configure! {:rf.story/project-root "C:/Users/me/code/my-app"})
     (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
-    (story/configure! {:project-root "/abs/code"})
+    (story/configure! {:rf.story/project-root "/abs/code"})
     (is (= "/abs/code" (config/get-project-root)))
     ;; Explicit nil clears the slot.
-    (story/configure! {:project-root nil})
+    (story/configure! {:rf.story/project-root nil})
     (is (nil? (config/get-project-root))))
-  (testing "configure! with no :project-root key leaves the slot untouched"
+  (testing "configure! with no :rf.story/project-root key leaves the slot untouched"
     (config/set-project-root! "/abs/code")
-    (story/configure! {:global-args {:theme :dark}})
+    (story/configure! {:rf.story/global-args {:theme :dark}})
     (is (= "/abs/code" (config/get-project-root)))
     ;; Reset for downstream tests.
     (config/set-project-root! nil))

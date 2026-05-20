@@ -1041,7 +1041,7 @@
 ;; ---- privacy: retroactive scrub on set-show-sensitive! false (rf2-lqmje)
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub: toggling
-;; `:trace/show-sensitive?` from true → false MUST clear every
+;; `:rf.privacy/show-sensitive?` from true → false MUST clear every
 ;; per-variant trace buffer. The Story trace listener only gates at
 ;; ingest time, so without this scrub a sensitive cascade emitted
 ;; while the flag was true would remain visible in every variant's

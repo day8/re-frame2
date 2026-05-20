@@ -77,7 +77,7 @@
             ;; Reagent / reagent.dom.client into their classpath.
             #?(:cljs [re-frame.story.ui.shell :as ui-shell])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
-            ;; rf2-r1uod — Story → Causa `:project-root` bridge. `configure!`
+            ;; rf2-r1uod — Story → Causa project-root bridge. `configure!`
             ;; calls `causa-preset/propagate-project-root!` so Causa-as-RHS
             ;; source-coord chips resolve coords against the same on-disk
             ;; root Story uses. CLJS-only require because the propagator
@@ -588,56 +588,65 @@
   args map is the first layer of the args-precedence chain (theme,
   locale, ...). The host application calls this once at boot.
 
-  `{:global-args {...}}` — replace the global args map.
+  Every key lives under the `:rf.story/*` reserved sub-namespace per
+  spec/Conventions.md §Reserved namespaces — the `:rf.<tool>/*`
+  convention introduced by Causa's rename (rf2-xea9u). Cross-tool keys
+  (read by more than one re-frame2 tool from the same atom) live under
+  their own reservation — `:rf.privacy/show-sensitive?` is read by
+  Story AND Causa.
 
-  `{:editor <kw>}` — 'Open in editor' preference per rf2-evgf5. One of
-  `:vscode` (default) / `:cursor` / `:idea` / `{:custom \"<template>\"}`.
-  Drives the `vscode://` / `cursor://` / `idea://` URI scheme the
-  source-coord open-button affordances emit. See
-  `re-frame.source-coords.editor-uri/editor-uri` for the per-editor URI
-  grammar.
+  `{:rf.story/global-args {...}}` — replace the global args map.
 
-  `{:project-root <string>}` — on-disk root prepended to the source-
-  coord's classpath-relative `:file` slot when building the 'Open in
-  editor' URI per rf2-zfy1e. The host application sets this once at
-  boot — typically the directory above the build's source-paths, e.g.
-  `\"C:/Users/me/code/my-app\"` joined to a source-coord file like
-  `\"src/app/views.cljs\"` to produce
+  `{:rf.story/editor <kw>}` — 'Open in editor' preference per
+  rf2-evgf5. One of `:vscode` (default) / `:cursor` / `:idea` /
+  `{:custom \"<template>\"}`. Drives the `vscode://` / `cursor://` /
+  `idea://` URI scheme the source-coord open-button affordances emit.
+  See `re-frame.source-coords.editor-uri/editor-uri` for the per-editor
+  URI grammar.
+
+  `{:rf.story/project-root <string>}` — on-disk root prepended to the
+  source-coord's classpath-relative `:file` slot when building the
+  'Open in editor' URI per rf2-zfy1e. The host application sets this
+  once at boot — typically the directory above the build's
+  source-paths, e.g. `\"C:/Users/me/code/my-app\"` joined to a
+  source-coord file like `\"src/app/views.cljs\"` to produce
   `\"C:/Users/me/code/my-app/src/app/views.cljs\"`. Defaults to nil
   (no prefix; source-coord file ships verbatim — useful when the
   classpath already resolves to absolute paths, and for tests).
 
-  Per rf2-r1uod the value is also bridged into Causa's `:project-root`
-  slot via `re-frame.story.causa-preset/propagate-project-root!` so
-  Causa-as-RHS source-coord chips (open-in-editor on the Handler /
-  Dispatch / Interceptor chips, Trace tab rows, Issues ribbon) resolve
-  against the same on-disk root. The bridge is one-way; hosts that want
-  Causa pointed at a different root call `causa-config/configure!`
-  directly AFTER `story/configure!`. Symmetric to shop's rf2-6jyf6.
+  Per rf2-r1uod the value is also bridged into Causa's
+  `:rf.causa/project-root` slot via
+  `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS
+  source-coord chips (open-in-editor on the Handler / Dispatch /
+  Interceptor chips, Trace tab rows, Issues ribbon) resolve against the
+  same on-disk root. The bridge is one-way; hosts that want Causa
+  pointed at a different root call `causa-config/configure!` directly
+  AFTER `story/configure!`. Symmetric to shop's rf2-6jyf6.
 
-  `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
-  true` trace events per Spec 009 §Privacy (rf2-bclgj). Defaults to
-  `false` — Story's per-variant trace-buffer listener (consumed by
-  the schema-validation panel), the recorder, and the play-assertion
+  `{:rf.privacy/show-sensitive? <bool>}` — privacy gate for
+  `:sensitive? true` trace events per Spec 009 §Privacy (rf2-bclgj).
+  Cross-tool key (Causa reads the same slot). Defaults to `false` —
+  Story's per-variant trace-buffer listener (consumed by the
+  schema-validation panel), the recorder, and the play-assertion
   listeners drop sensitive events and surface a `[● REDACTED]` hint
   where they render. Set to `true` while debugging redaction policy
   to see the raw cascade.
 
   Unrecognised keys are accepted (for forward compat) but ignored."
-  [{:keys [global-args editor project-root]
-    show-sensitive? :trace/show-sensitive?
+  [{:rf.story/keys [global-args editor project-root]
+    show-sensitive? :rf.privacy/show-sensitive?
     :as opts}]
   (when (some? global-args)
     (config/set-global-args! global-args))
   (when (some? editor)
     (config/set-editor! editor))
-  (when (contains? opts :project-root)
+  (when (contains? opts :rf.story/project-root)
     (config/set-project-root! project-root)
-    ;; rf2-r1uod — bridge into Causa's `:project-root` slot so
+    ;; rf2-r1uod — bridge into Causa's `:rf.causa/project-root` slot so
     ;; Causa-as-RHS source-coord chips share the same on-disk root.
     ;; Feature-detect-safe (no-op when Causa is not on the classpath).
     #?(:cljs (causa-preset/propagate-project-root!)))
-  (when (contains? opts :trace/show-sensitive?)
+  (when (contains? opts :rf.privacy/show-sensitive?)
     (config/set-show-sensitive! show-sensitive?))
   nil)
 

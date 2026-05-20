@@ -57,7 +57,7 @@
 ;; so the absolute on-disk root that prepends to a coord like
 ;; `counter_with_stories/core.cljs:42` is the testbeds dir below.
 ;;
-;; The value is plumbed via `story/configure! :project-root` and bridged
+;; The value is plumbed via `story/configure! :rf.story/project-root` and bridged
 ;; into Causa's slot by `re-frame.story.causa-preset/propagate-project-
 ;; root!` so both Story's own 'Open' chips and Causa-as-RHS's chips (the
 ;; Event lens Handler / Dispatch / Interceptors, Trace rows, Issues
@@ -144,8 +144,8 @@
   ;; shop's rf2-6jyf6. The `?project-root=...` query string lets
   ;; other hosts override the mayor-checkout default without a code
   ;; change.
-  (story/configure! {:global-args  {:locale :en}
-                     :project-root (resolve-project-root)})
+  (story/configure! {:rf.story/global-args  {:locale :en}
+                     :rf.story/project-root (resolve-project-root)})
   ;; Seed the live app's `:count` slot.
   (rf/dispatch-sync [:counter/initialise 5])
   ;; Install the always-on event-emit listener. The listener prints

@@ -112,7 +112,7 @@
 
   Per Spec 009 §Privacy + rf2-bclgj: handler-exception trace events
   whose `:sensitive?` flag is true are dropped from the capture set
-  when the global `:trace/show-sensitive?` flag is false (the
+  when the global `:rf.privacy/show-sensitive?` flag is false (the
   default). A counter bump is recorded so the UI's redaction hint
   can surface 'N sensitive events suppressed'."
   [variant-id phase body-fn]

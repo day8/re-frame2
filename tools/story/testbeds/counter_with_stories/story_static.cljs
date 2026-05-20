@@ -54,8 +54,8 @@
   ;; keeps the two `run` fns structurally identical and makes future
   ;; "live-on-static" experiments (e.g. a published site that links
   ;; back into the author's editor) trivial.
-  (story/configure! {:global-args  {:locale :en}
-                     :project-root "C:/Users/miket/code/re-frame2/tools/story/testbeds"})
+  (story/configure! {:rf.story/global-args  {:locale :en}
+                     :rf.story/project-root "C:/Users/miket/code/re-frame2/tools/story/testbeds"})
   ;; Seed the live-app's :count slot so any embedded `counter-card`
   ;; view that renders under the variant canvas starts from a
   ;; deterministic value rather than `nil`.
