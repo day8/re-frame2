@@ -247,3 +247,60 @@
                                  (zero? (get roles :variant 0)))))
                         workspace-rows)
                 "no story- or variant-role glyph leaks into a workspace row")))))))
+
+;; ---- rf2-k3y92 — sidebar rows are keyboard-operable buttons -------------
+
+(deftest variant-rows-expose-keyboard-button-semantics
+  (testing "rf2-k3y92 — variant rows render as clickable `<div>`s; they
+            must expose `role=\"button\"` + `tabindex=\"0\"` + a key
+            handler so keyboard-only users can navigate into and
+            activate them. Without these, the sidebar's `<nav>` landmark
+            is reachable but rows inside it aren't — keyboard users
+            can't select a variant from the sidebar at all."
+    (e2e/with-story-and-causa-frames
+      {:register-stories register-variants!}
+      (fn []
+        (with-redefs [glyphs/story-glyph     story-glyph-stub
+                      glyphs/variant-glyph   variant-glyph-stub
+                      glyphs/workspace-glyph workspace-glyph-stub]
+          (let [tree (render-sidebar-tree)
+                rows (variant-row-nodes tree)]
+            (is (<= 2 (count rows)))
+            (is (every? (fn [row] (= "button" (get (second row) :role)))
+                        rows)
+                "every variant row exposes role=button")
+            (is (every? (fn [row] (= "0" (get (second row) :tab-index)))
+                        rows)
+                "every variant row exposes tabindex=0 so it joins the
+                 sequential focus order")
+            (is (every? (fn [row] (fn? (get (second row) :on-key-down)))
+                        rows)
+                "every variant row carries an on-key-down handler so
+                 Enter / Space can activate it")
+            (is (every? (fn [row]
+                          (let [aria (get (second row) :aria-label)]
+                            (and (string? aria)
+                                 (re-find #"Open variant" aria))))
+                        rows)
+                "every variant row carries an aria-label describing the
+                 action — \"Open variant <id>\"")))))))
+
+(deftest workspace-rows-expose-keyboard-button-semantics
+  (testing "rf2-k3y92 — workspace rows mirror variant rows: clickable
+            `<div>`s that must expose `role=\"button\"` + `tabindex=\"0\"`
+            + a key handler. Without these the workspace section of the
+            sidebar is unreachable from the keyboard."
+    (e2e/with-story-and-causa-frames
+      {:register-stories register-variants!}
+      (fn []
+        (with-redefs [glyphs/story-glyph     story-glyph-stub
+                      glyphs/variant-glyph   variant-glyph-stub
+                      glyphs/workspace-glyph workspace-glyph-stub]
+          (let [tree (render-sidebar-tree)
+                rows (workspace-row-nodes tree)]
+            (is (= 1 (count rows)))
+            (let [props (second (first rows))]
+              (is (= "button" (:role props)))
+              (is (= "0"      (:tab-index props)))
+              (is (fn? (:on-key-down props)))
+              (is (re-find #"Open workspace" (:aria-label props))))))))))

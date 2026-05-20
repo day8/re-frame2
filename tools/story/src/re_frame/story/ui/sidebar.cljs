@@ -205,14 +205,22 @@
   so the user can see the slot is reserved.
 
   Public so the JVM + CLJS test corpus can render it directly without
-  walking a Reagent tree."
+  walking a Reagent tree.
+
+  rf2-k3y92 — uses `role=\"img\"` rather than `role=\"status\"`. The
+  status-dot is a static decoration painted alongside the row label,
+  not an out-of-band update channel. `role=\"status\"` adds an implicit
+  `aria-live=\"polite\"`, which means every mounted dot is announced
+  by assistive tech — with ~50–200 variant rows in a typical Story
+  registry the noise is real. `role=\"img\"` keeps the `aria-label`
+  exposed as the accessible name without the live-region behaviour."
   [status]
   (let [k     (status->dot-style-key status)
         label (dot-aria-label status)]
     [:span {:style       (merge (:dot styles) (k styles))
             :data-test   "story-sidebar-dot"
             :data-status (name (or status :pending))
-            :role        "status"
+            :role        "img"
             :aria-label  label
             :title       label}]))
 
@@ -257,22 +265,54 @@
             ^{:key (str "txt-" i)}
             [:span text]))))))
 
+;; rf2-k3y92 — Enter/Space activation for sidebar rows. The
+;; variant-row + workspace-row + story-block headers render as `<div>`
+;; with `on-click`; without a key handler keyboard-only users can't
+;; activate them even with `role="button"` + `tabindex="0"`. The
+;; pattern mirrors the WAI-ARIA "Button" practice: Enter activates,
+;; Space activates (and we `preventDefault` on Space so the page
+;; doesn't scroll). Returns a handler that wraps the click `(f)` form.
+(defn- on-row-key-down
+  "Build an `:on-key-down` handler that fires `f` for Enter or Space.
+  `f` is a 0-arity fn (the same shape as the row's `on-click` closure
+  but with the event ignored — call sites already discard it). The
+  Space key gets `preventDefault` so the page doesn't scroll."
+  [f]
+  (fn [^js evt]
+    (let [k (.-key evt)]
+      (cond
+        (= k "Enter") (do (.preventDefault evt) (f))
+        (= k " ")     (do (.preventDefault evt) (f))))))
+
 (defn- variant-row
   [variant-id selected? testable? status tags query]
+  (let [activate (fn []
+                   ;; rf2-hscut — symmetric escape from workspace mode.
+                   ;; Selecting a variant clears any previously-selected
+                   ;; workspace so the canvas's ws-id short-circuit
+                   ;; (`shell.cljs` `main-pane`) yields to the variant
+                   ;; branch. Mirror of the workspace-row click below,
+                   ;; which clears `:selected-variant`.
+                   (state/swap-state!
+                     (fn [s] (-> s
+                                 (state/select-variant variant-id)
+                                 (state/select-workspace nil)))))]
   [:div {:style       (merge (:variant-row styles)
                              (when selected? (:variant-row-active styles)))
          :data-test   "story-sidebar-variant-row"
          :data-variant (str variant-id)
-         ;; rf2-hscut — symmetric escape from workspace mode. Selecting a
-         ;; variant clears any previously-selected workspace so the
-         ;; canvas's ws-id short-circuit (`shell.cljs` `main-pane`) yields
-         ;; to the variant branch. Mirror of the workspace-row click
-         ;; below, which clears `:selected-variant`.
-         :on-click    (fn [_]
-                        (state/swap-state!
-                          (fn [s] (-> s
-                                      (state/select-variant variant-id)
-                                      (state/select-workspace nil)))))}
+         ;; rf2-k3y92 — sidebar rows are clickable `<div>`s; expose them
+         ;; as keyboard-operable buttons (role + tabindex + Enter/Space
+         ;; key handler) so keyboard-only users can navigate into and
+         ;; activate them. The visual treatment stays unchanged (the
+         ;; focus ring is the global Story `:focus-visible` 2px amber
+         ;; outline scoped to `[data-rf-story-root]`).
+         :role         "button"
+         :tab-index    "0"
+         :aria-pressed (if selected? "true" "false")
+         :aria-label   (str "Open variant " (name variant-id))
+         :on-key-down  (on-row-key-down activate)
+         :on-click     (fn [_] (activate))}
    ;; rf2-p0wur — per-row glyph affordance. Testable variants keep the
    ;; status dot (it carries pass/fail/running colour); non-testable
    ;; variants get a refined variant glyph so every row carries an
@@ -284,7 +324,7 @@
    ;; rf2-yngai — wrap label so matched substrings render with the
    ;; amber-tint highlight when a search query is in flight.
    (into [:span] (highlighted-label (str "/" (name variant-id)) query))
-   [tag-badges tags]])
+   [tag-badges tags]]))
 
 (defn- story-block
   "Render one story header + its variants. `entry` shape is
@@ -310,18 +350,27 @@
 
 (defn- workspace-row
   [workspace-id selected?]
+  (let [activate (fn []
+                   (state/swap-state!
+                     (fn [s] (-> s
+                                 (state/select-workspace workspace-id)
+                                 (state/select-variant nil)))))]
   [:div {:style    (merge (:workspace-row styles)
                           (when selected? (:workspace-row-active styles)))
          :data-test   "story-sidebar-workspace-row"
          :data-workspace (str workspace-id)
-         :on-click (fn [_]
-                     (state/swap-state!
-                       (fn [s] (-> s
-                                   (state/select-workspace workspace-id)
-                                   (state/select-variant nil)))))}
+         ;; rf2-k3y92 — keyboard-operable button semantics. See
+         ;; `variant-row` for the parallel role/tabindex/key-handler
+         ;; pattern.
+         :role         "button"
+         :tab-index    "0"
+         :aria-pressed (if selected? "true" "false")
+         :aria-label   (str "Open workspace " (name workspace-id))
+         :on-key-down  (on-row-key-down activate)
+         :on-click     (fn [_] (activate))}
    [:span {:style (:workspace-glyph styles)}
     [glyphs/workspace-glyph 12]]
-   [:span (str workspace-id)]])
+   [:span (str workspace-id)]]))
 
 ;; ---- chrome-level test widget (rf2-q0irb) -------------------------------
 
