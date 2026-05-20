@@ -74,7 +74,7 @@
 
   Pre-existing re-frame2-pair-mcp gates:
     - `eval-cljs/allow-eval?` (`--allow-eval`) — rf2-cxx5s
-    - `raw-state/allow-raw-state?` (`--allow-raw-state`) — rf2-c2dtu
+    - `raw-state/allow-raw-state?` (`--allow-sensitive-reads`) — rf2-c2dtu
 
   This namespace adds:
     - `max-concurrent-streams` (`--max-concurrent-streams` /

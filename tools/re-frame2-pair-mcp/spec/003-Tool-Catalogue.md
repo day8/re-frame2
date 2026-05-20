@@ -126,7 +126,7 @@ app-supplied shapes) at every leaf.
 The `:rf.epoch/sensitive?` rollup is computed from the raw
 record's schema-declared sensitive leaves **before** the
 `:redact-fn` runs, so it remains an accurate signal even when
-the fn erases the leaves it keyed on — `--allow-raw-state OFF`
+the fn erases the leaves it keyed on — `--allow-sensitive-reads OFF`
 strips records that carry the rollup regardless of what the fn
 did to the underlying slots.
 
@@ -296,12 +296,12 @@ two-line preload entry.
 Two default-OFF boot gates control authority surfaces (rf2-cxx5s,
 rf2-c2dtu). Operators pass them as MCP-server CLI flags:
 
-| Flag                | Default | Effect when ON |
-|---------------------|---------|----------------|
-| `--allow-eval`      | OFF     | Enables `eval-cljs`. Without the flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-raw-state` | OFF     | Honours caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. |
+| Flag                      | Default | Effect when ON |
+|---------------------------|---------|----------------|
+| `--allow-eval`            | OFF     | Enables `eval-cljs`. Without the flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
+| `--allow-sensitive-reads` | OFF     | Honours caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
 
-When `--allow-raw-state` is OFF (the published-build default), the
+When `--allow-sensitive-reads` is OFF (the published-build default), the
 direct-read tools above:
 
 1. Force `:include-sensitive false` on every call. Caller-supplied
@@ -321,13 +321,13 @@ direct-read tools above:
    pre-redacted shape rather than the raw state.
 
 Operators who need raw state for offline debug opt in at server launch
-by passing `--allow-raw-state`. The per-call args then win again
+by passing `--allow-sensitive-reads`. The per-call args then win again
 (`:include-sensitive true` / `:elision false` pass through to the
 walker unchanged).
 
-Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx).
-The same pattern across MCP servers gives operators one posture
-vocabulary.
+Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx /
+rf2-g9fje). The same canonical flag name across MCP servers (rf2-2x3ql)
+gives operators one posture vocabulary.
 
 ## Universal: server resource controls (streaming surfaces)
 

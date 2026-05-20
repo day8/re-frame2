@@ -30,7 +30,7 @@
   (let [build-id  (wire/arg-build raw-args)
         frame     (wire/arg-keyword raw-args :frame)
         since-id  (wire/arg raw-args :since-id)
-        ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
+        ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
         ;; `:include-sensitive false` when OFF (the default). rf2-p1qli:
         ;; single intention-naming predicate `raw-state-allowed?`
         ;; (positive sense — true when operator opted in at launch).

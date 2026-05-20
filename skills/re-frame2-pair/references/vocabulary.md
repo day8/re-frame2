@@ -84,8 +84,9 @@ deliberate request and can pre-filter with `(rf/trace-buffer {:sensitive? false}
 
 ### Asking for the unmasked view
 
-Per rf2-c2dtu, re-frame2-pair-mcp ships with a **`--allow-raw-state` boot gate
-that is OFF by default**. When OFF (the published-build posture), the
+Per rf2-c2dtu, re-frame2-pair-mcp ships with a **`--allow-sensitive-reads`
+boot gate that is OFF by default** (CLI flag aligned cross-MCP per
+rf2-2x3ql). When OFF (the published-build posture), the
 following surfaces ride the redacted/elided shape regardless of any
 per-call MCP arg or in-runtime `configure-privacy!` toggle:
 
@@ -104,13 +105,13 @@ inside a private network — opt in at server launch:
   "mcpServers": {
     "re-frame2-pair": {
       "command": "re-frame2-pair-mcp",
-      "args": ["--allow-raw-state"]
+      "args": ["--allow-sensitive-reads"]
     }
   }
 }
 ```
 
-With `--allow-raw-state` on, the per-call args win — `:include-sensitive?
+With `--allow-sensitive-reads` on, the per-call args win — `:include-sensitive?
 true` and `:elision false` pass through to the walker. Inside the
 runtime, the secondary toggle is:
 
@@ -124,9 +125,13 @@ resets `configure-privacy!` to the default-suppress shape; the boot
 gate persists for the server's lifetime. State the trade-off plainly
 when proposing the change; this is not a knob to flip casually.
 
-Same architecture across the day8 MCP family:
+Same architecture across the day8 MCP family. Per rf2-2x3ql the
+operator-facing CLI flag name `--allow-sensitive-reads` is the
+canonical cross-MCP vocabulary; both pair-mcp and story-mcp expose
+their sensitive-read opt-in under the same flag name.
 
 - re-frame2-pair-mcp `--allow-eval` (rf2-zyoj2) — gates the `eval-cljs` tool.
-- re-frame2-pair-mcp `--allow-raw-state` (rf2-c2dtu) — this gate.
-- story-mcp `--allow-sensitive-reads` (rf2-uaymx) — the parallel
-  story-side gate (in flight via rf2-g9fje).
+- re-frame2-pair-mcp `--allow-sensitive-reads` (rf2-c2dtu; cross-MCP
+  alignment via rf2-2x3ql) — this gate.
+- story-mcp `--allow-sensitive-reads` (rf2-uaymx / rf2-g9fje) — the
+  parallel story-side gate. Same CLI flag name post-rf2-2x3ql.

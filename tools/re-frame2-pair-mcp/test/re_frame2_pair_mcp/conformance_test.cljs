@@ -678,7 +678,7 @@
   Honors `:fixture/allow-raw-state?` (rf2-c2dtu) symmetrically — flips
   the raw-state boot gate. Default OFF mirrors the published-build
   posture; opt-in fixtures verify that an operator who passed
-  `--allow-raw-state` gets the legacy per-call-arg-wins behaviour."
+  `--allow-sensitive-reads` gets the legacy per-call-arg-wins behaviour."
   [{:fixture/keys [id tool args eval-script expect allow-eval? allow-raw-state?
                     eval-form-must-contain eval-form-must-not-contain]}]
   (cache/clear!)

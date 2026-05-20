@@ -186,11 +186,14 @@
 ;; Raw-state posture (rf2-c2dtu)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The MCP server (`tools/re-frame2-pair-mcp/`) carries a `--allow-raw-state` boot
-;; gate (default OFF). When OFF, the runtime MUST default-elide any
-;; verbatim app-db value before emitting it through `tap>` — otherwise
-;; an `app-db-reset!` log entry would surface the same raw payload that
-;; the wire path already redacts.
+;; The MCP server (`tools/re-frame2-pair-mcp/`) carries a
+;; `--allow-sensitive-reads` boot gate (default OFF; CLI flag name
+;; aligned cross-MCP per rf2-2x3ql). The internal Clojure keyword
+;; `:allow-raw-state?` below is the implementation-side identifier and
+;; retains the legacy name. When OFF, the runtime MUST default-elide
+;; any verbatim app-db value before emitting it through `tap>` —
+;; otherwise an `app-db-reset!` log entry would surface the same raw
+;; payload that the wire path already redacts.
 ;;
 ;; The MCP server signals the runtime once per build per server lifetime
 ;; via `(configure-raw-state! {:allow-raw-state? bool})`. The flag is
@@ -229,7 +232,7 @@
    Per Spec 009 §Privacy: re-frame2-pair-mcp's published-build default has the
    server's boot gate OFF, so the runtime ends up in
    `:allow-raw-state? false` mode the moment a state-emitting MCP tool
-   first fires. Operators who passed `--allow-raw-state` at server
+   first fires. Operators who passed `--allow-sensitive-reads` at server
    launch get `:allow-raw-state? true` instead."
   [{:keys [allow-raw-state?] :as opts}]
   (swap! raw-state-config merge (select-keys opts [:allow-raw-state?]))
@@ -272,7 +275,7 @@
    build default for re-frame2-pair-mcp). The wire walker's normal large- and
    sensitive- predicates apply; large slots collapse to
    `:rf.size/large-elided` markers, sensitive slots to `:rf/redacted`.
-   Operators who passed `--allow-raw-state` see verbatim payloads.
+   Operators who passed `--allow-sensitive-reads` see verbatim payloads.
 
    Returns `{:ok? true :frame frame-id}` on success.
 

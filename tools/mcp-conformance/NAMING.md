@@ -233,6 +233,43 @@ aborting the conversation. JSON-RPC codes are reserved for
 protocol-level failures the SDK detects before (or instead of)
 dispatching a tool.
 
+## Operator-opt-in CLI flag vocabulary
+
+Boot-time CLI flags that gate authority surfaces share a canonical
+name across all servers in the triplet. Same operator semantic ⇒
+same flag spelling. Sourced from rf2-2x3ql: story-mcp originally
+shipped `--allow-sensitive-reads` (rf2-uaymx / rf2-g9fje); pair-mcp
+shipped `--allow-raw-state` for the same concept. Both servers now
+expose the gate as `--allow-sensitive-reads` — the operator-facing
+name avoids implementation leak ("raw-state" was specific to
+pair-mcp's data shape) and reads at the operator semantic level.
+
+| Flag                      | Meaning                                                                                                                                                        | Servers that ship it             | Rationale anchor |
+|---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|------------------|
+| `--allow-eval`            | Enable an arbitrary-CLJS-form evaluator tool (`eval-cljs`). Default OFF; calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` when the flag is absent. | re-frame2-pair-mcp               | rf2-zyoj2 / rf2-cxx5s |
+| `--allow-sensitive-reads` | Honour caller-supplied `:include-sensitive true` (and pair-mcp's `:elision false`) on direct-read tools. Default OFF; sensitive slots return `:rf/redacted` and large slots elide regardless of the per-call arg when the flag is absent. | re-frame2-pair-mcp, story-mcp    | rf2-2x3ql (alignment), rf2-c2dtu (pair-mcp impl), rf2-uaymx / rf2-g9fje (story-mcp impl) |
+
+### Rules
+
+- **Same semantic ⇒ same flag name across servers.** A new operator
+  opt-in that already has a counterpart on a sibling server reuses the
+  counterpart's CLI flag spelling.
+- **Operator-facing semantic, not implementation leak.** Flag names
+  describe what the operator is opting into (`--allow-sensitive-reads`)
+  rather than the impl detail (`--allow-raw-state`).
+- **Hard rename, no aliases.** Per re-frame2's pre-alpha posture, when a
+  flag is realigned both spellings are NOT accepted. The legacy
+  spelling stops being recognised at the parser; tests pin the
+  rejection so a regression can't reintroduce ambiguity. (See
+  `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/raw_state_test.cljs`
+  `parse-launch-flags-old-name-rejected`.)
+- **Internal Clojure identifiers may keep legacy names.** The CLI flag
+  is the operator-facing surface; per-server impl-side identifiers
+  (predicate / namespace / keyword names) are separate refactor
+  surfaces that don't require cross-server lockstep. pair-mcp retains
+  `raw-state-allowed?` / `:allow-raw-state?` internally even though the
+  CLI flag aligned on `--allow-sensitive-reads`.
+
 ## How to extend this table
 
 A new tool that **doesn't fit** an existing verb shape needs:

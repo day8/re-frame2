@@ -9,8 +9,8 @@
   `app-db-reset!` emits both before- and after-states through `tap>`
   unconditionally.
 
-  The boot-gate closes both holes. When `--allow-raw-state` is OFF (the
-  published-build default), re-frame2-pair-mcp:
+  The boot-gate closes both holes. When `--allow-sensitive-reads` is OFF
+  (the published-build default), re-frame2-pair-mcp:
 
   1. FORCES `:include-sensitive false` on every snapshot / get-path /
      subscribe call, regardless of what the caller passed.
@@ -20,7 +20,7 @@
      (see `runtime/configure-raw-state!`). This is one nREPL round-trip
      issued once per session at first tool use.
 
-  When `--allow-raw-state` is ON, the per-call args win — the same
+  When `--allow-sensitive-reads` is ON, the per-call args win — the same
   behaviour re-frame2-pair-mcp shipped pre-rf2-c2dtu.
 
   ## Single intention-naming predicate (rf2-p1qli)
@@ -28,7 +28,7 @@
   Call sites consume the gate state through ONE predicate:
 
       (raw-state/raw-state-allowed?)
-      ; ⇒ true when --allow-raw-state was passed at launch
+      ; ⇒ true when --allow-sensitive-reads was passed at launch
       ; ⇒ false otherwise (the published-build default)
 
   Per-tool bodies branch on this predicate directly — no inversion
@@ -42,14 +42,19 @@
                  true)
 
   The predicate name asserts the operator's opt-in state directly —
-  the truthy value means \"the operator opted in via --allow-raw-state\".
+  the truthy value means \"the operator opted in via --allow-sensitive-reads\".
   This replaces the prior `force-redact?` / `force-elision?` pair which
   returned `(not @allow-raw-state?)` and required three negations to
   trace through (see rf2-p1qli / audit Finding #2).
 
   Symmetric with:
     - rf2-zyoj2 `--allow-eval`  (eval-cljs in re-frame2-pair-mcp; tools/eval-cljs.cljs)
-    - rf2-uaymx (b) `--allow-sensitive-reads` (story-mcp; in flight)
+    - rf2-uaymx (b) / rf2-g9fje `--allow-sensitive-reads` (story-mcp)
+
+  Per rf2-2x3ql the pair-mcp CLI flag is `--allow-sensitive-reads`
+  (canonical cross-MCP name). The internal Clojure identifiers below
+  retain `raw-state` for legacy reasons; only the operator-facing flag
+  was renamed.
 
   The gate is a single atom (`allow-raw-state?`) set by `server.cljs/main`
   from `process.argv` before the dispatcher starts handling tools/call
@@ -59,7 +64,7 @@
 
 (defonce ^:private allow-raw-state?
   ;; Default OFF in published builds. `server.cljs/main` flips this to
-  ;; `true` when `--allow-raw-state` is present in `process.argv`.
+  ;; `true` when `--allow-sensitive-reads` is present in `process.argv`.
   (atom false))
 
 (defn set-allow-raw-state!
@@ -76,8 +81,8 @@
 (defn raw-state-allowed?
   "Single intention-naming predicate (rf2-p1qli).
 
-  Returns `true` when the operator opted in via `--allow-raw-state` at
-  server launch; `false` otherwise (the published-build default).
+  Returns `true` when the operator opted in via `--allow-sensitive-reads`
+  at server launch; `false` otherwise (the published-build default).
 
   Call sites branch on this predicate directly:
 
