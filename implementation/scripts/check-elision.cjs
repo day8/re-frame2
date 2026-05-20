@@ -272,7 +272,7 @@ const DEV_ONLY_SENTINELS = [
   // dataflow analysis under :advanced determines the inner emit branch
   // is unreachable, so the keyword's literal string is dropped from
   // the control build too. The methodology check would be vacuous.
-  // The browser-test (re-frame.cross-spec-cljs-test/plain-fn-under-
+  // The browser-test (re-frame.cross-spec-dom-cljs-test/plain-fn-under-
   // non-default-frame) is the load-bearing assertion that the gate is
   // wired up under DEBUG=true; under :advanced + goog.DEBUG=false the
   // gate is constant-folded false and the body DCE's regardless.

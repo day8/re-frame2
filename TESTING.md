@@ -83,8 +83,8 @@ agent pre-checkin "narrow to the changed surface" workflow.
 
 | Command | Scope |
 |---|---|
-| `npm run test:cljs` | CLJS node-runtime tests via shadow-cljs `node-test` build. The consolidated default gate for CLJS unit coverage. |
-| `npm run test:browser` | Browser CLJS tests (`browser-test` build) served with Playwright + http-server. Headless Chromium harness. |
+| `npm run test:cljs` | CLJS node-runtime tests via shadow-cljs `node-test` build. The consolidated default gate for CLJS unit coverage. Loads every `*_cljs_test.cljs` file (the `cljs-test$` ns-regexp matches both `-cljs-test` and the DOM-tagged `-dom-cljs-test` suffix). |
+| `npm run test:browser` | Browser CLJS tests (`browser-test` build) served with Playwright + http-server. Headless Chromium harness. **Narrowed to DOM-dependent tests only (rf2-2hrj8)**: the `:browser-test` ns-regexp is `-dom-cljs-test$`, matching files named `*_dom_cljs_test.cljs` — these tests mount real React via `react-dom/client`, exercise the React-context tier, or otherwise depend on browser-runtime features Node can't fake. Pure-fn + sub-chain reactivity tests run under `:node-test` only. |
 | `npm run test:browser-prod-elision` | Release-built browser tests proving production elision under the `browser-test-prod-elision` shadow build. |
 | `npm run test:browser-schemas-boundary-prod` | Release-built browser test proving the schemas boundary-warn-once contract in production. |
 | `npm run test:elision` | Production-release elision probe: compiles `elision-probe` + `elision-probe-control` and asserts elision is total. Non-negotiable production invariant. |

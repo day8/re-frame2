@@ -297,7 +297,7 @@
   ;; which is nil at probe time (no Reagent render in flight), so the
   ;; emit-site keyword is DCE'd from BOTH bundles by closure dataflow.
   ;; The browser-runner test
-  ;; (re-frame.cross-spec-cljs-test/plain-fn-under-non-default-frame) is
+  ;; (re-frame.cross-spec-dom-cljs-test/plain-fn-under-non-default-frame) is
   ;; the load-bearing assertion that the gate fires under DEBUG=true;
   ;; production elision rests on the surrounding
   ;; `(when interop/debug-enabled? ...)` constant-folding to false the

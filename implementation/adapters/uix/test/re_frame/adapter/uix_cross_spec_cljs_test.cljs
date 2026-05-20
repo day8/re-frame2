@@ -1,6 +1,7 @@
 (ns re-frame.adapter.uix-cross-spec-cljs-test
   "Adapter-parity port of the headless subset of
-  `re-frame.cross-spec-cljs-test` to the UIx adapter (rf2-ta4b5).
+  `re-frame.cross-spec-dom-cljs-test` to the UIx adapter (rf2-ta4b5;
+  renamed rf2-2hrj8).
 
   Each deftest pins a Cross-Spec interaction (spec/Cross-Spec-Interactions.md)
   under a UIx-installed adapter. The subset ported here is the one

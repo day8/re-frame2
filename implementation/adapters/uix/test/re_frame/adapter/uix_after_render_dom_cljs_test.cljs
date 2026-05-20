@@ -1,7 +1,7 @@
-(ns re-frame.adapter.helix-after-render-cljs-test
-  "Behavioural coverage for the Helix adapter's `:adapter/after-render`
-  hook (rf2-334d9). Pre-rf2-334d9 the Helix adapter did not publish
-  `:adapter/after-render`, so `(rf/after-render f)` under a Helix-only
+(ns re-frame.adapter.uix-after-render-dom-cljs-test
+  "Behavioural coverage for the UIx adapter's `:adapter/after-render`
+  hook (rf2-334d9). Pre-rf2-334d9 the UIx adapter did not publish
+  `:adapter/after-render`, so `(rf/after-render f)` under a UIx-only
   app was a silent no-op — closed by Mike's rf2-neiqf decision
   2026-05-19 to publish via `React.useLayoutEffect`.
 
@@ -16,12 +16,11 @@
   `r/after-render`. A `queueMicrotask` fallback covers the
   pre-mount / post-unmount call paths.
 
-  Coverage shape mirrors the UIx parity test
-  (`uix_after_render_cljs_test.cljs`):
+  Coverage shape. Two assertions:
     1. The hook is wired at ns-load — calling `interop/after-render`
-       under the Helix adapter returns nil (not a thrown
+       under the UIx adapter returns nil (not a thrown
        'no hook bound' / silent no-op signal).
-    2. Behaviour. Mount a Helix tree; call `(interop/after-render f)`;
+    2. Behaviour. Mount a UIx tree; call `(interop/after-render f)`;
        verify `f` fired after the next commit (asserted via a side-
        channel atom).
 
@@ -32,16 +31,15 @@
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require ["react"            :as React]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [helix.core :refer-macros [$ defnc]]
-            [helix.dom  :as d]
+            [uix.core :as uix :refer-macros [defui $]]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.adapter.helix :as helix-adapter]
+            [re-frame.adapter.uix :as uix-adapter]
             [re-frame.interop :as interop]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
-    {:adapter helix-adapter/adapter}))
+    {:adapter uix-adapter/adapter}))
 
 (defn- browser? []
   (and (exists? js/document)
@@ -68,9 +66,9 @@
 
 ;; ---- ns-load smoke -------------------------------------------------------
 
-(deftest after-render-hook-wired-under-helix
+(deftest after-render-hook-wired-under-uix
   (testing "rf2-334d9: `interop/after-render` no longer silent-no-ops
-            under the Helix adapter — the hook is wired at ns-load and
+            under the UIx adapter — the hook is wired at ns-load and
             returns nil (the documented swallow shape) rather than
             falling through to nil because no adapter published it."
     ;; Calling with a fn argument should NOT throw and should NOT
@@ -78,20 +76,20 @@
     ;; per the make-after-render-hook contract, and the queueMicrotask
     ;; fallback drain handles the no-mount case asynchronously.
     (is (nil? (interop/after-render (fn [] :ok)))
-        "interop/after-render under the Helix adapter returns nil — the
+        "interop/after-render under the UIx adapter returns nil — the
          spine-built hook is wired through :adapter/after-render via
          substrate-adapter/route-hook!")))
 
 ;; ---- behaviour: mount, schedule, drain after commit ----------------------
 
-(defnc Probe []
-  ;; Bare Helix component — the rf2-334d9 sentinel is injected by the
+(defui Probe []
+  ;; Bare UIx component — the rf2-334d9 sentinel is injected by the
   ;; spine's `make-render`, not by user code.
-  (d/div "probe"))
+  ($ :div "probe"))
 
-(deftest after-render-runs-callback-after-next-commit-helix
+(deftest after-render-runs-callback-after-next-commit-uix
   (testing "rf2-334d9: `(interop/after-render f)` schedules `f` to run
-            after the next mount/render cycle under the Helix adapter.
+            after the next mount/render cycle under the UIx adapter.
             The sentinel injected by the spine's make-render uses
             React.useLayoutEffect to drain the queue post-commit."
     (if-not (browser?)
