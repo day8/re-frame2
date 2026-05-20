@@ -118,7 +118,7 @@
   (testing "the diagnostics story exposes deterministic failure surfaces"
     (let [vs (story/variants-of :story.counter-diagnostics)]
       (is (contains? vs :story.counter-diagnostics/failing-play))
-      (is (contains? vs :story.counter-diagnostics/event-throws))
+      (is (contains? vs :story.counter-diagnostics/failing-event-throws))
       (is (contains? vs :story.counter-diagnostics/loader-throws))
       (is (contains? vs :story.counter-diagnostics/render-throws))
       (is (= 4 (count vs))))))
@@ -264,7 +264,7 @@
               (done)))))))
 
 (deftest diagnostic-event-exception-records-failure
-  (testing ":story.counter-diagnostics/event-throws — the handler
+  (testing ":story.counter-diagnostics/failing-event-throws — the handler
             exception is captured by the play module's trace listener
             and drained into `:rf.story/assertions` as a
             :rf.error/exception record. Per rf2-z2dq8 the router
@@ -273,7 +273,7 @@
             exception into the assertions list so the test-mode UI
             + Causa assertions panel see the failure."
     (async done
-      (-> (story/run-variant :story.counter-diagnostics/event-throws)
+      (-> (story/run-variant :story.counter-diagnostics/failing-event-throws)
           (async-lib/then
             (fn [result]
               (is (not (story/assertions-passing? result)))
@@ -285,7 +285,7 @@
                         (:assertions result))
                   "an :rf.error/exception assertion was recorded for the
                   throwing event in phase-4-play")
-              (story/destroy-variant! :story.counter-diagnostics/event-throws)
+              (story/destroy-variant! :story.counter-diagnostics/failing-event-throws)
               (done)))))))
 
 (deftest diagnostic-loader-exception-records-failure

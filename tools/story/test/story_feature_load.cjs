@@ -513,11 +513,11 @@ async function assertDiagnostics(page, phase) {
   });
 
   await step(page, phase, 'diagnostics/event-handler-exception', async () => {
-    await clickVariant(page, '/event-throws');
+    await clickVariant(page, '/failing-event-throws');
     await setMode(page, 'test');
     await expectTextContains(
       page.locator('[data-test="story-test-view"]'),
-      ':story.counter-diagnostics/event-throws',
+      ':story.counter-diagnostics/failing-event-throws',
       5000,
     );
     await waitForValue(
@@ -529,7 +529,7 @@ async function assertDiagnostics(page, phase) {
     await assertFailureDetailIncludes(
       detail,
       [
-        /variant:\s*:story\.counter-diagnostics\/event-throws/,
+        /variant:\s*:story\.counter-diagnostics\/failing-event-throws/,
         /phase:\s*:phase-4-play/,
         /source:\s*\[:counter\/throw-deterministic\]/,
         /story-load deterministic event handler failure/,
