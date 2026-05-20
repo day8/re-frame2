@@ -567,18 +567,17 @@ Per [rf2-6y3q](#) — apps repeatedly want to apply a transform to every outgoin
 
 ### Shape
 
-The interceptor shape matches re-frame2's event-handler interceptor idiom — each interceptor is a map `{:id <kw> :before (fn [ctx] ctx')}` — so authors reuse what they already know. The map composes with `:rf/registration-metadata` (per [Spec-Schemas §`:rf/http-interceptor-meta`](Spec-Schemas.md#rfhttp-interceptor-meta)): `:doc` / `:tags` / `:spec` / `:sensitive?` ride alongside the interceptor-specific keys, and source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured at the call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference).
+Per rf2-eyjbn the public surface is `(reg-http-interceptor id opts? before)` — positional `id` keyword, positional `before` fn `(fn [ctx] ctx')`, and an optional `opts` map carrying `:frame` (default `:rf/default`) plus `:rf/registration-metadata` (per [Spec-Schemas §`:rf/http-interceptor-meta`](Spec-Schemas.md#rfhttp-interceptor-meta)): `:doc` / `:tags` / `:schema` / `:sensitive?`. Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured at the call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The shape aligns with the rest of the `reg-*` family — matching `reg-flow`'s precedent.
 
 ```clojure
 (rf/reg-http-interceptor
-  {:frame  :rf/default
-   :id     :auth-header
-   :doc    "Stamp Bearer <token> on every outgoing request."
-   :before (fn [ctx]
-             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
-               (cond-> ctx
-                 token (assoc-in [:request :headers "Authorization"]
-                                 (str "Bearer " token)))))})
+  :auth-header
+  {:doc "Stamp Bearer <token> on every outgoing request."}
+  (fn [ctx]
+    (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+      (cond-> ctx
+        token (assoc-in [:request :headers "Authorization"]
+                        (str "Bearer " token))))))
 ```
 
 ### `ctx` contract
@@ -629,13 +628,12 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 ```clojure
 (rf/reg-http-interceptor
-  {:frame  :rf/default
-   :id     :app/bearer-auth
-   :before (fn [ctx]
-             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
-               (cond-> ctx
-                 token (assoc-in [:request :headers "Authorization"]
-                                 (str "Bearer " token)))))})
+  :app/bearer-auth
+  (fn [ctx]
+    (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+      (cond-> ctx
+        token (assoc-in [:request :headers "Authorization"]
+                        (str "Bearer " token))))))
 
 ;; All subsequent `:rf.http/managed` requests on `:rf/default` carry the
 ;; header automatically — no per-call-site threading. The interceptor
@@ -653,7 +651,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 | API | Kind | Signature |
 |---|---|---|
-| `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor {:frame ... :id ... :before ...})` |
+| `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor id before)` / `(rf/reg-http-interceptor id opts before)` — per rf2-eyjbn (positional id + opts kwarg + positional handler) |
 | `clear-http-interceptor` | Fn | `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)` |
 
 Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.

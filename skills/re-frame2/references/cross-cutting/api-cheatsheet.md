@@ -20,7 +20,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-flow` | `(flow-map opts?)` — needs `day8/re-frame2-flows` |
 | `rf/reg-route` | `(id metadata-map)` — needs `day8/re-frame2-routing` |
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
-| `rf/reg-http-interceptor` | `({:frame :id :before})` — needs `day8/re-frame2-http` |
+| `rf/reg-http-interceptor` | `(id before)` / `(id opts before)` — needs `day8/re-frame2-http` |
 
 ## Dispatch, subscribe, frames
 

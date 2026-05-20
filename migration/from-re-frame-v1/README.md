@@ -1491,20 +1491,19 @@ Per [rf2-6y3q](#) (Spec 014 §Middleware) re-frame2 ships a per-frame request-si
 
 ```clojure
 (rf/reg-http-interceptor
-  {:frame  :rf/default
-   :id     :auth-header
-   :before (fn [ctx]
-             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
-               (cond-> ctx
-                 token (assoc-in [:request :headers "Authorization"]
-                                 (str "Bearer " token)))))})
+  :auth-header
+  (fn [ctx]
+    (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+      (cond-> ctx
+        token (assoc-in [:request :headers "Authorization"]
+                        (str "Bearer " token))))))
 ```
 
-The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and returns a (possibly-modified) ctx. Chain runs in registration order; per-frame; throw → `:rf.error/http-interceptor-failed` and the request is not dispatched (per [014 §Middleware](../../spec/014-HTTPRequests.md#middleware)).
+The interceptor's `before` receives a ctx `{:request :args :frame :event}` and returns a (possibly-modified) ctx. Chain runs in registration order; per-frame; throw → `:rf.error/http-interceptor-failed` and the request is not dispatched (per [014 §Middleware](../../spec/014-HTTPRequests.md#middleware)).
 
 **What to do.** Nothing on the migration path — the surface is additive. Apps that had a per-call-site request builder threading common headers can collapse the threading into a single `reg-http-interceptor` registration; the migration agent does not rewrite this automatically (the rewrite depends on whether the helper still has per-call concerns the interceptor wouldn't cover).
 
-**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor {:frame ... :id ... :before ...})` and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)`. Both ship in the `day8/re-frame2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
+**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor id before)` / `(rf/reg-http-interceptor id opts before)` per rf2-eyjbn (positional id + opts kwarg with `:frame` / `:doc` / `:tags` / `:schema` / `:sensitive?` + positional handler — `reg-flow` precedent) and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)`. Both ship in the `day8/re-frame2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
 
 ---
 
@@ -2272,6 +2271,42 @@ Per rf2-ixezs (audit-of-audits routing): two near-identical names (`:rf/url-chan
 **No alias.** Per pre-alpha posture, the old names are **removed** — stale handler registrations sit unfired; stale trace-filter `=` checks silently mismatch.
 
 **Cross-references.** [Spec 012 §Route-change event catalogue](../../spec/012-Routing.md); [Spec 009 §Trace event catalogue](../../spec/009-Instrumentation.md); [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the `:rf.route/*` ownership).
+
+---
+
+### M-61. `reg-http-interceptor` reshaped to positional id + opts kwarg (rf2-eyjbn)
+
+**Type A** (mechanical). Closed signature change; applies to every `rf/reg-http-interceptor` call site. v1 codebases never had this surface; v2-pre-rename codebases only.
+
+Per rf2-eyjbn the public surface aligns with the rest of the `reg-*` family — positional id + opts kwarg + positional handler — matching `reg-flow`'s precedent. The pre-rename signature carried `:frame` / `:id` / `:before` inside a single map argument, which made it the sole documented exception to the `reg-*` opts-kwarg convention (per [Conventions §`reg-*` frame-binding convention](../../spec/Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). The exception is closed; the family is uniform.
+
+```clojure
+;; before (v2-pre-rename)
+(rf/reg-http-interceptor
+  {:frame  :rf/default
+   :id     :auth-header
+   :doc    "Bearer auth."
+   :before (fn [ctx] ...)})
+
+;; after
+(rf/reg-http-interceptor
+  :auth-header
+  {:doc "Bearer auth."}
+  (fn [ctx] ...))
+
+;; or two-arity (no opts) — :frame defaults to :rf/default
+(rf/reg-http-interceptor :auth-header (fn [ctx] ...))
+```
+
+`opts` is an optional map carrying `:frame` (default `:rf/default`) plus any `:rf/registration-metadata` slots (`:doc` / `:tags` / `:schema` / `:sensitive?`). The `:rf.fx/reg-http-interceptor` fx still takes a single map argument (EDN fixtures cannot carry positional fn args); the fx body translates that map to the new positional fn-form internally — fx data shape is unchanged.
+
+**Detect.** Single-arity `reg-http-interceptor` call sites where the lone argument is a map literal carrying `:id` / `:before` (and optionally `:frame`).
+
+**Mechanical sweep.** Extract `:id` and `:before` as positional args; pass the remainder (with `:frame` if present, plus `:doc` / `:tags` / `:schema` / `:sensitive?`) as the opts map. When only `:id` and `:before` are present, prefer the two-arity form.
+
+**No alias.** Per pre-alpha posture (no back-compat shims), the old single-map signature is **removed** — stale call sites raise `:rf.error/http-bad-interceptor` (the validator rejects non-keyword first arg).
+
+**Cross-references.** [014 §Middleware](../../spec/014-HTTPRequests.md#middleware); [API.md row](../../spec/API.md#http-requests-spec-014); [Spec-Schemas §`:rf/http-interceptor-meta`](../../spec/Spec-Schemas.md#rfhttp-interceptor-meta); [M-39](#m-39-reg-http-interceptor--clear-http-interceptor--additive-request-side-middleware-on-rfhttpmanaged) (the original additive add — this reshape supersedes the call shape).
 
 ---
 

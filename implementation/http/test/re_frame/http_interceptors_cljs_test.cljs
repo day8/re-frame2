@@ -30,9 +30,7 @@
 
 (deftest register-and-clear-round-trip
   (testing "reg-http-interceptor adds a slot; clear removes it"
-    (rf/reg-http-interceptor
-      {:id     :a
-       :before (fn [ctx] ctx)})
+    (rf/reg-http-interceptor :a (fn [ctx] ctx))
     (let [chain (get @http-managed/interceptors :rf/default)]
       (is (= 1 (count chain)))
       (is (= :a (:id (first chain)))))
@@ -44,9 +42,9 @@
 
 (deftest registration-order-preserved
   (testing "first / second / third register in order"
-    (rf/reg-http-interceptor {:id :first  :before (fn [c] c)})
-    (rf/reg-http-interceptor {:id :second :before (fn [c] c)})
-    (rf/reg-http-interceptor {:id :third  :before (fn [c] c)})
+    (rf/reg-http-interceptor :first  (fn [c] c))
+    (rf/reg-http-interceptor :second (fn [c] c))
+    (rf/reg-http-interceptor :third  (fn [c] c))
     (let [chain (get @http-managed/interceptors :rf/default)]
       (is (= [:first :second :third] (mapv :id chain))))))
 
@@ -54,9 +52,9 @@
 
 (deftest re-register-replaces-in-place
   (testing "re-registering :a keeps its position; second :a does not duplicate"
-    (rf/reg-http-interceptor {:id :a :before (fn [c] (assoc c ::v 1))})
-    (rf/reg-http-interceptor {:id :b :before (fn [c] c)})
-    (rf/reg-http-interceptor {:id :a :before (fn [c] (assoc c ::v 2))})
+    (rf/reg-http-interceptor :a (fn [c] (assoc c ::v 1)))
+    (rf/reg-http-interceptor :b (fn [c] c))
+    (rf/reg-http-interceptor :a (fn [c] (assoc c ::v 2)))
     (let [chain (get @http-managed/interceptors :rf/default)]
       (is (= [:a :b] (mapv :id chain)))
       (is (= {::v 2} ((:before (first chain)) {}))
@@ -66,8 +64,8 @@
 
 (deftest per-frame-scope
   (testing "interceptors registered on different frames do not collide"
-    (rf/reg-http-interceptor {:frame :rf/default :id :on-default :before (fn [c] c)})
-    (rf/reg-http-interceptor {:frame :other      :id :on-other   :before (fn [c] c)})
+    (rf/reg-http-interceptor :on-default {:frame :rf/default} (fn [c] c))
+    (rf/reg-http-interceptor :on-other   {:frame :other}      (fn [c] c))
     (is (= [:on-default] (mapv :id (get @http-managed/interceptors :rf/default))))
     (is (= [:on-other]   (mapv :id (get @http-managed/interceptors :other))))
     ;; clear-http-interceptor on :rf/default doesn't touch :other
@@ -78,18 +76,18 @@
 ;; ---- 5. invalid shape raises ----------------------------------------------
 
 (deftest invalid-shape-raises
-  (testing "missing :id, non-keyword :id, or non-fn :before raises :rf.error/http-bad-interceptor"
-    (let [thrown (try (rf/reg-http-interceptor {:before (fn [c] c)})
+  (testing "non-keyword id, non-fn before, or non-map opts raises :rf.error/http-bad-interceptor"
+    (let [thrown (try (rf/reg-http-interceptor "string-id" (fn [c] c))
                       nil
                       (catch :default e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.-message thrown))))
-    (let [thrown (try (rf/reg-http-interceptor {:id "string-id" :before (fn [c] c)})
+    (let [thrown (try (rf/reg-http-interceptor :x "not-a-fn")
                       nil
                       (catch :default e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.-message thrown))))
-    (let [thrown (try (rf/reg-http-interceptor {:id :x :before "not-a-fn"})
+    (let [thrown (try (rf/reg-http-interceptor :x "not-a-map" (fn [c] c))
                       nil
                       (catch :default e e))]
       (is (some? thrown))

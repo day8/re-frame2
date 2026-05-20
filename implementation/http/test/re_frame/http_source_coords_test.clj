@@ -55,9 +55,7 @@
             :column / :file from the call site into the stored slot per
             Spec 001 §Source-coordinate capture + the
             :rf/http-interceptor-meta schema."
-    (rf/reg-http-interceptor
-      {:id     :rf2-may3f/auth
-       :before (fn [c] c)})
+    (rf/reg-http-interceptor :rf2-may3f/auth (fn [c] c))
     (let [slot (slot-for :rf/default :rf2-may3f/auth)]
       (is (some? slot)
           "the interceptor must actually land in the chain")
@@ -75,12 +73,11 @@
             into the stored slot alongside the auto-captured source
             coords. None of the registration-metadata keys are dropped
             by the merge."
-    (rf/reg-http-interceptor
-      {:id         :rf2-may3f/with-meta
-       :doc        "auth header attacher"
+    (rf/reg-http-interceptor :rf2-may3f/with-meta
+      {:doc        "auth header attacher"
        :tags       #{:auth :security}
-       :sensitive? true
-       :before     identity})
+       :sensitive? true}
+      identity)
     (let [slot (slot-for :rf/default :rf2-may3f/with-meta)]
       (is (some? slot))
       (is (= "auth header attacher" (:doc slot)))
@@ -95,13 +92,12 @@
             :file override the auto-captured values per the source-
             coords contract (Spec 001). The merge order is
             auto-capture-then-user-keys, so user keys win."
-    (rf/reg-http-interceptor
-      {:id     :rf2-may3f/forwarded
-       :ns     'app.wrappers.http-interceptor-builder
+    (rf/reg-http-interceptor :rf2-may3f/forwarded
+      {:ns     'app.wrappers.http-interceptor-builder
        :line   42
        :column 7
-       :file   "src/app/wrappers/http.clj"
-       :before identity})
+       :file   "src/app/wrappers/http.clj"}
+      identity)
     (let [slot (slot-for :rf/default :rf2-may3f/forwarded)]
       (is (some? slot))
       (is (= 'app.wrappers.http-interceptor-builder (:ns slot))
@@ -114,15 +110,14 @@
           "explicit :file wins"))))
 
 (deftest reg-http-interceptor-frame-key-not-leaked-into-slot-rf2-may3f
-  (testing "rf2-may3f — the :frame argument is consumed (set on the slot
-            for in-chain lookup) but the user-meta merge dissocs :frame
-            / :id / :before before merging coord keys, so no doubled
-            entries appear."
-    (rf/reg-http-interceptor
-      {:frame  :rf/api
-       :id     :rf2-may3f/api-scoped
-       :doc    "scoped to :rf/api"
-       :before identity})
+  (testing "rf2-may3f — the opts :frame argument is consumed (set on the
+            slot for in-chain lookup) and dissoc'd from the user-meta
+            merge so it doesn't appear twice; per rf2-eyjbn :id and
+            :before are positional, not part of the opts map."
+    (rf/reg-http-interceptor :rf2-may3f/api-scoped
+      {:frame :rf/api
+       :doc   "scoped to :rf/api"}
+      identity)
     (let [slot (slot-for :rf/api :rf2-may3f/api-scoped)]
       (is (some? slot)
           "the slot lands on :rf/api, not :rf/default")

@@ -861,8 +861,7 @@
     ;; registrar). The bead lists :http-interceptor among the kinds to
     ;; register across; we still exercise the surface so the late-bind
     ;; hook is touched.
-    (rf/reg-http-interceptor {:id     :rf2-o1bp/interceptor1
-                              :before identity})
+    (rf/reg-http-interceptor :rf2-o1bp/interceptor1 identity)
 
     ;; ---- :error-projector --------------------------------------------
     ;; reg-error-projector lives in re-frame.ssr; ns-load registers
