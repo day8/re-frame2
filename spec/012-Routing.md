@@ -204,21 +204,36 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 #### Reserved route-metadata keys
 
-The pattern reserves these keys on `reg-route`'s metadata map. All are optional except `:path`.
+The pattern reserves twelve keys on `reg-route`'s metadata map. All are optional except `:path`. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event-fx` reserves only the cross-kind registration metadata. The scale is justified by the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour) but the keys do not cluster naturally as one flat list. The three axes below name the clusters so generators reading "what does `reg-route` accept?" can branch on intent rather than scan twelve docstrings.
 
-| Key | Type | Purpose |
+##### The three axes
+
+The twelve keys cluster into three axes by what each key controls:
+
+| Axis | Keys | What it controls |
 |---|---|---|
-| `:doc` | string | Human-readable description. |
-| `:path` | string (path-pattern grammar above) | The URL pattern. Required. |
-| `:params` | schema | Schema for **path** params (those captured by `:name` / `*name` segments in `:path`). |
-| `:query` | schema | Schema for **search/query** params (key-value pairs after `?`). Distinct from `:params`. See "Query strings and fragments". |
-| `:query-defaults` | map | Default values for query-string keys when absent from the URL. Applied during `match-url`. See "Query strings and fragments". |
-| `:query-retain` | set of keywords | Query-string keys that should be carried through subsequent navigations even when the caller did not supply them. See "Query strings and fragments". |
-| `:tags` | set of keywords | User-defined tags (e.g. `:requires-auth`); read by interceptors. |
-| `:parent` | route-id | Parent route id (for the nested-layout convention; see "Nested layouts"). |
-| `:on-match` | vector of event vectors | Events the runtime dispatches every time this route becomes the active route (server- and client-side). See "Per-route data loading". |
-| `:on-error` | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
-| `:scroll` | enum or map | Declarative scroll behaviour on entering this route. See "Scroll restoration". |
+| **Shape** — URL ↔ params binding | `:path`, `:params`, `:query`, `:query-defaults`, `:query-retain` | What URLs match this route and how their parts coerce into a params/query map. The contract surface that `match-url` and `route-url` agree on. |
+| **Lifecycle hooks** — events the runtime dispatches at navigation boundaries | `:on-match`, `:on-error`, `:can-leave` | Events the runtime fires on route activation (`:on-match`), on `:on-match` errors (`:on-error`), and a sub-id consulted before navigation away (`:can-leave`). These are the route's reactive surface — handlers run from app code, the runtime owns the dispatch points. |
+| **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described (`:doc`), composed with others (`:parent` chains layout shells; see [§Nested layouts](#nested-layouts)), grouped for interceptors (`:tags`), and visually transitioned (`:scroll`; see [§Scroll restoration](#scroll-restoration)). |
+
+The axes are documentation, not data structure — the keys remain flat on the metadata map. An earlier sketch (audit rf2-u94dd Finding 1) considered nesting lifecycle hooks under `:hooks {...}`; v1 keeps the flat shape because (a) the registration metadata is read by `(rf/handler-meta :route id)` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
+
+##### Per-key table
+
+| Key | Axis | Type | Purpose |
+|---|---|---|---|
+| `:doc` | layout | string | Human-readable description. |
+| `:path` | shape | string (path-pattern grammar above) | The URL pattern. Required. |
+| `:params` | shape | schema | Schema for **path** params (those captured by `:name` / `*name` segments in `:path`). |
+| `:query` | shape | schema | Schema for **search/query** params (key-value pairs after `?`). Distinct from `:params`. See "Query strings and fragments". |
+| `:query-defaults` | shape | map | Default values for query-string keys when absent from the URL. Applied during `match-url`. See "Query strings and fragments". |
+| `:query-retain` | shape | set of keywords | Query-string keys that should be carried through subsequent navigations even when the caller did not supply them. See "Query strings and fragments". |
+| `:tags` | layout | set of keywords | User-defined tags (e.g. `:requires-auth`); read by interceptors. |
+| `:parent` | layout | route-id | Parent route id (for the nested-layout convention; see "Nested layouts"). |
+| `:on-match` | lifecycle | vector of event vectors | Events the runtime dispatches every time this route becomes the active route (server- and client-side). See "Per-route data loading". |
+| `:on-error` | lifecycle | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
+| `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation away from this route. `false` blocks; `true` (or missing sub) allows. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
+| `:scroll` | layout | enum or map | Declarative scroll behaviour on entering this route. See "Scroll restoration". |
 
 ### The `:rf/route` slice
 
@@ -451,6 +466,20 @@ The two boundaries where route params enter the runtime — **programmatic navig
 The asymmetry is deliberate. Programmatic navigation is *caller code* — schema failures are bugs and should be surfaced loudly (throw / reject). URL-driven navigation is *user input* — schema failures are 404s, not exceptions. Both paths share the same `:params` / `:query` schemas (per [Spec 010](010-Schemas.md)), so a route that compiles cleanly with one validates the same way against the other.
 
 The event-boundary validation for `:rf.route/navigate` is a re-use of the standard schema-validation interceptor (the `:spec` slot on the `reg-event-fx` registration) — no routing-specific machinery.
+
+##### Validation-error surfacing across the three paths
+
+The three validation paths surface failures through **three different error/no-error shapes**. The table below names what an observer sees on each path so tools and handlers branch on the right surface. Audit rf2-u94dd Finding 3.
+
+| Path | Error id | Trace `:operation` | Cascade-level error fired? | Slice discriminator |
+|---|---|---|---|---|
+| Programmatic — `(route-url ...)` | `:rf.error/route-url-validation` | none (synchronous throw) | thrown directly via `ex-info`; not on the trace bus | n/a (the call throws; no slice write) |
+| Programmatic — `[:rf.route/navigate ...]` | `:rf.error/schema-validation-failure` (with `:where :event`) | `:rf.error/schema-validation-failure` per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) | yes — rides the always-on error-emit substrate ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)) | n/a (navigation rejected; slice unchanged) |
+| URL-driven — `(match-url ...)` → `:rf.route/handle-url-change` | no `:rf.error/*` — the failure becomes a not-found | none (`:rf.warning/malformed-url` may fire for a separate sibling case) | no | `:rf/route` slice writes `{:id :rf.route/not-found :params {:url url :reason :validation}}` |
+
+The split is principled (per [§Param validation at the call site](#param-validation-at-the-call-site) above): caller-bug paths throw, event-boundary paths reject with a structured error, URL-driven paths route to the canonical not-found id. A consumer reading "the user tried to reach a route they can't parse" therefore branches differently per source: a caller-bug surfaces as an exception in dev (and as a substrate error in production); an event-boundary failure surfaces via the standard error substrate; a URL-driven failure surfaces via the not-found view's `:reason :validation` branch.
+
+**Asymmetry with flows.** Flows' validation surface is **flat by comparison** — four explicit error ids that all fire at registration time, all under `:rf.error/flow-*`: `:rf.error/flow-missing-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and `implementation/flows/src/re_frame/flows/registry.cljc`). Flows have a single validation time (registration) and a single surface (registration-throw); routing has three validation times (caller-fn invocation / event-boundary interceptor / URL-driven match) and three surfaces (synchronous throw / structured error / not-found route). The asymmetry is **not a bug** — it is principled per the table above — but it does mean that an AI scanning routing for "validation error ids" does not see one closed family, and a tool building an aggregate "show me all validation failures" surface needs to subscribe to two distinct error ids plus a slice-write predicate. The split is the cost of routing's caller-bug-vs-user-input distinction; flows have no such distinction (registration is always caller code).
 
 ## Per-route data loading
 
@@ -968,6 +997,34 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 - The `:rf/route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
 - `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)); tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
+
+## Frame-destroy teardown
+
+Routing's per-frame state — the `:rf/route` slice, `:rf/pending-navigation`, the scroll-positions order/map, and the per-frame nav-token / pending-nav counters — **lives entirely in `app-db`** (per [§The `:rf/route` slice](#the-rfroute-slice) and [§Scroll restoration](#scroll-restoration)). The `destroy-frame!` boundary therefore releases routing's per-frame state **naturally** via the frame's `app-db` going away. **Routing publishes no `:routing/teardown-on-frame-destroy!` late-bind hook**, by deliberate contrast with the per-feature artefacts that hold frame-scoped state outside `app-db`:
+
+- [Flows](013-Flows.md#frame-destroy-teardown) — publishes `:flows/teardown-on-frame-destroy!` because the per-frame flow registry and `last-inputs` dirty-check cache live in module-private atoms, not in `app-db`.
+- [Machines](005-StateMachines.md) — the machine snapshots live at `[:rf/machines <id>]` inside `app-db` so they die naturally, but the artefact additionally publishes `:machines/teardown-on-frame-destroy!` for the per-frame timer registry and `:after` epoch counters held outside `app-db`.
+- [Schemas](010-Schemas.md) — publishes `:schemas/on-frame-destroyed!` for the per-frame validator caches held in module-private atoms.
+
+Routing fits the "all per-frame state in `app-db`" pattern in full — there is no module-private per-frame structure to clear, and so no hook to publish. Audit rf2-u94dd Finding 8.
+
+### Process-global slots are intentionally not per-frame
+
+Routing holds three process-global resources that survive `destroy-frame!` and are **intentionally cross-frame**:
+
+| Resource | Where | Why global |
+|---|---|---|
+| The `:route` registrar map | `rf/registrar` (per [001-Registration](001-Registration.md)) | Routes are a **corpus-wide resource** — every frame sees the same registered routes. A user's `(rf/reg-route :route/cart ...)` registers a route that frame `:left` and frame `:right` both match-URL against the same way. Per-frame route tables would multiply registrations and have no consumer use case. |
+| `reg-counter` (rule-6 tiebreak counter, monotonic) | process-global `defonce` atom inside the routing artefact | Rule 6 of the [§Route ranking algorithm](#route-ranking-algorithm) breaks structural ties on registration order. The counter monotonically increases over the process lifetime so a re-registered route lands "after" its siblings (per [§Hot-reload semantics for routing](001-Registration.md#hot-reload-semantics)). Per-frame counters would re-shuffle ranks on frame destroy in surprising ways; cross-frame correctness requires the counter to be global. `reset-counters!` is a test-only helper. |
+| `route-table-cache` (compiled-route lookup memo) | process-global `defonce` atom inside the routing artefact | A pre-sorted compiled-route table keyed on the registrar map's identity. Self-managing: rebuilds whenever `(identical? @route-registrar last-key)` is false. Per-frame caches would compute the same value redundantly for every frame; cross-frame caching is correct because the registrar is itself cross-frame (above). |
+
+None of these clear on `destroy-frame!` and none should. A new feature artefact author scanning routing for the teardown shape MUST NOT publish a routing-style hook for module-private state they hold per-frame — they should follow [Flows §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) or [Machines §Teardown](005-StateMachines.md) instead. The "publish a hook" rule applies when an artefact holds **per-frame state outside `app-db`**; routing's design choice (per-frame in `app-db`; process-global for corpus-wide concerns) is the contrast example.
+
+### What the slice teardown looks like
+
+`destroy-frame!` calls `(swap! frame-registry dissoc frame-id)` which drops the whole frame's `app-db` along with everything else (per [002 §Destroy](002-Frames.md#destroy)). The route slice (`:rf/route`), the pending-nav slot (`:rf/pending-navigation`), the scroll-positions structures (`:rf.route/scroll-positions`, `:rf.route/scroll-positions-order`), and the per-frame counter slots (`:rf.route/nav-token-counter`, `:rf.route/pending-nav-counter`) all live under reserved app-db keys (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)) and release in lockstep. There is no per-frame cache, no orphaned listener, no leaked timer to clear.
+
+The corpus-wide `:rf.error/handler-exception` listener (`on-match-error-listener`, registered at routing-artefact load time per [§Per-route error handling](#per-route-error-handling)) is process-global and survives every `destroy-frame!`. It is `defonce`-protected and re-discriminates each handler-exception against the failing frame's current `:rf/route` slice — destroying frame `:left` simply means future exceptions thrown in `:left`'s drain no longer trigger the listener (the frame is gone) and the listener continues to discriminate `:right`'s exceptions normally.
 
 ## Multi-frame routing
 

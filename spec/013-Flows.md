@@ -233,6 +233,51 @@ Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Ca
 
 The whole flow trace surface, like the rest of trace, is compile-time eliminated in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
 
+## Sub integration
+
+Flows write to `app-db`; subs read `app-db`. **Flows therefore publish zero framework subscriptions.** This is a deliberate posture, not an oversight (audit rf2-u94dd Finding 4). The contract is: a flow's output value lives at its `:path` in the dispatching frame's `app-db`, and consumers read it through whatever sub registration they prefer — either a user-registered `(rf/reg-sub :my-app/area (fn [db _] (get-in db [:my-app/area])))` over the path, or a derived sub that closes over it. The runtime invalidates the sub-cache whenever any flow writes (`run-flows!` calls the substrate's container-swap exactly once per drain when at least one flow produced a dirty write), so reactivity is automatic; there is no separate flow-output cache the substrate needs to track.
+
+### What this means
+
+A flow named `:my-app/derived-area` with `:path [:my-app/area]` is **observable through any of these patterns**, none of them special-cased for flows:
+
+```clojure
+;; (a) plain app-db read inside another handler
+(rf/reg-event-db :event/use-area
+  (fn [db _]
+    (let [area (get-in db [:my-app/area])] ...)))
+
+;; (b) user-registered sub over the flow's :path
+(rf/reg-sub :my-app/area (fn [db _] (get-in db [:my-app/area])))
+@(rf/subscribe [:my-app/area])
+
+;; (c) derived sub that closes over the path implicitly
+(rf/reg-sub :my-app/area-doubled
+  :<- [:my-app/area]
+  (fn [area _] (* 2 area)))
+```
+
+The flow's `:path` IS the contract surface. Consumers depend on the path, not on a `:rf.flow/<flow-id>` sub-id. This is the same shape as any other `app-db` value: a flow's output is "ordinary application state with a known producer" — exactly the framing at [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow).
+
+### Asymmetry with routing
+
+Routing publishes **nine framework subs** over its `:rf/route` slice (`:rf/route`, `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/fragment`, `:rf.route/transition`, `:rf.route/error`, `:rf.route/chain`, `:rf/pending-navigation` — per [012 §Subscriptions](012-Routing.md#subscriptions)). Flows publish zero. The asymmetry is real but principled:
+
+| Surface | Where output lives | Framework subs | Why |
+|---|---|---|---|
+| Routing | `:rf/route` slice in `app-db` | nine (`:rf/route` + eight derived) | The slice is **a single named map with a fixed shape** — every consumer wants `:id`, `:params`, `:query`, `:transition` as common destructures. Publishing the per-key subs once means every consumer reads the same canonical sub-id (`:rf.route/id`) rather than re-registering eight identically-shaped getters. |
+| Flows | An arbitrary path in `app-db` per flow | zero | Each flow's `:path` is **user-chosen** and **shape-arbitrary** (could be a number, a vector, a map of any shape, …). There is no canonical "every flow has these eight derived views" to publish. A consumer wanting `(:items @(subscribe [:my-app/cart]))` writes one sub over their cart's `:path`; the framework cannot do this for the user without knowing every flow's output shape. |
+
+The asymmetry follows from the **shape-uniformity** difference: routing's slice has a fixed shape locked by [§The `:rf/route` slice](012-Routing.md#the-rfroute-slice); a flow's output shape is whatever the `:output` fn returns. Routing's shape uniformity makes framework subs cheap (one registration table, every app sees the same sub-ids); flows' shape arbitrariness makes them impossible (the framework would need a sub-id per flow with a layer-1 fn parameterised on each flow's `:path`, doubling the per-flow sub-cache footprint and polluting the registered-sub namespace).
+
+### Observability consequence
+
+A tool wanting to enumerate "which views/handlers depend on this route's id" reads the sub-graph via `(sub-cache-consumers :rf.route/id)` — the standard sub-topology surface gives the answer for free. A tool wanting to enumerate "which views/handlers depend on this flow's output" reads **`app-db` path consumers**, not flow-output consumers: the framework's sub-topology query surface (per [006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal)) returns subs whose layer-1 fn reads the flow's `:path`, not subs whose layer-1 fn reads "the flow with this id".
+
+This is an **observability asymmetry** the doc names but does not paper over. Tools rendering "flow consumer" panels (Causa's flow tab, post-v1 dashboards) compute the answer from `:path` overlap, not from a framework sub-id. The two enumerations — `(rf/registrations :flow)` (which flows exist) plus `(sub-cache-consumers-of-path [:my-app/area])` (which subs read this path) — together provide the full picture; neither is a framework sub family.
+
+The audit's alternative — a framework sub family `:rf.flow/<flow-id>` whose layer-1 fn is `(fn [db _] (get-in db (:path flow)))` — was considered (audit rf2-u94dd Finding 4 §Direction). It is the wrong direction for v1: it doubles the sub-cache footprint per flow (every registered flow gets a registered sub even when no consumer reads through it); it pollutes the registered-sub namespace (one sub-id per registered flow); and it conflates two surfaces (flows write app-db; subs read app-db) that the design deliberately keeps separated (per the [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow) framing). No follow-on bead is filed; the zero-framework-sub posture is the locked v1 contract.
+
 ## Dynamic toggle via fx
 
 Two reserved fx-ids let event handlers register and clear flows during normal event processing:
