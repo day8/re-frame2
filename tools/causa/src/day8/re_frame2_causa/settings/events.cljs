@@ -134,6 +134,15 @@
         (and (= section :general) (= key :use-system-colors?))
         (effects/apply-use-system-colors! value)
 
+        ;; rf2-3zyyx — Epoch history slider. Writes through to the
+        ;; substrate's per-frame ring depth via
+        ;; `(rf/configure :epoch-history {:depth N})`. See
+        ;; `settings/effects.cljs §apply-epoch-history!` for the
+        ;; late-bind contract; non-positive values are dropped at the
+        ;; effect boundary.
+        (and (= section :general) (= key :epoch-history))
+        (effects/apply-epoch-history! value)
+
         ;; Auto-open-on-error toggle — install the sub-watcher on
         ;; flip-on, detach on flip-off. The install is also attempted
         ;; from `mount/ensure-causa-frame!` so the persisted-true case

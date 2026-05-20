@@ -37,7 +37,11 @@
     (is (= :right-rail
               (config/get-setting :general :panel-position)))
     (is (= false  (config/get-setting :general :auto-open-on-error?)))
-    (is (= :dark  (config/get-setting :theme nil)))))
+    (is (= :dark  (config/get-setting :theme nil)))
+    ;; rf2-3zyyx — epoch-history default matches the substrate's
+    ;; `re-frame.epoch.state/default-depth` so a fresh install carries
+    ;; the same ring depth Causa observed before the knob was surfaced.
+    (is (= 50 (config/get-setting :general :epoch-history)))))
 
 ;; ---- per-setting round-trip --------------------------------------------
 
@@ -73,6 +77,20 @@
   (reset! config/settings config/default-settings)
   (config/load-settings-from-storage!)
   (is (= :light (config/get-setting :theme nil))))
+
+(deftest epoch-history-round-trips
+  ;; rf2-3zyyx — the Epoch history slider persists the depth through
+  ;; the same localStorage path every other :general knob uses; on
+  ;; reload the substrate cap is restored via `apply-epoch-history!`
+  ;; (separate test in effects_cljs_test).
+  (config/update-setting! :general :epoch-history 200)
+  (is (= 200 (config/get-setting :general :epoch-history)))
+  (reset! config/settings config/default-settings)
+  (is (= 50 (config/get-setting :general :epoch-history))
+      "atom-only reset returns to default")
+  (config/load-settings-from-storage!)
+  (is (= 200 (config/get-setting :general :epoch-history))
+      "reload from localStorage restores 200"))
 
 (deftest legacy-telemetry-key-is-silently-dropped
   ;; rf2-jh9ws: settings persisted from prior sessions with a
