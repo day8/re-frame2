@@ -209,6 +209,51 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
+  ;; rf2-e3j8l — perf-emission nightly companion to `:node-test`.
+  ;;
+  ;; The per-PR `:node-test` build above uses `:ns-regexp \"cljs-test$\"`,
+  ;; which excludes any test file whose namespace ends in
+  ;; `-nightly-test`. This build flips that filter (`:ns-regexp
+  ;; \"-emit-nightly-test$\"`) AND flips `re-frame.performance/enabled?`
+  ;; on at compile time, so the perf-bracket call-sites in
+  ;; `re-frame.router` / `re-frame.subs.memo` / `re-frame.fx` /
+  ;; `re-frame.views` actually fire and the test can read
+  ;; `performance.getEntriesByType('measure')` for the rf:* entries.
+  ;;
+  ;; Runs NIGHTLY ONLY (not per-PR). The migrated assertions were
+  ;; previously the Playwright spec at
+  ;; `tools/causa/testbeds/perf_counter/spec.cjs` (deleted in this
+  ;; bead). Migrated here for two reasons:
+  ;;
+  ;;   1. The User-Timing emission is a CORE concern (every call site
+  ;;      lives in `implementation/core/src/re_frame/`) so the test
+  ;;      belongs in `implementation/core/test/`, not a Causa testbed.
+  ;;   2. Perf-timing assertions are noisy under per-PR CI runners;
+  ;;      nightly cadence reduces false negatives from runner load.
+  ;;
+  ;; Invocation:
+  ;;
+  ;;     npx shadow-cljs compile node-test-perf-nightly && \\
+  ;;       node out/node-test-perf-nightly.js
+  ;;
+  ;; The migrated bundle-presence assertion (the `:advanced` bundle
+  ;; carries `performance.mark` / `performance.measure` symbols)
+  ;; remains covered by `scripts/check-perf-bundle.cjs` via
+  ;; `npm run test:perf-bundle`.
+  :node-test-perf-nightly
+  {:target    :node-test
+   :output-to "out/node-test-perf-nightly.js"
+   :ns-regexp "-emit-nightly-test$"
+   :main      re-frame.test-quiet.shadow-node/main
+   :compiler-options
+   {:warnings        {:redef false}
+    :infer-externs   false
+    ;; Flip the perf-bracket gate on so the call-site emissions
+    ;; actually land on the User-Timing stream. See
+    ;; `implementation/core/src/re_frame/performance.cljc` for the
+    ;; goog-define declaration.
+    :closure-defines {re-frame.performance/enabled? true}}}
+
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
   ;; `-dom-cljs-test` (i.e. files named `*_dom_cljs_test.cljs`). The
@@ -441,10 +486,14 @@
   ;;   1. The bundle-presence assertion in scripts/check-perf-bundle.cjs:
   ;;      `performance.mark` / `performance.measure` and the helper's
   ;;      bracketing strings MUST appear in this bundle.
-  ;;   2. The browser-smoke spec at tools/causa/testbeds/perf_counter/spec.cjs:
-  ;;      after a dispatch, `performance.getEntriesByType('measure')`
-  ;;      returns at least one entry per bucket (`rf:event:*`, `rf:sub:*`,
-  ;;      `rf:fx:*`, `rf:render:*`).
+  ;;   2. (rf2-e3j8l, Wave 4) The companion browser smoke at
+  ;;      tools/causa/testbeds/perf_counter/spec.cjs was DELETED — the
+  ;;      User-Timing emission assertions migrated to pure CLJS at
+  ;;      implementation/core/test/re_frame/performance_emit_nightly_test.cljs
+  ;;      (nightly only via the :node-test-perf-nightly build above;
+  ;;      `npm run test:cljs-perf-emit-nightly`). This bundle target is
+  ;;      retained for #1 (bundle-presence grep) and as the live
+  ;;      Causa-displayable counter under `npx shadow-cljs watch`.
   ;;
   ;; Per Spec 009 §Performance instrumentation: the flag is the consumer's
   ;; surface. Default :examples/counter is the shape every other example

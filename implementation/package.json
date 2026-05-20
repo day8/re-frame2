@@ -15,6 +15,7 @@
   },
   "scripts": {
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",
+    "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",
     "test:browser": "shadow-cljs compile browser-test && node scripts/serve-and-run-browser-tests.cjs",
     "test:browser-schemas-boundary-prod": "shadow-cljs release browser-test-schemas-boundary-prod && node scripts/serve-and-run-schemas-boundary-prod-tests.cjs",
     "test:browser-prod-elision": "shadow-cljs release browser-test-prod-elision && node scripts/serve-and-run-prod-elision-tests.cjs",

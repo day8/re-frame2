@@ -151,18 +151,16 @@ const EXAMPLES = [
     outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'helix'),
   },
 
-  // ----- Framework testbeds (2) -----------------------------------------
-  // Performance-API instrumented variant of the counter (paired with
-  // tools/causa/testbeds/perf_counter/spec.cjs). Asserts a real
-  // dispatch through the perf-on bundle produces `rf:event:*` /
-  // `rf:sub:*` / `rf:fx:*` / `rf:render:*` measure entries on
-  // `performance.getEntriesByType` — the live counterpart to the
-  // static perf-bundle grep gate at scripts/check-perf-bundle.cjs.
-  {
-    build: 'examples/counter-perf',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'perf_counter', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'counter-perf'),
-  },
+  // ----- Framework testbeds (1) -----------------------------------------
+  // (Wave 4, rf2-e3j8l) The `examples/counter-perf` Playwright entry has
+  // been removed: `tools/causa/testbeds/perf_counter/spec.cjs` was
+  // deleted in favour of pure-CLJS User-Timing assertions at
+  // `implementation/core/test/re_frame/performance_emit_nightly_test.cljs`
+  // (nightly only, via the `:node-test-perf-nightly` shadow-cljs build).
+  // The `examples/counter-perf` shadow-cljs build target ITSELF is
+  // retained — `npm run test:perf-bundle` still uses it for the
+  // bundle-presence grep (scripts/check-perf-bundle.cjs).
+  //
   // Parallel-Frames testbed (rf2-m00rw) — THE canonical multi-frame
   // isolation demo. One app, mounted in TWO frames (:above + :below)
   // on ONE page with zero cross-frame coupling. Paired with

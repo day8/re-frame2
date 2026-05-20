@@ -13,11 +13,17 @@
      - fx walk       — :counter/log
      - render        — counter-buttons
 
-   The paired browser smoke at
-   `tools/causa/testbeds/perf_counter/spec.cjs` asserts that, after a
-   real dispatch, `performance.getEntriesByType('measure')` returns at
-   least one entry per `rf:` bucket. The fx-bucket entry (`rf:fx:counter/log`)
-   is produced by the `:fx` walk attached to the initialise dispatch.
+   The paired browser smoke at `tools/causa/testbeds/perf_counter/spec.cjs`
+   was DELETED in Wave 4 (rf2-e3j8l). The migrated assertions live as
+   pure CLJS at
+   `implementation/core/test/re_frame/performance_emit_nightly_test.cljs`
+   and run NIGHTLY ONLY via the `:node-test-perf-nightly` shadow-cljs
+   build (`npm run test:cljs-perf-emit-nightly`). The testbed itself
+   (core.cljs + index.html) stays as the Causa-displayable showcase —
+   a live perf-on counter for hands-on inspection at
+   `examples/counter-perf` under `npx shadow-cljs watch`. The fx-bucket
+   entry (`rf:fx:counter/log`) is still produced by the `:fx` walk
+   attached to the initialise dispatch.
 
    This non-canonical shape lives HERE — in the perf testbed — so the
    canonical tutorial example (`examples/reagent/counter/core.cljs`)

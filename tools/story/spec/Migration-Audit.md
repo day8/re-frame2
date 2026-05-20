@@ -19,7 +19,7 @@ Classification key:
 | `implementation/adapters/reagent/testbed/spec.cjs` | 23 | Reagent adapter smoke | 3 |
 | `implementation/adapters/uix/testbed/spec.cjs` | 24 | UIx adapter smoke | 3 |
 | `tools/causa/testbeds/parallel_frames/spec.cjs` | 277 | Causa multi-frame isolation | 27 |
-| `tools/causa/testbeds/perf_counter/spec.cjs` | 103 | Spec 009 perf User-Timing | 6 |
+| ~~`tools/causa/testbeds/perf_counter/spec.cjs`~~ DELETED Wave 4 (rf2-e3j8l) → `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` | ~~103~~ | Spec 009 perf User-Timing (nightly CLJS) | ~~6~~ |
 | `testbeds/deep_machine/spec.cjs` | 149 | Spec 005 machine transition cascade | 5 |
 | `testbeds/deliberate_throw/spec.cjs` | 116 | Spec 009 handler-exception trace | 4 |
 | `testbeds/drain_depth_trigger/spec.cjs` | 164 | Spec 002 drain-depth rollback + epoch record | 7 |
@@ -88,19 +88,20 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 - `tools/causa/test/day8/re_frame2_causa/panels_e2e/target_frame_roundtrip_e2e_cljs_test.cljs` — assertions 19-21 (Causa's own `:rf.causa/set-target-frame` event + `:rf.causa/target-frame` sub).
 - `tools/causa/test/day8/re_frame2_causa/panels_e2e/embedding_contract_isolation_e2e_cljs_test.cljs` — assertion 24 (Spec 008 §State isolation host→Causa direction).
 
-### `tools/causa/testbeds/perf_counter/spec.cjs` (Spec 009 perf User-Timing)
-| # | Assertion | Class | Rationale + target |
+### `tools/causa/testbeds/perf_counter/spec.cjs` (Spec 009 perf User-Timing) — MIGRATED (Wave 4, rf2-e3j8l)
+
+**Status: spec.cjs DELETED. Migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs`** with a companion shadow-cljs build (`:node-test-perf-nightly`) that flips `re-frame.performance/enabled?` on at compile time. The test ns ends in `-emit-nightly-test`; the per-PR `:node-test` build's `:ns-regexp "cljs-test$"` does NOT match it, so it stays NIGHTLY ONLY (Mike's call — perf-timing assertions are too noisy under per-PR runner load). Invocation: `npm run test:cljs-perf-emit-nightly`.
+
+| # | Assertion | Class | Migrated to |
 |---:|---|:---:|---|
-| 1 | `expectTextEquals(span, '5')` initial | A | App-db initial state under perf-on build. Covered by existing counter unit tests; this spec exists for the perf instrumentation surface, not the counter logic. DROP. |
-| 2 | `expectTextEquals(span, '6')` after click | A | Same as #1 logic-wise. DROP. |
-| 3 | `expectTimingBucket(buckets, 'event')` ≥ 1 | C | Requires `performance.getEntriesByType('measure')` — browser-only API. Spec 009 `:rf:event:*` instrumentation calls `performance.mark`/`performance.measure` against the browser's User-Timing API. CANNOT be CLJS-unit-tested without mocking the whole performance global. STAYS. |
-| 4 | `expectTimingBucket(buckets, 'sub')` ≥ 1 | C | Same — browser User-Timing API. STAYS. |
-| 5 | `expectTimingBucket(buckets, 'fx')` ≥ 1 | C | Same. STAYS. |
-| 6 | `expectTimingBucket(buckets, 'render')` ≥ 1 | C | Same. STAYS. |
+| 1 | `expectTextEquals(span, '5')` initial | A | DROP — covered by existing counter unit tests; this surface was incidental wiring. |
+| 2 | `expectTextEquals(span, '6')` after click | A | DROP — same. |
+| 3 | `expectTimingBucket(buckets, 'event')` ≥ 1 | A | `dispatch-emits-rf-event-measure-when-perf-enabled` (Node's `performance.getEntriesByType('measure')` is API-compatible with the browser's; the runtime call site in `re-frame.router/run-chain` is identical across CLJS targets). |
+| 4 | `expectTimingBucket(buckets, 'sub')` ≥ 1 | A | `subscribe-emits-rf-sub-measure-when-perf-enabled`. |
+| 5 | `expectTimingBucket(buckets, 'fx')` ≥ 1 | A | `fx-walk-emits-rf-fx-measure-when-perf-enabled`. |
+| 6 | `expectTimingBucket(buckets, 'render')` ≥ 1 | A | Macro shape covered by `performance-cljs-test/build-name-shape` (naming convention) + `mark-and-measure-on-path-when-enabled` (per-call emission). The view-render call site itself is structurally identical to the other three — no Reagent-render integration is added in the nightly suite (driving Reagent in node would require react-dom server, which is browser-render-orthogonal). The bundle-presence assertion in `scripts/check-perf-bundle.cjs` retains the prod-build sentinel check. |
 
-**Migrated subtotal: 2 of 6 = 33%. Residual: 4 — performance API observation is the WHOLE point of this spec; it's a small spec and the residual is the load-bearing piece.**
-
-Note: `implementation/core/test/re_frame/performance_cljs_test.cljs` already exists. If that suite already exercises the `performance.mark` emission with `performance.now`/`getEntriesByType` stubbed, this spec.cjs becomes redundant. **Action: cross-check `performance_cljs_test.cljs` for full bucket coverage before dropping this spec entirely.** If it's a duplicate, drop perf_counter/spec.cjs entirely (residual = 0). If it's not, this spec stays as the only User-Timing-API-in-real-browser observable.
+**Migrated subtotal: 6 of 6 = 100%. Residual: 0. SPEC.CJS DELETED.** The integration assertion (one dispatch populates all three headless buckets in a single drain) lives in `single-dispatch-populates-all-three-headless-buckets`.
 
 ### `testbeds/deep_machine/spec.cjs` (Spec 005 machine transition cascade)
 | # | Assertion | Class | Rationale + target |
@@ -231,7 +232,7 @@ Note: `implementation/core/test/re_frame/performance_cljs_test.cljs` already exi
 | reagent smoke | 3 | 0 | 3 | 0 |
 | uix smoke | 3 | 0 | 3 | 0 |
 | parallel_frames | 27 | 23 | 0 | 4 |
-| perf_counter | 6 | 2 | 0 | 4 |
+| perf_counter | 6 | 6 | 0 | 0 |
 | deep_machine | 5 | 5 | 0 | 0 |
 | deliberate_throw | 4 | 4 | 0 | 0 |
 | drain_depth_trigger | 8 | 8 | 0 | 0 |
@@ -241,11 +242,11 @@ Note: `implementation/core/test/re_frame/performance_cljs_test.cljs` already exi
 | ssr_basic | 13 | 11 | 0 | 2 |
 | ssr_hydration_mismatch | 9 | 7 | 0 | 2 |
 | ssr_multi_frame | 16 | 14 | 0 | 2 |
-| **TOTAL** | **124** | **101** | **9** | **14** |
+| **TOTAL** | **124** | **105** | **9** | **10** |
 
 (124 counts http_toggle's 6 ×3 categories and otherwise mirrors §Inventory.)
 
-Headline: **101 of 124 assertions (81%) migrate to CLJS unit tests.** 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. 14 (11%) genuinely stay Playwright — SSR mount/static-HTML/banner-DOM (8 across 3 SSR specs) + perf_counter User-Timing-API observation (4) + parallel_frames page-mount (2).
+Headline: **105 of 124 assertions (85%) migrate to CLJS unit tests** (Wave 4 rf2-e3j8l migrated perf_counter's 4 User-Timing residuals to a nightly `:node-test`-style build). 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. 10 (8%) genuinely stay Playwright — SSR mount/static-HTML/banner-DOM (8 across 3 SSR specs) + parallel_frames page-mount (2).
 
 Five testbed spec.cjs files become **DROP candidates** entirely (residual = 0 substantive assertions after migration): `deep_machine`, `deliberate_throw`, `drain_depth_trigger`, `http_toggle`, `long_flow_w_failure`, `non_trivial_app_db`. (Six files.) For these, the testbed surface itself stays — it's the canonical Causa/Story observation target — but the Playwright spec.cjs deletes.
 
@@ -276,8 +277,8 @@ Each Wave 1 bead is fully isolated to one artefact's test dir + one repo-root sp
 - `B10` — `testbeds/ssr_multi_frame/spec.cjs` migration. Migrate 14 of 16 to `implementation/ssr/test/.../ssr_multi_frame_isolation_cljs_test.cljs` (new). spec.cjs slims to three-panel mount-smoke.
   - B8/B9/B10 are parallel-safe (different test files), but should sequence after rf2-7icrs's e2e_multi_frame helpers ship the SSR-frame helpers if they don't already.
 
-**Wave 4 (decision-pending):**
-- `B11` — `tools/causa/testbeds/perf_counter/spec.cjs` decision. Cross-check `implementation/core/test/re_frame/performance_cljs_test.cljs` for User-Timing bucket coverage. If covered, drop spec.cjs entirely. If not, document that this spec is the irreducible browser-API-observation residual and keep as-is. **Surface: perf instrumentation.**
+**Wave 4 (rf2-e3j8l, COMPLETED):**
+- `B11` — `tools/causa/testbeds/perf_counter/spec.cjs` deleted. Migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` (3 buckets exercised end-to-end + naming convention + flag-canary). Runs under the new `:node-test-perf-nightly` shadow-cljs build with `re-frame.performance/enabled?` flipped on at compile time. Excluded from per-PR `:node-test` by ns-suffix convention (`-emit-nightly-test$` doesn't match `cljs-test$`). Invoke via `npm run test:cljs-perf-emit-nightly`. The `:render` bucket's call-site shape is covered transitively by the macro round-trip tests in `re-frame.performance-cljs-test`. **Surface: perf instrumentation.**
 
 **Wave 0 (no-op, no bead):**
 - `B0` — 3 adapter smokes (`helix/reagent/uix`). Stay as-is. No action.
@@ -292,7 +293,7 @@ Total bead count: **10 follow-on beads** (1 per spec.cjs file = 11 minus the 1-s
 - `ssr_basic` slim — static-HTML-before-bundle + hydrated marker. **~30 LoC.** ~2s wall.
 - `ssr_hydration_mismatch` slim — banner DOM + post-mismatch-interactive. **~25 LoC.** ~2s wall.
 - `ssr_multi_frame` slim — three-panel mount. **~20 LoC.** ~2s wall.
-- `perf_counter` (decision pending) — 0 or 6 assertions. Worst case ~30 LoC, ~3s wall.
+- ~~`perf_counter`~~ — DELETED (Wave 4, rf2-e3j8l); residuals migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` (nightly).
 
 **Total residual: ~150-180 LoC, ~15-20s wall.** Down from 1715 LoC / ~3 min.
 

@@ -15,8 +15,11 @@
    3. Macro shape — body forms run, return value preserved.
 
   Bundle-isolation / bundle-presence under `:advanced` lives in
-  `scripts/check-perf-bundle.cjs`. The browser smoke landing the four
-  `rf:` measure entries from a real drain lives in
+  `scripts/check-perf-bundle.cjs`. The integration smoke landing the
+  three headless `rf:` measure entries from a real drain lives in
+  `re-frame.performance-emit-nightly-test` (rf2-e3j8l, nightly only
+  via the `:node-test-perf-nightly` shadow-cljs build) — migrated from
+  the deleted Playwright spec at
   `tools/causa/testbeds/perf_counter/spec.cjs`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.performance :as performance :include-macros true]))
