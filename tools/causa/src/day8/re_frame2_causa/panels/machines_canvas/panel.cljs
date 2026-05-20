@@ -203,25 +203,10 @@
                     :padding "12px 16px"
                     :border-bottom (str "1px solid " (:border-subtle tokens))
                     :background (:bg-2 tokens)}}
-   ;; rf2-5kfxe.8 — domain-coloured accent stripe (:green for Machines).
-   ;; rf2-5kfxe.9 — display face (Fraunces) for L4 title contrast.
-   [:h1 {:style (merge {:font-size "20px"
-                        :font-family display-stack
-                        :font-weight 600
-                        :letter-spacing "-0.01em"
-                        :margin 0
-                        :color (:text-primary tokens)
-                        :display "flex" :align-items "center"
-                        :gap "8px"}
-                       (t/accent-stripe-style :machines))}
-    ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ◆ in
-    ;; :green (Machines Canvas shares the :green accent with Machine
-    ;; Inspector per panel-domain->token).
-    [:span {:data-testid "rf-causa-machines-canvas-panel-icon"
-            :aria-hidden "true"
-            :style       (t/panel-icon-style :machines-canvas)}
-     (:machines-canvas t/panel-icon)]
-    "Machines canvas"]
+   ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "Machines
+   ;; canvas" heading is scrubbed; the L4 tab strip is the panel-name
+   ;; source-of-truth. The header row keeps the machine-id chip +
+   ;; state-count + open-in-editor chip on the right.
    (when machine-id
      [:span {:style {:color (:accent-violet tokens)
                      :font-family mono-stack

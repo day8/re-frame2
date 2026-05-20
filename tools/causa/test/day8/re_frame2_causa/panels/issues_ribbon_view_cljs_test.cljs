@@ -176,9 +176,11 @@
             "counts span in header present")
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chips"))
             "severity chip row present")
-        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
-        (is (some? (find-by-testid tree "rf-causa-issues-panel-icon"))
-            "panel header icon (⚠ in :red) present")))))
+        ;; rf2-6xezz · Mike-direction 2026-05-21 — the per-panel header
+        ;; icon lived inside the deleted h1 heading. The L4 tab is now
+        ;; the panel-name source-of-truth.
+        (is (nil? (find-by-testid tree "rf-causa-issues-panel-icon"))
+            "panel header icon is gone (lived in the scrubbed h1)")))))
 
 (deftest since-input-removed
   (testing "rf2-jio48 dropped the since-ms axis — the since input MUST

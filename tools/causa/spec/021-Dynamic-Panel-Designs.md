@@ -170,7 +170,38 @@ default density on a 1080p screen (the cosy case in §2.2 lands at ~36
 lines including arrows). Per-step collapse stays available via header
 click for the operator who wants to focus, but is opt-out, not default.
 
-### §2.2 Layout — one-way pipeline with explicit arrows
+### §2.2 Layout — vertical-flow pipeline (rf2-n4ad0)
+
+Per Mike-direction 2026-05-21 (rf2-n4ad0) the Event panel expresses
+its top-to-bottom one-way pipeline visually as a **thin vertical line
+down the panel's left edge** with a small downward chevron `⋁` at
+each section boundary. Both the line and the chevrons are muted
+(`var(--border-subtle)` / `var(--text-tertiary)`) — the pipeline reads
+as rhythm; the section content is the foreground.
+
+Section labels are **bare body-text** (sans-stack 11px, weight 600,
+letter-spacing 0.6px, uppercase) — NOT `[N]` numbered headers; the
+chevrons + the left rail carry the ordering rhythm. Empty states are
+ALWAYS visible (`(none injected)` / `(no flows triggered)`) so the
+pipeline rhythm holds even when a section is empty.
+
+Section order:
+
+  1. **DISPATCH ORIGIN** — call-site coord + `[code]` chip + event vector
+  2. **COEFFECTS** — user-injected coeffects (empty: `(none injected)`)
+  3. **HANDLER** — flavour + coord + `[code]` chip + handler source
+     (rendered via the canonical EDN widget's `code-block` for keyword/
+     string/builtin highlighting)
+  4. **EFFECTS** — `:db` slot embeds the App-DB diff via the EDN
+     widget's `diff` variant; `:fx` list renders alongside
+  5. **FLOWS** — auto-fired flow recomputes (empty: `(no flows triggered)`)
+  6. **FX HANDLERS RUN** — per-fx-handler row detail
+
+The `cascade #NNN` label is **removed** from the top-left of the
+outcome line — Mike's direction was that the cascade-id is internal-
+only info, not human-relevant. The dispatch-id is still available on
+the lens root via the `data-dispatch-id` attribute for tests / agents
+that need it.
 
 The 8 steps form a one-way pipeline. The Event panel MUST present it as
 such — **linear flow with arrows, not a flat list of independent sections.**
@@ -281,7 +312,7 @@ Event panel, `j` / `k` work too (consistent with L2 spine nav).
 
 ---
 
-## §3 The Reactive panel (reactive perspective · steps 7-8)
+## §3 The View panel (reactive perspective · steps 7-8)
 
 ### §3.1 Question
 
@@ -289,10 +320,33 @@ Event panel, `j` / `k` work too (consistent with L2 spine nav).
 
 Reactive sweep — sub cascade + view re-renders, scoped to the focused epoch.
 
-**Rename decision: `Views` → `Reactive`.** Option (a) per B.3. Pairs
-symmetrically with `Event`, accurately captures the contents (subs +
-views), and re-aligns the panel name with the perspective split. (See
-§9.1.)
+**Rename history.** Original name: `Views`. Renamed to `Reactive`
+(rf2-wyvf2 · §11.5) to align with the perspective split. Renamed
+again to `View` per rf2-e33ad (Mike-direction 2026-05-21) — the
+panel's primary subject is the rendered **view** (hover a view-row,
+the rendered DOM highlights), with the sub cascade as supporting
+context. The internal panel-registry key stays `:views` (never a
+user contract). The L4 tab label renders as `View`.
+
+### §3.1.1 Layout (rf2-e33ad)
+
+Per Mike-direction 2026-05-21 the panel renders the cascade as four
+bare-label pipeline sections (mirroring the rf2-n4ad0 Event panel
+rhythm — thin left rail + downward chevrons):
+
+  1. **SUBS RAN (count)** — entries with `[code]` chip
+  2. **SUBS WHOSE VALUE CHANGED (count)** — entries with `[code]` chip
+  3. **SUBS THAT CASCADED (count)** — entries
+  4. **VIEWS RE-RENDERED (count)** — entries named via the
+     `reg-view :name` slot (fallback: var name) + `[code]` chip +
+     hover-highlight on the rendered view's root DOM node
+
+**Hover-highlight contract.** Hovering a view-row stamps a subtle
+background-only highlight (`var(--bg-3)`) on the rendered view's
+root DOM node, matched via the `data-rf-view` attribute the
+framework already stamps per Spec 006 §View tagging contract. The
+highlight is background-only — NO border / outline / shadow that
+would perturb layout. Cleared on mouseleave.
 
 **Density note** (per §0). The cascade tree renders inline with full
 attribution (`caused-by ← sub ← path`) on each leaf — no expand-to-see.
@@ -955,9 +1009,36 @@ keeps the dogfood in Story.
 
 The renderer is **ONE canonical component used everywhere data appears**
 — App-db's huge nested map, the Event panel's coeffects slice + returned
-effects, the Reactive panel's sub values, Trace ops' expanded payloads,
+effects, the View panel's sub values, Trace ops' expanded payloads,
 Issues `ex-data`. Operator learns one interaction pattern; applies it
 everywhere.
+
+### §10.0 EDN widget facade (rf2-9wsdy)
+
+Per Mike-direction 2026-05-21 (rf2-9wsdy) the renderer is addressed
+by every call site through the canonical **EDN widget facade** at
+`day8.re-frame2-causa.views.edn-widget.widget`. The facade is a thin
+Reagent-agnostic shell over the `data-display/render` engine
+(retained because it already implements the path-aware tree + diff +
+sticky-expansion semantics described in §10.1-§10.7); it exposes
+three variants:
+
+  - `browse {:value v :panel-id … :render-id …}` — single-value tree
+    (default).
+  - `diff   {:before x :after y :panel-id … :render-id …}` — diff
+    tree with gutter glyphs (`+ added`, `- removed`, `~ modified`,
+    `◴ has changed descendant`) and `← changed from <prior>` chips.
+  - `mini value [max-len]` — one-liner inline rendering for chip rows.
+
+The facade also ships `code-block {:source src :lang :clojure}` —
+a lightweight Clojure-token highlighter used by the Event panel's
+HANDLER source slot (keywords violet, strings green, numbers cyan,
+builtins violet).
+
+cljs-devtools formatter installation (Chrome console custom
+formatters) is a complementary follow-on bead. In-DOM widget
+rendering — the contract Causa cares about — flows through the
+facade today.
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
@@ -1328,6 +1409,27 @@ real beads after approving this doc.
 | **Reagent hiccup + JetBrains Mono** for mockups | All ASCII mockups assume JetBrains Mono rendering; code examples in §2.2 are Reagent-shaped hiccup-equivalent EDN |
 | **Inspection-by-default · rewind-by-affordance** | §1.3 restated as binding; every L4 mockup uses film-strip nav (inspection) — Rewind affordance is explicit in the focused-epoch header (existing §002), never bound to scroll/scrub |
 | **Captured-not-replayed** | Every per-panel "queries" subsection cites the trace-bus / registry source; §12 lists every substrate gap, none of which is "derive on inspection" |
+
+---
+
+## §14.1 Heading scrub (rf2-6xezz)
+
+Per Mike-direction 2026-05-21 (rf2-6xezz) every L4 Runtime + Static
+panel scrubs its top-of-panel large heading. The L4 tab strip is the
+panel-name source-of-truth; the heading was redundant and wasted
+vertical space. Content starts immediately under the tab bar (or
+under panel-specific filter / toolbar rows where applicable).
+
+Per-panel header icons (`◐` App-db · `⚠` Issues · `◆` Machines · `⬢`
+Trace · etc., spec §17.1.5) lived inside the deleted `<h1>` elements
+and are also removed. The accent-stripe-style helper (§17.1.3) is
+still applied to the outer panel container's left border for the
+domain colour stripe; the heading-based stripe is gone.
+
+Typography pass: in-panel sub-headings (e.g. Event panel's section
+labels like COEFFECTS / HANDLER / EFFECTS) use body type scale (11px
+sans-stack, weight 600, letter-spacing 0.6px, uppercase) — never the
+h1/h2 face.
 
 ---
 
