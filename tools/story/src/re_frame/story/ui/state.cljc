@@ -108,6 +108,15 @@
                           off (the detector seeds it on toggle-on)."
   {:selected-variant    nil
    :selected-workspace  nil
+   ;; rf2-8j7wg (audit C-4) — `:selected-story` carries a parent-story
+   ;; id when the user clicks a story HEADER in the sidebar (i.e. the
+   ;; `reg-story` node rather than one of its `reg-variant` children).
+   ;; The render shell routes this to a rollup docs page that
+   ;; aggregates every variant's docs section under the story. Mutually
+   ;; exclusive with `:selected-variant` + `:selected-workspace` at the
+   ;; transition level — `select-story` clears both, mirroring the
+   ;; existing variant ↔ workspace exclusion.
+   :selected-story      nil
    :tag-filter          #{}
    :active-modes        []
    :cell-overrides      {}
@@ -154,6 +163,7 @@
 
 (def select-variant            state.transitions/select-variant)
 (def select-workspace          state.transitions/select-workspace)
+(def select-story              state.transitions/select-story)
 (def toggle-tag-filter         state.transitions/toggle-tag-filter)
 (def set-active-modes          state.transitions/set-active-modes)
 (def toggle-mode               state.transitions/toggle-mode)

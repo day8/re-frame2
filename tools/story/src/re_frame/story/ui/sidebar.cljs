@@ -334,19 +334,38 @@
   rf2-p0wur: story rows lead with an amber diamond glyph + carry an
   inter-story spacer.
   rf2-yngai: story labels carry the amber-tint match highlight when
-  a search query is in flight."
-  [{:keys [story-id variants]} selected-variant testable-set test-runs query]
-  [:div {:style (:story-block styles)}
-   [:div {:style (:story-row styles)}
-    [:span {:style (:story-glyph styles)}
-     [glyphs/story-glyph 13]]
-    (into [:span] (highlighted-label (str (or story-id "(no story)")) query))]
-   (for [[vid body] variants]
-     (let [testable? (contains? testable-set vid)
-           status    (or (get-in test-runs [vid :status]) :pending)
-           tags      (:tags body)]
-       ^{:key vid}
-       [variant-row vid (= vid selected-variant) testable? status tags query]))])
+  a search query is in flight.
+  rf2-8j7wg (audit C-4): the story header row is itself clickable —
+  it opens the rollup docs page that aggregates every variant's docs
+  sections. Mirrors Storybook's `Component.docs` parent-level page."
+  [{:keys [story-id variants]} selected-variant selected-story testable-set test-runs query]
+  (let [registered? (some? story-id)
+        selected?   (and registered? (= story-id selected-story))
+        activate    (fn []
+                      (when registered?
+                        (state/swap-state! state/select-story story-id)))]
+    [:div {:style (:story-block styles)}
+     [:div (cond-> {:style       (merge (:story-row styles)
+                                        (when selected?
+                                          (:story-row-active styles)))
+                    :data-test   "story-sidebar-story-row"
+                    :data-story  (str story-id)}
+             registered?
+             (merge {:role         "button"
+                     :tab-index    "0"
+                     :aria-pressed (if selected? "true" "false")
+                     :aria-label   (str "Open " (name story-id) " docs rollup")
+                     :on-key-down  (on-row-key-down activate)
+                     :on-click     (fn [_] (activate))}))
+      [:span {:style (:story-glyph styles)}
+       [glyphs/story-glyph 13]]
+      (into [:span] (highlighted-label (str (or story-id "(no story)")) query))]
+     (for [[vid body] variants]
+       (let [testable? (contains? testable-set vid)
+             status    (or (get-in test-runs [vid :status]) :pending)
+             tags      (:tags body)]
+         ^{:key vid}
+         [variant-row vid (= vid selected-variant) testable? status tags query]))]))
 
 (defn- workspace-row
   [workspace-id selected?]
@@ -580,6 +599,7 @@
              tag-filter      (:tag-filter shell)
              sel-variant     (:selected-variant shell)
              sel-ws          (:selected-workspace shell)
+             sel-story       (:selected-story shell)
              tag->axis       (registrar/tag->axis-index)
              visible         (state/filter-variants (:variants registry)
                                                     tag-filter
@@ -631,7 +651,7 @@
                 "no variants match the active tag filter")]
              (for [{:keys [story-id] :as entry} grouped]
                ^{:key (or story-id :nostory)}
-               [story-block entry sel-variant testable-set test-runs query]))
+               [story-block entry sel-variant sel-story testable-set test-runs query]))
            (when (seq workspaces)
              [:div
               ;; rf2-vxpq1 — matching heading semantics on the

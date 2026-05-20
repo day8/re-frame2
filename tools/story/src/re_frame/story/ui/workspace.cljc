@@ -89,6 +89,7 @@
                        ;; subtree to `:y` — a frame that does not exist.
                        [re-frame.story.ui.canvas :as canvas]
                        [re-frame.story.ui.state :as state]])
+            #?(:cljs [re-frame.story.ui.markdown :as md])
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
@@ -371,8 +372,9 @@
 #?(:cljs
    (defn- prose-block
      [body]
-     [:div {:style (:prose-block styles)}
-      body]))
+     [:div {:style     (:prose-block styles)
+            :data-test "story-workspace-prose-rendered"}
+      (md/parse body)]))
 
 #?(:cljs
    (defn- cell-key

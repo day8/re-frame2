@@ -99,7 +99,7 @@ parses visually without reading text.
 
 | Row type    | Glyph                            | Colour                                              | Active state                                        |
 |-------------|----------------------------------|-----------------------------------------------------|-----------------------------------------------------|
-| Story       | `theme.glyphs/story-glyph` (◆)   | `:accent-amber` — chapter-heading register          | Bold + amber-coloured row                           |
+| Story       | `theme.glyphs/story-glyph` (◆)   | `:accent-amber` — chapter-heading register          | Bold + `:bg-active` ground + `:accent-amber` text + 2px amber `border-left` (clickable, opens the rollup docs view per rf2-8j7wg / spec/008 §Per-story rollup docs page) |
 | Variant     | `theme.glyphs/variant-glyph` (●) OR `status-dot` for testable variants | `:text-tertiary` (muted) OR semantic-status colour | `:bg-active` ground + `:accent-amber` text + 2px amber `border-left` |
 | Workspace   | `theme.glyphs/workspace-glyph` (▦) | `:info` (cool-cyan) — composition register         | `:bg-active` ground + `:accent-amber` text + 2px amber `border-left` |
 

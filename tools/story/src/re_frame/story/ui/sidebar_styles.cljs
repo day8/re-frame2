@@ -95,10 +95,17 @@
                   :font-weight (str (:semibold typography/weights))
                   :font-size (:body-tight typography/type-scale)
                   :letter-spacing "0.01em"
-                  :cursor "default"
+                  ;; rf2-8j7wg — story-row is now click-activated (opens
+                  ;; the rollup docs page). The cursor flips from
+                  ;; `default` to `pointer` so the affordance is obvious.
+                  :cursor "pointer"
                   :display "flex"
                   :align-items "center"
-                  :gap "8px"}
+                  :gap "8px"
+                  :border-left (str "2px solid transparent")}
+   :story-row-active {:background (:bg-active colors/tokens)
+                      :color (:accent-amber colors/tokens)
+                      :border-left (str "2px solid " (:accent-amber colors/tokens))}
    :story-glyph  {:flex-shrink "0"
                   :display "inline-flex"
                   :align-items "center"
