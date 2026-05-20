@@ -1407,7 +1407,7 @@ history + spine focus:
 | **trace**          | `:rf.causa/trace-feed` (incremental projection) | `:rf.causa/select-dispatch-id` · `:rf.causa/open-in-editor` |
 | **machine-inspector** | `:rf.causa/machine-chart-data` · `:rf.causa/active-timers-for-focused-machine` · `:rf.causa/machine-scrubber-position` | scrubber events · `:rf.causa/focus-cascade` |
 | **routing**        | `:rf.causa/registered-routes` · `:rf.causa/current-route-slice` · `:rf.causa/routing-tab-data` | route-simulation events |
-| **issues-ribbon**  | `:rf.causa/issues-ribbon` (composite) · `:rf.causa.issues/ungrouped` | `:rf.causa.issues/toggle-severity` · `:rf.causa.issues/toggle-prefix` · `:rf.causa/select-dispatch-id` |
+| **issues-ribbon**  | `:rf.causa/issues-ribbon` (composite over focused epoch's `:trace-events`, rf2-jio48 + spec/021 §8) | `:rf.causa.issues/toggle-severity` · `:rf.causa.issues/toggle-prefix` · `:rf.causa.issues/clear-filters` |
 | **segment-inspector** | `:rf.causa/segment-inspector-open?` · `:rf.causa/segment-inspector-value` | `:rf.causa/close-segment-inspector` |
 | **cancellation-cascade** | `:rf.causa/cancellation-cascade-for-focused-machine` · `:rf.causa/cancellation-cascade-for-focused-event` · `:rf.causa/cancellation-cascade-popover-open?` · `:rf.causa/modal-positioning` | `:rf.causa/cancellation-cascade-close` |
 | **managed-fx**     | `:rf.causa/managed-fx-for-focused-event` | `:rf.causa/focus-event` |

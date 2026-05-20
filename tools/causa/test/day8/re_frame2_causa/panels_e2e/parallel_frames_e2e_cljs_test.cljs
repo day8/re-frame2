@@ -122,7 +122,12 @@
 (defn- dispatch-host-frame [event frame-id]
   (rf/dispatch-sync event {:frame frame-id})
   (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])))
+    (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])
+    ;; rf2-jio48 — Issues panel now reads the focused epoch's
+    ;; :trace-events (not the global trace bus). Mirror Causa's
+    ;; :epoch-history slot off the framework's per-frame ring buffer
+    ;; so the panel sub sees the records.
+    (rf/dispatch-sync [:rf.causa/set-target-frame frame-id])))
 
 (deftest rf2-ulpp8-l2-list-scoped-to-target-frame-on-initial-mount
   (testing "fresh mount with `:above` as the seed frame — L2 list MUST
@@ -194,17 +199,19 @@
 
 (deftest rf2-1p1j4-issues-panel-scopes-to-focused-cascade
   (testing "after two host throws on separate cascades, Issues sub
-  surfaces ONLY the issues from the focused cascade. Flipping focus
-  flips the panel content. Pre-fix the panel never re-scoped because
-  the focused `:dispatch-id` did not change in LIVE auto-track mode."
+  surfaces ONLY the issues from the focused epoch's :trace-events
+  (rf2-jio48 — focused-epoch scope per spec/021 §1.2 + §8). Flipping
+  focus flips the panel content. Pre-fix the panel never re-scoped
+  because the focused `:dispatch-id` did not change in LIVE auto-
+  track mode."
     (install-causa-handlers-and-collector!)
     (frame/reg-frame :rf/default {})
     (install-throw-handlers!)
     (mount-causa-with-target! :rf/default)
     ;; Dispatch A — its handler throws, the router catches, an issue
-    ;; rides under cascade A's :dispatch-id.
+    ;; rides under cascade A's :dispatch-id and lands in A's epoch.
     (dispatch-host-frame [:throws/a] :rf/default)
-    ;; Dispatch B — second cascade, second issue.
+    ;; Dispatch B — second cascade, second issue, second epoch.
     (dispatch-host-frame [:throws/b] :rf/default)
     (let [cascades (sub-causa [:rf.causa/cascades])
           ;; Filter to host frame cascades only; Causa-internal are
@@ -213,28 +220,39 @@
           ;; Pluck the two dispatch-ids from the cascade list — A
           ;; landed first (lower id), B second.
           a-id (-> host-cascades first :dispatch-id)
-          b-id (-> host-cascades second :dispatch-id)]
+          b-id (-> host-cascades second :dispatch-id)
+          ;; Pull :exception-message from each row's :raw tags — the
+          ;; runtime stamps the ex-info message under :exception-
+          ;; message but `short-description` prefers `:reason` (which
+          ;; is the generic "Event handler threw."). We descend into
+          ;; :raw to distinguish A from B.
+          row-msg-set (fn [feed]
+                        (into #{}
+                              (map #(get-in % [:raw :tags :exception-message]))
+                              (:issues feed)))]
       (is (= 2 (count host-cascades))
           "test setup: should have two host cascades (one per throw)")
       (is (some? a-id) "cascade A has no :dispatch-id")
       (is (some? b-id) "cascade B has no :dispatch-id")
       (is (not= a-id b-id) "test setup: cascades should have distinct dispatch-ids")
-      ;; Focus cascade A → assert Issues feed scoped to A only.
+      ;; Focus cascade A → assert Issues feed scoped to A's epoch only.
       (rf/with-frame :rf/causa
         (rf/dispatch-sync [:rf.causa/focus-cascade a-id :rf/default]))
       (let [feed-a (sub-causa [:rf.causa/issues-ribbon])
-            ids-a  (into #{} (map :dispatch-id (:issues feed-a)))]
-        (is (= #{a-id} ids-a)
-            (str "Issues panel did not scope to focused cascade A — "
-                 "rf2-1p1j4 regression. ids-a was: " (pr-str ids-a))))
+            msgs   (row-msg-set feed-a)]
+        (is (= #{"throw-a"} msgs)
+            (str "Issues panel did not scope to focused epoch (cascade A) — "
+                 "rf2-1p1j4 / rf2-jio48 regression. messages: "
+                 (pr-str msgs))))
       ;; Flip focus to cascade B → assert the feed flips with it.
       (rf/with-frame :rf/causa
         (rf/dispatch-sync [:rf.causa/focus-cascade b-id :rf/default]))
       (let [feed-b (sub-causa [:rf.causa/issues-ribbon])
-            ids-b  (into #{} (map :dispatch-id (:issues feed-b)))]
-        (is (= #{b-id} ids-b)
+            msgs   (row-msg-set feed-b)]
+        (is (= #{"throw-b"} msgs)
             (str "Issues panel did not re-scope on focus flip — "
-                 "rf2-1p1j4 regression. ids-b was: " (pr-str ids-b)))))))
+                 "rf2-1p1j4 / rf2-jio48 regression. messages: "
+                 (pr-str msgs)))))))
 
 (deftest rf2-1p1j4-issues-panel-scoped-on-multi-frame-initial-mount
   (testing "multi-frame variant: when an :above throw and a :below
@@ -243,7 +261,12 @@
   the :above throw's issue — not the :below one. Pre-rf2-ulpp8 the
   composer's head walk picked the global most-recent cascade (which
   could be :below's), and the Issues sub scoped to the wrong frame's
-  issue on first paint — the live-observed shape of rf2-1p1j4."
+  issue on first paint — the live-observed shape of rf2-1p1j4.
+
+  rf2-jio48 — panel is now focused-epoch-scoped (spec/021 §8); the
+  assertion shape changed from a `:dispatch-id` set to a description-
+  substring set since rows no longer carry `:dispatch-id` (the focused
+  epoch IS the scope)."
     (install-causa-handlers-and-collector!)
     (frame/reg-frame frame-above {})
     (frame/reg-frame frame-below {})
@@ -259,7 +282,9 @@
           focus-slot      (sub-causa [:rf.causa/focus-slot])
           focus           (sub-causa [:rf.causa/focus])
           feed            (sub-causa [:rf.causa/issues-ribbon])
-          feed-ids        (into #{} (map :dispatch-id (:issues feed)))]
+          msgs            (into #{}
+                                (map #(get-in % [:raw :tags :exception-message]))
+                                (:issues feed))]
       (is (some? above-id) "test setup: should have an :above cascade")
       ;; rf2-ulpp8 alignment — `[:focus :frame]` is the slot the L2
       ;; filter + the compose-focus head-walk both pivot on. The
@@ -272,8 +297,8 @@
       (is (= frame-above (:frame focus))
           (str "composed focus :frame is not :above — head walk did not "
                "honour the picker scope. focus was: " (pr-str focus)))
-      (is (= #{above-id} feed-ids)
-          (str "Issues panel scoped to a non-:above cascade on initial "
-               "mount when :above was the seed frame — rf2-1p1j4 "
-               "downstream-of-rf2-ulpp8 regression. feed-ids was: "
-               (pr-str feed-ids))))))
+      (is (= #{"throw-a"} msgs)
+          (str "Issues panel did not surface :above's exception on initial "
+               "mount when :above was the seed frame — rf2-1p1j4 / "
+               "rf2-jio48 / rf2-ulpp8 regression. messages: "
+               (pr-str msgs))))))
