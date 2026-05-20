@@ -47,6 +47,7 @@
             [re-frame.story.identity  :as ident]
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.play      :as play]
+            [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.registrar :as registrar]
             [re-frame.interop         :as interop]
             [re-frame.trace           :as trace]
@@ -315,9 +316,12 @@
 
 (defn- prepare-context
   "Resolve the per-run inputs that every phase needs: the decorator
-  stack, the effective args, the identity snapshot, and the variant
-  body's `:play` vector. Returns a map; pure aside from the registrar
-  reads."
+  stack, the effective args, and the identity snapshot. Returns a map;
+  pure aside from the registrar reads.
+
+  rf2-0wrud (2026-05-20): the legacy `:play` event-vector slot was
+  removed; phase-4 reads `:play-script` (parsed via the runner) and
+  drives the rich-DSL step executor through `runner-events/run!`."
   [variant-id variant-body opts]
   (let [{:keys [active-modes]} opts]
     {:variant-id      variant-id
@@ -325,8 +329,7 @@
      :decorator-stack (decorators/resolve-decorators variant-id
                                                      {:active-modes active-modes})
      :effective-args  (args/resolve-args variant-id opts)
-     :snapshot        (ident/snapshot-identity variant-id opts)
-     :play-events     (or (:play variant-body) [])}))
+     :snapshot        (ident/snapshot-identity variant-id opts)}))
 
 (defn- run-phase-0!
   "Phase 0: allocate the variant frame with its decorator stack, then
@@ -362,15 +365,43 @@
   ctx)
 
 (defn- run-phase-4!
-  "Phase 4: run the play sequence. Returns the play-promise — the
+  "Phase 4: run the play-script. Returns the play-promise — the
   orchestrator chains `then` on it to know when to build the result.
+
+  rf2-0wrud (2026-05-20): drives the rich-DSL `:play-script` runner via
+  `runner-events/run!`. Variants without `:play-script` / `:plays`
+  resolve to an empty script and the promise resolves immediately. The
+  legacy `:play` event-vector slot was removed — author event sequences
+  by wrapping each entry in `[:dispatch-sync <event-vec>]` inside a
+  `:play-script` body.
 
   Phase 3 (render) is Stage 4's UI-shell concern and is not driven
   from this orchestrator."
-  [{:keys [variant-id play-events loaders-complete?]}]
-  (if loaders-complete?
-    (play/execute-play! variant-id play-events)
-    (async/resolved (read-assertions variant-id))))
+  [{:keys [variant-id loaders-complete?]}]
+  (if-not loaders-complete?
+    (async/resolved (read-assertions variant-id))
+    (let [plays (runner-events/variant-plays variant-id)
+          auto-plays (filterv (fn [p] (and (:auto-run? p)
+                                            (seq (:script p))))
+                              plays)]
+      (if (empty? auto-plays)
+        (async/resolved (read-assertions variant-id))
+        (async/promise
+          (fn [resolve]
+            ;; Run each auto-play sequentially. The `:rf.assert/*` events
+            ;; dispatched-sync from `[:dispatch-sync ...]` steps record
+            ;; into `:rf.story/assertions` on the frame via the standard
+            ;; assertion handlers. Once every auto-play has finished, the
+            ;; orchestrator builds the result map from the frame's
+            ;; accumulated assertions.
+            (letfn [(step! [remaining]
+                      (if (empty? remaining)
+                        (resolve (read-assertions variant-id))
+                        (let [spec (first remaining)]
+                          (runner-events/run! variant-id (:name spec) spec
+                                              (fn [_state]
+                                                (step! (rest remaining)))))))]
+              (step! auto-plays))))))))
 
 (defn- finalise-run!
   "Build and deliver the result map once phase 4's promise settles.

@@ -276,7 +276,7 @@
   (story/reg-variant :story.counter/empty
     {:doc    "Fresh counter at zero. The simplest possible variant."
      :events [[:counter/initialise 0]]
-     :play   [[:rf.assert/path-equals [:count] 0]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -288,9 +288,9 @@
     {:doc    "A counter seeded with a non-zero value."
      :args   {:label "Total"}
      :events [[:counter/initialise 7]]
-     :play   [[:rf.assert/path-equals [:count]              7]
-              [:rf.assert/sub-equals  [:count-doubled]      14]
-              [:rf.assert/sub-equals  [:count-parity]       :odd]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count]              7]]
+              [:dispatch-sync [:rf.assert/sub-equals  [:count-doubled]      14]]
+              [:dispatch-sync [:rf.assert/sub-equals  [:count-parity]       :odd]]]
      ;; rf2-7ncf9 — faceted tags alongside the existing canonical seven.
      ;; The sidebar groups these into per-axis chip rows.
      :tags   #{:dev :docs :test :counter-with-stories/canonical
@@ -305,11 +305,11 @@
     {:doc    "Counter after three increments from zero, driven from
              the play slot so :rf.assert/dispatched? observes them."
      :events [[:counter/initialise 0]]
-     :play   [[:counter/inc]
-              [:counter/inc]
-              [:counter/inc]
-              [:rf.assert/path-equals [:count] 3]
-              [:rf.assert/dispatched? [:counter/inc]]]
+     :play-script [[:dispatch-sync [:counter/inc]]
+              [:dispatch-sync [:counter/inc]]
+              [:dispatch-sync [:counter/inc]]
+              [:dispatch-sync [:rf.assert/path-equals [:count] 3]]
+              [:dispatch-sync [:rf.assert/dispatched? [:counter/inc]]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}
      :decorators [[:counter-with-stories/log-decorator "variant-level"]]})
@@ -354,9 +354,9 @@
              `:rf.assert/effect-emitted` assertion."
      :events [[:counter/initialise 5]]
      :decorators [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
-     :play   [[:counter/save]
-              [:rf.assert/path-equals     [:saving?] true]
-              [:rf.assert/effect-emitted  :counter/sync-to-server]]
+     :play-script [[:dispatch-sync [:counter/save]]
+              [:dispatch-sync [:rf.assert/path-equals     [:saving?] true]]
+              [:dispatch-sync [:rf.assert/effect-emitted  :counter/sync-to-server]]]
      :tags   #{:dev :test}
      :substrates #{:reagent}})
 
@@ -368,7 +368,7 @@
     {:doc    "Deterministic failing play assertion. The counter is
              initialised to 1 but the play assertion expects 999."
      :events [[:counter/initialise 1]]
-     :play   [[:rf.assert/path-equals [:count] 999]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 999]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -378,7 +378,7 @@
   (story/reg-variant :story.counter-diagnostics/event-throws
     {:doc    "Deterministic event-handler exception during :play."
      :events [[:counter/initialise 0]]
-     :play   [[:counter/throw-deterministic]]
+     :play-script [[:dispatch-sync [:counter/throw-deterministic]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -388,7 +388,7 @@
     {:doc     "Deterministic loader exception before events/render."
      :loaders [[:counter/throw-deterministic]]
      :events  [[:counter/initialise 0]]
-     :play    [[:rf.assert/path-equals [:count] 0]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -399,7 +399,7 @@
                 interactive."
      :component :counter-with-stories.views/throwing-card
      :events    [[:counter/initialise 0]]
-     :play      [[:rf.assert/path-equals [:count] 0]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -420,7 +420,7 @@
      :args    {:label "Loaded by loader"
                :settings {:title "Loader" :enabled? true}}
      :loaders [[:counter/set 12]]
-     :play    [[:rf.assert/path-equals [:count] 12]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 12]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -433,7 +433,7 @@
                :settings {:title "Never" :enabled? true}}
      :loaders [[:counter/set 13]]
      :loaders-complete-when :counter/loader-never-ready?
-     :play    [[:rf.assert/path-equals [:count] 13]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 13]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -445,7 +445,7 @@
                :settings {:title "Rejects" :enabled? true}}
      :loaders [[:counter/throw-loader-rejection]]
      :events  [[:counter/initialise 0]]
-     :play    [[:rf.assert/path-equals [:count] 0]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -456,7 +456,7 @@
      :args   {:label 42
               :settings {:title "Bad label" :enabled? true}}
      :events [[:counter/initialise 4]]
-     :play   [[:rf.assert/path-equals [:count] 4]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 4]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -467,7 +467,7 @@
      :args   {:label "Nested"
               :settings {:title "Nested title" :enabled? true}}
      :events [[:counter/initialise 6]]
-     :play   [[:rf.assert/path-equals [:count] 6]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 6]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -477,7 +477,7 @@
                   :settings {:title "Decorator" :enabled? true}}
      :events     [[:counter/initialise 8]]
      :decorators [[:counter-with-stories/throwing-decorator]]
-     :play       [[:rf.assert/path-equals [:count] 8]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 8]]]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -488,7 +488,7 @@
      :args       {:label "Substrates"
                   :settings {:title "Substrates" :enabled? true}}
      :events     [[:counter/initialise 10]]
-     :play       [[:rf.assert/path-equals [:count] 10]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 10]]]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent :uix}})
 
@@ -498,7 +498,7 @@
      :args   {:label "Isolation A"
               :settings {:title "A" :enabled? true}}
      :events [[:counter/initialise 1]]
-     :play   [[:rf.assert/path-equals [:count] 1]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 1]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -508,7 +508,7 @@
      :args   {:label "Isolation B"
               :settings {:title "B" :enabled? true}}
      :events [[:counter/initialise 100]]
-     :play   [[:rf.assert/path-equals [:count] 100]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 100]]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -521,7 +521,7 @@
      :args      {:label "Recorder redaction"
                  :settings {:title "Recorder" :enabled? true}}
      :events    [[:counter/initialise 11]]
-     :play      [[:rf.assert/path-equals [:count] 11]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 11]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -533,7 +533,7 @@
      :args      {:label "A11y known good"
                  :settings {:title "A11y good" :enabled? true}}
      :events    [[:counter/initialise 21]]
-     :play      [[:rf.assert/path-equals [:count] 21]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 21]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -545,7 +545,7 @@
      :args      {:label "A11y known bad"
                  :settings {:title "A11y bad" :enabled? true}}
      :events    [[:counter/initialise 22]]
-     :play      [[:rf.assert/path-equals [:count] 22]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 22]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -571,7 +571,7 @@
      :args      {:label "fx-stub-miss"
                  :settings {:title "fx-stub-miss" :enabled? true}}
      :events    [[:counter/initialise 0]]
-     :play      [[:rf.assert/effect-emitted :never-stubbed]]
+     :play-script [[:dispatch-sync [:rf.assert/effect-emitted :never-stubbed]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 

@@ -141,7 +141,7 @@
      (testing "the chrome widget renders the watch chip with aria-
                pressed=false when watch mode is off"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (let [tree (sidebar/test-widget (state/get-state)
                                        (state/registry-snapshot))
              chip (first (find-by-data-test tree "story-test-widget-watch-toggle"))]
@@ -154,7 +154,7 @@
      (testing "with [:tests :watch-mode?] true the chip reads aria-pressed=
                true and the data-state attribute reads 'on'"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (state/swap-state! state/set-test-watch-mode true)
        (let [tree (sidebar/test-widget (state/get-state)
                                        (state/registry-snapshot))
@@ -190,9 +190,9 @@
                front so the sidebar dots flip yellow in unison — the
                same contract as 'Run all', but driven by the detector"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (story/reg-variant :story.x/b {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (sidebar/watch-rerun! [:story.x/a :story.x/b])
        ;; Both variants stamp :running synchronously before the async
        ;; resolution lands.
@@ -206,7 +206,7 @@
                only calls it when drift is detected, but the function
                handles the no-drift edge gracefully"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (sidebar/watch-rerun! [])
        (let [s (state/get-state)]
          (is (nil? (get-in s [:tests :runs :story.x/a])))))))
@@ -230,7 +230,7 @@
           :args      {:n 0}
           :tags      #{:test}
           :events    []
-          :play      [[:rf.assert/path-equals [:c] 0]]})
+          :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        ;; Flip watch-mode on and seed the initial hashes with no overrides.
        (state/swap-state! state/set-test-watch-mode true)
        (state/swap-state!

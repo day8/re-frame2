@@ -80,7 +80,7 @@
       (fn [db _] (assoc-in db [:auth :status] :authenticated)))
     (story/reg-variant :story.auth/happy
       {:events [[:test/set-status]]
-       :play   [[:rf.assert/path-equals [:auth :status] :authenticated]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :authenticated]]]})
     (let [r (async/deref-blocking (story/run-variant :story.auth/happy) 5000)]
       (is (= 1 (count (:assertions r))))
       (is (true? (-> r :assertions first :passed?)))
@@ -91,7 +91,7 @@
   (testing ":rf.assert/path-equals records failure on mismatch (no throw)"
     (story/reg-variant :story.auth/sad
       {:events []
-       :play   [[:rf.assert/path-equals [:auth :status] :authenticated]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :authenticated]]]})
     (let [r (async/deref-blocking (story/run-variant :story.auth/sad) 5000)]
       (is (= 1 (count (:assertions r))))
       (is (false? (-> r :assertions first :passed?)))
@@ -109,7 +109,7 @@
       (fn [db _] (assoc db :n 42)))
     (story/reg-variant :story.malli/ok
       {:events [[:test/set-count]]
-       :play   [[:rf.assert/path-matches [:n] :int]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
     (let [r (async/deref-blocking (story/run-variant :story.malli/ok) 5000)]
       (is (true? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.malli/ok)))
@@ -120,7 +120,7 @@
       (fn [db _] (assoc db :n "not a number")))
     (story/reg-variant :story.malli/bad
       {:events [[:test/set-bad]]
-       :play   [[:rf.assert/path-matches [:n] :int]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
     (let [r (async/deref-blocking (story/run-variant :story.malli/bad) 5000)]
       (is (false? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.malli/bad)))
@@ -136,7 +136,7 @@
     (rf/reg-sub :counter (fn [db _] (:counter db)))
     (story/reg-variant :story.sub/v
       {:events [[:test/init]]
-       :play   [[:rf.assert/sub-equals [:counter] 7]]})
+       :play-script [[:dispatch-sync [:rf.assert/sub-equals [:counter] 7]]]})
     (let [r (async/deref-blocking (story/run-variant :story.sub/v) 5000)]
       (is (true? (-> r :assertions first :passed?)))
       (is (= 7 (-> r :assertions first :actual))))
@@ -149,7 +149,7 @@
     (rf/reg-sub :counter (fn [db _] (:counter db)))
     (story/reg-variant :story.sub/bad
       {:events [[:test/init2]]
-       :play   [[:rf.assert/sub-equals [:counter] 7]]})
+       :play-script [[:dispatch-sync [:rf.assert/sub-equals [:counter] 7]]]})
     (let [r (async/deref-blocking (story/run-variant :story.sub/bad) 5000)]
       (is (false? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.sub/bad)))
@@ -164,8 +164,8 @@
       (fn [db _] (assoc db :clicked? true)))
     (story/reg-variant :story.dispatched/v
       {:events []
-       :play   [[:test/click]
-                [:rf.assert/dispatched? [:test/click]]]})
+       :play-script [[:dispatch-sync [:test/click]]
+                [:dispatch-sync [:rf.assert/dispatched? [:test/click]]]]})
     (let [r       (async/deref-blocking (story/run-variant :story.dispatched/v) 5000)
           asserts (:assertions r)
           last-a  (last asserts)]
@@ -176,7 +176,7 @@
   (testing ":rf.assert/dispatched? records a fail when no matching event was dispatched"
     (story/reg-variant :story.dispatched/no
       {:events []
-       :play   [[:rf.assert/dispatched? [:never/fired]]]})
+       :play-script [[:dispatch-sync [:rf.assert/dispatched? [:never/fired]]]]})
     (let [r (async/deref-blocking (story/run-variant :story.dispatched/no) 5000)]
       (is (false? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.dispatched/no)))
@@ -192,7 +192,7 @@
       (fn [db _] (assoc-in db [:rf/machines :traffic-light] {:state :red})))
     (story/reg-variant :story.machine/red
       {:events [[:test/seed-machine]]
-       :play   [[:rf.assert/state-is :traffic-light :red]]})
+       :play-script [[:dispatch-sync [:rf.assert/state-is :traffic-light :red]]]})
     (let [r (async/deref-blocking (story/run-variant :story.machine/red) 5000)]
       (is (true? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.machine/red)))
@@ -203,7 +203,7 @@
       (fn [db _] (assoc-in db [:rf/machines :traffic-light] {:state :green})))
     (story/reg-variant :story.machine/mismatch
       {:events [[:test/seed-machine2]]
-       :play   [[:rf.assert/state-is :traffic-light :red]]})
+       :play-script [[:dispatch-sync [:rf.assert/state-is :traffic-light :red]]]})
     (let [r (async/deref-blocking (story/run-variant :story.machine/mismatch) 5000)]
       (is (false? (-> r :assertions first :passed?)))
       (is (= :red   (-> r :assertions first :expected)))
@@ -218,7 +218,7 @@
   (testing ":rf.assert/no-warnings passes when no warning was emitted"
     (story/reg-variant :story.warn/silent
       {:events []
-       :play   [[:rf.assert/no-warnings]]})
+       :play-script [[:dispatch-sync [:rf.assert/no-warnings]]]})
     (let [r (async/deref-blocking (story/run-variant :story.warn/silent) 5000)]
       (is (true? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.warn/silent)))
@@ -231,7 +231,7 @@
   (testing ":rf.assert/effect-emitted records a fail when no fx fired"
     (story/reg-variant :story.fx/none
       {:events []
-       :play   [[:rf.assert/effect-emitted :http]]})
+       :play-script [[:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [r (async/deref-blocking (story/run-variant :story.fx/none) 5000)]
       (is (false? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.fx/none)))
@@ -245,9 +245,9 @@
     (rf/reg-event-db :test/touch (fn [db _] (assoc db :touched true)))
     (story/reg-variant :story.contract/v
       {:events []
-       :play   [[:rf.assert/path-equals [:nope] :unexpected]    ; fail
-                [:test/touch]                                    ; should still fire
-                [:rf.assert/path-equals [:touched] true]]})      ; pass
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:nope] :unexpected]]
+                [:dispatch-sync [:test/touch]]
+                [:dispatch-sync [:rf.assert/path-equals [:touched] true]]]})      ; pass
     (let [r (async/deref-blocking (story/run-variant :story.contract/v) 5000)]
       ;; Both assertions recorded — sequence did NOT halt on the first
       ;; failure.
@@ -264,7 +264,7 @@
 
 (deftest assertions-passing-vacuously-true-on-empty
   (testing "an empty assertions list passes vacuously (spec/007 §Story-as-test)"
-    (story/reg-variant :story.empty/v {:events [] :play []})
+    (story/reg-variant :story.empty/v {:events [] :play-script []})
     (let [r (async/deref-blocking (story/run-variant :story.empty/v) 5000)]
       (is (true? (story/assertions-passing? r))
           "a variant with no :play still 'passes' for cljs.test integration")
@@ -276,8 +276,8 @@
     (rf/reg-event-db :test/n (fn [db _] (assoc db :n 42)))
     (story/reg-variant :story.all-pass/v
       {:events [[:test/n]]
-       :play   [[:rf.assert/path-equals [:n] 42]
-                [:rf.assert/path-matches [:n] :int]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]
+                [:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
     (let [r (async/deref-blocking (story/run-variant :story.all-pass/v) 5000)]
       (is (true? (story/assertions-passing? r)))
       ;; Also accepts the assertions vector directly:
@@ -289,8 +289,8 @@
     (rf/reg-event-db :test/n2 (fn [db _] (assoc db :n 1)))
     (story/reg-variant :story.any-fail/v
       {:events [[:test/n2]]
-       :play   [[:rf.assert/path-equals [:n] 1]       ; pass
-                [:rf.assert/path-equals [:n] 999]]})  ; fail
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]
+                [:dispatch-sync [:rf.assert/path-equals [:n] 999]]]})  ; fail
     (let [r (async/deref-blocking (story/run-variant :story.any-fail/v) 5000)]
       (is (false? (story/assertions-passing? r))))
     (story/destroy-variant! :story.any-fail/v)))
@@ -304,7 +304,7 @@
     (rf/reg-event-db :test/init3 (fn [db _] (assoc db :x 1)))
     (story/reg-variant :story.shape/v
       {:events [[:test/init3]]
-       :play   [[:rf.assert/path-equals [:x] 1]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:x] 1]]]})
     (let [r (async/deref-blocking (story/run-variant :story.shape/v) 5000)
           a (first (:assertions r))]
       (is (= :rf.assert/path-equals  (:assertion a)))
@@ -323,7 +323,7 @@
     (rf/reg-event-db :test/q (fn [db _] (assoc db :q :ok)))
     (story/reg-variant :story.read/v
       {:events [[:test/q]]
-       :play   [[:rf.assert/path-equals [:q] :ok]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:q] :ok]]]})
     (let [_ (async/deref-blocking (story/run-variant :story.read/v) 5000)
           a (story/read-assertions :story.read/v)]
       (is (= 1 (count a)))

@@ -133,7 +133,7 @@
       (fn [db [_ n]] (assoc db :n n)))
     (story/reg-variant :story.mcp.run/probe
       {:events [[:mcp/seed 42]]
-       :play   [[:rf.assert/path-equals [:n] 42]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
     (let [result (story-async/deref-blocking
                    (story/run-variant :story.mcp.run/probe) 5000)]
       (is (map? result)

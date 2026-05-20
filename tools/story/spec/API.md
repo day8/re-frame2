@@ -110,13 +110,53 @@ public; their unsuffixed macro counterparts cover authored cases.
 | `clear-kind!` | `(clear-kind! kind)` | Remove all of a kind. |
 | `clear-all!` | `(clear-all!)` | Reset Story state entirely. |
 
+## Variant `:play-script` slot (rf2-0wrud)
+
+`:play-script` is the canonical AND ONLY phase-4 play surface
+(rf2-0wrud, 2026-05-20). The legacy `:play` event-vector slot has been
+removed — pre-alpha posture, no transitional dual-acceptance. See
+[`001-Authoring.md`](001-Authoring.md) §:play-script for the full
+authoring contract.
+
+| Step                                 | Semantics                                                  |
+|--------------------------------------|------------------------------------------------------------|
+| `[:dispatch event-vec]`              | `rf/dispatch` (async) into the variant's frame             |
+| `[:dispatch-sync event-vec]`         | `rf/dispatch-sync` (synchronous) into the variant's frame  |
+| `[:wait ms]`                         | Sleep N ms                                                 |
+| `[:assert-db path value]`            | Assert `(= (get-in @app-db path) value)`                   |
+| `[:assert-db path :pred fn-or-sym]`  | Assert custom predicate                                    |
+| `[:assert-dom selector :visible]`    | Assert selector resolves to a visible DOM node             |
+| `[:assert-dom selector :hidden]`     | Assert selector resolves to nothing                        |
+| `[:assert-dom selector :text txt]`   | Assert selector's text-content matches `txt`               |
+| `[:click selector]`                  | Synthetic click event at selector                          |
+| `[:type selector text]`              | Synthetic input event at selector with `text`              |
+
+Body forms:
+
+- Bare vector — `:play-script [[:dispatch-sync [:foo]] ...]`
+- Map         — `:play-script {:script [...] :auto-run? bool :name str}`
+
+The canonical seven `:rf.assert/*` events (per
+[`004-Assertions.md`](004-Assertions.md)) ride the `:dispatch-sync`
+rail: `[:dispatch-sync [:rf.assert/path-equals [:n] 3]]`. The
+assertion handler runs synchronously and records into
+`:rf.story/assertions` on the variant's frame.
+
+The pure runner lives at
+[`re-frame.story.play.runner`](../src/re_frame/story/play/runner.cljc)
+(parser + state machine, JVM-testable); the impure driver at
+[`re-frame.story.play.runner-events`](../src/re_frame/story/play/runner_events.cljc)
+(dispatch + DOM + scheduler).
+
 ## Recorder facade
 
-The recorder captures canvas-dispatched events into a `:play` body for
-codegen back into a `reg-variant` snippet. The facade exposes six
-entries on `re-frame.story` (per spec/005 §Recorder + [001-Authoring.md](001-Authoring.md)
-§Recorder); the rich `:play-script` translator lives under the
-recorder's sub-namespace.
+The recorder captures canvas-dispatched events into a `:play-script`
+body for codegen back into a `reg-variant` snippet. The facade
+exposes six entries on `re-frame.story` (per spec/005 §Recorder +
+[001-Authoring.md](001-Authoring.md) §Recorder); the richer
+recorder-driven `:play-script` translator (rf2-d5u89 — derives `:click`
+/ `:type` / `:wait` steps from the recorder's `:entries` stream) lives
+under the recorder's sub-namespace.
 
 | Fn | Signature | Purpose |
 |---|---|---|
@@ -125,23 +165,20 @@ recorder's sub-namespace.
 | `clear-recording!` | `(clear-recording!)` | Drop the buffer + return the recorder to idle. |
 | `recording?` | `(recording?)` | Predicate — is a recording in flight? |
 | `recorder-state` | `(recorder-state)` | Read-only view of the current recorder state map. |
-| `gen-play-snippet` | `(gen-play-snippet events opts)` | Pure codegen: render a captured `events` vector as a `(reg-variant <id> {... :play [...]})` EDN snippet. Produces the **legacy `:play` body** (vector of event vectors). See [005-SOTA-Features.md](005-SOTA-Features.md) §Recorder for the round-trip contract. |
+| `gen-play-snippet` | `(gen-play-snippet events opts)` | Pure codegen: render a captured `events` vector as a `(reg-variant <id> {... :play-script {:script [...]}})` EDN snippet. Each captured event vector is wrapped as `[:dispatch-sync <event-vec>]` (rf2-0wrud). See [005-SOTA-Features.md](005-SOTA-Features.md) §Recorder for the round-trip contract. |
 
-### `:play-script` export — out of facade
+### Rich-DSL `:play-script` export — out of facade
 
-The richer `:play-script` DSL (tagged `:click` / `:type` / `:wait` /
-`:assert` steps, derived from the recorder's `:entries` capture
-stream — rf2-d5u89 / rf2-8i2a9) is exported by **`re-frame.story.recorder.play-export`**
+The richer DOM-capture-aware translator (tagged `:click` / `:type` /
+`:wait` steps derived from the recorder's `:entries` capture stream —
+rf2-d5u89) is exported by **`re-frame.story.recorder.play-export`**
 (sub-namespace; not re-exported through `re-frame.story`). The entry
-fns are `recording->play-script` (translate captured events / entries
-into the normalised `:play-script` body map) and `render-play-script`
-/ `render-variant-form` (render the map to EDN). The translator is
-**experimental / v2-staging** — usable today, but the facade exposes
-only `gen-play-snippet` (the legacy `:play` body) as the canonical v1
-codegen entry. Consumers wanting the rich DSL `:require` the
-sub-namespace directly (rf2-hbfko follow-on, Finding #10 of the
-rf2-u6o12 audit at `ai/findings/2026-05-20-tools-story-api-review.md`
-(local-only)).
+fns are `recording->play-script` (translate captured `:entries` into a
+normalised `:play-script` body map) and `render-play-script` /
+`render-variant-form` (render the map to EDN). The facade exposes only
+`gen-play-snippet` (the simpler event-vector → `:dispatch-sync` step
+projection) as the canonical entry; consumers wanting the rich
+DOM-derived DSL `:require` the sub-namespace directly.
 
 ## Effects (fx) registered by Story
 

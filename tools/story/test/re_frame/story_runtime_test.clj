@@ -588,7 +588,7 @@
         "presence of :loaders-complete-when → not events-only")
     (is (false? (loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
         "presence of :frame-setup decorators → not events-only")
-    (is (true?  (loaders/events-only-variant? {:play [[:assert]]} {}))
+    (is (true?  (loaders/events-only-variant? {:play-script [[:dispatch-sync [:assert]]]} {}))
         ":play does not gate the lifecycle (runs strictly after :ready)")
     (is (true?  (loaders/events-only-variant? {} {:hiccup    [{:body {}}]
                                                   :fx-override [{:body {}}]}))
@@ -711,7 +711,7 @@
       {:loaders               [[:test/load-but-not-ready]]
        :loaders-complete-when :test/not-ready?
        :events                [[:test/should-not-run]]
-       :play                  [[:rf.assert/path-equals [:events-ran?] true]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:events-ran?] true]]]})
     (let [r (async/deref-blocking (story/run-variant :story.flow/blocked) 5000)
           incomplete (->> (:assertions r)
                           (filter #(= :rf.error/loader-incomplete (:assertion %)))
