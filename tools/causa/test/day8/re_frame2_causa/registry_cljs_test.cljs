@@ -243,6 +243,22 @@
    :rf.causa.static.flows/registered-flows
    :rf.causa.static.flows/registered-flows-override
    :rf.causa.static.flows/tab-data
+   ;; rf2-o5f5f.6 — Static Events sub-tab subs (browse-all over the
+   ;; registrar's `:event` slot + selection + simulate state + view-
+   ;; facing composite + test seam).
+   :rf.causa.static.events/query
+   :rf.causa.static.events/selected-id
+   :rf.causa.static.events/sim-input
+   :rf.causa.static.events/sim-result
+   :rf.causa.static.events/registry
+   :rf.causa.static.events/registry-override
+   :rf.causa.static.events/tab-data
+   ;; rf2-o5f5f.6 — Static Interceptors sub-tab subs (pure-browse over
+   ;; the interceptors surfaced through registered events).
+   :rf.causa.static.interceptors/query
+   :rf.causa.static.interceptors/registry
+   :rf.causa.static.interceptors/registry-override
+   :rf.causa.static.interceptors/tab-data
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
@@ -519,6 +535,17 @@
    ;; rf2-uhsqb — Static Flows sub-tab events.
    :rf.causa.static.flows/set-query
    :rf.causa.static.flows/set-registered-flows-override-for-test
+   ;; rf2-o5f5f.6 — Static Events sub-tab events (search slot, row
+   ;; selection, simulate input + run, test seam).
+   :rf.causa.static.events/set-query
+   :rf.causa.static.events/select
+   :rf.causa.static.events/set-sim-input
+   :rf.causa.static.events/run-simulate
+   :rf.causa.static.events/set-registry-override-for-test
+   ;; rf2-o5f5f.6 — Static Interceptors sub-tab events (search slot,
+   ;; test seam).
+   :rf.causa.static.interceptors/set-query
+   :rf.causa.static.interceptors/set-registry-override-for-test
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/set-modal-positioning
    ;; rf2-x8h9y — resize-handle live update event.

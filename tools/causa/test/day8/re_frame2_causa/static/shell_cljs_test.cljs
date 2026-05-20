@@ -15,9 +15,10 @@
        restores the value via `:rf.causa/set-mode`).
 
     3. Static shell renders the 3-layer chrome (ribbon · tab-bar ·
-       detail panel) with the 5 placeholder sub-tabs (Machines /
-       Routes / Schemas / Views / Events). Each placeholder card
-       names its sibling-bead id.
+       detail panel) with 7 sub-tabs (Machines / Routes / Schemas /
+       Views / Flows / Events / Interceptors). Placeholder cards are
+       only rendered for tabs without a real panel installed yet —
+       see `filled-static-tab-ids` below.
 
     4. `:rf.causa.static/select-tab` flips the Static-scoped tab
        slot (does NOT clobber the Runtime `:rf.causa/selected-tab`).
@@ -254,12 +255,14 @@
 
 (def ^:private expected-static-tab-ids
   ;; rf2-uhsqb added :flows as a 6th tab between :views and :events.
-  [:machines :routes :schemas :views :flows :events])
+  ;; rf2-o5f5f.6 added :interceptors as a 7th tab after :events.
+  [:machines :routes :schemas :views :flows :events :interceptors])
 
-(deftest static-tab-bar-renders-five-tabs
-  (testing "Static L3 tab bar renders 6 sub-tabs per parent-epic
-            rf2-o5f5f sub-bead list + rf2-uhsqb Flows (Machines /
-            Routes / Schemas / Views / Flows / Events)"
+(deftest static-tab-bar-renders-seven-tabs
+  (testing "Static L3 tab bar renders 7 sub-tabs per parent-epic
+            rf2-o5f5f sub-bead list + rf2-uhsqb Flows + rf2-o5f5f.6
+            Interceptors (Machines / Routes / Schemas / Views /
+            Flows / Events / Interceptors)"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (static-shell/surface)]
@@ -294,12 +297,14 @@
   "Static tab ids that have a real panel installed — the placeholder
   card for these tabs is no longer rendered. Sibling beads tick one
   off each time they land."
-  ;; rf2-o5f5f.2 — :machines mounts the Static Machines panel.
-  ;; rf2-o5f5f.3 — :routes   mounts the Static Routes panel.
-  ;; rf2-o5f5f.4 — :schemas  mounts the Static Schemas panel.
-  ;; rf2-o5f5f.5 — :views    mounts the Static Views panel.
-  ;; rf2-uhsqb   — :flows    mounts the Static Flows panel.
-  #{:machines :routes :schemas :views :flows})
+  ;; rf2-o5f5f.2 — :machines     mounts the Static Machines panel.
+  ;; rf2-o5f5f.3 — :routes       mounts the Static Routes panel.
+  ;; rf2-o5f5f.4 — :schemas      mounts the Static Schemas panel.
+  ;; rf2-o5f5f.5 — :views        mounts the Static Views panel.
+  ;; rf2-uhsqb   — :flows        mounts the Static Flows panel.
+  ;; rf2-o5f5f.6 — :events       mounts the Static Events panel.
+  ;; rf2-o5f5f.6 — :interceptors mounts the Static Interceptors panel.
+  #{:machines :routes :schemas :views :flows :events :interceptors})
 
 (deftest static-placeholder-cards-name-sibling-bead
   (testing "each placeholder card surfaces its sibling-bead id
@@ -494,9 +499,9 @@
 (deftest static-tab-inventory-shape
   (testing "tab inventory carries id/label/mnem/placeholder-bead and
             preserves canonical order"
-    (is (= [:machines :routes :schemas :views :flows :events]
+    (is (= [:machines :routes :schemas :views :flows :events :interceptors]
            (mapv :id (static-shell/tabs)))
-        "6 tabs in canonical order (rf2-uhsqb added :flows)")
+        "7 tabs in canonical order (rf2-uhsqb :flows + rf2-o5f5f.6 :interceptors)")
     (doseq [{:keys [id label mnem placeholder-bead]} (static-shell/tabs)]
       (is (keyword? id) (str "id is keyword for " id))
       (is (string? label) (str "label is a string for " id))

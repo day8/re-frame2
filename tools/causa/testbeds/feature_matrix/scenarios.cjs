@@ -2238,10 +2238,12 @@ async function runStaticModeChromeAndChord(page, state) {
   // landing without the matching scenario refresh (which is exactly
   // what rf2-m1o3j fixed for .4 / .5 / rf2-uhsqb).
   const shippedSubTabs = [
-    ['routes',  'rf-causa-static-routes'],
-    ['schemas', 'rf-causa-static-schemas'],
-    ['views',   'rf-causa-static-views'],
-    ['flows',   'rf-causa-static-flows'],
+    ['routes',       'rf-causa-static-routes'],
+    ['schemas',      'rf-causa-static-schemas'],
+    ['views',        'rf-causa-static-views'],
+    ['flows',        'rf-causa-static-flows'],
+    ['events',       'rf-causa-static-events'],
+    ['interceptors', 'rf-causa-static-interceptors'],
   ];
   const shippedSubTabRoots = {};
   for (const [tabId, rootTestId] of shippedSubTabs) {
@@ -2272,31 +2274,10 @@ async function runStaticModeChromeAndChord(page, state) {
     shippedSubTabRoots[tabId] = observed;
   }
 
-  // The last remaining placeholder — `:events` (rf2-o5f5f.6). When .6
-  // ships, replace this block with another entry in `shippedSubTabs`
-  // above (and drop the placeholder section entirely once nothing is
-  // pending).
-  const expectedPlaceholders = [
-    ['events', 'rf2-o5f5f.6'],
-  ];
+  // Per rf2-o5f5f.6 all Static sub-tabs are now panelled — no
+  // placeholder cards remain. Keep the empty inventory + texts map so
+  // the downstream scenario snapshot shape stays stable.
   const placeholderTexts = {};
-  for (const [tabId, beadId] of expectedPlaceholders) {
-    await page.locator(`[data-testid="rf-causa-static-tab-${tabId}"]`).click();
-    const text = await waitForValue(
-      () => page.evaluate((id) => {
-        const card = document.querySelector(
-          `[data-testid="rf-causa-static-placeholder-${id}"]`,
-        );
-        return card ? (card.textContent || '').trim() : null;
-      }, tabId),
-      (t) => Boolean(t) && t.includes(beadId) && /will fill this/i.test(t),
-      {
-        timeoutMs: 5000,
-        description: `Static sub-tab :${tabId} placeholder card with sibling bead ${beadId}`,
-      },
-    );
-    placeholderTexts[tabId] = text;
-  }
   // Restore the Machines tab so subsequent steps see the default L4.
   await page.locator('[data-testid="rf-causa-static-tab-machines"]').click();
   await expectVisible(
