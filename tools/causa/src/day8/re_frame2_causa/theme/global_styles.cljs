@@ -468,6 +468,147 @@
     "  outline: 2px solid #FBBF24;\n"
     "  outline-offset: 2px;\n"
     "  border-radius: 3px;\n"
+    "}\n"
+    ;; rf2-wxepo — Windows High Contrast Mode (forced-colors). The UA
+    ;; strips inline `:background` and `:color` declarations and forces
+    ;; its own palette (Canvas / CanvasText / Highlight / …), which
+    ;; collapses every author-encoded signal across the Causa chrome:
+    ;;
+    ;;   - L1 ribbon mode stripe (violet/cyan accent on the left edge)
+    ;;   - L2 row focused border (cyan)
+    ;;   - L2 row status accent (the 2px inset box-shadow on the
+    ;;     trailing edge — box-shadow itself is also dropped in HCM)
+    ;;   - L2 row gutter causal-chain thread (1px violet inset)
+    ;;   - L4 panel-domain accent stripes (3px left border in each
+    ;;     panel's hue — violet/cyan/orange/green/yellow/red)
+    ;;   - Focus-visible amber outline (the #FBBF24 hex above; the UA
+    ;;     forces this to its own Highlight regardless of author intent)
+    ;;   - Secondary / tertiary text (drifted greys collapse to a
+    ;;     single CanvasText hue)
+    ;;
+    ;; The remedy is to map each signal onto a CSS *system colour
+    ;; keyword* inside `@media (forced-colors: active)`. System tokens
+    ;; are the ONE class of colour the UA accepts and honours in HCM
+    ;; — every other hex is overridden. Each rule is `!important` so
+    ;; the per-element inline-style declarations are beaten on
+    ;; specificity (inline style normally wins over external CSS;
+    ;; `!important` in CSS reverses that).
+    ;;
+    ;; Token mapping:
+    ;;   Highlight    — focus ring, focused row, mode stripe, gutter
+    ;;                  thread, focus markers (the user's "what's
+    ;;                  selected/active" hue under their HCM theme)
+    ;;   CanvasText   — primary text + neutral border accents (the
+    ;;                  default ink colour of the HCM theme)
+    ;;   Mark         — status-relevant emphasis (errored row accent;
+    ;;                  semantically the "important emphasis" system
+    ;;                  hue, distinct from Highlight so the operator
+    ;;                  can still tell "error" from "selected")
+    ;;   GrayText     — secondary / tertiary text + stale / paused
+    ;;                  state (the HCM theme's "disabled / muted" hue)
+    ;;   ButtonText   — interactive button/icon ink (chevrons, ✕,
+    ;;                  ribbon icons) so they read as actionable
+    ;;   LinkText     — hyperlink ink (only sparingly used in Causa
+    ;;                  chrome, but covered for completeness)
+    ;;
+    ;; Signal preservation is the criterion: under HCM the operator
+    ;; must still distinguish focused-vs-not, error-vs-success,
+    ;; in-flight-vs-stale, primary-vs-secondary text. The mapping
+    ;; below preserves those distinctions even when every author hex
+    ;; is forced.
+    "@media (forced-colors: active) {\n"
+    ;; Focus-visible amber → Highlight. The UA already forces the
+    ;; outline colour, but writing it explicitly guarantees the
+    ;; correct semantic system-token is requested (some UAs honour
+    ;; author-specified system colours and skip the forced override).
+    "  [data-testid=\"rf-causa-shell\"] *:focus-visible,\n"
+    "  [data-testid=\"rf-causa-static-shell\"] *:focus-visible,\n"
+    "  [data-testid=\"rf-causa-palette-backdrop\"] *:focus-visible {\n"
+    "    outline-color: Highlight !important;\n"
+    "  }\n"
+    ;; L1 ribbon mode stripe (violet runtime / cyan static) → Highlight.
+    ;; The 2px left border is the operator's "which mode am I in"
+    ;; signal; preserve it as the user's selected-emphasis hue.
+    "  [data-testid=\"rf-causa-ribbon\"] {\n"
+    "    border-left-color: Highlight !important;\n"
+    "  }\n"
+    ;; L2 focused event row — `aria-pressed=\"true\"` rides on the
+    ;; focused row's `<li>`. The 1px solid cyan border becomes a
+    ;; Highlight outline (outline composes over the existing border
+    ;; without disturbing layout; HCM strips inline background, so
+    ;; the row's fill becomes Canvas + the Highlight outline reads
+    ;; as the selection signal).
+    "  [data-testid^=\"rf-causa-event-row-\"][aria-pressed=\"true\"] {\n"
+    "    outline: 2px solid Highlight !important;\n"
+    "    outline-offset: -1px !important;\n"
+    "  }\n"
+    ;; L2 row status accents — read off `data-rf-causa-status`. The
+    ;; box-shadow inset that paints the trailing-edge stripe is
+    ;; dropped by HCM, so we re-introduce the signal as a right-edge
+    ;; outline-ish border via box-shadow with a system colour (which
+    ;; HCM honours). `Mark` reads as 'important emphasis' and is the
+    ;; idiomatic token for error / warning accents distinct from
+    ;; selection (Highlight).
+    "  [data-rf-causa-status=\"settled-error\"] {\n"
+    "    box-shadow: inset -2px 0 0 0 Mark !important;\n"
+    "  }\n"
+    ;; In-flight (still running) → Highlight (it's the 'active' row).
+    "  [data-rf-causa-status=\"in-flight\"] {\n"
+    "    box-shadow: inset -2px 0 0 0 Highlight !important;\n"
+    "  }\n"
+    ;; Settled-success → CanvasText (neutral; success is the absence
+    ;; of an alarm, so a quiet ink-coloured stripe reads as 'done,
+    ;; no problem'). Distinguishable from in-flight + error because
+    ;; the system tokens render differently under every HCM theme.
+    "  [data-rf-causa-status=\"settled-success\"] {\n"
+    "    box-shadow: inset -2px 0 0 0 CanvasText !important;\n"
+    "  }\n"
+    ;; Stale / paused-by-tool → GrayText. Both states are the 'muted /
+    ;; not-currently-live' family; the disabled-text system hue is
+    ;; the canonical match.
+    "  [data-rf-causa-status=\"stale\"],\n"
+    "  [data-rf-causa-status=\"paused-by-tool\"] {\n"
+    "    box-shadow: inset -2px 0 0 0 GrayText !important;\n"
+    "  }\n"
+    ;; L2 row gutter — the 1px causal-chain thread (violet) and the
+    ;; focus markers (⦿ / ◌) need a system-token landing. The gutter
+    ;; <span> doesn't carry a testid hook, so we target the
+    ;; row-gutter testid pattern. The inset box-shadow becomes
+    ;; Highlight; the marker colour becomes Highlight too so the
+    ;; focus-set anchor reads at a glance.
+    "  [data-testid^=\"rf-causa-row-gutter-\"] {\n"
+    "    box-shadow: inset 1px 0 0 0 Highlight !important;\n"
+    "    color: Highlight !important;\n"
+    "  }\n"
+    ;; L4 panel domain accent stripes (3px left border on the panel
+    ;; <h1>) — every panel hue (violet/cyan/orange/green/yellow/red)
+    ;; collapses to CanvasText so the stripe still paints as a
+    ;; visible left edge. Panels remain visually distinguishable by
+    ;; their L3 tab label and their content; the stripe drops its
+    ;; per-panel colour information but keeps its presence as a
+    ;; rhythm marker. We target the `<h1>` elements inside the L4
+    ;; panel slot via the `rf-causa-detail-panel-*` testid prefix.
+    "  [data-testid^=\"rf-causa-detail-panel-\"] h1 {\n"
+    "    border-left-color: CanvasText !important;\n"
+    "  }\n"
+    ;; Ribbon icons + close-X — keep them as ButtonText so they
+    ;; read as actionable. The Settings ✕ accent + the right-cluster
+    ;; icons inherit through this rule.
+    "  [data-testid=\"rf-causa-icon-settings\"],\n"
+    "  [data-testid=\"rf-causa-icon-close\"],\n"
+    "  [data-testid=\"rf-causa-nav-prev\"],\n"
+    "  [data-testid=\"rf-causa-nav-next\"],\n"
+    "  [data-testid=\"rf-causa-nav-head\"],\n"
+    "  [data-testid=\"rf-causa-focus-chip-clear\"] {\n"
+    "    color: ButtonText !important;\n"
+    "  }\n"
+    ;; Hyperlinks inside Causa chrome → LinkText. Sparingly used
+    ;; (open-in-editor anchors, doc links) but covered so every
+    ;; HCM-relevant interactive surface has a system-token landing.
+    "  [data-testid=\"rf-causa-shell\"] a,\n"
+    "  [data-testid=\"rf-causa-static-shell\"] a {\n"
+    "    color: LinkText !important;\n"
+    "  }\n"
     "}\n"))
 
 (defn- inject-motion-style!
