@@ -230,9 +230,10 @@ Body (one of three kinds per spec/007):
  :wrap (fn [body args] [:div ... body])}        ; ONLY closure allowed at registration site
 
 ;; Frame setup
-{:doc  "..."
- :kind :frame-setup
- :init [[:event-id args ...]]                    ; events to dispatch into the variant's frame
+{:doc      "..."
+ :kind     :frame-setup
+ :init     [[:event-id args ...]]                ; events to dispatch into the variant's frame at allocation
+ :teardown [[:event-id args ...]]                ; events to dispatch-sync into the variant frame at destroy
  :app-db-patch {<path> <value>}}                 ; or a static app-db patch
 
 ;; Fx override (force-fx-stub)
@@ -246,6 +247,50 @@ Body (one of three kinds per spec/007):
 it lives at the *decorator registration site*, not the variant body.
 Variant bodies reference decorators by id; the closure is registered
 once and shared. The "variant body is pure data" rule is preserved.
+
+#### `:teardown` — symmetric counterpart of `:init`
+
+The optional `:teardown` slot on a `:frame-setup` decorator carries a
+vector of event vectors that the runtime dispatch-syncs into the
+variant frame just before `destroy-frame!` runs (per
+[`002-Runtime.md`](002-Runtime.md) §Loader teardown contract). This
+is the recommended path for closing resources a `:frame-setup`
+decorator's `:init` events opened — a polling interval started by
+`:init` should be cancelled by `:teardown`; a websocket subscription
+opened by `:init` should be closed by `:teardown`.
+
+```clojure
+(story/reg-decorator :feed/live-subscription
+  {:doc      "Opens the live-feed websocket on mount; closes on destroy."
+   :kind     :frame-setup
+   :init     [[:feed/subscribe]]
+   :teardown [[:feed/close-socket]]})
+```
+
+Composition order. When multiple `:frame-setup` decorators carry
+`:teardown` events, the runtime dispatches them in reverse-
+declaration order — innermost (variant-level) teardowns fire before
+outermost (story-level / global) teardowns. This mirrors function-
+scope cleanup conventions and keeps a resource opened by an outer
+decorator alive while inner decorators that may depend on it tear
+down first.
+
+Teardown events run after lifecycle watchers + assertion accumulators
+have been cleared but before `rf/destroy-frame!`'s own walk; the
+variant frame's `app-db` is still readable, so a teardown handler may
+inspect state when computing what to clean up. Teardown events that
+throw are caught and projected into the variant's last
+`:rf.story/assertions` record as `:rf.error/exception` with
+`:phase :phase-teardown`; teardown never aborts `destroy-frame!`.
+
+**When to prefer a state machine instead.** For any resource with a
+non-trivial lifetime (reconnect logic, backoff, multi-step
+shutdown), the spec/005 machine pattern (described in
+[`002-Runtime.md`](002-Runtime.md) §Machine lifecycle on variant
+unmount and §Loader teardown contract) is the better surface — the
+actor's `:exit` action captures the cleanup, and the state-machine
+runtime owns the destroy walk. `:teardown` on `:frame-setup` is the
+lightweight option for resources that need exactly one cancel event.
 
 ### `(reg-story-panel id metadata)`
 
