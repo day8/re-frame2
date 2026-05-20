@@ -32,8 +32,8 @@ ergonomic surface; sub-namespace requires are the discoverability
 signal that a surface is chrome-internal even when public. The rule is
 de-facto in the code today; this paragraph names it so authors writing
 to `re-frame.story` know which side of the line a given surface lives
-on (rf2-u3e4q follow-on, [`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
-Finding #6).
+on (rf2-u3e4q follow-on, Finding #6 of the rf2-u6o12 audit at
+`ai/findings/2026-05-20-tools-story-api-review.md` (local-only)).
 
 ## Registration macros
 
@@ -139,9 +139,9 @@ into the normalised `:play-script` body map) and `render-play-script`
 **experimental / v2-staging** — usable today, but the facade exposes
 only `gen-play-snippet` (the legacy `:play` body) as the canonical v1
 codegen entry. Consumers wanting the rich DSL `:require` the
-sub-namespace directly (rf2-hbfko follow-on,
-[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
-Finding #10).
+sub-namespace directly (rf2-hbfko follow-on, Finding #10 of the
+rf2-u6o12 audit at `ai/findings/2026-05-20-tools-story-api-review.md`
+(local-only)).
 
 ## Effects (fx) registered by Story
 
@@ -224,8 +224,8 @@ wiring helper. The contract Story consumes from Causa is
 the lifecycle.
 
 The **Audience** column names who's expected to call each surface
-(rf2-8ns6j follow-on, [`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
-Finding #3):
+(rf2-8ns6j follow-on, Finding #3 of the rf2-u6o12 audit at
+`ai/findings/2026-05-20-tools-story-api-review.md` (local-only)):
 
 - `user-app` — the host application; safe to call from app code.
 - `chrome-shell` — Story's own shell; called by the embed component,
@@ -253,9 +253,9 @@ the share-URL builder sits on the facade; the other two are
 chrome-internal (per the [facade re-export
 discipline](#facade-re-export-discipline) above). They are documented
 together as a cluster so authors generating share / address-bar / embed
-code can see the three axes at a glance (rf2-zex19 follow-on,
-[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
-Finding #9):
+code can see the three axes at a glance (rf2-zex19 follow-on, Finding
+#9 of the rf2-u6o12 audit at
+`ai/findings/2026-05-20-tools-story-api-review.md` (local-only)):
 
 | Surface | Lives in | Source of truth | Persistence | Encodes | Consumer |
 |---|---|---|---|---|---|
