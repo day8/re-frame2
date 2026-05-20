@@ -80,8 +80,8 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--allow-eval`      | OFF | Enable the `eval-cljs` tool (rf2-cxx5s). Without the flag, `eval-cljs` calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-raw-state` | OFF | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). |
+| `--allow-eval`            | OFF | Enable the `eval-cljs` tool (rf2-cxx5s). Without the flag, `eval-cljs` calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
+| `--allow-sensitive-reads` | OFF | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
 | `--max-concurrent-streams=N` | `10` | Resource control: cap concurrent open streaming subscriptions per session (rf2-3ijbl). CLI value wins over the matching env var. |
 | `--max-events-per-sec=N` | `100` | Resource control: token-bucket rate-limit on progress-notification ticks emitted across all open streams (rf2-3ijbl). Excess ticks tally as `:rate-dropped` on the final summary. |
 | `--abuse-overflow-threshold=N` | `50` | Resource control: rolling-window overflow count beyond which the offending stream terminates with `:reason :rf.error/stream-abuse-detected` (rf2-3ijbl). |
@@ -94,7 +94,7 @@ Boolean flags + integer caps pass after the binary name:
   "mcpServers": {
     "re-frame2-pair": {
       "command": "re-frame2-pair-mcp",
-      "args": ["--allow-eval", "--allow-raw-state",
+      "args": ["--allow-eval", "--allow-sensitive-reads",
                "--max-concurrent-streams=20",
                "--max-events-per-sec=200"]
     }

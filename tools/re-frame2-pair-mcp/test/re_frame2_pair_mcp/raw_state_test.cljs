@@ -1,6 +1,11 @@
 (ns re-frame2-pair-mcp.raw-state-test
-  "Unit tests for the `--allow-raw-state` boot gate (rf2-c2dtu) and the
-  single intention-naming predicate `raw-state-allowed?` (rf2-p1qli).
+  "Unit tests for the `--allow-sensitive-reads` boot gate (rf2-c2dtu;
+  CLI flag aligned cross-MCP per rf2-2x3ql) and the single
+  intention-naming predicate `raw-state-allowed?` (rf2-p1qli).
+
+  Internal Clojure identifiers (`allow-raw-state?` atom, `:allow-raw-state?`
+  keyword, `raw-state-allowed?` predicate) retain the legacy `raw-state`
+  naming; only the operator-facing CLI flag was renamed (rf2-2x3ql).
 
   Pins the three behaviours the gate guarantees:
 
@@ -9,7 +14,7 @@
        regardless of per-call args.
     2. Opt-in state — flipping the gate flips the predicate so the
        per-call args win again (pre-rf2-c2dtu posture).
-    3. `parse-launch-flags` parses `--allow-raw-state` and stays
+    3. `parse-launch-flags` parses `--allow-sensitive-reads` and stays
        symmetric with `--allow-eval`.
 
   End-to-end MCP-wire shape coverage lives in
@@ -32,11 +37,11 @@
       "Gate OFF ⇒ raw-state-allowed? false; per-tool branches force redact + elide"))
 
 ;; ---------------------------------------------------------------------------
-;; Opt-in (--allow-raw-state) posture.
+;; Opt-in (--allow-sensitive-reads) posture.
 ;; ---------------------------------------------------------------------------
 
 (deftest opt-in-flips-predicate
-  ;; --allow-raw-state ⇒ per-call args win (pre-rf2-c2dtu posture).
+  ;; --allow-sensitive-reads ⇒ per-call args win (pre-rf2-c2dtu posture).
   (raw-state/set-allow-raw-state! true)
   (is (true?  (raw-state/allow-raw-state-enabled?)))
   (is (true?  (raw-state/raw-state-allowed?))
@@ -65,7 +70,7 @@
       "Gate OFF ⇒ operator did NOT opt in; force redact + elide")
   (raw-state/set-allow-raw-state! true)
   (is (true? (raw-state/raw-state-allowed?))
-      "Gate ON ⇒ operator opted in via --allow-raw-state; per-call args win")
+      "Gate ON ⇒ operator opted in via --allow-sensitive-reads; per-call args win")
   (raw-state/set-allow-raw-state! false))
 
 (deftest set-coerces-to-boolean
@@ -84,16 +89,16 @@
 ;; Launch-flag parsing.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-launch-flags-recognises-allow-raw-state
-  (let [flags (server/parse-launch-flags ["--allow-raw-state"])]
+(deftest parse-launch-flags-recognises-allow-sensitive-reads
+  (let [flags (server/parse-launch-flags ["--allow-sensitive-reads"])]
     (is (true? (:allow-raw-state? flags))
-        "--allow-raw-state ⇒ :allow-raw-state? true")
+        "--allow-sensitive-reads ⇒ :allow-raw-state? true (internal key)")
     (is (false? (:allow-eval? flags))
         "Other flags stay at their defaults")))
 
 (deftest parse-launch-flags-symmetric-with-allow-eval
   ;; Both flags can ride together — the two gates are independent.
-  (let [flags (server/parse-launch-flags ["--allow-eval" "--allow-raw-state"])]
+  (let [flags (server/parse-launch-flags ["--allow-eval" "--allow-sensitive-reads"])]
     (is (true? (:allow-eval? flags)))
     (is (true? (:allow-raw-state? flags)))))
 
@@ -104,8 +109,16 @@
 
 (deftest parse-launch-flags-ignores-unknown
   ;; Future flags must not break older invocations.
-  (let [flags (server/parse-launch-flags ["--no-such-flag" "--allow-raw-state"])]
+  (let [flags (server/parse-launch-flags ["--no-such-flag" "--allow-sensitive-reads"])]
     (is (true? (:allow-raw-state? flags)))))
+
+(deftest parse-launch-flags-old-name-rejected
+  ;; Hard rename (rf2-2x3ql): the legacy `--allow-raw-state` flag is no
+  ;; longer recognised. No back-compat shim — passing it must NOT enable
+  ;; the gate.
+  (let [flags (server/parse-launch-flags ["--allow-raw-state"])]
+    (is (false? (:allow-raw-state? flags))
+        "Legacy --allow-raw-state must not enable the gate post-rename")))
 
 ;; ---------------------------------------------------------------------------
 ;; signal-runtime! cache — fires once per (build-id, server-lifetime).

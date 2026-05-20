@@ -414,12 +414,12 @@
     (is (= 5 (:elided-large s2)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-vr2hn — `--allow-raw-state` boot gate on the drain eval form.
+;; rf2-vr2hn — `--allow-sensitive-reads` boot gate on the drain eval form.
 ;;
 ;; The drain envelope's `:events` slot rides the nREPL wire verbatim. For
 ;; the `:epoch` topic that means full epoch records (`:db-after` /
 ;; `:db-before` / `:app-db`) — a hostile per-call arg shouldn't be able
-;; to talk an operator who didn't pass `--allow-raw-state` into shipping
+;; to talk an operator who didn't pass `--allow-sensitive-reads` into shipping
 ;; raw state. The gate mirrors the snapshot / get-path / trace-window
 ;; pattern (rf2-c2dtu): when OFF, the drain form wraps `:events` with
 ;; `re-frame.core/elide-wire-value` server-side, sensitive slots redact,
@@ -446,7 +446,7 @@
         "sensitive slots redact when the caller did NOT opt in")))
 
 (deftest drain-form-gated-elision-honours-include-sensitive
-  ;; Gate ON path — when the operator passed `--allow-raw-state` AND the
+  ;; Gate ON path — when the operator passed `--allow-sensitive-reads` AND the
   ;; caller passed `:include-sensitive true`, the walker still fires
   ;; (elision is independent of sensitive), but sensitive slots pass
   ;; through.

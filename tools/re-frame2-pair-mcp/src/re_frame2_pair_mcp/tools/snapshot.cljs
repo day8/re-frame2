@@ -23,7 +23,7 @@
   (let [build-id    (wire/arg-build raw-args)
         frames      (args/parse-frames-arg (wire/arg raw-args :frames))
         include     (args/parse-include-arg (wire/arg raw-args :include))
-        ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces both
+        ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces both
         ;; `:include-sensitive` to false AND `:elision` to true when
         ;; OFF (the default). The per-call args are still parsed (so the
         ;; response envelope reports the effective post-gate value), but

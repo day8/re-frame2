@@ -29,7 +29,7 @@
   (let [build-id  (wire/arg-build raw-args)
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         path      (args/parse-path-arg (wire/arg raw-args :path))
-        ;; rf2-c2dtu — when the `--allow-raw-state` boot gate is OFF,
+        ;; rf2-c2dtu — when the `--allow-sensitive-reads` boot gate is OFF,
         ;; the per-call `:elision false` arg is overridden so the walker
         ;; still fires. rf2-p1qli: single intention-naming predicate
         ;; `raw-state-allowed?` (positive sense — true when operator
@@ -44,7 +44,7 @@
         ;; opts in explicitly. The shared `parse-bool-arg` table
         ;; (rf2-c4fmh) gates the default at `false`.
         ;;
-        ;; rf2-c2dtu — when the `--allow-raw-state` boot gate is OFF,
+        ;; rf2-c2dtu — when the `--allow-sensitive-reads` boot gate is OFF,
         ;; the per-call `:include-sensitive true` arg is dropped before
         ;; reaching the walker.
         incl?     (if (raw-state/raw-state-allowed?)

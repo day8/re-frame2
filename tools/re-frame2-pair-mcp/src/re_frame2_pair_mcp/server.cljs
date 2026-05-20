@@ -144,20 +144,24 @@
   "Pluck the named boolean launch flags out of the raw process argv. Two
   flags today:
 
-    --allow-eval        — opt-in to the `eval-cljs` tool (rf2-cxx5s
-                          cascade from rf2-czv3p). Default OFF.
-    --allow-raw-state   — opt-in to raw state on snapshot / get-path /
-                          subscribe AND raw-value `tap>` emissions from
-                          the preload's `app-db-reset!` (rf2-c2dtu).
-                          Default OFF.
+    --allow-eval             — opt-in to the `eval-cljs` tool (rf2-cxx5s
+                               cascade from rf2-czv3p). Default OFF.
+    --allow-sensitive-reads  — opt-in to raw state on snapshot / get-path /
+                               subscribe AND raw-value `tap>` emissions from
+                               the preload's `app-db-reset!` (rf2-c2dtu).
+                               Default OFF. Canonical cross-MCP name
+                               (rf2-2x3ql) — matches story-mcp's identically
+                               named gate (rf2-g9fje / rf2-uaymx).
 
-  Returns `{:allow-eval? bool :allow-raw-state? bool}`. Unknown flags
-  are ignored — node's shadow-cljs entry passes its own argv prelude
-  (script path), and future flags can land here without breaking older
-  invocations."
+  Returns `{:allow-eval? bool :allow-raw-state? bool}`. The internal
+  keyword `:allow-raw-state?` is the pair-mcp implementation-side
+  identifier for the gate's state; the CLI flag is the operator-facing
+  name. Unknown flags are ignored — node's shadow-cljs entry passes its
+  own argv prelude (script path), and future flags can land here without
+  breaking older invocations."
   [argv]
   {:allow-eval?      (boolean (some #{"--allow-eval"} argv))
-   :allow-raw-state? (boolean (some #{"--allow-raw-state"} argv))})
+   :allow-raw-state? (boolean (some #{"--allow-sensitive-reads"} argv))})
 
 (defn- apply-launch-flags!
   "Wire launch-flag state into the relevant tool gates. Called once
@@ -168,9 +172,10 @@
   (log! "eval-cljs:" (if allow-eval? "ENABLED (--allow-eval)" "disabled (default; pass --allow-eval to opt in)"))
   ;; Symmetric with rf2-zyoj2 `--allow-eval` boot-gate logging. The
   ;; "allowed" / "gated" wording matches the rf2-uaymx (b) story-mcp
-  ;; `--allow-sensitive-reads` shape (rf2-g9fje, in flight) so operators
-  ;; reading multi-MCP logs see one vocabulary.
-  (log! "Raw-state access:" (if allow-raw-state? "allowed (--allow-raw-state)" "gated (default; pass --allow-raw-state to opt in)")))
+  ;; `--allow-sensitive-reads` shape (rf2-g9fje); rf2-2x3ql aligns
+  ;; pair-mcp on the same canonical CLI-flag name so operators reading
+  ;; multi-MCP logs see one vocabulary.
+  (log! "Sensitive reads:" (if allow-raw-state? "allowed (--allow-sensitive-reads)" "gated (default; pass --allow-sensitive-reads to opt in)")))
 
 (defn- apply-resource-controls!
   "Read resource-control config from env + CLI flags and push it into

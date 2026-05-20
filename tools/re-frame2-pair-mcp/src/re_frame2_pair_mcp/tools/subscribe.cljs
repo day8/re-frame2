@@ -217,17 +217,17 @@
 ;; `drain-subscription!` returns `{:ok? :sub-id :events [...]
 ;; :dropped-events :dropped-bytes :overflow-reason :gone?}`. The `:epoch`
 ;; topic ships full epoch records — `:db-after` / `:db-before` / `:app-db`
-;; slices ride verbatim. When the `--allow-raw-state` boot gate is OFF
+;; slices ride verbatim. When the `--allow-sensitive-reads` boot gate is OFF
 ;; (the published-build default), each event must flow through
 ;; `re-frame.core/elide-wire-value` BEFORE it crosses the nREPL wire —
 ;; mirroring the snapshot / get-path gate (rf2-c2dtu) so an operator who
-;; didn't pass `--allow-raw-state` can't be talked into shipping raw
+;; didn't pass `--allow-sensitive-reads` can't be talked into shipping raw
 ;; state through a hostile per-call arg.
 ;;
 ;; The walker reads the live `[:rf/elision]` registry, so it has to run
 ;; app-side. We compose `drain-subscription!` server-side with a mapv
 ;; over `:events`, returning the same envelope with elided values in
-;; place. When elision is OFF (operator opted in via `--allow-raw-state`
+;; place. When elision is OFF (operator opted in via `--allow-sensitive-reads`
 ;; AND passed `:elision false`), the bare drain form ships raw — the
 ;; pre-rf2-vr2hn posture.
 
@@ -448,7 +448,7 @@
         poll-ms            (or (wire/arg raw-args :poll-ms) default-poll-ms)
         max-ms             (or (wire/arg raw-args :max-ms) 0)
         max-events         (or (wire/arg raw-args :max-events) 0)
-        ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
+        ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
         ;; `:include-sensitive false` on every streamed event when OFF
         ;; (the published-build default). `sensitive/strip-sensitive`
         ;; below honours the post-gate value, so a caller's
@@ -459,7 +459,7 @@
         incl?              (if (raw-state/raw-state-allowed?)
                              (args/parse-bool-arg raw-args :include-sensitive)
                              false)
-        ;; rf2-vr2hn — the `--allow-raw-state` boot gate forces
+        ;; rf2-vr2hn — the `--allow-sensitive-reads` boot gate forces
         ;; `:elision true` on every streamed event when OFF, mirroring
         ;; the snapshot / get-path gate. Server-side, the drain envelope's
         ;; `:events` flow through `re-frame.core/elide-wire-value` before
