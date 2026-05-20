@@ -24,7 +24,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter uix-adapter/adapter}))
 
 (deftest replace-container-no-ops-on-nil-container-uix

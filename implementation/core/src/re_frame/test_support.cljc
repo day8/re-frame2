@@ -1,6 +1,23 @@
 (ns re-frame.test-support
   "Test fixture helpers shared between JVM and CLJS test suites.
 
+  ## See also — `re-frame.test-helpers` (rf2-v7kjq)
+
+  Sibling namespace covering the **view-tree assertion axis** — hiccup
+  walkers (`find-by-testid`, `text-content`, `extract-handler`), handler
+  invocation (`invoke-handler`), the single-frame e2e fixture trio
+  (`with-app-fixture` / `expect-text` / `wait-until`), and the `testid`
+  authoring helper.
+
+  This namespace owns the **runtime-state assertion axis**: registrar,
+  frames, `app-db`, drain, in-flight requests, fixture machinery.
+
+  A test that exercises events / subs / machines reaches here. A test
+  that asserts on rendered view content reaches `re-frame.test-helpers`.
+  A test doing both `:require`s both. See [Spec 008 §Audience-split]
+  (../../../../../spec/008-Testing.md#audience-split--re-frametest-support-vs-re-frametest-helpers-rf2-v7kjq)
+  for the axis rationale.
+
   ## Why this namespace exists (rf2-am9d, follow-up to rf2-coks / rf2-p8g8)
 
   Tests need per-test isolation of *user-test-registered* handlers, subs,
@@ -39,7 +56,7 @@
   - [[snapshot-registrar]] — capture the current registrar state.
   - [[restore-registrar!]] — restore the registrar to a captured snapshot.
   - [[with-fresh-registrar]] — bracket a thunk with snapshot + restore.
-  - [[reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
+  - [[reset-runtime-fixture-factory]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
     per-process state held by frames / flows (when the flows artefact
     is loaded, rf2-tfw3) / adapter / machine counters / trace
@@ -142,7 +159,7 @@
 ;; ---- full per-test runtime reset ------------------------------------------
 
 (def ^:private reset-hook-table
-  "Late-bind hook keys fired by `reset-runtime-fixture` to drop per-process
+  "Late-bind hook keys fired by `reset-runtime-fixture-factory` to drop per-process
   test state — one row per optional artefact. Each entry pairs the hook key
   with a `:phase` (when it fires relative to `adapter/dispose-adapter!`) and
   the design bead that introduced the artefact. The driver
@@ -215,7 +232,7 @@
             (f)))
         (filter #(= phase (:phase %)) reset-hook-table)))
 
-(defn reset-runtime-fixture
+(defn reset-runtime-fixture-factory
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
   per-process re-frame runtime around each test.
 
@@ -266,7 +283,7 @@
   Example (CLJS):
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture
+        (test-support/reset-runtime-fixture-factory
           {:adapter reagent-adapter/adapter}))
 
   Example with example-app collision avoidance — schemas tests want a
@@ -274,16 +291,16 @@
   registrations:
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture
+        (test-support/reset-runtime-fixture-factory
           {:adapter     reagent-adapter/adapter
            :clear-kinds [:app-schema]}))
 
   Example (JVM, default plain-atom adapter):
 
       (use-fixtures :each
-        (test-support/reset-runtime-fixture
+        (test-support/reset-runtime-fixture-factory
           {:adapter plain-atom/adapter}))"
-  ([] (reset-runtime-fixture {}))
+  ([] (reset-runtime-fixture-factory {}))
   ([{:keys [adapter init-fn clear-kinds]}]
    (fn [test-fn]
      ;; Late-bind: when the schemas artefact is loaded, snap and restore

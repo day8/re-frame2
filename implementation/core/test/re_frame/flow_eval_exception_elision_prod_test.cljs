@@ -42,7 +42,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter
      :init-fn (fn []
                 ;; Per rf2-bacs4: clear the listener registry between

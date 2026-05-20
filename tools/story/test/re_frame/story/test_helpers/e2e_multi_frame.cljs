@@ -65,7 +65,7 @@
   The body runs inside a try/finally that clears Story registrar,
   clears Causa's trace-bus buffer, and resets the shell-state-atom
   so subsequent tests start from a fresh slate. The
-  `reset-runtime-fixture` (which the per-test-file fixture wraps
+  `reset-runtime-fixture-factory` (which the per-test-file fixture wraps
   around `use-fixtures :each`) handles frame disposal and registrar
   restoration."
   (:require [re-frame.core :as rf]

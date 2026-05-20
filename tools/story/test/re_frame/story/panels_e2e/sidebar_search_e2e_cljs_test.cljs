@@ -43,7 +43,7 @@
             [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 ;; A canonical fixture: two stories, four variants. The names are
 ;; chosen so the AND-token discriminator has distinct hits for each

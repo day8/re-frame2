@@ -94,11 +94,11 @@
 
 (def fixture
   "`use-fixtures :each` value for sub-reactivity tests. Wires
-  test-support/reset-runtime-fixture with the plain-atom adapter and
+  test-support/reset-runtime-fixture-factory with the plain-atom adapter and
   the Causa init-fn. Usage:
 
       (use-fixtures :each h/fixture)"
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 

@@ -13,7 +13,7 @@
             [day8.re-frame2-causa.panels.app-db-diff-subs :as subs]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter
      :init-fn (fn []
                 (reset! subs/diff-cache {})

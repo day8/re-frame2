@@ -28,7 +28,7 @@
             [re-frame.trace]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (defn- frame-db [] (rf/get-frame-db :rf/default))
 (defn- snapshot [machine-id] (get-in (frame-db) [:rf/machines machine-id]))

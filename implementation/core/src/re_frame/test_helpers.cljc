@@ -2,6 +2,25 @@
   "View-assertion test helpers — walk a hiccup tree by `:data-testid`,
   read out content and event-handlers, invoke an attached handler.
 
+  ## See also — `re-frame.test-support` (rf2-v7kjq)
+
+  Sibling namespace covering the **runtime-state assertion axis** —
+  registrar snapshot/restore, the `reset-runtime-fixture-factory`
+  per-process `:each` fixture, `dispatch-sequence`, `assert-state`,
+  bounded-deadline `poll-until`.
+
+  This namespace owns the **view-tree assertion axis**: call the view-fn
+  directly, walk the returned hiccup, assert on content (catches
+  state-correct-but-view-broken bugs) or invoke a handler (catches
+  wrong-frame dispatch bugs).
+
+  A test that exercises events / subs / machines reaches
+  `re-frame.test-support`. A test that asserts on rendered view content
+  reaches here. A test doing both `:require`s both. See [Spec 008
+  §Audience-split]
+  (../../../../../spec/008-Testing.md#audience-split--re-frametest-support-vs-re-frametest-helpers-rf2-v7kjq)
+  for the axis rationale.
+
   ## Why this ns exists (rf2-irp6j)
 
   re-frame2's testing surface (Spec 008, [`re-frame.test-support`]
@@ -490,7 +509,7 @@
                         body: `(reg-event-db ...)` / `(reg-sub ...)` /
                         `(reg-view ...)` calls that the test relies on.
                         Registrations land in the global registrar; pair
-                        this fixture with `re-frame.test-support/reset-runtime-fixture`
+                        this fixture with `re-frame.test-support/reset-runtime-fixture-factory`
                         (or `with-fresh-registrar`) to roll them back
                         between tests.
        :root-view       view fn (a hiccup-returning function). Stashed in

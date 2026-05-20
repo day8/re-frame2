@@ -25,7 +25,7 @@
 (use-fixtures :each
   (fn [test-fn]
     (http-managed/clear-all-in-flight!)
-    ((test-support/reset-runtime-fixture
+    ((test-support/reset-runtime-fixture-factory
        {:adapter helix-adapter/adapter})
       test-fn)
     (http-managed/clear-all-in-flight!)))

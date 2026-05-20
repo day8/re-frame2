@@ -12,6 +12,24 @@
 
   Plus `(with-managed-request-stubs stubs body)` helper for test ergonomics.
 
+  ## Test-author entry point (rf2-fu71w)
+
+  The stubbing macros live HERE:
+
+    - `with-managed-request-stubs`        — body-bracketing macro
+    - `with-managed-request-stubs*`       — plain-fn surface
+    - `install-managed-request-stubs!`    — multi-`deftest` installer
+    - `uninstall-managed-request-stubs!`  — idempotent teardown
+
+  The sibling namespace `re-frame.http-test-support` does NOT own the
+  stubbing macros — its sole role is to register the two canned-stub fxs
+  (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`)
+  at ns-load. A test wanting route-keyed stubbing reaches for the macros
+  here; a test wanting the canned-stub fx ids in `:fx-overrides`
+  additionally `:require`s `re-frame.http-test-support` for the
+  registration side effect. See
+  [Spec 008 §HTTP test surfaces](../../../../../spec/008-Testing.md#http-test-surfaces--two-namespaces-rf2-fu71w).
+
   The two canonical canned-stub fxs (`:rf.http/managed-canned-success` /
   `:rf.http/managed-canned-failure`) register under
   `re-frame.http-test-support`, NOT here. Production code paths (JVM, SSR,

@@ -5,7 +5,7 @@
   The UIx adapter wires its per-adapter `clear-warned-non-dom-roots!`
   thunk into the chained hook at ns-load via
   `spine/install-clear-warn-once-step!` (see `uix.cljs:180`). The hook
-  is then invoked by `reset-runtime-fixture` after every test to keep
+  is then invoked by `reset-runtime-fixture-factory` after every test to keep
   warn-once state from leaking across sibling tests.
 
   The publication test (`uix_late_bind_publication_cljs_test.cljs`)
@@ -31,7 +31,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter uix-adapter/adapter}))
 
 ;; ---- helper: capture console.warn calls -----------------------------------

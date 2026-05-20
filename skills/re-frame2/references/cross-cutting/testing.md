@@ -19,17 +19,17 @@ Everything you need — fixtures, helpers — lives under `re-frame.test-support
 
 ```clojure
 (use-fixtures :each
-  (ts/reset-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (ts/reset-runtime-fixture-factory {:adapter reagent-adapter/adapter}))
 ```
 
-`reset-runtime-fixture` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event-db` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
+`reset-runtime-fixture-factory` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event-db` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
 
 JVM tests pass the plain-atom adapter:
 
 ```clojure
 (:require [re-frame.substrate.plain-atom :as plain-atom])
 
-(use-fixtures :each (ts/reset-runtime-fixture {:adapter plain-atom/adapter}))
+(use-fixtures :each (ts/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 ```
 
 Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (e.g. `[:app-schema]` to start each test with an empty schema slate while preserving the snapshot on exit).
@@ -200,7 +200,7 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 ## Checklist before declaring a test done
 
 - The ns uses `re-frame.test-support` and `re-frame.core` only — no reach into internal namespaces.
-- A `:each` `reset-runtime-fixture` is installed with the right `:adapter`.
+- A `:each` `reset-runtime-fixture-factory` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `sub-machine` / `machine-has-tag?` or `(get-in db [:rf/machines id])` — not internal machine namespaces.

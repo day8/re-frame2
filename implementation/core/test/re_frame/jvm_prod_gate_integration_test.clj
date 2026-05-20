@@ -20,7 +20,7 @@
             [re-frame.trace :as trace]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter plain-atom/adapter}))
 
 (deftest trace-buffer-inert-when-debug-disabled

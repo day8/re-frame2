@@ -33,10 +33,10 @@
 ;; on CLJS: it would wipe routing.cljc's ns-load-time registrations
 ;; (the :rf.route/* events, the :rf/route reg-sub family, AND the
 ;; :route/link registered view), and CLJS has no `require :reload` to
-;; resurrect them. test-support's reset-runtime-fixture snapshots the
+;; resurrect them. test-support's reset-runtime-fixture-factory snapshots the
 ;; registrar and rolls back per-test changes only.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter
      :init-fn routing/reset-counters!}))
 

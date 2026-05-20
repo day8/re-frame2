@@ -13,7 +13,7 @@
             [day8.re-frame2-causa.panels.views-sub-diff :as view]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (defn- expand-fn [node]
   (if (and (vector? node) (fn? (first node)))

@@ -28,7 +28,7 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.test-support :as test-support]))
 
-(use-fixtures :each (test-support/reset-runtime-fixture))
+(use-fixtures :each (test-support/reset-runtime-fixture-factory))
 
 ;; ---- helper -----------------------------------------------------------------
 

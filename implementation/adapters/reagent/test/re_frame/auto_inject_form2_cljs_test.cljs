@@ -41,7 +41,7 @@
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter}))
 
 ;; ---- Form-1 baseline: dispatch / subscribe are auto-injected -------------

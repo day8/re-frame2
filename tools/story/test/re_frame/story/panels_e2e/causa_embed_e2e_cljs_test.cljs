@@ -77,7 +77,7 @@
 ;; The stub fixture is no longer needed.
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 ;; A minimal variant registration the embed-surface tests depend on —
 ;; the embed reads `:selected-variant` off the shell ratom; resolving

@@ -17,7 +17,7 @@
   (some? (th/find-by-testid tree testid)))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (deftest views-panel-renders-with-testids
   (facade/install!)

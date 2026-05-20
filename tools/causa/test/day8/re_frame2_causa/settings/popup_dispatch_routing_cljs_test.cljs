@@ -3,7 +3,7 @@
 
   Sibling to `popup_cljs_test.cljs`. Lives in a separate ns so the
   `use-fixtures` map shape required by `cljs.test/async` does not
-  conflict with the fn-form `reset-runtime-fixture` the existing
+  conflict with the fn-form `reset-runtime-fixture-factory` the existing
   render / open-state tests use.
 
   ## The bug these tests defend against
@@ -59,7 +59,7 @@
   (trace-bus/clear-buffer!)
   (config/reset-settings!)
   ;; Capture the framework registrar so we can restore it post-test,
-  ;; matching the body of `test-support/reset-runtime-fixture`.
+  ;; matching the body of `test-support/reset-runtime-fixture-factory`.
   (reset! fixture-snap (test-support/snapshot-registrar))
   (reset! frame/frames {})
   (substrate-adapter/dispose-adapter!)

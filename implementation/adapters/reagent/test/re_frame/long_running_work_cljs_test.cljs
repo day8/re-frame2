@@ -32,7 +32,7 @@
             [long-running-work.worker-test :as wt]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter}))
 
 (deftest long-running-work-spawn-cascade

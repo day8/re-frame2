@@ -46,7 +46,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   ├── stories.md           (reg-story, story frames)
 > │   │   └── routing.md           (reg-route, :can-leave?, navigation)
 > │   └── cross-cutting/
-> │       ├── testing.md           (reset-runtime-fixture, dispatch-sync, compute-sub)
+> │       ├── testing.md           (reset-runtime-fixture-factory, dispatch-sync, compute-sub)
 > │       └── api-cheatsheet.md    (one-page reg-* signature index)
 > ├── patterns/
 > │   ├── remote-data.md

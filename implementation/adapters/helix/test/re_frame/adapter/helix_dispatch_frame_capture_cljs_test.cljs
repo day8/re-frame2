@@ -45,7 +45,7 @@
   ;; ns-load `reg-app-schema` calls from sibling test namespaces (e.g.
   ;; the elision demo's `:user/avatar-pdf` schema) don't fire post-
   ;; commit validation rollbacks against this test's frames. The
-  ;; canonical `reset-runtime-fixture` includes this clear via the
+  ;; canonical `reset-runtime-fixture-factory` includes this clear via the
   ;; `:schemas/clear-by-frame!` late-bind hook; the ad-hoc fixture
   ;; here mirrors that step.
   (when-let [clear! (late-bind/get-fn :schemas/clear-by-frame!)]

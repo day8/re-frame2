@@ -46,7 +46,7 @@
 ;; restore on the way out leaves nine-states.core's schemas intact for
 ;; downstream tests.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter     reagent-adapter/adapter
      :clear-kinds [:app-schema]}))
 

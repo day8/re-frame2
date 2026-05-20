@@ -69,7 +69,7 @@
 ;; React's "must be in a Document" check (the elements ARE owned by the
 ;; ambient `js/document`) but don't mutate the test page's visible DOM.
 ;; This keeps tests independent — no race over a shared mount slot — and
-;; matches the per-test cleanup the `reset-runtime-fixture` already gives
+;; matches the per-test cleanup the `reset-runtime-fixture-factory` already gives
 ;; us at the runtime layer.
 
 (defn- make-mount-node! []
@@ -84,7 +84,7 @@
 ;; Snapshot/restore preserves those while rolling back the test's own
 ;; registrations on the way out.
 (use-fixtures :each
-  (test-support/reset-runtime-fixture
+  (test-support/reset-runtime-fixture-factory
     {:adapter reagent-adapter/adapter}))
 
 (defn- collect-traces [k]

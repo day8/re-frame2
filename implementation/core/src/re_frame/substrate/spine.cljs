@@ -572,7 +572,7 @@
 
 (defn make-clear-warned-fn
   "Return a thunk that resets `cache-atom` to `#{}` and returns nil.
-  Tests use this between cases (via `reset-runtime-fixture` and the
+  Tests use this between cases (via `reset-runtime-fixture-factory` and the
   chained `:adapter/clear-warn-once-caches!` hook) so a sibling test's
   first-encounter warning cannot silently swallow a later test's same-
   id warning."
@@ -647,7 +647,7 @@
 (defn install-clear-warn-once-step!
   "Wire `clear-fn` into the chained `:adapter/clear-warn-once-caches!`
   late-bind hook. The hook is chained — each adapter and re-frame.views
-  contribute a clear-step; `reset-runtime-fixture` invokes the top of
+  contribute a clear-step; `reset-runtime-fixture-factory` invokes the top of
   the chain and every contributor's reset runs. Thin wrapper around
   `late-bind/chain-fn!` so callers don't need to know the chain key."
   [clear-fn]

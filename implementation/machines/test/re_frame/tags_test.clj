@@ -27,7 +27,7 @@
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (defn- snapshot [machine-id]
   (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))

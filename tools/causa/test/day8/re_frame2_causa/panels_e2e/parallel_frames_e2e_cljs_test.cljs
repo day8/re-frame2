@@ -73,7 +73,7 @@
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/reset-runtime-fixture-factory {:adapter plain-atom/adapter}))
 
 (def ^:private frame-above :above)
 (def ^:private frame-below :below)
