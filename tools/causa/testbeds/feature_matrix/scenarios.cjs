@@ -94,12 +94,15 @@ const STAGED_SURFACES = [
     html: ['testbeds', 'drain_depth_trigger', 'index.html'],
     servedPath: 'testbeds/drain-depth-trigger',
   },
-  {
-    build: 'testbeds/non-trivial-app-db',
-    bundleDir: ['out', 'testbeds', 'non-trivial-app-db'],
-    html: ['testbeds', 'non_trivial_app_db', 'index.html'],
-    servedPath: 'testbeds/non-trivial-app-db',
-  },
+  // ---- retired with the converted scenario (rf2-rviu8) ----------------
+  //
+  // The `testbeds/non-trivial-app-db` build was driven by the
+  // 'non-trivial app-db diff substrate' scenario. That scenario is
+  // now covered by `non_trivial_app_db_e2e_cljs_test.cljs` (data-
+  // level, no browser), so the staged surface is no longer needed.
+  // Removing it saves the bundle compile + serve setup. The testbed
+  // source remains under `testbeds/non_trivial_app_db/` for any
+  // future re-introduction.
   {
     build: 'testbeds/large-dispatcher',
     bundleDir: ['out', 'testbeds', 'large-dispatcher'],
@@ -2758,13 +2761,18 @@ const SCENARIOS = [
   // probe, but there is no Causa UI handoff to assert against.
   // Scenario retired; runDrainDepth / runLongFlow stay in place for
   // any future revival.
-  {
-    name: 'non-trivial app-db diff substrate',
-    url: '/testbeds/non-trivial-app-db/',
-    panels: ['app-db', 'time-travel'],
-    coveredRows: ['App-DB Diff', 'Time Travel'],
-    run: runAppDbPrivacyLarge,
-  },
+  //
+  // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------
+  //
+  // 'non-trivial app-db diff substrate' — the Playwright scenario
+  // only asserted the App-DB Diff panel mounted after a six-click
+  // sequence of deep-tree mutations. The data invariants (spine focus
+  // advances, target-frame-db reflects each mutation, epoch history
+  // grows by 6) are now covered at <50ms per assertion by
+  // `tools/causa/test/day8/re_frame2_causa/panels_e2e/
+  // non_trivial_app_db_e2e_cljs_test.cljs`. Per Mike's 2026-05-19
+  // multi-frame-e2e finding, removing this scenario cuts ~30s of
+  // browser gate runtime with zero coverage loss.
   {
     name: '20-event large value elision load',
     url: '/testbeds/large-dispatcher/',
@@ -2782,21 +2790,19 @@ const SCENARIOS = [
     coveredRows: ['Issues Ribbon'],
     run: runHydration,
   },
-  {
-    name: '20-event feature/load re-check',
-    url: '/counter/',
-    // Post rf2-xy4yb + rf2-y0z5b: causality / time-travel /
-    // performance panels dropped. Load re-check exercises the
-    // surviving Trace + Event tabs under 20-dispatch load.
-    panels: ['trace', 'event'],
-    load: true,
-    coveredRows: [
-      'Event Detail',
-      'Trace',
-      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
-    ],
-    run: runTwentyEventLoad,
-  },
+  // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------
+  //
+  // '20-event feature/load re-check' — the Playwright scenario drove
+  // 20 host counter +/- clicks and asserted the trace count grew +
+  // the Event Detail cascade rendered. Both are data invariants the
+  // multi-frame e2e harness covers at ~5ms per dispatch (vs ~200ms
+  // per click in browser):
+  // `tools/causa/test/day8/re_frame2_causa/panels_e2e/
+  // twenty_event_load_e2e_cljs_test.cljs` walks the same 20-event
+  // sequence, asserts cascades grow, focus auto-follows the head
+  // (rf2-70tkv class), epoch history records every dispatch, and
+  // target-frame-db reflects the net counter value. Estimated CI
+  // saving: ~45s (full 20-click sequence + panel handoff).
   {
     name: '1000-event trace row-budget plus 20-dispatch re-check',
     url: '/counter/',
@@ -2824,19 +2830,16 @@ const SCENARIOS = [
     ],
     run: runLaunchModesTwentyEventLoad,
   },
-  {
-    // rf2-qd5r6 — ex-Tier-2 L-10 deepening (configure! multi-key
-    // + partial-update semantics; auto-open / layout-host-selector
-    // round-trips). Lives here rather than parallel_frames because
-    // Causa config is single-instance global state, not per-frame.
-    name: 'configure! multi-key map and partial-update semantics',
-    url: '/counter/',
-    panels: [],
-    coveredRows: [
-      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
-    ],
-    run: runConfigurePartialUpdate,
-  },
+  // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------
+  //
+  // 'configure! multi-key map and partial-update semantics' (was
+  // rf2-qd5r6). The Playwright scenario went into a browser solely
+  // to call `window.day8.re_frame2_causa.config.configure_BANG_` and
+  // assert atom-state round-trips. Pure CLJS — no DOM involvement.
+  // Converted to direct fn-call coverage in
+  // `tools/causa/test/day8/re_frame2_causa/panels_e2e/
+  // configure_multi_key_e2e_cljs_test.cljs`. Estimated CI saving:
+  // ~10s (browser context teardown alone).
 ];
 
 module.exports = {
