@@ -23,13 +23,21 @@
 
   ## Boot
 
-  Call `(re-frame.story/install-canonical-vocabulary!)` once at app
-  startup (typically from your `app.core` ns or your stories ns root)
-  to register the seven canonical tags, the runtime helpers, the
-  canonical `:rf.assert/*` event handlers, the built-in
-  `:rf.story/force-fx-stub` decorator, the lifecycle machine, and the
-  v1.0 SOTA panel set. Without this, variants tagged `:dev` / `:docs` /
-  etc. fail registration with `:rf.error/unknown-tag`.
+  The canonical Story vocabulary auto-installs on the first `reg-*`
+  call (per rf2-p1ydc + tools/story/spec/001-Authoring.md §Boot —
+  auto-install of the canonical vocabulary). Authors don't have to
+  remember an explicit boot step; the first `(reg-story ...)` /
+  `(reg-variant ...)` / etc. lands the seven canonical tags + the
+  `:rf.assert/*` event handlers + the built-in
+  `:rf.story/force-fx-stub` decorator + the lifecycle machine + the
+  v1.0 SOTA panel set + (CLJS only) the Reagent substrate default
+  before validating the body's `:tags`.
+
+  The explicit call `(re-frame.story/install-canonical-vocabulary!)`
+  is still supported for hosts that prefer a literal boot step and
+  for test fixtures that want to assert a known starting state. The
+  call is idempotent — whether it fires on the auto-install path or
+  from an explicit call, the side-table lands in the same shape.
 
   ## Elision
 
@@ -459,13 +467,18 @@
   decorator, layout-debug decorator trio, toolbar cofx + subs, and the
   v1.0 SOTA panel set (CLJS only).
 
-  Call this once at boot before any `reg-story` / `reg-variant` /
-  `run-variant` calls. Idempotent.
+  Per rf2-p1ydc + tools/story/spec/001-Authoring.md §Boot — auto-install
+  of the canonical vocabulary, this fires automatically on the first
+  `reg-*` call; authors don't have to call it explicitly. The explicit
+  call remains supported for hosts that prefer a literal boot step
+  and for test fixtures that want to assert a known starting state.
+  Idempotent — whether the chain runs via auto-install or from this
+  explicit entry, the side-table lands in the same shape.
 
   Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 / §5.4 the canonical
-  vocabulary is registered by the Story library at load time — projects
-  don't have to. Project-specific tags must register via `reg-tag`
-  *before* use; an unregistered tag on a variant's `:tags` set raises
+  vocabulary is registered by the Story library — projects don't have
+  to. Project-specific tags must register via `reg-tag` *before* use;
+  an unregistered tag on a variant's `:tags` set raises
   `:rf.error/unknown-tag`."
   []
   (canonical/install!))
@@ -656,12 +669,19 @@
   "Reset every Story registration. Used by test fixtures. Mirrors
   `re-frame.registrar/clear-all!`.
 
-  Also clears the rf2-835ey global-decorators vector so stale ref-by-id
-  entries do not survive a registrar reset and bleed into the next
-  test."
+  Also:
+  - clears the rf2-835ey global-decorators vector so stale ref-by-id
+    entries do not survive a registrar reset and bleed into the next
+    test;
+  - resets the rf2-p1ydc auto-install gate so the next `reg-*` call
+    after `clear-all!` re-installs the canonical vocabulary on demand
+    (the registrar's side-table is now empty — the seven canonical
+    tags etc. need to be re-registered before any tagged variant can
+    be added)."
   []
   (registrar/clear-all!)
-  (config/set-global-decorators! []))
+  (config/set-global-decorators! [])
+  (canonical/reset-installed-flag!))
 
 (defn clear-kind!
   "Remove every id under `kind`. Used by test fixtures and hot-reload."

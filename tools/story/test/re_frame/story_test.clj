@@ -20,6 +20,7 @@
   run on the JVM should."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
+            [re-frame.story.canonical :as canonical]
             [re-frame.story.config :as story-config]
             [re-frame.story.extends :as extends]
             [re-frame.story.registrar :as registrar]
@@ -39,6 +40,107 @@
 (deftest canonical-tags-installed
   (testing "the seven canonical tags are registered after boot"
     (is (= schemas/canonical-tags (story/list-tags)))
+    (is (every? #(story/registered? :tag %) schemas/canonical-tags))))
+
+;; ---- auto-install on first reg-* call (rf2-p1ydc) ----------------------
+;;
+;; The canonical vocabulary auto-installs on the first `reg-*` runtime
+;; call so authors don't need a separate `(story/install-canonical-vocabulary!)`
+;; boot step. Spec: tools/story/spec/001-Authoring.md §Boot — auto-install
+;; of the canonical vocabulary.
+;;
+;; These tests deliberately call `clear-all!` to wipe the registrar +
+;; the auto-install gate so the first `reg-*` below is genuinely the
+;; first one in this generation.
+
+(deftest auto-install-fires-on-first-reg-story
+  (testing "the first reg-story after clear-all! auto-installs the canonical vocabulary"
+    (story/clear-all!)
+    (is (false? @canonical/installed?) "the gate is reset by clear-all!")
+    (is (empty? (story/list-tags))     "the side-table is wiped")
+    ;; The story body uses :tags #{:dev :docs} — without auto-install
+    ;; this would raise :rf.error/unknown-tag. With auto-install, the
+    ;; canonical tags are registered on the first reg-story call.
+    (story/reg-story :story.auto-install.probe
+      {:doc  "Auto-install probe."
+       :tags #{:dev :docs}})
+    (is (true? @canonical/installed?) "the gate flips true after auto-install")
+    (is (= schemas/canonical-tags (story/list-tags))
+        "all seven canonical tags are registered post-auto-install")
+    (is (story/registered? :story :story.auto-install.probe))))
+
+(deftest auto-install-fires-on-first-reg-variant
+  (testing "the first reg-variant after clear-all! also triggers auto-install"
+    (story/clear-all!)
+    (story/reg-variant :story.auto-install/v
+      {:events []
+       :tags   #{:dev}})
+    (is (true? @canonical/installed?))
+    (is (story/registered? :variant :story.auto-install/v))
+    (is (every? #(story/registered? :tag %) schemas/canonical-tags))))
+
+(deftest auto-install-fires-on-first-reg-tag
+  (testing "the first reg-tag (project-tag) after clear-all! also triggers auto-install"
+    (story/clear-all!)
+    ;; A project tag — registering it should ALSO install the canonical
+    ;; seven first, so subsequent variants tagged `:dev` still validate.
+    (story/reg-tag :auth/regression-set {:doc "Auth regression-suite."})
+    (is (story/registered? :tag :auth/regression-set))
+    (is (every? #(story/registered? :tag %) schemas/canonical-tags)
+        "canonical tags ride along with the first reg-tag too")))
+
+(deftest auto-install-is-idempotent
+  (testing "subsequent reg-* calls do NOT re-trigger the installer chain"
+    (story/clear-all!)
+    (story/reg-story :story.idem.a {:tags #{:dev}})
+    ;; A subsequent registration must not break, must not re-install
+    ;; (we observe idempotency indirectly: the side-table stays
+    ;; consistent and no exception fires).
+    (let [tags-after-first (story/list-tags)]
+      (story/reg-story :story.idem.b {:tags #{:docs}})
+      (story/reg-variant :story.idem.a/v {:tags #{:dev} :events []})
+      (is (= tags-after-first (story/list-tags))
+          "canonical tag set is stable across subsequent reg-* calls"))))
+
+(deftest explicit-install-after-auto-install-is-noop
+  (testing "calling install-canonical-vocabulary! explicitly after auto-install fired is a no-op"
+    (story/clear-all!)
+    (story/reg-story :story.explicit.probe {:tags #{:dev}})
+    (let [tags-after-auto-install (story/list-tags)
+          decorators-after        (story/ids :decorator)]
+      ;; Explicit call lands on the already-true gate; install! flips
+      ;; it true (already true) and re-runs the installer chain. Every
+      ;; installer is documented idempotent, so the side-table snapshot
+      ;; should be unchanged.
+      (story/install-canonical-vocabulary!)
+      (is (= tags-after-auto-install (story/list-tags)))
+      (is (= decorators-after (story/ids :decorator))))))
+
+(deftest explicit-install-before-reg-suppresses-auto-install
+  (testing "calling install-canonical-vocabulary! at boot suppresses the auto-install path"
+    ;; Author who DOES make the explicit call (the v1 documented path)
+    ;; still works: the gate is true when the first reg-* fires, so
+    ;; the auto-install hook hits the early-return branch.
+    (story/clear-all!)
+    (story/install-canonical-vocabulary!)
+    (is (true? @canonical/installed?))
+    ;; The first reg-* must NOT throw and must NOT recompute the
+    ;; installer chain (no easy direct probe — but no exception +
+    ;; correct registry shape is the contract).
+    (story/reg-story :story.explicit-boot.probe {:tags #{:dev}})
+    (is (story/registered? :story :story.explicit-boot.probe))))
+
+(deftest clear-all-resets-auto-install-gate
+  (testing "clear-all! resets the auto-install gate so the cycle can fire again"
+    (story/clear-all!)
+    (story/reg-story :story.gate-cycle.a {:tags #{:dev}})
+    (is (true? @canonical/installed?))
+    (story/clear-all!)
+    (is (false? @canonical/installed?))
+    ;; A second cycle works exactly like the first.
+    (story/reg-story :story.gate-cycle.b {:tags #{:docs}})
+    (is (true? @canonical/installed?))
+    (is (story/registered? :story :story.gate-cycle.b))
     (is (every? #(story/registered? :tag %) schemas/canonical-tags))))
 
 ;; ---- reg-story basic ----------------------------------------------------

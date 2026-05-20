@@ -62,7 +62,8 @@
   - Loader four-phase lifecycle
   - Play execution
   - Snapshot identity computation"
-  (:require [re-frame.story.schemas :as schemas]
+  (:require [re-frame.story.late-bind :as late-bind]
+            [re-frame.story.schemas   :as schemas]
             #?(:clj [re-frame.story.extends :as extends]
                :cljs [re-frame.story.extends :as extends])))
 
@@ -261,6 +262,31 @@
                        :kind     kind
                        :id       id})))))
 
+;; ---- auto-install hook (rf2-p1ydc) ---------------------------------------
+;;
+;; Every `reg-*!` helper calls `maybe-auto-install!` at entry. If the
+;; canonical vocabulary hasn't been installed in the current registrar
+;; generation, the late-bound hook (set by `re-frame.story.canonical` at
+;; ns load) runs the installer chain on demand. Once installed, the
+;; hook is a single `deref` of an atom — negligible on the hot path.
+;;
+;; Spec: tools/story/spec/001-Authoring.md §Boot — auto-install of the
+;; canonical vocabulary.
+
+(defn- maybe-auto-install!
+  "Trigger the canonical-vocabulary auto-install if it hasn't fired in
+  the current registrar generation. Idempotent on every call after the
+  first; cheap (one deref + one nil-check) on subsequent registrations.
+
+  No-op when the late-bound hook is absent — e.g. JVM tests of the
+  registrar in isolation that load `registrar.cljc` without
+  `canonical.cljc`. The fallback keeps the registrar usable for the
+  low-level test of side-table semantics; in normal use the hook is
+  set at `re-frame.story` ns load."
+  []
+  (when-let [f (late-bind/get-fn :ensure-canonical-installed)]
+    (f)))
+
 ;; ---- write API (the runtime helpers the macros expand to) ----------------
 
 (defn reg-story*
@@ -272,6 +298,7 @@
   and the N independent `reg-variant*` calls have been emitted as
   siblings. So the helper sees only the parent-story slice."
   [id body]
+  (maybe-auto-install!)
   (assert-id! :story id)
   (let [body (-> body
                  (dissoc :variants)               ; Form-B sugar is removed by the macro
@@ -291,6 +318,7 @@
   4. Stamp source coords.
   5. Write to the side-table."
   [id body]
+  (maybe-auto-install!)
   (assert-id! :variant id)
   (let [resolved (extends/resolve-extends body
                                           (fn [pid] (handler-meta :variant pid)))
@@ -305,6 +333,7 @@
 (defn reg-workspace*
   "Runtime helper for `reg-workspace` macro."
   [id body]
+  (maybe-auto-install!)
   (assert-id! :workspace id)
   (let [body (-> body
                  merge-coords
@@ -317,6 +346,7 @@
   "Runtime helper for `reg-mode` macro. Per IMPL-SPEC §2.8.3 modes ship
   in v1."
   [id body]
+  (maybe-auto-install!)
   (assert-id! :mode id)
   (let [body (-> body
                  merge-coords
@@ -329,6 +359,7 @@
   "Runtime helper for `reg-story-panel` macro. Per spec/007 §Story-tool
   extension hook."
   [id body]
+  (maybe-auto-install!)
   (assert-id! :story-panel id)
   (let [body (-> body
                  merge-coords
@@ -343,6 +374,7 @@
   Story surface — it lives at the decorator's registration site, NOT in
   a variant body. The schema enforces this."
   [id body]
+  (maybe-auto-install!)
   (assert-id! :decorator id)
   (let [body (-> body
                  merge-coords
@@ -354,6 +386,7 @@
 (defn reg-tag*
   "Runtime helper for `reg-tag` macro."
   [id body]
+  (maybe-auto-install!)
   (assert-id! :tag id)
   (let [body (-> body
                  merge-coords
