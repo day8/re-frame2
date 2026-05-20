@@ -1,19 +1,37 @@
 (ns day8.re-frame2-causa.static.machines.topology
   "Topology mode renderer — Static-read view of a machine's state graph
-  (rf2-o5f5f.2).
+  (rf2-o5f5f.2; rf2-md9oz upgrade to interactive Chart adapter).
 
   ## What it renders
 
-  The same `chart/svg` MachineChart primitive the Runtime panel uses
-  (per findings §5.1 — single implementation). **The Static-mode
-  rendering passes NO `:highlight-id`** — Topology in Static is a
-  static-read; there's no active state to spotlight.
+  The Static Topology body embeds `machine-canvas/Chart` — the same
+  interactive viewport adapter the Runtime Machines panel uses — so
+  Static users get zoom / pan / fit with the same gestures and the
+  same keyboard shortcuts (`+` / `-`, arrows, `f`, `0`). Stately and
+  XState's static / read-only chart views get the same affordances;
+  Causa's static surface should match.
 
-  Click on a state node fires `:rf.causa.static.machines/state-clicked`
-  with the clicked state's path; the right pane carries a metadata
-  rail showing incoming / outgoing edges + a source-coord chip (when
-  the definition lifts a coord onto the state). The chip degrades
-  gracefully when the coord is missing.
+  Static differs from Runtime in three respects:
+
+    1. NO focused-event lens — Static is a static-read; there's no
+       `:from-highlight-id` / `:to-highlight-id` to pass, and the
+       after-rings overlay is suppressed (`:show-after-rings?
+       false`).
+    2. NO Canvas/List view-mode toggle inside the canvas — the
+       Static Machines panel already owns a per-machine sub-mode
+       pill strip at L3 (Topology / Sim / Instances / Cascade); a
+       second toggle inside the canvas would be redundant noise.
+       (`:show-view-mode-toggle? false`.)
+    3. Click on a state node fires
+       `:rf.causa.static.machines/state-clicked` (with the clicked
+       state's path) — not the Runtime panel's inspector-lens
+       navigation event.
+
+  The per-machine viewport slot is shared with the Runtime Machine
+  Inspector — if the user pans / zooms in either surface, the other
+  picks up the same viewport when it next mounts. That matches the
+  user model: 'this is the chart for machine X, parked in this
+  view.'
 
   ## Empty states
 
@@ -21,8 +39,9 @@
     first row when one exists).
   - Machine has no definition (registrar returns nil from
     `machine-meta`) — render a hint pointing at `reg-machine`.
-  - Definition with no `:states` map (degenerate) — falls through to
-    `chart/svg/render`'s built-in 'no states' message.
+  - Definition with no `:states` map (degenerate) — falls through
+    to `mv-svg/render`'s built-in 'no states' message (rendered
+    inside the canvas host).
 
   ## Definition-stale post-reload
 
@@ -34,9 +53,9 @@
   (the `machine-definitions` sub fires on framework hot-reload), so
   the data shown is always live."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
+            [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.static.machines.helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -55,8 +74,19 @@
 ;; ---- chart wrapper ------------------------------------------------------
 
 (defn- chart
-  "Render the chart SVG for `definition`. NO highlight — Static
-  Topology is a static-read."
+  "Render the interactive MachineChart canvas for `definition`. NO
+  highlight + NO after-rings — Static Topology is a static-read.
+
+  rf2-md9oz — delegates to `machine-canvas/Chart` (same adapter the
+  Runtime Machines panel uses) so the user gets zoom / pan / fit
+  + keyboard shortcuts on the Static surface too. The static-
+  flavoured opts are:
+
+    :show-view-mode-toggle? false  — Static panel owns sub-mode at L3.
+    :show-after-rings?      false  — no focused-event lens on static.
+    :testid                        — overrides the inner SVG testid
+                                     so the existing static-panel
+                                     tests still match."
   [{:keys [definition machine-id]}]
   (let [direction  :tb
         positioned (elk-layout/layout-or-fallback definition direction)
@@ -81,16 +111,23 @@
            :data-layout-engine engine
            :style {:padding    "12px"
                    :background (:bg-1 tokens)
-                   :overflow   "auto"
-                   :position   "relative"}}
-     (chart-svg/render
-       positioned
-       {:testid         "rf-causa-static-machines-topology-svg"
-        :on-state-click
-        (fn [path]
-          (rf/dispatch [:rf.causa.static.machines/state-clicked
-                        {:machine-id machine-id :path path}]
-                       {:frame :rf/causa}))})]))
+                   :overflow   "hidden"
+                   :position   "relative"
+                   ;; The canvas-host fills this wrapper — must give it
+                   ;; vertical room so the chart isn't clipped to 0px.
+                   :flex       "1 1 auto"
+                   :min-height "260px"}}
+     [machine-canvas/Chart
+      {:positioned             positioned
+       :machine-id             machine-id
+       :show-after-rings?      false
+       :show-view-mode-toggle? false
+       :testid                 "rf-causa-static-machines-topology-svg"
+       :on-state-click
+       (fn [path]
+         (rf/dispatch [:rf.causa.static.machines/state-clicked
+                       {:machine-id machine-id :path path}]
+                      {:frame :rf/causa}))}]]))
 
 ;; ---- chart toolbar (open in popout) -------------------------------------
 
@@ -148,8 +185,11 @@
   "Render Topology mode for `machine-id`. `definition` is the
   registrar's spec map; `source-coord` is its lifted coord (or nil).
 
-  Pure-ish — reads no subscribes (the panel feeds the props). The
-  embedded `chart-svg/render` is pure hiccup."
+  The embedded `machine-canvas/Chart` (rf2-md9oz) subscribes to
+  `:rf.causa.machine-canvas/viewport-for` internally so zoom / pan
+  state lives in app-db — the body function itself is still pure
+  hiccup; the subscribe lands one level down in the canvas
+  adapter."
   [{:keys [machine-id definition source-coord] :as args}]
   (cond
     (nil? definition)

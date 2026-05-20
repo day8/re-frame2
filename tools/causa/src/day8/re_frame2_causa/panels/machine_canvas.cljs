@@ -33,14 +33,35 @@
   static panel uses (`static/machines/topology.cljs` consumes the
   chart in static-read mode; this ns is its runtime peer).
 
-  ## Static-mode parity
+  ## Static-mode parity (rf2-md9oz)
 
   The static topology consumer (`static/machines/topology.cljs`)
-  is read-only and passes no `:highlight-id` / no
-  `:viewport-transform`. To give static users zoom + pan + fit
-  too, the same `Chart` view here can be embedded on the static
-  side in a follow-on bead — for v1 the static surface is
-  untouched."
+  is read-only and embeds this `Chart` view to get zoom + pan +
+  fit too. Static callers pass:
+
+    :show-view-mode-toggle? false  — Canvas/List toggle is a
+                                     Runtime concept; the Static
+                                     Machines panel already owns
+                                     a per-machine sub-mode pill
+                                     strip at L3, so the toggle
+                                     is meaningless on static.
+    :show-after-rings?      false  — after-rings overlay is a
+                                     Runtime focused-event lens;
+                                     no live focused event exists
+                                     on the static surface.
+    :testid                 \"rf-causa-static-machines-topology-svg\"
+                                   — overrides the inner SVG's
+                                     root data-testid so the
+                                     static-panel tests find it.
+    :show-controls-toolbar? true   — zoom/pan/fit toolbar still
+                                     useful on static; default
+                                     left on.
+
+  The per-machine viewport slot IS shared across Static and
+  Runtime — if the user pans/zooms a machine in either surface,
+  the other surface picks up the same viewport when it next
+  mounts. This matches the user model: 'this is the chart for
+  machine X, and I parked it in this view'."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [day8.re-frame2-machines-viz.chart.controls :as ctl]
@@ -402,7 +423,7 @@
 
 (defn Chart
   "Render the interactive MachineChart inside the Runtime Machines
-  panel.
+  panel (or the Static Machines Topology body — rf2-md9oz).
 
   Args (map):
 
@@ -415,7 +436,25 @@
     :on-state-click   — click handler for state nodes.
     :show-after-rings? — when true (default) overlay
                         `[after-rings/AfterRingsOverlay positioned]`
-                        on top of the chart.
+                        on top of the chart. Runtime keeps true;
+                        Static passes false (no focused-event
+                        lens on static).
+    :show-view-mode-toggle? — when true (default) render the
+                        Canvas/List pill in the canvas's top-
+                        left. Runtime keeps true; Static passes
+                        false (the L3 sub-mode pills already
+                        own per-machine mode at the panel level).
+    :show-controls-toolbar? — when true (default) render the
+                        zoom/pan/fit controls toolbar in the
+                        canvas's top-right. Both Runtime and
+                        Static keep true.
+    :testid           — when present, forwarded to `mv-svg/render`
+                        as the inner SVG's root data-testid.
+                        Static passes
+                        `\"rf-causa-static-machines-topology-svg\"`
+                        so the existing static-panel tests still
+                        match. nil leaves the SVG with its
+                        default (`rf-mv-chart-svg`).
 
   Returns hiccup. Reads `:rf.causa.machine-canvas/viewport-for` so
   zoom/pan updates re-render the chart with a new
@@ -423,11 +462,14 @@
 
   The wrapper div carries the wheel/drag/keyboard handlers + sets
   `tabIndex=0` so the keyboard shortcuts work after the user
-  clicks on the canvas. The toolbar sits absolute-positioned in
-  the top-right corner."
+  clicks on the canvas. The controls toolbar sits absolute-
+  positioned in the top-right corner."
   [{:keys [positioned machine-id from-highlight-id to-highlight-id
-           on-state-click show-after-rings?]
-    :or   {show-after-rings? true}}]
+           on-state-click show-after-rings? show-view-mode-toggle?
+           show-controls-toolbar? testid]
+    :or   {show-after-rings?       true
+           show-view-mode-toggle?  true
+           show-controls-toolbar?  true}}]
   (let [viewport @(rf/subscribe
                     [:rf.causa.machine-canvas/viewport-for machine-id])
         content-dims {:width  (:width positioned)
@@ -481,13 +523,14 @@
      ;; Chart SVG — viewport-transform passes the user's zoom + pan.
      (mv-svg/render
        positioned
-       {:from-highlight-id  from-highlight-id
-        :to-highlight-id    to-highlight-id
-        :on-state-click     on-state-click
-        :viewport-transform viewport
-        :svg-attrs          {:style {:width  "100%"
-                                     :height "100%"
-                                     :display "block"}}})
+       (cond-> {:from-highlight-id  from-highlight-id
+                :to-highlight-id    to-highlight-id
+                :on-state-click     on-state-click
+                :viewport-transform viewport
+                :svg-attrs          {:style {:width  "100%"
+                                             :height "100%"
+                                             :display "block"}}}
+         (some? testid) (assoc :testid testid)))
      (when show-after-rings?
        ;; rf2-obp4z — the after-rings overlay receives the same
        ;; viewport-transform the chart applies. The overlay wraps
@@ -498,28 +541,30 @@
        [after-rings/AfterRingsOverlay
         positioned
         {:viewport-transform viewport}])
-     ;; Toolbar — absolute top-right, above the chart SVG.
-     [:div {:data-testid "rf-causa-machine-canvas-toolbar"
-            :style {:position "absolute"
-                    :top      "8px"
-                    :right    "8px"
-                    :z-index  2}}
-      (ctl/toolbar
-        {:viewport viewport
-         :on-action (fn [action]
-                      (dispatch-action machine-id action))
-         :testid-prefix (str "rf-causa-machine-canvas-controls-"
-                             (when machine-id
-                               (subs (str machine-id) 1)))
-         :compact? false})]
-     ;; View-mode toggle — absolute top-left.
-     [:div {:style {:position "absolute"
-                    :top      "8px"
-                    :left     "8px"
-                    :z-index  2}}
-      (let [mode @(rf/subscribe
-                    [:rf.causa.machine-canvas/view-mode-for machine-id])]
-        (view-mode-toggle {:machine-id machine-id :mode mode}))]]))
+     (when show-controls-toolbar?
+       ;; Toolbar — absolute top-right, above the chart SVG.
+       [:div {:data-testid "rf-causa-machine-canvas-toolbar"
+              :style {:position "absolute"
+                      :top      "8px"
+                      :right    "8px"
+                      :z-index  2}}
+        (ctl/toolbar
+          {:viewport viewport
+           :on-action (fn [action]
+                        (dispatch-action machine-id action))
+           :testid-prefix (str "rf-causa-machine-canvas-controls-"
+                               (when machine-id
+                                 (subs (str machine-id) 1)))
+           :compact? false})])
+     (when show-view-mode-toggle?
+       ;; View-mode toggle — absolute top-left.
+       [:div {:style {:position "absolute"
+                      :top      "8px"
+                      :left     "8px"
+                      :z-index  2}}
+        (let [mode @(rf/subscribe
+                      [:rf.causa.machine-canvas/view-mode-for machine-id])]
+          (view-mode-toggle {:machine-id machine-id :mode mode}))])]))
 
 ;; ---- install ------------------------------------------------------------
 
