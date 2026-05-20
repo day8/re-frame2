@@ -106,6 +106,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch`. Add `day8/re-frame2-epoch`. |
 | 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `clear-http-interceptor`. Pairs with M-31. |
 | 38a | **M-63** | If the codebase uses `reg-http-interceptor`. Reshape signature to positional id + opts kwarg + positional handler (rf2-eyjbn). Pairs with M-39. |
+| 38b | **M-65** | If the codebase uses the HTTP stubbing macros (`with-managed-request-stubs` / `install-managed-request-stubs!` family). Add `[re-frame.http-test-support]` to the test ns require closure (rf2-lwmgw). Pairs with M-31. |
 
 ### Group 9 — Conditional / opt-trigger rules
 

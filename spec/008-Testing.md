@@ -217,16 +217,16 @@ When NOT to use Pattern 5:
 - **Multi-frame setups** (Causa, Story, cross-frame tests) — Pattern 1 / 2 with explicit `rf/with-frame` calls each frame is clearer; the fixture stash is single-slot by design.
 - **Tests that don't render** — the install + frame lifecycle of Pattern 5 is overkill for pure-event tests. Reach for `(rf/with-frame [f (rf/make-frame opts)] ...)` and skip the view-stash entirely.
 
-### HTTP test surfaces — two namespaces (rf2-fu71w)
+### HTTP test surfaces — single namespace (rf2-lwmgw)
 
-The managed-HTTP artefact (Spec 014) splits its test surface across two namespaces. The names look interchangeable but the surfaces are disjoint — reach for the one that matches the test's intent.
+The managed-HTTP artefact (Spec 014) ships its entire test surface in a single namespace, `re-frame.http-test-support`. The previous split — macros in `re-frame.http-managed`, registration gate in `re-frame.http-test-support` — was closed per rf2-lwmgw (audit-of-audits #15): one require, one home, namespace name matches content.
 
 | Namespace | Role | Surfaces |
 |---|---|---|
-| `re-frame.http-test-support` | **Registration gate** for the two canned-stub fxs (per rf2-cdmle / rf2-zk08x). Loading the namespace registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`. No other public defs ship here. Production code must NOT `:require` this namespace. | `(reg-fx :rf.http/managed-canned-success ...)` `(reg-fx :rf.http/managed-canned-failure ...)` (both fire at ns-load) |
-| `re-frame.http-managed` | **Stubbing macros + production fx home.** The actual stub-routing helpers live here — `with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` — alongside the production `:rf.http/managed` / `:rf.http/managed-abort` fxs. | `with-managed-request-stubs`, `with-managed-request-stubs*`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!` (per [API.md rows 283–286](API.md)) |
+| `re-frame.http-test-support` | **All HTTP test machinery.** Loading the namespace registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, defines the stub-routing helpers (`with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`), and publishes the matching `:http/install-managed-request-stubs!` / `:http/uninstall-managed-request-stubs!` / `:http/with-managed-request-stubs*` late-bind hooks (the path `re-frame.core` re-exports resolve through). Production code must NOT `:require` this namespace. | `(reg-fx :rf.http/managed-canned-success ...)`, `(reg-fx :rf.http/managed-canned-failure ...)`, `with-managed-request-stubs`, `with-managed-request-stubs*`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!` (per [API.md rows 283–286](API.md)) |
+| `re-frame.http-managed` | **Production fx home only.** Hosts the production-eligible `:rf.http/managed` / `:rf.http/managed-abort` fxs, the middleware family, and the registry helpers. No test surfaces ship here. | `:rf.http/managed`, `:rf.http/managed-abort`, `reg-http-interceptor`, `clear-http-interceptor`, `clear-all-in-flight!`, the privacy denylist surface |
 
-A test looking for "the HTTP stub helper" reaches for `re-frame.http-managed` (the macros). A test that wants the canned `:rf.http/managed-canned-success` / `-canned-failure` fx ids in a `:fx-overrides` map `:require`s `re-frame.http-test-support` for the registration side effect. The latter namespace is named for its role (test-only — production must not require) rather than for the macros it does not own.
+A test reaching for "the HTTP stub helper" — macros, canned-stub fx ids in a `:fx-overrides` map, or the `re-frame.core` stub re-exports — `:require`s `re-frame.http-test-support`. Production / SSR code paths require only `re-frame.http-managed`; the test-support namespace stays out of the require closure so the canned-stub fxs and the stub-family late-bind hooks remain unregistered (classpath absence on JVM/SSR; module-graph DCE on CLJS `:advanced`).
 
 ## Fixture-granularity ladder (rf2-wq3gf)
 

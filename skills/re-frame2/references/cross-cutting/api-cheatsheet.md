@@ -62,12 +62,14 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 ## HTTP — `day8/re-frame2-http`
 
+Production fx surface: `re-frame.http-managed`. Test surfaces (canned-stub fxs + `with-managed-request-stubs` family): `re-frame.http-test-support` — per rf2-lwmgw the test machinery consolidated into one namespace; tests `:require` it explicitly.
+
 | Surface | Shape |
 |---|---|
-| `rf/with-managed-request-stubs` | macro: `(stubs & body)` |
-| `rf/with-managed-request-stubs*` | fn: `(stubs thunk)` |
-| `rf/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides |
-| `rf/clear-http-interceptor` | `(id)` / `(frame id)` |
+| `rf/with-managed-request-stubs` | macro: `(stubs & body)` — needs `re-frame.http-test-support` in require closure |
+| `rf/with-managed-request-stubs*` | fn: `(stubs thunk)` — needs `re-frame.http-test-support` |
+| `rf/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — needs `re-frame.http-test-support` |
+| `rf/clear-http-interceptor` | `(id)` / `(frame id)` — production surface, `re-frame.http-managed` |
 
 ## Test support — `re-frame.test-support` (see `cross-cutting/testing.md`)
 

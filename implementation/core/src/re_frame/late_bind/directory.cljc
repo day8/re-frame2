@@ -283,14 +283,16 @@
     :description "Reagent / SSR `[rf/route-link ...]` view component renderer."}
 
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
+   ;; The three stub-family hooks publish from `re-frame.http-test-support`
+   ;; per rf2-lwmgw — single discoverable home for HTTP test surfaces.
    {:key         :http/install-managed-request-stubs!
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http-test-support
     :description "Install request stubs for managed HTTP testing."}
    {:key         :http/uninstall-managed-request-stubs!
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http-test-support
     :description "Uninstall previously-installed managed-request stubs."}
    {:key         :http/with-managed-request-stubs*
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http-test-support
     :description "Function form of the with-managed-request-stubs macro."}
    {:key         :http/clear-all-in-flight!
     :producer-ns 're-frame.http-managed

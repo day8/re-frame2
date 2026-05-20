@@ -26,6 +26,11 @@
             ;; explicit so the bundle includes both producers.
             [re-frame.machines :as machines]
             [re-frame.http-managed :as http-managed]
+            ;; rf2-lwmgw — the stub macros / install fn live in
+            ;; `re-frame.http-test-support` (alongside the canned-stub fx
+            ;; registrations). This test calls `install-managed-request-stubs!`
+            ;; directly, so it requires that ns.
+            [re-frame.http-test-support :as http-test-support]
             [re-frame.registrar :as registrar]
             [re-frame.test-support :as test-support]))
 
@@ -62,7 +67,7 @@
   (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/spawn-id into the wrapper's :data (rf2-ijm7)"
     ;; Install a stub that NEVER replies — gives us a stable
     ;; :requesting snapshot to inspect without racing against Fetch.
-    (http-managed/install-managed-request-stubs! {})
+    (http-test-support/install-managed-request-stubs! {})
     (try
       (rf/reg-machine :cljs/auth2
         {:initial :idle
@@ -99,13 +104,13 @@
           (is (= {:url "/api/me" :method :get} (:request wrapper-data))
               "the user's :request is preserved verbatim under :data")))
       (finally
-        (http-managed/uninstall-managed-request-stubs!)))))
+        (http-test-support/uninstall-managed-request-stubs!)))))
 
 ;; ---- (3) parent state-exit destroys wrapper child + clears registry ----
 
 (deftest parent-exit-destroys-wrapper-child
   (testing "transition out of the :spawn-bearing state destroys the wrapper actor — registry slot cleared, snapshot gone (rf2-ijm7 + rf2-wvkn destroy cascade)"
-    (http-managed/install-managed-request-stubs! {})  ;; no-match stub: synthesises a failure (which we will not observe)
+    (http-test-support/install-managed-request-stubs! {})  ;; no-match stub: synthesises a failure (which we will not observe)
     (try
       (rf/reg-machine :cljs/cancellable
         {:initial :idle
@@ -133,4 +138,4 @@
         (is (nil? (get-in db [:rf/machines :rf.http/managed#1]))
             "wrapper actor's snapshot is gone after the parent's cancel"))
       (finally
-        (http-managed/uninstall-managed-request-stubs!)))))
+        (http-test-support/uninstall-managed-request-stubs!)))))

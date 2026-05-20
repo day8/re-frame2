@@ -1241,19 +1241,22 @@
 (def ^{:doc "Install per-call fx-overrides for `:rf.http/managed` that
   synthesise the configured replies. `stubs` is `{[method url]
   {:reply <:ok|:failure>}}`. Implementation ships in
-  `day8/re-frame2-http`. Per Spec 014 §Testing. Late-bound via
-  `:http/install-managed-request-stubs!`."}
+  `day8/re-frame2-http` under the `re-frame.http-test-support` namespace
+  (per rf2-lwmgw — tests opt in by requiring that ns). Per Spec 014
+  §Testing. Late-bound via `:http/install-managed-request-stubs!`."}
   install-managed-request-stubs!   rf-http/install-managed-request-stubs!)
 
 (def ^{:doc "Remove the per-call fx-override installed by
   `install-managed-request-stubs!`. Implementation ships in
-  `day8/re-frame2-http`. Per Spec 014 §Testing. Late-bound via
+  `day8/re-frame2-http` under `re-frame.http-test-support` (rf2-lwmgw).
+  Per Spec 014 §Testing. Late-bound via
   `:http/uninstall-managed-request-stubs!`."}
   uninstall-managed-request-stubs! rf-http/uninstall-managed-request-stubs!)
 
 (def ^{:doc "Fn-form: install stubs, run `thunk`, uninstall. The plumbing
   the `with-managed-request-stubs` macro routes through. Implementation
-  ships in `day8/re-frame2-http`. Per Spec 014 §Testing. Late-bound via
+  ships in `day8/re-frame2-http` under `re-frame.http-test-support`
+  (rf2-lwmgw). Per Spec 014 §Testing. Late-bound via
   `:http/with-managed-request-stubs*`."}
   with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
 

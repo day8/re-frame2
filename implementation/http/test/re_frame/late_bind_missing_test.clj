@@ -17,15 +17,26 @@
   test would use on CLJS.
 
   Per Spec 002 §The late-bind seam, rf2-5kpd (http split), and the
-  prose at the call sites in `re-frame.core`."
+  prose at the call sites in `re-frame.core`.
+
+  Per rf2-lwmgw the stub-family late-bind hooks
+  (`:http/install-managed-request-stubs!`, `:http/uninstall-managed-request-stubs!`,
+  `:http/with-managed-request-stubs*`) publish from
+  `re-frame.http-test-support` (alongside the stub macros themselves) —
+  this ns requires `re-frame.http-test-support` so the hooks resolve,
+  and the `with-hook-as-nil` helper still flips them to nil to simulate
+  the absent-artefact state."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
-            ;; Loading http-managed registers its late-bind hooks. The
-            ;; `with-hook-as-nil` helper below re-establishes the absent
-            ;; state by flipping the hook value at runtime; restoration
-            ;; in `finally` keeps cross-test isolation intact.
-            [re-frame.http-managed]))
+            ;; Loading http-managed registers its production late-bind
+            ;; hooks (middleware, registry). The stub-family hooks
+            ;; publish from `re-frame.http-test-support` per rf2-lwmgw.
+            ;; The `with-hook-as-nil` helper below re-establishes the
+            ;; absent state by flipping the hook value at runtime;
+            ;; restoration in `finally` keeps cross-test isolation intact.
+            [re-frame.http-managed]
+            [re-frame.http-test-support]))
 
 (defn- with-hook-as-nil
   "Run `f` with the named late-bind hook set to nil. Restores the

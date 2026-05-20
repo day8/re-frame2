@@ -3,28 +3,36 @@
   the same PR as the new namespace per the per-leaf smoke-test
   convention (rf2-cdmle).
 
-  The leaf's job is to register two fxs at load time:
-   - `:rf.http/managed-canned-success`
-   - `:rf.http/managed-canned-failure`
+  Per rf2-lwmgw (audit-of-audits #15) the namespace is now the single
+  home for every HTTP test surface:
 
-  Each delegates to the same handler body the prior
-  `(when interop/debug-enabled? ...)` gate in `re-frame.http-managed`
-  wired up — `re-frame.http-machine-wrapper/canned-success-handler` /
-  `canned-failure-handler`. The smoke pins:
+   - load-time registration of the two canned-stub fxs:
+      - `:rf.http/managed-canned-success`
+      - `:rf.http/managed-canned-failure`
+     Each delegates to `re-frame.http-machine-wrapper/canned-success-handler`
+     / `canned-failure-handler`.
+   - the stub macros / fns:
+      - `with-managed-request-stubs`
+      - `with-managed-request-stubs*`
+      - `install-managed-request-stubs!`
+      - `uninstall-managed-request-stubs!`
+   - the late-bind hook publications under
+     `:http/install-managed-request-stubs!`,
+     `:http/uninstall-managed-request-stubs!`,
+     `:http/with-managed-request-stubs*` (resolved by
+     `re-frame.core-http`'s defwrapper surface).
 
-   1. Both fx ids ARE registered after requiring the namespace.
-   2. The registered handlers are the wrapper's `canned-*-handler`
-      vars (not some shim), so the existing args-map contract from
-      Spec 014 §Testing carries through unchanged.
-
-  The deeper end-to-end behaviour (canned reply → late-bind dispatch →
-  reply lands in app-db) is exercised by `re-frame.http-managed-test`
-  and the corresponding CLJS smoke under `implementation/adapters/*`.
-  This file's contract is narrower: leaf-shape pin."
+  This smoke pins the load-time side effects: fx registrations land,
+  fx ids bind to the wrapper's canned-* vars, and the stub-family
+  late-bind hooks are non-nil after the require. The deeper end-to-end
+  behaviour (canned reply → late-bind dispatch → reply lands in
+  app-db) is exercised by `re-frame.http-managed-test` and the
+  corresponding CLJS smoke under `implementation/adapters/*`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.http-machine-wrapper :as machine-wrapper]
-            [re-frame.http-test-support]))
+            [re-frame.http-test-support :as http-test-support]))
 
 ;; Ensure each test starts from a known registrar — clear, then reload
 ;; the test-support ns so its load-time registration fires.
@@ -51,3 +59,19 @@
     (is (identical? machine-wrapper/canned-failure-handler
                     (registrar/handler :fx :rf.http/managed-canned-failure))
         ":rf.http/managed-canned-failure → machine-wrapper/canned-failure-handler")))
+
+(deftest stub-family-late-bind-hooks-publish-on-test-support-load
+  (testing "rf2-lwmgw — loading re-frame.http-test-support publishes the
+            stub-family late-bind hooks that re-frame.core-http resolves
+            through. Without this ns required, rf/install-managed-request-stubs!
+            and siblings raise :rf.error/http-artefact-missing — verified
+            by re-frame.late-bind-missing-test."
+    (is (identical? http-test-support/install-managed-request-stubs!
+                    (late-bind/get-fn :http/install-managed-request-stubs!))
+        ":http/install-managed-request-stubs! → http-test-support/install-managed-request-stubs!")
+    (is (identical? http-test-support/uninstall-managed-request-stubs!
+                    (late-bind/get-fn :http/uninstall-managed-request-stubs!))
+        ":http/uninstall-managed-request-stubs! → http-test-support/uninstall-managed-request-stubs!")
+    (is (identical? http-test-support/with-managed-request-stubs*
+                    (late-bind/get-fn :http/with-managed-request-stubs*))
+        ":http/with-managed-request-stubs* → http-test-support/with-managed-request-stubs*")))

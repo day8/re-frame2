@@ -27,7 +27,7 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
-**Artefact (CLJS reference).** Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http-managed` namespace, the four `:rf.http/*` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `with-managed-request-stubs` test helper. The core artefact (`day8/re-frame2`) no longer carries any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
+**Artefact (CLJS reference).** Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http-managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` / `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http-test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` family of macros / fns (per [rf2-lwmgw](#) — single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) no longer carries any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
 
 ## Role
 
@@ -868,24 +868,22 @@ The fx vectors the helpers synthesise are exactly the same shape as the hand-wri
 
 The stubs reuse the same dispatch shape the real fx produces so the test handler's reply branch sees the canonical envelope. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
 
-### Test-support require — the canned-stub gate (rf2-cdmle)
+### Test-support require — the HTTP test surface gate (rf2-cdmle + rf2-lwmgw)
 
-The two canned-stub fxs above are **test-only**; production / SSR code paths must not be able to reach them via `:fx-overrides`. The framework gates registration behind an explicit require:
+The canned-stub fxs above AND the `with-managed-request-stubs` family of macros / fns are **test-only**; production / SSR code paths must not be able to reach them. The framework gates registration behind an explicit require:
 
 ```clojure
 (ns my-app.tests
   (:require [re-frame.http-managed]        ;; production fx surface
-            [re-frame.http-test-support])) ;; canned-stub fx registrations
+            [re-frame.http-test-support])) ;; canned-stub fxs + stub macros
 ```
 
-Loading `re-frame.http-test-support` registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` against the same handler bodies the higher-level `with-managed-request-stubs` helper uses. Without the require:
+Loading `re-frame.http-test-support` registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, defines the stub-routing helpers (`with-managed-request-stubs`, `with-managed-request-stubs*`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!`), and publishes the matching late-bind hooks (`:http/install-managed-request-stubs!`, `:http/uninstall-managed-request-stubs!`, `:http/with-managed-request-stubs*`) that the `re-frame.core` re-exports resolve through. Without the require:
 
-- on JVM / SSR the fx ids are unregistered (classpath absence through the normal artefact require boundary), so any handler that tries `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` will surface the framework's no-such-fx error;
+- on JVM / SSR the canned-stub fx ids are unregistered (classpath absence through the normal artefact require boundary), so any handler that tries `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` will surface the framework's no-such-fx error; the stub-family `rf/install-managed-request-stubs!` / `rf/uninstall-managed-request-stubs!` / `rf/with-managed-request-stubs*` call sites raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the hooks are nil);
 - on CLJS `:advanced + goog.DEBUG=false` the test-support module is unreferenced from any production module, so the compiler trims it wholesale (the canned-stub fx-id keyword string fragments do not appear in the production bundle — pinned by `scripts/check-elision.cjs`).
 
-Earlier the gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself; on the JVM that gate folded to `true`, leaving the canned-stub fx ids reachable as production-default API. Per [rf2-zk08x](#)'s audit and the [rf2-cdmle](#) remediation, the gate moved to the require boundary so the absence is enforced on every host.
-
-Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` does **not** need the test-support require — those helpers register their own `:rf.http/managed-test-stub` fx at user invocation time, independent of the canned-stub fx ids.
+Earlier the gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself; on the JVM that gate folded to `true`, leaving the canned-stub fx ids reachable as production-default API. Per [rf2-zk08x](#)'s audit and the [rf2-cdmle](#) remediation, the gate moved to the require boundary so the absence is enforced on every host. Per [rf2-lwmgw](#) (audit-of-audits #15) the stub macros consolidated into `re-frame.http-test-support` alongside the canned-stub fxs — one namespace, one require, the namespace name finally matches its content.
 
 For test suites that exercise many requests, a higher-level helper ships:
 

@@ -1,6 +1,6 @@
 (ns re-frame.http-machine-wrapper
-  "Machine-shape wrapper for `:rf.http/managed` (rf2-ijm7) + test-time
-  stub fxs and `with-managed-request-stubs*` helpers.
+  "Machine-shape wrapper for `:rf.http/managed` (rf2-ijm7) + canned-stub
+  handler bodies.
 
   Extracted from `re-frame.http-managed` per rf2-3i9b. Per Spec 014
   §Machine-shape wrapper: `:rf.http/managed` ALSO registers as a child-
@@ -35,26 +35,31 @@
   AND `{:spawn {:machine-id :rf.http/managed ...}}` resolves to the
   machine.
 
-  ## Stub helpers
+  ## Canned-stub handler bodies
 
-  `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
-  / `with-managed-request-stubs*` (the fn form; the macro lives in the
-  façade for source-coord capture) — per Spec 014 §Testing."
-  (:require [re-frame.fx           :as fx]
-            [re-frame.http-encoding :as encoding]
+  `canned-success-handler` / `canned-failure-handler` live here because
+  the machine-shape wrapper's reply walk is symmetric with the stubs'
+  reply walk — both feed `encoding/dispatch-reply-via-late-bind!`. The
+  fx registrations that bind the `:rf.http/managed-canned-*` ids to
+  these handlers live in `re-frame.http-test-support` (per rf2-cdmle —
+  test-only require gate). The `with-managed-request-stubs*` helper —
+  which composes against these handlers directly — also lives in
+  `re-frame.http-test-support` (per rf2-lwmgw — single discoverable
+  home for HTTP test surfaces)."
+  (:require [re-frame.http-encoding   :as encoding]
             [re-frame.http-middleware :as middleware]
-            [re-frame.late-bind    :as late-bind]))
+            [re-frame.late-bind       :as late-bind]))
 
 ;; rf2-2utlm — the canned stubs delegate to `encoding/dispatch-reply-
 ;; via-late-bind!`, the same helper `http-transport/dispatch-reply!`
 ;; uses, so the build-reply-event + late-bind lookup pattern lives in
 ;; one place.
 
-;; ---- canned stub handlers (used by the registered :rf.http/managed-* fxs
-;; AND the per-call stub fx-override that with-managed-request-stubs
-;; installs). The fxs themselves are registered in the façade so they fire
-;; only when the namespace is loaded — these handlers stay here so the
-;; stub-handler below can reach them without circular requires.
+;; ---- canned stub handlers (used by the `:rf.http/managed-canned-*` fxs
+;; registered in `re-frame.http-test-support` AND the per-call stub
+;; fx-override that with-managed-request-stubs installs). The handlers
+;; stay here so the test-support ns can reach them without circular
+;; requires.
 ;;
 ;; rf2-622e3 — origin-event resolution lives in
 ;; `encoding/resolve-origin-event` (single source of truth shared with
@@ -119,66 +124,6 @@
        :kind          :failure}
       (:frame frame-ctx))
     nil))
-
-;; ---- with-managed-request-stubs ------------------------------------------
-
-(defn- stub-handler
-  [stubs frame-ctx args-map]
-  (let [req    (:request args-map)
-        method (or (:method req) :get)
-        url    (:url req)
-        entry  (get stubs [method url])
-        reply  (:reply entry)]
-    (cond
-      (and entry (contains? reply :ok))
-      (canned-success-handler frame-ctx (assoc args-map :value (:ok reply)))
-
-      (and entry (contains? reply :failure))
-      (canned-failure-handler frame-ctx
-                              (-> args-map
-                                  (assoc :kind (or (:kind (:failure reply))
-                                                   :rf.http/transport))
-                                  (assoc :tags (dissoc (:failure reply) :kind))))
-
-      :else
-      (canned-failure-handler frame-ctx
-                              (assoc args-map
-                                     :kind :rf.http/transport
-                                     :tags {:message "no stub matched"
-                                            :method  method
-                                            :url     url})))))
-
-(def ^:private stub-fx-id :rf.http/managed-test-stub)
-
-(defn install-managed-request-stubs!
-  "Test-time helper. `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
-  Registers a per-call fx-override target that consults `stubs` and
-  synthesises the configured reply.
-
-  Use with `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`
-  on `dispatch-sync`, or wrap the test body via `with-managed-request-stubs`.
-
-  Per Spec 014 §Testing — the framework ships canonical stub fxs."
-  [stubs]
-  (fx/reg-fx stub-fx-id
-             {:doc "with-managed-request-stubs synthesised stub"}
-             (fn [frame-ctx args-map]
-               (stub-handler stubs frame-ctx args-map)))
-  stub-fx-id)
-
-(defn uninstall-managed-request-stubs!
-  []
-  (fx/clear-fx stub-fx-id)
-  nil)
-
-(defn with-managed-request-stubs*
-  "Function form: install stubs, run thunk, uninstall. Test-time helper."
-  [stubs thunk]
-  (try
-    (install-managed-request-stubs! stubs)
-    (thunk)
-    (finally
-      (uninstall-managed-request-stubs!))))
 
 ;; ---- machine-shape wrapper spec (rf2-ijm7) --------------------------------
 
