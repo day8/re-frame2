@@ -150,8 +150,8 @@
        " both"))
 
 (def motion-css
-  "The `@keyframes` + `prefers-reduced-motion` overrides Story
-  injects once at shell mount. Includes:
+  "The `@keyframes` + `prefers-reduced-motion` + `forced-colors` overrides
+  Story injects once at shell mount. Includes:
 
   - `rf-story-mount-in`     — the shell-entrance keyframe (10px lift +
     fade-in). Used by every region via `stagger-animation`.
@@ -164,7 +164,12 @@
     standardised focus ring across the chrome.
   - `@media (prefers-reduced-motion: reduce)` override that pins
     every Story-prefixed animation / transition to a 0.01ms duration
-    so users with reduced-motion preferences get an instant render."
+    so users with reduced-motion preferences get an instant render.
+  - `@media (forced-colors: active)` override that maps Story's amber
+    focus ring + author-encoded accents onto Windows HCM system tokens
+    (`Highlight`, `CanvasText`, `ButtonText`, `LinkText`, `Mark`,
+    `GrayText`) so HCM users keep operator-grade signal — see the
+    `forced-colors` block below for the rule rationale (rf2-ubhmn)."
   "@keyframes rf-story-mount-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes rf-story-overlay-in{from{opacity:0;transform:translateY(8px) scale(0.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes rf-story-overlay-out{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(4px) scale(0.99)}}
@@ -173,6 +178,73 @@
 [data-rf-story-root] *:focus-visible{outline:2px solid #F5A524;outline-offset:2px;border-radius:3px;transition:outline-offset 120ms cubic-bezier(0.0, 0.0, 0.2, 1.0)}
 @media (prefers-reduced-motion: reduce){
   [data-rf-story-root] *,[data-rf-story-root] *::before,[data-rf-story-root] *::after{animation-duration:0.01ms !important;animation-delay:0ms !important;transition-duration:0.01ms !important;transition-delay:0ms !important}
+}
+/* rf2-ubhmn — Windows High Contrast Mode (forced-colors). Story chrome
+   uses inline :background + :color literals (amber focus rings, accent
+   borders, status pill grounds). Under HCM the browser strips these to
+   system tokens, which can collapse the visual distinction between
+   states (e.g. pass vs fail pills both become Canvas/CanvasText). The
+   block below re-establishes operator-grade signal via system tokens:
+     * focus-visible outline → Highlight (the OS focus colour)
+     * active-row / selected toggles → outlined in Highlight via aria-*
+       state hooks; background gradients neutralised so the ground
+       reads as plain Canvas
+     * SVG grain overlay (depth.cljc ::before) muted; otherwise the
+       browser composites the noise over CanvasText and the chrome
+       text reads as smeared
+     * Buttons get an explicit 1px ButtonText border so the inline
+       amber background → Canvas remap doesn't dissolve the boundary
+     * Story-test status pills + dots keep their structural glyphs
+       (✓/✗/⊘) for state discrimination — colour is no longer the
+       primary signal under HCM. */
+@media (forced-colors: active){
+  /* Focus ring → Highlight. Drop the amber hex; UA honours system token. */
+  [data-rf-story-root] *:focus-visible{outline-color:Highlight}
+  /* Hyperlinks → LinkText so they remain distinct from body text. */
+  [data-rf-story-root] a{color:LinkText}
+  /* Buttons: assert a visible ButtonText border so the inline
+     amber-on-amber visual doesn't collapse into Canvas/CanvasText. */
+  [data-rf-story-root] button{border:1px solid ButtonText}
+  /* Selected / pressed / active states (sidebar variant-row,
+     workspace-row, viewport / background chips, mode tabs) carry
+     aria-pressed / aria-current / aria-selected state attributes.
+     Map all three to a Highlight outline so the selection signal
+     survives the inline-background remap. */
+  [data-rf-story-root] [aria-pressed=\"true\"],
+  [data-rf-story-root] [aria-current=\"true\"],
+  [data-rf-story-root] [aria-current=\"page\"],
+  [data-rf-story-root] [aria-current=\"step\"],
+  [data-rf-story-root] [aria-selected=\"true\"]{outline:2px solid Highlight;outline-offset:-2px}
+  /* Disabled controls → GrayText. The inline `:cursor not-allowed`
+     pattern carries `disabled` on the underlying element. */
+  [data-rf-story-root] button[disabled],
+  [data-rf-story-root] [aria-disabled=\"true\"]{color:GrayText;border-color:GrayText}
+  /* Background gradients (canvas frame amber edge, accent grounds,
+     causa-embed seams) are NOT auto-stripped under forced-colors —
+     the browser keeps the gradient image intact, defeating the system-
+     token remap. Kill background-image at the root so chrome grounds
+     read as plain Canvas. Applies inside variant content too:
+     gradients carry colour information HCM users have already opted
+     to lose, so the same rule is the correct HCM semantics either
+     way. */
+  [data-rf-story-root] [style*=\"gradient(\"]{background-image:none}
+  /* Story's grain overlay (depth.cljc ::before) is an SVG-feTurbulence
+     noise sheet rendered at opacity:0.04 with mix-blend-mode:overlay.
+     Under forced-colors the blend mode is preserved but the noise
+     image composites over CanvasText and the chrome reads as smeared.
+     Mute it. */
+  [data-rf-story-root]::before{background-image:none;opacity:0}
+  /* The a11y panel's violation overlay outlines (a11y.cljs
+     `violations-stylesheet`) carry hex colours per impact level.
+     Map them to Mark (system 'highlight' token) so violations stay
+     visibly marked under HCM — impact-level differentiation is
+     preserved through outline thickness instead of hue, but Mark
+     keeps the overlay distinguishable from a normal focus ring. */
+  [data-rf-a11y-violation]{outline-color:Mark}
+  [data-rf-a11y-violation=\"critical\"]{outline-width:3px}
+  [data-rf-a11y-violation=\"serious\"]{outline-width:2px}
+  [data-rf-a11y-violation=\"moderate\"]{outline-width:2px;outline-style:dashed}
+  [data-rf-a11y-violation=\"minor\"]{outline-width:1px;outline-style:dotted}
 }")
 
 #?(:cljs
