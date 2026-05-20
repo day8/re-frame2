@@ -337,7 +337,7 @@ The inverse — strict on input shape, forgiving on value set
 delivers the Reagent variant instead of the requested UIx, and
 the user finds out at `shadow-cljs watch app` time.
 
-## Retired §clj-new-over-deps-new
+## Retired — clj-new-over-deps-new
 
 > This was the v1 decision (through 2026-05). Superseded by §1 above
 > on 2026-05-12 per Mike's template walkthrough Q2 lock (rf2-dolpf).
@@ -364,7 +364,7 @@ fit. The git-coord distribution decision is independent of
 deps-new-vs-clj-new but was bundled into the same migration for
 release-machinery simplification.
 
-## Retired §`:edn-args`-not-top-level
+## Retired — `:edn-args`-not-top-level
 
 > This was a v1 implementation finding (clj-new era). Superseded by
 > deps-new's native top-level k/v args (see §1 / API.md §Top-level
