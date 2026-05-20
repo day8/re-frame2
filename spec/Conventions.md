@@ -438,7 +438,21 @@ The `dispatch` / `subscribe` / `inject-cofx` macros (per rf2-ts1a) are the canon
 
 Future macros that want fn partners follow the same convention.
 
-The convention applies **only where there is a macro tier**. The other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) are already plain fns — they need no macro tier and therefore no `*` partner. Adding `reg-event-db*` / etc. would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
+The convention applies **only where adding the `*` partner buys something** — call-site stamping the macro performs that the fn-form must skip, per-element source-coord walks (`reg-machine`), or defn-shape expansion the macro performs (`reg-view`). For the other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-app-schemas`) the CLJS fn-alias lives under the macro's **own name** (per `re-frame.core` CLJS aliases): the macro stamps source-coords from `&form` on JVM; on CLJS, HoF / programmatic callers reach the same name as a plain fn (the call-site stamp is the only thing they lose). Adding a `reg-event-db*` synonym would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
+
+**Coverage is asymmetric on purpose — and the asymmetry is invisible from a scan of the API.** A reader sees `dispatch*` / `subscribe*` / `inject-cofx*` / `reg-view*` / `reg-machine*` and may infer a uniform convention; reaching for `reg-event-db*` then fails to resolve. The asymmetry is principled (only the macros above have a reason for a `*` partner) but easy to misread — surface this footnote when documenting new `reg-*` rows in [`spec/API.md`](API.md) §Registration. Per rf2-4wj7a.
+
+## High-frequency abbreviations — `fx`, `cofx`, `db` are brand tokens, not aliases
+
+`fx`, `cofx`, and `db` are **deliberate terse abbreviations for the highest-frequency tokens in re-frame's vocabulary** — they are not aliases for `effect`, `coeffect`, and `app-db` and the longer forms are not part of the API surface. The choice is inherited from re-frame v1 and preserved in v2 (per rf2-0azca).
+
+Rationale:
+
+- **Frequency.** `:db` and `:fx` appear in every event handler's effect map. `reg-cofx` / `inject-cofx` / the `:coeffects` key appear in every coeffect site. Spelling them out (`reg-coeffect`, `inject-coeffect`, `effect-map`) would inflate handler bodies and registration sites by 10-15% for zero readability gain once the reader has met the abbreviations.
+- **Brand.** These tokens are part of how re-frame *reads*. The terseness is a feature: a handler body's structural shape is recognisable at a glance precisely because `:db` and `:fx` are short.
+- **One obvious way.** [Principles §Regularity over cleverness](Principles.md) argues for one obvious way to do a thing. The abbreviations are that one way — there is no `effect` / `coeffect` / `app-db` synonym in the public API. A fresh reader meets the abbreviations once (in the API reference, in the guide's first event-handler chapter); from then on the surface is uniform.
+
+The rule for new public surfaces: if a token belongs to the closed handler vocabulary (`fx`, `cofx`, `db`, `event`, `interceptor`, `frame`, `id`, `kind`) use the established short form; if a token names a per-feature concept (`flow`, `route`, `head`, `machine`, `schema`) the spelled-out form is the canonical name. Do not coin alias pairs.
 
 ## `reg-*` return-value convention
 
