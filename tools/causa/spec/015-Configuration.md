@@ -122,7 +122,6 @@ column, jump to the linked section, find the knob.
 | **Layout host** | `:rf.causa/` | `:rf.causa/layout-host-selector` | — | [`§:rf.causa/layout-host-selector`](#rfcausalayout-host-selector) |
 | **Launch** | `:rf.causa/` | `:rf.causa/auto-open?` | `:rf.causa/launch-restore-visibility?`, `:rf.causa/launch-popout-geometry` | [`§:rf.causa/auto-open?`](#rfcausaauto-open) + [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
 | **Keybinding** | `:rf.causa/` | `:rf.causa/keybinding-enabled?` | `:rf.causa/keybinding-handle-keys?`, `:rf.causa/keybinding-bindings` | [`§:rf.causa/keybinding-enabled?`](#rfcausakeybinding-enabled) |
-| **Static mode** | `:rf.causa/` | `:rf.causa/static-mode?` | — | [`§:rf.causa/static-mode?`](#rfcausastatic-mode) |
 | **Settings popup (bulk-set)** | `:rf.causa/` | `:rf.causa/settings` (carries `:theme`, `:density`, `:buffer`, `:diff`, …) | — | [`§:rf.causa/settings`](#rfcausasettings) |
 | **Filters** | `:rf.causa/` | `:rf.causa/filters`, `:rf.causa/filters-storage-key` | `:rf.causa/filters-auto-hide-events`, `:rf.causa/filters-auto-hide-event-ns`, `:rf.causa/filters-auto-hide-error-overrides?` | [`§:rf.causa/filters`](#rfcausafilters) + [`§:rf.causa/filters-storage-key`](#rfcausafilters-storage-key) |
 | **Buffer depths** | `:rf.causa/` | (via `:rf.causa/settings` `:buffer` slot) | `:rf.causa/buffer-retained-epochs` (process-global escape hatch) | [Vision §Must-haves](#vision--full-configure-key-inventory-30-keys) |
@@ -489,37 +488,23 @@ are passed in one call, the storage key is set BEFORE the seed so a
 host that overrides both gets the seed persisted under the right
 key.
 
-### `:rf.causa/static-mode?`
+### Static mode availability
 
-The Static-mode feature flag (rf2-o5f5f.1). Gates whether Causa's
-surface composer mounts the dual-mode chrome (Runtime + Static, with
-the mode pill at ribbon-left and the Cmd-Shift-M chord wired to
-`:rf.causa/toggle-mode`) or the pre-Static Runtime-only chrome.
+Static mode is unconditionally available. The mode pill mounts at
+ribbon-left (`data-testid="rf-causa-mode-pill"`), `Cmd-Shift-M` /
+`Ctrl-Shift-M` toggles between Runtime and Static surfaces via
+`:rf.causa/toggle-mode`, and the active mode hydrates from
+`causa.mode` localStorage on boot (with `"runtime"` fallback).
 
-| Value | Meaning |
-|---|---|
-| `false` | Default. The surface composer renders Runtime byte-identical to the pre-Static chrome — the mode pill is absent, `Cmd-Shift-M` / `Ctrl-Shift-M` falls through to host / browser shortcuts. Persisted mode in `causa.mode` localStorage is not consulted. |
-| `true` | The mode pill mounts at ribbon-left (`data-testid="rf-causa-mode-pill"`), `Cmd-Shift-M` / `Ctrl-Shift-M` toggles between Runtime and Static surfaces via `:rf.causa/toggle-mode`, and the active mode hydrates from `causa.mode` localStorage on boot (with `"runtime"` fallback). |
-| `nil` | Resets to default (`false`). |
+Per rf2-8l3uk the prior `:rf.causa/static-mode?` configure key was
+removed (pre-alpha posture — back-compat shims are out of scope; if
+Static mode is useful, expose it unconditionally).
 
-Default: `false`.
-
-The flag default flips to `true` once the placeholder Static sub-tabs
-(rf2-o5f5f.4 / .5 / .6) ship — separate decision, tracked under the
-`:rf.causa/static-mode?` follow-on. Hosts that want Static mode
-today (e.g. Story testbeds for design review of the 3-layer chrome)
-opt in via `(configure! {:rf.causa/static-mode? true})` and live
-with the placeholder cards on the still-pending sub-tabs.
-
-**Persistence.** The mode SELECTION (not the flag) persists under
-the localStorage key `causa.mode` as a bare string (`"runtime"` /
-`"static"`). The persistence fx is
-`:rf.causa.static/persist-mode` (per
+**Persistence.** The mode selection persists under the localStorage
+key `causa.mode` as a bare string (`"runtime"` / `"static"`). The
+persistence fx is `:rf.causa.static/persist-mode` (per
 [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) §Static
-mode). The flag itself is a per-load atom — hosts must call
-`configure!` on every boot if they want Static mode active; flipping
-the flag while the panel is mounted is legal but is reserved for
-hot-reload / live-rebind scenarios.
+mode).
 
 Cross-reference: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode
 (visual-language treatment of the mode pill, edge stripe, motion
@@ -593,7 +578,7 @@ ownership rule below locks the contract for pre-alpha and forward.
 
 | Surface | Role | Mutability | Lifetime |
 |---|---|---|---|
-| `(causa-config/configure! {…})` | Static boot config — defaults, feature flags, host-environment wiring (editor target, project root, layout-host selector, auto-open, keybinding enabled, static-mode flag, filter seed, …). | Host-code-mutable at boot; immutable from the user's perspective. | Process-global atoms; one set of values per host load. |
+| `(causa-config/configure! {…})` | Static boot config — defaults, feature flags, host-environment wiring (editor target, project root, layout-host selector, auto-open, keybinding enabled, filter seed, …). | Host-code-mutable at boot; immutable from the user's perspective. | Process-global atoms; one set of values per host load. |
 | `(causa/init! opts)` | Lifecycle hook — called by host app code to bring Causa up (alternative to `:preloads`). The `opts` map carries per-instance panel-state wiring (Settings shape inputs such as `:theme`, `:density`, `:default-frame`, `:ai-provider`, `:buffer-depths`). Idempotent. | Host-code-driven; once-per-load. | Per-mount lifecycle. |
 | Persisted Settings (`localStorage` slot `day8.re-frame2-causa/settings/v1`) | User-mutable overrides — the Settings popup is the canonical UI; persists `:theme`, `:density`, `:ai-provider`, `:buffer-depths`, `:default-frame`, `:sidebar-mode`, `:launcher-pill`, `:keybindings` per [`API.md`](./API.md) §Settings keys. | User-mutable via the Settings popup; round-trips through localStorage. | Survives reload until corrupted or cleared. |
 

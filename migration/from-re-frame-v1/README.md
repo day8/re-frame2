@@ -2449,6 +2449,31 @@ without `re-frame.http-test-support` in their require closure.
 
 ---
 
+### M-67. Causa Static-mode feature gate removed — `:rf.causa/static-mode?` no longer accepted (rf2-8l3uk)
+
+**Type A** (mechanical). Single-file removal per call site: drop the `:rf.causa/static-mode?` entry from any `(causa-config/configure! …)` map. The option no longer exists; Static mode is always available.
+
+```clojure
+;; before
+(causa-config/configure!
+  {:rf.causa/static-mode? true        ;; REMOVE this entry
+   :rf.causa/editor        :cursor})
+
+;; after
+(causa-config/configure!
+  {:rf.causa/editor :cursor})
+```
+
+Per rf2-8l3uk: the prior `:rf.causa/static-mode?` flag was a back-compat hedge that does not apply to pre-1.0. Static mode (mode pill at ribbon-left, Cmd-Shift-M / Ctrl-Shift-M chord, Static surface render) is now unconditionally available; hosts that previously opted in via `configure!` should drop the key.
+
+**Detect.** Boot code that passes `:rf.causa/static-mode?` (any value) inside a `(causa-config/configure! …)` map.
+
+**Mechanical sweep.** Remove the key/value pair from each `configure!` call. Unknown keys are silently ignored per the forward-compat rule in [`015-Configuration.md`](../../tools/causa/spec/015-Configuration.md), so a stale `:rf.causa/static-mode? true` is a no-op — the sweep is cosmetic, not behaviour-changing.
+
+**Cross-references.** [`015-Configuration.md` §Static mode availability](../../tools/causa/spec/015-Configuration.md#static-mode-availability); [`007-UX-IA.md` §Availability](../../tools/causa/spec/007-UX-IA.md#availability); [`018-Event-Spine.md` §Availability](../../tools/causa/spec/018-Event-Spine.md#availability); [`API.md` §Static mode](../../tools/causa/spec/API.md#static-mode-rf2-o5f5f1--rf2-8l3uk).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.

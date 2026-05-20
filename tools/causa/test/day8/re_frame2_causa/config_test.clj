@@ -85,46 +85,12 @@
     (config/configure! {:rf.causa/editor :cursor})
     (is (false? (config/auto-open-enabled?)))))
 
-;; ---- :rf.causa/static-mode? flag (rf2-o5f5f.1) -------------------------
-
-(deftest static-mode-default-is-false
-  (testing "default — static-mode? is OFF so the Runtime chrome
-            renders byte-identically to the pre-bead surface"
-    ;; Reset to baseline in case a sibling test flipped the slot.
-    (config/set-static-mode-enabled! nil)
-    (is (false? (config/static-mode-enabled?)))))
-
-(deftest set-static-mode-enabled-round-trips
-  (testing "set-static-mode-enabled! writes and static-mode-enabled? reads"
-    (config/set-static-mode-enabled! true)
-    (is (true? (config/static-mode-enabled?)))
-    (config/set-static-mode-enabled! false)
-    (is (false? (config/static-mode-enabled?)))
-    ;; Tidy after — leave the flag at the default for the next test.
-    (config/set-static-mode-enabled! nil)))
-
-(deftest nil-static-mode-resets-to-default-false
-  (testing "set-static-mode-enabled! with nil resets to the default (false)"
-    (config/set-static-mode-enabled! true)
-    (config/set-static-mode-enabled! nil)
-    (is (false? (config/static-mode-enabled?)))))
-
-(deftest configure-passes-static-mode-through
-  (testing "configure! routes :rf.causa/static-mode? through
-            set-static-mode-enabled!"
-    (config/configure! {:rf.causa/static-mode? true})
-    (is (true? (config/static-mode-enabled?)))
-    (config/configure! {:rf.causa/static-mode? false})
-    (is (false? (config/static-mode-enabled?)))
-    (config/set-static-mode-enabled! nil)))
-
-(deftest configure-without-static-mode-leaves-flag
-  (testing "configure! without :rf.causa/static-mode? leaves the
-            flag unchanged"
-    (config/set-static-mode-enabled! true)
-    (config/configure! {:rf.causa/editor :cursor})
-    (is (true? (config/static-mode-enabled?)))
-    (config/set-static-mode-enabled! nil)))
+;; ---- :rf.causa/static-mode? flag — REMOVED (rf2-8l3uk) ------------------
+;;
+;; The Static-mode feature gate was removed per rf2-8l3uk. Static mode is
+;; now unconditionally available; there is no per-host opt-in and no
+;; `:rf.causa/static-mode?` configure key to assert. Tests that asserted
+;; the gate's existence were removed wholesale.
 
 (deftest editor-uri-uses-current-preference
   (testing "config/editor-uri reads from the live preference atom"

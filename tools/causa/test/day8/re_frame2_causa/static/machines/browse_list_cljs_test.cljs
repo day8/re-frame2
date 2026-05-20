@@ -30,7 +30,6 @@
   (causa-test-support/reset-all!)
   (trace-bus/clear-buffer!)
   (config/reset-suppressed-count!)
-  (config/set-static-mode-enabled! nil)
   (static-persistence/clear!)
   (ls/clear!))
 

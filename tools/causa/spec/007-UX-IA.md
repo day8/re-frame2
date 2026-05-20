@@ -1535,21 +1535,14 @@ to `:rf/causa`. Each subscribing region is `reg-view`-registered so
 its rendered component carries `:contextType frame-context` (rf2-in6l2
 + Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
 
-### Feature flag
+### Availability
 
-Static is gated behind the `:rf.causa/static-mode?` config flag,
-default `false`. Hosts opt in via:
-
-    (causa-config/configure! {:rf.causa/static-mode? true})
-
-before the Causa preload runs. With the flag OFF the surface composer
-ALWAYS renders Runtime — byte-identical to the pre-Static chrome,
-the mode pill is absent, and the Cmd-Shift-M chord falls through to
-the host / browser. With the flag ON the mode pill mounts at
-ribbon-left and the chord drives the toggle.
-
-The flag flips to default-on once sibling beads rf2-o5f5f.2 … .6 fill
-the placeholder Static sub-tabs (a separate decision).
+Static mode is unconditionally available. The surface composer reads
+`:rf.causa/mode`, the mode pill mounts at ribbon-left in every host,
+and the Cmd-Shift-M / Ctrl-Shift-M chord drives the toggle. Per
+rf2-8l3uk the prior `:rf.causa/static-mode?` opt-in feature gate was
+removed (pre-alpha posture — back-compat shims are out of scope; if
+Static mode is useful, expose it unconditionally).
 
 ### Mode bifurcation rule (rf2-qgnle)
 

@@ -162,9 +162,8 @@ Mode is toggled by the **mode pill** at ribbon-left (a two-segment
 radio that lives in both modes — it's the toggle, not the indicator)
 or by the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord. The mode
 choice persists to localStorage under `causa.mode` and survives
-reload. Static is currently gated behind the
-`:rf.causa/static-mode?` config flag (default off); it flips to
-default-on once the placeholder Static sub-tabs fill out.
+reload. Static mode is unconditionally available (per rf2-8l3uk —
+the prior `:rf.causa/static-mode?` feature gate was removed).
 
 The five canonical questions remain the Runtime bar. Static carries
 its own posture — registry browse — and earns space alongside

@@ -297,12 +297,9 @@
           :palette/select-static-tab
           ;; rf2-ybjkx — Static-mode L3 tab jump. Routes through
           ;; `:rf.causa.static/select-tab` (the Static-scoped tab slot
-          ;; that the static shell's tab-bar reads). The dispatch is
-          ;; safe even when `:rf.causa/static-mode?` is OFF — the
-          ;; event handler is registered regardless; the surface
-          ;; composer just doesn't read the slot until the flag flips
-          ;; on. The palette filter prevents Static jumps from
-          ;; surfacing in Runtime mode in the first place.
+          ;; that the static shell's tab-bar reads). The palette
+          ;; filter prevents Static jumps from surfacing while the
+          ;; user is in Runtime mode.
           {:db close-db
            :fx (conj base-fx [:dispatch [:rf.causa.static/select-tab (first args)]])}
 
