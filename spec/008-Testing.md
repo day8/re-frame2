@@ -12,7 +12,15 @@ The testing surface is built entirely from foundation primitives in [002-Frames.
 
 ## Normative surface
 
-The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runtime)](000-Vision.md#goals). Every entry below is a re-export from `re-frame.core` and gathered alongside the test-flavoured helpers in the convenience namespace `re-frame.test-support` (per [§Built-in test-runner namespace](#built-in-test-runner-namespace)) — the inventory is single-source-of-truth.
+The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runtime)](000-Vision.md#goals). The surface lives across **three CLJS-reference namespaces** — every public def in the table below has a single canonical home, and the three-namespace split is the inventory's single-source-of-truth:
+
+| Namespace | Role | Surfaces |
+|---|---|---|
+| `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `reset-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `sub-topology`, `compute-sub`, `machine-transition` |
+| `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers | `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `reset-runtime-fixture`, `dispatch-sequence`, `assert-state`, `poll-until` |
+| `re-frame.test-helpers` | View-assertion helpers (hiccup-walk + `testid` authoring) | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid` |
+
+`re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both namespaces (`[re-frame.core :as rf]` for primitives, `[re-frame.test-support :as ts]` for fixture machinery and helpers). View-assertion test files additionally `:require [re-frame.test-helpers :as th]`. The split is deliberate: `re-frame.core` carries surfaces that compose into production code paths as well as tests; `re-frame.test-support` is a require-gated test-only convenience surface; `re-frame.test-helpers` is the view-assertion surface used only by tests (per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers)).
 
 | Need | API |
 |---|---|
@@ -76,10 +84,11 @@ Every entry in the table above is JVM-runnable, with the exceptions listed below
 - ✓ `compute-sub` (sub computation against an `app-db` value)
 - ✓ Public registrar queries (`registrations`, `frame-meta`, `sub-topology`, etc.)
 - ✓ **Hiccup → HTML string emission** (per [011](011-SSR.md)) — pure function over hiccup data, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
+- ✓ **Hiccup-walk** (`re-frame.test-helpers`, per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers)) — `find-by-testid`, `text-content`, `invoke-handler` and siblings. Pure walkers over hiccup data; expand fn-components and Form-3 class components without instantiating React. The reagent-slim Form-3 discriminator is a CLJS-only branch (reader-conditional); the JVM sees the same hiccup tree.
 - ✗ React-actually-mounting (mount lifecycle, `:on-click` event firing into the real DOM, scroll events) — CLJS-only.
 - ✗ Reactive subscription *tracking* (auto-subscribe-on-deref, dispose lifecycle) — CLJS-only. Subscription *computation* (running the body against an `app-db` value) is JVM-runnable via `compute-sub`.
 
-In practice: every business-logic test runs on the JVM. View *content* tests (does the rendered hiccup contain the expected text? does the structure match the schema?) also run on the JVM via `render-to-string`. Only tests that exercise actual React mounting, click events firing through DOM listeners, or scroll-position-style interactive behaviour need a CLJS runtime. The split is clean and SSR-friendly.
+In practice: every business-logic test runs on the JVM. View *content* tests (does the rendered hiccup contain the expected text? does the structure match the schema?) also run on the JVM via `render-to-string` or hiccup-walk — `render-to-string` for HTML-markup assertions, hiccup-walk for structure / handler assertions. Only tests that exercise actual React mounting, click events firing through DOM listeners, or scroll-position-style interactive behaviour need a CLJS runtime. The split is clean and SSR-friendly.
 
 ## Test fixture lifecycle patterns
 
@@ -270,6 +279,98 @@ The dispatch-driven form is the recommended pattern; the pure form is the escape
 
 Already covered in Pattern 4 — `machine-transition` is pure and JVM-runnable.
 
+## View-assertion helpers (`re-frame.test-helpers`)
+
+State-only assertions catch bugs in events / subs / machines / fx — but two bug classes live in the **view-vs-state gap**, where `app-db` is correct yet the user sees a broken screen:
+
+1. **State-correct, view-broken** — the handler updated `app-db`, the sub computes the right value, but the view reads from the wrong path / formats it wrong / forgets to render one branch. State-only assertions pass; the UI is wrong.
+2. **Wrong-frame dispatch** — the view wires `:on-click` to dispatch into the wrong frame (or no frame at all). State-assertions in the host frame stay green; the click in production fires into a sibling and nothing happens.
+
+Both bug classes are caught by a single shape: dispatch → call the view-fn directly → walk the returned hiccup → assert on content (class 1) or invoke `:on-click` (class 2). The view-fn is just a function; the returned hiccup is just a vector. No JSDOM, no React, no `act()`. JVM-runnable.
+
+### When to reach for hiccup-walk vs `render-to-string`
+
+Two flavours of view-content test:
+
+- **`render-to-string`** (per [011-SSR §The render-tree → HTML emitter](011-SSR.md#the-render-tree--html-emitter-cljs-reference)) — renders the whole view to an HTML string. Best when the assertion is about the rendered markup ("is the `<button>` disabled?", "does the `<h1>` carry the right class?"). Output is a string.
+- **hiccup-walk** (`re-frame.test-helpers`) — calls the view-fn directly and walks the returned hiccup. Best when the assertion is about the **structure** (testid presence, layout) or **handlers** (which `:on-click` is wired) or when the test wants to **invoke** a handler to drive interaction. Output is hiccup data; assertions read keys.
+
+Both are JVM-runnable and require no DOM. Reach for `render-to-string` when the test cares about HTML; reach for hiccup-walk when the test cares about handlers or testid-keyed structure.
+
+### Normative surface — `re-frame.test-helpers`
+
+Thirteen public defs, organised by role. Every entry is JVM-runnable; the namespace requires only `clojure.string` and stays classpath-clean for callers that don't pull React or Reagent.
+
+| Helper | Form | Signature | Purpose |
+|---|---|---|---|
+| `expand-tree` | Fn | `(expand-tree tree) → tree` | Recursively expand a hiccup tree, invoking any fn-components (and Form-3 class components, per the reagent-slim discriminator) with their args. After expansion every vector's first element is a keyword tag or a non-component value, never a fn / class. Lazy seqs are walked through `map`; vectors through `mapv`. Public so test files mid-walk can re-expand a sub-tree. |
+| `attrs` | Fn | `(attrs node) → map?` | Return the attrs map of a hiccup node, or `nil` if the node has no attrs map. A hiccup vector's second element is the attrs map iff it is a map. |
+| `children` | Fn | `(children node) → vector` | Return the child elements — everything after the tag (and optional attrs map). Always a vector (empty if no children). `nil` for non-hiccup input. |
+| `text-content` | Fn | `(text-content node) → string` | Recursively collect string leaves under `node` and join into a single string. Numbers coerce to strings; nils are skipped. Useful for `(is (= "Count: 5" (text-content label)))`. |
+| `extract-handler` | Fn | `(extract-handler node event-key) → fn?` | Return the value of `event-key` (e.g. `:on-click`, `:on-change`) from `node`'s attrs map, or `nil`. Reads better than `(get (attrs node) event-key)` at call sites. |
+| `find-by-attr` | Fn | `(find-by-attr tree attr val) → node?` | Walk `tree` (expanding fn / class components) and return the FIRST hiccup node whose attrs map carries `attr == val`, or `nil` if no node matches. Generic over the attribute keyword — pick whichever the codebase uses (`:data-testid`, `:data-test`, `:id`, custom). |
+| `find-all-by-attr` | Fn | `(find-all-by-attr tree attr val) → vector` | Like `find-by-attr` but returns every matching node, in depth-first order. Empty vector when no match. |
+| `find-by-attr-prefix` | Fn | `(find-by-attr-prefix tree attr prefix) → vector` | Every hiccup node whose `attr` value (a string) STARTS with `prefix`. Non-string attr values do not match. |
+| `find-by-testid` | Fn | `(find-by-testid tree test-id) → node?` | The first node whose attrs map carries `:data-testid == test-id`, or `nil`. Equivalent to `(find-by-attr tree :data-testid test-id)`. |
+| `find-all-by-testid` | Fn | `(find-all-by-testid tree test-id) → vector` | Every node carrying `:data-testid test-id`, in depth-first order. Equivalent to `(find-all-by-attr tree :data-testid test-id)`. |
+| `find-by-testid-prefix` | Fn | `(find-by-testid-prefix tree prefix) → vector` | Every node whose `:data-testid` STARTS with `prefix`. Equivalent to `(find-by-attr-prefix tree :data-testid prefix)`. |
+| `invoke-handler` | Fn | `(invoke-handler node event-key & args) → any` | Find the handler under `event-key` on `node` and call it. Returns the handler's return value (typically `nil` for `dispatch`-side-effecting `:on-click`s). **Throws** when `node` is not a hiccup vector, the node has no attrs map, or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug, not a passing case). |
+| `testid` | Fn | `(testid id)` / `(testid id extra) → map` | Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Use at the view call site: `[:button (testid "counter-inc" {:on-click ...}) "+"]`. |
+
+### Function-component expansion
+
+Reagent hiccup admits a function in the first slot of a vector — `[my-component {...}]` — and lazily invokes it during render. The walkers expand nested function components by calling them with their args (just like Reagent's renderer would) before walking, so a test that calls a parent view-fn sees the leaf hiccup the user sees. Expansion is recursive but terminating: a non-vector / non-fn leaf is a fixed point.
+
+Form-3 components built via `r/create-class` are detected (the reagent-slim class tag + the stashed `:reagent-render` slot) and expanded by invoking the render fn directly with the hiccup args. **The walker does NOT instantiate React or run lifecycle methods** — if a Form-3 view's hiccup output depends on lifecycle state (`componentDidMount`-style behaviour), the test sees the initial render only. JVM runs identically: class-3 detection is a no-op because the JVM has no JS class instances.
+
+### Selector convention — `:data-testid` vs `:data-test` vs custom
+
+React conventionally uses `:data-testid`; some codebases (notably Story) standardised on `:data-test` before the rename; framework tools may use their own prefix (Causa uses `:data-rf-causa-*`). The namespace ships two layers:
+
+- `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix` — the underlying. Match against any attr key the caller supplies. Use directly when the codebase keys on `:data-test` or a custom attribute.
+- `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix` — thin wrappers that pre-bind the attr to `:data-testid`. Use for the common React-convention case.
+
+The Conventions doc does not pin one form as canonical — the framework's view-test seam is the generic `find-by-attr` family, and `find-by-testid` is the recommended convenience for the React-conventional case.
+
+### Examples
+
+Drive a click and assert state changed downstream:
+
+```clojure
+(deftest counter-inc
+  (rf/with-frame [_ (rf/make-frame {:on-create [:counter/init]})]
+    (let [tree (counter-view {})
+          btn  (th/find-by-testid tree "counter-inc")]
+      (th/invoke-handler btn :on-click)
+      (is (= 1 (:n (rf/get-frame-db (rf/current-frame))))))))
+```
+
+Assert rendered text after dispatching:
+
+```clojure
+(deftest counter-label
+  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+    (rf/dispatch-sync [:counter/set 5])
+    (let [tree  (counter-view {})
+          label (th/find-by-testid tree "counter-label")]
+      (is (= "Count: 5" (th/text-content label))))))
+```
+
+Authoring side — emit a testid at the view call site:
+
+```clojure
+(defn counter-button [label dispatch-ev]
+  [:button (th/testid (str "counter-" label)
+                      {:on-click #(rf/dispatch dispatch-ev)})
+   label])
+```
+
+### JVM-runnable boundary for hiccup-walk
+
+Every helper in `re-frame.test-helpers` is JVM-runnable — the namespace requires only `clojure.string`. The reagent-slim Form-3 detection uses a reader-conditional (`#?(:cljs ...)`) that's a no-op on the JVM (the JVM has no `.-cljsReagentClass` property access on plain fns), so Form-3 expansion is a CLJS-only optimisation and JVM tests see the same hiccup tree.
+
+This complements the JVM-runnable list in [§Normative surface §JVM-runnable boundary](#jvm-runnable-boundary-authoritative): hiccup-walk joins `render-to-string` as a JVM-runnable view-test path.
+
 ## Assertion patterns
 
 ### Reading app-db
@@ -442,15 +543,18 @@ This is library territory, not framework. See [005 §Future](005-StateMachines.m
 
 ### Built-in test-runner namespace
 
-re-frame2 ships a `re-frame.test-support` convenience namespace (renamed from v1's `re-frame.test` per rf2-8hcb). Users `(:require [re-frame.test-support :as ts])` once and reach the full testing surface. The canonical helper inventory is:
+re-frame2 ships a `re-frame.test-support` convenience namespace (renamed from v1's `re-frame.test` per rf2-8hcb). Users `(:require [re-frame.test-support :as ts])` to reach the fixture machinery and the test-flavoured helpers, paired with `(:require [re-frame.core :as rf])` for the dispatch / frame / sub primitives. `re-frame.test-support` does NOT re-export from `re-frame.core` — keeping the two namespaces separate preserves the rule that `re-frame.core` is the production primitive surface (used by application code) and `re-frame.test-support` is the test-only convenience surface (required only by test files). View-assertion test files additionally `:require [re-frame.test-helpers :as th]` per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers).
 
-| Helper | Origin | Purpose |
+The canonical helper inventory is the union of three namespaces:
+
+| Helper | Namespace | Purpose |
 |---|---|---|
-| `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | re-export from `re-frame.core` | Same primitives the rest of the framework uses; gathered here for one require. |
-| `dispatch-sequence` | test-flavoured fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
-| `assert-state` | test-flavoured fn | `(assert-state expected-db)` for a full-db check, or `(assert-state path expected-val)` for a path check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). |
-| `poll-until` | test-flavoured fn (rf2-ka3n6 / rf2-fun38) | `(poll-until pred)` / `(poll-until pred opts)` — bounded-deadline poll for `(pred)` to be truthy. JVM returns the truthy value synchronously (throws `ex-info` with `:rf.test/poll-timeout true` on timeout); CLJS returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (string/keyword for the timeout message). Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` whose intent is "wait for an observable state change" — NOT for timer-semantics tests (grace-period elapse, throttle/debounce window, "prove a thing did NOT happen within window N"); those should keep their sleep and annotate that intent locally. |
-| `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `reset-runtime-fixture` | fixture machinery | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. |
+| `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | `re-frame.core` | Production primitives, also the testing entry points. Same defs the rest of the framework uses; tests reach them through `re-frame.core` (no re-export shim). |
+| `dispatch-sequence` | `re-frame.test-support` | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
+| `assert-state` | `re-frame.test-support` | `(assert-state expected-db)` for a full-db check, or `(assert-state path expected-val)` for a path check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). |
+| `poll-until` | `re-frame.test-support` (rf2-ka3n6 / rf2-fun38) | `(poll-until pred)` / `(poll-until pred opts)` — bounded-deadline poll for `(pred)` to be truthy. JVM returns the truthy value synchronously (throws `ex-info` with `:rf.test/poll-timeout true` on timeout); CLJS returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (string/keyword for the timeout message). Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` whose intent is "wait for an observable state change" — NOT for timer-semantics tests (grace-period elapse, throttle/debounce window, "prove a thing did NOT happen within window N"); those should keep their sleep and annotate that intent locally. |
+| `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `reset-runtime-fixture` | `re-frame.test-support` | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. |
+| `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid` | `re-frame.test-helpers` | Hiccup-walk view-assertion surface — call the view-fn directly, walk the returned hiccup, assert on content or invoke a handler. JVM-runnable; no JSDOM, no React, no `act()`. Full inventory and contract: [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers). |
 
 This is the full surface. Anything else a test needs is composed from `dispatch-sync` / `get-frame-db` / `compute-sub` / `machine-transition` directly — there is no hidden helper layer.
 
