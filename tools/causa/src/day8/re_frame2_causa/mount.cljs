@@ -692,17 +692,27 @@
 ;; avoid pulling theme into the install path" rationale was stale —
 ;; `theme.tokens` has no transitive deps and is the canonical palette.
 
+;; The overlay paints into the popout window's own document via
+;; imperative `set! style.background` etc. — that document does NOT
+;; carry the Causa `<style>` injection that registers the
+;; `--rf-causa-…` custom properties on `:root`, so reading from
+;; `tokens` (which is a `var(...)` map post rf2-on4cm) would resolve
+;; to the property's default initial value rather than the brand
+;; palette. These constants read `dark-palette` directly so the
+;; literal hex still flows through `theme/tokens` as the single
+;; source of truth.
+
 (def ^:private opener-gone-overlay-bg
-  (:bg-0 tokens/tokens))
+  (:bg-0 tokens/dark-palette))
 
 (def ^:private opener-gone-overlay-text
-  (:text-primary tokens/tokens))
+  (:text-primary tokens/dark-palette))
 
 (def ^:private opener-gone-overlay-secondary
-  (:text-secondary tokens/tokens))
+  (:text-secondary tokens/dark-palette))
 
 (def ^:private opener-gone-overlay-accent
-  (:accent-violet tokens/tokens))
+  (:accent-violet tokens/dark-palette))
 
 (def ^:private sans-stack
   tokens/sans-stack)

@@ -170,14 +170,87 @@
   {:dark  dark-palette
    :light light-palette})
 
+(defn css-var
+  "Map a token key (`:bg-1`, `:accent-violet`, …) to the canonical
+  `\"var(--rf-causa-<key>)\"` CSS string consumed by inline `:style`
+  maps + SVG paint properties. Pure data → string; JVM-portable.
+
+  The CSS custom-property block emitted by
+  `theme/global-styles/themes-css` registers every palette key at
+  `:root` (dark default) + `.rf-causa-theme-dark` / `.rf-causa-theme-
+  light` so the class toggle on the shell root flips every downstream
+  `var(--rf-causa-…)` reference in one assignment.
+
+  The 357-site v1.0 sweep (rf2-on4cm) routes every inline-style read
+  of a palette token through this function (via the `tokens` map,
+  which now consists of `var(--…)` strings rather than hex). That
+  makes the light theme actually paint — the class toggle was wired
+  but inline styles were reading the dark-palette hex directly,
+  so the toggle had no observable effect."
+  [k]
+  (str "var(--rf-causa-" (name k) ")"))
+
+(defn with-alpha
+  "Build a `color-mix(in srgb, var(--rf-causa-<key>) <pct>%, transparent)`
+  CSS string. The CSS-Color-4 idiom for compositing a palette token
+  with an alpha channel without forking the hex — Chrome 111+, Safari
+  16.2+, Firefox 113+. Use this where the old code did string
+  concatenation with a two-digit alpha suffix (`(str (:accent-violet
+  tokens) \"55\")`).
+
+  `k`  - palette key (`:accent-violet`, …)
+  `pct` - opacity percentage (0-100). The `transparent` partner makes
+          the result equivalent to that fractional alpha.
+
+  Pure data → string; JVM-portable."
+  [k pct]
+  (str "color-mix(in srgb, " (css-var k) " " pct "%, transparent)"))
+
 (def tokens
-  "Backward-compatible alias for the dark palette. The 357 inline-style
-  call sites that read `(:bg-1 tokens)` keep resolving against the
-  dark palette; the light theme is layered on top via CSS custom
-  properties (see `theme/global-styles/themes-css`). The v1.0 styling
-  pass migrates each call site through to the CSS-variable surface so
-  the inline-style indirection collapses."
-  dark-palette)
+  "Causa's design palette, exposed as CSS-variable strings.
+
+  Every value is `\"var(--rf-causa-<key>)\"` — the CSS custom-property
+  registered by `theme/global-styles/themes-css` against the active
+  theme class (`rf-causa-theme-dark` / `rf-causa-theme-light`). Inline
+  `:style` reads of `(:bg-1 tokens)` resolve to `\"var(--rf-causa-bg-1)\"`
+  and the browser substitutes the dark or light hex at paint time
+  based on the class toggle on the shell root.
+
+  ## Why a var-map rather than a hex-map (rf2-on4cm)
+
+  Pre-rf2-on4cm `tokens` was an alias of `dark-palette` — every inline
+  style site (~357 of them) read a hardcoded dark-palette hex
+  regardless of the active theme class. The light-theme class toggle
+  was wired through `settings/effects/apply-theme!` and the CSS
+  variable block was emitted, but inline styles ignored both — light
+  mode was paint-only-the-edges broken.
+
+  Replacing the hex map with a CSS-variable map flips every existing
+  call site to the variable surface without per-site edits: a token
+  read like `(:bg-1 tokens)` now yields the `var(--rf-causa-bg-1)`
+  reference, and the active theme's class scope on the shell root
+  decides which palette resolves at paint time.
+
+  ## The few sites that still need raw hex
+
+  Two call sites consume the literal hex rather than a CSS variable:
+
+  - `mount.cljs`'s popout opener-gone overlay paints into the popout
+    window's `<body>` imperatively (`set! style.background`) — the
+    popout document doesn't carry the Causa `<style>` injection, so
+    `var(--rf-causa-bg-0)` would resolve to the default initial value.
+    These reads use `dark-palette` directly.
+  - `config.cljc`'s `default-accent` publishes a literal hex INTO the
+    `--rf-causa-accent` CSS variable as its default value, so it
+    must remain a hex string.
+
+  Other consumers (SVG `:fill`, inline `:style :background`, etc.)
+  flow through `var(...)` unchanged — modern browsers (Chrome 49+,
+  Firefox 31+, Safari 9.1+) accept CSS custom properties in every
+  paint property including SVG attributes."
+  (into {}
+        (for [k (keys dark-palette)]
+          [k (css-var k)])))
 
 (def mono-stack
   "JetBrains Mono stack per spec/007-UX-IA.md §Typography. Used by
@@ -433,10 +506,14 @@
    :chrome-a11y     :red})
 
 (defn panel-accent
-  "Resolve the L4 panel's accent hex from the canonical
+  "Resolve the L4 panel's accent CSS-variable string from the canonical
   `panel-domain->token` map through `tokens`. Falls back to the
-  violet accent for unknown tab keywords so the stripe always
-  renders."
+  `:accent-violet` variable for unknown tab keywords so the stripe
+  always renders.
+
+  Returns a `\"var(--rf-causa-<key>)\"` string post rf2-on4cm — the
+  active theme class scope on the shell root decides which palette's
+  hex resolves at paint time."
   [tab]
   (get tokens
        (get panel-domain->token tab :accent-violet)))

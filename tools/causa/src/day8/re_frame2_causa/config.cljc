@@ -135,10 +135,15 @@
 (def default-accent
   "Default value Causa publishes for `--rf-causa-accent` — the
   violet from `theme/tokens.cljc` (`:accent-violet`). Resolved
-  through the canonical tokens map so the brand hex has exactly one
-  source of truth (rf2-5kfxe.4). Matches the accent catalogued in
-  `spec/007-UX-IA.md` §Colour system."
-  (:accent-violet tokens/tokens))
+  through the canonical `dark-palette` map so the brand hex has
+  exactly one source of truth (rf2-5kfxe.4). Matches the accent
+  catalogued in `spec/007-UX-IA.md` §Colour system.
+
+  Reads `dark-palette` (the literal hex map) rather than `tokens`
+  because `tokens` exposes CSS-variable strings (`var(--rf-causa-…)`)
+  post rf2-on4cm; this constant is the VALUE that gets published
+  INTO the CSS variable, not a reference to it."
+  (:accent-violet tokens/dark-palette))
 
 (def default-layout-host-snippet
   ;; DOM order is `<main>` first, host `<aside>` second — flex flow

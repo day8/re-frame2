@@ -26,7 +26,8 @@
     8. **`project-feed`** composite + empty-kind classification."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-causa.panels.trace-helpers :as h]))
+            [day8.re-frame2-causa.panels.trace-helpers :as h]
+            [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -320,14 +321,19 @@
 ;; ---- (9) op-type-colour ------------------------------------------------
 
 (deftest op-type-colour-mapping
-  (is (= "#F87171" (h/op-type-colour :error)))
-  (is (= "#FBBF24" (h/op-type-colour :warning)))
-  (is (= "#43C3D0" (h/op-type-colour :info)))
-  (is (= "#7C5CFF" (h/op-type-colour :event)))
-  (is (= "#4ADE80" (h/op-type-colour :fx)))
-  (is (= "#E879F9" (h/op-type-colour :view/render)))
+  ;; Post rf2-on4cm `op-type-colour` returns CSS-variable strings —
+  ;; the active theme class on the shell root decides whether the dark
+  ;; or light hex resolves at paint time. Compare against the var-map
+  ;; (`tokens/tokens`) so the test pins the indirection rather than a
+  ;; specific palette's hex.
+  (is (= (:red    tokens/tokens)  (h/op-type-colour :error)))
+  (is (= (:yellow tokens/tokens)  (h/op-type-colour :warning)))
+  (is (= (:cyan   tokens/tokens)  (h/op-type-colour :info)))
+  (is (= (:accent-violet tokens/tokens) (h/op-type-colour :event)))
+  (is (= (:green  tokens/tokens)  (h/op-type-colour :fx)))
+  (is (= (:magenta tokens/tokens) (h/op-type-colour :view/render)))
   ;; Defensive fallback.
-  (is (= "#A8AEC0" (h/op-type-colour :totally-unknown))))
+  (is (= (:text-secondary tokens/tokens) (h/op-type-colour :totally-unknown))))
 
 ;; ---- (10) source-coord -------------------------------------------------
 
