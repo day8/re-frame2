@@ -314,6 +314,8 @@ The runtime warns at registration time when `:interceptors` appears inside the m
 
 This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise `:interceptors` (per [Spec 002 §`:interceptors` — *add* interceptors to a frame's events](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)) — frames have no positional middle slot, so frame-level interceptors live on the metadata-map by necessity.
 
+**The three-form family is deliberately preserved.** The three-form family (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) is deliberately preserved from re-frame v1 for migration ergonomics. The noise is acknowledged; the cost of breaking v1 muscle memory exceeds the readability win of collapsing. Per Mike's resolution of rf2-qwhp1 (Option (a) — keep all 3 forms, 2026-05-20); cross-references [rf2-k6xyr](https://github.com/day8/re-frame2/issues?q=rf2-k6xyr) Finding #4 in the audit-bead naming-debt finding catalog.
+
 ## Implementation note — persistent data structures
 
 Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other in-scope JS-cross-compile-language ports pick a host-idiomatic library (Immer or Immutable.js for TypeScript / Squint; im.kt or `kotlinx.collections.immutable` for Kotlin/JS; native PDS from the source language for Fable (F#) / Scala.js / PureScript / Melange / ReScript / Reason). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).
