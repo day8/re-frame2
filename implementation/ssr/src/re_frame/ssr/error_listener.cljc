@@ -168,13 +168,80 @@
   frame in the per-frame pending-error-traces buffer. Buffering avoids
   the race where an in-flight handler's `{:db ...}` would clobber an
   inline :rf/response write. Registered in the `re-frame.ssr` façade
-  under `::error-projection`."
+  under `::error-projection`.
+
+  NOTE (rf2-fb598): the production-survivable install site is
+  `error-emit-projection-listener` (below) which rides the always-on
+  `register-error-emit-listener!` substrate. This trace-cb listener
+  is preserved for the dev-only `:rf.error/*` categories that fire
+  only through `trace/emit-error!` — `:rf.error/no-such-handler`,
+  `:rf.error/no-such-route`, `:rf.error/schema-validation-failure`,
+  `:rf.error/sub-exception`, `:rf.error/drain-depth-exceeded`. These
+  do not have an always-on emission path; they elide under
+  `interop/debug-enabled? = false` along with the trace surface they
+  ride. The 500-class errors (`:rf.error/handler-exception`,
+  `:rf.error/fx-handler-exception` family, `:rf.error/flow-eval-
+  exception`) DO have an always-on emission path and reach the
+  projector via `error-emit-projection-listener` regardless of the
+  dev/prod gate. In dev both listeners fire and buffer the same logical
+  error twice — apply-error-projection! 1-arity is last-write-wins and
+  the projector is idempotent, so the duplicate is benign."
   [event]
   (when (= :error (:op-type event))
     (let [op (:operation event)]
       ;; Skip our own sanitisation traces to avoid recursion.
       (when-not (= :rf.error/sanitised-on-projection op)
         (when-let [fid (candidate-frame-for-error event)]
+          (buffer-error-trace! fid event))))))
+
+(defn error-emit-projection-listener
+  "Always-on error-emit-substrate listener (per rf2-fb598 / audit Finding
+  #3) — captures `:rf.error/*` records delivered via
+  `register-error-emit-listener!` and buffers them onto the per-frame
+  pending-error-traces buffer in the same trace-event shape the
+  projector consumes.
+
+  The error-emit record arrives as the tight flat shape
+  `{:error :event :event-id :frame :time :exception :elapsed-ms
+    :source-coord}` (per `re-frame.error-emit/dispatch-on-error!`'s
+  contract). We synthesise the `{:operation :op-type :tags}` envelope
+  the existing projector pipeline expects — symmetric with the trace-cb
+  delivery — so the projector body is substrate-agnostic.
+
+  Registered in the `re-frame.ssr` façade under `::error-projection`.
+  Survives `interop/debug-enabled? = false` — Spec 011 §Server error
+  projection holds under production hardening (rf2-vnjfg)."
+  [record]
+  (let [op (:error record)]
+    ;; Symmetric with the trace-cb guard above — refuse our own
+    ;; sanitisation records to avoid recursion. (As of rf2-fb598
+    ;; `:rf.error/sanitised-on-projection` is not delivered through the
+    ;; error-emit substrate, but keep the guard so a future routing
+    ;; change can't reintroduce a re-entrant projection.)
+    (when-not (= :rf.error/sanitised-on-projection op)
+      (let [;; Frame may be on the flat record directly (`:frame`); fall
+            ;; back to the candidate-frame lookup used on the trace-cb
+            ;; path so a record missing `:frame` still routes to the
+            ;; single active server frame when one exists.
+            direct-fid (:frame record)
+            ;; Synthesise a trace-event-shaped envelope. The projector
+            ;; reads `(:operation event)`; we copy the relevant flat
+            ;; slots onto `:tags` so custom projectors using the tag
+            ;; shape (e.g. `(get-in event [:tags :exception])`) see the
+            ;; same keys they would on the trace path.
+            event {:operation op
+                   :op-type   :error
+                   :tags      {:frame             (:frame      record)
+                               :event-id          (:event-id   record)
+                               :event             (:event      record)
+                               :exception         (:exception  record)
+                               :elapsed-ms        (:elapsed-ms record)
+                               :time              (:time       record)
+                               :source-coord      (:source-coord record)
+                               :recovery          :no-recovery}}]
+        (when-let [fid (if (and direct-fid (error-projector/server-frame? direct-fid))
+                         direct-fid
+                         (candidate-frame-for-error event))]
           (buffer-error-trace! fid event))))))
 
 (defn peek-response
