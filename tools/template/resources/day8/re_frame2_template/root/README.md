@@ -31,6 +31,14 @@ file save) are fast.
 re-registers in place, and `dispatch-sync [:counter/initialise]`
 re-seeds app-db.
 
+Under the hood re-frame2 guarantees a **per-frame re-init contract**:
+each call to `init!` on a frame snapshots the registrar, re-installs
+the adapter, and resets the frame's app-db to a known state — your
+handlers and subs come back wired to the new code without leaking
+state from the previous build. Add new `reg-event-db` / `reg-sub` /
+`reg-view` forms and they show up live; rename or remove a handler
+and the next reload drops the old registration.
+
 ## In-app devtools (Causa)
 
 `shadow-cljs.edn` wires `day8.re-frame2-causa.preload` into
@@ -43,6 +51,10 @@ causality graph, time-travel scrubber.
 Release builds drop the preload automatically (shadow only runs
 preloads under `watch` / `compile`, never `release`).
 
+Stack traces in dev also get click-to-source via the
+`:rf.trace/trigger-handler` preload — clicking a frame in the dev
+console jumps straight to the offending form.
+
 ## Build for release
 
 ```sh
@@ -51,6 +63,88 @@ npx shadow-cljs release app
 
 Production output lands in `resources/public/js/`. Serve `resources/public/`
 from any static host.
+
+## Production hardening
+
+The generated `resources/public/index.html` ships a `<meta http-equiv="Content-Security-Policy" ...>`
+tag so an unconfigured static host still gets a strict default-safe
+baseline. **Prefer setting the same policy as a real response header**
+on your server — meta-tag CSPs are evaluated late (some directives are
+ignored entirely, e.g. `frame-ancestors`) and can be removed by an
+upstream proxy that rewrites HTML.
+
+The scaffold loads only same-origin JS/CSS and has no inline
+script/style, so the strict default policy holds without weakening:
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+```
+
+If you add a CDN, embed in an iframe, inline a `<style>` block, or
+load an analytics snippet, **explicitly widen the policy** for that
+origin / hash — don't drop it to `'unsafe-inline'` wholesale.
+
+Example **nginx** server block:
+
+```nginx
+location / {
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+}
+```
+
+Example **Caddy** Caddyfile snippet:
+
+```caddyfile
+header {
+  Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  X-Content-Type-Options "nosniff"
+  Referrer-Policy "strict-origin-when-cross-origin"
+}
+```
+
+Always deploy the `release` build (not `watch`) to production — the
+release build sets `:closure-defines {goog.DEBUG false}` (next
+section), strips the Causa preload, and ships the minified bundle.
+
+## Production builds
+
+`shadow-cljs release` already sets `:closure-defines {goog.DEBUG false}` —
+asserts compile away, dev-only branches drop, the bundle shrinks. If
+you want to verify or override it, the explicit form is:
+
+```clojure
+;; shadow-cljs.edn :builds :app
+:release {:compiler-options {:closure-defines {goog.DEBUG false}}}
+```
+
+For production timing data, flip re-frame2's performance instrumentation
+on at compile time. Add this block alongside `:closure-defines` (it's
+off by default — turning it on costs a few cycles per dispatch):
+
+```clojure
+;; :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
+```
+
+## REPL workflow
+
+Once `npx shadow-cljs watch app` is running, connect your editor to
+the shadow-cljs nREPL:
+
+- **Calva (VS Code):** `Calva: Connect to a Running REPL` →
+  `shadow-cljs` → pick the `:app` build.
+- **CIDER (Emacs):** `M-x cider-jack-in-cljs` → `shadow-cljs` →
+  `:app`.
+- **Cursive (IntelliJ):** add a `Clojure REPL → Remote` config
+  pointing at the nREPL port shadow-cljs prints on startup.
+
+shadow-cljs prints the nREPL port on its first line of output
+(default 7002 if you set `:nrepl {:port 7002}` in `shadow-cljs.edn`,
+or a randomly-assigned port otherwise). Once connected, evaluate
+forms in `dev/scratch.cljs` to drive the running app from the REPL.
 
 ## Run tests
 
@@ -61,7 +155,17 @@ node out/node-test.js
 
 The `:test` build in `shadow-cljs.edn` is a `:node-test` target that
 picks up every `*_test.cljs` namespace under `test/` and runs it via
-`cljs.test`.
+`cljs.test`. The scaffold ships one such file —
+`test/{{nested-dirs}}/events_test.cljs` — exercising
+`:counter/initialise` and `:counter/increment` against the plain-atom
+reactive substrate (no DOM needed). Add more `*_test.cljs` files
+alongside it as your app grows.
+
+**Windows note:** shadow-cljs's `node_modules` resolution can rely on
+filesystem symlinks. Symlink creation on Windows requires either
+**Developer Mode** enabled (Settings → For developers → Developer
+Mode) or an admin-elevated shell. If `npm test` fails with a symlink-
+related error, that's the fix.
 
 ## Project layout
 
@@ -102,6 +206,12 @@ A minimal **counter app** demonstrates the re-frame2 dataflow end-to-end:
 - `views.cljs` renders a `<button>` that dispatches the increment event
   plus a `<span>` that reads the subscription.
 
+This is the same counter walked through in
+[the re-frame2 guide](https://github.com/day8/re-frame2/tree/main/docs/guide) —
+the state key is intentionally feature-scoped (`:counter/value`, not a
+bare `:count`) so generated applications start with AI-readable,
+non-colliding app-db slices.
+
 ## Next steps
 
 - Read the [the re-frame2 guide](https://github.com/day8/re-frame2/tree/main/docs/guide).
@@ -109,6 +219,32 @@ A minimal **counter app** demonstrates the re-frame2 dataflow end-to-end:
   [Pattern Specification](https://github.com/day8/re-frame2/tree/main/spec)
   for the contract.
 - Check out the [worked examples](https://github.com/day8/re-frame2/tree/main/examples).
+
+## Migrating from re-frame v1?
+
+If you are porting an existing re-frame app, see:
+
+- [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)
+  — the v1→v2 migration contract.
+- The [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration)
+  skill — Claude Code workflow that walks the port mechanically and
+  flags the cases that need a human decision.
+
+v2 introduces a per-frame architecture, schema-typed app-db, managed
+HTTP effects, and the `reg-view` macro on the Reagent adapter (which
+both defines a view symbol and registers it under `(keyword *ns* name)`,
+auto-injecting `dispatch` / `subscribe` as frame-scoped lexical
+bindings). The migration skill walks you through each of those v1→v2
+shape changes mechanically.
+
+## Future: skill install
+
+re-frame2 ships first-class Claude Code skills (under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills))
+that pair-program against a running app, drive scaffolds, and walk
+the v1→v2 migration. Once those publish to the Claude Code skills
+marketplace this template will install them into your project on
+scaffold; until then, clone the `re-frame2` repo and copy the
+relevant skill directory into your `.claude/skills/`.
 
 ## License
 

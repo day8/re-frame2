@@ -52,7 +52,19 @@
          :extra-deps  {;; rf2-try1x — silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                       ;; deps-new is pulled in under :test so the
+                       ;; deps-new template_test.clj can drive
+                       ;; `org.corfield.new/create` in-process (the
+                       ;; full pipeline runs through `data-fn` /
+                       ;; `template-fn` / `post-process-fn` exactly as
+                       ;; a `clojure -Tnew create` invocation would
+                       ;; — without the per-substrate process-spawn
+                       ;; cost). The hooks ns + the template body are
+                       ;; both already on the classpath via this jar's
+                       ;; :paths.
+                       io.github.seancorfield/deps-new
+                       {:git/tag "v0.12.1" :git/sha "883e82c"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; deps-new bridge for in-repo smoke testing of the §2.1 spike.
