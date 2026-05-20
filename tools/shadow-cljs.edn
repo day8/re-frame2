@@ -36,12 +36,13 @@
 ;;
 ;; ## Why template is invisible here
 ;;
-;; `tools/template/` is JVM-only (clj-new template) — its `src/` tree
-;; contains placeholder-bearing `.cljs` template files that are NOT
-;; valid ClojureScript. The template dep is excluded from
-;; tools/deps.edn's base `:deps` map for that reason (see the comment
-;; block in tools/deps.edn). With `:deps true` active, shadow-cljs only
-;; sees what the base `:deps` map exposes, so the template's
+;; `tools/template/` is JVM-only (deps-new template) — its
+;; `resources/day8/re_frame2_template/` tree contains
+;; placeholder-bearing `.cljs` template files that are NOT valid
+;; ClojureScript. The template dep is excluded from tools/deps.edn's
+;; base `:deps` map for that reason (see the comment block in
+;; tools/deps.edn). With `:deps true` active, shadow-cljs only sees
+;; what the base `:deps` map exposes, so the template's
 ;; placeholder-bearing files never reach the shadow-cljs reader.
 {:deps true
 

@@ -32,10 +32,10 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
   directory to a working `shadow-cljs watch` counter via the canonical
   seven-step path. Complementary to the generator template under
   [`tools/template/`](../tools/template/): use the template
-  (`clojure -X:project/new :template re-frame2 :name acme/my-app`) when
-  you want a one-shot scaffold; reach for this skill when you're adding
-  re-frame2 to an existing CLJS project, or when you want to understand
-  each step the template performs.
+  (`clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`)
+  when you want a one-shot scaffold; reach for this skill when you're
+  adding re-frame2 to an existing CLJS project, or when you want to
+  understand each step the template performs.
 
 - **[`re-frame-migration/`](./re-frame-migration/)** — migrate an existing
   re-frame v1.x ClojureScript codebase to re-frame2. Drives the
