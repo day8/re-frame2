@@ -2044,10 +2044,11 @@
         (is (= :idle (get-in db [:rf/route :transition]))
             ":transition settles back to :idle after the drain")))))
 
-;; ---- T7: :rf.route/url-changed (fragment-only) trace event payload ----
+;; ---- T7: :rf.route/fragment-changed (fragment-only) trace event payload ----
 
 (deftest fragment-only-url-change-trace-payload
-  (testing "fragment-only URL change emits :rf.route/url-changed with
+  (testing "fragment-only URL change emits :rf.route/fragment-changed
+            (rf2-cj9fn; pre-rename `:rf.route/url-changed`) with
             :prev-fragment / :next-fragment under :tags (Spec 012 §Fragments)"
     (rf/reg-route :route/docs {:path "/docs/:page"})
     (rf/reg-fx :rf.nav/push-url
@@ -2062,9 +2063,9 @@
       ;; And again — prev→next this time.
       (rf/dispatch-sync [:rf/url-changed "/docs/routing#fragments"])
       (rf/unregister-trace-listener! ::frag-only)
-      (let [frag-events (filter #(= :rf.route/url-changed (:operation %)) @traces)]
+      (let [frag-events (filter #(= :rf.route/fragment-changed (:operation %)) @traces)]
         (is (= 2 (count frag-events))
-            "two fragment-only changes emit two :rf.route/url-changed traces")
+            "two fragment-only changes emit two :rf.route/fragment-changed traces")
         (let [first-ev  (first  frag-events)
               second-ev (second frag-events)]
           (is (= :route/docs (-> first-ev :tags :route-id))
@@ -2188,6 +2189,177 @@
     (rf/dispatch-sync [:rf/url-changed "/p"])
     (is (true? (:handled? (rf/get-frame-db :rf/default)))
         "bare-keyword :on-error wraps as a vector and dispatches")))
+
+;; ============================================================================
+;; rf2-m78lu — :on-match exception attribution rides on the error map
+;; ============================================================================
+
+(deftest on-match-error-stamps-route-attribution
+  (testing ":rf.route/on-match-id and :rf.route/on-match-frame are
+            stamped on the structured error map dispatched into the
+            slice's :error slot (Spec 012 §Per-route error handling
+            and rf2-m78lu). Mirrors the flow-attribution slots
+            `:rf.flow/failed-id` / `:rf.flow/failed-frame` (rf2-je5p8).
+            Tools reading the error from `(:error (:rf/route db))` —
+            outside the routing listener's discrimination context —
+            can identify the throw as :on-match-attributed without
+            re-running the listener logic."
+    (rf/reg-event-db :load/throw-attribute
+                     (fn [_db _]
+                       (throw (ex-info "attributed-boom" {:why :test}))))
+    (rf/reg-route :route/attributed
+                  {:path     "/attributed"
+                   :on-match [[:load/throw-attribute]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/attributed"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))
+          err   (:error slice)]
+      (is (= :error (:transition slice))
+          ":transition flips to :error on the attributed throw")
+      (is (= :rf.error/handler-exception (:operation err))
+          ":operation is the Spec 009 handler-exception id")
+      (is (= :load/throw-attribute (:rf.route/on-match-id err))
+          ":rf.route/on-match-id names the failing :on-match event-id")
+      (is (= :rf/default (:rf.route/on-match-frame err))
+          ":rf.route/on-match-frame names the dispatching frame"))))
+
+;; ============================================================================
+;; rf2-5pyyl — :can-leave non-boolean → BLOCK + :rf.error/can-leave-non-boolean
+;; ============================================================================
+
+(deftest can-leave-non-boolean-blocks-navigation
+  (testing "a :can-leave sub that returns a non-boolean truthy value
+            BLOCKS navigation and emits :rf.error/can-leave-non-boolean
+            (rf2-5pyyl). Closed contract: pre-rf2-5pyyl the runtime
+            tolerated non-booleans with a warning and let the nav
+            through; now it BLOCKS so the polarity bug (returning the
+            dirty-flag value rather than (not dirty?)) cannot silently
+            strand form state."
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave [:editor/leave?]})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/set-dirty
+                     (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    ;; Polarity bug: return the dirty-flag directly (truthy when dirty).
+    ;; Pre-rf2-5pyyl this would pass the nav through (it's truthy);
+    ;; now it must BLOCK.
+    (rf/reg-sub :editor/leave?
+                (fn [db _] (get-in db [:editor :dirty?])))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    ;; A non-truthy non-false value (`nil`) would also be a non-boolean
+    ;; — but we want to specifically exercise the "truthy non-boolean"
+    ;; polarity bug, so dirty the editor first.
+    (rf/dispatch-sync [:editor/set-dirty 42])
+    (let [traces (atom [])]
+      (rf/register-trace-listener! ::can-leave-nb (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/unregister-trace-listener! ::can-leave-nb)
+      (let [db        (rf/get-frame-db :rf/default)
+            pending   (:rf/pending-navigation db)
+            nb-traces (filter #(= :rf.error/can-leave-non-boolean
+                                   (:operation %))
+                              @traces)]
+        (is (= :editor/article (get-in db [:rf/route :id]))
+            "navigation BLOCKED — slice still on the source route")
+        (is (some? pending)
+            ":rf/pending-navigation slot is populated (block path)")
+        (is (= :rf.error/can-leave-non-boolean
+               (-> nb-traces first :operation))
+            ":rf.error/can-leave-non-boolean trace fired (rf2-5pyyl)")
+        (is (= 42 (-> nb-traces first :tags :value))
+            "trace carries the offending non-boolean value")
+        (is (= :blocked-navigation (-> nb-traces first :recovery))
+            "trace hoists :recovery :blocked-navigation (Spec 009 §error contract)")))))
+
+;; ============================================================================
+;; rf2-dn26r — route lifecycle trace ops
+;; ============================================================================
+
+(deftest route-registered-trace-on-first-time-reg
+  (testing ":rf.route/registered fires on FIRST-TIME reg-route (rf2-dn26r).
+            Re-registration with the same id rides the cross-kind
+            `:rf.registry/handler-replaced` trace; not re-emitted here.
+            Mirrors the `:rf.flow/registered` symmetry."
+    (let [traces (atom [])]
+      (rf/register-trace-listener! ::reg-trace (fn [ev] (swap! traces conj ev)))
+      (rf/reg-route :route/home {:path "/"})
+      (rf/reg-route :route/home {:path "/"}) ;; re-register (no trace)
+      (rf/unregister-trace-listener! ::reg-trace)
+      (let [reg-events (filter #(= :rf.route/registered (:operation %)) @traces)]
+        (is (= 1 (count reg-events))
+            "first-time reg-route emits :rf.route/registered exactly once")
+        (is (= :route/home (-> reg-events first :tags :route-id))
+            ":route-id rides in :tags")
+        (is (= "/" (-> reg-events first :tags :path))
+            ":path rides in :tags")))))
+
+(deftest route-cleared-trace-on-unregister
+  (testing "unregister-route! emits :rf.route/cleared (rf2-dn26r)"
+    (rf/reg-route :route/transient {:path "/transient"})
+    (let [traces (atom [])]
+      (rf/register-trace-listener! ::cleared-trace (fn [ev] (swap! traces conj ev)))
+      (routing/unregister-route! :route/transient)
+      (routing/unregister-route! :route/transient) ;; idempotent, no trace
+      (rf/unregister-trace-listener! ::cleared-trace)
+      (let [cleared-events (filter #(= :rf.route/cleared (:operation %)) @traces)]
+        (is (= 1 (count cleared-events))
+            "unregister-route! emits :rf.route/cleared exactly once")
+        (is (= :route/transient (-> cleared-events first :tags :route-id))
+            ":route-id rides in :tags")))))
+
+(deftest route-activated-deactivated-trace-on-navigation
+  (testing ":rf.route/deactivated + :rf.route/activated fire on cross-route
+            navigation (rf2-dn26r). Same-id navigation emits NEITHER."
+    (rf/reg-route :route/from {:path "/from"})
+    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; First nav: no prior route → only :rf.route/activated fires.
+    (let [traces (atom [])]
+      (rf/register-trace-listener! ::act1 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate :route/from])
+      (rf/unregister-trace-listener! ::act1)
+      (is (= [:route/from]
+             (map #(-> % :tags :route-id)
+                  (filter #(= :rf.route/activated (:operation %)) @traces)))
+          "first nav: :rf.route/activated for :route/from")
+      (is (empty? (filter #(= :rf.route/deactivated (:operation %)) @traces))
+          "first nav (no prior): :rf.route/deactivated does NOT fire"))
+    ;; Cross-route nav: both fire in deactivated→activated order.
+    (let [traces (atom [])]
+      (rf/register-trace-listener! ::act2 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate :route/to])
+      (rf/unregister-trace-listener! ::act2)
+      (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
+                                (:operation %))
+                              @traces)]
+        (is (= [:rf.route/deactivated :rf.route/activated]
+               (map :operation lifecycle))
+            "cross-route nav: deactivated → activated in that order")
+        (is (= :route/from
+               (-> (first lifecycle) :tags :route-id))
+            ":deactivated carries the prior route-id")
+        (is (= :route/to
+               (-> (second lifecycle) :tags :route-id))
+            ":activated carries the next route-id")))
+    ;; Same-id navigation: neither fires (route stays active across the transition).
+    (let [traces (atom [])]
+      (rf/register-trace-listener! ::act3 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate :route/to])
+      (rf/unregister-trace-listener! ::act3)
+      (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
+                                (:operation %))
+                              @traces)]
+        (is (empty? lifecycle)
+            "same-id navigation: neither lifecycle trace fires")))))
 
 ;; ============================================================================
 ;; rf2-w50qm — :url-bound? exclusivity + frame-consultation

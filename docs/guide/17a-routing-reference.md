@@ -160,7 +160,7 @@ Path syntax is the *primary* binding. Query strings are bound separately via the
 
 Coercion is data-shaped (the `:query` schema is the coercion specification — `:int` coerces `"2"` → `2`). No per-key middleware functions — data over functions.
 
-The URL `#fragment` is a first-class part of the routing contract — anchor navigation, scroll-to-section, settings-tab selection. Read it via `:rf.route/fragment`. Fragment-only changes update the slice and emit `:rf.route/url-changed` trace but do NOT re-fire `:on-match` (the data didn't change; only the in-page target did).
+The URL `#fragment` is a first-class part of the routing contract — anchor navigation, scroll-to-section, settings-tab selection. Read it via `:rf.route/fragment`. Fragment-only changes update the slice and emit the `:rf.route/fragment-changed` trace but do NOT re-fire `:on-match` (the data didn't change; only the in-page target did).
 
 ## Multi-frame routing
 

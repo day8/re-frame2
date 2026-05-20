@@ -1,15 +1,16 @@
 ;; Conformance fixture: routing/fragment-change
 ;;
 ;; The :rf/route slice carries :fragment from the URL. Fragment-only changes update
-;; the slice and emit :rf.route/url-changed but do NOT re-fire :on-match. Path
-;; changes (with or without a different fragment) DO re-fire :on-match.
+;; the slice and emit :rf.route/fragment-changed (rf2-cj9fn; pre-rename
+;; `:rf.route/url-changed`) but do NOT re-fire :on-match. Path changes (with or
+;; without a different fragment) DO re-fire :on-match.
 ;;
 ;; Per [012 §Fragments](../../012-Routing.md#fragments).
 
 {:fixture/id           :routing/fragment-change
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/fragment}
- :fixture/doc          "Fragment is part of the route slice. Fragment-only changes update :fragment without re-firing :on-match. Path changes re-fire :on-match regardless of fragment. The :rf.route/url-changed trace event differentiates fragment-only changes from full URL changes."
+ :fixture/doc          "Fragment is part of the route slice. Fragment-only changes update :fragment without re-firing :on-match. Path changes re-fire :on-match regardless of fragment. The :rf.route/fragment-changed trace event (rf2-cj9fn) differentiates fragment-only changes from full URL changes."
 
  :fixture/registry
  {:route
@@ -32,7 +33,7 @@
   [:rf/url-changed "/docs/routing#scroll-restoration"]
 
   ;; Step 2: Same path, same params, different fragment.
-  ;; :fragment updates; :on-match does NOT fire; :rf.route/url-changed trace fires.
+  ;; :fragment updates; :on-match does NOT fire; :rf.route/fragment-changed trace fires.
   [:rf/url-changed "/docs/routing#caching"]
 
   ;; Step 3: Different path (still has a fragment). :on-match DOES re-fire.
@@ -56,8 +57,8 @@
    {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/docs}}
 
-   ;; Step 2: fragment-only; :rf.route/url-changed fires; no nav-token allocation.
-   {:operation :rf.route/url-changed
+   ;; Step 2: fragment-only; :rf.route/fragment-changed fires; no nav-token allocation.
+   {:operation :rf.route/fragment-changed
     :tags      {:route-id      :route/docs
                 :prev-fragment "scroll-restoration"
                 :next-fragment "caching"}}

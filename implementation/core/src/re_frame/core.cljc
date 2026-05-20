@@ -782,6 +782,12 @@
   <-> params. Implementation ships in `day8/re-frame2-routing`."}
   route-url   rf-routing/route-url)
 
+(def ^{:doc "Remove a registered route. Emits `:rf.route/cleared` so
+  tools subscribing to route lifecycle observe the removal; symmetric
+  with `:rf.flow/cleared`. Per Spec 012 §Trace events (rf2-dn26r).
+  Implementation ships in `day8/re-frame2-routing`."}
+  unregister-route!  rf-routing/unregister-route!)
+
 (def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
   from a route-id and intercepts plain primary-button clicks to dispatch
   `:rf/url-requested`. Modifier-key / middle-clicks defer to the browser.

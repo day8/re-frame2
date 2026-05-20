@@ -134,11 +134,38 @@
                        (registrar/registrations :route))]
         (trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
                      {:route-id id :shadowed shadowed})))
-    (registrar/register! :route id meta')
-    ;; Cache invalidation is automatic — the registrar's `:route` map
-    ;; gets a new identity on every register!, and `route-table` checks
-    ;; identity equality before reusing the cached pairs vector.
+    (let [previous (registrar/lookup :route id)]
+      (registrar/register! :route id meta')
+      ;; Cache invalidation is automatic — the registrar's `:route` map
+      ;; gets a new identity on every register!, and `route-table` checks
+      ;; identity equality before reusing the cached pairs vector.
+      ;;
+      ;; Per Spec 012 §Trace events and rf2-dn26r: `:rf.route/registered`
+      ;; fires on FIRST-TIME registration so tools subscribing to "all
+      ;; route lifecycle events" see one event per fresh route.
+      ;; Re-registration rides the cross-kind `:rf.registry/handler-
+      ;; replaced` trace (emitted by `registrar/register!` per Spec 001
+      ;; §Hot-reload trace surface); not re-emitted here. Mirrors the
+      ;; `:rf.flow/registered` symmetry (rf2-ehxez).
+      (when (nil? previous)
+        (trace/emit! :event :rf.route/registered
+                     {:route-id id
+                      :path     pattern})))
     id))
+
+(defn unregister-route!
+  "Remove a registered route. Emits `:rf.route/cleared` so tools
+  subscribing to route lifecycle observe the removal; symmetric with
+  `:rf.flow/cleared`. Per Spec 012 §Trace events (rf2-dn26r). No-op
+  when the route id was not registered."
+  [id]
+  (let [previous (registrar/lookup :route id)]
+    (when previous
+      (registrar/unregister! :route id)
+      (trace/emit! :event :rf.route/cleared
+                   {:route-id id
+                    :path     (:path previous)})))
+  nil)
 
 ;; ---- match + coerce -------------------------------------------------------
 ;; `match-against` moved to `re-frame.routing.match` (rf2-icrxv Phase-2
@@ -780,20 +807,47 @@
     [(assoc db :rf.route/pending-nav-counter n)
      (str "pn-" n)]))
 
+(defn- emit-activation-traces!
+  "Per Spec 012 §Trace events and rf2-dn26r: emit `:rf.route/deactivated`
+  for the previously-active route id (when leaving one) and
+  `:rf.route/activated` for the newly-active route id (when entering a
+  different one). Both fire as part of every successful navigation
+  commit; same-id navigation (path/query change with no route-id shift)
+  emits NEITHER — the route stays active across the transition. Mirrors
+  the flow-lifecycle symmetry: the activated/deactivated pair is to
+  routes what `:rf.flow/computed` is to flows in giving tools a
+  per-transition lifecycle signal independent of the underlying
+  `:rf/url-changed` event."
+  [prev-id next-id]
+  (when (and prev-id (not= prev-id next-id))
+    (trace/emit! :event :rf.route/deactivated
+                 {:route-id prev-id}))
+  (when (and next-id (not= prev-id next-id))
+    (trace/emit! :event :rf.route/activated
+                 {:route-id next-id})))
+
 ;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
-;; :rf.route/settle-transition after the :on-match events so :transition
-;; lands at :idle once the synchronous portion completes. The settle is
-;; nav-token-aware: a newer navigation mid-drain bumps :nav-token, and
-;; the stale settle becomes a no-op so the new :loading isn't clobbered.
+;; :rf.route.internal/settle-transition after the :on-match events so
+;; :transition lands at :idle once the synchronous portion completes.
+;; The settle is nav-token-aware: a newer navigation mid-drain bumps
+;; :nav-token, and the stale settle becomes a no-op so the new :loading
+;; isn't clobbered.
 ;;
 ;; Per Spec 012 §Per-route error handling: if any :on-match event errors
 ;; the runtime flips :transition :error, populates :rf.route/error, and
 ;; dispatches :on-error (when declared). The settle handler additionally
 ;; guards on `(= :loading current-transition)` so a settle queued AFTER
 ;; an :on-match throw does NOT clobber :error back to :idle — the throw's
-;; trap (`:rf.route/on-match-error` below) ran first and the slice now
-;; carries :error.
-(events/reg-event-db :rf.route/settle-transition
+;; trap (`:rf.route.internal/on-match-error` below) ran first and the
+;; slice now carries :error.
+;;
+;; Per rf2-576on: this event is RUNTIME-INTERNAL — fired by the runtime
+;; itself; never user-dispatched. The `:rf.route.internal/*` sub-
+;; namespace separates the runtime's plumbing events from the user-
+;; facing `:rf.route/*` surface (`:rf.route/navigate`, `:rf.route/
+;; continue`, etc.). Same audience-split principle as
+;; `:rf.route.nav-token/*` (Spec 012 §Navigation tokens).
+(events/reg-event-db :rf.route.internal/settle-transition
   (fn [db [_ token]]
     (let [current (get-in db [:rf/route :nav-token])]
       (if (and (= current token)
@@ -823,8 +877,11 @@
 ;;
 ;; All four together identify the error as originating from an :on-match
 ;; cascade for the currently-loading route. The listener then dispatches
-;; :rf.route/on-match-error with the structured error map; that event
-;; flips :transition, populates :rf.route/error, and chains :on-error.
+;; :rf.route.internal/on-match-error with the structured error map; that
+;; event flips :transition, populates :rf.route/error, and chains
+;; :on-error. Per rf2-576on the trap event is runtime-internal —
+;; sub-namespaced under `:rf.route.internal/*` so the user-facing
+;; `:rf.route/*` surface stays tidy.
 ;;
 ;; The listener is always-on (survives `:advanced` + `goog.DEBUG=false`)
 ;; so production builds with the trace surface elided still observe
@@ -841,12 +898,12 @@
               (map first))
         (or (:on-match route-meta) [])))
 
-(events/reg-event-fx :rf.route/on-match-error
+(events/reg-event-fx :rf.route.internal/on-match-error
   (fn [{:keys [db]} [_ {:keys [error nav-token]}]]
     ;; Per Spec 012 §Per-route error handling. Nav-token-guarded: if a
     ;; newer navigation has already bumped :nav-token, this error
     ;; belongs to a superseded drain and is dropped (matches
-    ;; :rf.route/settle-transition's epoch check).
+    ;; :rf.route.internal/settle-transition's epoch check).
     (let [current-token (get-in db [:rf/route :nav-token])
           current-id    (get-in db [:rf/route :id])
           route-meta    (when current-id (registrar/lookup :route current-id))
@@ -875,8 +932,9 @@
   `:rf.error/handler-exception` record; when the failing event-id was
   dispatched as part of the active route's `:on-match` (per the
   discrimination logic in this ns's `:on-match error trap` block),
-  dispatches `:rf.route/on-match-error` to the offending frame so the
-  slice flips to `:error` and `:on-error` chains.
+  dispatches `:rf.route.internal/on-match-error` (rf2-576on) to the
+  offending frame so the slice flips to `:error` and `:on-error`
+  chains.
 
   Per Spec 012 §Per-route error handling and rf2-ye7sh."
   [{:keys [error event-id frame exception] :as _record}]
@@ -901,16 +959,29 @@
         ;; The exception itself carries the diagnostic detail; we surface
         ;; the canonical :rf.error/ id + tags so apps can switch on it
         ;; the same way they do for any other Spec 009 error.
-        (let [error-map {:operation         :rf.error/handler-exception
-                         :failing-id        event-id
-                         :event-id          event-id
-                         :frame             frame
-                         :exception         exception
+        ;;
+        ;; Per rf2-m78lu: stamp `:rf.route/on-match-id` /
+        ;; `:rf.route/on-match-frame` directly onto the error map so
+        ;; route-attribution travels with the structured error to every
+        ;; downstream consumer — tools reading `:rf.error/handler-
+        ;; exception` outside this listener's discrimination context
+        ;; (Causa's event lens, an off-box Sentry shipper, an SSR error
+        ;; projection) can identify the throw as :on-match-attributed
+        ;; without re-running the discrimination logic. Mirrors the flow-
+        ;; attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-
+        ;; frame` (rf2-je5p8 / Spec 013 §Failure semantics).
+        (let [error-map {:operation             :rf.error/handler-exception
+                         :failing-id            event-id
+                         :event-id              event-id
+                         :frame                 frame
+                         :rf.route/on-match-id    event-id
+                         :rf.route/on-match-frame frame
+                         :exception             exception
                          :exception-message #?(:clj (when exception
                                                       (.getMessage ^Throwable exception))
                                                :cljs (some-> exception .-message))
                          :reason            "An :on-match event threw."}]
-          (router/dispatch! [:rf.route/on-match-error
+          (router/dispatch! [:rf.route.internal/on-match-error
                              {:error     error-map
                               :nav-token nav-token}]
                             {:frame frame}))))))
@@ -1024,6 +1095,11 @@
           (trace/emit! :event :rf.route.nav-token/allocated
                        {:route-id  route-id
                         :nav-token token})
+          ;; Per rf2-dn26r: route lifecycle pair. Fires after the
+          ;; nav-token allocation (the cascade-begin marker) so trace
+          ;; consumers see {allocated → deactivated? → activated?} in
+          ;; that order for any cross-route transition.
+          (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
           {:db (assoc db' :rf/route
                       {:id         route-id
                        :params     path-params
@@ -1041,7 +1117,7 @@
                             ;; the settle dispatch runs after every
                             ;; on-match event already queued above.
                             (when (seq on-match-vec)
-                              [[:dispatch [:rf.route/settle-transition token]]])
+                              [[:dispatch [:rf.route.internal/settle-transition token]]])
                             (when scroll-fx [scroll-fx])))})))))
 
 (defn reset-counters!
@@ -1069,37 +1145,53 @@
 
 (defn- can-leave?
   "Resolve and call the route's `:can-leave` sub against the live frame.
-  Per Spec 012 §Navigation blocking §Default flow: only an explicit
-  `false` from the guard sub blocks the navigation; `true`, `nil`, or
-  any other value proceeds. The sub's name is documented to describe
-  the positive case (`:can-leave`), so missing / broken evaluation
-  cannot safely default to 'blocked' — that would silently strand the
-  user on a route they had asked to leave.
+  Per Spec 012 §Navigation blocking §Default flow (rf2-5pyyl): the
+  guard contract is strict — return `true` to allow navigation, `false`
+  to block. Non-boolean returns are a hard contract violation.
 
-  Returns `false` only when a `:can-leave` sub IS declared AND the sub
-  returns a value `(= % false)`. Returns `true` (proceed) in three
-  diagnostic-but-recoverable cases — each emits a warning so tooling
-  and the dev console can surface the misconfiguration:
+  Pre-rf2-5pyyl any truthy non-boolean was tolerated with the warning
+  `:rf.warning/can-leave-guard-non-boolean` and treated as allow; that
+  hid the classic polarity bug (a sub `(fn [db _] (:form/dirty? db))`
+  returning truthy-when-dirty silently let the user navigate away and
+  lose form state). The closed contract — reject and BLOCK — forces
+  the route author to write `(boolean ...)` / `(not ...)` or invert
+  their polarity. Pre-alpha posture: no shim, no soft transition.
 
-    - `:subs/subscribe-once` late-bind is unset (consumer opted out of
-      the subs artefact — the runtime has no way to evaluate the sub);
-    - the sub returns `nil` (registration likely typo'd the sub-id, or
-      the sub fn forgot to return a value);
-    - the sub returns a non-boolean truthy value (route author got the
-      polarity wrong; we err on letting the nav through and warn)."
+  Returns `false` (block) when:
+    - the sub returns the literal value `false`;
+    - the sub returns any non-boolean value — emits the structured
+      `:rf.error/can-leave-non-boolean` trace and blocks.
+
+  Returns `true` (proceed) when:
+    - no `:can-leave` is declared (no guard);
+    - the sub returns the literal value `true`;
+    - `:subs/subscribe-once` is unset (consumer opted out of the subs
+      artefact; the runtime has no way to evaluate the sub, so it
+      cannot fail the closed contract). The warning
+      `:rf.warning/can-leave-subs-artefact-missing` fires so tooling
+      surfaces the misconfiguration."
   [frame route-meta]
   (if-let [query (can-leave-query route-meta)]
     (if-let [subscribe-once (late-bind/get-fn :subs/subscribe-once)]
       (let [v (subscribe-once frame query)]
         (cond
-          (false? v) false
           (true?  v) true
+          (false? v) false
           :else
-          (do (trace/emit! :warning :rf.warning/can-leave-guard-non-boolean
-                           {:route-id (some-> route-meta :path)
-                            :query    query
-                            :value    v})
-              true)))
+          ;; Per rf2-5pyyl: closed contract. Non-boolean = BLOCK + emit
+          ;; `:rf.error/can-leave-non-boolean`. The pre-rf2-5pyyl slot
+          ;; `:rf.warning/can-leave-guard-non-boolean` is removed
+          ;; entirely — no shim, no soft transition (pre-alpha).
+          (do (trace/emit-error! :rf.error/can-leave-non-boolean
+                                 {:route-id (some-> route-meta :path)
+                                  :query    query
+                                  :value    v
+                                  :reason   (str "Non-boolean returned from :can-leave sub; "
+                                                 "the contract requires true (allow) or "
+                                                 "false (block). Did you mean (boolean ...) "
+                                                 "or (not ...)?")
+                                  :recovery :blocked-navigation})
+              false)))
       (do (trace/emit! :warning :rf.warning/can-leave-subs-artefact-missing
                        {:query query})
           true))
@@ -1368,6 +1460,10 @@
     (trace/emit! :event :rf.route.nav-token/allocated
                  {:route-id  route-id
                   :nav-token token})
+    ;; Per rf2-dn26r: route lifecycle pair. Fires after the nav-token
+    ;; allocation so trace consumers see {allocated → deactivated? →
+    ;; activated?} in that order for any cross-route transition.
+    (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
     {:db (assoc db' :rf/route
                 {:id         route-id
                  :params     params
@@ -1383,7 +1479,7 @@
                       ;; drain. FIFO order: settle runs after every
                       ;; on-match event already queued above.
                       (when (seq on-match-vec)
-                        [[:dispatch [:rf.route/settle-transition token]]])
+                        [[:dispatch [:rf.route.internal/settle-transition token]]])
                       (when scroll-fx [scroll-fx])))}))
 
 (events/reg-event-fx :rf/url-changed
@@ -1391,8 +1487,9 @@
     ;; Per Spec 012 §URL changes are events / §Fragments. match-url
     ;; surfaces the URL's `#fragment` directly on its result; if only
     ;; the fragment differs from the current slice, update :fragment but
-    ;; DO NOT re-fire :on-match — emit :rf.route/url-changed instead.
-    ;; Otherwise full nav: delegate to `url-change-fx`.
+    ;; DO NOT re-fire :on-match — emit :rf.route/fragment-changed
+    ;; instead (rf2-cj9fn). Otherwise full nav: delegate to
+    ;; `url-change-fx`.
     ;;
     ;; Default scroll strategy for forward nav (click / programmatic
     ;; push) is `:top` per Spec 012 §Scroll restoration; popstate /
@@ -1415,13 +1512,19 @@
         blocked
 
         fragment-only?
-        ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments:
-        ;; :rf.route/url-changed is the canonical op-name for
-        ;; fragment-only navigation; consumers discriminate full vs
-        ;; fragment-only by :tags (the fragment-only emission carries
-        ;; :prev-fragment / :next-fragment and never coincides with a
-        ;; :rf.route.nav-token/allocated on the same drain).
-        (do (trace/emit! :event :rf.route/url-changed
+        ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments
+        ;; (rf2-cj9fn): :rf.route/fragment-changed is the canonical
+        ;; op-name for fragment-only navigation. The op-name says what
+        ;; fires it (only a `#fragment` differed) and disambiguates from
+        ;; the runtime event `:rf/url-changed`, which fires on every URL
+        ;; transition. Pre-rf2-cj9fn this emitted `:rf.route/url-changed`
+        ;; — one path segment away from the runtime event with very
+        ;; different meaning. The new op-name pairs with the fragment-
+        ;; only branch's contract: full URL transitions never emit it,
+        ;; never coincide with a `:rf.route.nav-token/allocated` on the
+        ;; same drain. Consumers carry `:prev-fragment` / `:next-fragment`
+        ;; in `:tags`.
+        (do (trace/emit! :event :rf.route/fragment-changed
                          {:route-id      (:id prev)
                           :prev-fragment (:fragment prev)
                           :next-fragment fragment})
@@ -1869,11 +1972,12 @@ unknown strategies as :preserve (no-op)."}
 ;; the late-bind table; consumers without the artefact see the hooks
 ;; unregistered and the active surfaces throw cleanly.
 
-(late-bind/set-fn! :routing/reg-route        reg-route)
-(late-bind/set-fn! :routing/match-url        match-url)
-(late-bind/set-fn! :routing/route-url        route-url)
-(late-bind/set-fn! :routing/reset-counters!  reset-counters!)
-(late-bind/set-fn! :routing/route-sub-fn     route-sub-fn)
+(late-bind/set-fn! :routing/reg-route          reg-route)
+(late-bind/set-fn! :routing/unregister-route!  unregister-route!)
+(late-bind/set-fn! :routing/match-url          match-url)
+(late-bind/set-fn! :routing/route-url          route-url)
+(late-bind/set-fn! :routing/reset-counters!    reset-counters!)
+(late-bind/set-fn! :routing/route-sub-fn       route-sub-fn)
 
 ;; route-link is exposed on both platforms so .cljc render trees
 ;; resolve identically server- and client-side.

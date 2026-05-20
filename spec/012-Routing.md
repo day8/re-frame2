@@ -25,15 +25,19 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### Events
 
-| Event | Purpose | Source |
-|---|---|---|
-| `:rf.route/navigate` | Programmatic navigation. | [§Navigation is an event](#navigation-is-an-event) |
-| `:rf.route/handle-url-change` | Default handler for URL change (popstate / initial load / SSR). | [§URL changes are events](#url-changes-are-events) |
-| `:rf/url-changed` | Fired by the runtime on every URL transition. | [§Standard runtime events](#standard-runtime-events) |
-| `:rf/url-requested` | Fired by `route-link` and equivalent. Decides internal vs external navigation. | [§Standard runtime events](#standard-runtime-events) |
-| `:rf.route/navigation-blocked` | Dispatched by the runtime when a `:can-leave` guard rejects. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
-| `:rf.route/continue` | User-dispatched: confirm pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
-| `:rf.route/cancel` | User-dispatched: cancel pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
+Audience column (rf2-576on): **user** = an event apps dispatch or handle directly; **runtime** = an internal plumbing event the runtime fires at itself, sub-namespaced under `:rf.route.internal/*` so the user-facing `:rf.route/*` surface stays tidy. Apps and tools should never dispatch `:rf.route.internal/*` events. The same audience-split principle scopes `:rf.route.nav-token/*` and `:rf.machine.internal/*`.
+
+| Event | Audience | Purpose | Source |
+|---|---|---|---|
+| `:rf.route/navigate` | user | Programmatic navigation. | [§Navigation is an event](#navigation-is-an-event) |
+| `:rf.route/handle-url-change` | user | Default handler for URL change (popstate / initial load / SSR). | [§URL changes are events](#url-changes-are-events) |
+| `:rf/url-changed` | user | Fired by the runtime on every URL transition. | [§Standard runtime events](#standard-runtime-events) |
+| `:rf/url-requested` | user | Fired by `route-link` and equivalent. Decides internal vs external navigation. | [§Standard runtime events](#standard-runtime-events) |
+| `:rf.route/navigation-blocked` | user | Dispatched by the runtime when a `:can-leave` guard rejects. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
+| `:rf.route/continue` | user | User-dispatched: confirm pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
+| `:rf.route/cancel` | user | User-dispatched: cancel pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
+| `:rf.route.internal/settle-transition` | runtime | Runtime-fired after the `:on-match` drain to land `:transition` at `:idle`. Nav-token-guarded. | [§Per-route data loading](#per-route-data-loading) |
+| `:rf.route.internal/on-match-error` | runtime | Runtime-fired by the corpus-wide error-emit listener when an `:on-match` event throws; flips `:transition :error`, populates `:rf.route/error`, chains `:on-error`. Nav-token-guarded. | [§Per-route error handling](#per-route-error-handling) |
 
 ### Effects (`reg-fx`)
 
@@ -78,10 +82,14 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 
+- `:rf.route/registered` — first-time `reg-route`. Re-registration rides the cross-kind `:rf.registry/handler-replaced` trace; not re-emitted here. Mirrors the `:rf.flow/registered` symmetry (per rf2-dn26r).
+- `:rf.route/cleared` — explicit `unregister-route!`. Mirrors the `:rf.flow/cleared` symmetry (per rf2-dn26r).
+- `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Per rf2-dn26r.
 - `:rf.route.nav-token/allocated` — fresh nav-token cascade begins.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
-- `:rf.route/url-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf/url-changed`, which fires on every URL transition.
+- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf/url-changed`, which fires on every URL transition. Renamed from `:rf.route/url-changed` per rf2-cj9fn so the trace op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
+- `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract per rf2-5pyyl; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
@@ -232,7 +240,7 @@ The axes are documentation, not data structure — the keys remain flat on the m
 | `:parent` | layout | route-id | Parent route id (for the nested-layout convention; see "Nested layouts"). |
 | `:on-match` | lifecycle | vector of event vectors | Events the runtime dispatches every time this route becomes the active route (server- and client-side). See "Per-route data loading". |
 | `:on-error` | lifecycle | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
-| `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation away from this route. `false` blocks; `true` (or missing sub) allows. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
+| `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation away from this route. **Strict contract** (rf2-5pyyl): `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
 | `:scroll` | layout | enum or map | Declarative scroll behaviour on entering this route. See "Scroll restoration". |
 
 ### The `:rf/route` slice
@@ -348,13 +356,14 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
                                   :transition :idle :error nil
                                   :nav-token nav-token})}
 
-        ;; Fragment-only change — update the slice; emit :rf.route/url-changed
-        ;; trace; do NOT re-fire :on-match. See "Fragments" below.
+        ;; Fragment-only change — update the slice; emit
+        ;; :rf.route/fragment-changed trace (rf2-cj9fn); do NOT re-fire
+        ;; :on-match. See "Fragments" below.
         fragment-only?
         {:db (assoc-in db [:rf/route :fragment] fragment)
-         :fx [[:rf/trace [:rf.route/url-changed {:route-id route-id
-                                                 :prev-fragment (:fragment prev-route)
-                                                 :next-fragment fragment}]]]}
+         :fx [[:rf/trace [:rf.route/fragment-changed {:route-id route-id
+                                                      :prev-fragment (:fragment prev-route)
+                                                      :next-fragment fragment}]]]}
 
         :else
         {:db (assoc db :rf/route {:id         route-id
@@ -551,6 +560,17 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
 ```
 
 `:on-error` is **route-scoped** error handling, layered over [009](009-Instrumentation.md)'s structured error contract — it doesn't replace it. The structured error trace event still fires; `:on-error` is the route's response to it. Routes without an `:on-error` slot leave `:rf.route/transition :error` set; views may inspect `:rf.route/error` and render an error banner.
+
+### `:on-match` exception attribution (rf2-m78lu)
+
+The error map written to `:rf.route/error` carries two routing-domain attribution slots in addition to the standard [009](009-Instrumentation.md#error-contract) shape:
+
+| Slot | Value | Purpose |
+|---|---|---|
+| `:rf.route/on-match-id` | the failing event-id | Identifies the `:on-match` event vector whose handler threw. |
+| `:rf.route/on-match-frame` | the dispatching frame-id | Identifies the frame whose `:on-match` cascade was mid-drain. |
+
+These slots ride on the structured error so downstream consumers — Causa's event lens, an off-box Sentry/Honeybadger shipper, the SSR error projection per [011](011-SSR.md), an `:on-error` handler — can identify the throw as `:on-match`-attributed **without** re-running the corpus-wide `register-error-emit-listener!` discrimination logic that the runtime uses to wire the trap. Mirrors the flow-attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-frame` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and rf2-je5p8). Tools that read `:rf.error/handler-exception` outside the routing listener's discrimination context get the same attribution the trap itself uses.
 
 ## Navigation tokens — stale-result suppression
 
@@ -775,7 +795,7 @@ Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url`
 When the new URL differs from the current URL **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime:
 
 1. Updates `:fragment` in the `:rf/route` slice.
-2. Emits a `:rf.route/url-changed` trace event with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
+2. Emits a `:rf.route/fragment-changed` trace event (rf2-cj9fn; pre-rename `:rf.route/url-changed`) with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
 3. Does **NOT** allocate a new `:nav-token`.
 4. Does **NOT** re-fire `:on-match`.
 
@@ -825,7 +845,7 @@ The server does NOT scroll (no DOM); `:rf.nav/scroll` is `:platforms #{:client}`
 
 Fixture `route-fragment-change.edn` exercises:
 1. Navigate to `/docs/routing#scroll-restoration`. Verify the slice's `:fragment` is `"scroll-restoration"`.
-2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:rf.route/url-changed` trace event fires.
+2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:rf.route/fragment-changed` trace event fires (rf2-cj9fn).
 3. Navigate to `/docs/instrumentation#scroll-restoration` (different path, same fragment). Verify `:on-match` DOES re-fire (path changed; fragment-only rule does not apply).
 
 ## Nested layouts
@@ -913,6 +933,8 @@ A standard pending-navigation slot in `app-db`, three named events, and an optio
 ```
 
 The sub returns `true` when the route is OK to leave; `false` to block. The convention: the *sub's name* describes the positive case (`:can-leave`), so `false` means "can NOT leave" — block.
+
+**Closed contract (rf2-5pyyl).** The runtime accepts only the literals `true` and `false` from the guard sub. Any other value (`42`, a non-empty string, `nil`, a map) BLOCKS the navigation and emits the structured trace `:rf.error/can-leave-non-boolean` with `:tags {:route-id :query :value :reason :recovery :blocked-navigation}`. Pre-rf2-5pyyl any truthy non-boolean was tolerated with the warning `:rf.warning/can-leave-guard-non-boolean` and treated as **allow**; that hid the classic polarity bug — a sub `(fn [db _] (:form/dirty? db))` returning truthy-when-dirty silently let the user navigate away and lose form state. The closed contract forces the route author to write `(boolean ...)` / `(not ...)` rather than warn-and-let-through. Pre-alpha posture: no shim, no soft transition; the warning slot is removed entirely.
 
 ### Default flow
 
