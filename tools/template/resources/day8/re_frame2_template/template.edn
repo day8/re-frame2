@@ -43,7 +43,7 @@
 ;; (in `src/day8/re_frame2_template/hooks.clj`) builds the transform
 ;; vector at run time from the chosen substrate + opt-in flags. The
 ;; programmatic body owns the decisions.
-{:description     "Scaffold a new re-frame2 application (Reagent only in the §2.1 spike; UIx + Helix land in §2.2)."
+{:description     "Scaffold a new re-frame2 application (Reagent / UIx / Helix; optional Story playground via :include-story? true on Reagent)."
  :data-fn         day8.re-frame2-template.hooks/data-fn
  :template-fn     day8.re-frame2-template.hooks/template-fn
  :post-process-fn day8.re-frame2-template.hooks/post-process-fn}

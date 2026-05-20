@@ -1,5 +1,5 @@
 (ns day8.re-frame2-template.hooks
-  "deps-new hooks for day8/re-frame2-template (rf2-dolpf §2.1).
+  "deps-new hooks for day8/re-frame2-template (rf2-dolpf §2.2-2.4).
 
    `template.edn` declares this ns's `data-fn`, `template-fn`, and
    `post-process-fn`. deps-new invokes them in that order:
@@ -11,28 +11,41 @@
                             (e.g. dotfile renames deps-new can't do
                             natively).
 
-   §2.1 spike scope:
+   Current scope (§2.2-2.4, rf2-c2770):
 
-     - Substrate: Reagent only (UIx + Helix land in §2.2).
-     - Flags: none (`:include-story?` / `:css` / `:include-ssr?` land in
-       §2.4 / §2.2-2.3).
+     - Substrates: Reagent / UIx / Helix (full matrix).
+     - Flags: `:include-story?` (Reagent-only in v1; UIx + Helix variants
+       follow once Story's adapter coverage matches Reagent's).
+     - Pending flags (deferred to later stages): `:css`, `:include-ssr?`.
 
-   The full three-substrate matrix + three-flag set is the steady-state
-   shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md §1)."
+   ## Substitution engine note
+
+   deps-new uses **simple `{{key}}` substitution** (see
+   `org.corfield.new.impl/->subst-map` + `substitute`). There is **no**
+   Mustache-style conditional syntax (`{{#flag}}…{{/flag}}`) — `tools.build`'s
+   `copy-dir :replace` does a flat string replace.
+
+   This forces the `:include-story?` branch to be implemented as
+   **separate template-source files** rather than conditional blocks
+   inside one file: `_reagent/deps.edn` (default) vs
+   `_reagent/deps_with_story.edn` (with-story), and similarly for
+   `package.json`. `template-fn` picks the right source per the
+   flag. The output filename is the same (`deps.edn` / `package.json`)
+   regardless of which source ran.
+
+   The steady-state shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md
+   §1) is the same matrix; additional flags (`:css`, `:include-ssr?`)
+   slot in here once their upstream gates clear (rf2-gthro, rf2-0m5ea)."
   (:require [clojure.string :as string]))
 
 ;; -- :substrate coercion ----------------------------------------------------
 
-(def ^:private valid-substrates #{:reagent})  ; §2.1 spike: Reagent only.
+(def ^:private valid-substrates #{:reagent :uix :helix})
 
 (defn- coerce-substrate
   "Accept the substrate arg as either a keyword (`:reagent`), a string
-  (`reagent` / `:reagent`), or a symbol; return one of `valid-substrates`
-  or throw with a clear message.
-
-  In §2.1 the only legal value is `:reagent`; passing anything else
-  (including the eventual `:uix` / `:helix` values) throws — they land
-  in §2.2."
+  (`reagent` / `:reagent`), or a symbol; return one of
+  `valid-substrates` or throw with a clear message."
   [raw]
   (let [s (cond
             (nil? raw)     :reagent
@@ -45,12 +58,25 @@
     (when-not (valid-substrates s)
       (throw (ex-info (str ":substrate must be one of "
                            (pr-str valid-substrates)
-                           " in the §2.1 spike (got " (pr-str s)
-                           "). UIx + Helix land in §2.2 (rf2-c2770).")
+                           " (got " (pr-str s) ")")
                       {:substrate s :valid valid-substrates})))
     s))
 
-;; -- data-fn ----------------------------------------------------------------
+;; -- :include-story? coercion ----------------------------------------------
+
+(defn- coerce-include-story?
+  "Coerce the `:include-story?` arg to a boolean. Accepts true / false /
+   nil; rejects anything else with a clear message. The flag is
+   Reagent-only in v1 — caller-level guard checks the substrate."
+  [raw]
+  (cond
+    (nil? raw)          false
+    (true? raw)         true
+    (false? raw)        false
+    :else
+    (throw (ex-info (str ":include-story? must be true or false (got "
+                         (pr-str raw) ")")
+                    {:include-story? raw}))))
 
 ;; -- name derivations ------------------------------------------------------
 ;;
@@ -102,30 +128,46 @@
      {{nested-dirs}}  — derived `{{top/file}}/{{main/file}}` (file-path
                         component, e.g. `acme/my_app` — used in
                         `src/<nested-dirs>/core.cljs` rename targets).
-     {{substrate}}    — the chosen substrate name (`reagent`).
+     {{substrate}}    — the chosen substrate name (`reagent` / `uix` /
+                        `helix`).
      {{substrate-badge-url}} — shields.io badge URL keyed by substrate.
      {{rf2-version}}  — runtime coord version (kept in lockstep with
                         the repo-root VERSION file via the §3 release
-                        pipeline; pinned manually in the §2.1 spike).
+                        pipeline; pinned manually for now).
      {{shadow-version}} — shadow-cljs npm pin.
      {{react-version}}  — react / react-dom npm pin.
 
-   Stored in `:substrate-kw` for `template-fn`'s switch."
+   Substrate + include-story? are also stored under `:substrate-kw` and
+   `:include-story?` for `template-fn`'s switch (`->subst-map` would
+   otherwise coerce the keyword to a string)."
   [data]
-  (let [substrate    (coerce-substrate (:substrate data))
-        substrate-nm (name substrate)
-        top          (:top data)
-        main         (:main data)
-        top-file     (->file-path top)
-        main-file    (->file-path main)
-        top-ns       (->ns-form top)
-        main-ns      (->ns-form main)]
+  (let [substrate       (coerce-substrate (:substrate data))
+        include-story?  (coerce-include-story? (:include-story? data))
+        _               (when (and include-story? (not= substrate :reagent))
+                          (throw (ex-info
+                                   (str ":include-story? is Reagent-only in v1 "
+                                        "(got :substrate " substrate
+                                        "). UIx + Helix variants follow once "
+                                        "Story's adapter coverage matches "
+                                        "Reagent's.")
+                                   {:substrate substrate
+                                    :include-story? include-story?})))
+        substrate-nm    (name substrate)
+        top             (:top data)
+        main            (:main data)
+        top-file        (->file-path top)
+        main-file       (->file-path main)
+        top-ns          (->ns-form top)
+        main-ns         (->ns-form main)]
     {:substrate           substrate-nm
      :substrate-kw        substrate
+     :include-story?      include-story?
      :namespace           (str top-ns "." main-ns)
      :nested-dirs         (str top-file "/" main-file)
      :substrate-badge-url (case substrate
-                            :reagent "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg")
+                            :reagent "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
+                            :uix     "https://img.shields.io/badge/substrate-UIx-3498db.svg"
+                            :helix   "https://img.shields.io/badge/substrate-Helix-9b59b6.svg")
      :rf2-version         "0.0.1.alpha"
      :shadow-version      "3.4.10"
      :react-version       "19.2.0"}))
@@ -152,7 +194,7 @@
 ;; - Flags: `:only` (copy ONLY files in file-map; skip the implicit
 ;;   bulk-copy of `src-dir`), `:raw` (no substitution).
 ;;
-;; §2.1 spike layout (under `<template-dir>` =
+;; Layout (under `<template-dir>` =
 ;; `resources/day8/re_frame2_template/`):
 ;;
 ;;     ├── root/        — bulk-copied content with default placement
@@ -161,26 +203,33 @@
 ;;     │   └── resources/public/{index.html, css/app.css}
 ;;     ├── _shared/     — substrate-agnostic content that needs renames
 ;;     │                  (dotfile rename + namespace-path rename for
-;;     │                   src/test files)
-;;     └── _reagent/    — Reagent-specific content (renames into the
-;;                        namespace path)
+;;     │                   src/test files; includes stories.cljs which
+;;     │                   only emits under :include-story? true)
+;;     ├── _reagent/    — Reagent-specific content; includes a
+;;     │                  with-story core variant + deps/package
+;;     │                  variants
+;;     ├── _uix/        — UIx-specific content
+;;     └── _helix/      — Helix-specific content
 ;;
 ;; The underscore-prefix convention signals "not bulk-copied — picked
 ;; up by a transform with :only". Per-substrate sub-trees emit only
-;; for the chosen substrate (only `_reagent/` exists today; `_uix/` +
-;; `_helix/` land in §2.2).
+;; for the chosen substrate.
 
 (defn template-fn
   "Build the `:transform` vector and merge it into the template EDN.
 
-   Two transform groups:
+   Three transform groups:
 
      - Shared renames: dotfile rename (e.g. `gitignore` → `.gitignore`)
        + namespace-path rename for src/test source files.
      - Per-substrate: substrate-specific files including the entry-
        point `core.cljs`, the view module, the build configs.
+     - Story scaffolding (Reagent-only, under `:include-story? true`):
+       picks `core_with_stories.cljs` instead of `core.cljs`, picks
+       `deps_with_story.edn` / `package_with_story.json` instead of
+       the default versions, and emits `stories.cljs` from `_shared/`.
 
-   Both groups use `:only` so only files explicitly listed in the
+   All groups use `:only` so only files explicitly listed in the
    file-map emit (the implicit bulk-copy of `<src-dir>/*` is skipped).
    The default placement files (README.md, lefthook.yml, dev/*,
    resources/public/*) are handled by deps-new's `:root` bulk-copy
@@ -190,32 +239,66 @@
    the file-map attaches the dot on the output side (same defensive
    pattern the clj-new template used)."
   [edn data]
-  (let [nested (:nested-dirs data)
-        substrate (:substrate data)
+  (let [nested         (:nested-dirs data)
+        substrate      (:substrate data)
+        include-story? (:include-story? data)
         ;; Shared transforms — renames only. `:only` skips the bulk
         ;; copy of `_shared/*`, so source files that don't appear in
         ;; the file-map below DO NOT emit. Add explicit entries if
         ;; you need them.
-        shared
-        [["_shared" "."
-          {"gitignore"            ".gitignore"
-           "editorconfig"         ".editorconfig"
-           "cljfmt.edn"           ".cljfmt.edn"
-           "clj-kondo/config.edn" ".clj-kondo/config.edn"
-           ;; src/test renames — re-home into the user's namespace
-           ;; path.
-           "events.cljs"          (str "src/" nested "/events.cljs")
-           "subs.cljs"            (str "src/" nested "/subs.cljs")
-           "events_test.cljs"     (str "test/" nested "/events_test.cljs")}
-          :only]]
+        shared-files   (cond-> {"gitignore"            ".gitignore"
+                                "editorconfig"         ".editorconfig"
+                                "cljfmt.edn"           ".cljfmt.edn"
+                                "clj-kondo/config.edn" ".clj-kondo/config.edn"
+                                ;; src/test renames — re-home into the user's namespace
+                                ;; path.
+                                "events.cljs"          (str "src/" nested "/events.cljs")
+                                "subs.cljs"            (str "src/" nested "/subs.cljs")
+                                "events_test.cljs"     (str "test/" nested "/events_test.cljs")}
+                         ;; Story scaffolding lands under
+                         ;; `src/<nested>/stories.cljs` when the flag
+                         ;; is on. Same file-map entry; the source
+                         ;; lives in _shared/ alongside the other
+                         ;; substrate-agnostic files.
+                         include-story?
+                         (assoc "stories.cljs"
+                                (str "src/" nested "/stories.cljs")))
+        shared         [["_shared" "." shared-files :only]]
 
-        ;; Per-substrate transforms (Reagent only in §2.1). `:only`
-        ;; keeps the substrate transform self-documenting (any new
-        ;; file under `_reagent/` must be opted in here).
+        ;; Per-substrate transforms. `:only` keeps each substrate
+        ;; transform self-documenting (any new file under
+        ;; `_<substrate>/` must be opted in here).
         per-substrate
         (case substrate
           "reagent"
-          [["_reagent" "."
+          (let [core-src    (if include-story?
+                              "core_with_stories.cljs"
+                              "core.cljs")
+                deps-src    (if include-story?
+                              "deps_with_story.edn"
+                              "deps.edn")
+                package-src (if include-story?
+                              "package_with_story.json"
+                              "package.json")]
+            [["_reagent" "."
+              {deps-src          "deps.edn"
+               "shadow-cljs.edn" "shadow-cljs.edn"
+               package-src       "package.json"
+               core-src          (str "src/" nested "/core.cljs")
+               "views.cljs"      (str "src/" nested "/views.cljs")}
+              :only]])
+
+          "uix"
+          [["_uix" "."
+            {"deps.edn"        "deps.edn"
+             "shadow-cljs.edn" "shadow-cljs.edn"
+             "package.json"    "package.json"
+             "core.cljs"       (str "src/" nested "/core.cljs")
+             "views.cljs"      (str "src/" nested "/views.cljs")}
+            :only]]
+
+          "helix"
+          [["_helix" "."
             {"deps.edn"        "deps.edn"
              "shadow-cljs.edn" "shadow-cljs.edn"
              "package.json"    "package.json"
@@ -228,11 +311,13 @@
 
 (defn post-process-fn
   "After file emission, log what landed and where. No fix-ups required
-   today — `template-fn`'s file-map handles dotfile renames inline; the
-   §2.2 port may grow real post-processing as the matrix expands."
+   today — `template-fn`'s file-map handles dotfile renames inline."
   [_edn data]
-  (println (str "Generated a re-frame2 application " (:name data)
-                " (" (:substrate data) " substrate)."))
+  (let [substrate      (:substrate data)
+        include-story? (:include-story? data)
+        story-tag      (if include-story? " (with Story playground)" "")]
+    (println (str "Generated a re-frame2 application " (:name data)
+                  " (" substrate " substrate" story-tag ").")))
   (println "Next steps:")
   ;; `:target-dir` is preprocess-options' computed output dir
   ;; (defaults to `(:main data)` when no `:target-dir` arg is given).

@@ -234,35 +234,77 @@ the deps resolution would fail at run time regardless of the
 template's correctness. Static-shape check + content-substitution
 check on the emitted tree is the spike's effective signal.
 
-### §2.2 — Port the full resource tree (rf2 follow-on bead)
+### §2.2 — Port the full resource tree (rf2-c2770 — DONE 2026-05-20)
 
-- Migrate `_shared/`, `_reagent/`, `_uix/`, `_helix/` content out of
-  `src/clj/new/re_frame2/` to `root/`.
-- Update `template-fn` to handle all three substrates + dotfile
-  renames + the (still-unused) `:include-story?` branch.
-- Keep the clj-new tree in parallel for backstop until §2.3 lands
-  (so a regression in the deps-new path doesn't strand new users).
+- ✓ Migrated `_shared/`, `_reagent/`, `_uix/`, `_helix/` content out of
+  `src/clj/new/re_frame2/` to the deps-new tree at
+  `tools/template/resources/day8/re_frame2_template/`. Per-substrate
+  sub-trees (`_reagent/`, `_uix/`, `_helix/`) each carry their
+  substrate-specific `core.cljs` + `views.cljs` + `deps.edn` +
+  `shadow-cljs.edn` + `package.json`. `_shared/` carries the
+  substrate-agnostic files that need renames (dotfile renames +
+  src/test source files re-homed under the user's namespace path).
+  `root/` carries the bulk-copied content (README.md, lefthook.yml,
+  dev/{user,scratch}, resources/public/{index.html, css/app.css}).
+- ✓ Updated `template-fn` to handle all three substrates + the
+  `:include-story?` branch (see §2.4 below).
+- ✓ The clj-new tree at `src/clj/new/re_frame2/` stays in parallel as
+  a backstop until §2.5 (rf2-40vmd) lands.
 
-### §2.3 — Port the test suite (rf2 follow-on bead)
+### §2.3 — Port the test suite (rf2-c2770 — DONE 2026-05-20)
 
-- Port `test/clj/new/re_frame2_test.clj` →
-  `test/day8/re_frame2_template/template_test.clj`. The new
-  invocation shells out to `clojure -Tnew create :template ./ …`
-  per-substrate (slower than the direct-fn call but representative).
-- `template_emission_test.clj` (static-parse against
-  `implementation/core/src/`) and `emitted_test_run_test.clj` port
-  unchanged — they operate on the emitted tree, not the harness.
-- Test-quiet reporter (`day8/re-frame2-test-quiet`) stays.
+- ✓ Ported `test/clj/new/re_frame2_test.clj` →
+  `test/day8/re_frame2_template/template_test.clj`. The new invocation
+  drives `org.corfield.new/create` in-process (the full deps-new
+  pipeline runs through `data-fn` / `template-fn` / `post-process-fn`
+  exactly as a `clojure -Tnew create` shell-out would, without the
+  per-substrate JVM start-up cost). deps-new lands on the classpath
+  via the `:test` alias.
+- ✓ Ported `template_emission_test.clj` and `emitted_test_run_test.clj`
+  to `test/day8/re_frame2_template/` — both operate on the emitted
+  tree and only the harness call switched from
+  `(rft/re-frame2 …)` to `(deps-new/create {…})`.
+- ✓ Ported `version_lockstep_test.clj` likewise; the lockstep
+  guarantees are unchanged.
+- ✓ Test-quiet reporter (`day8/re-frame2-test-quiet`) stays as the
+  default test driver.
 
-### §2.4 — Add `:include-story?` end-to-end (rf2 follow-on bead)
+**Footgun surfaced in §2.3 port:**
 
-- Wire `template-fn` to emit `stories.cljs` + the `_reagent` →
-  `core_with_stories.cljs` swap under `:include-story? true`.
-- Reagent-only gate stays (UIx + Helix variants follow once Story's
-  adapter coverage matches Reagent's — same as today's clj-new
-  template).
-- Behavioural test: `(deftest include-story-true-reagent-test …)` ports
-  unchanged from the clj-new test suite.
+- deps-new's substitution data exposes `:name` as the full
+  group-qualified project name (e.g. `acme/my-app`), not the bare
+  artifact id (`my-app`) the way clj-new's `project-data` did. The
+  clj-new `stories.cljs` had `:{{name}}/canonical`, which became
+  `:my-app/canonical` under clj-new but would render as
+  `:acme/my-app/canonical` (an invalid keyword — two slashes) under
+  deps-new. The port switches to `:{{main}}/canonical`
+  (`:main` is the bare artifact id), which matches the original
+  intent. No other clj-new substitution keys exhibited similar
+  semantics drift.
+
+### §2.4 — Add `:include-story?` end-to-end (rf2-c2770 — DONE 2026-05-20)
+
+- ✓ Wired `template-fn` to emit `stories.cljs` (from `_shared/`) and
+  swap the `_reagent/core.cljs` for `_reagent/core_with_stories.cljs`
+  under `:include-story? true`.
+- ✓ Reagent-only gate enforced in `data-fn` (throws with a clear
+  message on `:uix` / `:helix` + `:include-story? true`). UIx + Helix
+  variants follow once Story's adapter coverage matches Reagent's —
+  same as today's clj-new template.
+- ✓ Story-flag also swaps the `_reagent/deps.edn` for
+  `_reagent/deps_with_story.edn` (adds the
+  `day8/re-frame2-story {:mvn/version …}` coord) and the
+  `_reagent/package.json` for `_reagent/package_with_story.json`
+  (adds the `story` npm script + the `qrcode-generator` npm dep). This
+  separate-source approach replaces clj-new's Mustache-style
+  `{{#include-story?}}…{{/include-story?}}` blocks — deps-new uses
+  flat `{{key}}` substitution (see `org.corfield.new.impl/->subst-map`
+  + `substitute`) and has no conditional syntax. The output filename
+  is the same (`deps.edn` / `package.json`) regardless of which
+  source ran.
+- ✓ Behavioural test: `include-story-true-reagent-test` ported from
+  the clj-new test suite; the with-stories emission test in
+  `template_emission_test.clj` is also ported and green.
 
 ### §2.5 — Drop clj-new (rf2 follow-on bead)
 
