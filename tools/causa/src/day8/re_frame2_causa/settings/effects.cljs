@@ -408,6 +408,45 @@
                       (str (long px) "px")))))
   nil)
 
+;; ---- epoch history (rf2-3zyyx — spec/021 §10.7, §13) -------------------
+;;
+;; The Epoch history slider in Settings → General writes through to the
+;; substrate's per-frame ring depth via `(rf/configure :epoch-history
+;; {:depth N})` — the same runtime knob `re-frame.epoch.state/merge-config!`
+;; gates on. The substrate reads the depth on every `record!` so the new
+;; cap takes effect on the next drain settle; existing oversize histories
+;; are NOT retroactively trimmed (pre-alpha posture — the substrate
+;; comment on `elide-just-crossed-trace-events` documents this exactly).
+;;
+;; ## Why route through `rf/configure` rather than reach into epoch.state
+;;
+;; `re-frame.core/configure` is the published API (per spec/Tool-Pair
+;; §Bounded history + Conventions §Configure keys). Reaching directly
+;; into `re-frame.epoch.state/merge-config!` would couple Causa to an
+;; internal seam; the `configure` fn late-binds through the hook table
+;; so production builds that DCE the epoch artefact silently no-op.
+;;
+;; Non-positive values are clamped to 1 at the substrate boundary
+;; (`merge-config!`'s `non-neg-int?` predicate accepts 0, but a 0 ring
+;; would defeat Causa's reason for existing). The slider's min is 10 so
+;; the boundary case is mostly defensive.
+
+(defn apply-epoch-history!
+  "Write `n` (the epoch-history depth) through to the substrate's
+  per-frame ring buffer via `(rf/configure :epoch-history {:depth N})`.
+  No-op when `n` is non-numeric (a malformed persisted payload survives
+  into here as `nil`; the substrate ignores the slot rather than
+  resetting to default). Failures (epoch artefact not loaded, late-bind
+  hook unresolved) degrade silently — the persisted value still lives
+  in the settings atom and the next configure call (if the artefact
+  loads later) will land cleanly."
+  [n]
+  (when (and (number? n) (pos? n))
+    (try
+      (rf/configure :epoch-history {:depth (long n)})
+      (catch :default _ nil)))
+  nil)
+
 ;; ---- panel position -----------------------------------------------------
 
 (defn apply-panel-position!
@@ -566,6 +605,13 @@
     ;; mounted yet; the host pickup happens at next paint via the
     ;; var cascade).
     (apply-panel-width! (get-in s [:general :panel-width-px]))
+    ;; rf2-3zyyx — restore the persisted epoch-history depth so the
+    ;; substrate's per-frame ring buffer matches the user's saved
+    ;; capacity BEFORE the first dispatch settles into it. No-op-safe
+    ;; when the epoch artefact isn't loaded (the late-bind hook in
+    ;; `re-frame.core/configure` returns nil so the call is a tap-only
+    ;; no-op).
+    (apply-epoch-history! (get-in s [:general :epoch-history]))
     ;; Panel-position is intentionally NOT applied at boot — the
     ;; preload's auto-open already handles the default `:right-rail`
     ;; case, and reopening into the saved position would surprise a

@@ -106,7 +106,13 @@
       (is (find-by-testid rendered "rf-causa-settings-section-general"))
       (is (find-by-testid rendered "rf-causa-settings-text-size-input"))
       (is (find-by-testid rendered "rf-causa-settings-panel-position-right-rail"))
-      (is (find-by-testid rendered "rf-causa-settings-auto-open-on-error")))))
+      (is (find-by-testid rendered "rf-causa-settings-auto-open-on-error"))
+      ;; rf2-3zyyx — Epoch history slider renders in General with its
+      ;; numeric readout sibling.
+      (is (find-by-testid rendered "rf-causa-settings-epoch-history-input")
+          "Epoch history slider renders in General")
+      (is (find-by-testid rendered "rf-causa-settings-epoch-history-value")
+          "Epoch history numeric readout renders alongside the slider"))))
 
 (deftest filters-section-renders
   (setup!)

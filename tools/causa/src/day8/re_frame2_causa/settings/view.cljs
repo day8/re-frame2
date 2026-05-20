@@ -262,7 +262,8 @@
         long-kw-thresh  @(rf/subscribe [:rf.causa/long-keyword-threshold])
         show-tool?      @(rf/subscribe [:rf.causa/show-tool-frames?])
         show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
-        show-unchanged-subs? @(rf/subscribe [:rf.causa/setting :general :show-unchanged-subs?])]
+        show-unchanged-subs? @(rf/subscribe [:rf.causa/setting :general :show-unchanged-subs?])
+        epoch-history   @(rf/subscribe [:rf.causa/setting :general :epoch-history])]
     [:div {:data-testid "rf-causa-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
@@ -430,6 +431,49 @@
                               :font-family  mono-stack}}]]
       [:p {:style (hint-style)}
        "Fully-qualified keywords longer than this elide in compact list cells."]]
+
+     ;; ── Epoch history slider (rf2-3zyyx — spec/021 §10.7, §13) ──
+     ;;
+     ;; Depth of the per-frame epoch ring buffer. Writes through to
+     ;; the substrate via `(rf/configure :epoch-history {:depth N})`
+     ;; (see settings/effects.cljs §apply-epoch-history!). The
+     ;; "Epoch evicted from buffer" placeholder text in every panel
+     ;; (spec/021 §10.7) points the operator here — bumping the knob
+     ;; retains more time-travel coverage at a higher heap cost.
+     ;; Slider range 10–500 brackets the default 50 with one decade
+     ;; in either direction.
+     [:div {:style (field-style)}
+      [:label {:html-for "rf-causa-settings-epoch-history-input"
+               :style    (label-style)} "Epoch history"]
+      [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
+       [:input {:data-testid "rf-causa-settings-epoch-history-input"
+                :id          "rf-causa-settings-epoch-history-input"
+                :type        "range"
+                :min         "10"
+                :max         "500"
+                :step        "10"
+                :value       (str (or epoch-history 50))
+                :on-change   (fn [^js e]
+                               (let [n (js/parseInt (.. e -target -value) 10)]
+                                 (when-not (js/isNaN n)
+                                   (rf/dispatch
+                                     [:rf.causa/settings-update
+                                      :general :epoch-history n]
+                                     {:frame :rf/causa}))))
+                :style       {:flex 1}}]
+       [:span {:data-testid "rf-causa-settings-epoch-history-value"
+               :style       {:font-family mono-stack
+                             :color       (:text-secondary tokens)
+                             :min-width   "48px"
+                             :text-align  "right"}}
+        (str (or epoch-history 50))]]
+      [:p {:style (hint-style)}
+       "Number of epochs Causa retains per frame for time-travel "
+       "inspection. Older epochs evict when the buffer fills; the "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "Epoch evicted from buffer"]
+       " placeholder points here. Default 50."]]
 
      ;; ── Power user divider + show-tool-frames toggle (rf2-ttnst) ─
      ;;

@@ -759,6 +759,18 @@
     the bucket so downstream panels populate. Useful when debugging
     SSR / REPL / registry-time flows.
 
+  - `:epoch-history` (integer, default 50) — depth of the per-frame
+    epoch ring buffer (per rf2-3zyyx / spec/021 §10.7, §13). Maps 1:1
+    to `(rf/configure :epoch-history {:depth N})` — Causa's settings
+    write through to that runtime knob via `apply-epoch-history!` so
+    the live substrate ring resizes immediately on change AND the
+    persisted value is restored on next page-load BEFORE first paint.
+    The evicted-epoch placeholder text in every panel (spec/021 §10.7)
+    points at this knob — bumping it retains older epochs at a higher
+    heap cost. 50 matches `re-frame.epoch.state/default-depth`; lower
+    values save memory in long sessions, higher values retain more
+    time-travel coverage.
+
   ## :buffer section (rf2-ttnst — Settings popup v1 expansion)
 
   Buffer-depth tunables surfaced in the Buffer tab. All three are
@@ -779,6 +791,7 @@
                :show-tool-frames?      false
                :show-unchanged-subs?   false           ; rf2-wyvf2 Reactive-panel disclosure pin
                :show-ungrouped?        false           ; rf2-r9lyy opt-in pseudo-cascade surface
+               :epoch-history          50              ; rf2-3zyyx per-frame epoch ring depth
                :long-keyword-threshold 24
                ;; rf2-ybjkx — user-side override of the OS-level
                ;; `prefers-reduced-motion: reduce` media query. Three
