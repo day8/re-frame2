@@ -679,14 +679,22 @@
 (deftest self-healing-loop-failing-assertion-shape
   (testing "register → run → read-failures surfaces the :rf.assert/path-equals failure shape"
     (config/set-allow-writes! true)
-    ;; Step 1 — agent registers a variant whose :play body asserts a slot
-    ;; that no `:events` step populated. The assertion will fail because
+    ;; Step 1 — agent registers a variant whose :play-script body asserts a
+    ;; slot that no `:events` step populated. The assertion will fail because
     ;; `(get-in @app-db [:auth :status])` is nil, not :authenticated.
+    ;;
+    ;; rf2-0wrud (2026-05-20): `:play-script` is the canonical AND ONLY
+    ;; phase-4 slot. Each assertion event is wrapped as
+    ;; `[:dispatch-sync <event-vec>]` so the `:rf.assert/*` event runs
+    ;; through the standard re-frame cascade and lands its record on the
+    ;; frame's `[:rf.story/assertions]` BEFORE `read-failures` / the
+    ;; `run-variant` result-map is built.
     (let [reg (invoke "register-variant"
                       {:variant-id "story.auth/sad"
                        :body (str "{:doc \"Deliberately-failing assertion.\""
                                   " :events []"
-                                  " :play   [[:rf.assert/path-equals [:auth :status] :authenticated]]}")})]
+                                  " :play-script [[:dispatch-sync"
+                                  " [:rf.assert/path-equals [:auth :status] :authenticated]]]}")})]
       (is (success? reg) "fixture registration succeeds")
       (is (true? (-> reg :structuredContent :registered?))))
 
@@ -750,12 +758,20 @@
     ;; the sequence runs to completion. The agent's view of `read-failures`
     ;; therefore reflects EVERY failure observed, not just the first.
     (config/set-allow-writes! true)
+    ;; rf2-0wrud (2026-05-20): wrap each `:rf.assert/*` event vector as a
+    ;; `[:dispatch-sync ...]` step inside `:play-script`. The runner walks
+    ;; both steps even if the first one's assertion fails — record-don't-
+    ;; throw lets the play sequence complete and both records land on
+    ;; `[:rf.story/assertions]` for `read-failures` to surface.
     (let [reg (invoke "register-variant"
                       {:variant-id "story.auth/double-fail"
                        :body (str "{:doc \"Two failing assertions; both must record.\""
                                   " :events []"
-                                  " :play   [[:rf.assert/path-equals [:auth :status] :authenticated]"
-                                  "          [:rf.assert/path-equals [:user :role] :admin]]}")})]
+                                  " :play-script"
+                                  " [[:dispatch-sync"
+                                  "   [:rf.assert/path-equals [:auth :status] :authenticated]]"
+                                  "  [:dispatch-sync"
+                                  "   [:rf.assert/path-equals [:user :role] :admin]]]}")})]
       (is (success? reg)))
 
     (let [run (invoke "run-variant" {:variant-id "story.auth/double-fail"})
@@ -986,7 +1002,11 @@
       (is (re-find #"variant-id" (-> r :content first :text))))))
 
 (deftest record-as-variant-zero-duration-empty-capture
-  (testing "duration 0 with no in-flight dispatches ⇒ empty :play snippet"
+  (testing "duration 0 with no in-flight dispatches ⇒ empty :play-script snippet"
+    ;; rf2-0wrud (2026-05-20): `:play-script` is the canonical AND ONLY
+    ;; phase-4 slot; the recorder's `gen-play-snippet` emits a
+    ;; `:play-script {:auto-run? true :script [...]}` body. With zero
+    ;; captured events the `:script` vector is empty.
     (let [r (invoke "record-as-variant" {:variant-id "story.button/primary"})
           s (:structuredContent r)]
       (is (success? r))
@@ -994,7 +1014,8 @@
       (is (= 0 (:recorded-event-count s)))
       (is (false? (:written-back? s)))
       (is (string? (:play-snippet s)))
-      (is (re-find #":play \[\]" (:play-snippet s)))
+      (is (re-find #":play-script" (:play-snippet s)))
+      (is (re-find #":script\s+\[\]" (:play-snippet s)))
       (is (re-find #":story\.button/primary" (:play-snippet s))))))
 
 (deftest record-as-variant-captures-events-during-window
