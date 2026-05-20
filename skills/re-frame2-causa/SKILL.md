@@ -78,7 +78,7 @@ situation.
 | Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
 
 For the decision tree in depth (preload vs `init!`, suppress-auto-open
-on tool-only pages, the `:layout/host-selector` knob, host-CSS-variable
+on tool-only pages, the `:rf.causa/layout-host-selector` knob, host-CSS-variable
 resize, pop-out lifecycle), see [`references/launch-modes.md`](references/launch-modes.md).
 
 ### Wired hotkeys

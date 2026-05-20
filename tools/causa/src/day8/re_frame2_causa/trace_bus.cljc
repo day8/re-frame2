@@ -33,7 +33,7 @@
   `config/suppress-sensitive?` before any buffer push; suppressed
   events bump a per-frame counter that drives the bottom-rail's
   `[● REDACTED N]` hint. An engineer debugging redaction policy
-  opts in via `(causa-config/configure! {:trace/show-sensitive?
+  opts in via `(causa-config/configure! {:rf.privacy/show-sensitive?
   true})`.
 
   ## Reactivity (rf2-in6l2 / rf2-wq6gx)
@@ -317,11 +317,11 @@
   internal introspection is a separate feature surface if needed.
 
   Per Spec 009 §Privacy + rf2-azls9: events whose `:sensitive?` flag
-  is true are dropped before the buffer push when the global
-  `:trace/show-sensitive?` flag is false (the default). The
+  is true are dropped before the buffer push when the cross-tool
+  `:rf.privacy/show-sensitive?` flag is false (the default). The
   suppressed-events counter bumps for the targeted frame so the
   shell can surface a `[● REDACTED N]` hint. Opt in via
-  `(causa-config/configure! {:trace/show-sensitive? true})` to
+  `(causa-config/configure! {:rf.privacy/show-sensitive? true})` to
   surface the raw cascade while debugging redaction policy.
 
   Per rf2-0vxdn the indicator is fully reactive: `config/note-

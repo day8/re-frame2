@@ -581,7 +581,7 @@ The architectural spine for this lock lives in
 [`018-Event-Spine.md`](018-Event-Spine.md) §Static surface
 (the 3-layer silhouette + the 4 mode signals + the mode-state
 lifecycle slots + the localStorage `causa.mode` key + the
-`:experimental/static-mode?` feature flag). The concrete Static
+`:rf.causa/static-mode?` feature flag). The concrete Static
 sub-tab surfaces are catalogued in [`007-UX-IA.md`](007-UX-IA.md)
 §Static mode and (for Machines specifically)
 [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static

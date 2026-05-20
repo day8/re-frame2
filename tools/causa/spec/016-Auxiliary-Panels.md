@@ -604,7 +604,7 @@ density at `:cosy`.
 |---|---|---|
 | `:general :text-size` | `13` (px) | Matches `theme/tokens.cljc :type-scale :body`. Writes `--rf-causa-text-size`. |
 | `:general :density` | `:cosy` | Matches `theme/tokens.cljc :font-size-default` (13 px). Writes `--rf-causa-font-size` per rf2-n8i2c. |
-| `:general :panel-position` | `:right-rail` | Matches the existing `:layout/host-selector` inline-host posture per [`015-Configuration.md`](./015-Configuration.md). |
+| `:general :panel-position` | `:right-rail` | Matches the existing `:rf.causa/layout-host-selector` inline-host posture per [`015-Configuration.md`](./015-Configuration.md). |
 | `:general :panel-width-px` | `480` | Matches the default inline-host `--rf-causa-inline-width` band. Clamped `[320, 0.9 × viewport-width-px]` on every write. Set by the drag handle (rf2-x8h9y); double-click resets to this default. |
 | `:general :auto-open-on-error?` | `false` | The user is in their app, not asking Causa to interrupt them. |
 | `:theme` | `:dark` | Causa is a dev tool; the canvas-and-chrome palette in `theme/tokens.cljc` is the dark one. |
@@ -645,7 +645,7 @@ registration. Detached on flip-off.
 
 ### Bulk configure! escape hatch
 
-`(causa-config/configure! {:settings <map>})` bulk-replaces the
+`(causa-config/configure! {:rf.causa/settings <map>})` bulk-replaces the
 whole settings map. Shape mirrors the defaults table above. The
 popup's per-knob event surface is the normal write path; this key
 is for hosts that want to ship a non-default starting posture (e.g.
@@ -661,9 +661,10 @@ follow-on).
 ### Cross-references
 
 - [`015-Configuration.md`](./015-Configuration.md) — host-facing
-  `configure!` surface; `{:settings <map>}` bulk-set; `:editor` /
-  `:project-root` / `:layout/host-selector` / `:launch/auto-open?` /
-  `:trace/show-sensitive?` enumeration.
+  `configure!` surface; `{:rf.causa/settings <map>}` bulk-set;
+  `:rf.causa/editor` / `:rf.causa/project-root` /
+  `:rf.causa/layout-host-selector` / `:rf.causa/auto-open?` /
+  `:rf.privacy/show-sensitive?` enumeration.
 - [`018-Event-Spine.md`](./018-Event-Spine.md) §9 — full architectural
   contract (modal not panel, why; reset semantics; future sections).
 

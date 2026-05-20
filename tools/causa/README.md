@@ -101,7 +101,7 @@ Two complementary resize mechanisms ship together:
 - **Causa drag handle** (user-controlled, persisted; auto-injected).
   Drag the panel's outer edge (left edge when docked `:right-rail`)
   to resize. Width clamps to `[320px, 90vw]` and persists across
-  reloads via `configure! :settings :general :panel-width-px`.
+  reloads via `configure! :rf.causa/settings :general :panel-width-px`.
   Double-click the handle (or press Enter / Space when focused) to
   reset to default. See
   [`spec/007-UX-IA.md` §Resize affordance](./spec/007-UX-IA.md#resize-affordance).
@@ -121,7 +121,7 @@ Override the selector before auto-open if needed:
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:layout/host-selector "#devtools-causa"})
+(causa-config/configure! {:rf.causa/layout-host-selector "#devtools-causa"})
 ```
 
 ### Enable
@@ -139,7 +139,7 @@ Tool-owned pages that intentionally do not reserve app layout space for
 Causa can suppress only the default page-load open before `rf/init!`:
 
 ```clojure
-(causa-config/configure! {:launch/auto-open? false})
+(causa-config/configure! {:rf.causa/auto-open? false})
 ```
 
 Explicit opens still use the normal host contract and emit the same
@@ -150,7 +150,7 @@ missing-host diagnostic when no host exists.
 | Action | How |
 |---|---|
 | Auto-open | Page load after `rf/init!`, when `[data-rf-causa-host]` exists |
-| Suppress auto-open on tool-only pages | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!` |
+| Suppress auto-open on tool-only pages | `(causa-config/configure! {:rf.causa/auto-open? false})` before `rf/init!` |
 | Hide/show | `Ctrl+Shift+C` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
 | Pop out to second window | Programmatic `(causa/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |

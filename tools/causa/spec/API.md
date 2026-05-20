@@ -38,7 +38,7 @@ cycle re-runs without double-registration:
    default landing posture. There is no floating pill, no body
    mount, no closed-by-default panel state, and no viewport overlay
    in the default path. Auto-open is suppressed when the host has
-   set `(causa-config/configure! {:launch/auto-open? false})`
+   set `(causa-config/configure! {:rf.causa/auto-open? false})`
    before adapter readiness (e.g. Story-only tool pages).
 
 The layout host is sized by the host's stylesheet; the recommended
@@ -76,7 +76,7 @@ day8.re-frame2-causa.config/default-layout-host-selector
 ;; "[data-rf-causa-host]"
 ;; — the CSS selector the preload's auto-open path queries on adapter
 ;;   readiness. Override via (causa-config/configure!
-;;   {:layout/host-selector "#devtools-causa"}).
+;;   {:rf.causa/layout-host-selector "#devtools-causa"}).
 
 day8.re-frame2-causa.config/default-layout-host-css-var
 ;; "--rf-causa-inline-width"
@@ -118,7 +118,7 @@ day8.re-frame2-causa.config/default-layout-host-snippet
 ```
 
 These are constants, not setters — overriding the selector goes
-through `(causa-config/configure! {:layout/host-selector ...})`;
+through `(causa-config/configure! {:rf.causa/layout-host-selector ...})`;
 overriding the CSS custom property happens in the host's stylesheet
 (per [`011-Launch-Modes.md`](./011-Launch-Modes.md) §Resizing the
 inline host).
@@ -341,7 +341,7 @@ entry point (full key surface normatively enumerated in
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:editor :cursor})
+(causa-config/configure! {:rf.causa/editor :cursor})
 ```
 
 Causa's editor preference is **independent** of Story's
@@ -364,12 +364,12 @@ and a `Cmd-Shift-M` / `Ctrl-Shift-M` chord wired to
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:experimental/static-mode? true})
+(causa-config/configure! {:rf.causa/static-mode? true})
 ```
 
 | Surface | Spelling | Notes |
 |---|---|---|
-| Configure key | `:experimental/static-mode?` | Default `false`. Pre-alpha experimental flag; the default flips to `true` once the placeholder Static sub-tabs ship. Full key contract in [`015-Configuration.md`](./015-Configuration.md) §`:experimental/static-mode?`. |
+| Configure key | `:rf.causa/static-mode?` | Default `false`. Pre-alpha experimental flag; the default flips to `true` once the placeholder Static sub-tabs ship. Full key contract in [`015-Configuration.md`](./015-Configuration.md) §`:rf.causa/static-mode?`. |
 | Toggle chord | `Cmd-Shift-M` / `Ctrl-Shift-M` | Global keydown listener; fires `:rf.causa/toggle-mode`. Falls through to host/browser shortcuts when the flag is OFF. |
 | Mode pill | `data-testid="rf-causa-mode-pill"` | Mounts at ribbon-left under the flag. Click flips mode; `aria-checked` + `data-active-mode` reflect state for stylesheet/automation hooks. |
 | Persistence | `causa.mode` (localStorage) | Bare string `"runtime"` / `"static"`. Hydrates on boot; missing/corrupt → `"runtime"` fallback. The flag itself is per-load (not persisted). |

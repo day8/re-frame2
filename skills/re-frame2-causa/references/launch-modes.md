@@ -98,7 +98,7 @@ the host. Override the selector before Causa opens:
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:layout/host-selector "#devtools-causa"})
+(causa-config/configure! {:rf.causa/layout-host-selector "#devtools-causa"})
 ```
 
 ### Resizing the host
@@ -117,7 +117,7 @@ The recommended CSS reads `--rf-causa-inline-width` for its
    `tools/causa/spec/007-UX-IA.md` §Resize affordance) on the panel's
    outer edge. Pointer-driven (mouse, touch, pen via pointer events),
    keyboard-navigable, persisted across reloads via
-   `configure! :settings :general :panel-width-px`, clamped to
+   `configure! :rf.causa/settings :general :panel-width-px`, clamped to
    `[320px, 90vw]`, double-click to reset.
 
 Both mechanisms write the same `flex-basis` slot. Consumers that
@@ -134,7 +134,7 @@ Causa (Story-only browser-test canvases, headless probe pages) MAY
 suppress only the default page-load open before `rf/init!`:
 
 ```clojure
-(causa-config/configure! {:launch/auto-open? false})
+(causa-config/configure! {:rf.causa/auto-open? false})
 ```
 
 This does not disable Causa. The collectors, browser API, keybinding,

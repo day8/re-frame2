@@ -525,7 +525,7 @@
                               " sensitive trace event"
                               (when (not= 1 redacted-count) "s")
                               " suppressed by default. Set "
-                              ":trace/show-sensitive? true via "
+                              ":rf.privacy/show-sensitive? true via "
                               "(causa-config/configure! ...) to "
                               "surface them.")
             :style       {:color       (:magenta tokens)
@@ -705,7 +705,7 @@
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
      ;; rf2-o5f5f.1 — mode pill at ribbon-left, gated behind the
-     ;; `:experimental/static-mode?` flag. Phase 1 keeps the pill out
+     ;; `:rf.causa/static-mode?` flag. Phase 1 keeps the pill out
      ;; of sight until a host opts in; sibling beads (.2–.6) fill the
      ;; Static sub-tabs before the flag flips to default-on.
      (when (config/static-mode-enabled?)
@@ -1528,7 +1528,7 @@
 ;;
 ;; The shell exposes TWO modes (Runtime — the 4-layer chrome below,
 ;; Static — the 3-layer registry-browse surface owned by
-;; `static/shell.cljs`). With the `:experimental/static-mode?` flag
+;; `static/shell.cljs`). With the `:rf.causa/static-mode?` flag
 ;; OFF (default) the composer always renders Runtime — byte-identical
 ;; to the pre-bead chrome. With the flag ON the composer reads
 ;; `:rf.causa/mode` and renders either Runtime or Static.
@@ -1556,7 +1556,7 @@
   "Mode-aware composer (rf2-o5f5f.1). Reads `:rf.causa/mode` and renders
   either the Runtime 4-layer chrome OR the Static 3-layer surface.
 
-  With the `:experimental/static-mode?` flag OFF the composer always
+  With the `:rf.causa/static-mode?` flag OFF the composer always
   renders Runtime — the mode slot is ignored, the surface is byte-
   identical to the pre-bead chrome. With the flag ON the active mode
   drives the swap.
@@ -1694,7 +1694,7 @@
     ;; host's `flex-basis` re-evaluates this paint.
     [resize-handle/Handle mode]
     ;; Mode-aware surface (rf2-o5f5f.1). With
-    ;; `:experimental/static-mode?` OFF the composer always renders
+    ;; `:rf.causa/static-mode?` OFF the composer always renders
     ;; the Runtime 4-layer chrome — byte-identical to the pre-bead
     ;; surface. With the flag ON it reads `:rf.causa/mode` and swaps
     ;; in the Static 3-layer surface when active.

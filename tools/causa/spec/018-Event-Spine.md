@@ -131,12 +131,12 @@ The namespace prefix is `causa.mode` (not `re-frame2.causa.mode.v1`) deliberatel
 
 Sub-surface slots (e.g. Static Machines' selected-id and per-machine sub-mode) ride their own localStorage keys under the `causa.static.*` prefix — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface.
 
-### Feature flag — `:experimental/static-mode?`
+### Feature flag — `:rf.causa/static-mode?`
 
-Static is gated behind the `:experimental/static-mode?` config flag (per [`015-Configuration.md`](015-Configuration.md)), **default `false`**. Hosts opt in via:
+Static is gated behind the `:rf.causa/static-mode?` config flag (per [`015-Configuration.md`](015-Configuration.md)), **default `false`**. Hosts opt in via:
 
 ```clojure
-(causa-config/configure! {:experimental/static-mode? true})
+(causa-config/configure! {:rf.causa/static-mode? true})
 ```
 
 before the Causa preload runs.
@@ -1031,7 +1031,7 @@ User CHOSE to load them. First session is honest about what's filtered.
 
 ### Auto-filter chip strip (data-classification)
 
-Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under default `:trace/show-sensitive? false`), Causa's chrome surfaces the count via per-row redaction markers + Settings → Diagnostics — NOT as an auto-filter chip. (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Causa does not auto-add filters on the user's behalf.
+Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under default `:rf.privacy/show-sensitive? false`), Causa's chrome surfaces the count via per-row redaction markers + Settings → Diagnostics — NOT as an auto-filter chip. (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Causa does not auto-add filters on the user's behalf.
 
 ### v1 ships: right-click → edit-popup (NOT silent append)
 
@@ -1047,7 +1047,7 @@ The popup's "Match scope" checkboxes — `event-id` / `event-args` / `source-coo
 
 ### Filter persistence
 
-Ribbon pills persist via localStorage per host-app under a Causa-namespaced key. **v1 storage key:** `"re-frame2.causa.filters.v1"` (versioned so future schema changes can ignore stale payloads). Configurable via `(causa-config/configure! {:filters/storage-key "<key>"})` per [`015-Configuration.md`](015-Configuration.md) — hosts that run multiple Causa instances in the same browser session (Story testbeds) override so each instance keeps its own pill state.
+Ribbon pills persist via localStorage per host-app under a Causa-namespaced key. **v1 storage key:** `"re-frame2.causa.filters.v1"` (versioned so future schema changes can ignore stale payloads). Configurable via `(causa-config/configure! {:rf.causa/filters-storage-key "<key>"})` per [`015-Configuration.md`](015-Configuration.md) — hosts that run multiple Causa instances in the same browser session (Story testbeds) override so each instance keeps its own pill state.
 
 Host-supplied seed via `(causa-config/configure! {:filters {:in […] :out […]}})` lands ONLY on first install when localStorage is empty — the seed never clobbers a user's hand-tuned set. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Causa itself ships with `nil` seed (first-session honesty).
 
@@ -1257,7 +1257,7 @@ Complete map for the spine + chrome:
 | **Tab bar (L3)** | `1`–`7` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing · `i` Issues |
 | **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables · `Esc` returns focus to event list |
 | **Mode + scrubbing** | `Space` pause/resume LIVE · `L` snap to LIVE (jump to head) · `←` / `→` step one cascade (= `j`/`k`) · `Shift+←` / `Shift+→` step cascade root · `Home` / `End` oldest/newest. (The dedicated Mode pill widget was dropped — the L2 spine itself indicates LIVE / LIVE-paused / RETRO; only the widget is gone.) |
-| **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Runtime** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Gated on the `:experimental/static-mode?` config flag — when OFF the chord falls through to the host / browser; when ON it dispatches `:rf.causa/toggle-mode` against the `:rf/causa` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
+| **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Runtime** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Gated on the `:rf.causa/static-mode?` config flag — when OFF the chord falls through to the host / browser; when ON it dispatches `:rf.causa/toggle-mode` against the `:rf/causa` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
 | **Global** | `Ctrl+Shift+C` toggle Causa visibility · `Cmd-K` / `Ctrl+K` palette · `?` cheat-sheet · `,` or `s` settings popup (= `⚙`) · `o` popout (= `⛶`) · `Esc` close modal / return to canvas |
 
 ### Retired keys (from pre-rewrite spec)
@@ -1348,7 +1348,7 @@ Without the modal, large drill-ins can blow out the renderer and degrade INP. Th
 
 ### What Causa does NOT do
 
-- **No "reveal redacted value" button.** Ever. The only path to seeing sensitive payloads is the host-level opt-in `(causa-config/configure! {:trace/show-sensitive? true})` which is a deliberate code-level act gating FUTURE events. The walker drops the value before the trace bus buffers it; the value is unrecoverable at render time. Drop-and-forget is the contract.
+- **No "reveal redacted value" button.** Ever. The only path to seeing sensitive payloads is the host-level opt-in `(causa-config/configure! {:rf.privacy/show-sensitive? true})` which is a deliberate code-level act gating FUTURE events. The walker drops the value before the trace bus buffers it; the value is unrecoverable at render time. Drop-and-forget is the contract.
 - **No fetch button for `:rf/redacted`.** Distinguishes from `:rf/large`. The two sentinels MUST have different affordances.
 - **No schema-based marking** (rejected per [spec/015](../../../spec/015-Data-Classification.md)). Causa renders sentinels from the seven first-class marking sites only.
 

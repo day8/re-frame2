@@ -86,7 +86,7 @@ To suppress the default page-load auto-open on tool-only pages (e.g. story chrom
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:launch/auto-open? false})
+(causa-config/configure! {:rf.causa/auto-open? false})
 ```
 
 Explicit opens still use the normal host contract.

@@ -125,7 +125,7 @@ preload — collectors, browser API, keybinding — installed:
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:launch/auto-open? false})
+(causa-config/configure! {:rf.causa/auto-open? false})
 ```
 
 Call this **before** `rf/init!` runs. After the suppression, an

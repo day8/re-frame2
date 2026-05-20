@@ -49,7 +49,7 @@ Most apps use **inline (default)**. Reach for the others only when the trigger f
 |---|---|---|
 | Local development; want devtools in the app window | **Inline (default)** | Add the preload + the `[data-rf-causa-host]` host. Causa auto-mounts. |
 | Want a second monitor for Causa | **Inline + pop-out** | Inline mount as above, then `(causa/popout!)` from CLJS or `window.day8.re_frame2_causa.popout_BANG_()` from a devtools console. Same JS realm via `window.opener`. |
-| Tool-only page that can't reserve right-column real estate (Story-only canvas, internal config UI) | **Suppress auto-open** | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!`. Causa stays installed; explicit `open!` still works and still warns on missing host. |
+| Tool-only page that can't reserve right-column real estate (Story-only canvas, internal config UI) | **Suppress auto-open** | `(causa-config/configure! {:rf.causa/auto-open? false})` before `rf/init!`. Causa stays installed; explicit `open!` still works and still warns on missing host. |
 | Want to embed a single Causa panel inside the app's own layout (e.g. an embedded epoch scrubber in a debug screen) | **Declarative embedding via Spec 008** | See `tools/causa/spec/008-Embedding-Contract.md` for the `Panel` component shape. Not for "I want the whole panel"; only for "I want one slice of Causa as an app component." |
 | Want an AI agent to read / time-travel the running re-frame2 app programmatically | **re-frame2-pair-mcp** | Configure the `tools/re-frame2-pair-mcp/` server in the agent host (`re-frame2-pair-mcp`). Raw nREPL pair-programming companion. UI may or may not be open in the browser. |
 
@@ -88,12 +88,12 @@ Per `rf2-9ovfb`, the same recommended snippet publishes a second CSS custom prop
 - Override the host selector before auto-open if needed:
   ```clojure
   (require '[day8.re-frame2-causa.config :as causa-config])
-  (causa-config/configure! {:layout/host-selector "#devtools-causa"})
+  (causa-config/configure! {:rf.causa/layout-host-selector "#devtools-causa"})
   ```
 
 ## When to suppress auto-open
 
-Set `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!` on:
+Set `(causa-config/configure! {:rf.causa/auto-open? false})` before `rf/init!` on:
 
 - Story-only browser-test canvases (the page is a test harness; no human reads Causa).
 - Internal dev pages whose layout can't accommodate a right column.

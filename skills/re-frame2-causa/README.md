@@ -18,7 +18,7 @@ Causa is the **human-facing** panel; for an AI agent surface against the running
 ## Repo contents
 
 - `SKILL.md` — the skill itself
-- `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:layout/host-selector`, host-CSS-variable resize, pop-out lifecycle)
+- `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.causa/layout-host-selector`, host-CSS-variable resize, pop-out lifecycle)
 - `references/panels.md` — the 13-panel tour in depth (group membership, dormant state, activity badges, deeper "open it when…" guidance)
 - `evals/evals.json` — trigger-eval fixtures (8 should-trigger + 8 should-not-trigger entries, per skill-creator's description-optimisation contract)
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata

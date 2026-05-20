@@ -293,7 +293,7 @@ The two verb families that decide whether a sensitive value passes through a con
 
 | Verb | Where | Default | Trust boundary |
 |---|---|---|---|
-| `:trace/show-sensitive?` | On-box devtools panels (Causa, story trace panel) | `false` (suppress) | The panel is for the operator running this process; toggle controls UI visibility, not egress. |
+| `:rf.privacy/show-sensitive?` | On-box devtools panels (Causa, Story trace panel) — set via each tool's `configure!`, e.g. `(causa-config/configure! {:rf.privacy/show-sensitive? true})`. Reads back via `(re-frame.privacy/get-show-sensitive)`. Per rf2-xea9u — the `:rf.privacy/*` namespace is the cross-tool reservation (every re-frame2 tool that consumes the trace bus reads the same atom; one config flip covers every tool). | `false` (suppress) | The panel is for the operator running this process; toggle controls UI visibility, not egress. |
 | `:include-sensitive?` / `:rf.size/include-sensitive?` | Off-box wire egress (MCP servers, hosted-LLM preload, error monitors, Datadog/Sentry forwarders) | `false` (suppress) | The toggle controls whether sensitive values cross the process trust boundary. |
 
 Both default to suppress per Spec 009's default-private posture. A sixth consumer adding a knob picks the verb by trust-boundary class — on-box panel → `show-sensitive?`; off-box wire → `include-sensitive?`.

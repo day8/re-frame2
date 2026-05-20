@@ -18,7 +18,7 @@
   the editable-target case so numeric inputs are not interrupted.
 
   Keybindings (rf2-ttnst) v1 is READ-ONLY — a chord catalogue plus
-  the master `:launch.keybinding/enabled?` toggle. Rebind UI is the
+  the master `:rf.causa/keybinding-enabled?` toggle. Rebind UI is the
   v1.1 follow-on. Buffer (rf2-ttnst) carries the depth tunables plus
   a destructive `Clear buffer now` affordance with a nested confirm
   modal.

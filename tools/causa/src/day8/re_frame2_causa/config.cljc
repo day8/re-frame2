@@ -216,7 +216,7 @@
   (atom true))
 
 (defn set-auto-open!
-  "Replace the `:launch/auto-open?` flag. `nil` resets to the default
+  "Replace the `:rf.causa/auto-open?` flag. `nil` resets to the default
   (`true`)."
   [v]
   (reset! auto-open? (if (nil? v) true (boolean v)))
@@ -247,7 +247,7 @@
 ;;
 ;; The flag is the host's surrender switch: set it to `false` BEFORE
 ;; the Causa preload runs (typically inside the host's boot sequence
-;; via `(causa-config/configure! {:launch.keybinding/enabled? false})`)
+;; via `(causa-config/configure! {:rf.causa/keybinding-enabled? false})`)
 ;; and `keybinding/attach!` short-circuits to a no-op. The shell is
 ;; still mountable / dispatchable / inspectable via Causa's other
 ;; surfaces (the host owns its own open-Causa affordance); only the
@@ -269,7 +269,7 @@
   (atom true))
 
 (defn set-keybinding-enabled!
-  "Replace the `:launch.keybinding/enabled?` flag. `nil` resets to the
+  "Replace the `:rf.causa/keybinding-enabled?` flag. `nil` resets to the
   default (`true`). Hosts MUST set this BEFORE the Causa preload runs
   (the preload calls `keybinding/attach!` at adapter-ready time);
   setting it afterwards is a no-op on the already-attached listener
@@ -321,9 +321,9 @@
   (atom false))
 
 (defn set-static-mode-enabled!
-  "Replace the `:experimental/static-mode?` flag. `nil` resets to the
+  "Replace the `:rf.causa/static-mode?` flag. `nil` resets to the
   default (`false`). Hosts opt into Static mode by calling
-  `(causa-config/configure! {:experimental/static-mode? true})`
+  `(causa-config/configure! {:rf.causa/static-mode? true})`
   before the Causa preload runs."
   [v]
   (reset! static-mode? (if (nil? v) false (boolean v)))
@@ -382,7 +382,7 @@
 ;; ships.
 ;;
 ;; The host application sets this once at boot via
-;; `(causa-config/configure! {:project-root "C:/Users/me/code/my-app/src"})`.
+;; `(causa-config/configure! {:rf.causa/project-root "C:/Users/me/code/my-app/src"})`.
 ;; Default is nil — when unset, the source-coord file ships verbatim and
 ;; the Open chip behaves exactly as it did pre-rf2-5m5n2 (useful for hosts
 ;; whose source-paths are already absolute, and for tests).
@@ -399,7 +399,7 @@
   ^{:doc "Atom holding the project-root prefix for Causa's 'Open in
          editor'. Default `nil` (no prefix; ship the source-coord file
          verbatim). Set by `day8.re-frame2-causa.config/configure!` via
-         the `:project-root` key. Read by `open-in-editor/resolve-uri`
+         the `:rf.causa/project-root` key. Read by `open-in-editor/resolve-uri`
          — prepended to the source-coord's `:file` slot when building
          the editor URI."}
   project-root
@@ -430,19 +430,21 @@
 ;;
 ;; Default is `false` (suppress sensitive events). An engineer debugging
 ;; redaction policy flips this on via
-;; `(causa-config/configure! {:trace/show-sensitive? true})`.
+;; `(causa-config/configure! {:rf.privacy/show-sensitive? true})`.
 ;;
 ;; The flag is read at the head of the collector body, so toggling it
 ;; takes effect on the next trace event without re-registering the
 ;; listener.
 
 (defonce
-  ^{:doc "Atom holding the `:trace/show-sensitive?` flag. Default
+  ^{:doc "Atom holding the `:rf.privacy/show-sensitive?` flag. Default
          `false`. When `false` (default), Causa's trace collector
          short-circuits on events whose `:sensitive?` field is true,
          and the UI surface tracks how many were suppressed. When
-         `true`, the collector receives every event unchanged. Per
-         Spec 009 §Privacy + bead rf2-azls9."}
+         `true`, the collector receives every event unchanged. The
+         key is cross-tool — Story and other re-frame2 tools that
+         consume the trace bus read the same `:rf.privacy/*` slot. Per
+         Spec 009 §Privacy + bead rf2-azls9 + rf2-xea9u."}
   show-sensitive?
   (atom false))
 
@@ -511,7 +513,7 @@
         (tap> {:tag ::toggle-off-callback-failed :id id :error e})))))
 
 (defn set-show-sensitive!
-  "Replace the `:trace/show-sensitive?` flag. Causa's `configure!`
+  "Replace the `:rf.privacy/show-sensitive?` flag. Causa's `configure!`
   calls this. `nil` resets to the default (`false`).
 
   Per rf2-lqmje (Spec 009 §Privacy §Retroactive-scrub): when the call
@@ -534,7 +536,7 @@
   nil)
 
 (defn get-show-sensitive
-  "Return the current `:trace/show-sensitive?` flag value."
+  "Return the current `:rf.privacy/show-sensitive?` flag value."
   []
   @show-sensitive?)
 
@@ -551,7 +553,7 @@
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by Causa's trace collector
-  under the current `:trace/show-sensitive?` setting?
+  under the current `:rf.privacy/show-sensitive?` setting?
 
   Returns `true` iff (a) the event is `:sensitive? true` AND (b) the
   show-sensitive flag is `false`. The collector wraps its body in
@@ -683,7 +685,7 @@
 ;; - auto-open-on-error default OFF (the user is in their app, not
 ;;   asking for Causa to interrupt them)
 ;; - panel-position default `:right-rail` (matches the existing
-;;   `:layout/host-selector` inline-host posture)
+;;   `:rf.causa/layout-host-selector` inline-host posture)
 ;; - theme default `:dark` (Causa is a dev tool — the canvas-and-
 ;;   chrome palette in `theme/tokens.cljc` is the dark one)
 ;; - text-size default 13 (matches `theme/tokens.cljc :type-scale
@@ -997,7 +999,7 @@
 ;;     reproducibility). Default `nil` — no seed; the user surfaces
 ;;     filters themselves per spec/018 §7 'Empty defaults'.
 ;;
-;;   - `:filters/storage-key` — localStorage key the persistence layer
+;;   - `:rf.causa/filters-storage-key` — localStorage key the persistence layer
 ;;     reads / writes. Default `"re-frame2.causa.filters.v1"`. Hosts
 ;;     that run multiple Causa instances (Story testbeds) override so
 ;;     each instance keeps its own pill state.
@@ -1061,57 +1063,70 @@
 ;; ---- configure! convenience ---------------------------------------------
 
 (defn configure!
-  "Top-level Causa configuration. Accepts:
+  "Top-level Causa configuration. Every key lives under the
+  `:rf.causa/*` reserved namespace (per rf2-xea9u — re-frame2 tools'
+  `configure!` surfaces own their own reserved sub-namespace beneath
+  the framework `:rf/*` root; `:rf.<tool>/*` is the canonical
+  convention for ALL re-frame2 tool boot-time config). Cross-tool
+  keys live under their own reserved namespace
+  (e.g. `:rf.privacy/show-sensitive?` is read by Causa AND Story).
 
-    `{:editor <kw>}` — Causa's 'Open in editor' preference (rf2-evgf5).
-    `{:project-root <string>}` — on-disk root prepended to the source-
-       coord's classpath-relative `:file` slot before the editor URI
-       ships (rf2-5m5n2). Default `nil`. Nil / blank clears the slot;
-       an absent key leaves the current value untouched. Hosts whose
-       source-paths are already absolute can leave this unset.
-    `{:layout/host-selector <css-selector>}` — app-provided true-inline
-       layout host for the default shell. Defaults to
+  Accepts:
+
+    `{:rf.causa/editor <kw>}` — Causa's 'Open in editor' preference
+       (rf2-evgf5).
+    `{:rf.causa/project-root <string>}` — on-disk root prepended to
+       the source-coord's classpath-relative `:file` slot before the
+       editor URI ships (rf2-5m5n2). Default `nil`. Nil / blank
+       clears the slot; an absent key leaves the current value
+       untouched. Hosts whose source-paths are already absolute can
+       leave this unset.
+    `{:rf.causa/layout-host-selector <css-selector>}` — app-provided
+       true-inline layout host for the default shell. Defaults to
        `[data-rf-causa-host]`.
-    `{:launch/auto-open? <bool>}` — whether the preload auto-opens
+    `{:rf.causa/auto-open? <bool>}` — whether the preload auto-opens
        the default true-inline shell after `rf/init!`. Defaults to
        `true`. Story/tool pages that deliberately run without an app
-       layout host may set this to `false` before `rf/init!`; explicit
-       open!/toggle! still diagnose a missing host.
-    `{:launch.keybinding/enabled? <bool>}` — whether `keybinding/attach!`
-       installs Causa's global window-level keydown listener
-       (Ctrl+Shift+C / Cmd/Ctrl+K / spine bindings). Defaults to
-       `true` — standalone Causa needs the listener. Embed hosts
-       (Story mounts Causa as RHS) set `false` so their own global
-       keybindings — typically `Cmd/Ctrl+K` for the host's command
-       palette — are not swallowed by Causa's capture-phase listener.
-       Per rf2-4eyik (rf2-q7who Thread A). MUST be set BEFORE the
-       Causa preload runs.
-    `{:experimental/static-mode? <bool>}` — whether Causa exposes the
+       layout host may set this to `false` before `rf/init!`;
+       explicit open!/toggle! still diagnose a missing host.
+    `{:rf.causa/keybinding-enabled? <bool>}` — whether
+       `keybinding/attach!` installs Causa's global window-level
+       keydown listener (Ctrl+Shift+C / Cmd/Ctrl+K / spine
+       bindings). Defaults to `true` — standalone Causa needs the
+       listener. Embed hosts (Story mounts Causa as RHS) set `false`
+       so their own global keybindings — typically `Cmd/Ctrl+K` for
+       the host's command palette — are not swallowed by Causa's
+       capture-phase listener. Per rf2-4eyik (rf2-q7who Thread A).
+       MUST be set BEFORE the Causa preload runs.
+    `{:rf.causa/static-mode? <bool>}` — whether Causa exposes the
        Static mode UX (mode pill at ribbon-left, Cmd-Shift-M chord
        toggle, Static surface render). Defaults to `false` so the
        Runtime chrome renders byte-identically to the pre-Static
        surface. Per rf2-o5f5f.1 — flips to default-on after the
-       sibling beads fill the placeholder Static sub-tabs (Machines /
-       Routes / Schemas / Views / Events).
-    `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
-       true` trace events per Spec 009 §Privacy (rf2-azls9). Defaults
-       to `false` — Causa's trace collector drops sensitive events
-       and the shell's bottom rail surfaces a `[● REDACTED N]` hint.
-       Set to `true` while debugging redaction policy to see the raw
-       cascade.
-    `{:settings <map>}` — bulk-replace the Settings popup state map
-       (rf2-9poxq). Shape mirrors `default-settings`. The popup's
-       event surface (`:rf.causa/settings-update`) is the normal
-       per-knob write path; this key is the bulk-set escape hatch
-       (e.g. host wants to ship its own default theme).
-    `{:filters <{:in [...] :out [...]}>}` — host-supplied seed pill
-       set the registry hydrates `:active-filters` with on FIRST
-       install (when localStorage is empty). Default `nil` per
+       sibling beads fill the placeholder Static sub-tabs (Machines
+       / Routes / Schemas / Views / Events).
+    `{:rf.privacy/show-sensitive? <bool>}` — cross-tool privacy gate
+       for `:sensitive? true` trace events per Spec 009 §Privacy
+       (rf2-azls9). Defaults to `false` — Causa's trace collector
+       drops sensitive events and the shell's bottom rail surfaces a
+       `[● REDACTED N]` hint. Set to `true` while debugging redaction
+       policy to see the raw cascade. The key lives under
+       `:rf.privacy/*` (not `:rf.causa/*`) because Story and every
+       other re-frame2 tool that consumes the trace bus reads the
+       same slot — one host config knob, every tool honours it.
+    `{:rf.causa/settings <map>}` — bulk-replace the Settings popup
+       state map (rf2-9poxq). Shape mirrors `default-settings`. The
+       popup's event surface (`:rf.causa/settings-update`) is the
+       normal per-knob write path; this key is the bulk-set escape
+       hatch (e.g. host wants to ship its own default theme).
+    `{:rf.causa/filters <{:in [...] :out [...]}>}` — host-supplied
+       seed pill set the registry hydrates `:active-filters` with on
+       FIRST install (when localStorage is empty). Default `nil` per
        spec/018 §7 'Empty defaults' — first-session honesty beats
        first-session quietness (rf2-ak4ms). Story testbeds use this
        to inject a known starting point for reproducibility.
-    `{:filters/storage-key <string>}` — localStorage key the filter
-       persistence layer reads / writes. Default
+    `{:rf.causa/filters-storage-key <string>}` — localStorage key
+       the filter persistence layer reads / writes. Default
        `\"re-frame2.causa.filters.v1\"`. Hosts that run multiple
        Causa instances (Story testbeds) override for isolation.
 
@@ -1120,58 +1135,67 @@
   Hosts typically call this once at boot:
 
       (require '[day8.re-frame2-causa.config :as causa-config])
-      (causa-config/configure! {:editor       :cursor
-                                :project-root \"C:/Users/me/code/my-app\"
-                                :layout/host-selector \"#causa\"
-                                :launch/auto-open? true
-                                :filters {:out [{:pattern \":mouse-move\"}]}})
+      (causa-config/configure!
+        {:rf.causa/editor                :cursor
+         :rf.causa/project-root          \"C:/Users/me/code/my-app\"
+         :rf.causa/layout-host-selector  \"#causa\"
+         :rf.causa/auto-open?            true
+         :rf.causa/filters {:out [{:pattern \":mouse-move\"}]}})
 
-  Returns nothing."
-  [{:keys [editor project-root settings]
-    host-selector-opt :layout/host-selector
-    auto-open-opt :launch/auto-open?
-    keybinding-opt :launch.keybinding/enabled?
-    static-mode-opt :experimental/static-mode?
-    show-sensitive-opt :trace/show-sensitive?
-    filters-opt :filters
-    filters-key-opt :filters/storage-key
+  Unknown keys are silently ignored (forward-compat: future Causa
+  releases will grow keys; older hosts passing newer keys MUST NOT
+  break, and newer hosts passing older-Causa-unaware keys MUST NOT
+  break). Pre-alpha posture: the rename to `:rf.causa/*` per
+  rf2-xea9u is a hard cut — the legacy bare / dotted spellings
+  (`:editor`, `:auto-open?`, `:launch/auto-open?`, etc.) are NOT
+  accepted. Returns nothing."
+  [{editor-opt          :rf.causa/editor
+    project-root-opt    :rf.causa/project-root
+    settings-opt        :rf.causa/settings
+    host-selector-opt   :rf.causa/layout-host-selector
+    auto-open-opt       :rf.causa/auto-open?
+    keybinding-opt      :rf.causa/keybinding-enabled?
+    static-mode-opt     :rf.causa/static-mode?
+    show-sensitive-opt  :rf.privacy/show-sensitive?
+    filters-opt         :rf.causa/filters
+    filters-key-opt     :rf.causa/filters-storage-key
     :as opts}]
-  (when (some? editor)
-    (set-editor! editor))
-  (when (contains? opts :project-root)
-    (set-project-root! project-root))
-  (when (contains? opts :layout/host-selector)
+  (when (some? editor-opt)
+    (set-editor! editor-opt))
+  (when (contains? opts :rf.causa/project-root)
+    (set-project-root! project-root-opt))
+  (when (contains? opts :rf.causa/layout-host-selector)
     (set-layout-host-selector! host-selector-opt))
-  (when (contains? opts :launch/auto-open?)
+  (when (contains? opts :rf.causa/auto-open?)
     (set-auto-open! auto-open-opt))
-  (when (contains? opts :launch.keybinding/enabled?)
+  (when (contains? opts :rf.causa/keybinding-enabled?)
     (set-keybinding-enabled! keybinding-opt))
-  (when (contains? opts :experimental/static-mode?)
+  (when (contains? opts :rf.causa/static-mode?)
     (set-static-mode-enabled! static-mode-opt))
-  (when (contains? opts :trace/show-sensitive?)
+  (when (contains? opts :rf.privacy/show-sensitive?)
     (set-show-sensitive! show-sensitive-opt))
-  ;; NB: `settings` here is the destructured bulk-config map; the
+  ;; NB: `settings-opt` is the destructured bulk-config map; the
   ;; in-namespace defonce atom is reached via the fully-qualified
   ;; symbol (`day8.re-frame2-causa.config/settings`) to disambiguate.
   ;; rf2-jh9ws: legacy `:telemetry` keys in the bulk-config map are
   ;; silently dropped — the per-section merge here only knows about
   ;; known slots.
-  (when (contains? opts :settings)
-    (when (map? settings)
+  (when (contains? opts :rf.causa/settings)
+    (when (map? settings-opt)
       (reset! day8.re-frame2-causa.config/settings
               (-> default-settings
-                  (update :general merge (:general settings))
-                  (assoc  :theme  (or (:theme settings)
+                  (update :general merge (:general settings-opt))
+                  (assoc  :theme  (or (:theme settings-opt)
                                       (:theme default-settings)))
-                  (update :diff      merge (:diff settings))
-                  (update :buffer    merge (:buffer settings))))
+                  (update :diff      merge (:diff settings-opt))
+                  (update :buffer    merge (:buffer settings-opt))))
       #?(:cljs (write-storage!))))
   ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
   ;; seed so a host that overrides both in one call gets the seed
   ;; persisted under the right key.
-  (when (contains? opts :filters/storage-key)
+  (when (contains? opts :rf.causa/filters-storage-key)
     (set-filters-storage-key! filters-key-opt))
-  (when (contains? opts :filters)
+  (when (contains? opts :rf.causa/filters)
     (set-filter-seed! filters-opt))
   nil)
 

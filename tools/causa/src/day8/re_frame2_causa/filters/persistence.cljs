@@ -19,7 +19,7 @@
 
   The localStorage key is `re-frame2.causa.filters.v1`. Hosts that run
   multiple Causa instances (Story testbeds) can override the key via
-  `(causa-config/configure! {:filters/storage-key \"<key>\"})` — Story
+  `(causa-config/configure! {:rf.causa/filters-storage-key \"<key>\"})` — Story
   testbeds set this so their pill state doesn't leak between scenarios.
 
   ## Production posture
@@ -46,7 +46,7 @@
 
 (def default-storage-key
   "Default localStorage key Causa writes filter state under. Hosts
-  override via `(causa-config/configure! {:filters/storage-key …})`
+  override via `(causa-config/configure! {:rf.causa/filters-storage-key …})`
   for per-instance isolation (Story testbeds use this)."
   "re-frame2.causa.filters.v1")
 

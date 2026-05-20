@@ -420,7 +420,7 @@
 (deftest detach-is-idempotent
   (testing "rf2-ycrt2 — detach! is the public embed-host escape hatch
             (Story calls it from ensure-causa-mounted! after flipping
-            :launch.keybinding/enabled? false); calling it twice in a
+            :rf.causa/keybinding-enabled? false); calling it twice in a
             row must be safe — the second call removes nothing (the
             sentinel is already false) and does not throw"
     (with-stub-document
@@ -519,9 +519,9 @@
     (is (nil? (spine-key-id (mk-event {})))
         "empty event → nil")))
 
-;; ---- (6) :launch.keybinding/enabled? toggle (rf2-4eyik — rf2-q7who.A) ----
+;; ---- (6) :rf.causa/keybinding-enabled? toggle (rf2-4eyik — rf2-q7who.A) ----
 ;;
-;; Per Spec 015-Configuration §`:launch.keybinding/enabled?` the slot
+;; Per Spec 015-Configuration §`:rf.causa/keybinding-enabled?` the slot
 ;; controls whether `attach!` installs the window-level capture-phase
 ;; listener. Default `true` (existing hosts unaffected); embed hosts —
 ;; Story mounts Causa as its RHS panel — flip it to `false` so their own
@@ -533,7 +533,7 @@
 ;; tests in the same suite run.
 
 (deftest attach-disabled-by-config-is-noop
-  (testing "rf2-4eyik (rf2-q7who.A) — with :launch.keybinding/enabled?
+  (testing "rf2-4eyik (rf2-q7who.A) — with :rf.causa/keybinding-enabled?
             false, attach! does NOT register the global listener and
             does NOT flip the sentinel; the embed-host contract"
     (with-stub-document

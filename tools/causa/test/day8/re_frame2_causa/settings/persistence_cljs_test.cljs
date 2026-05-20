@@ -125,11 +125,11 @@
   ;; rf2-jh9ws: legacy `:telemetry` key in the bulk-config map is
   ;; silently dropped — known slots round-trip; unknown slots fall
   ;; on the floor.
-  (config/configure! {:settings {:general   {:text-size 15
-                                             :panel-position :fullscreen
-                                             :auto-open-on-error? true}
-                                 :theme     :light
-                                 :telemetry {:opt-in? true}}})
+  (config/configure! {:rf.causa/settings {:general   {:text-size 15
+                                                      :panel-position :fullscreen
+                                                      :auto-open-on-error? true}
+                                          :theme     :light
+                                          :telemetry {:opt-in? true}}})
   (is (= 15 (config/get-setting :general :text-size)))
   (is (= :fullscreen (config/get-setting :general :panel-position)))
   (is (true? (config/get-setting :general :auto-open-on-error?)))
@@ -140,7 +140,7 @@
       "bulk configure round-trips to localStorage"))
 
 (deftest configure-settings-partial-merges-with-defaults
-  (config/configure! {:settings {:general {:text-size 11}}})
+  (config/configure! {:rf.causa/settings {:general {:text-size 11}}})
   (is (= 11 (config/get-setting :general :text-size)))
   ;; Other general slots keep their defaults
   (is (= :right-rail (config/get-setting :general :panel-position)))

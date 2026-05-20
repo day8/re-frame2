@@ -73,7 +73,7 @@ the time-travel scrubber, and the per-frame target selection.
 | Sub | Inputs | Returns | When recomputes |
 |---|---|---|---|
 | `:rf.causa/trace-buffer` | thunks `trace-bus/buffer` (the process-global ring atom) | Vector of `:rf/trace-event` records, oldest-first (per [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Consumer contract). | Layer-1 sub re-fires on every app-db change of the resolved frame; under Causa's normal usage (panels rendered inside a host app) the host's next dispatch dirties the frame's db and the sub picks up whatever the trace-cb has accumulated in the atom since the previous recompute (rf2-e9s81 — supersedes rf2-iw5ym's app-db-mirror path; see [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Reactivity for the trade-off). |
-| `:rf.causa/suppressed-sensitive-count` | `db` (reads `:suppressed-counters`) | Integer — total suppressed `:sensitive? true` events under the current `:trace/show-sensitive?` setting. | On `db` write to `:suppressed-counters` (rf2-0vxdn — reactive immediate update of the `[● REDACTED N]` bottom-rail indicator). |
+| `:rf.causa/suppressed-sensitive-count` | `db` (reads `:suppressed-counters`) | Integer — total suppressed `:sensitive? true` events under the current `:rf.privacy/show-sensitive?` setting. | On `db` write to `:suppressed-counters` (rf2-0vxdn — reactive immediate update of the `[● REDACTED N]` bottom-rail indicator). |
 | `:rf.causa/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.causa/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.causa/epoch-recorded` dispatch. |
 | `:rf.causa/target-frame-db` | `:rf.causa/target-frame`, `:rf.causa/epoch-history` | The host frame's current `app-db` value (via `rf/get-frame-db`). | Every settled epoch on the target frame. |
@@ -451,7 +451,7 @@ share-affordance and source-coord jumps live in `tools/machines-viz/`.
 
 Spec: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode +
 [`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface
-architectural section. Gated by the `:experimental/static-mode?` flag
+architectural section. Gated by the `:rf.causa/static-mode?` flag
 per [`015-Configuration.md`](./015-Configuration.md). When the flag is
 ON the mode pill mounts at ribbon-left, `Cmd-Shift-M` / `Ctrl-Shift-M`
 toggles between Runtime and Static surfaces, and the selected mode +
@@ -462,7 +462,7 @@ rf2-o5f5f.3 + rf2-ybjkx.
 
 | Sub | Returns | Notes |
 |---|---|---|
-| `:rf.causa/mode` | `:runtime` / `:static`. | Default `:runtime`. Hydrated from `causa.mode` localStorage on boot when `:experimental/static-mode?` is ON. |
+| `:rf.causa/mode` | `:runtime` / `:static`. | Default `:runtime`. Hydrated from `causa.mode` localStorage on boot when `:rf.causa/static-mode?` is ON. |
 | `:rf.causa.static/selected-tab` | Keyword sub-tab id (`:machines` / `:routes` / `:schemas` / `:views` / `:events`). | Default `:machines` per `static/shell.cljs`. |
 | `:rf.causa.static.machines/selected-id` | Selected machine-id keyword for the Static Machines master-detail. | `nil` until first selection; persisted via the Static Machines persistence fx. |
 | `:rf.causa.static.machines/sub-mode` | Effective sub-mode keyword for the focused machine (`:topology` / `:sim` / `:instances` / `:cascade`). | Composite of `:rf.causa.static.machines/sub-mode-by-id` + the focused machine-id; default `:topology`. |

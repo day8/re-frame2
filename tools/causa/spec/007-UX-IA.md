@@ -160,7 +160,7 @@ panel's outer edge (left edge when docked `:right-rail`; the default per
   and pen unified through pointer events; `touch-action: none` so a
   touch-drag does not pan the page)
 - Clamp width to `[320px, 90vw]`
-- Persist via `configure! :settings :general :panel-width-px`
+- Persist via `configure! :rf.causa/settings :general :panel-width-px`
   (see [`015-Configuration.md`](./015-Configuration.md))
 - Reset to default width on double-click
 
@@ -256,7 +256,7 @@ contract:
 | Sub | `:rf.causa/current-frame` | Returns the frame id the user has focused (or nil pre-selection). |
 | Sub | `:rf.causa/available-frames` | First-seen-order vec of selectable frames; tool frames filtered by default per §I1 below. |
 | Event-fx | `:rf.causa/select-frame <frame-id>` | Canonical write. Dispatches the spine's `:rf.causa/set-frame` (which re-seeds `:target-frame` + `:epoch-history` — see [`018-Event-Spine.md`](./018-Event-Spine.md) §6) AND fires `:rf.causa.frame-switcher/persist` for localStorage. |
-| Fx | `:rf.causa.frame-switcher/persist` | localStorage write under `re-frame2.causa.frame-switcher.v1` (per-instance overridable via `(causa-config/configure! {:frame-switcher/storage-key …})`). |
+| Fx | `:rf.causa.frame-switcher/persist` | localStorage write under `re-frame2.causa.frame-switcher.v1` (per-instance overridable via the direct setter `day8.re-frame2-causa.frame-switcher/set-storage-key!`; a future `configure! :rf.causa/frame-switcher-storage-key` plumb is straightforward but not wired today). |
 
 Every frame-aware feature — the L1 ribbon picker, the Cmd-K palette's
 `:palette/select-frame` verb, future panel-by-frame surfaces — MUST
@@ -1100,7 +1100,7 @@ panel may inline its own URI assembly.
 - The user picks the editor via the **Settings** popup (`,`) → View.
   Stored under the `:rf.causa/editor` config key.
 - The boot-time entry is `(causa-config/configure! {:editor …})` per
-  [`015-Configuration.md`](./015-Configuration.md) §`:editor`.
+  [`015-Configuration.md`](./015-Configuration.md) §`:rf.causa/editor`.
 - Default: `:vscode` — the most-installed editor in 2026.
 - The preference is **session-scoped**, persisted via the same Causa
   config substrate as theme / density. No cloud-sync.
@@ -1537,10 +1537,10 @@ its rendered component carries `:contextType frame-context` (rf2-in6l2
 
 ### Feature flag
 
-Static is gated behind the `:experimental/static-mode?` config flag,
+Static is gated behind the `:rf.causa/static-mode?` config flag,
 default `false`. Hosts opt in via:
 
-    (causa-config/configure! {:experimental/static-mode? true})
+    (causa-config/configure! {:rf.causa/static-mode? true})
 
 before the Causa preload runs. With the flag OFF the surface composer
 ALWAYS renders Runtime — byte-identical to the pre-Static chrome,

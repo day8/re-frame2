@@ -114,30 +114,30 @@
       (config/set-filters-storage-key! nil))))
 
 ;; -------------------------------------------------------------------------
-;; (4) configure! plumbs :filters and :filters/storage-key
+;; (4) configure! plumbs :rf.causa/filters and :rf.causa/filters-storage-key
 ;; -------------------------------------------------------------------------
 
 (deftest configure-bang-passes-filters-through
-  (config/configure! {:filters {:in  [{:pattern :auth/*}]
-                                :out [{:pattern :mouse-move}]}})
+  (config/configure! {:rf.causa/filters {:in  [{:pattern :auth/*}]
+                                         :out [{:pattern :mouse-move}]}})
   (is (= {:in  [{:pattern :auth/*}]
           :out [{:pattern :mouse-move}]}
          (config/get-filter-seed))))
 
 (deftest configure-bang-passes-storage-key-through
-  (config/configure! {:filters/storage-key "myhost.filters"})
+  (config/configure! {:rf.causa/filters-storage-key "myhost.filters"})
   (is (= "myhost.filters" (config/get-filters-storage-key)))
   (is (= "myhost.filters" (persistence/get-storage-key))))
 
 (deftest configure-bang-without-filters-keys-leaves-them-alone
   (config/set-filter-seed! {:in [{:pattern :seeded}] :out []})
   (config/set-filters-storage-key! "myhost.filters")
-  (config/configure! {:editor :cursor})
+  (config/configure! {:rf.causa/editor :cursor})
   (is (= {:in [{:pattern :seeded}] :out []}
          (config/get-filter-seed))
-      "absent :filters key leaves seed untouched")
+      "absent :rf.causa/filters key leaves seed untouched")
   (is (= "myhost.filters" (config/get-filters-storage-key))
-      "absent :filters/storage-key leaves key untouched"))
+      "absent :rf.causa/filters-storage-key leaves key untouched"))
 
 ;; -------------------------------------------------------------------------
 ;; (5) Hydration on install — localStorage wins, seed fills the gap

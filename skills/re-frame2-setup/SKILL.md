@@ -82,7 +82,7 @@ Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/sc
 - **`Could not locate reagent/dom/client.cljs`** — `react` / `react-dom` not installed. `npm install react react-dom`. Reagent 2.x needs React 19.
 - **Counter doesn't update, no errors** — `(rf/init! reagent-adapter/adapter)` not called, or called after `rdc/render`. Move it to the top of `run`.
 - **Blank page, no console errors** — `index.html` missing `<main id="app">` / `<div id="app">`, or entry ns looking up a different id.
-- **Causa logs missing layout host** — add the true-inline host markup/CSS from `references/shadow-cljs.md`, or configure `{:layout/host-selector "..."}` before Causa auto-opens. The same actionable diagnostic is available through `window.day8.re_frame2_causa.status()`.
+- **Causa logs missing layout host** — add the true-inline host markup/CSS from `references/shadow-cljs.md`, or configure `{:rf.causa/layout-host-selector "..."}` before Causa auto-opens. The same actionable diagnostic is available through `window.day8.re_frame2_causa.status()`.
 - **`Uncaught ReferenceError: re_frame is not defined`** — `:init-fn` in `shadow-cljs.edn` doesn't match the entry-ns `run` symbol. Check `(defn ^:export run [] ...)` matches `:init-fn your-app.core/run`.
 
 Anything else: point at `re-frame2` or `SKILL-REDIRECT.md`.

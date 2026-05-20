@@ -50,7 +50,7 @@
   §7 + rf2-ak4ms:
 
     1. localStorage value (the user's last-session pill set);
-    2. host-supplied seed via `(causa-config/configure! {:filters …})`
+    2. host-supplied seed via `(causa-config/configure! {:rf.causa/filters …})`
        — used only when localStorage is empty so a seed never clobbers
        a user's hand-tuned set;
     3. registry default empty shape `{:in [] :out []}` per

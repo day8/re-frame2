@@ -104,7 +104,7 @@
   the chord from colliding with Ctrl+M (Firefox 'duplicate tab' on
   some platforms) and Cmd+M (macOS 'minimize window').
 
-  Honours the `:experimental/static-mode?` flag — the listener only
+  Honours the `:rf.causa/static-mode?` flag — the listener only
   fires when the flag is on so a host that hasn't opted into Static
   mode never sees the chord intercepted (the chord falls through to
   whatever the host or browser binding would otherwise do)."
@@ -254,7 +254,7 @@
         (mount/toggle!))
 
     ;; rf2-o5f5f.1 — Cmd-Shift-M flips Runtime ↔ Static. Gated on
-    ;; `:experimental/static-mode?` so hosts that haven't opted in
+    ;; `:rf.causa/static-mode?` so hosts that haven't opted in
     ;; never see the chord intercepted. When the flag is OFF the
     ;; chord falls through to whatever else would consume it
     ;; (browser / host binding). When the flag is ON we
@@ -305,7 +305,7 @@
   "Install the global Ctrl+Shift+C listener once. No-op on second +
   subsequent calls (the `attached-state` sentinel survives reloads).
 
-  Honours the `:launch.keybinding/enabled?` config slot (rf2-4eyik —
+  Honours the `:rf.causa/keybinding-enabled?` config slot (rf2-4eyik —
   rf2-q7who Thread A). When the slot is `false` the listener is NOT
   installed: embed hosts (Story RHS, third-party tool surfaces) flip
   the slot before the preload runs so their own global keybindings
@@ -325,7 +325,7 @@
   to call twice in a row (the second call is a no-op).
 
   Public embed-host escape hatch (rf2-ycrt2 — rf2-q7who.1 follow-on).
-  The `:launch.keybinding/enabled?` config slot suppresses installation
+  The `:rf.causa/keybinding-enabled?` config slot suppresses installation
   only when read at attach time; embed hosts whose mount lifecycle
   (e.g. Story's `ensure-causa-mounted!`) flips the slot AFTER Causa's
   preload has already run must call `detach!` to remove the listener

@@ -8,7 +8,7 @@
     1. The predicate vocabulary in `config.cljc` —
        `sensitive-event?` / `suppress-sensitive?`.
     2. The flag round-trip — `set-show-sensitive!` / `get-show-sensitive`
-       / `configure! {:trace/show-sensitive? ...}`.
+       / `configure! {:rf.privacy/show-sensitive? ...}`.
     3. The suppressed-events counter — `note-suppressed!` /
        `suppressed-count` / `reset-suppressed-count!`.
     4. `trace-bus/collect-trace!` default-suppress + opt-in pass-
@@ -92,18 +92,18 @@
     (is (true? (config/get-show-sensitive)))))
 
 (deftest configure-routes-show-sensitive-through
-  (testing "configure! {:trace/show-sensitive? true} flips the flag"
-    (config/configure! {:trace/show-sensitive? true})
+  (testing "configure! {:rf.privacy/show-sensitive? true} flips the flag"
+    (config/configure! {:rf.privacy/show-sensitive? true})
     (is (true? (config/get-show-sensitive))))
-  (testing "configure! {:trace/show-sensitive? false} returns to default"
+  (testing "configure! {:rf.privacy/show-sensitive? false} returns to default"
     (config/set-show-sensitive! true)
-    (config/configure! {:trace/show-sensitive? false})
+    (config/configure! {:rf.privacy/show-sensitive? false})
     (is (false? (config/get-show-sensitive)))))
 
 (deftest configure-without-key-preserves-existing-flag
-  (testing "configure! without :trace/show-sensitive? leaves the flag alone"
+  (testing "configure! without :rf.privacy/show-sensitive? leaves the flag alone"
     (config/set-show-sensitive! true)
-    (config/configure! {:editor :cursor})
+    (config/configure! {:rf.causa/editor :cursor})
     (is (true? (config/get-show-sensitive))
         "configure! ignoring our key must not stomp the flag")))
 
@@ -189,8 +189,8 @@
 
 #?(:cljs
    (deftest collect-trace-passes-sensitive-when-opted-in
-     (testing "with :trace/show-sensitive? true the buffer receives the event"
-       (config/configure! {:trace/show-sensitive? true})
+     (testing "with :rf.privacy/show-sensitive? true the buffer receives the event"
+       (config/configure! {:rf.privacy/show-sensitive? true})
        (trace-bus/collect-trace! (sensitive-event))
        (is (= 1 (count (trace-bus/buffer)))
            "opted-in caller sees the sensitive event in the buffer")
@@ -203,7 +203,7 @@
        (trace-bus/collect-trace! (non-sensitive-event))      ; in
        (trace-bus/collect-trace! (sensitive-event))          ; dropped
        (trace-bus/collect-trace! (non-sensitive-event))      ; in
-       (config/configure! {:trace/show-sensitive? true})
+       (config/configure! {:rf.privacy/show-sensitive? true})
        (trace-bus/collect-trace! (sensitive-event))          ; in
        (is (= 3 (count (trace-bus/buffer)))
            "buffer contains the 2 non-sensitive + 1 opted-in sensitive")

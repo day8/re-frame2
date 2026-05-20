@@ -21,18 +21,50 @@ which wires per-instance booleans into the panel's state machine, and
 distinct from the persisted Settings shape per [`API.md`](./API.md)
 §Settings keys which round-trips through `localStorage`.
 
+## Reserved-namespace convention — `:rf.<tool>/*` (rf2-xea9u)
+
+Every Causa `configure!` key lives under the `:rf.causa/*` reserved
+sub-namespace. This is the canonical convention for re-frame2 tools:
+each tool reserves its own `:rf.<tool>/*` namespace under the
+framework root, per
+[`spec/Conventions.md` §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned).
+Story uses `:rf.story/*`, Causa uses `:rf.causa/*`, and any future
+re-frame2 tool that ships its own `configure!` MUST follow the same
+pattern.
+
+The convention solves three problems:
+
+1. **Collision protection.** A host application that merges its own
+   config map with Causa's never collides on bare names like
+   `:editor` or `:auto-open?`.
+2. **Greppability.** `rg ':rf.causa/'` finds every Causa knob across
+   code, docs, skills, and Story testbed seed snippets.
+3. **Discoverability.** IDE auto-completion against `:rf.causa/`
+   reveals the catalogue without reading this doc.
+
+**Cross-tool keys** — knobs that more than one tool reads from the
+same atom — live under their own reserved namespace. The canonical
+case is the privacy gate `:rf.privacy/show-sensitive?`, which Causa
+AND Story both consult; setting it once via either tool's
+`configure!` is enough.
+
+Pre-alpha posture: the rename is a hard cut. Legacy bare / dotted
+spellings (`:editor`, `:auto-open?`, `:launch/auto-open?`, etc.) are
+NOT accepted — unknown keys are silently ignored per the forward-
+compat rule below.
+
 ## Entry point
 
 ```clojure
 (require '[day8.re-frame2-causa.config :as causa-config])
 
 (causa-config/configure!
-  {:editor                       :cursor
-   :project-root                 "C:/Users/me/code/my-app"
-   :layout/host-selector         "[data-rf-causa-host]"
-   :launch/auto-open?            true
-   :launch.keybinding/enabled?   true
-   :trace/show-sensitive?        false})
+  {:rf.causa/editor                :cursor
+   :rf.causa/project-root          "C:/Users/me/code/my-app"
+   :rf.causa/layout-host-selector  "[data-rf-causa-host]"
+   :rf.causa/auto-open?            true
+   :rf.causa/keybinding-enabled?   true
+   :rf.privacy/show-sensitive?     false})
 ```
 
 `configure!` MUST accept a map and MUST return `nil`. Keys not listed
@@ -52,7 +84,7 @@ dev REPL).
 
 ## Configuration keys
 
-### `:editor`
+### `:rf.causa/editor`
 
 The 'Open in editor' click-to-source target. Drives every panel that
 surfaces a source-coord (event-detail hero, machine inspector chips,
@@ -92,7 +124,7 @@ running both tools MAY route each to a different editor — e.g.
 `:vscode` for the application code Causa points at, `:idea` for the
 Story test corpus.
 
-### `:project-root`
+### `:rf.causa/project-root`
 
 The on-disk root prepended to the source-coord's classpath-relative
 `:file` slot before the editor URI ships (rf2-5m5n2). Source-coords
@@ -114,13 +146,18 @@ Blank strings MUST normalise to `nil`. Causa's `:project-root` is
 **independent** of Story's (an app-source root for Causa, a stories
 root for Story); two atoms, two `configure!` surfaces.
 
-### `:trace/show-sensitive?`
+### `:rf.privacy/show-sensitive?`
 
-The privacy gate for `:sensitive? true` trace events per
+The cross-tool privacy gate for `:sensitive? true` trace events per
 [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
 (resolved by `rf2-a32kd`) and bead `rf2-azls9`. Framework-published
 trace-consuming integrations MUST default-suppress `:sensitive? true`
-events; Causa is a framework-published consumer.
+events; Causa is a framework-published consumer. The key lives under
+the cross-tool `:rf.privacy/*` reserved sub-namespace (per
+[`spec/Conventions.md`](../../../spec/Conventions.md) and
+[`spec/Privacy.md`](../../../spec/Privacy.md)) — Story and every
+other re-frame2 tool that consumes the trace bus reads the same atom,
+so one host config knob covers every tool.
 
 | Value | Meaning |
 |---|---|
@@ -133,14 +170,14 @@ event so toggling it via `configure!` takes effect on the next trace
 event without re-registering the listener (per
 [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Privacy gate).
 
-`:trace/show-sensitive?` is **one-way lossy** — flipping from `false`
-to `true` only affects *future* events. Sensitive events already
-dropped under the default are gone from the buffer; only the
+`:rf.privacy/show-sensitive?` is **one-way lossy** — flipping from
+`false` to `true` only affects *future* events. Sensitive events
+already dropped under the default are gone from the buffer; only the
 suppressed-counter survives. Hosts debugging a redaction policy
 typically flip the flag and re-drive the runtime to see the raw
 cascade.
 
-### `:layout/host-selector`
+### `:rf.causa/layout-host-selector`
 
 The CSS selector Causa uses for its default true-inline shell mount.
 The host app owns the normal-flow right-side layout host; Causa renders
@@ -157,7 +194,7 @@ If the selector cannot be found when the default launch path opens,
 Causa MUST emit the actionable missing-host diagnostic described in
 [`011-Launch-Modes.md`](./011-Launch-Modes.md) §Layout host contract.
 
-### `:launch/auto-open?`
+### `:rf.causa/auto-open?`
 
 Controls only the preload's default launch attempt. It does not disable
 Causa, the trace/epoch collectors, browser API exports, keybinding, or
@@ -174,12 +211,7 @@ preload's adapter-ready probe sees the final launch posture before it
 would otherwise diagnose a missing host. The missing-host diagnostic is
 unchanged for the default path and for explicit opens.
 
-### `:launch.keybinding/enabled?`
-
-(The dot in the namespace portion nests the slot under the `:launch`
-family; Clojure keywords accept only one `/`, so nested namespaces
-spell as `launch.keybinding`. Read as `launch ▸ keybinding ▸
-enabled?`.)
+### `:rf.causa/keybinding-enabled?`
 
 Controls whether `keybinding/attach!` installs Causa's global,
 capture-phase `keydown` listener. The listener handles Causa's
@@ -230,7 +262,7 @@ preload. The contract:
   leaking listeners.
 - **Safe in any host**. Guarded on `(exists? js/document)`.
 
-When to call: embed hosts that flip `:launch.keybinding/enabled?` to
+When to call: embed hosts that flip `:rf.causa/keybinding-enabled?` to
 `false` from a **mount-time** hook (not boot-time) must follow the
 slot flip with `detach!`. The slot alone is read only at attach time;
 without `detach!` the listener Causa's preload installed under the
@@ -241,14 +273,15 @@ example: it calls `disable-keybinding!` (slot flip) then
 `detach-keybinding!` (runtime removal) on every variant-selection
 edge.
 
-Boot-time hosts (those that call `configure! {:launch.keybinding/enabled?
-false}` BEFORE Causa's preload runs) do NOT need to call `detach!` —
+Boot-time hosts (those that call
+`configure! {:rf.causa/keybinding-enabled? false}` BEFORE Causa's
+preload runs) do NOT need to call `detach!` —
 their slot flip lands before `attach!` reads it, the short-circuit
 fires, and no listener is ever installed. `detach!` exists for the
 mount-time lifecycle the slot's attach-time-only read cannot cover
 alone.
 
-### `:settings`
+### `:rf.causa/settings`
 
 Bulk-replace the Settings popup state map (rf2-9poxq; expanded by
 rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
@@ -312,8 +345,8 @@ reloads. Default `480`. Ignored in `:popout` (window owns size) and
 > Note (rf2-jh9ws): a `:telemetry` slot shipped briefly with the
 > initial popup landing (rf2-9poxq) but was removed — Causa
 > transmits no telemetry. Legacy `:telemetry` keys in persisted
-> payloads or in `(configure! {:settings ...})` calls are silently
-> dropped by the per-section merge.
+> payloads or in `(configure! {:rf.causa/settings ...})` calls are
+> silently dropped by the per-section merge.
 
 | Value | Meaning |
 |---|---|
@@ -329,12 +362,13 @@ position, etc.).
 Default-defining shape, per-knob rationale and the localStorage key
 are normatively documented in
 [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) §Settings popup
-— v1 ships. The `:editor` / `:project-root` / `:launch/auto-open?` /
-`:trace/show-sensitive?` keys above remain process-global atoms
-distinct from `:settings` (their semantics predate the popup; the
-popup-managed surface is the `{:settings <map>}` shape).
+— v1 ships. The `:rf.causa/editor` / `:rf.causa/project-root` /
+`:rf.causa/auto-open?` / `:rf.privacy/show-sensitive?` keys above
+remain process-global atoms distinct from `:rf.causa/settings` (their
+semantics predate the popup; the popup-managed surface is the
+`{:rf.causa/settings <map>}` shape).
 
-### `:filters`
+### `:rf.causa/filters`
 
 Host-supplied seed pill set the registry hydrates `:active-filters`
 with on **first install** (when localStorage is empty). Per
@@ -349,7 +383,7 @@ testbeds that need a known starting point for reproducibility.
 | `{:in [{:pattern <…>} …] :out [{:pattern <…>} …]}` | Seed the slot on first install only. The seed never clobbers a user's hand-tuned set — once localStorage carries any pill, the seed is ignored. |
 | `nil` (default) | No seed; registry defaults to `{:in [] :out []}`. |
 
-### `:filters/storage-key`
+### `:rf.causa/filters-storage-key`
 
 The localStorage key the filter persistence layer reads / writes.
 
@@ -361,11 +395,12 @@ The localStorage key the filter persistence layer reads / writes.
 Default: `"re-frame2.causa.filters.v1"` (versioned so future schema
 changes can ignore stale payloads).
 
-When both `:filters` and `:filters/storage-key` are passed in one
-call, the storage key is set BEFORE the seed so a host that overrides
-both gets the seed persisted under the right key.
+When both `:rf.causa/filters` and `:rf.causa/filters-storage-key`
+are passed in one call, the storage key is set BEFORE the seed so a
+host that overrides both gets the seed persisted under the right
+key.
 
-### `:experimental/static-mode?`
+### `:rf.causa/static-mode?`
 
 The Static-mode feature flag (rf2-o5f5f.1). Gates whether Causa's
 surface composer mounts the dual-mode chrome (Runtime + Static, with
@@ -382,9 +417,9 @@ Default: `false`.
 
 The flag default flips to `true` once the placeholder Static sub-tabs
 (rf2-o5f5f.4 / .5 / .6) ship — separate decision, tracked under the
-`:experimental/static-mode?` follow-on. Hosts that want Static mode
+`:rf.causa/static-mode?` follow-on. Hosts that want Static mode
 today (e.g. Story testbeds for design review of the 3-layer chrome)
-opt in via `(configure! {:experimental/static-mode? true})` and live
+opt in via `(configure! {:rf.causa/static-mode? true})` and live
 with the placeholder cards on the still-pending sub-tabs.
 
 **Persistence.** The mode SELECTION (not the flag) persists under
@@ -417,7 +452,7 @@ specified:
 
 A `frame-id → count` map, where each value is the number of
 `:sensitive? true` trace events the collector dropped for that frame
-under the current `:trace/show-sensitive?` setting. Events without a
+under the current `:rf.privacy/show-sensitive?` setting. Events without a
 frame scope (registration-time emits, outermost-dispatch lookup
 failures) MUST count under the `:global` bucket so a count is never
 lost.
@@ -472,10 +507,15 @@ Theme tab or `(configure! {:settings {:theme :light}})`.
 
 ## Vision — full configure! key inventory (30+ keys)
 
-v1 ships ~6 host-supplied keys (`:editor` / `:project-root` /
-`:layout/host-selector` / `:launch/auto-open?` /
-`:launch.keybinding/enabled?` / `:trace/show-sensitive?`) plus the
-`:filters` seed slot. The full destination per
+v1 ships ~6 host-supplied keys (`:rf.causa/editor` /
+`:rf.causa/project-root` / `:rf.causa/layout-host-selector` /
+`:rf.causa/auto-open?` / `:rf.causa/keybinding-enabled?` /
+`:rf.privacy/show-sensitive?`) plus the `:rf.causa/filters` seed
+slot. Future tool-owned keys follow the same `:rf.causa/*` convention;
+cross-tool keys live under their own `:rf.<area>/*` reservation
+(`:rf.privacy/*` today; future cross-tool surfaces would book their
+own segments via [`spec/Conventions.md`](../../../spec/Conventions.md)).
+The full destination per
 [`ai/findings/2026-05-17-10x-config-options-for-causa.md`](#findings)
 absorbs every re-frame-10x configuration option that translates plus
 several Causa-native additions. The full list, grouped by phase
@@ -483,53 +523,56 @@ priority:
 
 ### Must-haves (matched against re-frame-10x's anchor)
 
-- `:filters/auto-hide-events <set>` — exact event-ids to auto-hide
-  (re-frame-10x's `ignored-events`). Wired via the IN/OUT pill system
-  in [`018-Event-Spine.md`](./018-Event-Spine.md) §7.
-- `:filters/auto-hide-event-ns <vector>` — event-id namespace
+All forthcoming keys follow the `:rf.causa/*` convention.
+
+- `:rf.causa/filters-auto-hide-events <set>` — exact event-ids to
+  auto-hide (re-frame-10x's `ignored-events`). Wired via the IN/OUT
+  pill system in [`018-Event-Spine.md`](./018-Event-Spine.md) §7.
+- `:rf.causa/filters-auto-hide-event-ns <vector>` — event-id namespace
   patterns to auto-hide (e.g. `["my-app.noisy" "re-com.box"]`).
-- `:filters/auto-hide-error-overrides? <bool>` — when an auto-hidden
-  event raises an exception, surface it anyway (default `true`).
-  Errors override filters.
-- `:buffer/retained-epochs <int>` — exposed retainer-N depth control
-  (re-frame-10x's `retained-epochs`). Floor 25; ceiling 5000.
-- `:theme` — already wired in v1 via `:settings`. Future: `:light`,
-  `:dark`, `:dim`.
+- `:rf.causa/filters-auto-hide-error-overrides? <bool>` — when an
+  auto-hidden event raises an exception, surface it anyway (default
+  `true`). Errors override filters.
+- `:rf.causa/buffer-retained-epochs <int>` — exposed retainer-N depth
+  control (re-frame-10x's `retained-epochs`). Floor 25; ceiling 5000.
+- Theme — already wired in v1 via `:rf.causa/settings`. Future:
+  `:light`, `:dark`, `:dim`.
 
 ### Should-adds
 
-- `:keybinding/handle-keys? <bool>` — master toggle for Causa's
-  keystroke capture; default `true`. Hosts with conflicting global
-  shortcuts can surrender.
-- `:keybinding/bindings <map>` — rebind any action; default carries
-  the spec-mandated set (`Ctrl+Shift+C`, `c`/`r`/`f`/`a`/`v`/`t`/`m`/`i`
-  + spine keys per [`018-Event-Spine.md`](./018-Event-Spine.md) §Keyboard map).
-- `:render/ns-aliases <map>` — rendering substitution so deeply-nested
-  namespaces (`{my-app.deeply.nested mnn}`) collapse in panel renders.
-  Re-frame-10x's `ns-aliases`.
-- `:render/alias-namespaces? <bool>` — master toggle for ns-aliases
-  substitution (paired with above).
-- `:render/auto-expand-below <int>` — auto-expand data nodes with
-  fewer than N children in the cljs-devtools-shaped renderer.
-- `:render/uuids-as <enum :plaintext :identicons :last-4>` — UUID
-  rendering format.
-- `:launch/restore-visibility? <bool>` — persist last-known visibility
-  across reloads.
-- `:launch/popout-geometry <map>` — remember last popout window
-  position `{:w :h :x :y}`.
-- `:trace/collect-when <enum :always :panel-open>` — gate trace
-  collection on panel visibility (re-frame-10x's `trace-when`).
+- `:rf.causa/keybinding-handle-keys? <bool>` — master toggle for
+  Causa's keystroke capture; default `true`. Hosts with conflicting
+  global shortcuts can surrender.
+- `:rf.causa/keybinding-bindings <map>` — rebind any action; default
+  carries the spec-mandated set (`Ctrl+Shift+C`,
+  `c`/`r`/`f`/`a`/`v`/`t`/`m`/`i` + spine keys per
+  [`018-Event-Spine.md`](./018-Event-Spine.md) §Keyboard map).
+- `:rf.causa/render-ns-aliases <map>` — rendering substitution so
+  deeply-nested namespaces (`{my-app.deeply.nested mnn}`) collapse in
+  panel renders. Re-frame-10x's `ns-aliases`.
+- `:rf.causa/render-alias-namespaces? <bool>` — master toggle for
+  ns-aliases substitution (paired with above).
+- `:rf.causa/render-auto-expand-below <int>` — auto-expand data nodes
+  with fewer than N children in the cljs-devtools-shaped renderer.
+- `:rf.causa/render-uuids-as <enum :plaintext :identicons :last-4>` —
+  UUID rendering format.
+- `:rf.causa/launch-restore-visibility? <bool>` — persist last-known
+  visibility across reloads.
+- `:rf.causa/launch-popout-geometry <map>` — remember last popout
+  window position `{:w :h :x :y}`.
+- `:rf.causa/trace-collect-when <enum :always :panel-open>` — gate
+  trace collection on panel visibility (re-frame-10x's `trace-when`).
 
 ### Nice-to-haves
 
-- `:trace/fatten? <bool>` — opt into trace fattening for
+- `:rf.causa/trace-fatten? <bool>` — opt into trace fattening for
   context-at-position payloads (Phase 5 prereq per
   [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Vision).
-- `:settings.tab/persist? <bool>` — persist selected tab across
-  reloads.
-- `:logging/debug? <bool>` — Causa self-debug logs (re-frame-10x's
-  `debug?`). Backlog — Causa instruments itself via the trace bus;
-  redundant for most cases.
+- `:rf.causa/settings-tab-persist? <bool>` — persist selected tab
+  across reloads.
+- `:rf.causa/logging-debug? <bool>` — Causa self-debug logs
+  (re-frame-10x's `debug?`). Backlog — Causa instruments itself via
+  the trace bus; redundant for most cases.
 
 ### Recovery action (not a key)
 
