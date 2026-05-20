@@ -2041,19 +2041,16 @@ async function runConfigurePartialUpdate(page, state) {
 
 // rf2-n39g2 — Static-mode browser scenario.
 //
-// Static mode shipped under #1565 + #1568 + #1569 (rf2-o5f5f.1 / .2 / .3)
-// and is gated behind `:rf.causa/static-mode?` (default `false`).
-// Before this scenario the feature-matrix carried zero browser coverage
-// for the highest-user-visible Causa surface to land in the recent
-// cluster. This scenario:
+// Static mode shipped under #1565 + #1568 + #1569 (rf2-o5f5f.1 / .2 / .3).
+// Per rf2-8l3uk the `:rf.causa/static-mode?` feature gate was removed —
+// Static mode is unconditionally available. Before this scenario the
+// feature-matrix carried zero browser coverage for the highest-user-
+// visible Causa surface to land in the recent cluster. This scenario:
 //
-//   1. Opts into Static mode at runtime via `configure!` (the
-//      `{:rf.causa/static-mode? true}` opt — exposed on
-//      `window.day8.re_frame2_causa.config`).
-//   2. Asserts the Runtime baseline — mode pill present with `runtime`
+//   1. Asserts the Runtime baseline — mode pill present with `runtime`
 //      segment selected (aria-checked=true), L2 spine event-list
 //      visible (4-layer chrome).
-//   3. Fires Ctrl+Shift+M (the cross-platform chord per
+//   2. Fires Ctrl+Shift+M (the cross-platform chord per
 //      `keybinding.cljs/mode-toggle-key?` — Cmd-Shift-M on macOS,
 //      Ctrl-Shift-M elsewhere; Playwright drives Ctrl as the headless
 //      Chromium maps to Ctrl reliably). Asserts the mode flips: the
@@ -2065,58 +2062,30 @@ async function runConfigurePartialUpdate(page, state) {
 //      / Views / Flows) mounts its real panel root testid while
 //      `:events` (rf2-o5f5f.6 — last remaining placeholder) still
 //      renders a placeholder card naming the sibling bead.
-//   4. Clicks `rf-causa-mode-pill-runtime`; mode flips back; L2 spine
+//   3. Clicks `rf-causa-mode-pill-runtime`; mode flips back; L2 spine
 //      returns (proves the pill is the canonical toggle path too —
 //      not just the chord).
-//   5. Reloads the page; asserts localStorage `causa.mode` round-
+//   4. Reloads the page; asserts localStorage `causa.mode` round-
 //      trips the last-set mode (Runtime here, per the flip-back step).
 async function runStaticModeChromeAndChord(page, state) {
-  // ---- (0) opt into Static mode at runtime --------------------------
+  // ---- (0) baseline — clear the persisted mode slot -----------------
   await page.goto(page.url(), { waitUntil: 'load' });
   // Wait for the host counter so we know Causa's preload has installed
-  // its browser-API exports (the `window.day8.re_frame2_causa.config`
-  // surface).
+  // its browser-API exports.
   await expectHostCounterEquals(page, 5, 10000);
-  const optIn = await page.evaluate(() => {
-    const cljs = window.cljs && window.cljs.core;
-    const cfg = window.day8 && window.day8.re_frame2_causa &&
-                window.day8.re_frame2_causa.config;
-    if (!cljs || !cfg) {
-      return { ok: false, reason: 'cljs.core or causa.config unavailable' };
-    }
-    if (typeof cfg.configure_BANG_ !== 'function') {
-      return { ok: false, reason: 'configure_BANG_ missing' };
-    }
-    // Clear the persisted mode slot so we start from a known baseline
-    // (otherwise a previous scenario's localStorage write could pre-
-    // select Static and skip the Runtime baseline check below).
+  // Clear the persisted mode slot so we start from a known baseline
+  // (otherwise a previous scenario's localStorage write could pre-
+  // select Static and skip the Runtime baseline check below).
+  await page.evaluate(() => {
     try { window.localStorage.removeItem('causa.mode'); }
     catch (_) { /* localStorage unavailable in some test runtimes */ }
-    const kw = (ns, n) => cljs.keyword.call
-      ? cljs.keyword.call(null, ns, n)
-      : cljs.keyword(ns, n);
-    const opts = cljs.PersistentArrayMap.fromArray([
-      kw('rf.causa', 'static-mode?'), true,
-    ], true, false);
-    cfg.configure_BANG_(opts);
-    return {
-      ok: true,
-      staticModeEnabled: (typeof cfg.static_mode_enabled_QMARK_ === 'function')
-        ? cfg.static_mode_enabled_QMARK_()
-        : null,
-    };
   });
-  if (!optIn.ok) {
-    failWithDetails('Could not opt into Static mode', { observed: optIn });
-  }
   await openCausa(page);
 
   // ---- (1) Runtime baseline -----------------------------------------
-  // The mode pill renders only when `:rf.causa/static-mode?` is on
-  // (see `surface-composer` in `shell.cljs` — the runtime-chrome
-  // surface includes the pill only when the flag is live). With the
-  // opt-in above the pill must be present and the Runtime segment must
-  // be selected.
+  // Per rf2-8l3uk the mode pill is always rendered (the Static-mode
+  // feature gate was removed). The Runtime segment must be selected
+  // by default.
   await expectVisible(
     page.locator('[data-testid="rf-causa-mode-pill"]'),
     5000,
@@ -2324,8 +2293,9 @@ async function runStaticModeChromeAndChord(page, state) {
   // ---- (4) Reload — localStorage round-trip -------------------------
   // Per static/persistence.cljs the canonical slot is the bare string
   // `"runtime"` or `"static"` under localStorage key `causa.mode`. The
-  // mode-set fx writes this on every mode flip; a reload + re-opt-in
-  // for the static-mode? flag should then re-hydrate the same mode.
+  // mode-set fx writes this on every mode flip; a reload should re-
+  // hydrate the same mode (per rf2-8l3uk Static mode is unconditionally
+  // available — no feature flag re-opt-in needed).
   const persistedBeforeReload = await page.evaluate(() => {
     try { return window.localStorage.getItem('causa.mode'); }
     catch (_) { return null; }
@@ -2338,38 +2308,14 @@ async function runStaticModeChromeAndChord(page, state) {
   }
   await page.reload({ waitUntil: 'load' });
   await expectHostCounterEquals(page, 5, 10000);
-  // Re-opt into Static mode after reload (the flag itself is a JS-side
-  // atom seeded fresh on every load — it is not persisted; only the
-  // mode SELECTION is).
-  const reoptIn = await page.evaluate(() => {
-    const cljs = window.cljs && window.cljs.core;
-    const cfg = window.day8 && window.day8.re_frame2_causa &&
-                window.day8.re_frame2_causa.config;
-    if (!cljs || !cfg) {
-      return { ok: false, reason: 'config unavailable after reload' };
-    }
-    const kw = (ns, n) => cljs.keyword.call
-      ? cljs.keyword.call(null, ns, n)
-      : cljs.keyword(ns, n);
-    const opts = cljs.PersistentArrayMap.fromArray([
-      kw('rf.causa', 'static-mode?'), true,
-    ], true, false);
-    cfg.configure_BANG_(opts);
-    return {
-      ok: true,
-      persistedAfterReload: (function () {
-        try { return window.localStorage.getItem('causa.mode'); }
-        catch (_) { return null; }
-      })(),
-    };
+  const persistedAfterReload = await page.evaluate(() => {
+    try { return window.localStorage.getItem('causa.mode'); }
+    catch (_) { return null; }
   });
-  if (!reoptIn.ok) {
-    failWithDetails('Could not re-opt into Static mode after reload', { observed: reoptIn });
-  }
-  if (reoptIn.persistedAfterReload !== 'runtime') {
+  if (persistedAfterReload !== 'runtime') {
     failWithDetails(
       'localStorage causa.mode slot regressed across reload (expected "runtime")',
-      { persistedAfterReload: reoptIn.persistedAfterReload },
+      { persistedAfterReload },
     );
   }
   await openCausa(page);

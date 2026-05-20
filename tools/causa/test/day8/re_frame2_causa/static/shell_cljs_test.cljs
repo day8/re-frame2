@@ -53,7 +53,6 @@
   (causa-test-support/reset-all!)
   (trace-bus/clear-buffer!)
   (config/reset-suppressed-count!)
-  (config/set-static-mode-enabled! nil)   ; back to default false
   (static-persistence/clear!))
 
 (use-fixtures :each
@@ -429,29 +428,10 @@
 ;; (8) Surface composer — shell.cljs dispatches Runtime vs Static
 ;; -------------------------------------------------------------------------
 
-(deftest surface-composer-defaults-to-runtime-when-flag-off
-  (testing "with :rf.causa/static-mode? OFF (default), the composer
-            ALWAYS renders Runtime chrome — even when the mode slot
-            says :static. The pre-bead byte-identical surface."
+(deftest surface-composer-renders-static-when-mode-static
+  (testing "with mode :static, the composer renders the Static surface
+            (per rf2-8l3uk — Static mode is unconditionally available)"
     (causa-setup!)
-    (config/set-static-mode-enabled! false)
-    (frame-dispatch [:rf.causa/set-mode :static])
-    (rf/with-frame :rf/causa
-      (let [tree (shell/surface-composer)]
-        ;; Runtime chrome surfaces by its testids
-        (is (some? (find-by-testid tree "rf-causa-ribbon"))
-            "Runtime ribbon still mounts")
-        (is (some? (find-by-testid tree "rf-causa-event-list"))
-            "Runtime L2 event list still mounts")
-        ;; Static chrome does NOT mount
-        (is (nil? (find-by-testid tree "rf-causa-static-surface"))
-            "Static surface does NOT mount with flag off")))))
-
-(deftest surface-composer-renders-static-when-mode-static-and-flag-on
-  (testing "with :rf.causa/static-mode? ON + mode :static, the
-            composer renders the Static surface"
-    (causa-setup!)
-    (config/set-static-mode-enabled! true)
     (frame-dispatch [:rf.causa/set-mode :static])
     (rf/with-frame :rf/causa
       (let [tree (shell/surface-composer)]
@@ -462,11 +442,10 @@
         (is (nil? (find-by-testid tree "rf-causa-event-list"))
             "Runtime L2 event list does NOT mount")))))
 
-(deftest surface-composer-renders-runtime-when-mode-runtime-and-flag-on
-  (testing "with :rf.causa/static-mode? ON + mode :runtime, the
-            composer still renders the Runtime chrome"
+(deftest surface-composer-renders-runtime-when-mode-runtime
+  (testing "with mode :runtime, the composer renders the Runtime chrome
+            (per rf2-8l3uk — Static mode is unconditionally available)"
     (causa-setup!)
-    (config/set-static-mode-enabled! true)
     (frame-dispatch [:rf.causa/set-mode :runtime])
     (rf/with-frame :rf/causa
       (let [tree (shell/surface-composer)]
@@ -475,22 +454,15 @@
         (is (nil? (find-by-testid tree "rf-causa-static-surface"))
             "Static surface does NOT mount")))))
 
-(deftest ribbon-mounts-mode-pill-only-when-flag-on
-  (testing "the Runtime ribbon mounts the mode pill ONLY when
-            :rf.causa/static-mode? is ON"
+(deftest ribbon-always-mounts-mode-pill
+  (testing "the Runtime ribbon ALWAYS mounts the mode pill (per
+            rf2-8l3uk — the `:rf.causa/static-mode?` feature gate was
+            removed; Static mode is unconditionally available)"
     (causa-setup!)
-    ;; flag OFF
-    (config/set-static-mode-enabled! false)
-    (rf/with-frame :rf/causa
-      (let [tree (shell/ribbon)]
-        (is (nil? (find-by-testid tree "rf-causa-mode-pill"))
-            "mode pill is absent in the Runtime ribbon when flag off")))
-    ;; flag ON
-    (config/set-static-mode-enabled! true)
     (rf/with-frame :rf/causa
       (let [tree (shell/ribbon)]
         (is (some? (find-by-testid tree "rf-causa-mode-pill"))
-            "mode pill mounts in the Runtime ribbon when flag on")))))
+            "mode pill mounts in the Runtime ribbon unconditionally")))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) Static tab inventory — pure-data shape

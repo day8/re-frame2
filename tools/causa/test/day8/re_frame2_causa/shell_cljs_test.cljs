@@ -199,10 +199,15 @@
 (deftest ribbon-mounts-all-four-clusters
   (testing "spec/018 §3 + Round-3 rf2-g9pee — ribbon carries nav ·
             frame · filter pills · right icons in fixed left-to-right
-            order. The explicit `● LIVE` / `◐ RETRO` mode pill was
-            dropped in Round-3 — spine mode is derivable from
+            order. The explicit `● LIVE` / `◐ RETRO` SPINE-mode pill
+            was dropped in Round-3 — spine mode is derivable from
             sticky-row selection + the `[◀ ▶ ⏭]` cluster, and Space /
-            L / G keybindings preserve toggle access."
+            L / G keybindings preserve toggle access.
+
+            Note: the Runtime/Static MODE pill (rf2-o5f5f.1, testid
+            `rf-causa-mode-pill`) is a different widget — it mounts
+            at ribbon-left unconditionally per rf2-8l3uk and is
+            asserted by `static/shell_cljs_test.cljs`."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
@@ -213,8 +218,6 @@
             "frame cluster present (label or dropdown)")
         (is (some? (find-by-testid tree "rf-causa-ribbon-filters"))
             "filter cluster present")
-        (is (nil? (find-by-testid tree "rf-causa-mode-pill"))
-            "mode pill is absent — dropped in Round-3 rf2-g9pee")
         (is (some? (find-by-testid tree "rf-causa-ribbon-icons"))
             "right-icons cluster present")))))
 

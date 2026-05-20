@@ -104,7 +104,6 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
-            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.focus-helpers :as fh]
@@ -709,12 +708,10 @@
                                           (static-shell/stripe-hex-for-mode :runtime))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; rf2-o5f5f.1 — mode pill at ribbon-left, gated behind the
-     ;; `:rf.causa/static-mode?` flag. Phase 1 keeps the pill out
-     ;; of sight until a host opts in; sibling beads (.2–.6) fill the
-     ;; Static sub-tabs before the flag flips to default-on.
-     (when (config/static-mode-enabled?)
-       [mode-pill/mode-pill])
+     ;; rf2-o5f5f.1 — mode pill at ribbon-left. Always rendered
+     ;; (the `:rf.causa/static-mode?` feature gate was removed per
+     ;; rf2-8l3uk — Static mode is unconditionally available).
+     [mode-pill/mode-pill]
      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
      [ribbon-focus-chip {:focus-set focus-set}]
      ;; L1 frame-switcher slot (rf2-iwwou) — single contractually-
@@ -1564,10 +1561,10 @@
 ;;
 ;; The shell exposes TWO modes (Runtime — the 4-layer chrome below,
 ;; Static — the 3-layer registry-browse surface owned by
-;; `static/shell.cljs`). With the `:rf.causa/static-mode?` flag
-;; OFF (default) the composer always renders Runtime — byte-identical
-;; to the pre-bead chrome. With the flag ON the composer reads
-;; `:rf.causa/mode` and renders either Runtime or Static.
+;; `static/shell.cljs`). The composer reads `:rf.causa/mode` and
+;; renders either Runtime or Static. Per rf2-8l3uk the
+;; `:rf.causa/static-mode?` feature gate was removed — Static mode
+;; is unconditionally available.
 ;;
 ;; The composer is `reg-view`-registered so the subscribe inside its
 ;; body resolves through React-context to `:rf/causa` — same
@@ -1592,17 +1589,14 @@
   "Mode-aware composer (rf2-o5f5f.1). Reads `:rf.causa/mode` and renders
   either the Runtime 4-layer chrome OR the Static 3-layer surface.
 
-  With the `:rf.causa/static-mode?` flag OFF the composer always
-  renders Runtime — the mode slot is ignored, the surface is byte-
-  identical to the pre-bead chrome. With the flag ON the active mode
-  drives the swap.
+  Per rf2-8l3uk the `:rf.causa/static-mode?` feature gate was removed
+  — Static mode is unconditionally available; the active mode drives
+  the swap.
 
   Per rf2-in6l2 `reg-view`-registered so the subscribe resolves to
   `:rf/causa` via React-context."
   []
-  (let [mode (if (config/static-mode-enabled?)
-               @(rf/subscribe [:rf.causa/mode])
-               :runtime)]
+  (let [mode @(rf/subscribe [:rf.causa/mode])]
     (case mode
       :static  [static-shell/surface]
       [runtime-chrome])))
@@ -1729,11 +1723,11 @@
     ;; pushes `--rf-causa-inline-width` onto the layout host so the
     ;; host's `flex-basis` re-evaluates this paint.
     [resize-handle/Handle mode]
-    ;; Mode-aware surface (rf2-o5f5f.1). With
-    ;; `:rf.causa/static-mode?` OFF the composer always renders
-    ;; the Runtime 4-layer chrome — byte-identical to the pre-bead
-    ;; surface. With the flag ON it reads `:rf.causa/mode` and swaps
-    ;; in the Static 3-layer surface when active.
+    ;; Mode-aware surface (rf2-o5f5f.1). The composer reads
+    ;; `:rf.causa/mode` and renders either the Runtime 4-layer
+    ;; chrome or the Static 3-layer surface. Per rf2-8l3uk the
+    ;; `:rf.causa/static-mode?` feature gate was removed — Static
+    ;; mode is unconditionally available.
     [surface-composer]
     ;; Command palette (rf2-wm7z4) — mounted at shell root so it
     ;; overlays the chrome. Modal short-circuits to nil when

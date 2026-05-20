@@ -195,7 +195,7 @@ authoritative list.
 |---|---|---|
 | `day8.re-frame2-causa.core` | `core.cljs` | The 12 canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
 | `day8.re-frame2-causa.panels.*` | `panels/*.cljs` | The 9 `Panel` reg-views — `event-detail/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `machines-canvas.panel/Panel`, `routing/Panel`, `issues-ribbon/Panel`, `chrome-a11y.panel/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 9 tabs). |
-| `day8.re-frame2-causa.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-static-mode-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the 10-now-30-planned key surface by topical cluster prefix — editor / launch / keybinding / static-mode / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
+| `day8.re-frame2-causa.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-causa.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Causa's preload and wants to take the chord back. |
 | `day8.re-frame2-causa.runtime` | `runtime.cljs` | The Causa ↔ MCP read-and-mutate seam. The accessor surface this namespace exposes is enumerated normatively in §Runtime accessor surface below. Tool clients (`tools/re-frame2-pair-mcp/` today) evaluate forms addressed at this namespace via `eval-cljs`. |
 | `window.day8.re_frame2_causa.*` | `preload.cljs` | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_causa.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. Production builds elide the install entirely via the `interop/debug-enabled?` gate. |
@@ -207,8 +207,8 @@ facade:
   highest-traffic ones (`configure!`, `set-auto-open!`, `set-editor!`,
   `set-show-sensitive!`). Hosts that want to flip an experimental knob
   or a less-common setter (`set-project-root!`,
-  `set-keybinding-enabled!`, `set-static-mode-enabled!`,
-  `set-filter-seed!`, etc.) require `day8.re-frame2-causa.config`
+  `set-keybinding-enabled!`, `set-filter-seed!`, etc.) require
+  `day8.re-frame2-causa.config`
   directly. The split keeps the facade narrow without hiding the
   setters; reads cleanly from boot code that's already going through
   `configure!`.
@@ -402,34 +402,27 @@ it. Unknown editor keywords fall back to `:vscode` so a typo still
 yields a clickable URI rather than a no-op; source-coords without
 `:file` hide the chip entirely.
 
-## Static mode (rf2-o5f5f.1)
+## Static mode (rf2-o5f5f.1 + rf2-8l3uk)
 
-Static mode is an opt-in dual-mode chrome: the surface composer
+Static mode is unconditionally available: the surface composer
 mounts a 3-layer Static silhouette (no L2 event list) alongside the
 default 4-layer Runtime silhouette, with a mode pill at ribbon-left
 and a `Cmd-Shift-M` / `Ctrl-Shift-M` chord wired to
-`:rf.causa/toggle-mode`. Hosts that want it today opt in via
-`configure!`:
-
-```clojure
-(require '[day8.re-frame2-causa.config :as causa-config])
-(causa-config/configure! {:rf.causa/static-mode? true})
-```
+`:rf.causa/toggle-mode`. Per rf2-8l3uk the prior
+`:rf.causa/static-mode?` opt-in feature gate was removed (pre-alpha
+posture — back-compat shims are out of scope; if Static mode is
+useful, expose it unconditionally).
 
 | Surface | Spelling | Notes |
 |---|---|---|
-| Configure key | `:rf.causa/static-mode?` | Default `false`. Pre-alpha experimental flag; the default flips to `true` once the placeholder Static sub-tabs ship. Full key contract in [`015-Configuration.md`](./015-Configuration.md) §`:rf.causa/static-mode?`. |
-| Toggle chord | `Cmd-Shift-M` / `Ctrl-Shift-M` | Global keydown listener; fires `:rf.causa/toggle-mode`. Falls through to host/browser shortcuts when the flag is OFF. |
-| Mode pill | `data-testid="rf-causa-mode-pill"` | Mounts at ribbon-left under the flag. Click flips mode; `aria-checked` + `data-active-mode` reflect state for stylesheet/automation hooks. |
-| Persistence | `causa.mode` (localStorage) | Bare string `"runtime"` / `"static"`. Hydrates on boot; missing/corrupt → `"runtime"` fallback. The flag itself is per-load (not persisted). |
+| Toggle chord | `Cmd-Shift-M` / `Ctrl-Shift-M` | Global keydown listener; fires `:rf.causa/toggle-mode`. |
+| Mode pill | `data-testid="rf-causa-mode-pill"` | Mounts at ribbon-left in every host. Click flips mode; `aria-checked` + `data-active-mode` reflect state for stylesheet/automation hooks. |
+| Persistence | `causa.mode` (localStorage) | Bare string `"runtime"` / `"static"`. Hydrates on boot; missing/corrupt → `"runtime"` fallback. |
 | Toggle event | `:rf.causa/toggle-mode` | Public dispatch surface (chord parity + the palette's `:toggle-mode` verb). |
 
-With the flag OFF the surface composer renders Runtime byte-identical
-to the pre-Static chrome — no pill, the chord falls through, and the
-persisted mode value is not consulted. See [`007-UX-IA.md`](./007-UX-IA.md)
-§Static mode (visual-language treatment) and
-[`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface
-(architectural contract).
+See [`007-UX-IA.md`](./007-UX-IA.md) §Static mode (visual-language
+treatment) and [`018-Event-Spine.md`](./018-Event-Spine.md) §Static
+surface (architectural contract).
 
 ## Density — one CSS-var, whole scale (rf2-n8i2c)
 

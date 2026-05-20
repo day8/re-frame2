@@ -36,18 +36,15 @@
        tab (`:rf.causa/selected-tab :machines`), and focuses the
        chosen machine-id (`:rf.causa/selected-machine-id`).
 
-  ## Static-mode opt-in posture
+  ## Static-mode posture
 
-  The bead says 'worker handles how — configure! OR sub state
-  manipulation'. The harness here dispatches `:rf.causa/set-mode
-  :static` directly through the multi-frame helper — that's the
-  minimum surface needed to make the L4 `static-shell/detail-panel`
-  render the live `static-machines/panel` mount (`shell.cljs` case-
-  switches on `:rf.causa.static/selected-tab` which defaults to
-  `:machines`, so no extra tab-select dispatch is needed). The
-  experimental flag (`config/set-static-mode-enabled!`) gates the
-  chord + mode pill in production; it does NOT gate the view-fn
-  invocation, which is what this test drives.
+  The harness here dispatches `:rf.causa/set-mode :static` directly
+  through the multi-frame helper — that's the minimum surface needed
+  to make the L4 `static-shell/detail-panel` render the live
+  `static-machines/panel` mount (`shell.cljs` case-switches on
+  `:rf.causa.static/selected-tab` which defaults to `:machines`, so
+  no extra tab-select dispatch is needed). Per rf2-8l3uk Static mode
+  is unconditionally available; there is no feature flag to opt into.
 
   ## Pattern reference
 

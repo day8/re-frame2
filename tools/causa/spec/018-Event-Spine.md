@@ -131,22 +131,9 @@ The namespace prefix is `causa.mode` (not `re-frame2.causa.mode.v1`) deliberatel
 
 Sub-surface slots (e.g. Static Machines' selected-id and per-machine sub-mode) ride their own localStorage keys under the `causa.static.*` prefix — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface.
 
-### Feature flag — `:rf.causa/static-mode?`
+### Availability
 
-Static is gated behind the `:rf.causa/static-mode?` config flag (per [`015-Configuration.md`](015-Configuration.md)), **default `false`**. Hosts opt in via:
-
-```clojure
-(causa-config/configure! {:rf.causa/static-mode? true})
-```
-
-before the Causa preload runs.
-
-| Flag state | Mode pill | `Cmd-Shift-M` chord | Surface composer |
-|---|---|---|---|
-| OFF (default) | absent | falls through to host / browser | ALWAYS renders Runtime — byte-identical to the pre-Static chrome |
-| ON | mounts at ribbon-left | dispatches `:rf.causa/toggle-mode` against `:rf/causa` | composer switches on `:rf.causa/mode` |
-
-**Flip-to-default-on criterion.** The flag flips to default-on once sibling beads rf2-o5f5f.2 … .6 fill the placeholder Static sub-tabs (a separate decision; the v1.0 Static surface is the Machines tab + Routes tab landing — the other three remain placeholders until their re-host beads ship).
+Static mode is unconditionally available. The mode pill mounts at ribbon-left in every host, `Cmd-Shift-M` / `Ctrl-Shift-M` dispatches `:rf.causa/toggle-mode` against `:rf/causa`, and the surface composer switches on `:rf.causa/mode`. Per rf2-8l3uk the prior `:rf.causa/static-mode?` opt-in feature gate was removed (pre-alpha posture — back-compat shims are out of scope; if Static mode is useful, expose it unconditionally).
 
 ### Mnemonic mode-scoping rule
 
@@ -1256,7 +1243,7 @@ Complete map for the spine + chrome:
 | **Tab bar (L3)** | `1`–`7` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing · `i` Issues |
 | **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables · `Esc` returns focus to event list |
 | **Mode + scrubbing** | `Space` pause/resume LIVE · `L` snap to LIVE (jump to head) · `←` / `→` step one cascade (= `j`/`k`) · `Shift+←` / `Shift+→` step cascade root · `Home` / `End` oldest/newest. (The dedicated Mode pill widget was dropped — the L2 spine itself indicates LIVE / LIVE-paused / RETRO; only the widget is gone.) |
-| **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Runtime** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Gated on the `:rf.causa/static-mode?` config flag — when OFF the chord falls through to the host / browser; when ON it dispatches `:rf.causa/toggle-mode` against the `:rf/causa` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
+| **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Runtime** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Dispatches `:rf.causa/toggle-mode` against the `:rf/causa` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
 | **Global** | `Ctrl+Shift+C` toggle Causa visibility · `Cmd-K` / `Ctrl+K` palette · `?` cheat-sheet · `,` or `s` settings popup (= `⚙`) · `o` popout (= `⛶`) · `Esc` close modal / return to canvas |
 
 ### Retired keys (from pre-rewrite spec)

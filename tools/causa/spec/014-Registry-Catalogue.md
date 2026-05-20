@@ -449,18 +449,18 @@ share-affordance and source-coord jumps live in `tools/machines-viz/`.
 
 Spec: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode +
 [`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface
-architectural section. Gated by the `:rf.causa/static-mode?` flag
-per [`015-Configuration.md`](./015-Configuration.md). When the flag is
-ON the mode pill mounts at ribbon-left, `Cmd-Shift-M` / `Ctrl-Shift-M`
-toggles between Runtime and Static surfaces, and the selected mode +
-sub-tab persist to localStorage. Per rf2-o5f5f.1 + rf2-o5f5f.2 +
-rf2-o5f5f.3 + rf2-ybjkx.
+architectural section. Static mode is unconditionally available
+(per rf2-8l3uk — the prior `:rf.causa/static-mode?` feature gate
+was removed). The mode pill mounts at ribbon-left, `Cmd-Shift-M` /
+`Ctrl-Shift-M` toggles between Runtime and Static surfaces, and the
+selected mode + sub-tab persist to localStorage. Per rf2-o5f5f.1 +
+rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
 ### Subscriptions
 
 | Sub | Returns | Notes |
 |---|---|---|
-| `:rf.causa/mode` | `:runtime` / `:static`. | Default `:runtime`. Hydrated from `causa.mode` localStorage on boot when `:rf.causa/static-mode?` is ON. |
+| `:rf.causa/mode` | `:runtime` / `:static`. | Default `:runtime`. Hydrated from `causa.mode` localStorage on boot. |
 | `:rf.causa.static/selected-tab` | Keyword sub-tab id (`:machines` / `:routes` / `:schemas` / `:views` / `:events`). | Default `:machines` per `static/shell.cljs`. |
 | `:rf.causa.static.machines/selected-id` | Selected machine-id keyword for the Static Machines master-detail. | `nil` until first selection; persisted via the Static Machines persistence fx. |
 | `:rf.causa.static.machines/sub-mode` | Effective sub-mode keyword for the focused machine (`:topology` / `:sim` / `:instances` / `:cascade`). | Composite of `:rf.causa.static.machines/sub-mode-by-id` + the focused machine-id; default `:topology`. |

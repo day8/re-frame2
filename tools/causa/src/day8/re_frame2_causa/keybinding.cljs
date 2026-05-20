@@ -102,12 +102,7 @@
   get muscle-memory Cmd and Windows/Linux users get Ctrl — the same
   shape as `palette-toggle-key?` above. Shift is required to keep
   the chord from colliding with Ctrl+M (Firefox 'duplicate tab' on
-  some platforms) and Cmd+M (macOS 'minimize window').
-
-  Honours the `:rf.causa/static-mode?` flag — the listener only
-  fires when the flag is on so a host that hasn't opted into Static
-  mode never sees the chord intercepted (the chord falls through to
-  whatever the host or browser binding would otherwise do)."
+  some platforms) and Cmd+M (macOS 'minimize window')."
   [event]
   (let [^js e event
         ctrl?  (.-ctrlKey e)
@@ -253,15 +248,11 @@
         (.stopPropagation event)
         (mount/toggle!))
 
-    ;; rf2-o5f5f.1 — Cmd-Shift-M flips Runtime ↔ Static. Gated on
-    ;; `:rf.causa/static-mode?` so hosts that haven't opted in
-    ;; never see the chord intercepted. When the flag is OFF the
-    ;; chord falls through to whatever else would consume it
-    ;; (browser / host binding). When the flag is ON we
-    ;; `preventDefault` + `stopPropagation` because the chord owns
-    ;; this keystroke for Causa.
-    (and (config/static-mode-enabled?)
-         (mode-toggle-key? event))
+    ;; rf2-o5f5f.1 — Cmd-Shift-M flips Runtime ↔ Static. Always
+    ;; wired; the chord owns this keystroke for Causa (per
+    ;; rf2-8l3uk — the Static-mode feature gate was removed, Static
+    ;; mode is unconditionally available).
+    (mode-toggle-key? event)
     (do (.preventDefault event)
         (.stopPropagation event)
         (rf/with-frame :rf/causa
