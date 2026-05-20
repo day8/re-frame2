@@ -1,6 +1,6 @@
 (ns re-frame.epoch-jvm-prod-gate-test
   "Per rf2-0la4f (security audit): the epoch artefact's dev-only
-  surfaces — `register-epoch-cb!`, `restore-epoch`, `reset-frame-db!`,
+  surfaces — `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
   the per-frame ring buffer carrying `:db-before` / `:db-after` /
   raw `:trace-events` — MUST honour the JVM-side production gate
   `re-frame.interop/debug-enabled?`. When the gate reads `false`
@@ -34,9 +34,9 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (epoch/clear-history!)
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -67,7 +67,7 @@
             `:db-before` / `:db-after` / raw trace vectors."
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom [])]
-        (epoch/register-epoch-cb!
+        (epoch/register-epoch-listener!
           :prod-gate.epoch/recorder
           (fn [record] (swap! seen conj record)))
         (rf/reg-event-db :prod-gate.epoch/silent
@@ -194,7 +194,7 @@
             `interop/debug-enabled?` gate would break visibly."
     (with-redefs [interop/debug-enabled? false]
       (let [warnings (atom [])]
-        (rf/register-trace-cb! ::warn-watch
+        (rf/register-trace-listener! ::warn-watch
                                (fn [ev]
                                  (when (= :warning (:op-type ev))
                                    (swap! warnings conj ev))))
@@ -212,7 +212,7 @@
           (is (empty? redact-warns)
               ":rf.warning/epoch-redact-fn-exception never fires —
                maybe-redact is unreachable under the disabled gate"))
-        (rf/remove-trace-cb! ::warn-watch)
+        (rf/unregister-trace-listener! ::warn-watch)
         (rf/configure :epoch-history {:redact-fn nil})))))
 
 (deftest redact-fn-slot-survives-default-gate-as-sanity

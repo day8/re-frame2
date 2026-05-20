@@ -50,7 +50,7 @@
             ;; Pull `re-frame.epoch` into the dev classpath via the
             ;; Causa preload (rf2-1barg). The Causa Time Travel panel
             ;; reads epoch records via `rf/epoch-history` +
-            ;; `rf/register-epoch-cb!`; those wrappers late-bind into
+            ;; `rf/register-epoch-listener!`; those wrappers late-bind into
             ;; `re-frame.epoch`'s seed table. When the host example
             ;; omits the artefact (the counter example does, by
             ;; design — it's the smallest reference app), the wrappers
@@ -65,7 +65,7 @@
             ;; bundles by the `:devtools/preloads` shadow-cljs gate.
             [re-frame.epoch]
             ;; rf2-qwm0a — the public-tooling listener surface
-            ;; (`register-trace-cb!` etc.) lives in
+            ;; (`register-trace-listener!` etc.) lives in
             ;; `re-frame.trace.tooling` for production-DCE reasons.
             ;; Causa's trace-collector registration below targets the
             ;; tooling sibling directly. The preload is dev-only
@@ -93,7 +93,7 @@
 
 (defonce ^:private trace-cb-registered?
   ;; Idempotency sentinel for the trace-callback registration. Cf.
-  ;; `re-frame.trace/register-trace-cb!`: passing the same id twice
+  ;; `re-frame.trace/register-trace-listener!`: passing the same id twice
   ;; replaces the callback. The replacement is harmless but emits a
   ;; warning trace on every reload that pollutes the dev console;
   ;; this sentinel suppresses re-registration on `:after-load`.
@@ -103,7 +103,7 @@
   ;; Idempotency sentinel for the epoch-callback registration. Same
   ;; rationale as `trace-cb-registered?`. Phase 3 (rf2-t53ze) — the
   ;; Time Travel panel needs a per-settle pump from
-  ;; `rf/register-epoch-cb!` into Causa's app-db so the scrubber's
+  ;; `rf/register-epoch-listener!` into Causa's app-db so the scrubber's
   ;; subscriptions re-fire when the framework appends an epoch.
   (atom false))
 
@@ -115,7 +115,7 @@
   it directly without `#'`-piercing into private vars."
   []
   (when (compare-and-set! trace-cb-registered? false true)
-    (trace-tooling/register-trace-cb! :rf.causa/trace-collector
+    (trace-tooling/register-trace-listener! :rf.causa/trace-collector
                                       trace-bus/collect-trace!))
   nil)
 
@@ -145,10 +145,10 @@
 
   Idempotent via the `epoch-cb-registered?` sentinel. No-op when the
   `day8/re-frame2-epoch` artefact is not on the classpath
-  (`rf/register-epoch-cb!` is itself a no-op in that case)."
+  (`rf/register-epoch-listener!` is itself a no-op in that case)."
   []
   (when (compare-and-set! epoch-cb-registered? false true)
-    (rf/register-epoch-cb! :rf.causa/epoch-collector
+    (rf/register-epoch-listener! :rf.causa/epoch-collector
       (fn [record]
         ;; Pre-mount no-op — see the docstring's §Pre-mount guard.
         ;; Resolved against the framework's frame registry (NOT a

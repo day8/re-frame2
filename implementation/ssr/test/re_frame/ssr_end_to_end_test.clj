@@ -180,10 +180,10 @@
             (let [client-hash-1 (rf/render-tree-hash
                                   (resolve-tree client-frame render-tree))
                   match-traces  (atom [])]
-              (rf/register-trace-cb! ::match (fn [ev] (swap! match-traces conj ev)))
+              (rf/register-trace-listener! ::match (fn [ev] (swap! match-traces conj ev)))
               (ssr/verify-hydration!
                 client-frame client-hash-1)
-              (rf/remove-trace-cb! ::match)
+              (rf/unregister-trace-listener! ::match)
               (is (= server-hash client-hash-1)
                   "first client render hashes identically to the server hash")
               (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
@@ -202,10 +202,10 @@
             (let [client-hash-2   (rf/render-tree-hash
                                      (resolve-tree client-frame render-tree))
                   mismatch-traces (atom [])]
-              (rf/register-trace-cb! ::mismatch (fn [ev] (swap! mismatch-traces conj ev)))
+              (rf/register-trace-listener! ::mismatch (fn [ev] (swap! mismatch-traces conj ev)))
               (ssr/verify-hydration!
                 client-frame client-hash-2)
-              (rf/remove-trace-cb! ::mismatch)
+              (rf/unregister-trace-listener! ::mismatch)
 
               (is (not= server-hash client-hash-2)
                   "mutating the hydrated db changes the render hash")
@@ -242,9 +242,9 @@
                 [:rf.server/set-status 403]]}))                          ;; second write replaces
 
       (let [f (rf/make-frame {:platform :server})]
-        (rf/register-trace-cb! ::status (fn [ev] (swap! traces conj ev)))
+        (rf/register-trace-listener! ::status (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/forbid] {:frame f})
-        (rf/remove-trace-cb! ::status)
+        (rf/unregister-trace-listener! ::status)
 
         (is (= 403 (:status (get-response f)))
             "last write wins — the response status is 403")
@@ -377,7 +377,7 @@
   [body-fn]
   (let [traces (atom [])
         tag    (keyword (str "::trace-cap-" (gensym)))]
-    (rf/register-trace-cb! tag
+    (rf/register-trace-listener! tag
       (fn [ev]
         (when (= :rf.error/fx-handler-exception (:operation ev))
           (swap! traces conj ev))))
@@ -385,7 +385,7 @@
       (body-fn)
       @traces
       (finally
-        (rf/remove-trace-cb! tag)))))
+        (rf/unregister-trace-listener! tag)))))
 
 (defn- expect-fx-error-keyword!
   "Assert that the `traces` collection (output of `capture-fx-traces!`)
@@ -569,9 +569,9 @@
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}})
           traces         (atom [])]
-      (rf/register-trace-cb! ::nsh (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::nsh (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf/remove-trace-cb! ::nsh)
+      (rf/unregister-trace-listener! ::nsh)
 
       ;; Runtime's error-projection listener stamps :status 404 on :rf/response.
       (is (= 404 (:status (get-response f)))
@@ -603,13 +603,13 @@
 
     (let [project-error  ssr/project-error
           traces         (atom [])
-          _              (rf/register-trace-cb! ::he (fn [ev] (swap! traces conj ev)))
+          _              (rf/register-trace-listener! ::he (fn [ev] (swap! traces conj ev)))
           f              (rf/make-frame
                            {:platform :server
                             :on-create [:rf/server-init]
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}})
-          _              (rf/remove-trace-cb! ::he)
+          _              (rf/unregister-trace-listener! ::he)
           err            (some #(when (= :rf.error/handler-exception (:operation %)) %)
                                @traces)]
       (is (some? err)
@@ -698,9 +698,9 @@
                            :ssr {:public-error-id   :myapp/buggy-projector
                                  :dev-error-detail? false}})
           traces        (atom [])
-          _             (rf/register-trace-cb! ::sop (fn [ev] (swap! traces conj ev)))
+          _             (rf/register-trace-listener! ::sop (fn [ev] (swap! traces conj ev)))
           public        (project-error f {:operation :rf.error/handler-exception :tags {}})]
-      (rf/remove-trace-cb! ::sop)
+      (rf/unregister-trace-listener! ::sop)
       (is (= {:status     500
               :code       :internal-error
               :message    "Something went wrong"
@@ -720,9 +720,9 @@
                           {:platform :server
                            :ssr {:public-error-id   :myapp/bad-shape}})
           traces        (atom [])
-          _             (rf/register-trace-cb! ::bs (fn [ev] (swap! traces conj ev)))
+          _             (rf/register-trace-listener! ::bs (fn [ev] (swap! traces conj ev)))
           public        (project-error f {:operation :rf.error/handler-exception :tags {}})]
-      (rf/remove-trace-cb! ::bs)
+      (rf/unregister-trace-listener! ::bs)
       (is (= 500 (:status public))
           "non-conforming projector output → fallback locked-500")
       (is (= :internal-error (:code public)))
@@ -757,9 +757,9 @@
                 [:rf.server/redirect {:status 301 :location "/canonical"}]]}))
 
       (let [f (rf/make-frame {:platform :server})]
-        (rf/register-trace-cb! ::redir (fn [ev] (swap! traces conj ev)))
+        (rf/register-trace-listener! ::redir (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/double-redirect] {:frame f})
-        (rf/remove-trace-cb! ::redir)
+        (rf/unregister-trace-listener! ::redir)
 
         (let [redirect (-> (get-response f) :redirect)]
           (is (= {:status 301 :location "/canonical"} redirect)
@@ -800,13 +800,13 @@
              (get-in (rf/get-frame-db f) [:rf/hydration :server-hash]))
           ":rf/hydrate stashed the server's head-hash")
 
-      (rf/register-trace-cb! ::head (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::head (fn [ev] (swap! traces conj ev)))
       ;; Client recomputes the head — yields a different hash.
       (verify-fn f
                  "head-hash-client-B"
                  {:failing-id :rf.ssr/head-mismatch
                   :first-diff-path [:head :title]})
-      (rf/remove-trace-cb! ::head)
+      (rf/unregister-trace-listener! ::head)
 
       (is (some (fn [ev]
                   (and (= :rf.ssr/hydration-mismatch (:operation ev))
@@ -821,11 +821,11 @@
 
       ;; And the SAME hash on both sides → no trace.
       (let [no-mismatch-traces (atom [])]
-        (rf/register-trace-cb! ::head-ok (fn [ev] (swap! no-mismatch-traces conj ev)))
+        (rf/register-trace-listener! ::head-ok (fn [ev] (swap! no-mismatch-traces conj ev)))
         (verify-fn f
                    "head-hash-server-A"
                    {:failing-id :rf.ssr/head-mismatch})
-        (rf/remove-trace-cb! ::head-ok)
+        (rf/unregister-trace-listener! ::head-ok)
         (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
                       @no-mismatch-traces)
             "no head-mismatch trace when client and server hashes agree")))))
@@ -1057,13 +1057,13 @@
       (fn [_ _] (throw (ex-info "post-redirect failure" {}))))
 
     (let [traces (atom [])
-          _      (rf/register-trace-cb! ::rpe (fn [ev] (swap! traces conj ev)))
+          _      (rf/register-trace-listener! ::rpe (fn [ev] (swap! traces conj ev)))
           f      (rf/make-frame
                    {:platform  :server
                     :on-create [:redirect-then-error]
                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                 :dev-error-detail? false}})
-          _      (rf/remove-trace-cb! ::rpe)
+          _      (rf/unregister-trace-listener! ::rpe)
           resp   (get-response f)]
       ;; The handler-exception fired (drain-time trace).
       (is (some #(= :rf.error/handler-exception (:operation %)) @traces)
@@ -1110,12 +1110,12 @@
                  (and (keyword? op)
                       (= prefix (namespace op))
                       (str/starts-with? (name op) "safe-redirect-")))]
-    (rf/register-trace-cb! tag
+    (rf/register-trace-listener! tag
                            (fn [ev]
                              (when (match? (:operation ev))
                                (swap! traces conj ev))))
     (try (body-fn) @traces
-         (finally (rf/remove-trace-cb! tag)))))
+         (finally (rf/unregister-trace-listener! tag)))))
 
 ;; --- Step 1: URL parse failure --------------------------------------------
 
@@ -1593,12 +1593,12 @@
         (fn [db [_ articles]] (assoc db :articles articles)))
 
       (let [traces (atom [])]
-        (rf/register-trace-cb! ::ssr (fn [ev] (swap! traces conj ev)))
+        (rf/register-trace-listener! ::ssr (fn [ev] (swap! traces conj ev)))
         (let [f  (rf/make-frame
                    {:on-create    [:rf/server-init {:uri "/articles"}]
                     :fx-overrides {:http/get :http/get.canned-articles}})
               db (rf/get-frame-db f)]
-          (rf/remove-trace-cb! ::ssr)
+          (rf/unregister-trace-listener! ::ssr)
           (is @stub-fired? "the override redirected the fx to the stub")
           (is (= 2 (count (:articles db)))
               (str "expected 2 articles in db; traces: "

@@ -19,9 +19,9 @@
 (defn- record-traces
   [body-fn]
   (let [seen (atom [])]
-    (trace-tooling/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
+    (trace-tooling/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (trace-tooling/remove-trace-cb! ::rec)))
+         (finally (trace-tooling/unregister-trace-listener! ::rec)))
     @seen))
 
 (defn- errors-of [evs op]

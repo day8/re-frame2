@@ -317,7 +317,7 @@
   accumulates every captured trace event."
   [fixture-id]
   (let [traces (atom [])]
-    (trace/register-trace-cb! [fixture-id]
+    (trace/register-trace-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -609,7 +609,7 @@
             expected-err     (:error-emit-records expect)
             err-failures     (when expected-err
                                (check-trace-stream @err-records expected-err))]
-        (trace/clear-trace-cbs!)
+        (trace/clear-trace-listeners!)
         (error-emit/clear-error-emit-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db)  (submap? expected-db final-db))

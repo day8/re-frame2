@@ -51,9 +51,9 @@ The preload runs four foundation side-effects (per
 [`spec/011-Launch-Modes.md` §Mount lifecycle](../../../tools/causa/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)):
 
 1. Register `:rf.causa/*` handlers against the `:rf/causa` frame.
-2. Register the trace collector via `register-trace-cb!` under
+2. Register the trace collector via `register-trace-listener!` under
    `:rf.causa/trace-collector`.
-3. Register the epoch collector via `register-epoch-cb!` under
+3. Register the epoch collector via `register-epoch-listener!` under
    `:rf.causa/epoch-collector` (no-op when the
    `day8/re-frame2-epoch` artefact is absent).
 4. Attach the global `Ctrl+Shift+C` keydown listener.

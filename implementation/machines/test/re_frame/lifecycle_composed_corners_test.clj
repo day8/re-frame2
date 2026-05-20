@@ -41,8 +41,8 @@
   "Attach a trace listener and return [observation-atom unreg-fn]."
   [id]
   (let [a (atom [])]
-    (trace/register-trace-cb! id (fn [ev] (swap! a conj ev)))
-    [a #(trace/remove-trace-cb! id)]))
+    (trace/register-trace-listener! id (fn [ev] (swap! a conj ev)))
+    [a #(trace/unregister-trace-listener! id)]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. Stale :after firing AFTER frame destroy

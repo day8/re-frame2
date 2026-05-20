@@ -1012,7 +1012,7 @@
   emit-trace-event!         trace/emit!)
 
 ;; Per rf2-qwm0a the public-tooling listener + buffer surface
-;; (`register-trace-cb!` / `remove-trace-cb!` / `clear-trace-cbs!` /
+;; (`register-trace-listener!` / `unregister-trace-listener!` / `clear-trace-listeners!` /
 ;; `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!`)
 ;; lives in `re-frame.trace.tooling`, not `re-frame.trace`. On the JVM
 ;; we preserve the legacy `rf/<name>` shape via the convenience aliases
@@ -1033,13 +1033,13 @@
      (def ^{:doc "Register a listener under `id` that receives every trace
        event. Same-id registration replaces. Returns `id`. JVM-only
        alias (CLJS omits — production bundles DCE the tooling sibling
-       wholesale; CLJS callers use `re-frame.trace.tooling/register-trace-cb!`
+       wholesale; CLJS callers use `re-frame.trace.tooling/register-trace-listener!`
        directly). Per rf2-qwm0a."}
-       register-trace-cb!     trace/register-trace-cb!)
+       register-trace-listener!     trace/register-trace-listener!)
      (def ^{:doc "Drop the listener registered under `id`. JVM-only alias —
-       CLJS callers use `re-frame.trace.tooling/remove-trace-cb!`
+       CLJS callers use `re-frame.trace.tooling/unregister-trace-listener!`
        directly. Per rf2-qwm0a."}
-       remove-trace-cb!       trace/remove-trace-cb!)
+       unregister-trace-listener!       trace/unregister-trace-listener!)
      (def ^{:doc "Return the trace ring buffer's current contents,
        oldest-first. Opts filter the result; the buffer is the substrate
        behind `re-frame-10x` and other dev tools. JVM-only alias —
@@ -1135,14 +1135,14 @@
 (def ^{:doc "Register a callback fired once per drain-settle with the
   assembled `:rf/epoch-record`. Same-id replaces; listener exceptions
   are isolated. Returns the `id`, or `nil` when the epoch artefact is
-  absent. Per Spec 009 §`register-epoch-cb!`. Late-bound via
-  `:epoch/register-epoch-cb!`."}
-  register-epoch-cb! rf-epoch/register-epoch-cb!)
+  absent. Per Spec 009 §`register-epoch-listener!`. Late-bound via
+  `:epoch/register-epoch-listener!`."}
+  register-epoch-listener! rf-epoch/register-epoch-listener!)
 
 (def ^{:doc "Remove the epoch listener registered under `id`. No-op when
   the epoch artefact is absent. Late-bound via
-  `:epoch/remove-epoch-cb!`."}
-  remove-epoch-cb!   rf-epoch/remove-epoch-cb!)
+  `:epoch/unregister-epoch-listener!`."}
+  unregister-epoch-listener!   rf-epoch/unregister-epoch-listener!)
 
 (def ^{:doc "Replace `frame-id`'s `app-db` with `new-db`, bypassing the
   dispatch loop. The canonical Tool-Pair write surface for state

@@ -232,7 +232,7 @@
   ;; observe THIS fixture's recorded epochs only.
   (when-let [f (late-bind/get-fn :epoch/clear-history!)]
     (f))
-  (when-let [f (late-bind/get-fn :epoch/clear-epoch-cbs!)]
+  (when-let [f (late-bind/get-fn :epoch/clear-epoch-listeners!)]
     (f))
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
@@ -552,7 +552,7 @@
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
-    (trace/register-trace-cb! [fixture-id] (fn [ev] (swap! traces conj ev)))
+    (trace/register-trace-listener! [fixture-id] (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- collect-error-emit-records!
@@ -1204,7 +1204,7 @@
                   {:expected expected-public-error
                    :actual   nil
                    :passed?  false})))]
-        (trace/clear-trace-cbs!)
+        (trace/clear-trace-listeners!)
         ;; rf2-wxe9t — drop just this fixture's error-emit recorder so
         ;; it does not leak into the next fixture's drains. The
         ;; reset-runtime! call at the top of the next fixture also

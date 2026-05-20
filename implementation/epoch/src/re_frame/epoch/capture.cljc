@@ -74,7 +74,7 @@
   registered.
 
   Going through late-bind (rather than registering as a listener via
-  `register-trace-cb!`) ensures the user-facing `clear-trace-cbs!`
+  `register-trace-listener!`) ensures the user-facing `clear-trace-listeners!`
   call does NOT wipe the internal capture path — pair tools that reset
   the trace stream between sessions can do so without losing epoch
   recording.

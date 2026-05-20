@@ -6,7 +6,7 @@
  * framework's trace bus and/or epoch history via the Causa preload's
  * mirror — every testbed wires `day8.re-frame2-causa.preload` through
  * shadow-cljs `:devtools/:preloads`, which registers a trace-collector
- * cb against `re-frame.trace/register-trace-cb!`. Reading the
+ * cb against `re-frame.trace/register-trace-listener!`. Reading the
  * Causa-side mirror is therefore reading the framework's emitted
  * stream (Causa's collector is push-on-emit, not opt-in).
  *

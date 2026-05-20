@@ -146,7 +146,7 @@
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/throwing parent)
       (try
-        (trace/register-trace-cb! ::h131-error
+        (trace/register-trace-listener! ::h131-error
                                   (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:sup/throwing [:start]])
         ;; The cascade halted: no actor was spawned. Per Spec 005 §Errors,
@@ -164,7 +164,7 @@
                         (= :rf.error/machine-action-exception (:operation %)))
                   @traces)
             "an :rf.error/machine-action-exception trace was emitted")
-        (finally (trace/remove-trace-cb! ::h131-error))))))
+        (finally (trace/unregister-trace-listener! ::h131-error))))))
 
 ;; ---- (5) :invoke-all child :data fn-form is materialised ------------------
 

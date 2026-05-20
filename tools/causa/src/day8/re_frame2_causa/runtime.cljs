@@ -49,7 +49,7 @@
     app-db-diff, machine-state) rather than to re-frame2-pair-mcp's
     own tool shapes.
   - Not a streaming substrate. The runtime exposes
-    `register-trace-cb!` / `register-epoch-cb!` indirection via
+    `register-trace-listener!` / `register-epoch-listener!` indirection via
     re-frame.core, plus a thin `current-subscriptions` accessor for
     the diagnostic; per-tick queue / overflow bookkeeping lives on
     the MCP-server side.

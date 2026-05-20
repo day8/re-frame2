@@ -24,7 +24,7 @@
   (reset! frame/frames {})
   (when-let [clear-schemas! (late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (rf/init! plain-atom/adapter)
   (test-fn))
 
@@ -38,7 +38,7 @@
   deftests."
   [listener-id]
   (let [a (atom [])]
-    (rf/register-trace-cb! listener-id (fn [ev] (swap! a conj ev)))
+    (rf/register-trace-listener! listener-id (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- warning-events

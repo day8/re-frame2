@@ -46,7 +46,7 @@
   Per Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
   privacy posture (rf2-wp70d): the fn runs ONCE at build-time,
   BETWEEN `build-record` and ring-append / listener fan-out — the
-  ring buffer, every `register-epoch-cb!` listener, and any off-box
+  ring buffer, every `register-epoch-listener!` listener, and any off-box
   projection through `projected-record` all see the SAME redacted
   shape. The `:rf.epoch/sensitive?` rollup is computed inside
   `build-record` (which runs first) so the rollup reflects the RAW

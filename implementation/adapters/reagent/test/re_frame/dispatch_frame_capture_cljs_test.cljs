@@ -52,7 +52,7 @@
   (reset! registrar-snapshot (test-support/snapshot-registrar))
   (reset! frame/frames {})
   (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-trace-cbs!)
+  (trace-tooling/clear-trace-listeners!)
   (substrate-adapter/install-adapter! reagent-adapter/adapter)
   (frame/ensure-default-frame!))
 

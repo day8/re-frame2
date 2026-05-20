@@ -253,8 +253,8 @@ single source of truth.
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-The preload registers Causa's listeners under `register-trace-cb!`
-and `register-epoch-cb!`, installs the browser API/keybinding, then
+The preload registers Causa's listeners under `register-trace-listener!`
+and `register-epoch-listener!`, installs the browser API/keybinding, then
 auto-opens into the configured layout host once `rf/init!` has
 installed a substrate adapter.
 
@@ -377,9 +377,9 @@ available. The lifecycle is normative.
 1. Register Causa's `:rf.causa/*` handlers (subs / events / fxs)
    against the `:rf/causa` frame.
 2. Register the trace collector via
-   [`re-frame.trace/register-trace-cb!`](../../../spec/009-Instrumentation.md)
+   [`re-frame.trace/register-trace-listener!`](../../../spec/009-Instrumentation.md)
    under `:rf.causa/trace-collector`.
-3. Register the epoch collector via `rf/register-epoch-cb!` under
+3. Register the epoch collector via `rf/register-epoch-listener!` under
    `:rf.causa/epoch-collector` (no-op when the
    `day8/re-frame2-epoch` artefact is absent).
 4. Attach a global `Ctrl+Shift+C` keydown listener on
@@ -396,7 +396,7 @@ there. If the host is missing, it MUST emit the diagnostic described in
 
 **Boot order.** Within the preload's foundation phase the side-
 effects MUST run in the order **register-handlers → register-
-trace-cb → register-epoch-cb → attach-keybinding**. The keybinding
+trace-cb → register-epoch-listener → attach-keybinding**. The keybinding
 listener is attached last so that, in the unlikely race where the
 user presses `Ctrl+Shift+C` mid-load, the handlers required by the
 shell render are already in the registry when the mount fires.
@@ -509,7 +509,7 @@ graceful, not catastrophic.
 ### Epoch pump (rf2-yp92j)
 
 The foundation phase's third step registers an
-[`rf/register-epoch-cb!`](../../../spec/009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener)
+[`rf/register-epoch-listener!`](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)
 callback under the key `:rf.causa/epoch-collector`. Where the trace
 collector buffers raw events for panel-side projections (per
 [`013-Trace-Bus.md`](./013-Trace-Bus.md)), the epoch-collector serves
@@ -566,8 +566,8 @@ draining each cascade. Per
 each listener sees events in the runtime's emit order; no
 re-ordering occurs between framework emit and the collector body.
 Ordering *across* sibling listeners (other tools that register
-their own `register-epoch-cb!` callbacks alongside Causa) is **not
-contract** — the same rule that applies to `register-trace-cb!`
+their own `register-epoch-listener!` callbacks alongside Causa) is **not
+contract** — the same rule that applies to `register-trace-listener!`
 applies here. Causa's handler MUST NOT depend on the relative
 order of Causa's invocation versus any other tool's.
 
@@ -611,7 +611,7 @@ Causa's cache is a pure mirror.
 
 **Exception isolation.** An exception thrown inside the callback
 body MUST be caught by the framework's epoch-cb fan-out (per
-[Spec 009 §`register-epoch-cb!` invocation rules](../../../spec/009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener))
+[Spec 009 §`register-epoch-listener!` invocation rules](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener))
 and MUST NOT propagate to the framework or to other registered
 epoch listeners. Causa's collector body is small (it only wraps a
 dispatch); the realistic failure mode is the dispatched event
@@ -631,7 +631,7 @@ registration cycles; production code MUST NOT.
 
 **Absent-artefact behaviour.** The `day8/re-frame2-epoch`
 artefact is optional. When it is not on the classpath,
-`rf/register-epoch-cb!` is itself a no-op (per
+`rf/register-epoch-listener!` is itself a no-op (per
 [Spec 009 §Hook-table-driven late binding](../../../spec/009-Instrumentation.md))
 and the registration call is silently a no-op. Causa's
 time-travel panel detects the absent-artefact case via
@@ -659,7 +659,7 @@ only, per §Mount lifecycle) MUST NOT unregister the epoch
 callback — the callback is registered at preload time, not at
 mount time, and the preload's foundation phase persists across
 shell unmounts. Test fixtures driving teardown across runs MAY
-call `rf/remove-epoch-cb!` directly on the
+call `rf/unregister-epoch-listener!` directly on the
 `:rf.causa/epoch-collector` key to unwire the pump; the
 sentinel-based registration will then re-fire on the next
 preload reload. Production sessions never tear down.
@@ -676,7 +676,7 @@ production. The framework's epoch surface elides under the same
 gate (per
 [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code))
 so even an accidentally-included preload would find the
-register-epoch-cb! call resolve to a no-op.
+register-epoch-listener! call resolve to a no-op.
 
 ## Standalone via MCP
 

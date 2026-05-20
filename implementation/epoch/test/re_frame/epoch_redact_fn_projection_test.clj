@@ -79,9 +79,9 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (epoch/clear-history!)
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)

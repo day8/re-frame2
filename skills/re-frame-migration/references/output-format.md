@@ -78,7 +78,7 @@ Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame stru
 - Required rules applied: M-0, M-1 (5 sites), M-8 (7 sites), M-9 (3 sites), M-20 (9 sites), M-25 (1 site), M-40 (1 site).
 - Type B rules applied (with explicit author approval):
   - M-3 (2 sites): `:dispatch` effects with intermediate-render dependency were both real animation pacing — converted to `:dispatch-later`.
-  - M-17 (1 site, multi-frame): `reg-global-interceptor` was an audit logger — converted to `register-trace-cb!`.
+  - M-17 (1 site, multi-frame): `reg-global-interceptor` was an audit logger — converted to `register-trace-listener!`.
 - Opt-in changes applied: none, not requested.
 - Verification:
   - Compile: clean.

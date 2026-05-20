@@ -25,7 +25,7 @@
   the same compile-time goog-define as the trace surface. Production
   builds elide; no allocation, no storage, no overhead.
 
-  Listener API (`register-epoch-cb!` / `remove-epoch-cb!`) mirrors the
+  Listener API (`register-epoch-listener!` / `unregister-epoch-listener!`) mirrors the
   raw-trace listener API in `re-frame.trace`. Listeners receive the
   fully-assembled record after it lands in the ring buffer.
 
@@ -165,10 +165,10 @@
 ;; `re-frame.epoch.state` (Phase-2 seam A, rf2-0wi86); the facade keeps
 ;; the public docstrings and the fan-out / failure-isolation policy.
 
-(defn register-epoch-cb!
+(defn register-epoch-listener!
   "Register a callback fired once per drain-settle with the assembled
   `:rf/epoch-record`. The id can be any comparable value; passing the
-  same id twice replaces. Per Spec 009 §`register-epoch-cb!` —
+  same id twice replaces. Per Spec 009 §`register-epoch-listener!` —
   assembled-epoch listener.
 
   The callback receives a fully-formed record with `:db-after`,
@@ -183,12 +183,12 @@
   [id f]
   (state/put-listener! id f))
 
-(defn remove-epoch-cb!
+(defn unregister-epoch-listener!
   "Remove the listener registered under id."
   [id]
   (state/drop-listener! id))
 
-(defn clear-epoch-cbs!
+(defn clear-epoch-listeners!
   []
   (state/reset-listeners!))
 
@@ -282,7 +282,7 @@
 
   Emits `:rf.epoch/snapshotted` with a `:outcome` tag so trace listeners
   can discriminate clean from halted boundaries without inspecting the
-  epoch-history vector. Listeners (`register-epoch-cb!`) receive every
+  epoch-history vector. Listeners (`register-epoch-listener!`) receive every
   record regardless of outcome."
   ([frame-id db-before db-after]
    (settle! frame-id db-before db-after :ok nil))
@@ -382,7 +382,7 @@
 ;; harnesses, and time-travel from JSON-loaded bug repros.
 ;;
 ;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
-;; gate as `restore-epoch` / `register-epoch-cb!` / the rest of the
+;; gate as `restore-epoch` / `register-epoch-listener!` / the rest of the
 ;; epoch-history machinery. Production builds (`:advanced` +
 ;; goog.DEBUG=false) elide the body via Closure DCE; the surface is not
 ;; available in shipped binaries.
@@ -476,14 +476,14 @@
   that forward epoch records across a process boundary (Causa-MCP
   `watch-epochs`, story / pair recorders, hosted post-mortem
   forwarders) MUST route through this fn at the wire boundary; the
-  on-box ring buffer and `register-epoch-cb!` listener fan-out
+  on-box ring buffer and `register-epoch-listener!` listener fan-out
   continue to deliver the RAW record so on-box devtools (Causa diff,
   REPL, `restore-epoch`) can reason about exact state.
 
   `record` may be `nil` (e.g. a missing epoch lookup) — the projection
   returns `nil` in that case, no elision called. Production builds
   elide the entire epoch surface; consumers gate any
-  `register-epoch-cb!` registration under `interop/debug-enabled?`
+  `register-epoch-listener!` registration under `interop/debug-enabled?`
   per Spec 009 §User-side listener registration."
   [record]
   (write/projected-record record))
@@ -507,7 +507,7 @@
 ;; Strategy B), this namespace ships in `day8/re-frame2-epoch`; the
 ;; core artefact MUST NOT statically `:require` it. Core's public
 ;; re-exports (`rf/epoch-history`, `rf/restore-epoch`,
-;; `rf/register-epoch-cb!`, `rf/remove-epoch-cb!`) and the
+;; `rf/register-epoch-listener!`, `rf/unregister-epoch-listener!`) and the
 ;; `(rf/configure :epoch-history ...)` knob look the producing fns up
 ;; through the hook table at call time; when this artefact is not on
 ;; the classpath those queries return nil / empty / false and the
@@ -521,11 +521,11 @@
 (late-bind/set-fn! :epoch/epoch-history       epoch-history)
 (late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
 (late-bind/set-fn! :epoch/reset-frame-db!     reset-frame-db!)
-(late-bind/set-fn! :epoch/register-epoch-cb!  register-epoch-cb!)
-(late-bind/set-fn! :epoch/remove-epoch-cb!    remove-epoch-cb!)
+(late-bind/set-fn! :epoch/register-epoch-listener!  register-epoch-listener!)
+(late-bind/set-fn! :epoch/unregister-epoch-listener!    unregister-epoch-listener!)
 (late-bind/set-fn! :epoch/configure!          configure!)
 (late-bind/set-fn! :epoch/clear-history!      clear-history!)
-(late-bind/set-fn! :epoch/clear-epoch-cbs!    clear-epoch-cbs!)
+(late-bind/set-fn! :epoch/clear-epoch-listeners!    clear-epoch-listeners!)
 (late-bind/set-fn! :epoch/on-frame-destroyed  listeners/on-frame-destroyed!)
 ;; Per rf2-mrsck and Security.md §Epoch privacy posture: off-box
 ;; egress projection helpers, parallel to elide-wire-value for direct

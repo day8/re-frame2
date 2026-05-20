@@ -72,7 +72,7 @@
   [props event]
   (let [dispatched (atom nil)
         cb-key     (keyword (gensym "click-capture-"))]
-    (trace-tooling/register-trace-cb!
+    (trace-tooling/register-trace-listener!
       cb-key
       (fn [ev]
         (when (and (= :event/dispatched (:operation ev))
@@ -87,7 +87,7 @@
          :prevented? (.-defaultPrevented event)
          :href       (:href attrs)})
       (finally
-        (trace-tooling/remove-trace-cb! cb-key)))))
+        (trace-tooling/unregister-trace-listener! cb-key)))))
 
 ;; ---- href synthesis (CLJS sanity) --------------------------------------
 

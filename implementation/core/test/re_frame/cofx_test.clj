@@ -38,10 +38,10 @@
 
 (defn- collect-traces!
   "Register a trace listener under `id`, returning the atom that
-  accumulates events. Tests must (rf/remove-trace-cb! id) to detach."
+  accumulates events. Tests must (rf/unregister-trace-listener! id) to detach."
   [id]
   (let [acc (atom [])]
-    (rf/register-trace-cb! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-trace-listener! id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- Missing cofx-id → :rf.error/no-such-cofx -----------------------------
@@ -62,7 +62,7 @@
           (reset! fired? true)
           {}))
       (rf/dispatch-sync [:cofx-test/run-no-cofx])
-      (rf/remove-trace-cb! ::no-cofx-1)
+      (rf/unregister-trace-listener! ::no-cofx-1)
 
       (is (true? @fired?)
           "the event handler still fired — the unknown cofx did not halt the chain")
@@ -91,7 +91,7 @@
         [(rf/inject-cofx :cofx-test/also-missing {:k :payload})]
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/run-no-cofx-2])
-      (rf/remove-trace-cb! ::no-cofx-2)
+      (rf/unregister-trace-listener! ::no-cofx-2)
 
       (let [missing (filter #(= :rf.error/no-such-cofx (:operation %)) @traces)]
         (is (= 1 (count missing))
@@ -145,7 +145,7 @@
           (reset! event-fired? true)
           {}))
       (rf/dispatch-sync [:cofx-test/read-locale])
-      (rf/remove-trace-cb! ::cofx-plat)
+      (rf/unregister-trace-listener! ::cofx-plat)
 
       (is (false? @cofx-fired?)
           "the client-only cofx handler did NOT run on the JVM (:server)")
@@ -183,7 +183,7 @@
               "the cofx-injected value flows through to the handler")
           {}))
       (rf/dispatch-sync [:cofx-test/read-server-time])
-      (rf/remove-trace-cb! ::cofx-plat-match)
+      (rf/unregister-trace-listener! ::cofx-plat-match)
 
       (is (true? @fired?)
           "the matching-platform cofx handler ran")
@@ -208,7 +208,7 @@
               "the universal cofx was injected on JVM (:server)")
           {}))
       (rf/dispatch-sync [:cofx-test/read-universal])
-      (rf/remove-trace-cb! ::cofx-plat-absent)
+      (rf/unregister-trace-listener! ::cofx-plat-absent)
 
       (is (true? @fired?)
           "the universal cofx ran on the JVM (:server)")
@@ -237,7 +237,7 @@
         [(rf/inject-cofx :cofx-test/local-storage)]
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-ls] {:frame :cofx-test/ssr-frame})
-      (rf/remove-trace-cb! ::cofx-plat-frame)
+      (rf/unregister-trace-listener! ::cofx-plat-frame)
 
       (is (false? @fired?)
           "the client-only cofx did NOT run under the :ssr-server frame")
@@ -263,7 +263,7 @@
         [(rf/inject-cofx :cofx-test/valued-client-cofx {:key :payload})]
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-valued])
-      (rf/remove-trace-cb! ::cofx-plat-valued)
+      (rf/unregister-trace-listener! ::cofx-plat-valued)
 
       (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
                           @traces)]

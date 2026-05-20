@@ -11,8 +11,8 @@
 
   Topology (rf2-qwm0a): this ns carries the always-loaded hot fast
   path — `emit!` / `emit-error!` / `*handler-scope*` and the bracket
-  macros. The public-tooling surface (`register-trace-cb!` /
-  `remove-trace-cb!` / `clear-trace-cbs!` / `trace-buffer` /
+  macros. The public-tooling surface (`register-trace-listener!` /
+  `unregister-trace-listener!` / `clear-trace-listeners!` / `trace-buffer` /
   `clear-trace-buffer!` / `configure-trace-buffer!` / `configure`) and
   the buffer + listener state live in the sibling
   `re-frame.trace.tooling`, which is loaded only when a test fixture,
@@ -169,9 +169,9 @@
   re-frame.epoch has registered its capture hook. The capture hook
   is published through `re-frame.late-bind` (key `:epoch/capture-event`);
   routing through there keeps this namespace free of a require on
-  re-frame.epoch and ensures `clear-trace-cbs!` (a user-facing API) does
+  re-frame.epoch and ensures `clear-trace-listeners!` (a user-facing API) does
   NOT wipe the internal capture path. Per Tool-Pair §Time-travel and
-  Spec 009 §`register-epoch-cb!`."
+  Spec 009 §`register-epoch-listener!`."
   [event]
   ;; Sticky hook (rf2-f72pd) — `:epoch/capture-event` is published once
   ;; at re-frame.epoch load and never withdrawn; this fires on every
@@ -361,9 +361,9 @@
 
 #?(:clj
    (do
-     (def register-trace-cb!     trace-tooling/register-trace-cb!)
-     (def remove-trace-cb!       trace-tooling/remove-trace-cb!)
-     (def clear-trace-cbs!       trace-tooling/clear-trace-cbs!)
+     (def register-trace-listener!     trace-tooling/register-trace-listener!)
+     (def unregister-trace-listener!       trace-tooling/unregister-trace-listener!)
+     (def clear-trace-listeners!       trace-tooling/clear-trace-listeners!)
      (def trace-buffer           trace-tooling/trace-buffer)
      (def clear-trace-buffer!    trace-tooling/clear-trace-buffer!)
      (def configure-trace-buffer! trace-tooling/configure-trace-buffer!)

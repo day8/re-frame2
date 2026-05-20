@@ -393,8 +393,8 @@
             ;; ns; in production CLJS builds where trace.tooling is not
             ;; loaded, the listener install is a silent no-op (no trace
             ;; surface to observe, no trace to re-emit).
-            register   (late-bind/get-fn :trace.tooling/register-trace-cb!)
-            remove-cb  (late-bind/get-fn :trace.tooling/remove-trace-cb!)
+            register   (late-bind/get-fn :trace.tooling/register-trace-listener!)
+            remove-cb  (late-bind/get-fn :trace.tooling/unregister-trace-listener!)
             listener-k ::on-destroy-throw-watch
             listener   (fn [ev]
                          (when (and (= :rf.error/handler-exception (:operation ev))

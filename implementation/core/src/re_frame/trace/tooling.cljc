@@ -1,7 +1,7 @@
 (ns re-frame.trace.tooling
   "Trace tooling sibling of `re-frame.trace` — carries the public
-  dev-tooling surface (`register-trace-cb!` / `remove-trace-cb!` /
-  `clear-trace-cbs!` / `trace-buffer` / `clear-trace-buffer!` /
+  dev-tooling surface (`register-trace-listener!` / `unregister-trace-listener!` /
+  `clear-trace-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
   `configure-trace-buffer!` / `configure`) and the buffer / listener
   state they operate on.
 
@@ -20,7 +20,7 @@
   trace fast path skips the fan-out (production behaviour).
 
   Public surface for tools / tests:
-    - `register-trace-cb!` / `remove-trace-cb!` / `clear-trace-cbs!`
+    - `register-trace-listener!` / `unregister-trace-listener!` / `clear-trace-listeners!`
     - `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!`
     - `configure` (generic config dispatch — currently `:trace-buffer`).
 
@@ -34,19 +34,19 @@
 
 (defonce ^:private listeners (atom {}))    ;; id → fn
 
-(defn register-trace-cb!
+(defn register-trace-listener!
   "Register a listener that receives every trace event. The id can be any
   comparable value; passing the same id twice replaces. Returns the id."
   [id f]
   (swap! listeners assoc id f)
   id)
 
-(defn remove-trace-cb!
+(defn unregister-trace-listener!
   [id]
   (swap! listeners dissoc id)
   nil)
 
-(defn clear-trace-cbs!
+(defn clear-trace-listeners!
   []
   (reset! listeners {})
   nil)
@@ -259,8 +259,8 @@
 ;; that never load this ns short-circuit the install (the lookup
 ;; returns nil and `fire-on-destroy-event!` skips the listener dance).
 
-(late-bind/set-fn! :trace.tooling/register-trace-cb! register-trace-cb!)
-(late-bind/set-fn! :trace.tooling/remove-trace-cb!   remove-trace-cb!)
+(late-bind/set-fn! :trace.tooling/register-trace-listener! register-trace-listener!)
+(late-bind/set-fn! :trace.tooling/unregister-trace-listener!   unregister-trace-listener!)
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;

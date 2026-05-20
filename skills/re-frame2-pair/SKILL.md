@@ -63,8 +63,8 @@ This is a **router skill**. The trigger-time guard rails live below; the operati
 Your agency runs through three coupled primitives, all part of re-frame2's own [Tool-Pair contract](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md):
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime, where ClojureScript forms evaluate against the real app.
-2. **The trace stream** — `(rf/register-trace-cb id cb)` for live trace events; `(rf/trace-buffer opts)` for the retain-N ring of recent events. This skill registers exactly *one* trace listener (under id `:re-frame2-pair`) so multiple tools can coexist.
-3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying the cascade's `:db-before`, `:db-after`, `:trace-events`, and the structured `:sub-runs` / `:renders` / `:effects` projections. `(rf/register-epoch-cb! id cb)` is the assembled-stream listener.
+2. **The trace stream** — `(rf/register-trace-listener id cb)` for live trace events; `(rf/trace-buffer opts)` for the retain-N ring of recent events. This skill registers exactly *one* trace listener (under id `:re-frame2-pair`) so multiple tools can coexist.
+3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying the cascade's `:db-before`, `:db-after`, `:trace-events`, and the structured `:sub-runs` / `:renders` / `:effects` projections. `(rf/register-epoch-listener! id cb)` is the assembled-stream listener.
 
 Every operation eventually becomes a short ClojureScript form evaluated through the REPL, usually against a helper function in the `re-frame2-pair.runtime` namespace that the consumer app preloads (see §Setup below).
 

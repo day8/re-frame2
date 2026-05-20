@@ -42,7 +42,7 @@
   (require 're-frame.ssr :reload)
   (let [captured (atom [])]
     (binding [*captured* captured]
-      (trace/register-trace-cb!
+      (trace/register-trace-listener!
         ::flow-trace-recorder
         (fn [ev]
           ;; Filter to flow op-type only — keeps assertions tight.
@@ -51,7 +51,7 @@
       (try
         (test-fn)
         (finally
-          (trace/remove-trace-cb! ::flow-trace-recorder))))))
+          (trace/unregister-trace-listener! ::flow-trace-recorder))))))
 
 (use-fixtures :each reset-runtime)
 
@@ -538,7 +538,7 @@
       (rf/register-error-emit-listener!
         :test/recorder
         (fn [record] (reset! listener-saw record)))
-      (trace/register-trace-cb!
+      (trace/register-trace-listener!
         ::flow-eval-trace-recorder
         (fn [ev]
           (when (= :rf.error/flow-eval-exception (:operation ev))
@@ -556,7 +556,7 @@
             "corpus-wide listener saw the record — always-on substrate path fired")
         (is (= :rf.error/flow-eval-exception (:error @listener-saw)))
         (finally
-          (trace/remove-trace-cb! ::flow-eval-trace-recorder))))))
+          (trace/unregister-trace-listener! ::flow-eval-trace-recorder))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. End-to-end sample: all five events fire across a typical lifecycle

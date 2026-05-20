@@ -237,7 +237,7 @@
   (testing "every request creates a fresh frame and destroys it before returning"
     (register-articles-app! [{:id "x" :title "Article X"}])
     (let [destroyed (atom [])
-          _ (rf/register-trace-cb! ::destroy-watch
+          _ (rf/register-trace-listener! ::destroy-watch
               (fn [ev]
                 (when (= :frame/destroyed (:operation ev))
                   (swap! destroyed conj (:frame ev)))))
@@ -249,7 +249,7 @@
           frames-before (set (rf/frame-ids))
           response (handler {:uri "/" :request-method :get})
           frames-after (set (rf/frame-ids))]
-      (rf/remove-trace-cb! ::destroy-watch)
+      (rf/unregister-trace-listener! ::destroy-watch)
       (is (= 200 (:status response)))
       ;; No per-request frame leaks into the global frame registry.
       ;; Some destroy-trace-side-channel frame-ids must have been
@@ -1449,14 +1449,14 @@
                             're-frame.ssr.ring.lifecycle/destroy-frame-quietly!)
           traces           (atom [])
           f                :rf.frame/test-destroy-throws]
-      (rf/register-trace-cb! ::dfq (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::dfq (fn [ev] (swap! traces conj ev)))
       (try
         (with-redefs [rf/destroy-frame!
                       (fn [_] (throw (ex-info "synthetic destroy failure"
                                               {:reason :test})))]
           (destroy-quietly! f))
         (finally
-          (rf/remove-trace-cb! ::dfq)))
+          (rf/unregister-trace-listener! ::dfq)))
 
       (let [hits (filterv #(= :rf.ssr/destroy-frame-failed (:operation %)) @traces)]
         (is (= 1 (count hits))
@@ -1486,13 +1486,13 @@
 
 (defn- capture-traces
   "Run `body-fn` with a trace listener attached; return the captured trace
-  events. Mirrors the `register-trace-cb!` pattern used by the
+  events. Mirrors the `register-trace-listener!` pattern used by the
   :rf.ssr/destroy-frame-failed test above."
   [body-fn]
   (let [traces (atom [])]
-    (rf/register-trace-cb! ::csp-watch (fn [ev] (swap! traces conj ev)))
+    (rf/register-trace-listener! ::csp-watch (fn [ev] (swap! traces conj ev)))
     (try (body-fn)
-         (finally (rf/remove-trace-cb! ::csp-watch)))
+         (finally (rf/unregister-trace-listener! ::csp-watch)))
     @traces))
 
 (deftest body-end-csp-allowlist-warns-on-disallowed-host
@@ -1585,7 +1585,7 @@
                           're-frame.ssr.ring.lifecycle/resolve-head)
           traces        (atom [])
           frame-id      :rf.frame/test-head-throws]
-      (rf/register-trace-cb! ::rh
+      (rf/register-trace-listener! ::rh
                              (fn [ev]
                                (when (= :rf.error/ssr-head-resolution-failed
                                         (:operation ev))
@@ -1597,7 +1597,7 @@
                                                      {:reason :test})))]
                        (resolve-head! frame-id))
                      (finally
-                       (rf/remove-trace-cb! ::rh)))]
+                       (rf/unregister-trace-listener! ::rh)))]
         (testing "fallback shape preserved (rf2-h2ujj contract)"
           (is (= "" (:head-html result))
               "empty fragment so a buggy head fn can't take down the request")
@@ -1636,7 +1636,7 @@
                           're-frame.ssr.ring.lifecycle/resolve-head)
           traces        (atom [])
           frame-id      :rf.frame/test-head-ok]
-      (rf/register-trace-cb! ::rh-ok
+      (rf/register-trace-listener! ::rh-ok
                              (fn [ev]
                                (when (= :rf.error/ssr-head-resolution-failed
                                         (:operation ev))
@@ -1649,7 +1649,7 @@
             (is (nil? (:html-attrs result)))
             (is (nil? (:body-attrs result)))))
         (finally
-          (rf/remove-trace-cb! ::rh-ok)))
+          (rf/unregister-trace-listener! ::rh-ok)))
       (is (zero? (count @traces))
           "success path must NOT emit the head-resolution-failed trace"))))
 

@@ -13,7 +13,7 @@
     3. Ring depth cap — `(rf/configure :epoch-history {:depth 3})`
        followed by five dispatches keeps the last three; the oldest two
        are dropped.
-    4. Per-dispatch fan-out — `register-epoch-cb!` fires once per
+    4. Per-dispatch fan-out — `register-epoch-listener!` fires once per
        drain-settle with the assembled record (the contract that
        Causa's preload routes through to dispatch
        `:rf.causa/epoch-recorded`; the per-dispatch signal is the
@@ -66,7 +66,7 @@
                 ;; lives in module-level atoms that need their own
                 ;; reset.
                 (epoch/clear-history!)
-                (epoch/clear-epoch-cbs!)
+                (epoch/clear-epoch-listeners!)
                 (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil}))}))
 
 ;; ---- 1. Recording — happy-path record shape -------------------------------
@@ -140,10 +140,10 @@
       (is (= [{:n 2} {:n 3} {:n 4}] dbs)
           "the three most-recent records are kept; oldest two are evicted FIFO"))))
 
-;; ---- 4. Per-dispatch fan-out — register-epoch-cb! + snapshotted trace ----
+;; ---- 4. Per-dispatch fan-out — register-epoch-listener! + snapshotted trace ----
 
 (deftest epoch-cb-fires-per-dispatch-cljs
-  (testing "register-epoch-cb! fires once per drain-settle — the
+  (testing "register-epoch-listener! fires once per drain-settle — the
             contract Causa's preload (`:rf.causa/epoch-recorded`)
             routes through. The companion `:rf.epoch/snapshotted`
             trace also fires once per dispatch."
@@ -152,8 +152,8 @@
 
     (let [cb-seen    (atom [])
           trace-seen (atom [])]
-      (rf/register-epoch-cb! ::watcher (fn [r] (swap! cb-seen conj r)))
-      (trace-tooling/register-trace-cb! ::recorder
+      (rf/register-epoch-listener! ::watcher (fn [r] (swap! cb-seen conj r)))
+      (trace-tooling/register-trace-listener! ::recorder
                              (fn [ev]
                                (when (= :rf.epoch/snapshotted (:operation ev))
                                  (swap! trace-seen conj ev))))
@@ -162,11 +162,11 @@
       (rf/dispatch-sync [:n/inc])
       (rf/dispatch-sync [:n/inc])
 
-      (rf/remove-epoch-cb! ::watcher)
-      (trace-tooling/remove-trace-cb! ::recorder)
+      (rf/unregister-epoch-listener! ::watcher)
+      (trace-tooling/unregister-trace-listener! ::recorder)
 
       (is (= 3 (count @cb-seen))
-          "register-epoch-cb! fired once per dispatch")
+          "register-epoch-listener! fired once per dispatch")
       (is (= [:n/init :n/inc :n/inc]
              (mapv :event-id @cb-seen))
           "every record carries its dispatched event-id in order")

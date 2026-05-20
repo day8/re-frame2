@@ -29,9 +29,9 @@ wrong skill — close this and answer from the spec corpus directly.
 - **reg-machine** — state-machine handler registrations (Spec 005).
 - **interceptor** — the cascade middleware contract; introspectable via
   `handler-meta`.
-- **trace-buffer** / **register-trace-cb** — the raw trace stream and its
+- **trace-buffer** / **register-trace-listener** — the raw trace stream and its
   listener registration (Spec 009).
-- **register-epoch-cb!** / **epoch-history** / **restore-epoch** — the
+- **register-epoch-listener!** / **epoch-history** / **restore-epoch** — the
   assembled-stream listener, the per-frame ring of epoch records, and the
   time-travel entry point.
 

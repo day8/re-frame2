@@ -2,8 +2,8 @@
 
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > each MCP tool below routes through one or more of the Tool-Pair
-> primitives (`get-frame-db`, `epoch-history`, `register-trace-cb!`,
-> `register-epoch-cb!`, `restore-epoch`, `reset-frame-db!`,
+> primitives (`get-frame-db`, `epoch-history`, `register-trace-listener!`,
+> `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
 The fourteen MCP tools. All fourteen are catalogued below; the
@@ -113,7 +113,7 @@ When the consuming app has called `(rf/configure :epoch-history
 {:redact-fn (fn [record] …)})`, the runtime invokes the fn
 **once per assembled record at build-time** (between
 `build-record` and ring-append / listener fan-out) — so the
-per-frame ring buffer, every `register-epoch-cb!` listener, and
+per-frame ring buffer, every `register-epoch-listener!` listener, and
 the records re-frame2-pair-mcp egresses all see the same redacted shape.
 Tools cannot recover raw shapes from the wire: any slot the fn
 rewrote ships as `:rf/redacted` (the reserved sentinel, per

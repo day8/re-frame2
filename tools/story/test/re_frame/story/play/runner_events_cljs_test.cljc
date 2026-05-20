@@ -291,8 +291,8 @@
            (fn [db _] (update db :touches (fnil inc 0))))
          (try
            (require '[re-frame.trace.tooling :as trace-tooling])
-           (let [reg!  (resolve 're-frame.trace.tooling/register-trace-cb!)
-                 unreg (resolve 're-frame.trace.tooling/remove-trace-cb!)]
+           (let [reg!  (resolve 're-frame.trace.tooling/register-trace-listener!)
+                 unreg (resolve 're-frame.trace.tooling/unregister-trace-listener!)]
              (reg! listener-id
                (fn [ev]
                  (when (= :rf.story.play/step (:operation ev))
@@ -312,7 +312,7 @@
              (unreg listener-id))
            (finally
              (try
-               (let [unreg (resolve 're-frame.trace.tooling/remove-trace-cb!)]
+               (let [unreg (resolve 're-frame.trace.tooling/unregister-trace-listener!)]
                  (when unreg (unreg listener-id)))
                (catch Throwable _ nil))))))))
 

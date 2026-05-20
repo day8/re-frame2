@@ -48,9 +48,9 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (epoch/clear-history!)
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -174,7 +174,7 @@
     ;; Trigger a real cascade so capture-buffers carries a run-start;
     ;; on destroy mid-drain the halted-destroy record fires.
     (let [seen (atom [])]
-      (rf/register-epoch-cb! ::halt-watcher
+      (rf/register-epoch-listener! ::halt-watcher
                              (fn [r] (swap! seen conj r)))
       (rf/reg-event-fx :destroy-self
                        (fn [_ _]
@@ -401,7 +401,7 @@
 ;; ---- 4. listener delivery defaults to RAW ---------------------------------
 
 (deftest listener-fan-out-delivers-raw-record
-  (testing "register-epoch-cb! callbacks receive the RAW record (NOT
+  (testing "register-epoch-listener! callbacks receive the RAW record (NOT
             the projected one) — Causa's diff visualiser and on-box
             restore drivers depend on the raw :db-after; a silent
             projection would break them. Forwarders that egress
@@ -409,7 +409,7 @@
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (let [seen (atom [])]
-      (rf/register-epoch-cb! ::raw-listener
+      (rf/register-epoch-listener! ::raw-listener
                              (fn [r] (swap! seen conj r)))
       (rf/reg-event-db :login
                        (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
@@ -430,7 +430,7 @@
           ship!   (fn [record]
                     ;; Tool-side forwarder body — project here.
                     (swap! shipped conj (epoch/projected-record record)))]
-      (rf/register-epoch-cb! ::forwarder ship!)
+      (rf/register-epoch-listener! ::forwarder ship!)
       (rf/reg-event-db :login
                        (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})

@@ -29,7 +29,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (rf/clear-trace-buffer!)
   (rf/init! plain-atom/adapter)
   (try (test-fn)

@@ -42,7 +42,7 @@ Drop both. The `day8.re-frame/re-frame-10x` Maven coord and the `day8.re-frame-1
 
 While re-frame2 is in alpha, use the `:local/root` route from a clone of the `day8/re-frame2` repo. Once Causa publishes to Clojars, the coord will be `day8/re-frame2-causa {:mvn/version "<VERSION>"}` (tracking re-frame2's lockstep `<VERSION>`). The skill prints the `:local/root` form when the author hasn't told it otherwise; if the author wants the published coord, they say so in the kickoff prompt.
 
-`day8/re-frame2-causa` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Causa's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-cb!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Causa.
+`day8/re-frame2-causa` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Causa's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-listener!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Causa.
 
 Causa is **dev-only by construction** — production builds elide every byte of it through the framework's `re-frame.interop/debug-enabled?` gate (`goog.DEBUG=false`). A CI gate at `implementation/scripts/check-bundle-isolation.cjs` greps production bundles for Causa-internal sentinels; any hit is a release blocker. See [`tools/causa/README.md` §Bundle isolation](../../../tools/causa/README.md#bundle-isolation).
 
@@ -53,7 +53,7 @@ Causa is **dev-only by construction** — production builds elide every byte of 
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-The preload registers Causa's listeners under `register-trace-cb!` and `register-epoch-cb!`, attaches the `Ctrl+Shift+C` keybinding, and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-causa.core])`. No `init!` call. The preload plus the host element are the full integration surface.
+The preload registers Causa's listeners under `register-trace-listener!` and `register-epoch-listener!`, attaches the `Ctrl+Shift+C` keybinding, and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-causa.core])`. No `init!` call. The preload plus the host element are the full integration surface.
 
 ---
 

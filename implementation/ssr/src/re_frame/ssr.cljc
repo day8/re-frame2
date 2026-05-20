@@ -10,7 +10,7 @@
   `hydrate`, `response`, `error-projector`, `error-listener`,
   `request`). All `reg-fx` / `reg-cofx` / `reg-event-fx` /
   `reg-error-projector` / `register-error-emit-listener!` /
-  `register-trace-cb!` side-effects fire HERE so
+  `register-trace-listener!` side-effects fire HERE so
   `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`
   re-installs every registration. Sub-namespaces export pure handler
   fns only.
@@ -288,7 +288,7 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 ;; addressable as one logical projector — `apply-error-projection!`
 ;; 1-arity is last-write-wins, so the duplicate buffer entry under dev
 ;; is benign.
-(trace-tooling/register-trace-cb! ::error-projection
+(trace-tooling/register-trace-listener! ::error-projection
                                   error-listener/error-projection-listener)
 
 ;; ---- late-bind hook registration ------------------------------------------

@@ -43,13 +43,13 @@
             retain in-heap traces of user input."
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-trace-cb!
+        (rf/register-trace-listener!
           :prod-gate/recorder
           (fn [event] (swap! seen conj event)))
         (rf/reg-event-db :prod-gate/silent
                          (fn [db _] (update db :n (fnil inc 0))))
         (rf/dispatch-sync [:prod-gate/silent])
-        (rf/remove-trace-cb! :prod-gate/recorder)
+        (rf/unregister-trace-listener! :prod-gate/recorder)
         (is (empty? @seen)
             "trace listener saw zero events under disabled gate")))))
 

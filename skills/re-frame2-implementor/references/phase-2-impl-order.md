@@ -126,7 +126,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 **The contract.**
 
 - **Trace event stream.** Structured events emitted from well-defined points (event-handler entry/exit, fx invocations, sub computations, errors). Synchronous, in-order, per-emit listener invocation.
-- **Listener registry.** `(register-trace-cb! key callback)` / `(deregister-trace-cb! key)`. Multiple listeners; each gets every event.
+- **Listener registry.** `(register-trace-listener! key callback)` / `(deregister-trace-listener! key)`. Multiple listeners; each gets every event.
 - **Retain-N ring buffer.** Dev-only; tools that attach after events have fired can read recent history.
 - **Error contract.** Structured trace events for runtime failures — handler exceptions, schema validation, drain depth, no-such-handler. `:operation :rf.error/<category>`, `:op-type :error`.
 - **Production elision.** Every emit site, the listener registry, the trace buffer must elide in production builds. Mechanism is host-discretion (Closure DCE for CLJS; Vite `define` for JS/TS; Cargo features for Rust; `__debug__` for Python).

@@ -449,7 +449,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** Pair-shaped AI inspection tools (re-frame-pair equivalent) attach to a running re-frame2 application and let an AI agent inspect, dispatch, hot-swap, and time-travel. Per [Tool-Pair.md](Tool-Pair.md).
 - **The full attachment surface.** Per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach):
-  - **Trace listener** — `(rf/register-trace-cb! key callback)` for live events.
+  - **Trace listener** — `(rf/register-trace-listener! key callback)` for live events.
   - **Trace buffer** — `(rf/trace-buffer ...)` for recent events (retain-N ring buffer; default 200).
   - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch frame-id epoch-id)`, `(rf/configure :epoch-history {:depth N})`.
   - **Registrar query** — `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/machines)`, `(rf/machine-meta id)`, `(rf/frame-ids)`, `(rf/frame-meta id)`.

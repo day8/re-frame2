@@ -6,7 +6,7 @@ Authoring rule: in production, you wire two listeners — one for events (succes
 
 ## When to load
 
-Wiring a production observability shipper, writing a `register-event-emit-listener!` / `register-error-emit-listener!` body, or asking "what's the prod-survivable equivalent of `register-trace-cb!`?".
+Wiring a production observability shipper, writing a `register-event-emit-listener!` / `register-error-emit-listener!` body, or asking "what's the prod-survivable equivalent of `register-trace-listener!`?".
 
 ## `register-event-emit-listener!` — one record per dispatched event
 
@@ -138,7 +138,7 @@ Three independent conditions: **config env tag** (the app knows it's production)
 
 ## Why production has no trace bus
 
-`re-frame.trace/emit!` and the `register-trace-cb!` plumbing are gated by `re-frame.interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`, the Closure compiler DCEs the entire trace surface — registrations, the ring buffer, the per-event allocation, every `tag/value` map. The bundle savings (~12-15 KB gzipped) and per-event allocation savings are part of re-frame2's "production debugging is opt-out, not opt-in" stance.
+`re-frame.trace/emit!` and the `register-trace-listener!` plumbing are gated by `re-frame.interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`, the Closure compiler DCEs the entire trace surface — registrations, the ring buffer, the per-event allocation, every `tag/value` map. The bundle savings (~12-15 KB gzipped) and per-event allocation savings are part of re-frame2's "production debugging is opt-out, not opt-in" stance.
 
 The two always-on listener APIs carve a minimal substrate that **survives** that elision: a tiny record shape, a `defonce` registry that hot reload won't blow away, fan-out gated on registry size (empty-map check short-circuits). Re-enable the full trace bus in production by flipping `:closure-defines {goog.DEBUG true}` if and only if the bundle cost is acceptable.
 
@@ -170,7 +170,7 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 - **Don't re-run elision unless widening.** The record already has off-box defaults applied. A listener that re-walks with defaults is a no-op; one that flips `:include-large?` / `:include-sensitive?` to `true` exposes data you'd otherwise hide.
 - **`:sensitive?` on the handler drops the listener record entirely — there's nothing to ship.** If you need an audit trail of sensitive events (without their payloads), that's a separate per-event `:sensitive?`-aware path; don't try to ship redacted records through the same channel.
 - **Listener exceptions are swallowed.** The cascade catches; sibling listeners still run. You will NOT see a thrown listener error in the console; log inside the listener body if you want visibility.
-- **Don't use `register-trace-cb!` for production observability.** It dies under `:advanced` + `goog.DEBUG=false`. The two `*-emit-listener!` surfaces are the prod-survivable channel.
+- **Don't use `register-trace-listener!` for production observability.** It dies under `:advanced` + `goog.DEBUG=false`. The two `*-emit-listener!` surfaces are the prod-survivable channel.
 
 ## Cross-references
 

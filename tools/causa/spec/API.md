@@ -24,9 +24,9 @@ cycle re-runs without double-registration:
 1. Registers Causa's `:rf.causa/*` subs / events / fxs via
    `registry/register-causa-handlers!`.
 2. Registers the trace collector under `:rf.causa/trace-collector`
-   via `re-frame.core/register-trace-cb!` (sentinel-guarded).
+   via `re-frame.core/register-trace-listener!` (sentinel-guarded).
 3. Registers the epoch-settle pump under `:rf.causa/epoch-collector`
-   via `re-frame.core/register-epoch-cb!` (sentinel-guarded; no-op
+   via `re-frame.core/register-epoch-listener!` (sentinel-guarded; no-op
    when the `day8/re-frame2-epoch` artefact is absent).
 4. Installs the dev-only browser API on `window.day8.re_frame2_causa.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).
@@ -299,8 +299,8 @@ reference:
 
 | Surface | Spec | What Causa reads |
 |---|---|---|
-| `(rf/register-trace-cb! key callback)` | Spec 009 | The trace bus (every operation). |
-| `(rf/register-epoch-cb! key callback)` | Tool-Pair | The per-cascade epoch records. |
+| `(rf/register-trace-listener! key callback)` | Spec 009 | The trace bus (every operation). |
+| `(rf/register-epoch-listener! key callback)` | Tool-Pair | The per-cascade epoch records. |
 | `(rf/trace-buffer)` / `(rf/trace-buffer filter)` | Spec 009 | The bounded trace buffer (default 200). |
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |

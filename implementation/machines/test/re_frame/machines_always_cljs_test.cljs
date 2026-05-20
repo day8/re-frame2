@@ -87,9 +87,9 @@
             :b     {:always [{:guard :p? :target :a}]}}}
           traces (atom [])]
       (rf/reg-machine :osc/flow machine)
-      (trace-tooling/register-trace-cb! ::osc (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-listener! ::osc (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:osc/flow [:go]])
-      (trace-tooling/remove-trace-cb! ::osc)
+      (trace-tooling/unregister-trace-listener! ::osc)
       ;; Atomic rollback: external snapshot stays at :start.
       (is (= :start (:state (snapshot :osc/flow)))
           "macrostep is atomic; cycle aborts; snapshot rolls back to input")

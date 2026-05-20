@@ -14,7 +14,7 @@
 
   Surfaces exercised:
 
-  - `register-trace-cb!` / `remove-trace-cb!` / `emit-trace-event!`
+  - `register-trace-listener!` / `unregister-trace-listener!` / `emit-trace-event!`
     (Spec 009 §Emitting trace events)
   - `reg-app-schema` + `validate-*!` (Spec 010 §Production builds)
   - `register!` / `unregister!` / `clear-kind!` registrar trace emit
@@ -25,7 +25,7 @@
     `:rf.warning/decode-defaulted`) — emitted only inside
     `(when interop/debug-enabled? ...)` branches.
   - `re-frame.epoch` public surface — `epoch-history`, `restore-epoch`,
-    `register-epoch-cb!`, `remove-epoch-cb!`, `configure :epoch-history`,
+    `register-epoch-listener!`, `unregister-epoch-listener!`, `configure :epoch-history`,
     plus the `:rf.epoch/*` trace ops emitted by `settle!` and
     `restore-epoch` (rf2-gox8 follow-up to rf2-shjf).
   - `re-frame.views` reg-view* wrapper — `:view/render` trace op
@@ -56,9 +56,9 @@
 (defn ^:export touch-trace! []
   ;; Reach into every documented trace API so :advanced keeps the surface
   ;; alive and we're testing the *body* gates, not surface-pruning.
-  (trace-tooling/register-trace-cb! ::probe (fn [_ev] nil))
+  (trace-tooling/register-trace-listener! ::probe (fn [_ev] nil))
   (rf/emit-trace-event! :event :rf.probe/touched {:source :probe})
-  (trace-tooling/remove-trace-cb! ::probe)
+  (trace-tooling/unregister-trace-listener! ::probe)
   ;; rf2-smee — trace ring buffer (Spec 009 §Retain-N).  These public
   ;; entry points must elide their bodies in production.
   (trace-tooling/configure-trace-buffer! {:depth 50})
@@ -153,7 +153,7 @@
 ;; ---- Tool-Pair §Time-travel epoch surface (rf2-gox8) ----------------------
 
 (defn ^:export touch-epoch! []
-  ;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-cb!`, the
+  ;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-listener!`, the
   ;; epoch ns ships gated trace ops:
   ;;
   ;;   :rf.epoch/snapshotted                       (settle! after drain-empty)
@@ -216,10 +216,10 @@
   ;; Clear so subsequent probe sites (reset-frame-db! below,
   ;; on-frame-destroyed!) are not perturbed by the throwing fn.
   (rf/configure :epoch-history {:redact-fn nil})
-  (rf/register-epoch-cb! ::probe-epoch (fn [_record] nil))
+  (rf/register-epoch-listener! ::probe-epoch (fn [_record] nil))
   (let [_history (rf/epoch-history :rf/default)]
     nil)
-  (rf/remove-epoch-cb! ::probe-epoch)
+  (rf/unregister-epoch-listener! ::probe-epoch)
   ;; Drive a restore failure-mode emit site so the unknown-epoch
   ;; sentinel has a path through a documented entry point. The
   ;; remaining failure ops survive via their literal occurrence in
@@ -241,12 +241,12 @@
   ;; rf2-sh5g6: clear-frame-history! is `defn-` (test-only seam); the
   ;; un-scoped `clear-history!` above already pins the namespace for
   ;; the elision walker.
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   (let [_cfg (epoch/current-config)]
     nil)
   ;; rf2-d656 — on-frame-destroyed! emits :rf.epoch.cb/silenced-on-frame-destroy
   ;; per (frame-id, cb-id) pair when a frame previously observed by a
-  ;; register-epoch-cb! callback is destroyed. The whole body sits inside
+  ;; register-epoch-listener! callback is destroyed. The whole body sits inside
   ;; `(when interop/debug-enabled? ...)`; the string fragment must elide
   ;; under :advanced + goog.DEBUG=false. Touch the entry point through
   ;; the public surface (frame destroy walks call into it via the

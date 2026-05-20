@@ -20,7 +20,7 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (event-emit/clear-event-emit-listeners!)
   (rf/init! plain-atom/adapter)
   (test-fn))

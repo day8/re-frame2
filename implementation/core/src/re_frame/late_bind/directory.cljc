@@ -491,10 +491,10 @@
    {:key         :epoch/reset-frame-db!
     :producer-ns 're-frame.epoch
     :description "Reset a frame's app-db to the epoch-recorded snapshot."}
-   {:key         :epoch/register-epoch-cb!
+   {:key         :epoch/register-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Register an epoch-settled callback."}
-   {:key         :epoch/remove-epoch-cb!
+   {:key         :epoch/unregister-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Unregister a previously-registered epoch-settled callback."}
    {:key         :epoch/configure!
@@ -503,7 +503,7 @@
    {:key         :epoch/clear-history!
     :producer-ns 're-frame.epoch
     :description "Clear the committed-epoch ring buffer (test isolation)."}
-   {:key         :epoch/clear-epoch-cbs!
+   {:key         :epoch/clear-epoch-listeners!
     :producer-ns 're-frame.epoch
     :description "Clear every registered epoch-settled callback (test isolation)."}
    {:key         :epoch/on-frame-destroyed
@@ -529,8 +529,8 @@
    ;; ---- re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
    ;; surface split off for production DCE; trace.cljc reaches the buffer
    ;; push + listener fan-out through this single hook). The public
-   ;; surface fns (`register-trace-cb!` / `remove-trace-cb!` /
-   ;; `clear-trace-cbs!` / `trace-buffer` / `clear-trace-buffer!` /
+   ;; surface fns (`register-trace-listener!` / `unregister-trace-listener!` /
+   ;; `clear-trace-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
    ;; `configure-trace-buffer!` / `configure`) are exposed directly from
    ;; `re-frame.trace.tooling`; consumers (tests, tools, SSR's listener
    ;; registration) call them through `re-frame.trace.tooling/<name>`
@@ -546,14 +546,14 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-qwm0a"
     :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure :trace-buffer` so a no-tooling production build silently no-ops."}
-   {:key         :trace.tooling/register-trace-cb!
+   {:key         :trace.tooling/register-trace-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"
     :description "Register a trace listener. Late-bound so `re-frame.frame/fire-on-destroy-event!` can install a one-shot listener around the `:on-destroy` dispatch (to re-emit `:rf.error/handler-exception` as `:rf.error/on-destroy-handler-exception`) without forcing the tooling sibling into production CLJS bundles."}
-   {:key         :trace.tooling/remove-trace-cb!
+   {:key         :trace.tooling/unregister-trace-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"
-    :description "Drop a trace listener. Sibling of `:trace.tooling/register-trace-cb!` — same rf2-r1ciy seam."}
+    :description "Drop a trace listener. Sibling of `:trace.tooling/register-trace-listener!` — same rf2-r1ciy seam."}
 
    ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
    {:key         :event-emit/dispatch-on-event

@@ -407,7 +407,7 @@
       (rf/reg-machine :child/lb child)
       (rf/reg-machine :child/lc child)
       (rf/reg-machine :sup/late parent)
-      (rf/register-trace-cb! ::late-cb
+      (rf/register-trace-listener! ::late-cb
                              (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:sup/late [:start]])
@@ -433,7 +433,7 @@
           (is (= :done (:kind (:tags (first late-traces))))
               "trace carries the resolution kind"))
         (finally
-          (rf/remove-trace-cb! ::late-cb))))))
+          (rf/unregister-trace-listener! ::late-cb))))))
 
 ;; ---- forged child-id rejection (rf2-ns8ut) ------------------------------
 ;;
@@ -469,11 +469,11 @@
   [body-fn]
   (let [traces (atom [])
         cb-key (gensym ::forged-cb)]
-    (rf/register-trace-cb! cb-key (fn [ev] (swap! traces conj ev)))
+    (rf/register-trace-listener! cb-key (fn [ev] (swap! traces conj ev)))
     (try
       (body-fn)
       (finally
-        (rf/remove-trace-cb! cb-key)))
+        (rf/unregister-trace-listener! cb-key)))
     @traces))
 
 (defn- bad-child-id-error-traces
@@ -677,7 +677,7 @@
       (rf/reg-machine :child/fpa child)
       (rf/reg-machine :child/fpb child)
       (rf/reg-machine :sup/fail-payload parent)
-      (rf/register-trace-cb! ::any-failed-trace
+      (rf/register-trace-listener! ::any-failed-trace
                              (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:sup/fail-payload [:start]])
@@ -692,4 +692,4 @@
                  (:reason (:tags any-failed)))
               ":reason key on trace carries decisive child's forwarded payload"))
         (finally
-          (rf/remove-trace-cb! ::any-failed-trace))))))
+          (rf/unregister-trace-listener! ::any-failed-trace))))))

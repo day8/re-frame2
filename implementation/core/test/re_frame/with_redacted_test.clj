@@ -32,7 +32,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (privacy/clear-suppression-cache!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.elision :reload)
@@ -44,9 +44,9 @@
 (defn- record-traces
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (rf/remove-trace-cb! ::rec)))
+         (finally (rf/unregister-trace-listener! ::rec)))
     @seen))
 
 (defn- events-of [evs op]

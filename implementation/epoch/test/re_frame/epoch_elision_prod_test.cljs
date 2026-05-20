@@ -29,7 +29,7 @@
   Surfaces deliberately NOT gated (value-layer registrar machinery —
   registration sites survive; only the dev-side delivery elides):
 
-  - `register-epoch-cb!` / `remove-epoch-cb!` / `clear-epoch-cbs!`
+  - `register-epoch-listener!` / `unregister-epoch-listener!` / `clear-epoch-listeners!`
   - `epoch-history` / `clear-history!`
   - `configure :epoch-history`
 
@@ -77,11 +77,11 @@
 
 (deftest registered-epoch-cb-does-not-fire-under-prod
   (testing "Per Spec 009 §Production builds: an installed
-            `register-epoch-cb!` listener observes NO records under
+            `register-epoch-listener!` listener observes NO records under
             prod. The settle! body's notify-listeners! call does not
             run (it sits inside the same gate as the record build)."
     (let [seen (atom [])]
-      (rf/register-epoch-cb! ::prod-epoch-listener
+      (rf/register-epoch-listener! ::prod-epoch-listener
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod-epoch/ping
                        (fn [db _] (assoc db :pinged? true)))
@@ -90,7 +90,7 @@
       (is (empty? @seen)
           "no records delivered to the listener under
            :advanced + goog.DEBUG=false")
-      (rf/remove-epoch-cb! ::prod-epoch-listener))))
+      (rf/unregister-epoch-listener! ::prod-epoch-listener))))
 
 ;; ---- restore-epoch is a no-op returning false under prod -----------------
 
@@ -134,21 +134,21 @@
   (testing "Per Spec 009 §Production builds: the registration / lookup
             surface is not gated — it's value-layer machinery
             (defonce'd atoms + plain swap! / reset!). Under prod
-            `register-epoch-cb!` returns the id; `epoch-history` returns
+            `register-epoch-listener!` returns the id; `epoch-history` returns
             a (necessarily empty) vector; `clear-history!` and
-            `clear-epoch-cbs!` return nil. Apps that boot with these
+            `clear-epoch-listeners!` return nil. Apps that boot with these
             calls do not crash under :advanced."
     (is (= ::prod-survives
-           (rf/register-epoch-cb! ::prod-survives (fn [_] nil)))
-        "register-epoch-cb! returns the id under prod")
-    (is (nil? (rf/remove-epoch-cb! ::prod-survives))
-        "remove-epoch-cb! returns nil under prod")
+           (rf/register-epoch-listener! ::prod-survives (fn [_] nil)))
+        "register-epoch-listener! returns the id under prod")
+    (is (nil? (rf/unregister-epoch-listener! ::prod-survives))
+        "unregister-epoch-listener! returns nil under prod")
     (is (vector? (rf/epoch-history :rf/default))
         "epoch-history returns a vector (empty) under prod")
     (is (nil? (epoch/clear-history!))
         "clear-history! returns nil under prod")
-    (is (nil? (epoch/clear-epoch-cbs!))
-        "clear-epoch-cbs! returns nil under prod")))
+    (is (nil? (epoch/clear-epoch-listeners!))
+        "clear-epoch-listeners! returns nil under prod")))
 
 ;; ---- on-frame-destroyed! is silent under prod ----------------------------
 

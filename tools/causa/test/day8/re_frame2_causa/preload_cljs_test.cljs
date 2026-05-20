@@ -6,7 +6,7 @@
   1. **Idempotency.** Loading the preload twice (shadow-cljs
      `:after-load` simulation) must not double-register the trace
      callback nor double-attach the keydown listener. The framework's
-     `register-trace-cb!` semantics already collapse same-id
+     `register-trace-listener!` semantics already collapse same-id
      registrations to one entry, but the warning trace the framework
      emits on replacement would pollute the dev console on every hot-
      reload; the preload's `defonce` sentinels prevent the warning

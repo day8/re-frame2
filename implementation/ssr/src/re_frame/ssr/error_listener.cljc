@@ -107,7 +107,7 @@
   carrying the exception and drives the projector via
   `apply-error-projection!` so the response accumulator's `:status`
   is stamped with the projector's output. Also emits the trace on the
-  trace bus so monitoring listeners (`register-trace-cb!`) see the
+  trace bus so monitoring listeners (`register-trace-listener!`) see the
   rich internal detail (Spec 011 §Internal trace events are not
   leaked).
 

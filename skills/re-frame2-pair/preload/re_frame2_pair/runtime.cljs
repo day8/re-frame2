@@ -9,8 +9,8 @@
 ;;;;
 ;;;; Design invariants (see docs/initial-spec.md):
 ;;;;   - All trace and epoch reads consume re-frame2's public Tool-Pair
-;;;;     surfaces (`re-frame.core/register-trace-cb!`, `trace-buffer`,
-;;;;     `register-epoch-cb!`, `epoch-history`, `restore-epoch`). No
+;;;;     surfaces (`re-frame.core/register-trace-listener!`, `trace-buffer`,
+;;;;     `register-epoch-listener!`, `epoch-history`, `restore-epoch`). No
 ;;;;     reaching into private namespaces.
 ;;;;   - Exactly one trace listener (`:re-frame2-pair`) and one epoch
 ;;;;     listener (`:re-frame2-pair-epoch`) are registered. Multi-tool
@@ -58,7 +58,7 @@
             ;; tooling sibling here is bundle-isolation-safe (the
             ;; preload is dev-only).
             [re-frame.subs.tooling :as subs-tooling]
-            ;; rf2-qwm0a: register-trace-cb! / trace-buffer (and the rest of
+            ;; rf2-qwm0a: register-trace-listener! / trace-buffer (and the rest of
             ;; the listener + ring-buffer surface) live in
             ;; re-frame.trace.tooling, not re-frame.trace. CLJS deliberately
             ;; omits `rf/<name>` aliases for these so production counter
@@ -499,7 +499,7 @@
            h)))))
 
 ;; The per-frame `observed-epochs` stash and the streaming dispatch both
-;; ride the same `register-epoch-cb!` slot — combined into
+;; ride the same `register-epoch-listener!` slot — combined into
 ;; `on-epoch-streaming` below to keep listener ordering deterministic
 ;; (rf2-hq49). The legacy single-purpose `on-epoch` was inlined into the
 ;; streaming listener.
@@ -508,13 +508,13 @@
 
 (defn- ensure-epoch-listener!
   "Register the assembled-epoch listener if it isn't already. Idempotent —
-   passing the same id twice replaces (per `register-epoch-cb!` contract).
+   passing the same id twice replaces (per `register-epoch-listener!` contract).
 
    Installs the streaming-aware listener (rf2-hq49). The streaming
    dispatch is a no-op when no subscriptions are active, so this is
    safe to install unconditionally."
   []
-  (rf/register-epoch-cb! :re-frame2-pair-epoch on-epoch-streaming))
+  (rf/register-epoch-listener! :re-frame2-pair-epoch on-epoch-streaming))
 
 (defn epoch-history
   "Pass-through to (rf/epoch-history frame-id) — the framework's
@@ -633,7 +633,7 @@
 (defonce ^:private last-trace-id (atom 0))
 
 ;; The legacy `last-trace-id` cursor and the streaming dispatch both
-;; ride the same `register-trace-cb!` slot — combined into
+;; ride the same `register-trace-listener!` slot — combined into
 ;; `on-trace-streaming` below (rf2-hq49). The legacy `on-trace` was
 ;; inlined into the streaming listener.
 
@@ -647,7 +647,7 @@
    safe to install unconditionally — `last-trace-event-id` keeps
    working through it."
   []
-  (trace-tooling/register-trace-cb! :re-frame2-pair on-trace-streaming))
+  (trace-tooling/register-trace-listener! :re-frame2-pair on-trace-streaming))
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
@@ -1031,8 +1031,8 @@
                                         default-max-buffered-bytes)}]
       ;; Make sure the upgraded listeners are wired (idempotent — same
       ;; id, replaces the basic listeners installed by `health`).
-      (trace-tooling/register-trace-cb! :re-frame2-pair on-trace-streaming)
-      (rf/register-epoch-cb! :re-frame2-pair-epoch on-epoch-streaming)
+      (trace-tooling/register-trace-listener! :re-frame2-pair on-trace-streaming)
+      (rf/register-epoch-listener! :re-frame2-pair-epoch on-epoch-streaming)
       (swap! subscriptions assoc sub-id sub)
       {:ok? true :sub-id sub-id :topic topic :filter (:filter sub)})))
 

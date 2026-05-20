@@ -16,7 +16,7 @@ re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md
 
 `day8.re-frame/async-flow-fx` is an **add-on lib** with a separate Maven coordinate; nothing in re-frame's core surface depends on it, and nothing in re-frame2 breaks when a project keeps using it. A v1 codebase can in principle:
 
-1. Continue to depend on `day8.re-frame/async-flow-fx` 0.4.0 (the engine itself is built on top of `reg-event-fx`, `reg-fx`, and `register-trace-cb!`-style event observation — every surface it consumes is preserved or has a v2-canonical equivalent).
+1. Continue to depend on `day8.re-frame/async-flow-fx` 0.4.0 (the engine itself is built on top of `reg-event-fx`, `reg-fx`, and `register-trace-listener!`-style event observation — every surface it consumes is preserved or has a v2-canonical equivalent).
 2. Migrate flow-by-flow to `reg-machine` as part of broader v2 modernisation.
 
 The rule is opt-in (O-rule, not M-rule) because (1) is technically valid. The migration agent does NOT auto-rewrite — every flow is surfaced for operator approval per call site, because the rewrite is semantic (the FSM shape is a re-thinking of the rule-set, not a structural lift).
@@ -50,7 +50,7 @@ The rule engine and the FSM are structurally different — async-flow is *tempor
 | `:halt? true` (rule tears down the flow) | A `:final?` state (per Spec 005 §Final states) | The machine reaching `:final? true` triggers auto-destroy of the machine and its `[:rf/machines <id>]` snapshot. Symmetric with async-flow's deregister-and-cleanup. |
 | The implicit "deregister event handler when halted" | Auto-destroy on `:final?` per Spec 005 §Final states | Single-rule pre-cleanup is built into the machine's lifecycle; no user-side teardown code. |
 | Parallel-task tracking (one rule per sibling, all converging on a single "all done" rule) | `:invoke-all` per Spec 005 §Spawn-and-join | The async-flow idiom "kick off N HTTP requests, wait for all success events, then advance" is exactly `:invoke-all` with `:join :all` (per Spec 005 §Spawn-and-join via `:invoke-all`). The translation is the highest-payoff part of this rule: the hand-rolled bucket-tracking that async-flow encourages becomes one declarative `:invoke-all` slot, with the `:on-all-complete` / `:on-any-failed` semantics handled by the runtime. |
-| `:debug?` (per-flow console logging) | The standard trace stream (per [009](../../spec/009-Instrumentation.md)) | Machine state transitions fire `:rf.machine/transition` trace events that 10x / Causa / `register-trace-cb!`-consumers see for free. No per-machine debug flag needed. |
+| `:debug?` (per-flow console logging) | The standard trace stream (per [009](../../spec/009-Instrumentation.md)) | Machine state transitions fire `:rf.machine/transition` trace events that 10x / Causa / `register-trace-listener!`-consumers see for free. No per-machine debug flag needed. |
 
 ## Before / after — representative boot orchestration
 
@@ -175,7 +175,7 @@ The agent surfaces every `:halt-fns?` site and explains the three paths; the ope
 
 ### `:debug?`
 
-Drop. Machine trace events (`:rf.machine/transition`, `:rf.machine/event-received`, `:rf.machine/raised`, lifecycle events) flow through the standard trace surface per [009](../../spec/009-Instrumentation.md). 10x, Causa, and bespoke `register-trace-cb!` listeners see them without per-machine opt-in. If the user wanted console logging specifically, attach a `register-trace-cb!` filtered on `:operation #{:rf.machine/transition}` and the machine's id.
+Drop. Machine trace events (`:rf.machine/transition`, `:rf.machine/event-received`, `:rf.machine/raised`, lifecycle events) flow through the standard trace surface per [009](../../spec/009-Instrumentation.md). 10x, Causa, and bespoke `register-trace-listener!` listeners see them without per-machine opt-in. If the user wanted console logging specifically, attach a `register-trace-listener!` filtered on `:operation #{:rf.machine/transition}` and the machine's id.
 
 ## Explicit escalation cases — the agent surfaces and stops
 

@@ -15,7 +15,7 @@ A coding agent working with just the **static code** is working with a limited p
 It can:
 
 - use the REPL
-- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`register-trace-cb`), the retain-N trace buffer (`trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `machines`, `machine-meta`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
+- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`register-trace-listener`), the retain-N trace buffer (`trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `machines`, `machine-meta`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
 - use re-frame2's source-coord annotation (`data-rf2-source-coord`) — and re-com's `data-rc-src` as a fallback — to bridge live DOM elements back to source `{:ns :line :file}`
 
 With these capabilities, Claude Code can iteratively perform experiments by patching parts of the system, restoring state to a recorded epoch, retrying events and seeing the results.
@@ -212,7 +212,7 @@ The pieces (design; see *Status* above):
 2. `eval-cljs` (MCP tool `mcp__re-frame2-pair__eval-cljs`) sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
 3. `preload/re_frame2_pair/runtime.cljs` is the `re-frame2-pair.runtime` namespace itself, loaded into the consumer app via shadow-cljs's `:devtools :preloads`. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), and installs the `js/globalThis.__re_frame2_pair_runtime` marker the connect-flow probes.
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
-5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-cb`, `trace-buffer`, `register-epoch-cb!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
+5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-listener`, `trace-buffer`, `register-epoch-listener!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
 
 See [`docs/initial-spec.md`](docs/initial-spec.md) for the full operation catalogue, architecture, error surfaces, versioning, and phased delivery plan.
 

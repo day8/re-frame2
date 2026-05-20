@@ -12,7 +12,7 @@
   rf2-douii, and the halted-cascade pin rf2-v0jwt) covers correctness
   single-shot. None of those tests fires the epoch surface from multiple
   threads — under contention the three documented hot paths
-  (`settle!`/`record!`, the `register-epoch-cb!`/`remove-epoch-cb!`
+  (`settle!`/`record!`, the `register-epoch-listener!`/`unregister-epoch-listener!`
   listener registry, and the per-frame ring buffer) are reached
   concurrently and must hold the same invariants.
 
@@ -40,7 +40,7 @@
        single shared `(swap! epoch-counter inc)` — every record across
        all frames must carry a distinct id.
 
-  ### Scenario 2 — register-epoch-cb! / remove-epoch-cb! race vs settle fanout
+  ### Scenario 2 — register-epoch-listener! / unregister-epoch-listener! race vs settle fanout
 
     A pair of threads churns the listener registry (register + remove
     a per-thread id in a tight loop) while a separate driver thread
@@ -140,9 +140,9 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (epoch/clear-history!)
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   ;; Reset the config atom directly so :trace-events-keep / a stale
   ;; :depth from a sibling test can't leak; configure! merges, so a
   ;; per-test opt-in to elision would otherwise persist. Per rf2-mrsck
@@ -295,7 +295,7 @@
 ;; atom (swapped per listener per notify by `record-observation!`).
 
 (deftest register-deregister-vs-settle-fanout-stress
-  (testing (str "register-epoch-cb! / remove-epoch-cb! churn vs "
+  (testing (str "register-epoch-listener! / unregister-epoch-listener! churn vs "
                 stress-iters " settle fanouts — no leaked listeners, "
                 "exception isolation holds, every settle records")
     ;; Bump the ring depth above iters — invariant 3 below counts the
@@ -316,11 +316,11 @@
     ;;     would mean siblings stop firing after the first throw).
     (let [throw-count (atom 0)
           seen-count  (atom 0)]
-      (rf/register-epoch-cb! ::throwing
+      (rf/register-epoch-listener! ::throwing
                              (fn [_]
                                (swap! throw-count inc)
                                (throw (ex-info "intentional" {}))))
-      (rf/register-epoch-cb! ::counter
+      (rf/register-epoch-listener! ::counter
                              (fn [_] (swap! seen-count inc)))
 
       (let [;; One churner per thread. Each churner-id is per-thread so
@@ -339,8 +339,8 @@
                     (.await latch)
                     (loop []
                       (when-not @churn-stop
-                        (rf/register-epoch-cb! cb-id (fn [_] nil))
-                        (rf/remove-epoch-cb! cb-id)
+                        (rf/register-epoch-listener! cb-id (fn [_] nil))
+                        (rf/unregister-epoch-listener! cb-id)
                         (recur)))))))
             driver
             (future
@@ -369,7 +369,7 @@
         ;;     was paused between register and remove when the flag
         ;;     flipped (pre-alpha posture: explicit cleanup).
         (dotimes [i n-churners]
-          (rf/remove-epoch-cb! (keyword "rd7a7.fanout"
+          (rf/unregister-epoch-listener! (keyword "rd7a7.fanout"
                                         (str "churner-" i))))
         (let [live (deref @#'state/listeners)
               churner-keys (filter (fn [k]

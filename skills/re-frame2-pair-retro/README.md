@@ -34,7 +34,7 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - [`re-frame2`](https://github.com/day8/re-frame2) — the framework. When friction is caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings), GitHub issues route here, not to `re-frame2-pair`.
 - [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver) — the v1 sibling that targets v1 `re-frame-pair`.
 
-This skill does **not** depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation) replace the v1 reliance on the 10x dev tool.
+This skill does **not** depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces (`register-trace-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation) replace the v1 reliance on the 10x dev tool.
 
 ## Typical output
 

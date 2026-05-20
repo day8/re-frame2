@@ -201,7 +201,7 @@
 ;;    artefact registers its `error-projection-listener` at ns-load
 ;;    time; `test-support/reset-runtime-fixture` (used by many other
 ;;    CLJS test namespaces' `use-fixtures :each` blocks) calls
-;;    `(trace/clear-trace-cbs!)`, so by the time our deftest runs the
+;;    `(trace/clear-trace-listeners!)`, so by the time our deftest runs the
 ;;    listener registry is already empty. Capturing at ns-load is
 ;;    the only point at which the framework listeners are guaranteed
 ;;    live.
@@ -279,7 +279,7 @@
   ;;    SSR error-projection listener (and any other ns-load
   ;;    framework listeners) while dropping every per-fixture
   ;;    listener `collect-traces` may have registered. The JVM
-  ;;    runner achieves the equivalent via `clear-trace-cbs!` +
+  ;;    runner achieves the equivalent via `clear-trace-listeners!` +
   ;;    `(require 're-frame.ssr :reload)`; CLJS has no `:reload`,
   ;;    so the snapshot-restore path is the only correct one.
   (reset! re-frame.trace.tooling/listeners baseline-trace-listeners)
@@ -524,7 +524,7 @@
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
-    (re-frame.trace.tooling/register-trace-cb! [fixture-id] (fn [ev] (swap! traces conj ev)))
+    (re-frame.trace.tooling/register-trace-listener! [fixture-id] (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- collect-error-emit-records!
@@ -1034,7 +1034,7 @@
         ;; listener snapshot at the next fixture's start, so this is
         ;; mostly belt-and-braces — but it keeps the in-fixture-end
         ;; state from leaking error traces against a missing :rf/route.
-        (re-frame.trace.tooling/remove-trace-cb! fid)
+        (re-frame.trace.tooling/unregister-trace-listener! fid)
         ;; rf2-wxe9t — drop just this fixture's error-emit recorder so
         ;; it does not leak into the next fixture's drains. The
         ;; reset-runtime! call also clears the registry on next entry;

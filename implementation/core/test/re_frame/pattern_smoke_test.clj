@@ -302,11 +302,11 @@
             s3 (::result/snap (machines/machine-transition machine s2 [:fetch]))]     ;; epoch 3
         (is (= :loading (:state s3)))
         (is (= 3 (get-in s3 [:data :rf/after-epoch])))
-        (rf/register-trace-cb! ::stale (fn [ev] (swap! traces conj ev)))
+        (rf/register-trace-listener! ::stale (fn [ev] (swap! traces conj ev)))
         (let [s4 (::result/snap (machines/machine-transition
                           machine s3
                           [:rf.machine.timer/after-elapsed 5000 captured]))]
-          (rf/remove-trace-cb! ::stale)
+          (rf/unregister-trace-listener! ::stale)
           (is (= s3 s4) "stale timer firing leaves snapshot unchanged")
           (is (some (fn [ev]
                       (and (= :rf.machine.timer/stale-after (:operation ev))

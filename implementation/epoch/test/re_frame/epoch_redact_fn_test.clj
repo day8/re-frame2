@@ -53,9 +53,9 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (epoch/clear-history!)
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -80,7 +80,7 @@
   ;; Capture every `:warning` op-type emission so the failure-
   ;; isolation invariant can assert the documented op-id + tags fire.
   (let [warnings (atom [])]
-    (rf/register-trace-cb! ::warn-watcher
+    (rf/register-trace-listener! ::warn-watcher
                            (fn [ev]
                              (when (= :warning (:op-type ev))
                                (swap! warnings conj ev))))
@@ -206,7 +206,7 @@
                                   (assoc-in r [:db-after :auth :password]
                                             :rf/redacted))})
 
-      (rf/register-epoch-cb! ::watch
+      (rf/register-epoch-listener! ::watch
                              (fn [r] (swap! listener-records conj r)))
 
       (rf/reg-event-db :login
@@ -244,9 +244,9 @@
                                   (assoc-in r [:db-after :auth :password]
                                             :rf/redacted))})
 
-      (rf/register-epoch-cb! ::a (fn [r] (reset! a-rec r)))
-      (rf/register-epoch-cb! ::b (fn [r] (reset! b-rec r)))
-      (rf/register-epoch-cb! ::c (fn [r] (reset! c-rec r)))
+      (rf/register-epoch-listener! ::a (fn [r] (reset! a-rec r)))
+      (rf/register-epoch-listener! ::b (fn [r] (reset! b-rec r)))
+      (rf/register-epoch-listener! ::c (fn [r] (reset! c-rec r)))
 
       (rf/reg-event-db :login
                        (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
@@ -429,7 +429,7 @@
             this seam)"
     (rf/reg-frame :test/main {})
     (let [synthetic (atom nil)]
-      (rf/register-epoch-cb! ::watch (fn [r] (reset! synthetic r)))
+      (rf/register-epoch-listener! ::watch (fn [r] (reset! synthetic r)))
       (rf/configure :epoch-history
                     {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
       (rf/reset-frame-db! :test/main {:injected :state})
@@ -447,7 +447,7 @@
             would for an :ok cascade"
     (rf/reg-frame :test/main {})
     (let [halted (atom nil)]
-      (rf/register-epoch-cb! ::watch
+      (rf/register-epoch-listener! ::watch
                              (fn [r]
                                (when (= :halted-destroy (:outcome r))
                                  (reset! halted r))))

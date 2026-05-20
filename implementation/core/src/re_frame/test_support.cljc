@@ -74,7 +74,7 @@
             ;; Per rf2-qwm0a: the public-tooling listener + buffer
             ;; surface lives in `re-frame.trace.tooling` (split off
             ;; from `re-frame.trace` for production CLJS bundle DCE).
-            ;; Test fixtures need `clear-trace-cbs!` between scenarios;
+            ;; Test fixtures need `clear-trace-listeners!` between scenarios;
             ;; we reach it through the tooling sibling directly.
             [re-frame.trace.tooling :as trace-tooling]
             ;; Clear the always-on event-emit listener registry on each
@@ -179,7 +179,7 @@
     :http/clear-all-in-flight!       — drop the in-flight managed-request
                                        registry.
     :epoch/clear-history!            — drop the per-frame epoch ring buffer.
-    :epoch/clear-epoch-cbs!          — drop the epoch-settled callback
+    :epoch/clear-epoch-listeners!          — drop the epoch-settled callback
                                        registry.
     :adapter/clear-warn-once-caches! — clear per-adapter
                                        `warned-non-dom-roots` warn-once
@@ -196,7 +196,7 @@
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}
-   {:hook :epoch/clear-epoch-cbs!          :phase :post-dispose}
+   {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}
    {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}
    ;; Per Spec 015 — clear the per-(kind, id) marks table and the
    ;; per-frame sub-output propagation table so each test starts
@@ -302,7 +302,7 @@
          (run-reset-hooks! :pre-dispose)
          (adapter/dispose-adapter!)
          (run-reset-hooks! :post-dispose)
-         (trace-tooling/clear-trace-cbs!)
+         (trace-tooling/clear-trace-listeners!)
          (event-emit/clear-event-emit-listeners!)
          (when adapter
            (adapter/install-adapter! adapter)

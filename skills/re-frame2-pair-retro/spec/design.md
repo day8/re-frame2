@@ -23,7 +23,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 ### L1 — No re-frame-10x routing
 
-Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not depend on re-frame-10x. The improver MUST NOT propose fixes that route through 10x — time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation). This is a cardinal "What to avoid" rule.
+Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not depend on re-frame-10x. The improver MUST NOT propose fixes that route through 10x — time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation). This is a cardinal "What to avoid" rule.
 
 ### L2 — Never file a GitHub issue without explicit user approval
 

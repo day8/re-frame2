@@ -237,7 +237,7 @@
               (swap! server-hits inc)
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (trace/register-trace-cb! listener-id
+        (trace/register-trace-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor
           {:id     :boom
@@ -270,7 +270,7 @@
                   @traces)
             ":rf.error/http-interceptor-failed appears on the trace stream")
         (finally
-          (trace/remove-trace-cb! listener-id)
+          (trace/unregister-trace-listener! listener-id)
           (stop-server! srv))))))
 
 ;; ---- 4a. rf2-1jcpm — interceptor-failure URL redaction --------------------
@@ -284,7 +284,7 @@
     (let [traces      (atom [])
           listener-id (gensym "interceptor-redact-")]
       (try
-        (trace/register-trace-cb! listener-id
+        (trace/register-trace-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor
           {:id     :boom
@@ -314,7 +314,7 @@
             (is (true? (:sensitive? w))
                 ":sensitive? stamped on the trace (denylist hit = signal)")))
         (finally
-          (trace/remove-trace-cb! listener-id))))))
+          (trace/unregister-trace-listener! listener-id))))))
 
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 
@@ -696,7 +696,7 @@
     (let [errors (atom [])
           cb-id  ::oyd1b-bad-args]
       (try
-        (trace/register-trace-cb!
+        (trace/register-trace-listener!
           cb-id
           (fn [ev]
             (when (= :error (:op-type ev))
@@ -731,7 +731,7 @@
             "non-keyword :id → no interceptor registered")
 
         (finally
-          (trace/remove-trace-cb! cb-id))))))
+          (trace/unregister-trace-listener! cb-id))))))
 
 (deftest reg-and-clear-http-interceptor-fxs-roundtrip-rf2-oyd1b
   (testing "rf2-oyd1b — register-then-clear via fxs round-trips cleanly,
