@@ -1060,3 +1060,156 @@
      ;; rf2-334d9 — :adapter/after-render impl. Each adapter publishes
      ;; this via substrate-adapter/route-hook!.
      :after-render-hook           after-render-hook}))
+
+;; ---- ratom-family spine (Reagent + reagent-slim) --------------------------
+;;
+;; The Reagent and reagent-slim adapters are the SAME shape under a
+;; different reactive-atom impl (stock `reagent.*` vs the `reagent2.*`
+;; rewrite). Pre-rf2-rzex9 each carried a byte-identical (modulo the
+;; ratom ns) copy of the container quartet, the React-root renderer, and
+;; the dispose body. `make-ratom-spine` factors that shared shape exactly
+;; as `make-react-spine` factors the UIx/Helix hook family — one
+;; implementation, two adapters, zero drift.
+;;
+;; CRITICAL — slim bundle isolation (IMPL-SPEC §1.8 / the
+;; `test:reagent-slim:bundle-isolation` gate). This helper lives in
+;; core/substrate and MUST NOT `:require` stock `reagent.*` — the day8/
+;; reagent-slim adapter would otherwise drag the stock-Reagent impl tree
+;; into every slim release bundle. The reactive-atom ops are therefore
+;; INJECTED by each adapter via the `:ratom-ops` map (the HOF
+;; parameterisation): the Reagent adapter passes its stock `reagent.*`
+;; impls, the slim adapter passes its `reagent2.*` impls. The spine never
+;; names either ns. (The same isolation principle as `make-react-spine`,
+;; which calls `react-dom/client` directly but never Reagent.)
+
+(defn make-ratom-spine
+  "Build the per-substrate ratom-family substrate surfaces given the
+  substrate's ratom ops and gensym prefix:
+
+      :substrate-name    — string (currently informational; the ratom
+                           family has no warn-non-dom-root surface, that
+                           lives in re-frame.views for these adapters)
+      :gensym-prefix-sub — gensym prefix for `subscribe-container` watch
+                           keys (substrate-scoped per rf2-l4dmr so logs /
+                           inspectors attribute a watch to its substrate)
+      :ratom-ops         — the injected reactive-atom impls, a map of:
+          :r/atom              — (fn [v]) → reactive atom container
+          :ratom/make-reaction — (fn [thunk]) → reaction over a thunk
+          :rdc/create-root     — (fn [mount-point]) → React root
+          :rdc/render          — (fn [root tree]) → render hiccup into
+                                 root (the substrate's hiccup→element
+                                 walk + `.render`, NOT a bare `.render`)
+          :rdc/hydrate-root    — (fn [mount-point tree]) → React root
+          :rdc/unmount         — (fn [root]) → unmount the root
+
+  The spine MUST NOT `:require` stock `reagent.*`; the ops above are the
+  only path to the substrate's reactive primitive, so each adapter's own
+  `reagent.*` / `reagent2.*` requires stay confined to the adapter ns
+  (load-bearing for reagent-slim bundle isolation — see the section
+  comment above).
+
+  Returns a map of the substrate-contract surfaces (minus
+  `register-context-provider`) plus the SSR helpers each adapter
+  re-exports:
+
+      {:make-state-container       …
+       :read-container             …
+       :replace-container!         …
+       :subscribe-container        …
+       :make-derived-value         …
+       :render                     …
+       :render-to-string           …
+       :dispose-adapter!           …
+       :set-hiccup-emitter!        …
+       :active-roots-cell          …
+       :emitter-cell               …}
+
+  `:register-context-provider` is NOT produced here: for the ratom
+  family it is the Reagent-component-shaped frame-provider from
+  `re-frame.views` (`views/build-frame-provider`), which the React-hook
+  spine's hook-shaped `frame-provider` is not. Keeping it as adapter-side
+  wiring also keeps this core ns free of a spine→views dependency edge.
+
+  Behaviour is byte-for-byte equivalent to the pre-rf2-rzex9 hand-written
+  adapter bodies: container quartet incl. the substrate-scoped gensym;
+  the create-root/hydrate-root render with active-roots tracking + an
+  unmount thunk that drops itself from the set; and the four-MUST dispose
+  body (`dispose-frame-sub-caches!` + active-roots drain w/ per-root
+  throw-swallow + emitter clear)."
+  [{:keys [gensym-prefix-sub ratom-ops]}]
+  (let [{r-atom        :r/atom
+         make-reaction :ratom/make-reaction
+         create-root   :rdc/create-root
+         render-root   :rdc/render
+         hydrate-root  :rdc/hydrate-root
+         unmount-root  :rdc/unmount} ratom-ops
+        active-roots-cell (make-active-roots-cell)
+        emitter-cell      (make-hiccup-emitter-cell)
+        make-state-container
+        (fn make-state-container [initial-value]
+          (r-atom initial-value))
+        read-container
+        (fn read-container [container]
+          @container)
+        replace-container!
+        (fn replace-container! [container new-value]
+          (reset! container new-value)
+          nil)
+        subscribe-container
+        (make-subscribe-container gensym-prefix-sub)
+        ;; Arity-specialised recompute closure via `build-recompute-fn`
+        ;; (rf2-eoy63), wrapped in the substrate's own reaction primitive.
+        make-derived-value
+        (fn make-derived-value [source-containers compute-fn]
+          (make-reaction (build-recompute-fn source-containers compute-fn)))
+        ;; React 18+/19 Root API: create-root → render → unmount; the
+        ;; hydrate branch on the SSR path returns its own Root. Active
+        ;; roots are tracked so `dispose-adapter!` can drain them; the
+        ;; unmount thunk removes itself from the set before unmounting.
+        ;; Per rf2-gwkvr: Spec 006 §`render` types `:hydrate?` as a
+        ;; boolean; no defensive coercion.
+        render
+        (fn render [render-tree mount-point opts]
+          (let [hydrate? (:hydrate? opts)
+                root     (if hydrate?
+                           (hydrate-root mount-point render-tree)
+                           (let [r (create-root mount-point)]
+                             (render-root r render-tree)
+                             r))]
+            (swap! active-roots-cell conj root)
+            (fn unmount []
+              (swap! active-roots-cell disj root)
+              (unmount-root root))))
+        ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
+        ;; rf2-jcjul, rf2-7v82h). The four-MUST list:
+        ;;   1. Cancel in-flight reactive subscriptions — walk every live
+        ;;      frame's per-frame sub-cache (`dispose-frame-sub-caches!`,
+        ;;      shared with the React-hook spine for zero drift).
+        ;;   2. Release host-specific resources — drain active-roots,
+        ;;      swallowing per-root throws so one bad root cannot strand
+        ;;      the rest of the drain.
+        ;;   3. Discard internal caches — clear the hiccup-emitter cell.
+        ;;   4. Subsequent calls return `:rf.error/adapter-disposed` —
+        ;;      enforced one level up by substrate-adapter via the
+        ;;      `disposed?` breadcrumb (rf2-6wxys).
+        dispose-adapter!
+        (fn dispose-adapter! []
+          (dispose-frame-sub-caches!)
+          (doseq [root @active-roots-cell]
+            (try (unmount-root root)
+                 (catch :default _ nil)))
+          (reset! active-roots-cell #{})
+          (reset! emitter-cell nil)
+          nil)]
+    {:make-state-container       make-state-container
+     :read-container             read-container
+     :replace-container!         replace-container!
+     :subscribe-container        subscribe-container
+     :make-derived-value         make-derived-value
+     :render                     render
+     :render-to-string           (make-render-to-string emitter-cell)
+     :dispose-adapter!           dispose-adapter!
+     :set-hiccup-emitter!        (fn set-it! [f]
+                                   (set-hiccup-emitter! emitter-cell f))
+     :active-roots-cell          active-roots-cell
+     :emitter-cell               emitter-cell}))

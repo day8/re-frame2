@@ -13,80 +13,46 @@
             [re-frame.substrate.spine :as spine]
             [re-frame.views :as views]))
 
-;; ---- container ------------------------------------------------------------
-
-(defn- make-state-container [initial-value]
-  (r/atom initial-value))
-
-(defn- read-container [container]
-  @container)
-
-(defn- replace-container! [container new-value]
-  (reset! container new-value)
-  nil)
-
-(defn- subscribe-container [container on-change]
-  ;; Substrate-scoped gensym prefix so a cross-substrate test bundle / log
-  ;; / inspector can attribute the watch back to the Reagent adapter rather
-  ;; than confusing it with a slim watch (l4dmr / rf2-l4dmr LOW-1).
-  (let [k (gensym "rf-reagent-sub-")]
-    (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
-    (fn unsubscribe [] (remove-watch container k))))
-
-;; ---- derived (reactions) --------------------------------------------------
-
-(defn- make-derived-value [source-containers compute-fn]
-  ;; Arity-specialised recompute closure (rf2-v1nu0 / rf2-fzrav): the
-  ;; spine helper `build-recompute-fn` builds a 0-arg thunk that skips
-  ;; `apply` + lazy-`map` cost on the dominant 0/1/2-arity paths and
-  ;; falls back to `mapv` + `apply` for ≥3. Pre-rf2-eoy63 this fn
-  ;; carried the case-spec body inline; lifted into the spine so all
-  ;; four adapters (Reagent, reagent-slim, UIx, Helix) share one
-  ;; implementation — same single-source-of-truth pattern as
-  ;; `make-dispose-adapter!` (rf2-jcjul).
-  (ratom/make-reaction (spine/build-recompute-fn source-containers compute-fn)))
-
-;; ---- render ---------------------------------------------------------------
+;; ---- shared ratom-spine wiring --------------------------------------------
 ;;
-;; Active roots are tracked in a per-adapter atom so `dispose-adapter!`
-;; can drain them (rf2-9fdkb). Each mount adds the Reagent Root to the
-;; active set; the returned unmount thunk removes itself from the set
-;; before calling `(rdc/unmount root)`.
+;; The container quartet, the React-root renderer, the dispose body and
+;; the SSR emitter helpers are the SAME shape as reagent-slim, modulo the
+;; reactive-atom impl (stock `reagent.*` here, `reagent2.*` there). They
+;; live in `re-frame.substrate.spine/make-ratom-spine` (rf2-rzex9) — one
+;; implementation, two adapters, zero drift, mirroring the React-hook
+;; `make-react-spine` that backs UIx/Helix. The reactive-atom ops are
+;; INJECTED here so the spine never `:require`s a reactive-atom ns: this
+;; adapter passes its stock `reagent.*` impls; the slim adapter passes
+;; `reagent2.*`. (Load-bearing for reagent-slim bundle isolation — the
+;; slim adapter's deps.edn carries zero direct `reagent.*` requires.)
 
-(defonce ^:private active-roots (atom #{}))
+(def ^:private spine-fns
+  (spine/make-ratom-spine
+    {:substrate-name    "Reagent"
+     ;; Substrate-scoped gensym prefix (rf2-l4dmr) so a cross-substrate
+     ;; test bundle / log / inspector can attribute a watch to the
+     ;; Reagent adapter rather than confusing it with a slim watch.
+     :gensym-prefix-sub "rf-reagent-sub-"
+     ;; Each op is a thin call-through lambda rather than the bare Var
+     ;; value so the spine resolves the namespaced fn at CALL time. This
+     ;; keeps the `with-redefs [rdc/create-root …]` test-observability the
+     ;; adapter-render / dispose-drain pins rely on (capturing the bare
+     ;; Var value at load time would freeze the original impls past any
+     ;; `with-redefs` rebind). Runtime behaviour is identical.
+     :ratom-ops         {:r/atom              (fn [v] (r/atom v))
+                         :ratom/make-reaction (fn [thunk] (ratom/make-reaction thunk))
+                         :rdc/create-root     (fn [mp] (rdc/create-root mp))
+                         :rdc/render          (fn [root tree] (rdc/render root tree))
+                         :rdc/hydrate-root    (fn [mp tree] (rdc/hydrate-root mp tree))
+                         :rdc/unmount         (fn [root] (rdc/unmount root))}}))
 
-(defn- render [render-tree mount-point opts]
-  ;; React 18+ Root API: create-root → render → unmount; hydrate-root
-  ;; on the SSR path returns its own Root (rf2-fn5rk + rf2-6hyy slim
-  ;; parity). Pin: `adapter-render-cljs-test`. Per rf2-gwkvr: Spec 006
-  ;; §`render` types `:hydrate?` as a boolean; no defensive coercion.
-  (let [hydrate? (:hydrate? opts)
-        root     (if hydrate?
-                   (rdc/hydrate-root mount-point render-tree)
-                   (let [r (rdc/create-root mount-point)]
-                     (rdc/render r render-tree)
-                     r))]
-    (swap! active-roots conj root)
-    (fn unmount []
-      (swap! active-roots disj root)
-      (rdc/unmount root))))
-
-(defonce ^:private hiccup-emitter (atom nil))
-
-(defn set-hiccup-emitter!
-  "Install the hiccup → HTML fn used by render-to-string. Idempotent."
-  [f]
-  (reset! hiccup-emitter f))
-
-(defn- render-to-string [render-tree opts]
-  ;; Reagent ships server-side rendering via reagent.dom.server — but in
-  ;; CLJS browser builds we don't typically render-to-string. Install
-  ;; the emitter via set-hiccup-emitter! if you need this in CLJS.
-  (if-let [emit @hiccup-emitter]
-    (emit render-tree opts)
-    (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                    {:reason "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
-                     :render-tree render-tree}))))
+(def set-hiccup-emitter!
+  "Install the hiccup → HTML fn used by render-to-string. Idempotent.
+  Reagent ships server-side rendering via reagent.dom.server — but in
+  CLJS browser builds we don't typically render-to-string; install the
+  emitter via this fn (or let the SSR seam resolve the late-bind hook)
+  if you need it in CLJS."
+  (:set-hiccup-emitter! spine-fns))
 
 ;; ---- context provider -----------------------------------------------------
 
@@ -95,49 +61,12 @@
   ;; keyword arg is ignored — `build-frame-provider` is 0-arity
   ;; (rf2-4y60); the returned component takes the frame keyword at
   ;; render time. The arg stays in the substrate signature per
-  ;; Spec 006 §Frame-provider via React context.
+  ;; Spec 006 §Frame-provider via React context. Kept as adapter-side
+  ;; wiring (not in the shared ratom-spine) because it is the Reagent-
+  ;; component-shaped frame-provider, distinct from the React-hook
+  ;; spine's hook-shaped one — and so the core spine carries no
+  ;; spine→views dependency edge.
   (views/build-frame-provider))
-
-;; ---- disposal -------------------------------------------------------------
-
-(defn- dispose-adapter! []
-  ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
-  ;; rf2-jcjul). The four-MUST list:
-  ;;
-  ;;   1. Cancel all in-flight reactive subscriptions — walk every live
-  ;;      frame's per-frame sub-cache and dispose each cached Reaction.
-  ;;      Delegated to `spine/dispose-frame-sub-caches!` (rf2-jcjul):
-  ;;      the same helper backs reagent-slim and the spine-built UIx /
-  ;;      Helix adapters so all three substrates share one
-  ;;      implementation — no three-way drift on the lifecycle MUST.
-  ;;      Component-unmount-driven disposal handles the mounted case
-  ;;      (Reagent reaps Reactions when their last watcher drops); the
-  ;;      explicit walk covers the test-fixture / headless path where
-  ;;      no component unmount fires before the adapter goes away.
-  ;;      `interop/dispose!` inside the walk routes through
-  ;;      `:adapter/dispose!` which is still wired for this adapter at
-  ;;      this point in the teardown (substrate-adapter clears the
-  ;;      install slot AFTER calling us).
-  ;;
-  ;;   2. Release host-specific resources — drain the active-roots set
-  ;;      (React 18+ Roots; mounted-but-not-unmounted at process exit /
-  ;;      hot-reload). Swallow per-root throws so one misbehaving root
-  ;;      cannot strand the rest of the drain.
-  ;;
-  ;;   3. Discard internal caches — clear hiccup-emitter (the SSR
-  ;;      late-bind sink; the registered fn captures `re-frame.ssr`
-  ;;      state that must not survive the adapter).
-  ;;
-  ;;   4. Make subsequent calls return `:rf.error/adapter-disposed` —
-  ;;      handled one level up by `substrate-adapter/dispose-adapter!`
-  ;;      via the `disposed?` breadcrumb (rf2-6wxys).
-  (spine/dispose-frame-sub-caches!)
-  (doseq [root @active-roots]
-    (try (rdc/unmount root)
-         (catch :default _ nil)))
-  (reset! active-roots #{})
-  (reset! hiccup-emitter nil)
-  nil)
 
 (def adapter
   "The Reagent adapter map. Pass to `(rf/init! ...)` to install:
@@ -147,17 +76,22 @@
 
   See Spec 006 §CLJS reference: Reagent as default adapter for the
   bridging pseudocode. Per rf2-agql there is no default-adapter
-  registry — adapter wiring is explicit at the call site."
+  registry — adapter wiring is explicit at the call site.
+
+  The container quartet, renderer, render-to-string and dispose body
+  come from `spine/make-ratom-spine` (rf2-rzex9, shared with
+  reagent-slim); `register-context-provider` stays adapter-local
+  (Reagent-component-shaped frame-provider via `re-frame.views`)."
   {:kind                      :rf.adapter/reagent
-   :make-state-container      make-state-container
-   :read-container            read-container
-   :replace-container!        replace-container!
-   :subscribe-container       subscribe-container
-   :make-derived-value        make-derived-value
-   :render                    render
-   :render-to-string          render-to-string
+   :make-state-container      (:make-state-container spine-fns)
+   :read-container            (:read-container       spine-fns)
+   :replace-container!        (:replace-container!   spine-fns)
+   :subscribe-container       (:subscribe-container  spine-fns)
+   :make-derived-value        (:make-derived-value   spine-fns)
+   :render                    (:render               spine-fns)
+   :render-to-string          (:render-to-string     spine-fns)
    :register-context-provider register-context-provider
-   :dispose-adapter!          dispose-adapter!})
+   :dispose-adapter!          (:dispose-adapter!     spine-fns)})
 
 ;; Chained SSR emitter install (rf2-4z7bp / parity rf2-cl1qv):
 ;; `re-frame.ssr.emit` invokes `:reagent/set-hiccup-emitter!` at
