@@ -150,6 +150,78 @@
       (is (some? thrown)
           "nested :always :action misuse SHOULD throw at registration"))))
 
+;; ---- regression (rf2-zg579): single-map :always must be normalised ------
+;; The grammar admits `:always` as a single entry map OR a vector of entry
+;; maps. The guard/action ref-validation loop used to iterate `(:always
+;; state-node)` directly; for a single-map `:always` that yields the map's
+;; MapEntries, so `(:guard t)`/`(:action t)` no-op'd and a dangling ref
+;; slipped past fail-fast registration (surfacing only late, at runtime).
+;; The fix routes the loop through the in-file `always-entries` normaliser.
+;; The vector form (above) was already covered; these pin the single-map
+;; form so both shapes are guarded.
+
+(deftest top-level-always-single-map-guard-keyword-unresolved
+  (testing "Top-level single-map :always with unregistered :guard keyword fails registration"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:always {:target :other
+                                       :guard  :no-such-guard}}
+                       :other {}}}
+          thrown (registration-throws? :rf.nested-validation/top-always-singlemap-guard m)]
+      (is (some? thrown)
+          "single-map :always :guard misuse SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+          "error category names the unresolved-guard contract")
+      (is (= :no-such-guard (:guard (ex-data thrown)))
+          "ex-data carries the offending guard keyword"))))
+
+(deftest top-level-always-single-map-action-keyword-unresolved
+  (testing "Top-level single-map :always with unregistered :action keyword fails registration"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:always {:target :other
+                                       :action :no-such-action}}
+                       :other {}}}
+          thrown (registration-throws? :rf.nested-validation/top-always-singlemap-action m)]
+      (is (some? thrown)
+          "single-map :always :action misuse SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))
+          "error category names the unresolved-action contract")
+      (is (= :no-such-action (:action (ex-data thrown)))
+          "ex-data carries the offending action keyword"))))
+
+(deftest nested-always-single-map-guard-keyword-unresolved
+  (testing "Nested-state single-map :always with unregistered :guard keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:always {:target :other
+                                                          :guard  :no-such-guard}}
+                                         :other {}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-always-singlemap-guard m)]
+      (is (some? thrown)
+          "nested single-map :always :guard misuse SHOULD throw at registration")
+      (is (= :no-such-guard (:guard (ex-data thrown)))
+          "ex-data carries the offending guard keyword"))))
+
+(deftest nested-always-single-map-action-keyword-unresolved
+  (testing "Nested-state single-map :always with unregistered :action keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:always {:target :other
+                                                          :action :no-such-action}}
+                                         :other {}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-always-singlemap-action m)]
+      (is (some? thrown)
+          "nested single-map :always :action misuse SHOULD throw at registration")
+      (is (= :no-such-action (:action (ex-data thrown)))
+          "ex-data carries the offending action keyword"))))
+
 ;; ---- gap probe: :entry / :exit action references -------------------------
 
 (deftest top-level-entry-action-keyword-unresolved
