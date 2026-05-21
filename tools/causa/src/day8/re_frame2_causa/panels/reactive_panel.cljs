@@ -8,16 +8,30 @@
   while the sub cascade is the supporting context.
 
   The internal panel-registry key stays `:views` (it was always the
-  internal id, never a user contract). The panel renders the full
-  reactive cascade per spec/021 §3 reorganised into two sections:
+  internal id, never a user contract). Per rf2-8ve8z (phase-B of the
+  Views-tab redesign) the panel renders the reactive cascade as THREE
+  STACKED TABLES, top→bottom mirroring the cascade flowing toward the
+  UI:
 
-      Subs this cascade (count)   ONE table — one row per sub that ran,
-                                  columns sub-id | changed? | cascaded?
-                                  | code. Each sub appears exactly once
-                                  (rf2-isun6 · replaced the prior three
-                                  overlapping ran/changed/cascaded lists)
-      Views re-rendered           entries named via `reg-view :name`,
-                                  `[code] chip` + hover-highlight
+      Level 1 subs (observe app-db)   name | changed | code — the subs
+                                      that read app-db directly
+                                      (`:inputs []` per sub-topology)
+      Level 2+ subs                   name | changed | inputs | code —
+                                      composed subs; inputs lists the
+                                      input-sub names one per line
+      Views:                          name | action | reason — one row
+                                      per view render/unmount. `name` is
+                                      hoverable (pink DOM highlight,
+                                      rf2-8l03l); `action` is mount /
+                                      rerender / unmount; `reason` is the
+                                      changed subs THIS view reads, or
+                                      `← parent re-render` (structural,
+                                      UNNAMED).
+
+  The Level 1 / Level 2+ split + the inputs/code columns come from
+  `re-frame.subs.tooling/sub-topology`; the view action + reason ride
+  phase-A's (rf2-9hoos) `:mount?` / `:deref-subs` fields on
+  `:rf.view/rendered` + the new `:rf.view/unmounted` op.
 
   ## Public surface
 

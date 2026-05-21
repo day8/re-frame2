@@ -1,9 +1,13 @@
 (ns day8.re-frame2-causa.panels.reactive-panel-view-cljs-test
-  "Smoke tests for `reactive-panel-view` (rf2-wyvf2 · spec/021 §3).
+  "Tests for `reactive-panel-view` — the three-stacked-tables Views panel
+  (rf2-8ve8z, phase-B of the Views-tab redesign · prior: rf2-wyvf2 /
+  rf2-isun6 · spec/021 §3).
 
   Mounts `reactive-panel` (the plain Reagent fn) and asserts the
-  structural data-testid hooks ship: panel root, header, the two
-  step sections, and the unchanged-subs toggle when applicable."
+  structural data-testid hooks ship: panel root, header, the three
+  tables (Level 1 subs · Level 2+ subs · Views), their empty states,
+  the action / reason rendering, and the reactive-vs-structural reason
+  classifier surfaced via the seeded `:rf.causa/reactive-data`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -17,12 +21,16 @@
 (defn- has-testid? [tree testid]
   (some? (th/find-by-testid tree testid)))
 
+(defn- text-of
+  "Concatenated text content under the node matching `testid`."
+  [tree testid]
+  (some-> (th/find-by-testid tree testid) th/text-content))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest reactive-panel-mounts-with-root-testid
-  (testing "rf2-wyvf2 — the panel root surfaces `rf-causa-reactive`
-            data-testid + the panel installs the L4 tab"
+  (testing "the panel root surfaces `rf-causa-reactive` data-testid"
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (let [tree (view/reactive-panel)]
@@ -38,13 +46,8 @@
           "empty-state surfaces when no cascade exists"))))
 
 (deftest reactive-panel-omits-large-h1-heading
-  (testing "rf2-6xezz · Mike-direction 2026-05-21 — the View panel
-            (renamed from Reactive per rf2-e33ad) NO LONGER renders a
-            large h1 heading at its top. The tab strip is the panel-
-            name source-of-truth; the panel body starts immediately
-            under the optional metadata strip. The previous panel-icon
-            element (`rf-causa-reactive-panel-icon`) is also removed
-            because it lived inside the deleted h1."
+  (testing "rf2-6xezz — the Views panel renders NO large h1 heading; the
+            tab strip is the panel-name source-of-truth."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (let [tree (view/reactive-panel)
@@ -52,35 +55,13 @@
       (is (nil? icon) "panel-icon span is gone (lived in the deleted h1)"))))
 
 (deftest reactive-panel-uses-views-display-label
-  (testing "Mike-direction 2026-05-21 — the L4 tab displays as `Views`
-            under the all-plural-domain-noun convention (Views / Flows /
-            Schemas / Routes / Machines are all plural); the panel-
-            registry key stays `:views` (internal id, never a user
-            contract)."
+  (testing "the L4 tab displays as `Views` under the all-plural-domain-
+            noun convention; the panel-registry key stays `:views`."
     (facade/install!)
     (let [registered (panel-registry/tab-by-id :dynamic :views)]
       (is (some? registered) "panel-registry has a :views entry under :dynamic")
       (is (= "Views" (:label registered))
           "L4 tab label renders as `Views`"))))
-
-(deftest reactive-panel-renders-two-cascade-sections
-  (testing "rf2-isun6 — the View panel renders TWO pipeline sections
-            (SUBS THIS CASCADE · VIEWS RE-RENDERED) wrapped in a left-
-            rail container with a chevron between them. The prior three
-            overlapping subs sections (SUBS RAN / SUBS WHOSE VALUE
-            CHANGED / SUBS THAT CASCADED) collapsed into one table whose
-            `changed?` / `cascaded?` columns carry those dimensions, so
-            each sub appears exactly once. Empty states are ALWAYS
-            visible per Mike-direction 2026-05-21."
-    (facade/install!)
-    (frame/reg-frame :rf/causa {})
-    ;; The empty-state path doesn't render the sections; the table
-    ;; shape is exercised directly in the focused-cascade test below
-    ;; (which seeds `:rf.causa/reactive-data`). Here we confirm the
-    ;; empty branch holds when no cascade fires.
-    (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-causa-reactive-empty")
-          "empty branch holds when no cascade is focused"))))
 
 (defn- seed-reactive-data!
   "Re-register the composite `:rf.causa/reactive-data` to return a
@@ -90,51 +71,155 @@
   [data]
   (rf/reg-sub :rf.causa/reactive-data (fn [_db _q] data)))
 
-(deftest reactive-panel-subs-table-one-row-per-sub
-  (testing "rf2-isun6 — one row per sub that RAN; changed? / cascaded?
-            are columns (each sub appears exactly once). A sub that ran
-            AND changed AND cascaded yields a SINGLE row carrying both
-            ✓ flags, not three rows across three sections."
-    (facade/install!)
-    (frame/reg-frame :rf/causa {})
-    (seed-reactive-data!
-      {:has-cascade? true
-       :frame        :rf/app
-       :focus        {:current :ep-1}
-       :counts       {:subs-ran 3 :subs-skipped 0 :views-rendered 0}
-       ;; :a ran only · :b ran + changed · :c ran + changed + cascaded
-       :subs-ran     [{:sub-id :a/plain}
-                      {:sub-id :b/changed :value-changed? true
-                       :prev-value 1 :value 2}
-                      {:sub-id :c/cascaded :value-changed? true
-                       :prev-value 3 :value 4 :cascade? true
-                       :cause-sub [:b/changed]}]
-       :views-rendered []})
-    (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-causa-reactive-subs-table")
-          "the single subs table renders")
-      ;; Exactly one row per sub — no triple-repeat across sections.
-      (is (has-testid? tree "rf-causa-reactive-sub-row-_a_plain"))
-      (is (has-testid? tree "rf-causa-reactive-sub-row-_b_changed"))
-      (is (has-testid? tree "rf-causa-reactive-sub-row-_c_cascaded"))
-      ;; The legacy per-section row testid is gone (collapsed into rows).
-      (is (nil? (th/find-by-testid tree "rf-causa-reactive-sub-ran"))
-          "the old per-section row testid no longer ships"))))
+;; ---- three-table structure (rf2-8ve8z) --------------------------------
 
-(deftest reactive-panel-subs-table-empty-when-no-subs
-  (testing "rf2-isun6 — empty subs placeholder when a cascade is focused
-            but no subs ran."
+(deftest reactive-panel-renders-three-tables
+  (testing "rf2-8ve8z — a focused cascade renders THREE stacked tables
+            (Level 1 subs · Level 2+ subs · Views) with chevrons between
+            them, top→bottom mirroring the reactive cascade."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
       {:has-cascade? true
        :frame        :rf/app
        :focus        {:current :ep-1}
-       :counts       {:subs-ran 0 :subs-skipped 0 :views-rendered 0}
-       :subs-ran     []
-       :views-rendered []})
+       :counts       {:subs-ran 2 :subs-skipped 0 :view-rows 1}
+       :level-1-subs [{:sub-id :cart/state :changed? true
+                       :coord {:file "cart.cljs" :line 10 :ns 'cart}}]
+       :level-2-subs [{:sub-id :cart/total :changed? true
+                       :inputs [:cart/state :cart/items]
+                       :coord {:file "cart.cljs" :line 22 :ns 'cart}}]
+       :view-rows    [{:view-id :cart/Summary :action :rerender
+                       :reason {:kind :reactive :subs [:cart/total]}}]})
     (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-causa-reactive-subs-empty")
-          "empty subs placeholder renders")
-      (is (nil? (th/find-by-testid tree "rf-causa-reactive-subs-table"))
-          "no table when no subs ran"))))
+      (is (has-testid? tree "rf-causa-reactive-l1-table")  "Level 1 table renders")
+      (is (has-testid? tree "rf-causa-reactive-l2-table")  "Level 2+ table renders")
+      (is (has-testid? tree "rf-causa-reactive-views-table") "Views table renders")
+      (is (has-testid? tree "rf-causa-reactive-chevron-l1") "chevron after Level 1")
+      (is (has-testid? tree "rf-causa-reactive-chevron-l2") "chevron after Level 2"))))
+
+(deftest level-1-row-renders-name-and-code
+  (testing "rf2-8ve8z — a Level 1 sub row carries its name + a code chip
+            from the topology coord."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-2-subs [] :view-rows []
+       :level-1-subs [{:sub-id :cart/state :changed? true
+                       :coord {:file "cart.cljs" :line 10 :ns 'cart}}]})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-causa-reactive-l1-row-_cart_state")
+          "the Level 1 row renders with a slug testid")
+      (is (has-testid? tree "rf-causa-reactive-l1-code-_cart_state")
+          "the code chip renders from the topology coord"))))
+
+(deftest level-2-row-renders-inputs-one-per-line
+  (testing "rf2-8ve8z — a Level 2+ sub row carries name + inputs (one per
+            line) + code. The inputs column lists every input-sub name."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :view-rows []
+       :level-2-subs [{:sub-id :cart/total :changed? false
+                       :inputs [:cart/state :cart/items]
+                       :coord {:file "cart.cljs" :line 22 :ns 'cart}}]})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-causa-reactive-l2-row-_cart_total")
+          "the Level 2+ row renders")
+      (let [row-text (text-of tree "rf-causa-reactive-l2-row-_cart_total")]
+        (is (re-find #":cart/state" row-text) "input :cart/state listed")
+        (is (re-find #":cart/items" row-text) "input :cart/items listed")))))
+
+;; ---- view action + reason (rf2-8ve8z) ---------------------------------
+
+(deftest view-row-reactive-reason-lists-changed-subs
+  (testing "rf2-8ve8z — a reactive render's reason lists the changed subs
+            THIS view reads (the reactive classifier)."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs []
+       :view-rows [{:view-id :cart/Summary :action :rerender
+                    :reason {:kind :reactive :subs [:cart/total :cart/count]}}]})
+    (let [tree (view/reactive-panel)
+          row-text (text-of tree "rf-causa-reactive-view-row-_cart_Summary-0")]
+      (is (some? row-text) "the view row renders")
+      (is (re-find #"rerender" row-text) "action reads 'rerender'")
+      (is (re-find #":cart/total" row-text) "reason lists :cart/total")
+      (is (re-find #":cart/count" row-text) "reason lists :cart/count")
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-view-reason-structural"))
+          "a reactive render shows named subs, not the structural text"))))
+
+(deftest view-row-structural-reason-shows-parent-rerender-unnamed
+  (testing "rf2-8ve8z — a structural render (no own sub changed) shows the
+            literal `← parent re-render` — UNNAMED, never names the parent."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs []
+       :view-rows [{:view-id :cart/Wrapper :action :rerender
+                    :reason {:kind :structural}}]})
+    (let [tree (view/reactive-panel)
+          reason (text-of tree "rf-causa-reactive-view-reason-structural")]
+      (is (some? reason) "the structural reason node renders")
+      (is (= "← parent re-render" reason)
+          "the structural reason is the literal unnamed text"))))
+
+(deftest view-row-action-mount-and-unmount
+  (testing "rf2-8ve8z — action renders mount / unmount; an unmount row's
+            reason is empty (no own subs to attribute)."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs []
+       :view-rows [{:view-id :cart/Added :action :mount
+                    :reason {:kind :reactive :subs [:cart/items]}}
+                   {:view-id :cart/Gone :action :unmount
+                    :reason {:kind :none}}]})
+    (let [tree (view/reactive-panel)
+          mount-text (text-of tree "rf-causa-reactive-view-row-_cart_Added-0")
+          unmount-text (text-of tree "rf-causa-reactive-view-row-_cart_Gone-1")]
+      (is (re-find #"mount" mount-text) "mount action renders")
+      (is (re-find #"unmount" unmount-text) "unmount action renders"))))
+
+(deftest view-name-cell-carries-hover-handlers
+  (testing "rf2-8ve8z / rf2-8l03l — the Views-table NAME cell carries the
+            hover handlers driving the pink DOM highlight."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs []
+       :view-rows [{:view-id :cart/Summary :action :rerender
+                    :reason {:kind :structural}}]})
+    (let [tree (view/reactive-panel)
+          name-cell (th/find-by-testid tree
+                                       "rf-causa-reactive-view-name-_cart_Summary-0")]
+      (is (some? name-cell) "the name cell renders")
+      (is (fn? (th/extract-handler name-cell :on-mouse-enter))
+          "name cell has an :on-mouse-enter handler (apply-highlight!)")
+      (is (fn? (th/extract-handler name-cell :on-mouse-leave))
+          "name cell has an :on-mouse-leave handler (clear-highlight!)"))))
+
+;; ---- empty states (always visible) ------------------------------------
+
+(deftest each-table-shows-empty-state-when-section-empty
+  (testing "rf2-8ve8z — empty states are ALWAYS visible so the pipeline
+            rhythm holds; a focused cascade with no activity shows all
+            three empty placeholders."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-causa-reactive-l1-empty")    "Level 1 empty placeholder")
+      (is (has-testid? tree "rf-causa-reactive-l2-empty")    "Level 2+ empty placeholder")
+      (is (has-testid? tree "rf-causa-reactive-views-empty") "Views empty placeholder")
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-l1-table"))
+          "no Level 1 table when no Level 1 subs ran"))))

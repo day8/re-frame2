@@ -1,23 +1,58 @@
 (ns day8.re-frame2-causa.panels.reactive-panel-subs
-  "Subscriptions for the Reactive panel (rf2-wyvf2 · spec/021 §3).
+  "Subscriptions for the Views panel (rf2-wyvf2 / rf2-8ve8z · spec/021 §3).
 
   The panel reads the focused epoch record's normalized structured
   projections — `:sub-runs` and `:renders` — assembled by the
-  substrate on each `:rf/epoch-record` (per spec/018). It does NOT
-  re-derive rows from raw `:trace-events` by op-keyword: the canonical
-  ops are `:sub/run` / `:rf.sub/skip` / `:rf.view/rendered`
-  (Spec 009 §:op-type vocabulary), and the earlier op-keyword path
-  grepped for names the substrate never emits (`:rf.sub/computed` /
-  `:rf.sub/skipped`), pinning subs-ran / subs-skipped to zero
-  regardless of how many subs actually ran.
+  substrate on each `:rf/epoch-record` (per spec/018), plus the
+  view-side capture ops (`:rf.view/rendered` / `:rf.view/unmounted`)
+  off the raw `:trace-events`. It does NOT re-derive sub rows from raw
+  `:trace-events` by op-keyword: the canonical ops are `:sub/run` /
+  `:rf.sub/skip` / `:rf.view/rendered` (Spec 009 §:op-type vocabulary),
+  and the earlier op-keyword path grepped for names the substrate never
+  emits (`:rf.sub/computed` / `:rf.sub/skipped`), pinning subs-ran /
+  subs-skipped to zero regardless of how many subs actually ran.
 
   - `:sub-runs` → subs-ran (`:recomputed?` true) + subs-skipped
-    (memo-hit, `:recomputed?` false)
+    (memo-hit, `:recomputed?` false); each carries `:value-changed?`.
   - `:renders`  → views-rendered (`:render-key` → top-level `:view-id`)
   - flow counts → tallied from `:trace-events` (`:rf.flow/computed` /
     `:rf.flow/skip`), the one slice with no structured projection.
 
-  No new instrumentation — pure consumer over the epoch record.
+  ## phase-B Views redesign (rf2-8ve8z)
+
+  The Views panel is THREE STACKED TABLES mirroring the reactive
+  cascade flowing toward the UI:
+
+    1. Level 1 subs (observe app-db)  — `:inputs []` per `sub-topology`
+    2. Level 2+ subs                  — non-empty `:inputs`
+    3. Views                          — one row per render/unmount, with
+                                        an `action` (mount/rerender/
+                                        unmount) and a `reason`
+
+  The sub-level partition uses `re-frame.subs.tooling/sub-topology` —
+  the static `:<-` dependency graph (`{sub-id {:inputs [...] :ns :line
+  :file}}`). `:inputs []` is Level 1 (reads app-db directly); non-empty
+  is Level 2+. Topology also supplies the `:ns/:line/:file` source coord
+  for the `code` column's jump-to-source chip and the input-sub names
+  for the Level 2+ `inputs` column.
+
+  The view ACTION + REASON ride phase-A's (rf2-9hoos) additions to the
+  view-render trace ops, read off the epoch record's `:trace-events`:
+
+    - `:rf.view/rendered` carries `:mount?` (true → mount, false →
+      rerender) and `:deref-subs` (the `[query-id args]` query-vectors
+      THIS view derefs — its per-view read-set; absent for a structural
+      render that derefs no subs).
+    - `:rf.view/unmounted` is a teardown op → action unmount.
+
+  The REASON is computed by intersecting a render's `:deref-subs`
+  query-ids with the set of subs that `:value-changed?` this cascade:
+  non-empty → reactive (list those changed sub names); empty → the
+  view rendered with no own sub change → structural (`← parent
+  re-render`, deliberately UNNAMED). Unmount rows have no reason.
+
+  No new instrumentation — pure consumer over the epoch record + the
+  static topology snapshot.
 
   ## Public surface
 
@@ -30,12 +65,20 @@
          :has-cascade?    <bool>
          :triggered-by    <event-vec>
          :seed-paths      [<path> ...]
-         :subs-ran        [{:sub-id _ :payload _} ...]   ; rf.sub/computed
-         :subs-skipped    [{:sub-id _ :payload _} ...]   ; rf.sub/skipped
-         :views-rendered  [{:view-id _ :payload _} ...]  ; rf.view/rendered
+         :subs-ran        [{:sub-id _ :value-changed? _ ...} ...]
+         :subs-skipped    [{:sub-id _ ...} ...]
+         :views-rendered  [{:view-id _ ...} ...]      ; legacy count slot
+         :level-1-subs    [{:sub-id _ :changed? _ :coord _} ...]
+         :level-2-subs    [{:sub-id _ :changed? _ :inputs [...] :coord _} ...]
+         :view-rows       [{:view-id _ :action _ :reason {...} :coord _} ...]
          :counts          {:subs-ran N :subs-skipped N
                            :views-rendered N
                            :flows-recomputed N}}
+
+  The `:reason` slot on a `:view-row` is `{:kind :reactive :subs [...]}`
+  | `{:kind :structural}` | `{:kind :none}` (unmount). The view layer
+  truncates the `:subs` list honestly with a `+N more` overflow per the
+  Spec 009 cascade-cap posture.
 
   Per spec/021 §3.4 the panel's 'Show unchanged subs' disclosure is
   view-local (panel UI state); the always-expand override lives in
@@ -45,7 +88,8 @@
 
   `install!` registers `:rf.causa/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [re-frame.subs.tooling :as subs-tooling]))
 
 ;; ---- pure helpers (exposed for test) ------------------------------------
 
@@ -67,46 +111,214 @@
   [event]
   (or (:operation event) (:op event)))
 
+;; ---- view action + reason (rf2-8ve8z, phase-A rf2-9hoos contract) ---------
+
+(defn- changed-sub-id-set
+  "Set of sub-ids whose value CHANGED this cascade — `:value-changed?`
+  true on the `:sub-runs` projection. The basis for the per-view
+  reactive-vs-structural reason classification.
+
+  nil-safe: a `:sub-runs` entry without `:value-changed?` (the base-
+  shape `compute-sub` emit omits it) is simply not counted as changed."
+  [sub-runs]
+  (into #{}
+        (comp (filter :value-changed?)
+              (map :sub-id))
+        (or sub-runs [])))
+
+(defn- query-id
+  "Extract the sub-id (query-id) from a `:deref-subs` entry. Entries are
+  `[query-id args]` query-vectors; a bare keyword query-id (no args) is
+  tolerated. Returns nil for any other shape."
+  [qv]
+  (cond
+    (vector? qv)  (first qv)
+    (keyword? qv) qv
+    :else         nil))
+
+(defn compute-view-reason
+  "Classify WHY a view rendered, given its `:deref-subs` query-vectors
+  and the set of subs that `:value-changed?` this cascade.
+
+  Returns a tagged map:
+
+    {:kind :reactive  :subs [<changed-sub-id> ...]}  — the view derefs
+        at least one sub that changed this cascade. `:subs` is the
+        INTERSECTION (the view's own changed reasons), order preserved
+        from the view's deref order so the most-relevant reads lead.
+    {:kind :structural}  — the view rendered but none of the subs it
+        derefs changed (or it derefs no subs at all). The unnamed
+        `← parent re-render` case — we deliberately never name the
+        parent (permanent, per rf2-8ve8z).
+
+  Pure. nil-safe on both args."
+  [deref-subs changed-set]
+  (let [changed   (or changed-set #{})
+        ;; preserve the view's deref order; keep only the changed ones
+        own-changed (into []
+                          (comp (keep query-id)
+                                (filter changed)
+                                (distinct))
+                          (or deref-subs []))]
+    (if (seq own-changed)
+      {:kind :reactive :subs own-changed}
+      {:kind :structural})))
+
+(defn view-rows
+  "Project the focused cascade's view-render + view-unmount trace events
+  into ordered `:view-row` maps for the Views table (rf2-8ve8z).
+
+  Reads `:rf.view/rendered` and `:rf.view/unmounted` ops off the raw
+  `:trace-events` (the phase-A rf2-9hoos additions). The structured
+  `:renders` projection is intentionally NOT used here — it projects
+  from `:view/render` (the render-START marker) and carries neither
+  `:mount?` nor `:deref-subs`. The action/reason data rides the
+  post-render `:rf.view/rendered` op + the `:rf.view/unmounted` op.
+
+  Each row:
+
+    {:view-id   <kw/id>
+     :render-key <[view-id token]>
+     :action    :mount | :rerender | :unmount
+     :reason    {:kind :reactive :subs [...]} | {:kind :structural}
+                | {:kind :none}                 ; unmount}
+
+  `changed-set` is the set of changed sub-ids this cascade (from
+  `changed-sub-id-set`). nil-safe: missing tags / absent fields degrade
+  to a structural reason rather than crashing. Events without a
+  `:view-id` are skipped (they can't anchor a row)."
+  [trace-events changed-set]
+  (into []
+        (keep (fn [ev]
+                (let [op   (op-kw ev)
+                      tags (:tags ev)
+                      view-id (or (:view-id tags) (:view-id ev))]
+                  (cond
+                    (nil? view-id) nil
+
+                    (= :rf.view/rendered op)
+                    (let [mount?     (true? (:mount? tags))
+                          deref-subs (:deref-subs tags)]
+                      {:view-id    view-id
+                       :render-key (:render-key tags)
+                       :action     (if mount? :mount :rerender)
+                       :reason     (compute-view-reason deref-subs changed-set)})
+
+                    (= :rf.view/unmounted op)
+                    {:view-id    view-id
+                     :render-key (:render-key tags)
+                     :action     :unmount
+                     :reason     {:kind :none}}
+
+                    :else nil))))
+        (or trace-events [])))
+
+;; ---- sub-level partition (rf2-8ve8z, sub-topology contract) ---------------
+
+(defn topology-coord
+  "Extract the jump-to-source coord (`{:file :line :ns}`) for a sub from
+  a `sub-topology` entry. Returns nil when the entry carries no `:file`
+  (degrade gracefully — the `code` column simply omits the chip)."
+  [topo-entry]
+  (when-let [file (:file topo-entry)]
+    (when (string? file)
+      {:file file :line (:line topo-entry) :ns (:ns topo-entry)})))
+
+(defn level-1?
+  "True when a sub is a Level 1 sub — it observes app-db DIRECTLY,
+  reported by `sub-topology` as `:inputs []`. A sub MISSING from the
+  topology (not statically registered, e.g. a test-injected literal)
+  is treated as Level 1 by default — the conservative bucket, since a
+  sub with no declared inputs reads app-db."
+  [topo-entry]
+  (empty? (:inputs topo-entry)))
+
+(defn partition-subs-by-level
+  "Partition the cascade's subs into the Level 1 / Level 2+ table rows
+  using the static `sub-topology` snapshot (rf2-8ve8z).
+
+  `subs-ran` is the `:sub-runs` projection slice (each entry carries
+  `:sub-id` + `:value-changed?`). `topology` is the
+  `re-frame.subs.tooling/sub-topology` map (`{sub-id {:inputs [...]
+  :ns :line :file}}`).
+
+  Returns `{:level-1 [row ...] :level-2 [row ...]}` where each row:
+
+    Level 1: {:sub-id _ :changed? bool :coord {...}?}
+    Level 2: {:sub-id _ :changed? bool :inputs [<input-sub-id> ...]
+              :coord {...}?}
+
+  Order preserved from `subs-ran` within each level. nil-safe: a sub
+  absent from the topology degrades to Level 1 with no inputs / no
+  coord. Both args may be nil."
+  [subs-ran topology]
+  (let [topo (or topology {})]
+    (reduce
+      (fn [acc sub-run]
+        (let [sub-id     (:sub-id sub-run)
+              topo-entry (get topo sub-id)
+              changed?   (boolean (:value-changed? sub-run))
+              coord      (topology-coord topo-entry)]
+          (if (level-1? topo-entry)
+            (update acc :level-1 conj
+                    (cond-> {:sub-id sub-id :changed? changed?}
+                      coord (assoc :coord coord)))
+            (update acc :level-2 conj
+                    (cond-> {:sub-id sub-id :changed? changed?
+                             :inputs (vec (:inputs topo-entry))}
+                      coord (assoc :coord coord))))))
+      {:level-1 [] :level-2 []}
+      (or subs-ran []))))
+
+;; ---- record projection ----------------------------------------------------
+
 (defn project-record
-  "Project an epoch record into the Reactive-panel shape. Pure data.
+  "Project an epoch record into the Views-panel shape. Pure data.
 
   Reads the substrate's normalized structured projections — `:sub-runs`
   and `:renders` — directly off the `:rf/epoch-record` (per spec/018),
-  rather than re-deriving rows from raw `:trace-events` by op-keyword.
-  The op-keyword path this replaced grepped for names the substrate
-  never emits (`:rf.sub/computed` / `:rf.sub/skipped`) where the
-  canonical ops are `:sub/run` / `:rf.sub/skip` (Spec 009 §:op-type
-  vocabulary), so subs-ran / subs-skipped were perpetually zero.
+  the view-side capture ops (`:rf.view/rendered` / `:rf.view/unmounted`)
+  off the raw `:trace-events`, and flow counts off `:trace-events`'
+  canonical `:rf.flow/computed` / `:rf.flow/skip` ops.
 
-  `:sub-runs` entries carry `:sub-id` / `:query-v` / `:recomputed?`;
-  the `:recomputed?` flag splits genuine recomputes (subs-ran) from
-  memo-hit skips (subs-skipped). `:renders` entries carry `:render-key`
-  (a `[view-id idx]` vector); `:view-id` is lifted to the top level for
-  the panel's row renderer.
+  `topology` (optional) is the `re-frame.subs.tooling/sub-topology`
+  snapshot used to partition subs into Level 1 / Level 2+ and supply
+  the `inputs` + `code` columns. Absent / nil topology degrades every
+  sub to Level 1 with no inputs / no coord — the panel still renders.
 
-  Flows have no structured projection on the record, so flow counts are
-  tallied from `:trace-events` using the canonical `:rf.flow/computed`
-  / `:rf.flow/skip` op names.
+  `:sub-runs` entries carry `:sub-id` / `:query-v` / `:recomputed?` /
+  `:value-changed?`; `:recomputed?` splits genuine recomputes (subs-ran)
+  from memo-hit skips (subs-skipped). The view rows ride the phase-A
+  rf2-9hoos fields on the view-render ops.
 
   Returns the map shape documented in the ns docstring (sans the
   focus / frame / dispatch-id keys; those come from the spine sub)."
-  [record]
-  (let [sub-runs (vec (:sub-runs record))
-        ran      (filterv :recomputed? sub-runs)
-        skipped  (filterv (complement :recomputed?) sub-runs)
-        renders  (mapv (fn [r] (assoc r :view-id (first (:render-key r))))
-                       (:renders record))
-        grouped  (group-by op-kw (or (:trace-events record) []))
-        flows-comp    (count (get grouped :rf.flow/computed []))
-        flows-skipped (count (get grouped :rf.flow/skip []))]
-    {:subs-ran        ran
-     :subs-skipped    skipped
-     :views-rendered  renders
-     :counts          {:subs-ran         (count ran)
-                       :subs-skipped     (count skipped)
-                       :views-rendered   (count renders)
-                       :flows-recomputed flows-comp
-                       :flows-skipped    flows-skipped}}))
+  ([record] (project-record record nil))
+  ([record topology]
+   (let [sub-runs (vec (:sub-runs record))
+         ran      (filterv :recomputed? sub-runs)
+         skipped  (filterv (complement :recomputed?) sub-runs)
+         renders  (mapv (fn [r] (assoc r :view-id (first (:render-key r))))
+                        (:renders record))
+         trace-events (or (:trace-events record) [])
+         grouped  (group-by op-kw trace-events)
+         flows-comp    (count (get grouped :rf.flow/computed []))
+         flows-skipped (count (get grouped :rf.flow/skip []))
+         changed-set   (changed-sub-id-set ran)
+         {:keys [level-1 level-2]} (partition-subs-by-level ran topology)
+         v-rows        (view-rows trace-events changed-set)]
+     {:subs-ran        ran
+      :subs-skipped    skipped
+      :views-rendered  renders
+      :level-1-subs    level-1
+      :level-2-subs    level-2
+      :view-rows       v-rows
+      :counts          {:subs-ran         (count ran)
+                        :subs-skipped     (count skipped)
+                        :views-rendered   (count renders)
+                        :view-rows        (count v-rows)
+                        :flows-recomputed flows-comp
+                        :flows-skipped    flows-skipped}})))
 
 (defn- triggered-by
   "Reconstruct the triggering event from the epoch record. Reuses the
@@ -141,8 +353,13 @@
     :<- [:rf.causa/focus]
     :<- [:rf.causa/epoch-history]
     (fn [[focus history] _query]
-      (let [record (focused-epoch-record history (:epoch-id focus))
-            proj   (project-record record)]
+      (let [record   (focused-epoch-record history (:epoch-id focus))
+            ;; Static topology snapshot — read once per cascade. Free
+            ;; (registry-only); used to partition L1 / L2+ subs and
+            ;; supply the inputs + code columns. Defensive try so a
+            ;; topology read never crashes the panel.
+            topology (try (subs-tooling/sub-topology) (catch :default _ nil))
+            proj     (project-record record topology)]
         (merge proj
                {:focus        focus
                 :frame        (:frame focus)
