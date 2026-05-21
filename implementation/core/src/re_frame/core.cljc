@@ -469,6 +469,16 @@
   ships in `day8/re-frame2-schemas`."}
   app-schema-at          rf-schemas/app-schema-at)
 
+(def ^{:doc "Return the full registration-metadata map at `path` for a
+  frame, or `nil` — `:path` / `:schema` / `:frame` plus source-coords
+  `:ns` / `:line` / `:file`. The source-coord introspection surface
+  pair-tools and 10x read (e.g. click-back-to-code); `app-schema-at` is
+  the lighter call when only the schema value is needed. Per Spec 010
+  §Schemas as a tooling and agent surface. Returns `nil` when the
+  schemas artefact is not on the classpath. Implementation ships in
+  `day8/re-frame2-schemas`."}
+  app-schema-meta-at     rf-schemas/app-schema-meta-at)
+
 (def ^{:doc "Return every registered `app-schema-at` declaration for a
   frame as a `{path -> schema}` map. Per Spec 010 §Per-frame schemas.
   Returns `{}` when the schemas artefact is not on the classpath.

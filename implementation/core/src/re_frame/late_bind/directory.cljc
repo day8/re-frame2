@@ -153,6 +153,10 @@
    {:key         :schemas/app-schema-at
     :producer-ns 're-frame.schemas
     :description "Look up the schema registered at a path (introspection)."}
+   {:key         :schemas/app-schema-meta-at
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-mg6ya"
+    :description "Return the full registration-metadata map (source-coords + :path/:schema/:frame) for a path, or nil. The source-coord introspection surface pair-tools / 10x read; the lighter app-schema-at returns only the schema value."}
    {:key         :schemas/app-schemas
     :producer-ns 're-frame.schemas
     :description "Return all path → schema registrations (introspection)."}
