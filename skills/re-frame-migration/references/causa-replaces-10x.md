@@ -108,7 +108,7 @@ The recommended host CSS reads its `flex-basis` from a single CSS custom propert
 [data-rf-causa-host] { --rf-causa-inline-width: 380px; }
 ```
 
-The default (`420px`) is the same one Causa ships in its config defaults. A 320px floor is built into the recommended CSS (`min-width: 320px`) so the panel never collapses below readable.
+The default (`560px`) is the same one Causa ships in its config defaults. A 320px floor is built into the recommended CSS (`min-width: 320px`) so the panel never collapses below readable.
 
 The custom property is the **only** supported resize knob. Don't fork the `flex-basis` literal; readers (linters, tooling, story-mode chrome) look for the property name. See [`tools/causa/spec/API.md` §Resizing the inline host](../../../tools/causa/spec/API.md) for the full contract.
 

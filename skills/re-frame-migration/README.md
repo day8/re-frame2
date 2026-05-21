@@ -1,6 +1,6 @@
 # re-frame-migration
 
-> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+> ↑ [`skills/`](../) — index of all eight re-frame2 skills.
 
 A `Skill` that helps `Claude Code` **migrate an existing re-frame v1.x ClojureScript codebase to [re-frame2](https://github.com/day8/re-frame2)** — from `re-frame/re-frame` deps to `day8/re-frame2`, mechanical rewrites applied automatically, judgment-call call sites flagged for human review.
 
@@ -65,7 +65,8 @@ skills/re-frame-migration/
 │   ├── auto-cross-cutting.md      # Type A: cross-cutting renames, views, init, artefacts
 │   ├── guided-handlers-state.md   # Type B: handler / view / db-seeding walkthroughs
 │   ├── guided-interceptors-subs.md# Type B: interceptor / sub / payload walkthroughs
-│   └── output-format.md           # The migration-summary shape
+│   ├── output-format.md           # The migration-summary shape
+│   └── error-events.md            # Pointer to Spec 009's error-event catalogue (single source)
 └── spec/
     ├── design.md                  # Locked design decisions
     ├── inputs.md                  # Canonical inputs the skill leans on
