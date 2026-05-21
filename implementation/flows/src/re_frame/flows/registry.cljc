@@ -80,32 +80,38 @@
   [x]
   (and (vector? x) (seq x) (every? valid-path-element? x)))
 
-;; Every validation throw shares the same ex-data skeleton:
+;; Every validation throw shares the canonical thrown-error skeleton
+;; (per Spec 009 §The thrown-error shape):
 ;;
-;;   {:where     'rf/reg-flow      ;; user-facing fn for greping the call site
-;;    :recovery  :fix-registration  ;; "the caller fixes their flow map and retries"
-;;    :reason    "<diagnostic>"
-;;    :flow      <the supplied flow>}
+;;   {:rf.error/id <category-kw>    ;; CANONICAL DISCRIMINATOR — :rf.error/<category>
+;;    :where       'rf/reg-flow     ;; user-facing fn for greping the call site
+;;    :recovery    :fix-registration ;; "the caller fixes their flow map and retries"
+;;    :reason      "<diagnostic>"
+;;    :flow        <the supplied flow>}
 ;;
-;; The `:where` / `:recovery` slots mirror the late-bind-missing throw
-;; shape standardised by `re-frame.late-bind/require-fn!` and used by
-;; every `re-frame.core-<artefact>` wrapper — tools (Causa, 10x,
-;; debuggers) read the same fields uniformly across error sources.
-;; Per-clause extras (`:bad-entries` / `:bad-elements`) merge on top.
+;; The `:rf.error/id` discriminator slot is read uniformly by every
+;; consumer (Causa's error widget, the pair-tool overlay, `:on-error`
+;; policies); the message string is the stringified kw so `.getMessage`
+;; pivots to the same category without ex-data. The `:where` / `:recovery`
+;; slots mirror the missing-artefact throw shape standardised by
+;; `re-frame.late-bind/require-fn!` and used by every
+;; `re-frame.core-<artefact>` wrapper. Per-clause extras (`:bad-entries`
+;; / `:bad-elements`) merge on top.
 
 (defn- flow-error
-  "Build the validate-flow ex-info with the standard shape. `error-kw`
-  becomes the message AND the `:error` slot; `reason` is the human-
+  "Build the validate-flow ex-info with the canonical thrown-error shape
+  (per Spec 009 §The thrown-error shape). `error-kw` becomes the message
+  AND the `:rf.error/id` discriminator slot; `reason` is the human-
   readable diagnostic; `extras` merges per-clause slots (e.g.
   `:bad-entries`)."
   ([error-kw reason flow] (flow-error error-kw reason flow nil))
   ([error-kw reason flow extras]
    (ex-info (str error-kw)
-            (merge {:error    error-kw
-                    :where    'rf/reg-flow
-                    :recovery :fix-registration
-                    :reason   reason
-                    :flow     flow}
+            (merge {:rf.error/id error-kw
+                    :where       'rf/reg-flow
+                    :recovery    :fix-registration
+                    :reason      reason
+                    :flow        flow}
                    extras))))
 
 (defn- validate-flow [flow]

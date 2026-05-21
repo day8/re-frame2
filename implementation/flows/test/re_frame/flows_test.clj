@@ -220,6 +220,39 @@
 (defn- flow-bad-path? [^Throwable t]
   (= ":rf.error/flow-bad-path" (ex-message t)))
 
+(deftest reg-flow-error-carries-canonical-rf-error-id-slot
+  ;; Per Spec 009 §The thrown-error shape: every thrown runtime error
+  ;; carries the discriminator under the canonical `:rf.error/id` slot
+  ;; (NOT the legacy `:error` slot), and the message string is the
+  ;; stringified kw so `.getMessage` pivots to the same category.
+  (testing "flow validation throw stamps :rf.error/id (canonical discriminator)"
+    (let [ex (try
+               (rf/reg-flow {:id :bad :inputs :not-a-vector
+                             :output (fn [_ _] nil) :path [:out]})
+               (catch Throwable t t))
+          data (ex-data ex)]
+      (is (some? ex) "registration threw")
+      (is (= :rf.error/flow-bad-inputs (:rf.error/id data))
+          ":rf.error/id slot carries the discriminator keyword")
+      (is (= ":rf.error/flow-bad-inputs" (ex-message ex))
+          "message string is the stringified discriminator kw")
+      (is (nil? (:error data))
+          "the legacy :error slot is gone (rename, not back-compat shim)")
+      (is (= 'rf/reg-flow (:where data)) ":where names the user-facing surface")
+      (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
+      (is (string? (:reason data)) ":reason is a human-readable sentence")))
+  (testing "flow cycle throw stamps :rf.error/id"
+    (reset! flows/flows {})
+    (reset! (deref (resolve 're-frame.flows/last-inputs)) {})
+    (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
+    (let [ex (try
+               (rf/reg-flow {:id :b :inputs [[:a]] :output identity :path [:b]})
+               (catch Throwable t t))
+          data (ex-data ex)]
+      (is (= :rf.error/flow-cycle (:rf.error/id data))
+          "cycle throw carries :rf.error/id (topo.cljc inlined shape)")
+      (is (nil? (:error data)) "legacy :error slot is gone on the cycle throw"))))
+
 (deftest reg-flow-rejects-bare-keyword-inputs
   (testing ":inputs [:foo :bar] is rejected (vector of bare keywords, not vector-of-paths)"
     ;; Pre-fix this would pass validate-flow and then throw with

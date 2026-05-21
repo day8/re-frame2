@@ -51,8 +51,10 @@
              (.getMessage ^Throwable thrown))
           "the documented invariant id appears in the message")
       (let [data (ex-data thrown)]
-        (is (= ":rf.error/flow-cycle-extract-invariant" (:reason data))
-            "ex-data carries :reason naming the invariant")
+        (is (= :rf.error/flow-cycle-extract-invariant (:rf.error/id data))
+            "ex-data carries the canonical :rf.error/id discriminator (per Spec 009 §The thrown-error shape)")
+        (is (string? (:reason data))
+            "ex-data carries :reason as a human-readable sentence (no longer the overloaded kw)")
         (is (= :no-recovery (:recovery data))
             "ex-data carries :recovery :no-recovery — the dead-end means topo state is internally inconsistent")
         (is (= :a (:node data))
@@ -78,7 +80,7 @@
            (topo/topo-sort {:a {:id :a :inputs [[:n]] :output identity :path [:a]}})))))
 
 (deftest topo-sort-detects-cycle
-  (testing "two flows forming a cycle raise :rf.error/flow-cycle with the standard error shape (rf2-6mxr2)"
+  (testing "two flows forming a cycle raise :rf.error/flow-cycle with the canonical thrown-error shape (per Spec 009 §The thrown-error shape)"
     (let [flow-map {:a {:id :a :inputs [[:b]] :output identity :path [:a]}
                     :b {:id :b :inputs [[:a]] :output identity :path [:b]}}
           thrown   (try (topo/topo-sort flow-map)
@@ -88,8 +90,10 @@
       (is (= ":rf.error/flow-cycle" (.getMessage ^Throwable thrown))
           "ex-info message is the documented category")
       (let [data (ex-data thrown)]
-        (is (= :rf.error/flow-cycle (:error data))
-            "ex-data carries :error :rf.error/flow-cycle (standard shape — rf2-6mxr2)")
+        (is (= :rf.error/flow-cycle (:rf.error/id data))
+            "ex-data carries the canonical :rf.error/id discriminator")
+        (is (nil? (:error data))
+            "the legacy :error slot is gone (rename, not back-compat shim)")
         (is (= 'rf/reg-flow (:where data))
             "ex-data carries :where 'rf/reg-flow — points at the user-facing call site")
         (is (= :no-recovery (:recovery data))
@@ -100,9 +104,9 @@
             "ex-data carries :cycle as a vector")
         (is (>= (count (:cycle data)) 2)
             "the cycle vector closes (at least two entries including the closing repeat)")
-        (is (= #{:error :where :recovery :reason :cycle}
+        (is (= #{:rf.error/id :where :recovery :reason :cycle}
                (set (keys data)))
-            "ex-data carries exactly the standard slots + :cycle (no extras, no missing)")))))
+            "ex-data carries exactly the canonical slots + :cycle (no extras, no missing)")))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-m05md — depends-on? direct function-boundary tests

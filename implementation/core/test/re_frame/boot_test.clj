@@ -108,6 +108,8 @@
              (some-> thrown ex-message))
           "the thrown exception carries the :rf.error/adapter-already-installed tag")
       (let [data (ex-data thrown)]
+        (is (= :rf.error/adapter-already-installed (:rf.error/id data))
+            "ex-data carries the canonical :rf.error/id discriminator (per Spec 009 §The thrown-error shape)")
         (is (some? (:installed data))
             "ex-data carries the currently :installed adapter")
         (is (some? (:attempted data))
@@ -396,6 +398,11 @@
                  (some-> thrown ex-message))
               (str where-sym " ex-message carries the :rf.error/no-adapter-installed tag"))
           (let [data (ex-data thrown)]
+            ;; Per Spec 009 §The thrown-error shape: canonical
+            ;; discriminator slot is `:rf.error/id` (require-adapter!
+            ;; now stamps it).
+            (is (= :rf.error/no-adapter-installed (:rf.error/id data))
+                (str where-sym " ex-data carries the canonical :rf.error/id discriminator"))
             (is (= where-sym (:where data))
                 (str where-sym " ex-data :where echoes the offending public surface symbol"))
             (is (= :no-recovery (:recovery data))
@@ -474,6 +481,8 @@
                  (some-> thrown ex-message))
               (str where-sym " ex-message carries the :rf.error/adapter-disposed tag (not :no-adapter-installed)"))
           (let [data (ex-data thrown)]
+            (is (= :rf.error/adapter-disposed (:rf.error/id data))
+                (str where-sym " ex-data carries the canonical :rf.error/id discriminator"))
             (is (= where-sym (:where data))
                 (str where-sym " ex-data :where echoes the offending public surface symbol"))
             (is (= :no-recovery (:recovery data))

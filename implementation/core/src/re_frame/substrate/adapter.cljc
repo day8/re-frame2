@@ -66,7 +66,12 @@
   [adapter]
   (when @installed-adapter
     (throw (ex-info ":rf.error/adapter-already-installed"
-                    {:installed @installed-adapter :attempted adapter})))
+                    {:rf.error/id :rf.error/adapter-already-installed
+                     :where       'rf/init!
+                     :recovery    :no-recovery
+                     :reason      "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
+                     :installed   @installed-adapter
+                     :attempted   adapter})))
   (reset! installed-adapter adapter)
   (reset! disposed? false)
   adapter)
@@ -164,23 +169,28 @@
        case so test diagnostics, post-mortem traces, and pair-tool
        overlays can point at the right remedy.
 
-  Shape matches the broader missing-fn throw contract (the
-  `re-frame.late-bind/require-fn!` helper, rf2-h824v, rf2-uchhp):
+  Carries the canonical thrown-error shape (per Spec 009 §The
+  thrown-error shape), matching the broader missing-fn throw contract
+  (the `re-frame.late-bind/require-fn!` helper):
 
     Message: \":rf.error/<tag>\"
-    ex-data: {:where    <where-sym>
-              :recovery :no-recovery
-              :reason   <human-readable string>}
+    ex-data: {:rf.error/id :rf.error/<tag>  ;; canonical discriminator
+              :where       <where-sym>
+              :recovery    :no-recovery
+              :reason      <human-readable string>}
 
-  `where-sym` is stamped on the throw so grep-for-symbol finds the
-  delegation site in user code. Private — callers in this ns thread
-  the symbol of the public surface they implement (e.g.
-  `'rf/make-state-container`)."
+  The `:rf.error/id` slot is the canonical discriminator consumers read
+  uniformly; the message string is the stringified kw so `.getMessage`
+  pivots to the same category. `where-sym` is stamped on the throw so
+  grep-for-symbol finds the delegation site in user code. Private —
+  callers in this ns thread the symbol of the public surface they
+  implement (e.g. `'rf/make-state-container`)."
   [where-sym]
   (or @installed-adapter
       (if @disposed?
         (throw (ex-info ":rf.error/adapter-disposed"
-                        {:where    where-sym
+                        {:rf.error/id :rf.error/adapter-disposed
+                         :where    where-sym
                          :recovery :no-recovery
                          :reason   (str where-sym " was called after"
                                         " (rf/destroy-adapter!); the previously"
@@ -188,7 +198,8 @@
                                         " Install a fresh adapter via"
                                         " (rf/init! <adapter>) before calling.")}))
         (throw (ex-info ":rf.error/no-adapter-installed"
-                        {:where    where-sym
+                        {:rf.error/id :rf.error/no-adapter-installed
+                         :where    where-sym
                          :recovery :no-recovery
                          :reason   (str where-sym " was called before (rf/init! ...);"
                                         " require an adapter ns and pass its `adapter` Var,"

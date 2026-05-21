@@ -1021,6 +1021,50 @@ All error trace events are open maps with these required keys:
 
 `:source` and `:recovery` are top-level fields hoisted out of `:tags` by the runtime; both are present on every error event. `:frame` rides under `:tags` (every emit site that knows the frame supplies it there). The `:tags` payload's category-specific keys are documented per category below, and each category has a registered Malli schema so consumers can validate / branch on the payload safely.
 
+### The thrown-error shape — the `:rf.error/id` ex-data contract
+
+Most runtime failures emit a **trace event** (the shape above) and let the cascade recover. A minority are **thrown** — a registration is rejected, an optional artefact is absent, a delegation surface is reached before `(rf/init! …)`. These surface as `ex-info` rather than as trace events (the catalogue's "Surfaced as a thrown ex-info, not a trace" rows). Thrown errors carry their own canonical ex-data shape so a single consumer path — Causa's error widget, the pair-tool overlay, an `:on-error` policy, a `try`/`catch` in user code — reads one discriminator slot uniformly regardless of which surface threw.
+
+The discriminator slot is **`:rf.error/id`** — a `:rf.error/<category>` keyword from the [§Error event catalogue](#error-event-catalogue). This is the **single normative discriminator for thrown errors**; the four-slot skeleton below is the canonical shape every `(throw (ex-info …))` site in the runtime conforms to:
+
+```clojure
+(throw (ex-info ":rf.error/<id>"               ;; message = the stringified discriminator kw
+                {:rf.error/id <category-kw>     ;; CANONICAL DISCRIMINATOR — :rf.error/<category>
+                 :where       'rf/<surface>     ;; the user-facing fn symbol that threw
+                 :recovery    <disposition>     ;; :no-recovery / :fix-registration / :skipped / …
+                 :reason      "<one sentence>"  ;; what failed + why, human-readable
+                 ;; + surface-specific payload merges on top:
+                 ;; :flow / :route-id / :machine-id / :received / :cycle / …
+                 }))
+```
+
+Required slots on every thrown runtime error: `:rf.error/id`, `:where`, `:recovery`, `:reason`. Surface-specific payload (`:flow`, `:bad-entries`, `:cycle`, `:installed`, `:attempted`, `:received`, …) merges on top.
+
+Two consumer pivots, both stable:
+
+- **Message string** — the `.getMessage` / `(ex-message e)` is the stringified discriminator kw (e.g. `":rf.error/flows-artefact-missing"`). A consumer with no ex-data access (a raw stack trace, a log line) still pivots to a stable category from the message alone.
+- **`:rf.error/id` slot** — `(:rf.error/id (ex-data e))` returns the discriminator as a keyword for structured branching. Tools `case` / `condp` on this slot rather than parsing the message string.
+
+The `:where` slot names the **user-facing surface fn symbol** (`'rf/reg-flow`, `'rf/make-state-container`) so a grep-for-symbol lands on the call site in user code; `:recovery` reuses the [§Recovery contract](#recovery-contract) vocabulary plus `:fix-registration` (the caller fixes their registration map and retries); `:reason` is one human-readable sentence naming what failed and the fix.
+
+This shape is the throw-side companion of the trace-event shape above. A category that can both throw and emit (e.g. a registration rejection that is also catalogued) uses `:operation` on the trace event and `:rf.error/id` on the thrown ex-info — the **same `:rf.error/<category>` keyword** in both slots, so a consumer reads one vocabulary across both surfaces. The pairing with `re-frame.core-artefact/defwrapper` (per [Conventions §single-import contract](Conventions.md#feature-modularity-prefix-convention)) and the missing-artefact wrappers (`:rf.error/<feature>-artefact-missing`) is the canonical reference.
+
+#### Discriminator-slot migration — five variants collapse to one
+
+Pre-canonicalisation, thrown-error ex-data carried the discriminator under **five different slots** depending on the surface:
+
+| Old slot | Old shape | Where it lived |
+|---|---|---|
+| `:error` | `{:error :rf.error/flow-cycle …}` | flows registry / topo (the dominant variant) |
+| `:type` | `{:type :rf.error/… …}` | reagent-slim React-19-removed family |
+| `:kind` | `{:kind :rf.error/… …}` | http `util_json`, routing `route-too-many-keys` |
+| `:reason` (overloaded) | the kw doubling as the human reason | machines-viz scxml, ai-generate |
+| *(none)* | kw only in the message string, no ex-data slot | most other sites (`require-fn!`, `require-adapter!`, …) |
+
+All five collapse to the single canonical `:rf.error/id` slot. The migration is a **rename, not a deprecation** (pre-alpha posture — no back-compat shim): the old slot is removed and `:rf.error/id` added in its place. Where the kw lived only in the message string (the *(none)* row), `:rf.error/id` is added as a new slot carrying the same keyword the message stringifies — the message string is unchanged, the structured slot is new. Where `:reason` was overloaded to carry the discriminator kw, `:reason` reverts to a human-readable sentence and `:rf.error/id` carries the keyword.
+
+The three reference exemplars — `re-frame.flows.registry/flow-error` (was `:error`), `re-frame.late-bind/require-fn!` (was *none*), `re-frame.substrate.adapter/require-adapter!` (was *none*) — demonstrate the canonical shape on first read.
+
 #### `:rf.trace/trigger-handler` — naming the in-scope handler
 
 The optional top-level `:rf.trace/trigger-handler` slot names the handler whose execution produced the trace event and carries its registration-site source-coord. Tools (Causa, pair, IDE jump-to-source) render click-to-jump links from this field — given a trace event, the user lands on the line of code that defined the responsible handler.

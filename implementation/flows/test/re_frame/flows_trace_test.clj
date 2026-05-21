@@ -522,8 +522,8 @@
         (is (some? (:exception r))
             ":exception is the thrown ex-info carrying the cycle data")
         (let [d (ex-data (:exception r))]
-          (is (= :rf.error/flow-cycle (:error d))
-              "exception ex-data carries :error :rf.error/flow-cycle")
+          (is (= :rf.error/flow-cycle (:rf.error/id d))
+              "exception ex-data carries the canonical :rf.error/id discriminator (per Spec 009 §The thrown-error shape)")
           (is (vector? (:cycle d))
               "exception ex-data carries :cycle — the closing-repeat chain tools render"))))))
 
