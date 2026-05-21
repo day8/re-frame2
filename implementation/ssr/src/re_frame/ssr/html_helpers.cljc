@@ -102,6 +102,51 @@
                        :attribute k
                        :recovery  :no-recovery})))))
 
+;; Prototype-pollution keys (rf2-dwds9 / security audit §XSS at output
+;; boundaries). These three names, if they reach the underlying host's
+;; `createElement`-equivalent on the client at hydration, can poison
+;; `Object.prototype`. They are dropped at static-markup emission before
+;; they ever land in the wire props map.
+(def ^:private reserved-prop-keys
+  #{"__proto__" "constructor" "prototype"})
+
+;; `on*` event-handler-prop matcher (rf2-dwds9). Matches the two canonical
+;; handler-prop spellings re-frame hiccup and react-dom/server recognise:
+;;
+;;   - camelCase: `on` followed by an UPPERCASE letter — `onClick`,
+;;     `onMouseDown`, `onLoad`. (`on[A-Z]…`)
+;;   - kebab-case: `on-` prefix — `on-click`, `on-mouse-down`. (`on-…`)
+;;
+;; Deliberately NOT a bare `(starts-with? "on")`: that ate innocuous
+;; English-word attribute names like `one`, `once`, `online`, `only`.
+;; A handler is always `on` + uppercase or `on` + hyphen; ordinary words
+;; are `on` + lowercase with no hyphen, so this discriminates cleanly.
+(def ^:private event-handler-name-re
+  #"on(?:[A-Z].*|-.*)")
+
+(defn strip-prop?
+  "True when the attribute `[k v]` MUST be dropped at SSR static-markup
+  emission per Spec 011 rule rf2-dwds9:
+
+    - `on*` event-handler props (`:on-click`, `:onMouseDown`, …). The
+      client-side substrate adapters wire handlers at hydration; the
+      server-rendered string MUST NOT carry them inline. Matched against
+      `event-handler-name-re` (camelCase `on[A-Z]` or kebab `on-`).
+    - function-valued prop values — a fn can only be a handler/callback;
+      it has no HTML-attribute serialisation and must never reach output.
+    - reserved prototype-pollution keys (`__proto__` / `constructor` /
+      `prototype`), dropped before they reach the host createElement.
+
+  Mirrors react-dom/server behaviour. Recognised here are exactly the
+  props that are *safe to silently drop*; malformed keys (breakout chars)
+  are NOT this fn's concern — they surface at the `validate-attr-name!`
+  grammar gate (rf2-vl8ir)."
+  [[k v]]
+  (let [nm (name k)]
+    (or (some? (re-matches event-handler-name-re nm))
+        (fn? v)
+        (contains? reserved-prop-keys (str/lower-case nm)))))
+
 (defn attr-string
   "Render an attribute map as ` k1=\"v1\" k2=\"v2\"` (leading space when
   non-empty; empty string when the map is empty). Boolean `true` emits
@@ -117,19 +162,31 @@
   `\"onclick=alert(1) data-x\"` would otherwise inject an event-handler
   attribute by escaping the attribute-name context. Same gate covers
   the `:html-attrs` / `:body-attrs` flow through the host shell
-  (security audit §P3.1)."
+  (security audit §P3.1).
+
+  Props matching `strip-prop?` — `on*` event-handler props, function-
+  valued props, and reserved prototype-pollution keys — are dropped at
+  emit time per Spec 011 rule rf2-dwds9 (the per-attribute prop-name
+  filter position in the locked emitter composition order). The filter
+  runs ahead of the attribute-key grammar gate so a stripped prop never
+  reaches `validate-attr-name!`."
   [attrs]
-  (if (empty? attrs)
-    ""
-    (str " "
-         (str/join " "
-                   (keep (fn [[k v]]
-                           (cond
-                             (true? v)  (validate-attr-name! k)
-                             (false? v) nil
-                             (nil? v)   nil
-                             :else      (str (validate-attr-name! k)
-                                             "=\""
-                                             (escape-attr v)
-                                             "\"")))
-                         attrs)))))
+  ;; `keep` realises only the surviving attributes; the leading space is
+  ;; added once, conditionally. A map that is non-empty but whose every
+  ;; entry is stripped/omitted (e.g. `{:on-click f}`) must yield `\"\"`,
+  ;; not a stray `\" \"` — so we branch on the rendered seq, not the input
+  ;; map's emptiness.
+  (let [rendered (keep (fn [[k v :as kv]]
+                         (cond
+                           (strip-prop? kv) nil
+                           (true? v)  (validate-attr-name! k)
+                           (false? v) nil
+                           (nil? v)   nil
+                           :else      (str (validate-attr-name! k)
+                                           "=\""
+                                           (escape-attr v)
+                                           "\"")))
+                       attrs)]
+    (if (seq rendered)
+      (str " " (str/join " " rendered))
+      "")))

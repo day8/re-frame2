@@ -5,6 +5,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]
@@ -117,13 +118,22 @@
           tree   [:rf/suspense-boundary {:id :flaky :fallback [:p "Loading…"]}
                   [throws]]
           {:keys [continuations]} (streaming/render-shell tree)
-          entry  (assoc (first continuations) :fallback [:p "Loading…"])
+          ;; rf2-405ld — exercise the REAL record→fail path: the
+          ;; continuation entry must already carry its declared :fallback
+          ;; from `record-continuation!`. Previously this test masked the
+          ;; bug by manually `(assoc … :fallback [:p "Loading…"])`; with
+          ;; the manual assoc removed, an empty fallback on failure (the
+          ;; bug) would surface here as a "" :html.
+          entry  (first continuations)
           captured (atom [])
           result (with-trace-capture captured
                    #(streaming/render-continuation fid entry))]
+      (is (= [:p "Loading…"] (:fallback entry))
+          "record-continuation! stored the declared :fallback on the entry")
       (is (:failed? result) ":failed? truthy")
       (is (nil? (:delta result)) "delta omitted on failure")
-      (is (= "<p>Loading…</p>" (:html result)) "fallback hiccup materialised in place")
+      (is (= "<p>Loading…</p>" (:html result))
+          "declared fallback hiccup materialised in place (not empty)")
       (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
                 @captured)
           ":rf.ssr/suspense-boundary-failed trace emitted"))))
@@ -156,6 +166,46 @@
       (is (= "deadbeef" (:rf/render-hash payload)))
       (is (= "abc123" (:rf/schema-digest payload)))
       (is (= {:articles [{:id "a"}]} (:rf/app-db payload))))))
+
+(deftest build-final-payload-version-honours-runtime-version-hook
+  (testing "rf2-via0g — streaming payload :rf/version reads the
+            :rf2/runtime-version late-bind hook (mirroring the non-
+            streaming rf2-asmj1 S8 fix), not a hard-coded 1. The prior
+            `(or version 1)` silently disagreed with the client-side
+            hook and defeated the :rf.ssr/version-mismatch check."
+    (let [fid (make-frame {:db {:k 1}})]
+      (testing "hook present + no explicit :version → hook value wins (not 1)"
+        (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
+        (try
+          (let [payload (streaming/build-final-payload
+                          fid "hash"
+                          {:payload-policy :rf.ssr.payload/whole-app-db})]
+            (is (= "9.9.9" (:rf/version payload))
+                "runtime-version hook value lands in :rf/version")
+            (is (not= 1 (:rf/version payload))
+                "the hard-coded 1 must NOT win when the hook is registered"))
+          (finally
+            (swap! late-bind/hooks dissoc :rf2/runtime-version))))
+
+      (testing "explicit :version opt wins over the hook"
+        (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
+        (try
+          (let [payload (streaming/build-final-payload
+                          fid "hash"
+                          {:version        42
+                           :payload-policy :rf.ssr.payload/whole-app-db})]
+            (is (= 42 (:rf/version payload))
+                "caller-supplied :version is the highest-priority source"))
+          (finally
+            (swap! late-bind/hooks dissoc :rf2/runtime-version))))
+
+      (testing "no hook + no explicit :version → terminal v1 fallback"
+        (swap! late-bind/hooks dissoc :rf2/runtime-version)
+        (let [payload (streaming/build-final-payload
+                        fid "hash"
+                        {:payload-policy :rf.ssr.payload/whole-app-db})]
+          (is (= 1 (:rf/version payload))
+              "absent hook + absent opt → v1 pattern-protocol stamp"))))))
 
 (deftest late-bind-hooks-published
   (testing "All three :ssr.streaming/* late-bind hooks resolve to the streaming fns"
