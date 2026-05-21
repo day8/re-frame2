@@ -277,6 +277,14 @@ markdown_extensions:
         - name: cljs
           class: language-cljs
           format: !!python/name:pymdownx.superfences.fence_code_format
+        # Live reagent/re-frame component cells (rf2-bujlr, Phase 2). ```cljs-render
+        # fences emit <pre class="language-cljs-render">; tools/playground's
+        # bootstrap turns each into a CM6 editor whose last form is MOUNTED as a
+        # reagent component (stock reagent + re-frame, loaded on demand via the
+        # Scittle plugins) instead of pr-str'd. Plain ```cljs cells are unchanged.
+        - name: cljs-render
+          class: language-cljs-render
+          format: !!python/name:pymdownx.superfences.fence_code_format
         # Mermaid diagrams (rf2-9ewbc). Material renders ```mermaid fences
         # natively (it ships Mermaid and wires the renderer when this fence
         # is declared) — no extra plugin needed. Enables architecture,

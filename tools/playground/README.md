@@ -1,9 +1,52 @@
-# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover)
+# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover; rf2-bujlr Phase 2)
 
 The roll-your-own live-ClojureScript-cell playground for the `docs/cljs` page —
 the production replacement for Klipse. It turns ` ```cljs ` fenced blocks in
 mkdocs prose into CodeMirror 6 editors that evaluate plain CLJS in the browser
 via Scittle (SCI), instant-nav-safe.
+
+**Phase 2 (rf2-bujlr)** adds a second cell kind for **live reagent / re-frame
+components** — see [Cell kinds](#cell-kinds) below.
+
+## Cell kinds
+
+| Fence | Class emitted | Behaviour |
+|---|---|---|
+| ` ```cljs ` | `language-cljs` | **plain-eval cell** — evaluates the source and `pr-str`s the last form's value into the result div (Phase 1). |
+| ` ```cljs-render ` | `language-cljs-render` | **render cell** — evaluates the source and **mounts the last form's value as a reagent component** into the result div (Phase 2). Stock reagent + re-frame are available. |
+
+### Render cells (` ```cljs-render `)
+
+A render cell's source may `require` `reagent.core` / `reagent.dom` /
+`re-frame.core` and use `reg-event-db` / `reg-sub` / `dispatch` / `subscribe`
+(stock re-frame — **not** re-frame2's own API; that is Phase 3). The cell's
+**last form** must evaluate to a reagent renderable: a hiccup vector
+(`[:div ...]`) or a component vector (`[my-component]`). The bootstrap renders
+it via `reagent.dom/render` into the cell's result div. Render cells
+**auto-render on load** (the live component is the point) and re-render on
+Mod-Enter after edits.
+
+```cljs-render
+(require '[re-frame.core :as rf])
+(rf/reg-event-db :init (fn [_ _] {:n 0}))
+(rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+(rf/reg-sub      :n    (fn [db _] (:n db)))
+(rf/dispatch-sync [:init])
+(defn counter []
+  [:div
+   [:span "count: " @(rf/subscribe [:n])]
+   [:button {:on-click #(rf/dispatch [:inc])} "inc"]])
+[counter]
+```
+
+Implementation note: a render cell's source is evaluated at the SCI **top
+level** (NOT wrapped in `(do ...)` like a plain cell), because SCI only
+propagates a `require`'s aliases to *sibling top-level* forms — wrapping the
+body in one `(do ...)` makes the cell's `rf/...` aliases unresolvable.
+
+The reagent + re-frame Scittle plugins (and the `React` + `ReactDOM` globals
+they need) are loaded from the CDN **only on pages that contain a
+` ```cljs-render ` cell** — plain-CLJS pages never pay that cost.
 
 This is **option B** from the findings doc
 (`ai/findings/2026-05-21-roll-your-own-cljs-playground.md` §6) realised as a
@@ -21,6 +64,9 @@ doc. `tools/shadow-cljs.edn` is **untouched** by this artefact.)
 | `@codemirror/view` | ^6.43.0 | CM6 view (`EditorView`, `keymap`, `lineNumbers`) |
 | `@codemirror/commands` | ^6.10.3 | history + default keymaps |
 | Scittle | 0.8.31 | SCI eval engine — loaded as a classic `<script>` global from jsDelivr (NOT bundled, NOT an ES module) |
+| `scittle.reagent.js` | 0.8.31 | reagent plugin (Phase 2) — loaded from jsDelivr ONLY on pages with a ` ```cljs-render ` cell |
+| `scittle.re-frame.js` | 0.8.31 | re-frame plugin (Phase 2) — same on-demand load |
+| React + ReactDOM | 18 (UMD) | globals the Scittle reagent plugin references — loaded from jsDelivr ahead of the plugins, on-demand |
 | esbuild | ^0.28.0 | bundler (IIFE) |
 | playwright | ^1.60.0 | smoke harness (chromium) |
 
@@ -51,10 +97,18 @@ npm run smoke          # headless chromium drives 3 cells against docs/cljs/play
 ```
 
 The smoke loads the **production** `docs/cljs/playground.js` against a page that
-mimics the mkdocs-emitted DOM (`<pre class="language-cljs">`), proves the
-bootstrap auto-injects Scittle, then asserts: `(+ 1 2 3) => 6`; a
-`defn`/`println`/nested-coll cell captures `*out*` and renders the value; an
-error cell renders `ERROR` without crashing (and cell 1 still evals after).
+mimics the mkdocs-emitted DOM (`<pre class="language-cljs">` +
+`<pre class="language-cljs-render">`), proves the bootstrap auto-injects
+Scittle, then asserts:
+
+- **Phase 1:** `(+ 1 2 3) => 6`; a `defn`/`println`/nested-coll cell captures
+  `*out*` and renders the value; an error cell renders `ERROR` without crashing
+  (and cell 1 still evals after).
+- **Phase 2:** a ` ```cljs-render ` cell makes the bootstrap auto-load the
+  React + ReactDOM + scittle.reagent + scittle.re-frame stack; a reagent
+  counter using a re-frame `subscribe` renders live; clicking its button
+  `dispatch`es a re-frame event and the subscribed view updates (count 0 → 2);
+  a plain ` ```cljs ` cell on the same page still works.
 
 ## mkdocs wiring
 

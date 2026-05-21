@@ -32,6 +32,22 @@
   min-height: 1.4em;
 }
 
+/* Render-cell mount surface (Phase 2, rf2-bujlr): holds a live reagent
+ * component, not pr-str'd text — drop the code styling, give it room. */
+.cljs-mount {
+  font-family: inherit;
+  font-size: inherit;
+  white-space: normal;
+  background: var(--md-default-bg-color, #fff);
+  border: 1px solid var(--md-default-fg-color--lightest, #ddd);
+}
+
+/* An error in a render cell falls back to the error styling (set by JS). */
+.cljs-mount.cljs-result--err {
+  font-family: var(--md-code-font, monospace);
+  white-space: pre-wrap;
+}
+
 .cljs-result--err {
   background: var(--md-typeset-del-color, #fdecec);
   color: #a40000;
