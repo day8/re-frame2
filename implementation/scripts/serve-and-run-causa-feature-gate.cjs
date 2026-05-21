@@ -34,6 +34,40 @@ const BASE_URL = process.env.CAUSA_FEATURE_GATE_BASE_URL || `http://127.0.0.1:${
 const TIMEOUT_MS = Number(process.env.CAUSA_FEATURE_GATE_TIMEOUT_MS || 45000);
 const READY_TIMEOUT_MS = 30000;
 const VERBOSE_TESTS = isVerboseTests();
+
+// rf2-wa3oo: PR-smoke vs nightly-full split. With `--smoke` (or
+// RF2_GATE_SMOKE=1) the gate runs only the scenarios tagged
+// `smoke: true` and compiles only the testbed surfaces those scenarios
+// actually load — cutting the 13-surface / 14-scenario nightly sweep
+// down to the 2-surface high-signal subset on the PR critical path.
+// The full sweep keeps running nightly in expensive-tests.yml. The CLI
+// flag is the cross-platform entry point (no cross-env dependency); the
+// env var stays supported for harness composition.
+const SMOKE =
+  process.env.RF2_GATE_SMOKE === '1' || process.argv.includes('--smoke');
+
+// Map a scenario's served URL (e.g. "/counter/" or
+// "/testbeds/deliberate-throw/") back to the STAGED_SURFACES entry that
+// serves it, so smoke mode compiles only what the smoke scenarios need.
+function surfaceForScenario(scenario) {
+  const urlPath = String(scenario.url || '').replace(/^\/+|\/+$/g, '');
+  return STAGED_SURFACES.find((surface) => surface.servedPath === urlPath) || null;
+}
+
+const ACTIVE_SCENARIOS = SMOKE
+  ? SCENARIOS.filter((scenario) => scenario.smoke === true)
+  : SCENARIOS;
+
+const ACTIVE_SURFACES = SMOKE
+  ? (() => {
+      const needed = new Set();
+      for (const scenario of ACTIVE_SCENARIOS) {
+        const surface = surfaceForScenario(scenario);
+        if (surface) needed.add(surface);
+      }
+      return STAGED_SURFACES.filter((surface) => needed.has(surface));
+    })()
+  : STAGED_SURFACES;
 const { chromium } = require(require.resolve('playwright', {
   paths: [IMPL_ROOT],
 }));
@@ -72,7 +106,7 @@ function cleanAndStageRoot() {
 }
 
 function compileSurfaces() {
-  const builds = [...new Set(STAGED_SURFACES.map((surface) => surface.build))];
+  const builds = [...new Set(ACTIVE_SURFACES.map((surface) => surface.build))];
   const isWin = process.platform === 'win32';
   const cmd = isWin ? 'npx.cmd' : 'npx';
   const args = ['shadow-cljs', 'compile', ...builds];
@@ -107,7 +141,7 @@ function stageSharedIfReferenced(surface, outDir) {
 }
 
 function stageSurfaces() {
-  for (const surface of STAGED_SURFACES) {
+  for (const surface of ACTIVE_SURFACES) {
     const bundleSrc = implPath(surface.bundleDir);
     const htmlSrc = relPath(surface.html);
     const outDir = path.join(OUT_ROOT, surface.servedPath);
@@ -324,7 +358,7 @@ async function runScenarios() {
   let anyFailed = false;
 
   try {
-    for (const scenario of SCENARIOS) {
+    for (const scenario of ACTIVE_SCENARIOS) {
       const label = scenario.name;
       const detailLines = [];
       const browserState = {
@@ -404,12 +438,26 @@ async function runScenarios() {
     }
   }
   console.log(
-    `Ran ${results.length} Causa feature scenarios. ${failedCount} failures. Covered ${coveredRows.length} matrix rows.`,
+    `Ran ${results.length} Causa feature scenarios (${SMOKE ? 'PR-smoke tier' : 'nightly-full sweep'}). ` +
+      `${failedCount} failures. Covered ${coveredRows.length} matrix rows.`,
   );
   return anyFailed ? 1 : 0;
 }
 
 async function main() {
+  // Fail loud rather than silently passing a zero-scenario smoke if a
+  // future scenario rename drops the `smoke: true` tag (rf2-wa3oo).
+  if (SMOKE && ACTIVE_SCENARIOS.length === 0) {
+    throw new Error(
+      'RF2_GATE_SMOKE=1 but no scenarios are tagged `smoke: true` in ' +
+        'tools/causa/testbeds/feature_matrix/scenarios.cjs. The PR-smoke ' +
+        'tier must keep at least one high-signal scenario.',
+    );
+  }
+  console.log(
+    `Causa feature gate — ${SMOKE ? 'PR-smoke tier' : 'nightly-full sweep'}: ` +
+      `${ACTIVE_SCENARIOS.length} scenario(s) over ${ACTIVE_SURFACES.length} surface(s).`,
+  );
   cleanAndStageRoot();
   compileSurfaces();
   stageSurfaces();

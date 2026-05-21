@@ -1053,7 +1053,7 @@ jobs:
         run: npm run test:examples
 
   story-causa-browser:
-    name: Story/Causa browser gates (targeted)
+    name: Story/Causa browser gates (PR-smoke)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.story_causa_browser == 'true'
     runs-on: ubuntu-latest
@@ -1092,31 +1092,63 @@ jobs:
             ${{ runner.os }}-story-causa-browser-
             ${{ runner.os }}-cljs-
 
+      # rf2-og36y: cache the shadow-cljs compile output (.shadow-cljs/
+      # incremental state + .cpcache classpath cache) keyed on the build
+      # config + every source path the smoke testbeds pull in. The
+      # testbed compile (400+ files per bundle) is the dominant cost of
+      # this gate; a warm `.shadow-cljs/` cache lets shadow recompile
+      # only changed namespaces instead of the whole graph. The key is
+      # conservative — any change under the Story/Causa src or testbed
+      # trees, the shared implementation source, or the build config
+      # busts it, so a stale cache can never serve wrong output. The
+      # `restore-keys` prefix still gives a warm partial cache on a miss.
+      - name: Cache shadow-cljs compile output (.shadow-cljs / .cpcache)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            implementation/.shadow-cljs
+            implementation/.cpcache
+          key: ${{ runner.os }}-story-causa-shadow-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/deps.edn', 'implementation/package-lock.json', 'implementation/**/deps.edn', 'tools/story/deps.edn', 'tools/causa/deps.edn', 'tools/story/src/**', 'tools/story/testbeds/**', 'tools/causa/src/**', 'tools/causa/testbeds/**', 'implementation/core/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-story-causa-shadow-
+
       - name: npm install
         run: npm ci
 
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      # PR-time targeted gates for Story/Causa browser regressions. The
-      # classifier keeps this off for unrelated PRs. Story feature-load
-      # runner/testbed/matrix changes must exercise the same live browser
-      # gate here, not only in a worker's local loop.
-      - name: Run Causa feature browser gate
-        run: npm run test:causa-feature-gate
-
-      - name: Run Story static-export browser smoke
-        run: npm run test:story-static
-
-      - name: Run Story feature-load browser gate
-        run: npm run test:story-feature-load
+      # PR-smoke tier (rf2-wa3oo + rf2-og36y). The full feature-load +
+      # full Causa matrix + Story static-export sweep is on the critical
+      # path of every Story/Causa PR at ~700s, and the identical sweep
+      # already runs nightly in expensive-tests.yml — so PR time ran the
+      # full matrix twice over. PR time now runs only the high-signal
+      # subset:
+      #
+      #   - Causa feature gate in --smoke mode: the 3 highest-signal
+      #     scenarios (6-tab shell handoff, deterministic-exception →
+      #     Issues/Trace surfacing, Cmd-K palette) over just 2 staged
+      #     surfaces (counter + deliberate-throw), compiling 2 testbed
+      #     bundles instead of 13.
+      #   - Story :play-script CI-as-test gate (rf2-3qcxk): drives the
+      #     live Story shell over the single counter-with-stories
+      #     testbed and runs every variant's :play-script. This is the
+      #     gate that renders the assertion-strip, so the rf2-5lw9w
+      #     assertion-strip :key fix stays covered on the PR critical
+      #     path.
+      #
+      # The full sweep (test:causa-feature-gate, test:story-feature-load,
+      # test:story-static) runs nightly in expensive-tests.yml.
+      - name: Run Causa feature browser gate (PR-smoke)
+        run: npm run test:causa-feature-gate:smoke
 
       # rf2-3qcxk — every Story variant whose body carries a
       # `:play-script` slot doubles as an automated regression test.
       # The runner discovers them via `re-frame.story.play.ci-runner`,
       # drives each through the live shell, and reports a structured
-      # pass/fail row per variant. Lives in the same Story/Causa job
-      # because it shares the testbed bundle and Playwright stack.
+      # pass/fail row per variant. Kept on the PR critical path: it is a
+      # single-testbed compile and is the live render path that exercises
+      # the assertion-strip (rf2-5lw9w).
       - name: Run Story :play-script CI-as-test gate
         run: npm run test:story-play-scripts
 
