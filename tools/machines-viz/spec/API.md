@@ -66,6 +66,52 @@ unrecognised keys at registration time).
 | `:layout-options` | no | `nil` | ELK `layoutOptions` overrides — a map of string → string keys that merge ON TOP of the canonical defaults (`chart.elk-layout/default-layout-options`). Hosts tighten / widen / swap individual knobs (`"elk.spacing.nodeNode"` for density, `"elk.layered.crossingMinimization.strategy"` for rank-order discipline, etc.) without re-stating the whole map. The `:direction` arg always wins for `"elk.direction"`. Per rf2-ikdi3. |
 | `:layout-engine` | no | `:auto` | Engine selector — `:auto` (cached ELK when available, layered fallback otherwise — the historical behaviour), `:elk` (cached ELK only; returns nothing when not ready so the host can choose 'wait + retry' over 'render the inferior engine'), `:layered` (force the layered fallback — useful for deterministic screenshot tests). Per rf2-ikdi3 — the two-engine reality (layered fallback + ELK) is now surfaced explicitly rather than hidden behind a single entry point. |
 | `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Picks the geometry + typography map from `visual-constants/chart-for-density`; the chart's `corner-radius` lock (rf2-g6cig) is invariant across every density so the chart's visual character stays consistent — only quantity scales. Per [§Density](#density) and rf2-32gw5. |
+| `:spawn-all-join` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready `:spawn-all` join-spec — `{:node-id <string> :join <:all\|:any\|{:n N}\|{:fn _}> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state, showing each spawned child + the join state. The host (Causa) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. nil → no inspector. |
+| `:on-spawn-child-click` | no | `nil` | `(fn [child-key] ...)`. Fires on a join-inspector child-row click; Causa pivots to the child instance. |
+| `:cancellation-cascade` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready cascade-spec — `{:node-id <string> :parent-label <string?> :from-state <kw?> :steps [{:kind <:exit\|:destroy\|:abort\|:cleanup> :label <string> :note :delta-ms}]}`. When present (and `:steps` is non-empty) the chart mounts the `chart.overlays.cancellation-cascade` waterfall beneath the parent state, turning the scattered abort/destroy traces into one decision laid out vertically. The host projects the spec from the cancellation trace cluster. nil / no steps → dormant. |
+| `:overlay-tick` | no | `nil` | rf2-3ow55. Opaque value the host bumps to force the `:spawn-all` + cascade overlays to re-measure + repaint (mirrors `:after-ring-tick`). |
+
+### Parallel-region rendering (rf2-lkwev, xyflow Phase 2)
+
+A `{:type :parallel :regions {...}}` machine renders EVERY region as a
+distinct orthogonal zone (Stately parity), superseding the Phase 1
+first-region-only projection. Each region surfaces a synthetic
+`:region?` compound container node — `chart.layout/parse-definition`
+mints a `region__<region-id>` node-id for it, tags each region state
+with `:region` + `:parent-id`, and flags the result `:parallel? true`.
+`chart.chart/xyflow-graph` projects the container as a
+`type: "parallel-region"` xyflow node (rendered by
+`chart.nodes.parallel-region-node` with a distinct dashed boundary +
+header label whose colour rotates per region index) and assigns each
+state a `parentNode`/`:extent "parent"` so xyflow's sub-flow mechanic
+nests the states inside the zone; elkjs lays the states out inside
+each region's bounding box via `elk.hierarchyHandling
+INCLUDE_CHILDREN`. The chart root surfaces `data-region-count`; region
+containers are excluded from `data-node-count` + the aria-label state
+count (they are zone chrome, not states).
+
+### Substrate adapters (rf2-yg9he, xyflow Phase 2)
+
+The xyflow `MachineChart` is a Reagent component, but xyflow IS React,
+so the chart bottoms out at a React element tree.
+`reagent.core/reactify-component` lifts it to a plain React class any
+host mounts. The shared bridge `adapters.react-chart` reactifies once
+(`MachineChartReactClass`) + exposes `chart-element` (CLJS props map →
+React element); thin per-substrate shells present an idiomatic surface:
+
+```clojure
+;; UIx host
+(:require [day8.re-frame2-machines-viz.adapters.uix :as mv-uix])
+($ mv-uix/MachineChart {:machine-id :auth/flow :definition defn})
+
+;; Helix host
+(:require [day8.re-frame2-machines-viz.adapters.helix :as mv-helix]
+          [helix.core :refer [$]])
+($ mv-helix/MachineChart {:machine-id :auth/flow :definition defn})
+```
+
+All three substrates render the SAME component through one bridge —
+there is no per-substrate fork of the chart.
 
 The four `:on-*` callback shapes are mirrored from
 [Causa 003 §Source-coord integration](../../causa/spec/003-Machine-Inspector.md#source-coord-integration);
@@ -817,7 +863,11 @@ the AI-generate test ns for examples).
 ## Public CLJS API surface — summary
 
 ```clojure
-day8.re-frame2-machines-viz.chart/MachineChart    ; component
+day8.re-frame2-machines-viz.chart/MachineChart    ; component (Reagent)
+day8.re-frame2-machines-viz.adapters.react-chart/MachineChartReactClass ; rf2-yg9he — reactified React class
+day8.re-frame2-machines-viz.adapters.react-chart/chart-element          ; rf2-yg9he — CLJS props → React element
+day8.re-frame2-machines-viz.adapters.uix/MachineChart   ; rf2-yg9he — UIx shell ($-mountable)
+day8.re-frame2-machines-viz.adapters.helix/MachineChart ; rf2-yg9he — Helix shell ($-mountable)
 day8.re-frame2-machines-viz.share/encode-share-url
 day8.re-frame2-machines-viz.share/decode-share-url
 day8.re-frame2-machines-viz.mermaid/emit          ; pure fn — definition → string

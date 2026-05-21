@@ -54,6 +54,21 @@
                       ...]
        :initial-path <vec-of-kw>}            ;; the machine's :initial path
 
+  ## Parallel regions (rf2-lkwev — xyflow Phase 2)
+
+  A `{:type :parallel :regions {...}}` definition projects EVERY
+  region (Phase 1 deferred all but the first). Each region becomes a
+  synthetic `:region?` compound node — an orthogonal-zone container
+  the `chart.nodes/parallel-region-node` paints with a distinct
+  dashed boundary (Stately parity). Every state inside a region
+  carries `:region <region-id>` + `:parent-id <region-node-id>` so
+  the chart projector can hand xyflow a `parentNode`/sub-flow
+  grouping; edges stay region-local (a transition declared inside a
+  region never crosses into a sibling region — orthogonality).
+
+  Region node-ids are prefixed `region__<region-id>` so they never
+  collide with a real state's `node-id`.
+
   ## What this does NOT do (pre-migration, this ns DID do)
 
   - **Positioning** (`bfs-ranks`, `place-nodes`, `route-edge`) —
@@ -183,6 +198,18 @@
        (str/join "__")
        (#(str/replace % #"[^a-zA-Z0-9_]" "_"))))
 
+(defn region-node-id
+  "Stable string id for a parallel region's synthetic compound node.
+  Prefixed `region__` so it never collides with a state `node-id`
+  (rf2-lkwev). `region-id` is the region's key in the `:regions` map."
+  [region-id]
+  (str "region__"
+       (if (keyword? region-id)
+         (if-let [ns (namespace region-id)]
+           (str ns "_" (name region-id))
+           (name region-id))
+         (str region-id))))
+
 (defn- name-of
   "Render a guard/action symbol-like value as a short string. Keywords
   use `ns/name` when namespaced, plain `name` otherwise. Non-keywords
@@ -250,48 +277,100 @@
 
 ;; ---- public projection --------------------------------------------------
 
+(defn- parse-flat
+  "Project a non-parallel machine definition into `{:nodes :edges
+  :initial-path}`. The shared single-machine walker; `parse-definition`
+  calls this for plain machines AND once per region of a `:parallel`
+  machine (the per-region nodes/edges then get tagged with their
+  region + parent-id)."
+  [definition]
+  (let [{:keys [initial states]} definition
+        base-nodes (vec (collect-nodes [] states))
+        initial-path (when initial [initial])
+        nodes (mapv (fn [n]
+                      (let [n' (if (= (:path n) initial-path)
+                                 (assoc n :initial? true)
+                                 n)]
+                        (assoc n' :id (node-id (:path n')))))
+                    base-nodes)
+        raw-edges (vec (mapcat (fn [[state-id state-node]]
+                                 (collect-state-edges [state-id] state-node))
+                               states))
+        edges (vec (map (fn [e]
+                          (assoc e
+                            :id          (edge-id (:from e) (:to e) e)
+                            :source      (node-id (:from e))
+                            :target      (node-id (:to e))
+                            :from-path   (:from e)
+                            :to-path     (:to e)
+                            :event-label (edge-label e)))
+                        raw-edges))]
+    {:nodes        nodes
+     :edges        edges
+     :initial-path initial-path}))
+
+(defn- parse-parallel
+  "Project a `{:type :parallel :regions {...}}` definition into the
+  flat graph, projecting EVERY region (rf2-lkwev — Phase 1 deferred
+  all but the first). Each region becomes a synthetic `:region?`
+  compound node whose `node-id` is `region-node-id`; each region's
+  states carry `:region <region-id>` + `:parent-id <region-node-id>`
+  so the chart projector can hand xyflow a `parentNode`/sub-flow
+  grouping. Region order is preserved (regions are an ordered map in
+  practice; we keep insertion order via `:regions`)."
+  [definition]
+  (let [regions (:regions definition)
+        per-region
+        (map-indexed
+          (fn [idx [region-id region-def]]
+            (let [rid       (region-node-id region-id)
+                  parsed    (parse-flat region-def)
+                  ;; Tag every state node with its region + parent so
+                  ;; the projector emits xyflow parentNode grouping.
+                  tagged-nodes
+                  (mapv (fn [n]
+                          (assoc n
+                            :region    region-id
+                            :parent-id rid))
+                        (:nodes parsed))
+                  ;; The synthetic region container node.
+                  region-node
+                  {:id        rid
+                   :path      [region-id]
+                   :label     (name region-id)
+                   :depth     0
+                   :region?   true
+                   :region    region-id
+                   :region-index idx
+                   :compound? true}]
+              {:nodes (into [region-node] tagged-nodes)
+               :edges (:edges parsed)}))
+          regions)]
+    {:nodes        (vec (mapcat :nodes per-region))
+     :edges        (vec (mapcat :edges per-region))
+     :initial-path nil
+     :parallel?    true}))
+
 (defn parse-definition
   "Project a machine definition into a flat `{:nodes :edges
   :initial-path}` graph. Pure fn — JVM-runnable.
 
-  For parallel definitions (`{:type :parallel :regions {...}}`) v1
-  projects the first region only; a follow-on bead handles full
-  parallel layout (xyflow exposes a `parentNode` mechanism that maps
-  cleanly onto regions; deferred to keep the migration tight)."
+  Parallel definitions (`{:type :parallel :regions {...}}`) project
+  EVERY region as an orthogonal zone (rf2-lkwev — xyflow Phase 2 full
+  parallel-region rendering; supersedes the Phase 1 first-region-only
+  projection). Each region surfaces a synthetic `:region?` compound
+  node and its states carry `:region` + `:parent-id` for xyflow
+  parentNode grouping; the result also carries `:parallel? true`."
   [definition]
   (cond
     (nil? definition)
     {:nodes [] :edges [] :initial-path nil}
 
     (= :parallel (:type definition))
-    (let [[_region-id region] (first (:regions definition))]
-      (parse-definition region))
+    (parse-parallel definition)
 
     :else
-    (let [{:keys [initial states]} definition
-          base-nodes (vec (collect-nodes [] states))
-          initial-path (when initial [initial])
-          nodes (mapv (fn [n]
-                        (let [n' (if (= (:path n) initial-path)
-                                   (assoc n :initial? true)
-                                   n)]
-                          (assoc n' :id (node-id (:path n')))))
-                      base-nodes)
-          raw-edges (vec (mapcat (fn [[state-id state-node]]
-                                   (collect-state-edges [state-id] state-node))
-                                 states))
-          edges (vec (map (fn [e]
-                            (assoc e
-                              :id          (edge-id (:from e) (:to e) e)
-                              :source      (node-id (:from e))
-                              :target      (node-id (:to e))
-                              :from-path   (:from e)
-                              :to-path     (:to e)
-                              :event-label (edge-label e)))
-                          raw-edges))]
-      {:nodes        nodes
-       :edges        edges
-       :initial-path initial-path})))
+    (parse-flat definition)))
 
 (defn highlight-id
   "Resolve a snapshot `:state` value to the node-id used in the

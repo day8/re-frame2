@@ -41,6 +41,8 @@
   substrate-specific shim."
   (:require ["@xyflow/react" :as xyflow]
             [reagent.core :as r]
+            [day8.re-frame2-machines-viz.chart.nodes.parallel-region-node
+             :as parallel-region-node]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
              :refer [mono-stack sans-stack]]))
@@ -331,7 +333,8 @@
   callers SHOULD memoise this map at component-construction time
   to avoid re-render churn."
   []
-  #js {"state"          state-node
-       "compound"       compound-node
-       "initial-marker" initial-marker
-       "final-marker"   final-marker})
+  #js {"state"           state-node
+       "compound"        compound-node
+       "parallel-region" parallel-region-node/parallel-region-node
+       "initial-marker"  initial-marker
+       "final-marker"    final-marker})
