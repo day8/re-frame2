@@ -1274,12 +1274,25 @@
   recursive machine-transition-single call; non-:raise fx pass through to
   the accumulator. Returns a `result/ok` Result carrying the post-drain
   `[snap accum-fx]`, or a `result/fail` Result if any recursive step
-  failed."
-  [machine snapshot fx-vec depth-limit]
+  failed.
+
+  `start-depth` seeds the loop's raise-depth counter with the count of
+  raises ALREADY processed transitively before this drain — see
+  `machine-transition-single` (rf2-b88nm). Threading it makes the depth
+  bound *transitive*: a self-chaining single-raise (state A raises an
+  event into state B, which itself raises, …) recurses through nested
+  `machine-transition-single` → `drain-raises` frames, and each frame's
+  drain continues counting from where its caller left off. Without the
+  seed every nested drain would restart at 0, so a runaway self-chain
+  would blow the host call stack instead of firing the clean
+  `:rf.error/machine-raise-depth-exceeded`. Breadth (raise siblings in a
+  single fx vector) and transitive depth (nested raise chains) both count
+  toward the same `:raise-depth-limit`."
+  [machine snapshot fx-vec depth-limit start-depth]
   (loop [pending fx-vec
          accum   []
          snap    snapshot
-         depth   0]
+         depth   start-depth]
     (cond
       ;; `>=` (not `>`) so the `:raise` drain permits exactly `depth-limit`
       ;; recursions (depths 0..limit-1) — parity with the `:always` microstep
@@ -1307,7 +1320,10 @@
             rest-pending (rest pending)]
         (case fx-id
           :raise
-          (let [step-result (machine-transition-single machine snap args)]
+          ;; Pass `(inc depth)` as the nested call's transitive seed so a
+          ;; raise that itself raises keeps counting against this drain's
+          ;; budget rather than restarting at 0 (rf2-b88nm).
+          (let [step-result (machine-transition-single machine snap args (inc depth))]
             (if (result/fail? step-result)
               step-result
               (result/with-ok [snap2 fx2] step-result
@@ -1379,8 +1395,19 @@
   `:always-depth-limit` (both default 16). Parallel-region routing lives
   in `re-frame.machines.parallel`'s `machine-transition` — the dispatch
   checks `parallel?` and either broadcasts across regions or falls
-  through to this fn."
-  [machine snapshot event]
+  through to this fn.
+
+  `raise-depth` is the count of `:raise` recursions already consumed
+  before reaching this call. The public entry passes 0; `drain-raises`
+  passes its running count so a self-chaining single-raise accumulates
+  transitive depth against the SAME `:raise-depth-limit` rather than
+  resetting per nested call (rf2-b88nm). It seeds the `:raise` drains
+  below — both the pre-commit drain and the per-`:always`-step drain — so
+  raises emitted anywhere in this macrostep continue counting from the
+  inbound transitive depth."
+  ([machine snapshot event]
+   (machine-transition-single machine snapshot event 0))
+  ([machine snapshot event raise-depth]
   (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
         path             (state-path (:state snapshot))
@@ -1407,7 +1434,7 @@
     (if (result/fail? result-after-event)
       result-after-event
       (result/with-ok [snap-after-event fx-after-event] result-after-event
-        (let [raised (drain-raises machine snap-after-event fx-after-event raise-limit)]
+        (let [raised (drain-raises machine snap-after-event fx-after-event raise-limit raise-depth)]
           (if (result/fail? raised)
             raised
             (result/with-ok [snap-after-raise fx-after-raise] raised
@@ -1450,11 +1477,16 @@
                         (if (result/fail? step-result)
                           step-result
                           (result/with-ok [snap2 fx2] step-result
-                            (let [raised2 (drain-raises machine snap2 fx2 raise-limit)]
+                            ;; Seed the per-`:always`-step drain with the
+                            ;; macrostep's inbound transitive `raise-depth`
+                            ;; (rf2-b88nm) so raises emitted by an `:always`
+                            ;; cascade reached via a raise chain keep counting
+                            ;; against the same `:raise-depth-limit`.
+                            (let [raised2 (drain-raises machine snap2 fx2 raise-limit raise-depth)]
                               (if (result/fail? raised2)
                                 raised2
                                 (result/with-ok [snap3 fx3] raised2
                                   (recur snap3
                                          (vec (concat fx fx3))
                                          (inc depth)
-                                         (conj visited (:state snap3))))))))))))))))))))
+                                         (conj visited (:state snap3)))))))))))))))))))))
