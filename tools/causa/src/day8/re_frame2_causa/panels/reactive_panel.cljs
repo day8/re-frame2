@@ -55,7 +55,7 @@
      ;; per Mike-direction 2026-05-21. Internal id stays `:views`.
      :label "View"
      :mnem  "v"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 2
      :panel Panel})
   nil)

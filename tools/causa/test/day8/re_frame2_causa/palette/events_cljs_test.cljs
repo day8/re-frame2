@@ -325,17 +325,17 @@
   (setup!)
   ;; Force-set the slot so the cycle is deterministic.
   (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/set-mode :runtime])
+    (rf/dispatch-sync [:rf.causa/set-mode :dynamic])
     (rf/dispatch-sync [:rf.causa/palette-open])
     (rf/dispatch-sync
       [:rf.causa/palette-invoke
        {:source :command
         :id     :toggle-mode
-        :label  "Toggle mode (Runtime ↔ Static)"
+        :label  "Toggle mode (Dynamic ↔ Static)"
         :action [:palette/toggle-mode]}
        false]))
   (is (= :static (:mode (causa-db)))
-      ":runtime → :static via the canonical toggle-mode handler"))
+      ":dynamic → :static via the canonical toggle-mode handler"))
 
 (deftest invoke-select-static-tab-flips-static-slot
   (setup!)

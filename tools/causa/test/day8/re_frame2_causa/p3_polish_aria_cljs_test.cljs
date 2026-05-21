@@ -126,11 +126,11 @@
             "the published accessible name is \"Causa devtools\"")))))
 
 ;; -------------------------------------------------------------------------
-;; (2) rf2-plajx — Runtime L3 tabs + L4 tabpanel id round-trip
+;; (2) rf2-plajx — Dynamic L3 tabs + L4 tabpanel id round-trip
 ;; -------------------------------------------------------------------------
 
 (deftest runtime-tabs-and-panel-close-the-aria-loop
-  (testing "rf2-plajx — Runtime L3 tab buttons carry stable `:id` +
+  (testing "rf2-plajx — Dynamic L3 tab buttons carry stable `:id` +
             `:aria-controls`; the L4 detail-panel carries
             `:role=\"tabpanel\"` + `:id` + `:aria-labelledby` resolving
             back to the active tab's id."
@@ -156,7 +156,7 @@
             "L4 panel's aria-labelledby resolves back to the active tab")))))
 
 (deftest static-tabs-and-panel-close-the-aria-loop
-  (testing "rf2-plajx — Static L4 panel mirrors the Runtime pattern."
+  (testing "rf2-plajx — Static L4 panel mirrors the Dynamic pattern."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree        (static-shell/surface)

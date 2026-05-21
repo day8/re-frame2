@@ -90,7 +90,7 @@
       (or (= "C" k) (= "c" k) (= "KeyC" code)))))
 
 (defn- mode-toggle-key?
-  "True when `event` is the Causa Runtime ↔ Static mode toggle —
+  "True when `event` is the Causa Dynamic ↔ Static mode toggle —
   Cmd+Shift+M on macOS or Ctrl+Shift+M everywhere else (rf2-o5f5f.1).
 
   Per the parent epic's architectural-lock decision (2026-05-19):
@@ -248,7 +248,7 @@
         (.stopPropagation event)
         (mount/toggle!))
 
-    ;; rf2-o5f5f.1 — Cmd-Shift-M flips Runtime ↔ Static. Always
+    ;; rf2-o5f5f.1 — Cmd-Shift-M flips Dynamic ↔ Static. Always
     ;; wired; the chord owns this keystroke for Causa (per
     ;; rf2-8l3uk — the Static-mode feature gate was removed, Static
     ;; mode is unconditionally available).

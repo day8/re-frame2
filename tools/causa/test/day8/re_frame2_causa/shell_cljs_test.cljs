@@ -204,7 +204,7 @@
             sticky-row selection + the `[◀ ▶ ⏭]` cluster, and Space /
             L / G keybindings preserve toggle access.
 
-            Note: the Runtime/Static MODE pill (rf2-o5f5f.1, testid
+            Note: the Dynamic/Static MODE pill (rf2-o5f5f.1, testid
             `rf-causa-mode-pill`) is a different widget — it mounts
             at ribbon-left unconditionally per rf2-8l3uk and is
             asserted by `static/shell_cljs_test.cljs`."

@@ -299,7 +299,7 @@
           ;; `:rf.causa.static/select-tab` (the Static-scoped tab slot
           ;; that the static shell's tab-bar reads). The palette
           ;; filter prevents Static jumps from surfacing while the
-          ;; user is in Runtime mode.
+          ;; user is in Dynamic mode.
           {:db close-db
            :fx (conj base-fx [:dispatch [:rf.causa.static/select-tab (first args)]])}
 
@@ -422,7 +422,7 @@
            :fx (conj base-fx [:dispatch [:rf.causa/settings-open]])}
 
           :palette/toggle-mode
-          ;; rf2-ybjkx — flip Runtime ↔ Static. Routes through the
+          ;; rf2-ybjkx — flip Dynamic ↔ Static. Routes through the
           ;; existing `:rf.causa/toggle-mode` event (also bound to
           ;; Cmd/Ctrl+Shift+M). Single source of truth for the
           ;; mode-flip + persistence side-effect.

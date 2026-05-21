@@ -492,16 +492,16 @@ key.
 
 Static mode is unconditionally available. The mode pill mounts at
 ribbon-left (`data-testid="rf-causa-mode-pill"`), `Cmd-Shift-M` /
-`Ctrl-Shift-M` toggles between Runtime and Static surfaces via
+`Ctrl-Shift-M` toggles between Dynamic and Static surfaces via
 `:rf.causa/toggle-mode`, and the active mode hydrates from
-`causa.mode` localStorage on boot (with `"runtime"` fallback).
+`causa.mode` localStorage on boot (with `"dynamic"` fallback).
 
 Per rf2-8l3uk the prior `:rf.causa/static-mode?` configure key was
 removed (pre-alpha posture — back-compat shims are out of scope; if
 Static mode is useful, expose it unconditionally).
 
 **Persistence.** The mode selection persists under the localStorage
-key `causa.mode` as a bare string (`"runtime"` / `"static"`). The
+key `causa.mode` as a bare string (`"dynamic"` / `"static"`). The
 persistence fx is `:rf.causa.static/persist-mode` (per
 [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) §Static
 mode).

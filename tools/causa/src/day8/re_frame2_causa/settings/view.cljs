@@ -237,7 +237,7 @@
   ;; ARIA tab role: `role="tab"` + `aria-selected` per state +
   ;; stable `id` (so the body's `aria-labelledby` resolves) +
   ;; `aria-controls` pointing at the body's tabpanel id. The same
-  ;; pattern Causa already ships on the L3 Runtime + Static tab
+  ;; pattern Causa already ships on the L3 Dynamic + Static tab
   ;; strips (shell.cljs/tab-button). Keeps `:data-active` for
   ;; styling-key parity with existing CSS selectors / tests.
   [:button {:data-testid    (str "rf-causa-settings-tab-" (name id))

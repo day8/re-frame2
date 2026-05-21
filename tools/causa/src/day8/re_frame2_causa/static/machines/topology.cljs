@@ -5,13 +5,13 @@
   ## What it renders
 
   The Static Topology body embeds `machine-canvas/Chart` — the same
-  interactive viewport adapter the Runtime Machines panel uses — so
+  interactive viewport adapter the Dynamic Machines panel uses — so
   Static users get zoom / pan / fit with the same gestures and the
   same keyboard shortcuts (`+` / `-`, arrows, `f`, `0`). Stately and
   XState's static / read-only chart views get the same affordances;
   Causa's static surface should match.
 
-  Static differs from Runtime in three respects:
+  Static differs from Dynamic in three respects:
 
     1. NO focused-event lens — Static is a static-read; there's no
        `:from-highlight-id` / `:to-highlight-id` to pass, and the
@@ -24,10 +24,10 @@
        (`:show-view-mode-toggle? false`.)
     3. Click on a state node fires
        `:rf.causa.static.machines/state-clicked` (with the clicked
-       state's path) — not the Runtime panel's inspector-lens
+       state's path) — not the Dynamic panel's inspector-lens
        navigation event.
 
-  The per-machine viewport slot is shared with the Runtime Machine
+  The per-machine viewport slot is shared with the Dynamic Machine
   Inspector — if the user pans / zooms in either surface, the other
   picks up the same viewport when it next mounts. That matches the
   user model: 'this is the chart for machine X, parked in this
@@ -78,7 +78,7 @@
   highlight + NO after-rings — Static Topology is a static-read.
 
   rf2-md9oz — delegates to `machine-canvas/Chart` (same adapter the
-  Runtime Machines panel uses) so the user gets zoom / pan / fit
+  Dynamic Machines panel uses) so the user gets zoom / pan / fit
   + keyboard shortcuts on the Static surface too. The static-
   flavoured opts are:
 
@@ -94,7 +94,7 @@
                      "elk"
                      "layered")]
     ;; Trigger ELK to take over post-mount if available; layered serves
-    ;; the first paint either way. Same wire-up the Runtime panel uses
+    ;; the first paint either way. Same wire-up the Dynamic panel uses
     ;; (per `panels/machine_inspector.cljs/focused-event-section`).
     (elk-layout/ensure-elk!
       (fn [_inst]

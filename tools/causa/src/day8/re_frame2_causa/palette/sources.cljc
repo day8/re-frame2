@@ -77,12 +77,12 @@
 ;; ---- source builders -----------------------------------------------------
 
 (defn panel-items
-  "One row per Runtime sidebar panel. The action dispatches into
+  "One row per Dynamic sidebar panel. The action dispatches into
   `:rf/causa` via the wrapping events fn (palette events resolve
   `[:panel id]` into `[:rf.causa/select-tab id]`).
 
-  Per rf2-ybjkx each row carries `:modes #{:runtime}` so the mode
-  filter excludes Runtime tab jumps when the palette opens in Static
+  Per rf2-ybjkx each row carries `:modes #{:dynamic}` so the mode
+  filter excludes Dynamic tab jumps when the palette opens in Static
   mode. Static-mode tab jumps are produced by `static-tab-items`."
   [panel-entries]
   (mapv
@@ -94,7 +94,7 @@
        :icon   (icon-table :panel)
        :boost  (boost-table :panel)
        :action [:palette/select-panel id]
-       :modes  #{:runtime}
+       :modes  #{:dynamic}
        :popout? false})
     panel-entries))
 
@@ -141,7 +141,7 @@
               :recency-rank rank
               :boost        (boost-table :recent-event)
               :action       [:palette/select-event ev-id]
-              :modes        #{:runtime}
+              :modes        #{:dynamic}
               :popout?      true}))
          taken)))))
 
@@ -160,7 +160,7 @@
                 :icon   (icon-table :frame)
                 :boost  (boost-table :frame)
                 :action [:palette/select-frame fid]
-                :modes  #{:runtime}
+                :modes  #{:dynamic}
                 :popout? false}))))
 
 (defn handler-items
@@ -187,7 +187,7 @@
                  :icon   (icon-table :handler)
                  :boost  (boost-table :handler)
                  :action [:palette/inspect-handler kind id]
-                 :modes  #{:runtime :static}
+                 :modes  #{:dynamic :static}
                  :popout? true})))))
 
 (defn setting-items
@@ -200,17 +200,17 @@
     :icon   (icon-table :setting)
     :boost  (boost-table :setting)
     :action [:palette/cycle-density]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}])
 
 ;; ---- per-source mode visibility ----------------------------------------
 ;;
 ;; rf2-ybjkx — mode-aware command surface. Each command carries a
-;; `:modes` set declaring which Causa modes (`:runtime` / `:static`)
+;; `:modes` set declaring which Causa modes (`:dynamic` / `:static`)
 ;; surface it. Commands meaningful in both modes (theme toggle,
-;; reduced-motion, jump-to-settings, toggle-mode) carry `#{:runtime
+;; reduced-motion, jump-to-settings, toggle-mode) carry `#{:dynamic
 ;; :static}`. Commands that only make sense in one mode (spine clear,
-;; Runtime L4 jumps; Static sub-tab jumps) carry the appropriate
+;; Dynamic L4 jumps; Static sub-tab jumps) carry the appropriate
 ;; single-mode set.
 ;;
 ;; The aggregator filters by `:modes` membership when `:mode` is
@@ -223,10 +223,10 @@
   describes the choices) + a `:modes` set declaring mode visibility
   per rf2-ybjkx (see §per-source mode visibility above).
 
-  ## Runtime-only verbs
+  ## Dynamic-only verbs
 
   Trace buffer / suppressed counters / pop-out / select-panel — every
-  Runtime-mode command operates against the event-coupled spine or the
+  Dynamic-mode command operates against the event-coupled spine or the
   4-layer chrome. Static mode is event-INDEPENDENT (per
   `static/shell.cljs`); these verbs have no meaning there.
 
@@ -234,7 +234,7 @@
 
   Jump-to-static-tab — selects one of the 5 Static L3 tabs (Machines /
   Routes / Schemas / Views / Events). Static has no spine so the
-  Runtime tab jumps don't apply.
+  Dynamic tab jumps don't apply.
 
   ## Mode-agnostic verbs (rf2-ybjkx)
 
@@ -244,7 +244,7 @@
                                  the JS console as a snapshot.
   - `:jump-to-settings`        — Open the Settings popup at the General
                                  tab.
-  - `:toggle-mode`             — Flip Runtime ↔ Static (chord parity
+  - `:toggle-mode`             — Flip Dynamic ↔ Static (chord parity
                                  with `Cmd-Shift-M`)."
   []
   [{:source :command
@@ -254,7 +254,7 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/clear-trace-buffer]
-    :modes  #{:runtime}
+    :modes  #{:dynamic}
     :popout? false}
    {:source :command
     :id     :clear-epoch-history
@@ -263,7 +263,7 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/clear-epoch-history]
-    :modes  #{:runtime}
+    :modes  #{:dynamic}
     :popout? false}
    {:source :command
     :id     :reset-suppressed-counters
@@ -272,7 +272,7 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/reset-suppressed-counters]
-    :modes  #{:runtime}
+    :modes  #{:dynamic}
     :popout? false}
    {:source :command
     :id     :open-popout
@@ -281,7 +281,7 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/open-popout]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}
    ;; rf2-ybjkx — Snapshot the focused frame's app-db onto the JS
    ;; console for clipboard capture / share with a teammate.
@@ -292,7 +292,7 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/snapshot-app-db]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}
    ;; rf2-ybjkx — Theme toggle. The popup's radio is still the
    ;; canonical UI; the palette is the keyboard-first ergonomic
@@ -304,7 +304,7 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/toggle-theme]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}
    ;; rf2-ybjkx — Reduced-motion cycle. Three states: `:os` (OS pref
    ;; alone), `:always` (force reduce), `:never` (force full). Cycles
@@ -316,7 +316,7 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/cycle-reduced-motion]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}
    ;; rf2-ybjkx — Jump to settings. Equivalent to the `,` / `s`
    ;; bare-key shortcut but available from the palette so the user
@@ -328,19 +328,19 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/jump-to-settings]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}
-   ;; rf2-ybjkx — Toggle Runtime ↔ Static. Chord parity with
+   ;; rf2-ybjkx — Toggle Dynamic ↔ Static. Chord parity with
    ;; `Cmd/Ctrl-Shift-M` (see `keybinding.cljs`). Surfaced in BOTH
    ;; modes — the user can flip in either direction from the palette.
    {:source :command
     :id     :toggle-mode
-    :label  "Toggle mode (Runtime ↔ Static)"
+    :label  "Toggle mode (Dynamic ↔ Static)"
     :hint   "Cmd/Ctrl+Shift+M"
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/toggle-mode]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}
    {:source :command
     :id     :close-palette
@@ -349,14 +349,14 @@
     :icon   (icon-table :command)
     :boost  (boost-table :command)
     :action [:palette/close]
-    :modes  #{:runtime :static}
+    :modes  #{:dynamic :static}
     :popout? false}])
 
 (defn static-tab-items
   "Static-mode sub-tab jumps (rf2-ybjkx). Five entries mirroring the
   `static/shell.cljs/tabs` inventory: Machines / Routes / Schemas /
   Views / Events. Each carries `:modes #{:static}` so the aggregator
-  filters them out when the palette opens in Runtime mode."
+  filters them out when the palette opens in Dynamic mode."
   [static-tab-entries]
   (mapv
     (fn [{:keys [id label]}]
@@ -424,12 +424,12 @@
 
   Inputs map shape:
 
-    {:panels        [{:id kw :label str} ...]    ; Runtime L3 tabs
+    {:panels        [{:id kw :label str} ...]    ; Dynamic L3 tabs
      :static-tabs   [{:id kw :label str} ...]    ; Static L3 tabs (rf2-ybjkx)
      :trace-buffer  [trace ...]
      :frame-ids     (keyword?)
      :handlers      [{:id :kind :doc :file :line} ...]
-     :mode          :runtime | :static | nil     ; filter (rf2-ybjkx)
+     :mode          :dynamic | :static | nil     ; filter (rf2-ybjkx)
      :recents       [command-id ...]             ; recents boost (rf2-ybjkx)
     }
 

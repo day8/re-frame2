@@ -15,7 +15,7 @@
       via `:rf.causa/open-in-editor`)
     - state-count chip (mono · tertiary)
     - live-instance pip cluster (cap 12; >12 → textual count)
-    - `→ Runtime` JUMP chip (handler in `instances_jump`)
+    - `→ Dynamic` JUMP chip (handler in `instances_jump`)
 
   ## Empty state
 
@@ -157,7 +157,7 @@
        (str ">" h/pip-cap " " count " live")])))
 
 (defn- runtime-jump-chip
-  "Per-row `→ Runtime` chip. Clicking JUMPs to the Runtime Machines
+  "Per-row `→ Dynamic` chip. Clicking JUMPs to the Dynamic Machines
   tab with this machine selected — same handler the right-pane
   Instances pill uses (centralised in `instances_jump`)."
   [machine-id]
@@ -167,8 +167,8 @@
     :on-click    (fn [^js e]
                    (.stopPropagation e)
                    (jump/dispatch-jump! machine-id))
-    :title       "Open in Runtime Machines tab"
-    :aria-label  (str "Open " machine-id " in Runtime Machines tab")
+    :title       "Open in Dynamic Machines tab"
+    :aria-label  (str "Open " machine-id " in Dynamic Machines tab")
     :style {:background    "transparent"
             :border        (str "1px solid " (:border-default tokens))
             :border-radius "10px"
@@ -179,7 +179,7 @@
             :padding       "1px 8px"
             :margin-left   "6px"
             :white-space   "nowrap"}}
-   "→ Runtime"])
+   "→ Dynamic"])
 
 ;; ---- one row ------------------------------------------------------------
 

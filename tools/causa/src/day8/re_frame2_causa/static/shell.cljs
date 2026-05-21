@@ -4,14 +4,14 @@
   ## Static = Causa-in-a-quieter-key
 
   Per the parent epic rf2-o5f5f architectural lock + the audit at
-  rf2-zhrwo: Static shares Runtime's full design language — Inter +
+  rf2-zhrwo: Static shares Dynamic's full design language — Inter +
   JetBrains Mono, the complete `theme/tokens.cljc` palette, the 4px
   spacing grid, Lucide-style ASCII glyphs, the 56px ribbon, the 40px
   tab-bar. Differentiation is temperature, not vocabulary.
 
   ## Surface inventory (3-layer chrome)
 
-  Runtime is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4
+  Dynamic is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4
   detail panel). Static drops L2 — there is no spine in Static mode
   because Static is event-INDEPENDENT — and renders 3 layers:
 
@@ -29,25 +29,29 @@
   state, and motion dampening, the user reads Static at a glance even
   without looking at the pill.
 
-  ## Tab inventory (7 sub-tabs)
+  ## Tab inventory (5 sub-tabs)
 
-  The Static surface now mounts seven sub-tabs. Each sibling bead
-  installs its own panel into the L4 tab registry (rf2-2moh1):
+  The Static surface mounts five sub-tabs. Each sibling bead installs
+  its own panel into the L4 tab registry (rf2-2moh1):
 
-      Machines (m, default) · Routes (r) · Schemas (c) · Views (v) ·
-      Flows (f) · Events (e) · Interceptors (i)
+      Machines (m, default) · Routes (r) · Schemas (c) · Flows (f) ·
+      Interceptors (i)
 
   Tab order + mnemonics per the findings doc §5.2 (mode-scoped: same
-  letter, different target per mode — `m` in Runtime opens the
+  letter, different target per mode — `m` in Dynamic opens the
   Machines instance inspector, `m` in Static opens the Machines
   registry browse).
+
+  rf2-b2fif removed the standalone Static Views + Events sub-tabs —
+  the info those sub-tabs surfaced is already in the source code; the
+  tabs were not pulling their weight.
 
   Tab-mnemonic mode-scoping lives in `static/keybinding.cljs`
   follow-on — Phase 1 ships only the click path.
 
   ## Frame isolation
 
-  Same discipline as the Runtime shell. The Static shell is wrapped
+  Same discipline as the Dynamic shell. The Static shell is wrapped
   in `[rf/frame-provider {:frame :rf/causa}]`; every subscribe +
   dispatch inside the shell resolves to `:rf/causa`. Every subscribing
   region is `reg-view`-registered so its rendered component carries
@@ -62,14 +66,14 @@
        200ms cross-fade. Owned by `static/mode_pill.cljs`. The pill
        lives at ribbon-left in BOTH modes (it's the toggle, not the
        indicator).
-    2. **2-px left-edge ribbon stripe** — `:accent-violet` in Runtime,
+    2. **2-px left-edge ribbon stripe** — `:accent-violet` in Dynamic,
        `:cyan` in Static. Owned by both shells via the explicit
        `mode-stripe-colour` arg passed into the ribbon's outer div.
-    3. **Motion dampening** — Runtime ships the LIVE pulse + machine-
+    3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-
        active pulse + 180ms tab fade. Static drops the continuous
        pulses entirely; the 180ms tab fade collapses to 0ms (instant)
        so cluster swaps land without motion.
-    4. **Chrome silhouette** — Runtime is 4-layer; Static is 3-layer
+    4. **Chrome silhouette** — Dynamic is 4-layer; Static is 3-layer
        (no L2 / no spine). The shape itself is a signal.
 
   ## Sibling beads filling the tab inventory
@@ -79,10 +83,8 @@
     - rf2-o5f5f.2 — Machines registry browse + Topology
     - rf2-o5f5f.3 — Routes registry browse + Simulate-URL
     - rf2-o5f5f.4 — Schemas registry browse + sample data
-    - rf2-o5f5f.5 — Views registry browse (Fiber-walker consumer)
     - rf2-uhsqb   — Flows registry browse
-    - rf2-o5f5f.6 — Events registry browse + interceptor stack +
-                    hermetic simulate (Events) + Interceptors lens"
+    - rf2-o5f5f.6 — Interceptors lens"
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.static.mode-pill :as mode-pill]
@@ -141,8 +143,8 @@
 
 ;; ---- mode signal #2 — left-edge stripe colour ---------------------------
 
-(def runtime-stripe-token
-  "Token-key for the Runtime mode's 2-px left-edge ribbon stripe per
+(def dynamic-stripe-token
+  "Token-key for the Dynamic mode's 2-px left-edge ribbon stripe per
   the parent-epic mode-signal mechanism (signal #2). Held as a token
   KEY (not the resolved hex) so per-theme palette switching (rf2-
   5kfxe.6 light theme) flows through naturally."
@@ -163,7 +165,7 @@
   [mode]
   (case mode
     :static  static-stripe-token
-    runtime-stripe-token))
+    dynamic-stripe-token))
 
 (defn stripe-hex-for-mode
   "Resolve the mode's stripe token through `tokens` to the rendered
@@ -177,9 +179,9 @@
 
 (defn- ribbon-right-icons
   "Right-icons cluster — `⚙` settings · `✕` close. Same content as the
-  Runtime ribbon (`shell.cljs/ribbon-right-icons`) but inlined here so
+  Dynamic ribbon (`shell.cljs/ribbon-right-icons`) but inlined here so
   the Static shell stays self-contained and we don't form a cycle by
-  reaching back into the Runtime ns."
+  reaching back into the Dynamic ns."
   []
   (let [icon-style {:background     "transparent"
                     :border         "none"
@@ -205,9 +207,9 @@
 (rf/reg-view ribbon
   "L1 ribbon — 56px chrome, Static-flavoured. Per parent-epic rf2-
   o5f5f mode-signal mechanism the ribbon paints a 2-px left-edge
-  stripe in CYAN (Static) vs VIOLET (Runtime). Mode pill sits at
+  stripe in CYAN (Static) vs VIOLET (Dynamic). Mode pill sits at
   ribbon-left; right-icons (Settings · Close) sit at ribbon-right.
-  Runtime's nav / frame / filter clusters are HIDDEN — Static is
+  Dynamic's nav / frame / filter clusters are HIDDEN — Static is
   event-independent, those clusters have no meaning here.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
@@ -232,7 +234,7 @@
 ;; ---- L3 tab bar (Static) ------------------------------------------------
 
 (defn- tab-button
-  "One Static tab. Same `●` / `○` glyph language as the Runtime
+  "One Static tab. Same `●` / `○` glyph language as the Dynamic
   `tab-button` (`shell.cljs/tab-button`) — design language is shared
   per the rf2-zhrwo audit's 'Causa-in-a-quieter-key' framing.
 
@@ -242,7 +244,7 @@
   [{:keys [id label mnem active?]}]
   (let [glyph    (if active? "◉" "○")
         color    (if active? (:text-primary tokens) (:text-secondary tokens))
-        ;; rf2-plajx — mirror the Runtime tab-button pattern: stable
+        ;; rf2-plajx — mirror the Dynamic tab-button pattern: stable
         ;; tab-id + matching tabpanel id so the L4 panel's
         ;; `aria-labelledby` resolves.
         tab-id   (str "rf-causa-static-tab-button-" (name id))
@@ -279,9 +281,9 @@
 
 (rf/reg-view tab-bar
   "L3 tab bar — five Static tabs. Same height (40px), same row anatomy,
-  same ARIA pattern as the Runtime tab-bar. The selected-tab slot is
+  same ARIA pattern as the Dynamic tab-bar. The selected-tab slot is
   Static-scoped (`:rf.causa.static/selected-tab`) so flipping modes
-  doesn't clobber the Runtime tab choice and vice-versa.
+  doesn't clobber the Dynamic tab choice and vice-versa.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -317,7 +319,7 @@
     - A muted hint paragraph naming the upcoming content.
 
   The card is a single `<section>` painted on `bg-2` with a thin
-  `:cyan` accent stripe — mirrors the Runtime panels' per-domain
+  `:cyan` accent stripe — mirrors the Dynamic panels' per-domain
   stripe convention (`tokens/accent-stripe-style`) but uses cyan as
   the Static-mode accent."
   [{:keys [label placeholder-bead id]}]
@@ -354,9 +356,7 @@
     :machines     → `static.machines.panel/panel`         (rf2-o5f5f.2)
     :routes       → `static.routes.panel/Panel`           (rf2-o5f5f.3)
     :schemas      → `static.schemas.panel/Panel`          (rf2-o5f5f.4)
-    :views        → `static.views.panel/Panel`            (rf2-o5f5f.5)
     :flows        → `static.flows.panel/Panel`            (rf2-uhsqb)
-    :events       → `static.events.panel/Panel`           (rf2-o5f5f.6)
     :interceptors → `static.interceptors.panel/Panel`     (rf2-o5f5f.6)
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
@@ -369,7 +369,7 @@
            ;; rf2-plajx — Static L4 closes the tab/tabpanel loop.
            ;; Pairs with the per-tab `id` set by `tab-button` so
            ;; assistive tech reads the panel as "labelled by <tab
-           ;; name>". Same shape as the Runtime detail-panel.
+           ;; name>". Same shape as the Dynamic detail-panel.
            :id              (str "rf-causa-static-tabpanel-" (name selected))
            :role            "tabpanel"
            :aria-labelledby (str "rf-causa-static-tab-button-" (name selected))
@@ -390,7 +390,7 @@
 
 (rf/reg-view surface
   "The full Static surface — 3 stacked layers (ribbon · tab bar ·
-  detail panel). The Static surface plugs into the Runtime shell's
+  detail panel). The Static surface plugs into the Dynamic shell's
   outer envelope (`shell.cljs/shell-view`) which owns the
   frame-provider + global-styles install + modal mounts; this surface
   just renders the chrome that swaps in when Static mode is active.

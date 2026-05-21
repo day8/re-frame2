@@ -6,7 +6,7 @@
 
   Per the bead's §Definition detail header:
 
-      <machine-id> · <source-coord ↗> · <N> states · <M> live (→ Runtime)
+      <machine-id> · <source-coord ↗> · <N> states · <M> live (→ Dynamic)
 
   ## 4-mode sub-strip
 
@@ -16,8 +16,8 @@
 
   Topology is the default; Sim renders the hermetic 'what-if'
   simulator (rf2-r4nao rehost — engine originally rf2-v869p);
-  Instances is a JUMP to the Runtime Machines tab (`instances_jump`);
-  Cascade is GREYED with a 'Runtime-only' tooltip. Mnemonics
+  Instances is a JUMP to the Dynamic Machines tab (`instances_jump`);
+  Cascade is GREYED with a 'Dynamic-only' tooltip. Mnemonics
   `t`/`s`/`i`/`c` are surfaced in each pill's `title` — the keybinding
   wiring is follow-on per the bead.
 
@@ -124,7 +124,7 @@
 
 (defn- sub-strip
   "Render the 4-mode pill row. Per the bead's §4-mode sub-strip — the
-  strip is the same DOM as the Runtime sub-strip (muscle-memory
+  strip is the same DOM as the Dynamic sub-strip (muscle-memory
   consistency), but Cascade is dimmed + Sim is a placeholder."
   [{:keys [machine-id sub-mode live-count]}]
   (let [set-mode! (fn [mode]
@@ -174,7 +174,7 @@
                        :color (:text-tertiary tokens)
                        :font-family sans-stack
                        :font-size (:caption type-scale)}}
-     "Instances mode JUMPs to the Runtime Machines tab — Static stays "
+     "Instances mode JUMPs to the Dynamic Machines tab — Static stays "
      "event-INDEPENDENT. Click the pill again to re-fire the JUMP."]
 
     :cascade

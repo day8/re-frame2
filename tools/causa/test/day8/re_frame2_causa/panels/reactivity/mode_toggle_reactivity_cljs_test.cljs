@@ -2,7 +2,7 @@
   "Sub-reactivity guard for the Cmd-Shift-M mode toggle (rf2-dhoc9
   per-control-action test).
 
-  `:rf.causa/toggle-mode` flips between `:runtime` and `:static`. The
+  `:rf.causa/toggle-mode` flips between `:dynamic` and `:static`. The
   `:rf.causa/mode` sub the shell's chrome reads MUST re-fire so the
   L3 tab bar / silhouette switch in lockstep. This is the unit-level
   mirror of rf2-rwhat Phase 3's browser interaction; runs in millis."
@@ -13,12 +13,12 @@
 
 (deftest toggle-mode-flips-mode-sub
   (testing "rf2-dhoc9 — `:rf.causa/toggle-mode` flips `:rf.causa/mode`
-            from `:runtime` (default) to `:static` and back. The
+            from `:dynamic` (default) to `:static` and back. The
             mode sub re-fires on each toggle."
     (h/setup-causa-frame!)
     (let [mode-0 (h/read-sub :rf.causa/mode)]
-      (is (= :runtime mode-0)
-          "default mode is :runtime per spec/007-UX-IA.md §Static mode")
+      (is (= :dynamic mode-0)
+          "default mode is :dynamic per spec/007-UX-IA.md §Static mode")
       (h/dispatch-causa! [:rf.causa/toggle-mode])
       (let [mode-1 (h/read-sub :rf.causa/mode)]
         (is (= :static mode-1)
@@ -27,8 +27,8 @@
             "mode sub re-fired on toggle")
         (h/dispatch-causa! [:rf.causa/toggle-mode])
         (let [mode-2 (h/read-sub :rf.causa/mode)]
-          (is (= :runtime mode-2)
-              "second toggle flips back to :runtime")
+          (is (= :dynamic mode-2)
+              "second toggle flips back to :dynamic")
           (is (not= mode-1 mode-2)
               "mode sub re-fired on second toggle"))))))
 
@@ -37,13 +37,13 @@
             (used by the per-segment pill click). The sub re-fires
             with the new value."
     (h/setup-causa-frame!)
-    (is (= :runtime (h/read-sub :rf.causa/mode)))
+    (is (= :dynamic (h/read-sub :rf.causa/mode)))
     (h/dispatch-causa! [:rf.causa/set-mode :static])
     (is (= :static (h/read-sub :rf.causa/mode))
         "set-mode :static is honoured")
-    (h/dispatch-causa! [:rf.causa/set-mode :runtime])
-    (is (= :runtime (h/read-sub :rf.causa/mode))
-        "set-mode :runtime is honoured")))
+    (h/dispatch-causa! [:rf.causa/set-mode :dynamic])
+    (is (= :dynamic (h/read-sub :rf.causa/mode))
+        "set-mode :dynamic is honoured")))
 
 (deftest static-selected-tab-sub-tracks-static-select-tab
   (testing "rf2-dhoc9 — the Static-scoped tab selection lives on its

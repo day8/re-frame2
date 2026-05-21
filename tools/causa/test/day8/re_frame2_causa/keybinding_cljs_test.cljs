@@ -70,7 +70,7 @@
 
 (defn- mode-toggle-key?
   "rf2-o5f5f.1 — the Cmd/Ctrl+Shift+M predicate that drives the
-  Runtime ↔ Static mode toggle."
+  Dynamic ↔ Static mode toggle."
   [event]
   (#'keybinding/mode-toggle-key? event))
 

@@ -134,14 +134,14 @@ that ran — the canonical questions answer themselves on first paint;
 deeper investigation is one tab away (`a` App-db · `v` Views · `t` Trace ·
 `m` Machines · `i` Issues).
 
-## The two modes — Runtime and Static
+## The two modes — Dynamic and Static
 
 Causa is **one tool, two modes** (per Lock #14 in
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)). The two modes answer
 different families of question against the same registries; the
 **chrome silhouette IS the mode signal**.
 
-- **Runtime mode** — event-coupled. The four-layer chrome (ribbon ·
+- **Dynamic mode** — event-coupled. The four-layer chrome (ribbon ·
   event list · tab bar · detail) described in [§What it is](#what-it-is)
   above. Answers the **five canonical questions** about a specific
   cascade: *what did this event change? · why is this sub returning
@@ -165,9 +165,9 @@ choice persists to localStorage under `causa.mode` and survives
 reload. Static mode is unconditionally available (per rf2-8l3uk —
 the prior `:rf.causa/static-mode?` feature gate was removed).
 
-The five canonical questions remain the Runtime bar. Static carries
+The five canonical questions remain the Dynamic bar. Static carries
 its own posture — registry browse — and earns space alongside
-Runtime because **event-coupled and event-INDEPENDENT are different
+Dynamic because **event-coupled and event-INDEPENDENT are different
 bug-classes**: carrying L2's current-cascade context into a registry
 browse is noise.
 
@@ -180,7 +180,7 @@ localStorage key, the feature flag) · [`007-UX-IA.md`](007-UX-IA.md)
 stripe colour tokens, motion dampening, sub-tab inventory) ·
 [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static
 Machines surface for the concrete Static Machines tab (master-detail
-browse + 4-mode sub-strip + JUMP-to-Runtime semantics).
+browse + 4-mode sub-strip + JUMP-to-Dynamic semantics).
 
 ## What it isn't
 
@@ -218,7 +218,7 @@ Each row is "new in re-frame2 → new tooling story Causa tells."
 | re-frame2 capability | Causa surface |
 |---|---|
 | **Multi-frame** (Spec 002) | Per-frame inspection; single-select frame picker in ribbon. |
-| **Machines** (Spec 005) | Stately-quality state-chart per machine in an **event-driven Runtime panel** (rf2-y9xmf) — BLANK when the focused event has no machine activity; per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. Cross-cutting Causa surfaces: **`:after`-timer countdown rings** with scrubber-aware retro-replay; **`:spawn-all` parallel-child viz + join inspector**; **cancellation-cascade visualiser**; **per-instance "why am I stuck" trace**; XState-parity supervision tree. The ELK+SVG chart primitive lives in `tools/machines-viz/` (its own tool jar, per rf2-o9arp); Causa re-exports the public chart API via thin shims. (UC1 interactive simulation + UC2 multi-instance Mode A/B/C are deferred to the Static re-host — rf2-r4nao.) |
+| **Machines** (Spec 005) | Stately-quality state-chart per machine in an **event-driven Dynamic panel** (rf2-y9xmf) — BLANK when the focused event has no machine activity; per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. Cross-cutting Causa surfaces: **`:after`-timer countdown rings** with scrubber-aware retro-replay; **`:spawn-all` parallel-child viz + join inspector**; **cancellation-cascade visualiser**; **per-instance "why am I stuck" trace**; XState-parity supervision tree. The ELK+SVG chart primitive lives in `tools/machines-viz/` (its own tool jar, per rf2-o9arp); Causa re-exports the public chart API via thin shims. (UC1 interactive simulation + UC2 multi-instance Mode A/B/C are deferred to the Static re-host — rf2-r4nao.) |
 | **Flows** (Spec 013) | Surfaced in Views tab when a flow's downstream sub recomputed; **cascade-halt alarm** in Issues tab — names the downstream flows that did NOT run when an upstream flow's `:output` threw. |
 | **Source-coord stamping** (Spec 001 + 006) | Click-to-source on every node, view, machine guard, transition, fx-handler, schema declaration. |
 | **Trace bus** (Spec 009) | The substrate of everything. Causa does not invent its own trace shape. **Trace fattening** (carrying context-at-position on each event) enables the per-instance scrubber's Phase-5 replay-from-arbitrary-position affordance. |
@@ -258,7 +258,7 @@ cohesive sub-domains earn their own lens tab rather than overloading App-db.
 | 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure · branch-aware diff (for story sim-clones) · cross-frame diff (for multi-frame shared substates). | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + [`018-Event-Spine.md`](018-Event-Spine.md) §5.2 |
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; **subs nested under each view row** showing return values; **per-sub invalidation-chain drill** (why did this sub re-run); replaces the legacy Subs panel. | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to the focused cascade; **wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals; trace-type toggle row + IN/OUT pills + sensible defaults. | [`013-Trace-Bus.md`](013-Trace-Bus.md) + [`018-Event-Spine.md`](018-Event-Spine.md) §5.3 |
-| 5 | **Machines** | `m` | **Event-driven Runtime panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it did. Cross-cutting Causa surfaces: **`:after`-timer countdown rings**; **cancellation-cascade visualiser**; **`:spawn-all` join inspector**; **per-instance "why am I stuck" trace strip**; supervision tree. UC1 Sim engine + UC2 Mode A/B/C dynamic-instance UI deferred to Static re-host (rf2-r4nao). MachineChart lives in `tools/machines-viz/` (rf2-o9arp); Causa re-exports the public chart API via thin shims — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Architectural posture. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
+| 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it did. Cross-cutting Causa surfaces: **`:after`-timer countdown rings**; **cancellation-cascade visualiser**; **`:spawn-all` join inspector**; **per-instance "why am I stuck" trace strip**; supervision tree. UC1 Sim engine + UC2 Mode A/B/C dynamic-instance UI deferred to Static re-host (rf2-r4nao). MachineChart lives in `tools/machines-viz/` (rf2-o9arp); Causa re-exports the public chart API via thin shims — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Architectural posture. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
 | 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef) — current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline. Per-focused-event glyphs: **`◆ HERE`** on the current matched route · **`◆ FROM` / `◆ TO`** when the focused cascade caused navigation. Silent when no routes registered. | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab + [`018-Event-Spine.md`](018-Event-Spine.md) §5.6 |
 | 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns + **flow cascade-halt alarms** + **open-redirect advisories** + **`:platforms` skip tallies** + **stale-suppression group**. | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon + [`018-Event-Spine.md`](018-Event-Spine.md) §5.4 |
 

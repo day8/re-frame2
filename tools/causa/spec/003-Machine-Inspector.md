@@ -2,7 +2,7 @@
 
 > **See also**: [`021-Dynamic-Panel-Designs.md` §6](021-Dynamic-Panel-Designs.md#6-the-machines-panel-topology--overlay) for the canonical content design layered onto the topology view.
 
-> **2026-05-19 collapse note (rf2-y9xmf):** the Runtime Machines panel
+> **2026-05-19 collapse note (rf2-y9xmf):** the Dynamic Machines panel
 > is now **event-driven only**. The panel is BLANK when the currently
 > focused event triggered no machine transitions; it renders one
 > per-machine section (topology + transition highlight + guards +
@@ -11,7 +11,7 @@
 > walks the spine's epoch history to the prior/next event that ALSO
 > touched the focused machine.
 >
-> **What this collapse removed from the Runtime surface:** the Mode A/B/C
+> **What this collapse removed from the Dynamic surface:** the Mode A/B/C
 > picker chrome, the sub-strip (Topology/Sim/Instances/Cluster), the
 > picker-driven Sim ribbon UI, the multi-instance aggregate (Mode C
 > cluster view), the per-instance arc + mini-scrubber, and the
@@ -23,7 +23,7 @@
 > **browse-all index** ships as the Static Machines surface's
 > master-detail left pane. Sections below describing those removed UI
 > ribbons are kept as historical design-reference; they no longer
-> describe what the Runtime Machines panel renders.
+> describe what the Dynamic Machines panel renders.
 
 The Machines tab (tab 5 of 7 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) renders a Stately-quality
@@ -31,7 +31,7 @@ state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
 the focused event's machine activity only; the interactive simulation
 (UC1) + dynamic multi-instance views (UC2 Mode A/B/C) descriptions in
 later sections are normative for the Static re-host, NOT for the
-Runtime tab. The state-chart layout primitive is **owned by
+Dynamic tab. The state-chart layout primitive is **owned by
 `tools/machines-viz/`** as its own tool jar (canonical implementation
 at `tools/machines-viz/src/day8/re_frame2_machines_viz/chart/{layout,svg,interaction}.cljc`,
 per rf2-o9arp / PR #1570); Causa re-exports the public chart API via
@@ -49,9 +49,9 @@ contracts become legible. Bug-class motivation for each major feature in
 [§The bug catalogue](#the-bug-catalogue) below; see also
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.1.
 
-## Post-collapse Runtime panel shape (rf2-y9xmf)
+## Post-collapse Dynamic panel shape (rf2-y9xmf)
 
-The Runtime Machines panel renders one of three states:
+The Dynamic Machines panel renders one of three states:
 
 1. **No machines registered** → empty-state message: "No machines
    registered."
@@ -80,14 +80,14 @@ The header carries:
   `machine-id` (the cascade may touch several; nav scope is the first).
   Hidden when no machine is in scope (the blank or empty-state branches).
 
-## What is NOT in the Runtime panel post-rf2-y9xmf
+## What is NOT in the Dynamic panel post-rf2-y9xmf
 
 - No machine picker (the panel is event-driven; no exploratory
   selection).
 - No sub-strip (Topology / Sim / Instances / Cluster).
 - No Mode A/B/C dynamic instance views; no `:rf.causa/forced-machine-
   mode` slot.
-- No Sim toggle / Sim side-rail UI in the Runtime panel header. The
+- No Sim toggle / Sim side-rail UI in the Dynamic panel header. The
   `SimRail` view (post-rf2-r4nao rename of the historical
   `SimSideRail`) ships under
   `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs` and
@@ -103,7 +103,7 @@ The header carries:
 
 The historical Mode A/B/C / Sim sub-strip / arc / scrubber / cluster
 descriptions in subsequent sections are preserved as design-reference
-for the rf2-r4nao Static re-host; they DO NOT describe the Runtime
+for the rf2-r4nao Static re-host; they DO NOT describe the Dynamic
 panel.
 
 ## Architectural posture
@@ -179,11 +179,11 @@ who want Causa's panel chrome get the chart transitively via Causa.
 
 ## Static Machines surface
 
-The Static-mode Machines surface is **a peer** to the post-collapse Runtime Machines panel described above, **not a successor**. Static is the event-INDEPENDENT registry browse — what's REGISTERED — and runs alongside the Runtime panel within Causa's two-mode chrome. The architectural contract for the Two-modes split lives in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 + [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Static surface; this section owns the concrete Static Machines surface description.
+The Static-mode Machines surface is **a peer** to the post-collapse Dynamic Machines panel described above, **not a successor**. Static is the event-INDEPENDENT registry browse — what's REGISTERED — and runs alongside the Dynamic panel within Causa's two-mode chrome. The architectural contract for the Two-modes split lives in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 + [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Static surface; this section owns the concrete Static Machines surface description.
 
 ### Tab placement
 
-The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-IA.md`](007-UX-IA.md) §Static mode sub-tab inventory). Mnemonic `m` (mode-scoped — see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Mnemonic mode-scoping rule: `m` in Runtime opens the instance inspector, `m` in Static opens the registry browse). Static Machines is the **default Static tab** because the Machines registry is the densest Static surface; opening Static on a fresh slate lands on the highest-value tab.
+The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-IA.md`](007-UX-IA.md) §Static mode sub-tab inventory). Mnemonic `m` (mode-scoped — see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Mnemonic mode-scoping rule: `m` in Dynamic opens the instance inspector, `m` in Static opens the registry browse). Static Machines is the **default Static tab** because the Machines registry is the densest Static surface; opening Static on a fresh slate lands on the highest-value tab.
 
 ### Master-detail layout
 
@@ -192,7 +192,7 @@ The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-I
 │ L4-left  (280px fixed)   │ L4-right  (fills)                             │
 │                          │                                               │
 │ ─ search box             │ <machine-id> · src/cart/.../checkout.cljs:42 ↗│
-│ ─ sort cycle (Name /     │   · 6 states · 2 live (→ Runtime)             │
+│ ─ sort cycle (Name /     │   · 6 states · 2 live (→ Dynamic)             │
 │   States / Live)         │                                               │
 │ ─ scrollable rows:       │ ─ 4-mode sub-strip [T][S][I][C]               │
 │   ◉ :checkout    src:42  │ ─ per-mode body (Topology · Sim body ·        │
@@ -205,11 +205,11 @@ The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-I
 │   - source-coord chip    │                                               │
 │   - state-count chip     │                                               │
 │   - live-instance pips   │                                               │
-│   - → Runtime JUMP chip  │                                               │
+│   - → Dynamic JUMP chip  │                                               │
 └──────────────────────────┴───────────────────────────────────────────────┘
 ```
 
-**Left pane — browse-all list.** Scrollable list of every registered machine; search box + sort-cycle button (`Name → States → Live → Name`) at the top. Each row carries: a selection glyph (`◉` active / `○` inactive — same vocabulary as the Static tab-bar), the machine-id rendered in monospace accent-violet, a source-coord chip (jump-to-source via the existing open-in-editor affordance), a state-count chip, a live-instance pip cluster (capped at 12; beyond that → textual count), and a per-row `→ Runtime` JUMP chip. Empty-state: "No machines registered. `rf/reg-machine` to add the first."
+**Left pane — browse-all list.** Scrollable list of every registered machine; search box + sort-cycle button (`Name → States → Live → Name`) at the top. Each row carries: a selection glyph (`◉` active / `○` inactive — same vocabulary as the Static tab-bar), the machine-id rendered in monospace accent-violet, a source-coord chip (jump-to-source via the existing open-in-editor affordance), a state-count chip, a live-instance pip cluster (capped at 12; beyond that → textual count), and a per-row `→ Dynamic` JUMP chip. Empty-state: "No machines registered. `rf/reg-machine` to add the first."
 
 **Right pane — definition detail.** Header carries `<machine-id> · <source-coord ↗> · <N> states · <M> live`. Below the header, the **4-mode sub-strip** drives the per-mode body.
 
@@ -222,20 +222,20 @@ The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-I
 └────────────┴────────────┴───────────────┴─────────────────────┘
 ```
 
-The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) live inside the same DOM shape the Runtime Machines sub-strip used pre-collapse — same pill DOM, same letter mnemonics — so muscle-memory carries between the two modes. The Static-mode behaviours differ:
+The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) live inside the same DOM shape the Dynamic Machines sub-strip used pre-collapse — same pill DOM, same letter mnemonics — so muscle-memory carries between the two modes. The Static-mode behaviours differ:
 
 | Pill | Behaviour in Static | Body renderer |
 |---|---|---|
-| **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/svg` MachineChart primitive the Runtime panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.causa.static.machines/state-clicked` for a per-state metadata rail (follow-on bead). Carries an "Open chart in pop-out" affordance. | inline SVG chart |
+| **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/svg` MachineChart primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.causa.static.machines/state-clicked` for a per-state metadata rail (follow-on bead). Carries an "Open chart in pop-out" affordance. | inline SVG chart |
 | **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Causa's app-db at `[:rf.causa.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is the definition's declared `:initial` + `:data`. Engine events/subs live under the `:rf.causa.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). Failed-guard handling + sim-trail described in §UC1 — Sim sub-mode below remain the design reference for v1 mechanics. | Sim body panel (banner + topology highlight + mock-`:data` form + sim-trail) |
-| **Instances** (`i`) | **JUMP to Runtime.** Clicking the pill (or the per-row `→ Runtime` chip in the browse-list) dispatches three events against `:rf/causa`: `:rf.causa/set-mode :runtime` · `:rf.causa/select-tab :machines` · `:rf.causa/select-machine-id <mid>`. The user lands on the Runtime Machines tab with this machine pre-selected. Mode B/C auto-detection (Mode B for 2-8 live, Mode C for ≥8) is the Runtime panel's responsibility — the Static-side JUMP just lands the selection. | no body — the click is the surface |
-| **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Runtime-only surface. Switch to Runtime mode to view."* The pill renders for muscle-memory consistency with the Runtime sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
+| **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/causa`: `:rf.causa/set-mode :dynamic` · `:rf.causa/select-tab :machines` · `:rf.causa/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected. Mode B/C auto-detection (Mode B for 2-8 live, Mode C for ≥8) is the Dynamic panel's responsibility — the Static-side JUMP just lands the selection. | no body — the click is the surface |
+| **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view."* The pill renders for muscle-memory consistency with the Dynamic sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
 
 The sub-strip mnemonics are mode-scoped under the same rule the L3 tabs follow (see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Mnemonic mode-scoping rule).
 
-### Per-row → Runtime chip
+### Per-row → Dynamic chip
 
-Every browse-list row carries a trailing `→ Runtime` chip that fires the same three-dispatch JUMP the Instances pill fires (centralised in one handler so the two surfaces never drift). Click semantics: stop propagation on the row's own select-handler; flip mode to Runtime; surface the Runtime Machines tab; select this machine. The user gets a per-row shortcut from Static into the Runtime instance inspector without first having to select the row in Static.
+Every browse-list row carries a trailing `→ Dynamic` chip that fires the same three-dispatch JUMP the Instances pill fires (centralised in one handler so the two surfaces never drift). Click semantics: stop propagation on the row's own select-handler; flip mode to Dynamic; surface the Dynamic Machines tab; select this machine. The user gets a per-row shortcut from Static into the Dynamic instance inspector without first having to select the row in Static.
 
 ### localStorage persistence
 
@@ -250,11 +250,11 @@ The user's Static-Machines state survives reloads via **two** localStorage slots
 
 ### Frame isolation
 
-Same discipline as the Runtime Machines panel (per §Tab placement above + [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3). The Static Machines surface is wrapped in the Static shell's `[rf/frame-provider {:frame :rf/causa}]`; every subscribe + dispatch inside the surface resolves to `:rf/causa`. The browse-list, definition-detail, sub-strip pills, and Topology renderer are all `reg-view`-registered.
+Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3). The Static Machines surface is wrapped in the Static shell's `[rf/frame-provider {:frame :rf/causa}]`; every subscribe + dispatch inside the surface resolves to `:rf/causa`. The browse-list, definition-detail, sub-strip pills, and Topology renderer are all `reg-view`-registered.
 
 ### See also
 
-- [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 — the direction-setting decision behind Two modes (Runtime + Static).
+- [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 — the direction-setting decision behind Two modes (Dynamic + Static).
 - [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Static surface — the architectural spine for the Static mode (3-layer chrome · 4 mode signals · mode-state lifecycle · localStorage `causa.mode` · feature flag · mnemonic mode-scoping).
 - [`007-UX-IA.md`](007-UX-IA.md) §Static mode — the visual-language details (mode pill chrome, edge stripe tokens, motion dampening, sub-tab inventory).
 - §Sim re-host reference (rf2-r4nao — landed) below — the historical UC1 Sim + UC2 Mode A/B/C prose preserved as design-reference. The Sim sub-mode now ships per rf2-r4nao at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs` with engine events/subs under `:rf.causa.static.machines/sim-*`.
@@ -276,14 +276,14 @@ Same discipline as the Runtime Machines panel (per §Tab placement above + [`018
 > §4-mode sub-strip row above is the normative description of the
 > shipped Sim sub-mode shape.
 >
-> **They DO NOT describe what the Runtime Machines panel renders
+> **They DO NOT describe what the Dynamic Machines panel renders
 > today** (see the collapse note at the top of this doc and the
-> "Post-collapse Runtime panel shape" section above) — that surface
+> "Post-collapse Dynamic panel shape" section above) — that surface
 > is event-driven only. They also do NOT describe the shipped Static
 > Machines surface above (which is master-detail with a 4-mode
 > sub-strip, NOT the Mode A/B/C dynamic-instance UI sketched in the
 > following sections — Mode B/C live-instance views remain a
-> Runtime-side responsibility, reached from Static via the JUMP).
+> Dynamic-side responsibility, reached from Static via the JUMP).
 >
 > Read everything below this divider as historical design-reference
 > for the Sim re-host effort, not as a normative description of any

@@ -5,7 +5,7 @@
   ## Shape (post-rf2-lq0ef + Static reshape)
 
   Routes are flat (no tree). Sort: `:path` ascending default. Search
-  is substring across route-id + path + doc — shared with the Runtime
+  is substring across route-id + path + doc — shared with the Dynamic
   Routing lens via `routing-helpers/filter-rows`.
 
   Per row:
@@ -30,7 +30,7 @@
 
 (defn- meta-badge
   "Single-letter badge surfacing presence of a metadata key — same
-  letters as the Runtime Routing lens (`M` `L` `T` `P`)."
+  letters as the Dynamic Routing lens (`M` `L` `T` `P`)."
   [kind]
   (let [{:keys [letter colour title]}
         (case kind

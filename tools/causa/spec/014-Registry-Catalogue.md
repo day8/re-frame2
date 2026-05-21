@@ -452,7 +452,7 @@ Spec: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode +
 architectural section. Static mode is unconditionally available
 (per rf2-8l3uk — the prior `:rf.causa/static-mode?` feature gate
 was removed). The mode pill mounts at ribbon-left, `Cmd-Shift-M` /
-`Ctrl-Shift-M` toggles between Runtime and Static surfaces, and the
+`Ctrl-Shift-M` toggles between Dynamic and Static surfaces, and the
 selected mode + sub-tab persist to localStorage. Per rf2-o5f5f.1 +
 rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
@@ -460,7 +460,7 @@ rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
 | Sub | Returns | Notes |
 |---|---|---|
-| `:rf.causa/mode` | `:runtime` / `:static`. | Default `:runtime`. Hydrated from `causa.mode` localStorage on boot. |
+| `:rf.causa/mode` | `:dynamic` / `:static`. | Default `:dynamic`. Hydrated from `causa.mode` localStorage on boot. |
 | `:rf.causa.static/selected-tab` | Keyword sub-tab id (`:machines` / `:routes` / `:schemas` / `:views` / `:events`). | Default `:machines` per `static/shell.cljs`. |
 | `:rf.causa.static.machines/selected-id` | Selected machine-id keyword for the Static Machines master-detail. | `nil` until first selection; persisted via the Static Machines persistence fx. |
 | `:rf.causa.static.machines/sub-mode` | Effective sub-mode keyword for the focused machine (`:topology` / `:sim` / `:instances` / `:cascade`). | Composite of `:rf.causa.static.machines/sub-mode-by-id` + the focused machine-id; default `:topology`. |
@@ -470,8 +470,8 @@ rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.causa/set-mode` | `[_ mode]` | Sets `:rf.causa/mode` to `:runtime` / `:static` and fires `:rf.causa.static/persist-mode` so the selection round-trips through localStorage. |
-| `:rf.causa/toggle-mode` | `[_]` | Flips between `:runtime` and `:static`. The `Cmd-Shift-M` / `Ctrl-Shift-M` chord dispatches this. |
+| `:rf.causa/set-mode` | `[_ mode]` | Sets `:rf.causa/mode` to `:dynamic` / `:static` and fires `:rf.causa.static/persist-mode` so the selection round-trips through localStorage. |
+| `:rf.causa/toggle-mode` | `[_]` | Flips between `:dynamic` and `:static`. The `Cmd-Shift-M` / `Ctrl-Shift-M` chord dispatches this. |
 | `:rf.causa.static/select-tab` | `[_ tab-id]` | Selects a Static sub-tab. Persists via the Static persistence fx. |
 
 ### Effects
@@ -508,17 +508,17 @@ localStorage).
 
 | Command-id | Mode filter (`:modes`) | Behaviour |
 |---|---|---|
-| `:toggle-theme` | `#{:runtime :static}` | Flips the Settings `:theme` slot between `:dark` and `:light` via `:rf.causa/settings-update`. |
-| `:toggle-reduced-motion` | `#{:runtime :static}` | Flips the user-override reduced-motion axis (rides the axis-3 of theme/density/motion in §Settings). |
-| `:snapshot-db` | `#{:runtime}` | Pins the current target-frame's app-db snapshot via `:rf.causa/pin-current`. |
-| `:clear-epoch` | `#{:runtime}` | Clears the trace ring + epoch history via `trace-bus/clear-buffer!`. |
-| `:mode-toggle` | `#{:runtime :static}` | Dispatches `:rf.causa/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
-| `:jump-to-settings` | `#{:runtime :static}` | Opens the Settings popup. |
+| `:toggle-theme` | `#{:dynamic :static}` | Flips the Settings `:theme` slot between `:dark` and `:light` via `:rf.causa/settings-update`. |
+| `:toggle-reduced-motion` | `#{:dynamic :static}` | Flips the user-override reduced-motion axis (rides the axis-3 of theme/density/motion in §Settings). |
+| `:snapshot-db` | `#{:dynamic}` | Pins the current target-frame's app-db snapshot via `:rf.causa/pin-current`. |
+| `:clear-epoch` | `#{:dynamic}` | Clears the trace ring + epoch history via `trace-bus/clear-buffer!`. |
+| `:mode-toggle` | `#{:dynamic :static}` | Dispatches `:rf.causa/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
+| `:jump-to-settings` | `#{:dynamic :static}` | Opens the Settings popup. |
 
 The `:modes` filter is the normative convention for palette command
 authoring: a command's `:modes` set MUST include every mode in which
 the command should appear in the palette's result list. Commands
-without a `:modes` slot default to `#{:runtime :static}` (both modes).
+without a `:modes` slot default to `#{:dynamic :static}` (both modes).
 
 ## Cross-references
 

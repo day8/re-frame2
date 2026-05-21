@@ -1,6 +1,6 @@
 # 012-Views
 
-> **See also**: [`021-Dynamic-Panel-Designs.md` §3](021-Dynamic-Panel-Designs.md#3-the-reactive-panel-reactive-perspective--steps-7-8) for the canonical Reactive (formerly "Views") panel content design. The L3 tab display label was renamed `Views` → `Reactive` per spec/021 §11.5; the tab key + spec doc continue to use `:views` / `012-Views.md` for stability. Per-panel content semantics moved to 021.
+> **See also**: [`021-Dynamic-Panel-Designs.md` §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8) for the canonical View (formerly "Views") panel content design. The L3 tab display label was renamed `Views` → `View` per spec/021 §11.5; the tab key + spec doc continue to use `:views` / `012-Views.md` for stability. Per-panel content semantics moved to 021.
 
 ## Bug class
 

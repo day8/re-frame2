@@ -475,7 +475,7 @@
     "}\n"
     ;; rf2-fxde5 — global `:focus-visible` focus ring. Causa-wide
     ;; keyboard-only focus indicator scoped to descendants of the
-    ;; shell roots (`[data-testid="rf-causa-shell"]` for Runtime,
+    ;; shell roots (`[data-testid="rf-causa-shell"]` for Dynamic,
     ;; `[data-testid="rf-causa-static-shell"]` for Static). Many
     ;; interactive elements set `:border "none"` and rely on the
     ;; UA outline, which is suppressed by various theme resets and

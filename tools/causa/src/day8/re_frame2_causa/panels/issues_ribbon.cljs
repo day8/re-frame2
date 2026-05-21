@@ -502,13 +502,13 @@
           (dissoc :issues-active-severities)
           (dissoc :issues-active-prefixes))))
 
-  ;; rf2-2moh1 — register the Runtime Issues tab with the internal L4
+  ;; rf2-2moh1 — register the Dynamic Issues tab with the internal L4
   ;; tab registry. rf2-mkpnb — order bumped 6 → 7 to make room for the
   ;; new Machines Canvas tab at order 5 + Routing at order 6.
   (panel-registry/reg-l4-tab!
     {:id    :issues
      :label "Issues"
      :mnem  "i"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 7
      :panel Panel}))

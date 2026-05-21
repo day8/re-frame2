@@ -4,7 +4,7 @@
 
   ## What's under test
 
-    1. Mode-state lives on `:rf.causa/mode` (default `:runtime`);
+    1. Mode-state lives on `:rf.causa/mode` (default `:dynamic`);
        `:rf.causa/set-mode` writes a specific mode; `:rf.causa/
        toggle-mode` flips between modes. Both attach the
        `:rf.causa.static/persist-mode` fx so the value round-trips
@@ -15,13 +15,14 @@
        restores the value via `:rf.causa/set-mode`).
 
     3. Static shell renders the 3-layer chrome (ribbon · tab-bar ·
-       detail panel) with 7 sub-tabs (Machines / Routes / Schemas /
-       Views / Flows / Events / Interceptors). Placeholder cards are
-       only rendered for tabs without a real panel installed yet —
-       see `filled-static-tab-ids` below.
+       detail panel) with 5 sub-tabs (Machines / Routes / Schemas /
+       Flows / Interceptors — rf2-b2fif dropped the Views + Events
+       sub-tabs). Placeholder cards are only rendered for tabs
+       without a real panel installed yet — see `filled-static-tab-
+       ids` below.
 
     4. `:rf.causa.static/select-tab` flips the Static-scoped tab
-       slot (does NOT clobber the Runtime `:rf.causa/selected-tab`).
+       slot (does NOT clobber the Dynamic `:rf.causa/selected-tab`).
 
     5. Sub-tab routing — clicking a Static tab swaps the detail
        panel; an unknown tab id is rejected by the event handler.
@@ -122,37 +123,37 @@
 ;; (1) mode-state lifecycle — set / toggle
 ;; -------------------------------------------------------------------------
 
-(deftest mode-default-is-runtime
-  (testing "with no host opt-in, the mode slot defaults to :runtime"
+(deftest mode-default-is-dynamic
+  (testing "with no host opt-in, the mode slot defaults to :dynamic"
     (causa-setup!)
-    (is (= :runtime (frame-sub [:rf.causa/mode])))))
+    (is (= :dynamic (frame-sub [:rf.causa/mode])))))
 
 (deftest set-mode-writes-the-slot
   (testing ":rf.causa/set-mode :static lands :static on the slot"
     (causa-setup!)
     (frame-dispatch [:rf.causa/set-mode :static])
     (is (= :static (frame-sub [:rf.causa/mode])))
-    (frame-dispatch [:rf.causa/set-mode :runtime])
-    (is (= :runtime (frame-sub [:rf.causa/mode])))))
+    (frame-dispatch [:rf.causa/set-mode :dynamic])
+    (is (= :dynamic (frame-sub [:rf.causa/mode])))))
 
 (deftest set-mode-normalises-unknown-values
-  (testing "unknown / string mode values normalise back to :runtime"
+  (testing "unknown / string mode values normalise back to :dynamic"
     (causa-setup!)
     (frame-dispatch [:rf.causa/set-mode :nonsense])
-    (is (= :runtime (frame-sub [:rf.causa/mode]))
-        "unknown keyword → :runtime")
+    (is (= :dynamic (frame-sub [:rf.causa/mode]))
+        "unknown keyword → :dynamic")
     (frame-dispatch [:rf.causa/set-mode "static"])
     (is (= :static (frame-sub [:rf.causa/mode]))
         "string 'static' normalises to :static")))
 
-(deftest toggle-mode-flips-runtime-and-static
+(deftest toggle-mode-flips-dynamic-and-static
   (testing ":rf.causa/toggle-mode flips between modes idempotently"
     (causa-setup!)
-    (is (= :runtime (frame-sub [:rf.causa/mode])) "starts on :runtime")
+    (is (= :dynamic (frame-sub [:rf.causa/mode])) "starts on :dynamic")
     (frame-dispatch [:rf.causa/toggle-mode])
     (is (= :static (frame-sub [:rf.causa/mode])))
     (frame-dispatch [:rf.causa/toggle-mode])
-    (is (= :runtime (frame-sub [:rf.causa/mode])))
+    (is (= :dynamic (frame-sub [:rf.causa/mode])))
     (frame-dispatch [:rf.causa/toggle-mode])
     (is (= :static (frame-sub [:rf.causa/mode])))))
 
@@ -162,24 +163,24 @@
 
 (deftest persistence-normalise-runs-on-input
   (testing "static.persistence/normalise-mode coerces keywords + strings"
-    (is (= :runtime (static-persistence/normalise-mode :runtime)))
+    (is (= :dynamic (static-persistence/normalise-mode :dynamic)))
     (is (= :static  (static-persistence/normalise-mode :static)))
-    (is (= :runtime (static-persistence/normalise-mode "runtime")))
+    (is (= :dynamic (static-persistence/normalise-mode "dynamic")))
     (is (= :static  (static-persistence/normalise-mode "static")))
-    (is (= :runtime (static-persistence/normalise-mode nil)))
-    (is (= :runtime (static-persistence/normalise-mode :nonsense)))
-    (is (= :runtime (static-persistence/normalise-mode "junk")))))
+    (is (= :dynamic (static-persistence/normalise-mode nil)))
+    (is (= :dynamic (static-persistence/normalise-mode :nonsense)))
+    (is (= :dynamic (static-persistence/normalise-mode "junk")))))
 
 (deftest persistence-raw-round-trip
   (testing "->raw / <-raw lossless on canonical values"
-    (is (= :runtime (static-persistence/<-raw (static-persistence/->raw :runtime))))
+    (is (= :dynamic (static-persistence/<-raw (static-persistence/->raw :dynamic))))
     (is (= :static  (static-persistence/<-raw (static-persistence/->raw :static))))))
 
 (deftest persistence-load-default-empty-slot
   (when (and (exists? js/window) (.-localStorage js/window))
     (static-persistence/clear!)
-    (testing "empty localStorage slot → :runtime fallback"
-      (is (= :runtime (static-persistence/load))))))
+    (testing "empty localStorage slot → :dynamic fallback"
+      (is (= :dynamic (static-persistence/load))))))
 
 (deftest persistence-save-and-load-round-trip
   (when (and (exists? js/window) (.-localStorage js/window))
@@ -187,8 +188,8 @@
       (static-persistence/clear!)
       (static-persistence/save! :static)
       (is (= :static (static-persistence/load)))
-      (static-persistence/save! :runtime)
-      (is (= :runtime (static-persistence/load))))))
+      (static-persistence/save! :dynamic)
+      (is (= :dynamic (static-persistence/load))))))
 
 (deftest persistence-fx-installed-by-set-mode
   (when (and (exists? js/window) (.-localStorage js/window))
@@ -199,8 +200,8 @@
       (is (= :static (static-persistence/load))
           ":static was persisted")
       (frame-dispatch [:rf.causa/toggle-mode])
-      (is (= :runtime (static-persistence/load))
-          "toggle back to :runtime was persisted"))))
+      (is (= :dynamic (static-persistence/load))
+          "toggle back to :dynamic was persisted"))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Static surface — 3-layer chrome render
@@ -227,7 +228,7 @@
 
 (deftest static-ribbon-mounts-mode-pill-and-right-icons
   (testing "Static ribbon carries the mode pill at left + right icons
-            cluster (Settings · Close). Runtime's nav / frame /
+            cluster (Settings · Close). Dynamic's nav / frame /
             filter clusters are hidden (Static has no spine)."
     (causa-setup!)
     (rf/with-frame :rf/causa
@@ -240,7 +241,7 @@
             "settings icon present")
         (is (some? (find-by-testid tree "rf-causa-static-icon-close"))
             "close icon present")
-        ;; Runtime ribbon clusters MUST NOT mount in Static surface
+        ;; Dynamic ribbon clusters MUST NOT mount in Static surface
         (is (nil? (find-by-testid tree "rf-causa-ribbon-nav"))
             "no nav cluster")
         (is (nil? (find-by-testid tree "rf-causa-ribbon-frame-picker"))
@@ -253,15 +254,15 @@
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-static-tab-ids
-  ;; rf2-uhsqb added :flows as a 6th tab between :views and :events.
-  ;; rf2-o5f5f.6 added :interceptors as a 7th tab after :events.
-  [:machines :routes :schemas :views :flows :events :interceptors])
+  ;; rf2-uhsqb added :flows; rf2-o5f5f.6 added :interceptors.
+  ;; rf2-b2fif removed :views + :events (info already in source code).
+  [:machines :routes :schemas :flows :interceptors])
 
-(deftest static-tab-bar-renders-seven-tabs
-  (testing "Static L3 tab bar renders 7 sub-tabs per parent-epic
+(deftest static-tab-bar-renders-five-tabs
+  (testing "Static L3 tab bar renders 5 sub-tabs per parent-epic
             rf2-o5f5f sub-bead list + rf2-uhsqb Flows + rf2-o5f5f.6
-            Interceptors (Machines / Routes / Schemas / Views /
-            Flows / Events / Interceptors)"
+            Interceptors − rf2-b2fif Views + Events drop
+            (Machines / Routes / Schemas / Flows / Interceptors)"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (static-shell/surface)]
@@ -299,11 +300,10 @@
   ;; rf2-o5f5f.2 — :machines     mounts the Static Machines panel.
   ;; rf2-o5f5f.3 — :routes       mounts the Static Routes panel.
   ;; rf2-o5f5f.4 — :schemas      mounts the Static Schemas panel.
-  ;; rf2-o5f5f.5 — :views        mounts the Static Views panel.
   ;; rf2-uhsqb   — :flows        mounts the Static Flows panel.
-  ;; rf2-o5f5f.6 — :events       mounts the Static Events panel.
   ;; rf2-o5f5f.6 — :interceptors mounts the Static Interceptors panel.
-  #{:machines :routes :schemas :views :flows :events :interceptors})
+  ;; rf2-b2fif removed the Static Views + Events panels.
+  #{:machines :routes :schemas :flows :interceptors})
 
 (deftest static-placeholder-cards-name-sibling-bead
   (testing "each placeholder card surfaces its sibling-bead id
@@ -347,8 +347,8 @@
         "default is :machines")
     (frame-dispatch [:rf.causa.static/select-tab :routes])
     (is (= :routes (frame-sub [:rf.causa.static/selected-tab])))
-    (frame-dispatch [:rf.causa.static/select-tab :events])
-    (is (= :events (frame-sub [:rf.causa.static/selected-tab])))))
+    (frame-dispatch [:rf.causa.static/select-tab :flows])
+    (is (= :flows (frame-sub [:rf.causa.static/selected-tab])))))
 
 (deftest static-select-tab-rejects-unknown-ids
   (testing ":rf.causa.static/select-tab ignores ids not in the
@@ -360,28 +360,28 @@
     (is (= :machines (frame-sub [:rf.causa.static/selected-tab]))
         "unknown tab id is rejected; slot stays on :machines")))
 
-(deftest static-tab-isolated-from-runtime-tab
-  (testing "Runtime and Static tab choices are independent —
+(deftest static-tab-isolated-from-dynamic-tab
+  (testing "Dynamic and Static tab choices are independent —
             switching one does NOT clobber the other"
     (causa-setup!)
     (frame-dispatch [:rf.causa/select-tab :machines])
-    (frame-dispatch [:rf.causa.static/select-tab :events])
+    (frame-dispatch [:rf.causa.static/select-tab :flows])
     (is (= :machines (frame-sub [:rf.causa/selected-tab]))
-        "Runtime tab unchanged")
-    (is (= :events (frame-sub [:rf.causa.static/selected-tab]))
+        "Dynamic tab unchanged")
+    (is (= :flows (frame-sub [:rf.causa.static/selected-tab]))
         "Static tab landed independently")))
 
 ;; -------------------------------------------------------------------------
 ;; (6) Mode-signal mechanism — stripe colour helper
 ;; -------------------------------------------------------------------------
 
-(deftest stripe-token-runtime-violet-static-cyan
+(deftest stripe-token-dynamic-violet-static-cyan
   (testing "mode-signal mechanism #2 — 2-px left-edge stripe is
-            :accent-violet in Runtime, :cyan in Static. No new tokens
+            :accent-violet in Dynamic, :cyan in Static. No new tokens
             introduced per the rf2-zhrwo audit constraint."
-    (is (= :accent-violet (static-shell/stripe-token-for-mode :runtime)))
+    (is (= :accent-violet (static-shell/stripe-token-for-mode :dynamic)))
     (is (= :cyan          (static-shell/stripe-token-for-mode :static)))
-    ;; Unknown / nil values fall back to runtime
+    ;; Unknown / nil values fall back to dynamic
     (is (= :accent-violet (static-shell/stripe-token-for-mode :nonsense)))
     (is (= :accent-violet (static-shell/stripe-token-for-mode nil)))))
 
@@ -390,12 +390,12 @@
 ;; -------------------------------------------------------------------------
 
 (deftest mode-pill-renders-two-segments
-  (testing "mode pill is a 2-segment radio group with Runtime + Static"
+  (testing "mode pill is a 2-segment radio group with Dynamic + Static"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (mode-pill/mode-pill)]
         (is (some? (find-by-testid tree "rf-causa-mode-pill")))
-        (is (some? (find-by-testid tree "rf-causa-mode-pill-runtime")))
+        (is (some? (find-by-testid tree "rf-causa-mode-pill-dynamic")))
         (is (some? (find-by-testid tree "rf-causa-mode-pill-static")))))))
 
 (deftest mode-pill-active-segment-aria-checked
@@ -403,29 +403,29 @@
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree     (mode-pill/mode-pill)
-            runtime  (find-by-testid tree "rf-causa-mode-pill-runtime")
+            dynamic  (find-by-testid tree "rf-causa-mode-pill-dynamic")
             static-b (find-by-testid tree "rf-causa-mode-pill-static")]
-        (is (= "true"  (:aria-checked (second runtime))))
+        (is (= "true"  (:aria-checked (second dynamic))))
         (is (= "false" (:aria-checked (second static-b))))))
     ;; flip to Static and re-render
     (frame-dispatch [:rf.causa/set-mode :static])
     (rf/with-frame :rf/causa
       (let [tree     (mode-pill/mode-pill)
-            runtime  (find-by-testid tree "rf-causa-mode-pill-runtime")
+            dynamic  (find-by-testid tree "rf-causa-mode-pill-dynamic")
             static-b (find-by-testid tree "rf-causa-mode-pill-static")]
-        (is (= "false" (:aria-checked (second runtime))))
+        (is (= "false" (:aria-checked (second dynamic))))
         (is (= "true"  (:aria-checked (second static-b))))))))
 
 (deftest mode-pill-segment-glyphs
   (testing "active segment renders ● and inactive renders ○
             (mirrors Causa's existing tab-button glyph language)"
-    (is (= "●" (mode-pill/segment-glyph {:mode :runtime} :runtime)))
-    (is (= "○" (mode-pill/segment-glyph {:mode :static}  :runtime)))
-    (is (= "○" (mode-pill/segment-glyph {:mode :runtime} :static)))
+    (is (= "●" (mode-pill/segment-glyph {:mode :dynamic} :dynamic)))
+    (is (= "○" (mode-pill/segment-glyph {:mode :static}  :dynamic)))
+    (is (= "○" (mode-pill/segment-glyph {:mode :dynamic} :static)))
     (is (= "●" (mode-pill/segment-glyph {:mode :static}  :static)))))
 
 ;; -------------------------------------------------------------------------
-;; (8) Surface composer — shell.cljs dispatches Runtime vs Static
+;; (8) Surface composer — shell.cljs dispatches Dynamic vs Static
 ;; -------------------------------------------------------------------------
 
 (deftest surface-composer-renders-static-when-mode-static
@@ -438,31 +438,31 @@
         (is (some? (find-by-testid tree "rf-causa-static-surface"))
             "Static surface mounts")
         (is (nil? (find-by-testid tree "rf-causa-ribbon"))
-            "Runtime ribbon does NOT mount")
+            "Dynamic ribbon does NOT mount")
         (is (nil? (find-by-testid tree "rf-causa-event-list"))
-            "Runtime L2 event list does NOT mount")))))
+            "Dynamic L2 event list does NOT mount")))))
 
-(deftest surface-composer-renders-runtime-when-mode-runtime
-  (testing "with mode :runtime, the composer renders the Runtime chrome
+(deftest surface-composer-renders-dynamic-when-mode-dynamic
+  (testing "with mode :dynamic, the composer renders the Dynamic chrome
             (per rf2-8l3uk — Static mode is unconditionally available)"
     (causa-setup!)
-    (frame-dispatch [:rf.causa/set-mode :runtime])
+    (frame-dispatch [:rf.causa/set-mode :dynamic])
     (rf/with-frame :rf/causa
       (let [tree (shell/surface-composer)]
         (is (some? (find-by-testid tree "rf-causa-ribbon"))
-            "Runtime ribbon mounts")
+            "Dynamic ribbon mounts")
         (is (nil? (find-by-testid tree "rf-causa-static-surface"))
             "Static surface does NOT mount")))))
 
 (deftest ribbon-always-mounts-mode-pill
-  (testing "the Runtime ribbon ALWAYS mounts the mode pill (per
+  (testing "the Dynamic ribbon ALWAYS mounts the mode pill (per
             rf2-8l3uk — the `:rf.causa/static-mode?` feature gate was
             removed; Static mode is unconditionally available)"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/ribbon)]
         (is (some? (find-by-testid tree "rf-causa-mode-pill"))
-            "mode pill mounts in the Runtime ribbon unconditionally")))))
+            "mode pill mounts in the Dynamic ribbon unconditionally")))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) Static tab inventory — pure-data shape
@@ -471,9 +471,9 @@
 (deftest static-tab-inventory-shape
   (testing "tab inventory carries id/label/mnem/placeholder-bead and
             preserves canonical order"
-    (is (= [:machines :routes :schemas :views :flows :events :interceptors]
+    (is (= [:machines :routes :schemas :flows :interceptors]
            (mapv :id (static-shell/tabs)))
-        "7 tabs in canonical order (rf2-uhsqb :flows + rf2-o5f5f.6 :interceptors)")
+        "5 tabs in canonical order (rf2-b2fif dropped :views + :events)")
     (doseq [{:keys [id label mnem placeholder-bead]} (static-shell/tabs)]
       (is (keyword? id) (str "id is keyword for " id))
       (is (string? label) (str "label is a string for " id))

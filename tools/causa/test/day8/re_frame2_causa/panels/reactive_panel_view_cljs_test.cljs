@@ -56,8 +56,8 @@
             registry key stays `:views` (internal id, never a user
             contract)."
     (facade/install!)
-    (let [registered (panel-registry/tab-by-id :runtime :views)]
-      (is (some? registered) "panel-registry has a :views entry under :runtime")
+    (let [registered (panel-registry/tab-by-id :dynamic :views)]
+      (is (some? registered) "panel-registry has a :views entry under :dynamic")
       (is (= "View" (:label registered))
           "L4 tab label renders as `View`"))))
 

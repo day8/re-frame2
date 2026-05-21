@@ -32,7 +32,7 @@ main read**.
   age-out. Future: branch-and-explore; "find me when path P last changed"
   walker.
 - **[003-Machine-Inspector.md](003-Machine-Inspector.md)** — The Machines
-  tab. **Event-driven Runtime panel** (rf2-y9xmf): BLANK when the focused
+  tab. **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused
   event has no machine activity; per-machine section when it did
   (topology + transition highlight + guards + actions + cancellation
   cascade + `:after` rings). Cross-cutting Causa surfaces:

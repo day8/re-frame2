@@ -126,11 +126,11 @@
     (is (every? #(set? (:modes %)) items)
         "every command carries a `:modes` set per rf2-ybjkx")
     (let [toggle (first (filter #(= :toggle-mode (:id %)) items))]
-      (is (= #{:runtime :static} (:modes toggle))
+      (is (= #{:dynamic :static} (:modes toggle))
           "toggle-mode surfaces in BOTH modes (chord parity)"))
     (let [clear-trace (first (filter #(= :clear-trace-buffer (:id %)) items))]
-      (is (= #{:runtime} (:modes clear-trace))
-          "trace-buffer clear is Runtime-only"))))
+      (is (= #{:dynamic} (:modes clear-trace))
+          "trace-buffer clear is Dynamic-only"))))
 
 (deftest static-tab-items-shape
   (let [tabs  [{:id :machines :label "Machines"}
@@ -143,7 +143,7 @@
     (is (= [:palette/select-static-tab :machines]
            (-> items first :action)))
     (is (= [:static :machines] (-> items first :id))
-        "id namespaced under :static so it doesn't collide with Runtime panel ids")))
+        "id namespaced under :static so it doesn't collide with Dynamic panel ids")))
 
 ;; ---- build-index --------------------------------------------------------
 
@@ -236,13 +236,13 @@
                 {:panels      sample-panels
                  :static-tabs [{:id :machines :label "Machines"}
                                {:id :routes   :label "Routes"}]
-                 :mode        :runtime})
+                 :mode        :dynamic})
         static-ids (set (map :id (filter #(and (= :panel (:source %))
                                                (vector? (:id %))
                                                (= :static (first (:id %))))
                                          index)))]
     (is (empty? static-ids)
-        "Runtime mode hides Static-only items per rf2-ybjkx")))
+        "Dynamic mode hides Static-only items per rf2-ybjkx")))
 
 (deftest build-index-static-mode-hides-runtime-only-items
   (let [index   (sources/build-index
@@ -254,11 +254,11 @@
         ids     (set (map :id index))
         sources (set (map :source index))]
     (is (not (contains? ids :clear-trace-buffer))
-        "trace buffer clear is Runtime-only — hidden in Static")
+        "trace buffer clear is Dynamic-only — hidden in Static")
     (is (not (contains? sources :recent-event))
         "recent-event source is event-coupled — hidden in Static")
     (is (not (contains? sources :frame))
-        "frame-picker shortcuts are Runtime-only")
+        "frame-picker shortcuts are Dynamic-only")
     (is (contains? ids :toggle-mode)
         "mode toggle surfaces in BOTH modes (chord parity)")
     (is (contains? ids :toggle-theme))

@@ -457,11 +457,11 @@
 
 (register-first-mount-hook!
   ::hydrate-static-mode
-  ;; Hydrate the Runtime ↔ Static mode slot (rf2-o5f5f.1). Same
+  ;; Hydrate the Dynamic ↔ Static mode slot (rf2-o5f5f.1). Same
   ;; rationale as the filter hydrate above — the persisted mode lives
   ;; in localStorage under `causa.mode` and the frame must exist
   ;; before the dispatch can land. `:rf.causa/set-mode` normalises
-  ;; unknown values back to `:runtime` so an absent or malformed slot
+  ;; unknown values back to `:dynamic` so an absent or malformed slot
   ;; is harmless. The dispatch carries the persist-mode fx which
   ;; would re-write the slot; that's intentional — the round-trip
   ;; canonicalises the stored value (e.g. an old "explorer" pre-

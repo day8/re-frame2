@@ -118,13 +118,13 @@
   ;; rf2-op9v2 — downstream-subs overlay subs + events (the hover
   ;; popover that lists subs/views downstream of each changed path).
   (downstream/install!)
-  ;; rf2-2moh1 — register the Runtime App DB tab with the internal L4
+  ;; rf2-2moh1 — register the Dynamic App DB tab with the internal L4
   ;; tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :app-db
      :label "App DB"
      :mnem  "a"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 1
      :panel Panel})
   nil)

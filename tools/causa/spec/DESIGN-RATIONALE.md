@@ -480,9 +480,9 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 
 ---
 
-## Lock #14 — Two modes (Runtime + Static)
+## Lock #14 — Two modes (Dynamic + Static)
 
-**Locked 2026-05-19 (Mike).** **Two modes within one tool: Runtime
+**Locked 2026-05-19 (Mike).** **Two modes within one tool: Dynamic
 (event-coupled spine + 4-layer chrome) and Static (event-INDEPENDENT
 registry browse + 3-layer chrome).** Chrome silhouette is the
 mode signal; the mode pill is the toggle.
@@ -506,7 +506,7 @@ tool, or two tools entirely?
   registry — every Registry tab carries L2's "current cascade"
   context whether or not it's relevant.
 - **(b) Two modes within one tool — Causa is one package, two
-  chromes.** A mode pill at ribbon-left flips the surface; Runtime
+  chromes.** A mode pill at ribbon-left flips the surface; Dynamic
   renders the 4-layer chrome (L1 ribbon · L2 event list · L3 tab
   bar · L4 detail), Static drops L2 (event-independent, no spine)
   and renders 3 layers (L1 · L3 · L4). The mode user-state persists
@@ -526,7 +526,7 @@ the toggle, not the indicator.
 ### Why
 
 - **Event-coupled and event-INDEPENDENT are different bug-classes.**
-  The Runtime spine answers the five canonical questions about a
+  The Dynamic spine answers the five canonical questions about a
   specific cascade ("who fired this? · what did it write? · which
   views recomputed? · what side-effects fired? · what went wrong?").
   The Static browse answers a different family ("which machines does
@@ -536,7 +536,7 @@ the toggle, not the indicator.
   browse is noise — Static IS event-independent. Option (a) leaks
   spine context into a surface where it has no meaning.
 - **The chrome shape IS the mode signal.** Static drops L2 entirely;
-  the 3-layer silhouette is unmistakable from the 4-layer Runtime
+  the 3-layer silhouette is unmistakable from the 4-layer Dynamic
   silhouette. A trained eye reads the mode without looking at any
   widget. Option (a) gives the user no chrome-level signal that the
   surface has changed; the only signal is which tab is active, and
@@ -545,17 +545,17 @@ the toggle, not the indicator.
   it.
 - **Four stacked signals telegraph mode at a glance** (per the
   shipped surface):
-  1. **Mode pill** at ribbon-left — two-segment radio (`[● Runtime]
+  1. **Mode pill** at ribbon-left — two-segment radio (`[● Dynamic]
      [○ Static]`), 200ms accent-violet cross-fade. Lives in BOTH
      modes — it's the toggle, not the indicator.
-  2. **2-px left-edge ribbon stripe** — `:accent-violet` in Runtime,
+  2. **2-px left-edge ribbon stripe** — `:accent-violet` in Dynamic,
      `:cyan` (existing palette token) in Static. Zero new tokens.
-  3. **Motion dampening** — Runtime ships the LIVE pulse + machine-
+  3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-
      active pulse + 180ms tab fade. Static drops continuous pulses
      entirely and collapses tab fades to instant. Honours
      `prefers-reduced-motion: reduce` via the existing
      `--rf-causa-motion-scale` seam.
-  4. **Chrome silhouette** — 4-layer (Runtime) vs 3-layer (Static).
+  4. **Chrome silhouette** — 4-layer (Dynamic) vs 3-layer (Static).
      The silhouette IS the mode.
 - **The mode pill is the toggle, not the indicator.** It lives at
   ribbon-left in BOTH modes; clicking either segment dispatches the
@@ -571,9 +571,9 @@ the toggle, not the indicator.
   per mode) without the duplicated build / install surface.
 - **Cross-mode tab choice is preserved.** The Static-scoped tab
   lives at `:rf.causa.static/selected-tab` (default `:machines`);
-  the Runtime-scoped tab lives at the existing `:rf.causa/active-
+  the Dynamic-scoped tab lives at the existing `:rf.causa/active-
   tab` (default `:event`). Flipping modes restores the prior
-  Runtime tab choice; it doesn't clobber it.
+  Dynamic tab choice; it doesn't clobber it.
 
 ### Cross-reference
 
@@ -585,7 +585,7 @@ sub-tab surfaces are catalogued in [`007-UX-IA.md`](007-UX-IA.md)
 §Static mode and (for Machines specifically)
 [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static
 Machines surface — the 4-mode sub-strip
-`[Topology][Sim][Instances][Cascade]` with JUMP-to-Runtime
+`[Topology][Sim][Instances][Cascade]` with JUMP-to-Dynamic
 semantics on Instances and Cascade-dimmed-with-tooltip on
 Cascade.
 
@@ -610,10 +610,10 @@ Cascade.
 ## Lock #15 — Two verbs, two homes
 
 **Locked 2026-05-19 (Mike).** **Browse-all in Static; focused-event
-in Runtime.** When a cohesive sub-domain (Routes, Machines, Views,
+in Dynamic.** When a cohesive sub-domain (Routes, Machines, Views,
 Events, Schemas) has both a browse-all surface and a focused-event
 lens, they split across modes — the browse-all lives in Static; the
-focused-event lens lives in Runtime. They never cohabit one tab.
+focused-event lens lives in Dynamic. They never cohabit one tab.
 
 ### Question
 
@@ -629,12 +629,12 @@ sub-domain), do they cohabit one tab or split across modes?
   "focused-event" via a sub-control. Mode pill becomes one axis;
   the tab-internal toggle becomes a second axis the user has to
   track.
-- **(b) Browse-all in Static; focused-event in Runtime.** The
+- **(b) Browse-all in Static; focused-event in Dynamic.** The
   browse-all surface is event-INDEPENDENT — it answers "what's
   registered? what would simulate?"; the focused-event lens is
   event-COUPLED — it answers "what did this cascade do to this
   sub-domain?". Each lives where its causal stance fits the chrome
-  silhouette (Static = 3-layer event-independent; Runtime = 4-layer
+  silhouette (Static = 3-layer event-independent; Dynamic = 4-layer
   event-coupled).
 - **(c) Only browse-all.** Drop the focused-event lens — let users
   reconstruct the per-cascade slice from the Trace tab.
@@ -643,7 +643,7 @@ sub-domain), do they cohabit one tab or split across modes?
 
 ### Pick
 
-**(b) Browse-all in Static; focused-event in Runtime.** The mode
+**(b) Browse-all in Static; focused-event in Dynamic.** The mode
 pill is the axis; nothing nested below it.
 
 ### Why
@@ -651,12 +651,12 @@ pill is the axis; nothing nested below it.
 - **Browse-all is event-INDEPENDENT; focused-event is
   event-COUPLED.** The two verbs live in different causal stances —
   the chrome silhouette already signals which stance the user is
-  in (3-layer Static drops L2 entirely; 4-layer Runtime carries the
+  in (3-layer Static drops L2 entirely; 4-layer Dynamic carries the
   spine). Putting both verbs under one tab forces the user to read
   *two* mode signals: the chrome shape AND the tab-internal toggle.
   Splitting collapses to one signal.
 - **A tab-internal toggle creates a third axis.** Causa already
-  carries (i) the mode pill (Runtime vs Static) and (ii) the tab
+  carries (i) the mode pill (Dynamic vs Static) and (ii) the tab
   choice within a mode. A third axis (browse-all vs focused-event
   *within* a tab) is the kind of UX silt that grows over time —
   every cohesive sub-domain would add its own variant, and the user
@@ -664,13 +664,13 @@ pill is the axis; nothing nested below it.
   the signal" requires one axis below the pill.
 - **The pattern generalises.** Routes locked it first (016 Routes
   split); Machines arrived at the same shape de-facto (003 Machine
-  Inspector — Static catalogue vs Runtime focused-machine);
+  Inspector — Static catalogue vs Dynamic focused-machine);
   Schemas / Views / Events sub-tabs (rf2-o5f5f.4 / .5 / .6) will
   re-ask the question if the lock is missing. Naming the pattern
   here gives future contributors a single artefact to point at.
-- **Static surfaces are the catalogue; Runtime surfaces are the
+- **Static surfaces are the catalogue; Dynamic surfaces are the
   lens.** Reading a Static tab is "show me the system as
-  registered"; reading a Runtime tab is "show me this cascade's
+  registered"; reading a Dynamic tab is "show me this cascade's
   slice." The verb-per-mode split mirrors the underlying causal
   shape; the chrome shape already telegraphs it.
 
@@ -680,10 +680,10 @@ pill is the axis; nothing nested below it.
   audit) — this lock is the convention that Lock #14's mode split
   generates whenever a cohesive sub-domain spans both stances.
 - First consumer: **016 Routes** (rf2-o5f5f.3) — browse-all
-  catalogue in Static, focused-event lens in Runtime. The lock
+  catalogue in Static, focused-event lens in Dynamic. The lock
   cites this surface as the normative reference shape.
 - Future consumers: **003 Machine Inspector** (Static catalogue +
-  Runtime focused-machine), **Schemas** (rf2-o5f5f.4), **Views**
+  Dynamic focused-machine), **Schemas** (rf2-o5f5f.4), **Views**
   (rf2-o5f5f.5), **Events** (rf2-o5f5f.6).
 
 ### Date locked
@@ -929,8 +929,8 @@ hard-coded pixel value are reviewable bugs.
 | 11 | Source-coord fallback | **Handler-coord with `(?)` annotation** | 2026-05-12 |
 | 12 | Conversation persistence | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 13 | Voice STT | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
-| 14 | Two modes (Runtime + Static) | **Two modes within one tool — chrome silhouette IS the signal; pill is the toggle** | 2026-05-19 |
-| 15 | Two verbs, two homes | **Browse-all in Static; focused-event in Runtime** | 2026-05-19 |
+| 14 | Two modes (Dynamic + Static) | **Two modes within one tool — chrome silhouette IS the signal; pill is the toggle** | 2026-05-19 |
+| 15 | Two verbs, two homes | **Browse-all in Static; focused-event in Dynamic** | 2026-05-19 |
 | 16 | machines-viz home | **`tools/machines-viz/` as own tool jar — Causa depends + re-exports** | 2026-05-19 |
 | 17 | Visual language REJECTs | **No commodity fonts · no addon-per-concern · no pixels-as-first-class** | 2026-05-19 |
 

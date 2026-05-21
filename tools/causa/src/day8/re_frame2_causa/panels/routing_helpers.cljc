@@ -419,8 +419,8 @@
        :sim-result    <map-or-nil>}
 
   No `:current` / `:from-id` / `:to-id` / `:navigated?` slots — those
-  are Runtime concerns. Rows carry no `:marker` (the Static surface
-  shows no orientation chip; orientation lives on the Runtime
+  are Dynamic concerns. Rows carry no `:marker` (the Static surface
+  shows no orientation chip; orientation lives on the Dynamic
   Routing lens)."
   [routes-map query sim-url]
   (let [rows       (project-routes routes-map)
