@@ -38,6 +38,39 @@
     - React-context provider traversal. Frame-routing under this
       adapter is via the dynamic-var tier; the React-context tier
       is degenerate (no React).
+    - Derived-value disposal / ref-count symmetry under CLJS
+      (rf2-pyp3n). `make-derived-value` reifies `IDeref` ONLY — no
+      `IWatchable`, no disposal protocol. Consequences, split by host:
+        * On the JVM the sub-cache's `interop/add-on-dispose!` works:
+          `re-frame.interop` (interop.clj) implements dispose directly,
+          keyed by reaction identity, and the reify is a valid map key,
+          so the input-ref-count symmetry described in subs.cljc holds.
+        * Under CLJS it is a SILENT no-op: this adapter intentionally
+          does NOT publish the `:adapter/dispose!` /
+          `:adapter/add-on-dispose!` late-bind hooks (see the routing
+          block at the foot of this ns — reactive-substrate hooks are
+          withheld so misconfigured production paths surface rather than
+          paper over), and interop.cljs routes through those late-bind
+          hooks, which no-op when unregistered. So under the CLJS
+          test-react path the per-derived-value dispose hook never fires
+          and ref-count symmetry does NOT hold. This is consistent with
+          the `reactive subscription tracking out of scope` line above
+          but is called out explicitly here because the JVM-works /
+          CLJS-silent split is otherwise surprising.
+      Also masked in practice: `subscribe-container` on a DERIVED value
+      never fires its watch (it watches the source container, not the
+      reified IDeref), but real subs watch the source so no test relies
+      on it.
+    - Per-frame sub-cache teardown on `dispose-adapter!` (rf2-pyp3n).
+      The other four adapters delegate Spec 006 §Adapter disposal
+      lifecycle MUST 1 to `spine/dispose-frame-sub-caches!`; this
+      adapter CANNOT — it is CLJC and the spine is CLJS-only, so
+      reaching for it would break the JVM build. `dispose-adapter!`
+      drains active-mounts (host-resource MUST) but leaves per-frame
+      sub-caches to the host runtime. Acceptable here because the test
+      adapter's `make-derived-value` holds no host resources (it is a
+      plain `IDeref` reify recomputed on deref) — there is nothing for
+      a sub-cache walk to dispose.
 
   Usage skeleton:
 
@@ -84,6 +117,15 @@
 (defn- make-derived-value [source-containers compute-fn]
   ;; Recompute on every deref. No caching: the test surface only ever
   ;; runs a sub a handful of times per test case.
+  ;;
+  ;; rf2-pyp3n: IDeref ONLY — deliberately no IWatchable / no disposal
+  ;; protocol. The sub-cache's dispose/ref-count path therefore works on
+  ;; the JVM (interop.clj implements dispose by reaction identity) but is
+  ;; a SILENT no-op under CLJS (this adapter withholds the
+  ;; :adapter/dispose! / :adapter/add-on-dispose! late-bind hooks, and
+  ;; interop.cljs routes through them — unregistered hooks no-op). See the
+  ;; ns docstring's `Out of scope` list for the full JVM-works /
+  ;; CLJS-silent split and why it is acceptable for the test adapter.
   (reify
     #?(:clj clojure.lang.IDeref :cljs IDeref)
     (#?(:clj deref :cljs -deref) [_]
@@ -95,6 +137,13 @@
 ;; carries:
 ;;
 ;;   :id              — gensym tag (for log readability)
+;;   :seq             — monotonic integer minted from `mount-counter`
+;;                      at construction. The `:id` gensym is NOT a safe
+;;                      sort key: `mount-record-from-unmount-fn` needs
+;;                      the freshest mount, and a lexicographic sort on
+;;                      the gensym suffix ("…mount-10" < "…mount-9")
+;;                      returns a STALE record after the 10th mint
+;;                      (rf2-ovpl3). `:seq` is the numeric ordering key.
 ;;   :render-tree     — atom holding the currently-rendered tree
 ;;   :lifecycle-log   — atom holding a vector of {:phase ... :at ms}
 ;;                      entries; the test driver inspects this to
@@ -110,10 +159,17 @@
 ;;                      or `unmount!` after teardown.
 
 (defrecord ^:no-doc MountedComponent
-  [id render-tree lifecycle-log currently-rendering? mounted?])
+  [id seq render-tree lifecycle-log currently-rendering? mounted?])
 
 ;; All live mounts; `dispose-adapter!` walks this to drain.
 (defonce ^:private active-mounts (atom #{}))
+
+;; Monotonic mount sequence (rf2-ovpl3). `render` mints `(swap! ...
+;; inc)` into each MountedComponent's `:seq`; `mount-record-from-
+;; unmount-fn` sorts on this integer to recover the freshest mount.
+;; The gensym `:id` suffix is NOT monotonic-safe under a lexicographic
+;; sort, so it cannot serve as the ordering key.
+(defonce ^:private mount-counter (atom 0))
 
 (defn- now-ms []
   #?(:clj (System/currentTimeMillis)
@@ -143,6 +199,7 @@
   ;; (no `:hydrate?` semantics).
   (let [mount (->MountedComponent
                 (gensym "test-react-mount-")
+                (swap! mount-counter inc)
                 (atom nil)
                 (atom [])
                 (atom false)
@@ -204,6 +261,13 @@
   ;; mounted? false WITHOUT routing through the public `unmount!`
   ;; (which would throw on a stuck currently-rendering? cell) and log
   ;; a :forced-teardown phase so the test surface can spot drift.
+  ;;
+  ;; rf2-pyp3n: this drains active-mounts (the host-resource MUST) but
+  ;; does NOT walk per-frame sub-caches the way the other four adapters
+  ;; do via `spine/dispose-frame-sub-caches!` — this adapter is CLJC and
+  ;; the spine is CLJS-only. Acceptable because test-react's
+  ;; `make-derived-value` holds no host resources (plain IDeref reify);
+  ;; see the ns docstring's `Out of scope` list.
   (doseq [m @active-mounts]
     (when @(:mounted? m)
       (log-phase! m :forced-teardown)
@@ -258,18 +322,19 @@
   ;; The mount we just added is the only one whose `:mounted?` is
   ;; true AND that closes over `unmount-fn`. Since closures aren't
   ;; introspectable in CLJ, we use the active-mounts order: the
-  ;; most-recently-conj'd is the freshest add for non-empty sets.
+  ;; freshest add is the one with the highest monotonic `:seq`.
   ;; (For unit-test use this is sufficient; tests mount one root at
   ;; a time per scope.)
-  (let [mounts @active-mounts]
-    (when (seq mounts)
-      ;; `set` has no order; we tag each MountedComponent with a
-      ;; monotonic id at construction and pick the max-id mount
-      ;; whose :mounted? is true.
-      (->> mounts
-           (filter (comp deref :mounted?))
-           (sort-by (comp str :id))
-           last))))
+  (let [live (filter (comp deref :mounted?) @active-mounts)]
+    ;; `set` has no order; each MountedComponent carries a monotonic
+    ;; integer `:seq` minted at construction. Pick the max-`:seq` live
+    ;; mount via a NUMERIC reduction. rf2-ovpl3: the pre-fix code sorted
+    ;; lexicographically on the gensym `:id` string, so once >=10 mounts
+    ;; had been minted in a process "…mount-10" sorted BEFORE "…mount-9"
+    ;; and `last` returned a STALE record. `:seq` is a real integer, so
+    ;; the reduction is monotonic for any mount count.
+    (when (seq live)
+      (reduce (fn [a b] (if (> (:seq b) (:seq a)) b a)) live))))
 
 (defn mount!
   "Mount `render-tree` (a hiccup vector or any data the test treats as

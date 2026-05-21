@@ -91,3 +91,46 @@
           ":forced-teardown phase records the drain so tests can spot leaked mounts")
       ;; Re-install so the fixture's outer dispose call below is a no-op.
       (substrate-adapter/install-adapter! test-react/adapter))))
+
+;; ---- scenario 4: monotonic mount ordering (rf2-ovpl3) ---------------------
+
+(deftest mount-returns-the-freshest-record-past-the-tenth-mint
+  (testing "mount! returns the LATEST mount even after >=10 mounts in one
+            process — rf2-ovpl3. The pre-fix code sorted lexicographically
+            on the gensym :id, so '…mount-10' < '…mount-9' returned a STALE
+            record. The numeric :seq ordering is monotonic for any count."
+    ;; Mount 11 components without unmounting any (they stay live), then
+    ;; mount one more whose render-tree is a unique sentinel. The
+    ;; freshest mount! must return THAT sentinel's record — not a stale
+    ;; mount-9-vs-mount-10 lexicographic loser.
+    (let [_earlier (doall (for [i (range 11)]
+                            (test-react/mount! [:div (str "v" i)])))
+          latest   (test-react/mount! [:div "SENTINEL-LATEST"])]
+      (is (= [:div "SENTINEL-LATEST"] (test-react/current-render-tree latest))
+          "mount! returned the record for the most-recent mount, not a
+           lexicographically-stale one")
+      ;; And the returned record's :seq is the maximum across all live
+      ;; mounts — proves we picked the freshest, not just any live one.
+      (let [max-seq (apply max (map :seq (test-react/mounted-roots)))]
+        (is (= max-seq (:seq latest))
+            "the returned record carries the maximum monotonic :seq"))
+      ;; The unmount thunk on the returned record tears down the SENTINEL
+      ;; mount specifically (not a stale neighbour).
+      (test-react/unmount! latest)
+      (is (nil? (test-react/current-render-tree latest))
+          "unmounting the returned record tore down the correct (latest) mount")
+      ;; Drain the 11 still-live earlier mounts so the fixture's
+      ;; dispose-adapter! has nothing surprising to forcibly tear down.
+      (doseq [m _earlier] (test-react/unmount! m)))))
+
+(deftest mount-seq-is-strictly-increasing
+  (testing "each mount! mints a strictly-greater :seq than the previous —
+            the monotonic ordering invariant rf2-ovpl3 relies on"
+    (let [a (test-react/mount! [:div "a"])
+          b (test-react/mount! [:div "b"])
+          c (test-react/mount! [:div "c"])]
+      (is (< (:seq a) (:seq b) (:seq c))
+          ":seq is strictly increasing across successive mounts")
+      (test-react/unmount! a)
+      (test-react/unmount! b)
+      (test-react/unmount! c))))

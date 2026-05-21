@@ -49,6 +49,14 @@
   (ratom/make-reaction (spine/build-recompute-fn source-containers compute-fn)))
 
 ;; ---- render ---------------------------------------------------------------
+;;
+;; Active roots are tracked in a per-adapter atom so `dispose-adapter!`
+;; can drain them (rf2-7v82h; mirrors the Reagent adapter's
+;; rf2-9fdkb tracking). Each mount adds the React-19 root to the active
+;; set; the returned unmount thunk removes itself from the set before
+;; calling `(rdc/unmount root)`.
+
+(defonce ^:private active-roots (atom #{}))
 
 (defn- render [render-tree mount-point opts]
   ;; The bridge mounted into a raw DOM container directly; under the
@@ -56,13 +64,16 @@
   ;; The unmount thunk closes over the root to call its .unmount.
   ;; Per rf2-gwkvr: Spec 006 §`render` types `:hydrate?` as a boolean;
   ;; no defensive coercion.
-  (let [hydrate? (:hydrate? opts)]
-    (if hydrate?
-      (let [root (rdc/hydrate-root mount-point render-tree)]
-        (fn unmount [] (rdc/unmount root)))
-      (let [root (rdc/create-root mount-point)]
-        (rdc/render root render-tree)
-        (fn unmount [] (rdc/unmount root))))))
+  (let [hydrate? (:hydrate? opts)
+        root     (if hydrate?
+                   (rdc/hydrate-root mount-point render-tree)
+                   (let [r (rdc/create-root mount-point)]
+                     (rdc/render r render-tree)
+                     r))]
+    (swap! active-roots conj root)
+    (fn unmount []
+      (swap! active-roots disj root)
+      (rdc/unmount root))))
 
 (defonce ^:private hiccup-emitter (atom nil))
 
@@ -95,21 +106,44 @@
 
 (defn- dispose-adapter! []
   ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
-  ;; rf2-jcjul). The component-unmount-driven path handles the
-  ;; mounted case (reagent2 reaps Reactions once their last watcher
-  ;; drops) — but `dispose-adapter!` MUST cover the headless /
-  ;; test-fixture path where no component unmount fires before the
-  ;; adapter goes away, and the SSR path where the rendered tree was
-  ;; string-serialised without ever being mounted. Without the walk,
-  ;; sequential `init! → dispose-adapter!` cycles in a long-lived
-  ;; process accumulate per-frame sub-cache entries closed over stale
-  ;; Reactions forever.
+  ;; rf2-jcjul, rf2-7v82h). The four-MUST list — brought to full parity
+  ;; with the Reagent adapter (reagent.cljs:100-137):
   ;;
-  ;; Delegated to `spine/dispose-frame-sub-caches!` (rf2-jcjul): the
-  ;; same helper backs the Reagent adapter and the spine-built UIx /
-  ;; Helix adapters so all three substrates share one implementation
-  ;; — no three-way drift on the lifecycle MUST.
-  (spine/dispose-frame-sub-caches!))
+  ;;   1. Cancel all in-flight reactive subscriptions — walk every live
+  ;;      frame's per-frame sub-cache and dispose each cached Reaction.
+  ;;      The component-unmount-driven path handles the mounted case
+  ;;      (reagent2 reaps Reactions once their last watcher drops) — but
+  ;;      `dispose-adapter!` MUST cover the headless / test-fixture path
+  ;;      where no component unmount fires before the adapter goes away,
+  ;;      and the SSR path where the rendered tree was string-serialised
+  ;;      without ever being mounted. Without the walk, sequential
+  ;;      `init! → dispose-adapter!` cycles in a long-lived process
+  ;;      accumulate per-frame sub-cache entries closed over stale
+  ;;      Reactions forever. Delegated to
+  ;;      `spine/dispose-frame-sub-caches!` (rf2-jcjul): the same helper
+  ;;      backs the Reagent adapter and the spine-built UIx / Helix
+  ;;      adapters so all three substrates share one implementation —
+  ;;      no three-way drift on the lifecycle MUST.
+  ;;
+  ;;   2. Release host-specific resources — drain the active-roots set
+  ;;      (React 19 roots; mounted-but-not-unmounted at process exit /
+  ;;      hot-reload). Swallow per-root throws so one misbehaving root
+  ;;      cannot strand the rest of the drain (rf2-7v82h).
+  ;;
+  ;;   3. Discard internal caches — clear the hiccup-emitter (the SSR
+  ;;      late-bind sink; the registered fn captures `re-frame.ssr`
+  ;;      state that must not survive the adapter) (rf2-7v82h).
+  ;;
+  ;;   4. Make subsequent calls return `:rf.error/adapter-disposed` —
+  ;;      handled one level up by `substrate-adapter/dispose-adapter!`
+  ;;      via the `disposed?` breadcrumb (rf2-6wxys).
+  (spine/dispose-frame-sub-caches!)
+  (doseq [root @active-roots]
+    (try (rdc/unmount root)
+         (catch :default _ nil)))
+  (reset! active-roots #{})
+  (reset! hiccup-emitter nil)
+  nil)
 
 (def adapter
   "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install:
