@@ -25,16 +25,16 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
   {:target     :browser
    :output-dir "public/js"
    :asset-path "/js"
-   :modules    {:main {:init-fn your-app.core/run}}}}}
+   :modules    {:main {:init-fn your-app.core/init}}}}}
 ```
 
 The smallest greenfield build entry. Three things matter for re-frame2:
 
 1. **`:dependencies []`.** shadow-cljs reads `deps.edn` automatically. Don't duplicate the `day8/re-frame2-*` coordinates here; that's where they'd shadow each other if their VERSION ever drifted.
-2. **`:init-fn your-app.core/run`.** shadow-cljs calls this symbol at bundle-init time. The function must be exported (`(defn ^:export run [] ...)`). This is the entry point that calls `(rf/init! reagent-adapter/adapter)` — see `entry-namespace.md`.
+2. **`:init-fn your-app.core/init`.** shadow-cljs calls this symbol at bundle-init time. The function must be exported (`(defn ^:export init [] ...)`). This is the entry point that calls `(rf/init! reagent-adapter/adapter)` — see `entry-namespace.md`. (`init` matches the generator template; the symbol name is yours to choose, as long as `:init-fn` points at it.)
 3. **One module.** A single-page re-frame2 app needs exactly one `:modules` entry. Code-splitting is possible later but not part of greenfield.
 
-Substitute `your-app.core/run` with whatever your entry namespace + run symbol actually is. If you call your namespace `myapp.core` and your run fn `start`, this becomes `:init-fn myapp.core/start`.
+Substitute `your-app.core/init` with whatever your entry namespace + entry symbol actually is. If you call your namespace `myapp.core` and your entry fn `start`, this becomes `:init-fn myapp.core/start`.
 
 The build id (`:app` above) is the name you give the build for `shadow-cljs watch <build-id>`. Use anything that reads naturally; `:app` is convention.
 
@@ -82,9 +82,9 @@ Four contractual bits:
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows.
 - **`/js/main.js` is an absolute path from site root.** That's correct for shadow-cljs's dev server.
 
-## `:devtools` block (optional, for hot-reload)
+## `:devtools` block (hot-reload + Causa)
 
-Add `:devtools` to enable shadow-cljs's hot-reload + dev server:
+Add `:devtools` to enable shadow-cljs's hot-reload + dev server, and to load the Causa devtools panel — both wired by default in the generator template:
 
 ```clojure
 :builds
@@ -92,19 +92,23 @@ Add `:devtools` to enable shadow-cljs's hot-reload + dev server:
  {:target     :browser
   :output-dir "public/js"
   :asset-path "/js"
-  :modules    {:main {:init-fn your-app.core/run}}
+  :modules    {:main {:init-fn your-app.core/init}}
   :devtools   {:http-port 8020
                :http-root "public"
-               :watch-dir "public"}}}
+               :watch-dir "public"
+               :after-load your-app.core/init
+               :preloads   [day8.re-frame2-causa.preload]}}}
 ```
 
 - `:http-port` — port the dev server listens on. `8020` is convention; pick anything free.
 - `:http-root "public"` — the dev server serves files from this directory. Your `index.html` lives at `public/index.html`.
 - `:watch-dir "public"` — shadow-cljs reloads the browser when any file under here changes (including the compiled `main.js`).
+- `:after-load your-app.core/init` — re-run the entry fn after each hot reload so the freshly-loaded code re-installs the adapter and re-renders.
+- `:preloads [day8.re-frame2-causa.preload]` — loads the Causa in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Causa never ships to production.
 
 With this block in place, `shadow-cljs watch app` starts the dev server. Visit `http://localhost:8020/` and the browser auto-refreshes on every recompile.
 
-re-frame2 itself **does not need a preload** for hot-reload. shadow-cljs's default behaviour is enough. Causa is the devtools exception: if you add `day8.re-frame2-causa.preload`, the page must provide `[data-rf-causa-host]` as shown above. The Causa preload registers listeners/keybindings and auto-opens into that app-provided host after `rf/init!` installs the substrate adapter; there is no lazy/manual-only launch step.
+re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Causa is the one default preload:** because Causa is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-causa.preload` here, and the page must provide the `[data-rf-causa-host]` layout column shown above. The Causa preload registers listeners/keybindings and auto-opens into that app-provided host after `rf/init!` installs the substrate adapter; there is no lazy/manual-only launch step. If you genuinely want a Causa-free build, drop the `:preloads` entry and the `day8/re-frame2-causa` dep together.
 
 ## Production build (`release`)
 
@@ -124,7 +128,7 @@ If you want to pin the port explicitly (e.g. for editor integrations), add a top
 
 A few things you might pull in by reflex from other CLJS framework setups that re-frame2 specifically does not require:
 
-- **No framework preload required** — re-frame2 has no preload analogue to re-frame v1. Causa is optional devtools wiring; when enabled, its default is the `[data-rf-causa-host]` true-inline panel on app load. Overlay/body-padding chrome is optional debug tooling, not the default, and pop-out remains available from the mounted panel.
+- **No *framework* preload required** — re-frame2's core has no preload analogue to re-frame v1. The one default preload is Causa's devtools (`day8.re-frame2-causa.preload`, wired in `:devtools/preloads`); its default surface is the `[data-rf-causa-host]` true-inline panel on app load. Overlay/body-padding chrome is optional debug tooling, not the default, and pop-out remains available from the mounted panel.
 - **No `:closure-defines`** for re-frame2 itself in dev. The single exception is opting into the performance-API instrumentation (Spec 009 §Performance instrumentation) — set `re-frame.performance/enabled? true` only if the author asks for it explicitly. Default dev is fine.
 - **No special compiler options** for dev. `{:compiler-options {:warnings {...}}}` is up to the author.
 - **No SSR build entry** unless the author wants SSR. SSR is opt-in via `day8/re-frame2-ssr` (separate per-feature artefact); the SSR build is a separate `:target :node-script` (or `:target :browser` running in a static-render harness). Out of scope for greenfield.

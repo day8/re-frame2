@@ -5,7 +5,7 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 ## Contents
 
 - The lockstep contract
-- The ten artefacts (and which two a greenfield project needs)
+- The eleven artefacts (and which ones a greenfield project needs)
 - Discovering the current VERSION
 - `deps.edn` shape
 - `package.json` shape
@@ -15,11 +15,11 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 
 ## The lockstep contract
 
-re-frame2 ships **ten Maven artefacts in lockstep**: every artefact at the same VERSION, every release. Mixing versions across artefacts is unsupported — the runtime contract between core, adapters, and the per-feature surfaces is checked at boot time and bound to a single coordinated VERSION.
+re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. The `day8/re-frame2-causa` devtools panel publishes on the same version line too. Mixing versions across artefacts is unsupported — the runtime contract between core, adapters, and the per-feature surfaces is checked at boot time and bound to a single coordinated VERSION.
 
 Picking a re-frame2 VERSION for your project means picking it once and using it everywhere a `day8/re-frame2-*` coordinate appears.
 
-## The ten artefacts
+## The eleven artefacts
 
 | Artefact | Tier | When to add |
 |---|---|---|
@@ -27,7 +27,7 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-reagent` | substrate | **Always (for a Reagent app).** The Reagent adapter map. |
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
 | `day8/re-frame2-helix` | substrate | Instead of `-reagent` if you target Helix. |
-| `day8/re-frame2-schemas` | per-feature | When you call `reg-app-schema` or `reg-event-schema`. |
+| `day8/re-frame2-schemas` | per-feature | **Day one** (the template attaches a whole-app-db schema). Required whenever you call `reg-app-schema` / `reg-event-schema`; without it CLJS schema validation soft-passes per Spec 010. |
 | `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
@@ -35,7 +35,11 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
 | `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch` (also pulled in transitively by `re-frame2-pair`). |
 
-**Greenfield day-one minimum: just `day8/re-frame2` + `day8/re-frame2-reagent`.** Resist adding the others until the author writes code that actually uses them — they're optional by design so apps that don't use them don't pay the classpath cost.
+The eleven above are the **publishable** lockstep set. Two more local roots ride the same version but sit outside the publishable count: `day8/reagent-slim` (an alternate slim Reagent substrate) and `day8/re-frame2-ssr-ring` (a Ring adaptor over `-ssr`) — niche, not part of greenfield. Separately, the in-app devtools panel `day8/re-frame2-causa` ships on the same version line and is a **day-one** dep in the template (see the day-one shape below); it is tooling, not one of the eleven library artefacts.
+
+**Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual route and the one-command route land on the same scaffold. The template ships **four** re-frame2 coords on day one — core + the Reagent adapter, plus `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; without this artefact CLJS soft-passes per Spec 010) and `day8/re-frame2-causa` (the in-app devtools panel, wired via `:devtools/preloads` and Causa-priority by default) — plus an explicit `reagent/reagent` pin.
+
+The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) stay pay-as-you-go: resist adding them until the author writes code that actually uses them, so apps that don't use them don't pay the classpath cost.
 
 ## Discovering the current VERSION
 
@@ -57,17 +61,22 @@ A minimal `deps.edn` for a greenfield re-frame2 project:
 
 ```clojure
 {:paths ["src"]
- :deps  {org.clojure/clojure       {:mvn/version "1.11.1"}
-         org.clojure/clojurescript {:mvn/version "1.11.132"}
+ :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
+         org.clojure/clojurescript {:mvn/version "1.12.145"}
+
          day8/re-frame2            {:mvn/version "<VERSION>"}
-         day8/re-frame2-reagent    {:mvn/version "<VERSION>"}}}
+         day8/re-frame2-reagent    {:mvn/version "<VERSION>"}
+         day8/re-frame2-schemas    {:mvn/version "<VERSION>"}
+         day8/re-frame2-causa      {:mvn/version "<VERSION>"}
+
+         reagent/reagent           {:mvn/version "2.0.1"}}}
 ```
 
-Replace `<VERSION>` with the VERSION you discovered above. **Both `day8/re-frame2-*` lines get the same value.**
+Replace `<VERSION>` with the VERSION you discovered above. **Every `day8/re-frame2-*` line gets the same value.**
 
-Notes on the Clojure / ClojureScript versions:
-- The Clojure / ClojureScript versions in the example are what the re-frame2 repo's own examples build against (see `implementation/core/deps.edn`). You can use newer versions if shadow-cljs and Reagent support them; you can probably use slightly older ones too. Start with these.
-- Reagent itself is **already declared as a dep of `day8/re-frame2-reagent`**, so you don't need to add `reagent/reagent` to your `:deps`. It'll be pulled in transitively at whatever version the adapter's `deps.edn` pins.
+Notes on the pins:
+- The Clojure / ClojureScript versions match what the re-frame2 repo's own core artefact builds against (`implementation/core/deps.edn`) and what the generator template pins. You can use newer versions if shadow-cljs and Reagent support them; start with these.
+- `reagent/reagent {:mvn/version "2.0.1"}` is pinned **explicitly**, matching the template. The Reagent adapter pulls Reagent in transitively, but pinning the substrate version yourself is the idiomatic choice — it stops a surprise transitive bump from changing your rendering substrate underneath you. Keep the version in lockstep with the adapter's `deps.edn`.
 
 ## `package.json` shape
 
@@ -94,11 +103,10 @@ Then `npm install` (after the author has approved the resolved `package.json`).
 
 ## When to add the optional per-feature artefacts
 
-The seven per-feature artefacts are pay-as-you-go. Add them **at the moment** the author writes code that calls into them — not before.
+`day8/re-frame2-schemas` is **already in the day-one shape** (the template attaches a whole-app-db schema). The remaining six per-feature artefacts are pay-as-you-go. Add them **at the moment** the author writes code that calls into them — not before.
 
 | If the author writes... | Add to `deps.edn`... |
 |---|---|
-| `(rf/reg-app-schema ...)` or any `:schema` key in a `reg-*` opts map | `day8/re-frame2-schemas` |
 | `(rf/reg-machine ...)` or `(rf/make-machine-handler ...)` | `day8/re-frame2-machines` |
 | `(rf/reg-route ...)` or dispatches `:rf.route/handle-url-change` | `day8/re-frame2-routing` |
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |

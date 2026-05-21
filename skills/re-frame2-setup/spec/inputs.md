@@ -8,7 +8,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 The skill teaches a four-file scaffolding (`deps.edn`, `package.json`, `shadow-cljs.edn`, `core.cljs`). Each file's shape is derived from:
 
-- **`day8/re-frame2`'s release artefacts** — the ten Maven coords (`day8/re-frame2`, `day8/re-frame2-reagent`, `day8/re-frame2-schemas`, `day8/re-frame2-machines`, `day8/re-frame2-routing`, `day8/re-frame2-flows`, `day8/re-frame2-http`, `day8/re-frame2-ssr`, `day8/re-frame2-epoch`, plus the test-support artefact). All ship in lockstep at a single VERSION; the skill reads that VERSION at discovery time rather than hardcoding it.
+- **`day8/re-frame2`'s release artefacts** — the eleven publishable Maven coords (core + 7 per-feature + 3 per-adapter per `spec/Conventions.md` §Packaging conventions: `day8/re-frame2`, `day8/re-frame2-reagent`, `day8/re-frame2-uix`, `day8/re-frame2-helix`, `day8/re-frame2-schemas`, `day8/re-frame2-machines`, `day8/re-frame2-routing`, `day8/re-frame2-flows`, `day8/re-frame2-http`, `day8/re-frame2-ssr`, `day8/re-frame2-epoch`). The `day8/re-frame2-causa` devtools panel rides the same version line (day-one dep in the generator template). All ship in lockstep at a single VERSION; the skill reads that VERSION at discovery time rather than hardcoding it.
 - **`examples/reagent/counter/`** in the re-frame2 repo — the canonical first-counter shape. `references/first-counter.md` is a trimmed version of this example.
 - **`examples/reagent/counter/shadow-cljs.edn`** — the canonical `shadow-cljs.edn` shape for a single-page browser app.
 - **`examples/reagent/counter/index.html`** — the canonical `index.html` (`<div id="app">`, `<script src="js/main.js">`).
@@ -56,3 +56,4 @@ When the artefact set or the greenfield contract changes:
 5. **`rf/init!` signature changes** → update SKILL.md's Step 5 framing and `references/entry-namespace.md`.
 6. **A new common greenfield failure mode appears** → add a row to SKILL.md's Troubleshooting section (move to a dedicated leaf if it grows past ~30 lines per OQ3).
 7. **The `examples/reagent/counter/` shape changes** → re-derive `references/first-counter.md` from the example.
+8. **The deps-new template's day-one shape changes** (`tools/template/resources/day8/re_frame2_template/_reagent/{deps.edn,shadow-cljs.edn,core.cljs}`) → re-reconcile the skill's day-one deps, `:devtools/preloads`, and entry symbol so the manual route stays aligned with the one-command generator.

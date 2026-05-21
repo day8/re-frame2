@@ -30,7 +30,7 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
 
 ;; -- entry ------------------------------------------------------------------
 
-(defn ^:export run []
+(defn ^:export init []
   (rf/init! reagent-adapter/adapter)
   (rdc/render react-root [root-view]))
 ```
@@ -39,9 +39,11 @@ That's the whole entry namespace. Events / subs / views go above the mount point
 
 `root-view` is the top-level registered view. See `first-counter.md` for what it looks like.
 
+The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/reagent/counter/core.cljs` happens to call its entry fn `run` — same shape, different name. Pick one and keep `shadow-cljs.edn`'s `:init-fn` pointing at whatever you choose; this skill uses `init` so the manual route matches the template.)
+
 ## Order of operations
 
-`run` must do these three things, **in this order**, every time:
+`init` must do these three things, **in this order**, every time:
 
 1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter into the default frame.
 2. **(optional) `(rf/dispatch-sync [:your-app/initialise])`** — seed app-db synchronously before the first render. Most apps want this; some let the views render against an empty app-db and seed on first user interaction.
@@ -58,7 +60,7 @@ re-frame2 splits **the registry** (a process-global handler / sub / fx map) from
 Three consequences:
 
 - **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` or `re-frame.adapter.helix/adapter` and you have a UIx / Helix app.
-- **`rf/init!` is idempotent in dev but not redundant.** Hot-reload of `core.cljs` will re-invoke `run`; calling `rf/init!` again is safe and resets the default frame's substrate config. Don't try to "guard" it with `defonce` — let it run.
+- **`rf/init!` is idempotent in dev but not redundant.** Hot-reload of `core.cljs` will re-invoke `init`; calling `rf/init!` again is safe and resets the default frame's substrate config. Don't try to "guard" it with `defonce` — let it run.
 - **No implicit boot.** Unlike re-frame v1 (where `re-frame.core` had no boot step), re-frame2 requires the explicit `init!`. The reason: multi-substrate support and the per-frame substrate-config model (Spec 006) need to know *which* adapter you want before any subscription resolves. There is no default.
 
 The adapter map carries the substrate's `state-container`, `read-container`, `replace-container!`, `subscribe`, `render`, and hot-reload hooks. You don't construct it; you require the namespace and pass its `adapter` var.
@@ -75,7 +77,7 @@ Two contractual bits:
 - **`defonce`** — under shadow-cljs hot-reload, `core.cljs` reloads on every save. Without `defonce`, every reload calls `create-root` again on the same DOM node, and React 19 complains loudly (or, worse, silently mounts two roots that fight each other). `defonce` ensures the root is created exactly once per page load.
 - **`(js/document.getElementById "app")`** — must match the `id` in `index.html`. Mismatch here is the most common cause of a blank page with no console error.
 
-In `run`, `rdc/render` is called against `react-root` (not against the DOM node directly). Both `create-root` and `render` come from `reagent.dom.client` — that's the React 19 client-Root entry surface for Reagent 2.x.
+In `init`, `rdc/render` is called against `react-root` (not against the DOM node directly). Both `create-root` and `render` come from `reagent.dom.client` — that's the React 19 client-Root entry surface for Reagent 2.x.
 
 ## Where everything else goes
 
@@ -85,7 +87,7 @@ In a tiny app, all of this fits in `your-app/core.cljs` above the mount point:
 - **Subscriptions** — `(rf/reg-sub ...)`
 - **Effects** — `(rf/reg-fx ...)` (per-app fx)
 - **Views** — `(reg-view <name> [...] <body>)` (via the `reg-view` macro from `re-frame.core`)
-- **`(rf/dispatch-sync [:your-app/initialise])`** in `run` — the initial seed event
+- **`(rf/dispatch-sync [:your-app/initialise])`** in `init` — the initial seed event
 
 For anything beyond the first counter, split:
 
@@ -98,6 +100,16 @@ src/your_app/
 ```
 
 then `(:require [your-app.events] [your-app.subs] [your-app.views :as views])` in `core.cljs` so the registrations happen at load time. Use `[views/root-view]` in `rdc/render`. The folder shape is a convention; re-frame2 has no opinion about it.
+
+## UIx / Helix greenfield
+
+This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield app the wiring is the same shape with three substitutions:
+
+- **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), and swap the substrate npm/Maven deps: UIx uses `com.pitch/uix.core` + `com.pitch/uix.dom`; Helix uses `lilactown/helix`. (Drop the `reagent/reagent` pin.)
+- **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, and mount with the substrate's own root API (`uix.dom/create-root` + `render-root` for UIx) instead of `reagent.dom.client`.
+- everything else (events, subs, schemas, Causa wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates.
+
+The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
 
 ## Differences from re-frame v1
 

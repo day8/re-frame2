@@ -28,7 +28,9 @@ The two routes are complementary, not redundant:
 | You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
 
 Either way you end up at the same canonical shape — the skill walks the
-seven-step path manually; the template performs it for you. After the
+seven-step path manually and lands on the template's day-one scaffold
+(core + Reagent adapter + schemas + Causa, `init` entry symbol); the
+template performs the same steps for you in one command. After the
 counter mounts, the same handoff to `re-frame2` / `re-frame2-pair`
 applies.
 
@@ -36,11 +38,11 @@ applies.
 
 The canonical seven-step greenfield path:
 
-1. Discover the current re-frame2 VERSION (the ten artefacts ship in lockstep).
-2. Add `day8/re-frame2` + `day8/re-frame2-reagent` to `deps.edn`.
+1. Discover the current re-frame2 VERSION (the eleven artefacts ship in lockstep; Causa rides the same line).
+2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-causa`, plus an explicit `reagent/reagent`.
 3. Add `react`, `react-dom`, `shadow-cljs` to `package.json`. Run `npm install`.
-4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app, plus `public/index.html`.
-5. Write the entry namespace — `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export run [] ...)`.
+4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Causa `:devtools/preloads` wiring), plus `public/index.html` carrying the `[data-rf-causa-host]` column.
+5. Write the entry namespace — `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`.
 6. Write the first counter — registered event, registered sub, `reg-view`-defined view, mount.
 7. Run `shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
 
@@ -50,7 +52,7 @@ The canonical seven-step greenfield path:
 - Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
 - Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
-- Anything beyond Reagent + shadow-cljs. UIx, Helix, and other build tools are noted only as "swap the adapter ns / pick a different build tool"; the canonical path is Reagent + shadow-cljs.
+- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, `references/entry-namespace.md` §UIx / Helix greenfield gives the three adapter substitutions and points at the generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`), which is the fastest non-Reagent path.
 
 ## Status
 
@@ -66,14 +68,20 @@ skills/re-frame2-setup/
 ├── package.json
 ├── .claude-plugin/
 │   └── plugin.json
-└── references/
-    ├── deps-versions.md
-    ├── shadow-cljs.md
-    ├── entry-namespace.md
-    └── first-counter.md
+├── references/
+│   ├── deps-versions.md
+│   ├── shadow-cljs.md
+│   ├── entry-namespace.md
+│   └── first-counter.md
+├── spec/
+│   ├── design.md
+│   ├── inputs.md
+│   └── authoring-prompt.md
+└── evals/
+    └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the seven-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order.
+`SKILL.md` is the router: it walks the seven-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order. `spec/` carries skill-internal design/authoring meta-docs (not loaded during normal operation), and `evals/` holds the trigger-accuracy fixture. Both are excluded from the npm `files` array by design.
 
 ## Install the skill in Claude Code
 
