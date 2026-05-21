@@ -34,6 +34,8 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.panels :as panels]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.app-db-segment-inspector :as segment-inspector]
@@ -44,6 +46,7 @@
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
+            [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -251,6 +254,107 @@
         ;; cross-panel primitive registered inside the orchestrator's
         ;; sentinel guard.
         (is (some? (registrar/handler :sub :rf.causa/cascades)))))))
+
+;; ---- contract — panel mount routes through mount/ensure-causa-frame! ---
+;;
+;; Pre-fix `ensure-causa-handlers-installed!` did `(rf/reg-frame :rf/causa
+;; {})` directly. That registered the frame but bypassed the first-mount
+;; hook table (rf2-y1saa) — including `::seed-trace-and-target-frame`,
+;; the hook that lifts the pre-mount trace-bus buffer into Causa's
+;; `:trace-buffer` slot AND seeds `:target-frame` + `:epoch-history` from
+;; the head focusable cascade's frame. The result on the Story RHS: a
+;; host that dispatched events before any panel was mounted, then mounted
+;; a panel, saw empty Event + App-DB panels because the slots the panels
+;; subscribe to had never been populated. The fix routes through
+;; `mount/ensure-causa-frame!` so every panel-only mount path fires the
+;; same hook table the full-shell `open!` runs.
+
+(defn- pre-mount-dispatch-event
+  "Build a trace event matching the shape `event/dispatched` produces.
+  Enough for `projection/group-cascades` to bucket it into a cascade
+  with `:frame` set so `spine/focusable-head-frame-id` resolves."
+  [id dispatch-id frame-id event-id]
+  {:id        id
+   :op-type   :event
+   :operation :event/dispatched
+   :tags      {:dispatch-id dispatch-id
+               :frame       frame-id
+               :event       [event-id]}})
+
+(deftest mount-panel-seeds-trace-buffer-from-pre-mount-bus
+  (testing "Mounting a panel before the user has opened the full shell
+            still runs the first-mount hook table — so the trace-bus
+            atom contents land in Causa's `:trace-buffer` slot and the
+            panel renders against the host's pre-mount cascades. Pre-fix
+            the direct `(rf/reg-frame :rf/causa {})` bypassed the hook
+            table and the slot stayed empty."
+    (let [[_capture _ render-stub] (make-render-stub)]
+      (with-redefs [substrate-adapter/render render-stub
+                    rf/epoch-history (fn [_] [])]
+        ;; Host dispatched two events on `:cart-frame` while Causa was
+        ;; un-mounted — the trace-bus atom accumulated them.
+        (trace-bus/collect-trace!
+          (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
+        (trace-bus/collect-trace!
+          (pre-mount-dispatch-event 2 101 :cart-frame :cart/checkout))
+        (panels/mount-event-detail! :mount-point)
+        (rf/with-frame :rf/causa
+          (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
+            (is (= 2 (count buf))
+                "trace-buffer reflects the pre-mount bus contents — the
+                 `::seed-trace-and-target-frame` hook ran on mount.")))))))
+
+(deftest mount-panel-seeds-target-frame-from-head-focusable-cascade
+  (testing "Mounting a panel directly (without going through the full
+            shell `open!`) seeds `:target-frame` from the head focusable
+            cascade's frame — matching the rf2-boyc2 contract the
+            full-shell path observes. Pre-fix only `open!` ran the seed
+            hook; panel-only mounts left `:target-frame` at
+            `defaults/default-target-frame` regardless of pre-mount
+            traffic on a non-default frame. That misalignment is the
+            empty-Causa-on-Story-RHS class of bug."
+    (let [[_capture _ render-stub] (make-render-stub)
+          cart-records [{:epoch-id      :e-1
+                         :frame         :cart-frame
+                         :db-before     {:cart {:items []}}
+                         :db-after      {:cart {:items [{:id 7}]}}
+                         :trigger-event [:cart/add-item]
+                         :event-id      :cart/add-item
+                         :trace-events  []}]]
+      (with-redefs [substrate-adapter/render render-stub
+                    rf/epoch-history (fn [frame-id]
+                                       (case frame-id
+                                         :cart-frame cart-records
+                                         []))]
+        (trace-bus/collect-trace!
+          (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
+        (panels/mount-app-db-diff! :mount-point)
+        (rf/with-frame :rf/causa
+          (is (= :cart-frame @(rf/subscribe [:rf.causa/target-frame]))
+              "`:target-frame` seeds from the head focusable cascade's
+               `:frame` via the `::seed-trace-and-target-frame` hook.")
+          (is (= cart-records @(rf/subscribe [:rf.causa/epoch-history]))
+              "`:epoch-history` re-seeds in lockstep from
+               `(rf/epoch-history :cart-frame)` per the
+               `:rf.causa/set-target-frame` reducer."))))))
+
+(deftest mount-panel-without-pre-mount-traffic-falls-back-to-default-frame
+  (testing "Mounting a panel with an empty trace-bus + no pre-mount
+            cascades on any frame seeds `:target-frame` from
+            `defaults/default-target-frame` (the fallback branch in
+            `::seed-trace-and-target-frame`). Pins the cold-start
+            behaviour; without the hook the slot would be nil and the
+            App-DB sub's frame-resolution would chain to `:rf/default`
+            silently."
+    (let [[_capture _ render-stub] (make-render-stub)]
+      (with-redefs [substrate-adapter/render render-stub
+                    rf/epoch-history (fn [_] [])]
+        (panels/mount-trace! :mount-point)
+        (rf/with-frame :rf/causa
+          (is (= defaults/default-target-frame
+                 @(rf/subscribe [:rf.causa/target-frame]))
+              "`:target-frame` falls back to default when no focusable
+               cascade exists."))))))
 
 ;; ---- contract — every public mount fn exists --------------------------
 

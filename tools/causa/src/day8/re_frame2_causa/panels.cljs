@@ -114,6 +114,7 @@
   embedding contract."
   (:require [re-frame.core :as rf]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.app-db-segment-inspector :as segment-inspector]
@@ -134,13 +135,27 @@
   "Idempotent — `register-causa-handlers!` carries its own sentinel so
   multiple panel mounts collapse to one registration pass.
 
-  Note: we also `(rf/reg-frame :rf/causa {})` here so the frame the
-  wrapped `frame-provider` resolves to actually exists. `reg-frame`'s
-  surgical-update-on-re-register semantics (Spec 002 §reg-frame) keep
-  this idempotent across panel mounts and shadow-cljs reloads."
+  Routes through `mount/ensure-causa-frame!` so the frame is not just
+  registered but ALSO seeded via the first-mount hook table (rf2-y1saa)
+  — `::seed-trace-and-target-frame`, `::hydrate-filters`,
+  `::hydrate-spine-filters`, `::hydrate-static-mode`,
+  `::auto-open-watcher`. A direct `(rf/reg-frame :rf/causa {})` here
+  would register the frame but skip the hook table, leaving Causa's
+  trace-buffer slot empty + `:target-frame` pinned to
+  `defaults/default-target-frame` regardless of what's already in the
+  trace-bus and the host's epoch ring. That misalignment is the
+  empty-Causa-on-Story-RHS class of bug — Story embeds a panel via
+  `mount-<panel>!`, the panel renders against a frame the hooks never
+  populated, and the user sees blank inputs even though the host has
+  been dispatching events.
+
+  `ensure-causa-frame!` is idempotent (sentinel-guarded hooks +
+  reg-frame's surgical-update-on-re-register semantics per Spec 002
+  §reg-frame) so multiple panel mounts collapse to one seed pass +
+  zero re-registrations across shadow-cljs reloads."
   []
   (registry/register-causa-handlers!)
-  (rf/reg-frame :rf/causa {}))
+  (mount/ensure-causa-frame!))
 
 (defn- render-panel!
   "Internal helper. Wraps `panel-view` in `[rf/frame-provider {:frame
