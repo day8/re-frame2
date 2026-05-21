@@ -9,7 +9,33 @@
   There is no default-adapter registry and no ns-load side-effect.
   Consumers (JVM tests, headless SSR hosts, any process that wants the
   plain-atom path on CLJS) call `(rf/init! plain-atom/adapter)`
-  explicitly. The `adapter` var below is the public surface.")
+  explicitly. The `adapter` var below is the public surface.
+
+  ## Disposal / ref-count participation (rf2-uatcy)
+
+  The sub-cache wires symmetric input-release through
+  `re-frame.interop/add-on-dispose!` at slot construction (Spec 006
+  §Reference counting and disposal) and `re-frame.interop/dispose!` at
+  slot evict — so a layer-2+ sub's `:<-` inputs lose their reader when
+  the parent reaction disposes. Both runtimes must honour that contract
+  or input ref-counts leak monotonically until `clear-sub-cache!`.
+
+    - **JVM.** `re-frame.interop` (the `.clj`) implements
+      `add-on-dispose!` / `dispose!` directly, keyed by the reaction
+      object in a process-wide callback registry — so the plain-atom
+      JVM derived value (a bare `IDeref` reify) participates without
+      reifying any disposal protocol.
+
+    - **CLJS.** `re-frame.interop` (the `.cljs`) routes those calls
+      through the `:adapter/add-on-dispose!` / `:adapter/dispose!`
+      late-bind hooks, which dispatch on the derived value reifying a
+      disposal protocol. The plain-atom CLJS derived value therefore
+      reifies `re-frame.disposable/IDisposable` (mirroring the spine),
+      and this ns publishes the two hooks via `substrate-adapter/
+      route-hook!` so a CLJS-plain-atom host (rather than a leak)
+      releases inputs symmetrically on slot evict."
+  #?(:cljs (:require [re-frame.disposable :as rf-disposable]
+                     [re-frame.substrate.adapter :as substrate-adapter])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -32,10 +58,36 @@
   ;; No caching: derived values recompute on every deref. SSR runs each
   ;; sub at most a handful of times per request; caching would add
   ;; complexity for negligible gain.
-  (reify
-    #?(:clj clojure.lang.IDeref :cljs IDeref)
-    (#?(:clj deref :cljs -deref) [_]
-      (apply compute-fn (map deref source-containers)))))
+  ;;
+  ;; JVM: a bare `IDeref` reify suffices — `re-frame.interop` (the .clj)
+  ;; keys its `add-on-dispose!` / `dispose!` callback registry by this
+  ;; object's identity, so disposal participation needs no protocol on
+  ;; the value itself.
+  ;;
+  ;; CLJS (rf2-uatcy): `re-frame.interop` (the .cljs) routes
+  ;; `add-on-dispose!` / `dispose!` through the `:adapter/*` hooks, which
+  ;; dispatch on the derived value reifying `IDisposable`. Reify it here
+  ;; (mirroring `re-frame.substrate.spine`) so the sub-cache's symmetric
+  ;; input-release callback is registered at slot construction and fires
+  ;; at slot evict — otherwise layer-2+ input ref-counts never decrement
+  ;; on the CLJS-plain-atom path. The plain-atom derived value owns no
+  ;; source watches (it recomputes on deref), so `-dispose` only fires
+  ;; the registered on-dispose callbacks.
+  #?(:clj
+     (reify
+       clojure.lang.IDeref
+       (deref [_] (apply compute-fn (map deref source-containers))))
+     :cljs
+     (let [on-dispose-fns (atom [])]
+       (reify
+         IDeref
+         (-deref [_] (apply compute-fn (map deref source-containers)))
+         rf-disposable/IDisposable
+         (-add-on-dispose [_ f]
+           (swap! on-dispose-fns conj f))
+         (-dispose [_]
+           (doseq [f @on-dispose-fns] (f))
+           (reset! on-dispose-fns []))))))
 
 (defn- render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the JVM is
@@ -88,3 +140,31 @@
    :render-to-string          render-to-string
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
+
+;; ---- late-bind hook routing (CLJS only, rf2-uatcy) ------------------------
+;;
+;; On CLJS `re-frame.interop`'s `add-on-dispose!` / `dispose!` route
+;; through these `:adapter/*` hooks (the JVM `re-frame.interop` implements
+;; both directly, so this block is CLJS-only). Each routes into the
+;; `re-frame.disposable/IDisposable` protocol the CLJS `make-derived-value`
+;; reifies above, so a CLJS-plain-atom host participates in the sub-cache's
+;; ref-count / disposal contract symmetrically with the React-shaped
+;; adapters (see `re-frame.substrate.spine`'s identical routing). Routed
+;; through `substrate-adapter/route-hook!` so a test bundle that also loads
+;; a React adapter only runs the plain-atom impl while plain-atom is the
+;; `(rf/init!)`-installed adapter (per Spec 006 §adapter routing).
+;;
+;; The `add-on-dispose!` / `dispose!` dispatch tolerates a value that does
+;; NOT satisfy the protocol (e.g. a foreign reaction inherited through a
+;; cross-substrate test bundle) by no-op'ing — mirroring the Reagent
+;; adapter's fall-through dispatch.
+#?(:cljs
+   (do
+     (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+       (fn add-on-dispose!-dispatch [a f]
+         (when (satisfies? rf-disposable/IDisposable a)
+           (rf-disposable/-add-on-dispose a f))))
+     (substrate-adapter/route-hook! adapter :adapter/dispose!
+       (fn dispose!-dispatch [a]
+         (when (satisfies? rf-disposable/IDisposable a)
+           (rf-disposable/-dispose a))))))
