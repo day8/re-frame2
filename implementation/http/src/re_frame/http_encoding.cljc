@@ -48,13 +48,23 @@
      :cljs (js/encodeURIComponent (str s))))
 
 (defn params->query
-  "Encode a `:params` map as a query string (no leading `?`)."
+  "Encode a `:params` map as a query string (no leading `?`).
+
+  Scalar values (string / number / keyword / boolean) encode to a single
+  `k=v` pair. A sequential value (vector / seq / list) encodes as one
+  repeated `k=v` pair per element — `{:tag [\"a\" \"b\"]}` → `tag=a&tag=b`
+  (rf2-mag59). Repeat-key is the conventional HTTP-client idiom for
+  multi-valued query params; Spec 012 §Query strings and fragments does
+  not normatively pin a multi-valued shape, so the client picks the most
+  interoperable one. An empty sequential value contributes no pair. A
+  `nil` value still emits a bare `k=` pair (the key carries no value)."
   [params]
   (->> params
-       (map (fn [[k v]]
-              (str (url-encode (if (keyword? k) (name k) (str k)))
-                   "="
-                   (url-encode v))))
+       (mapcat (fn [[k v]]
+                 (let [k-enc (url-encode (if (keyword? k) (name k) (str k)))]
+                   (if (sequential? v)
+                     (map #(str k-enc "=" (url-encode %)) v)
+                     [(str k-enc "=" (url-encode v))]))))
        (str/join "&")))
 
 (defn merge-params

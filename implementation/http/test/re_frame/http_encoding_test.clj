@@ -280,6 +280,39 @@
   (testing "an empty params map renders an empty string"
     (is (= "" (encoding/params->query {})))))
 
+(deftest params->query-multi-valued-uses-repeat-key
+  (testing "rf2-mag59 — a sequential value (vector / seq / list) encodes
+            as one repeated k=v pair per element (repeat-key idiom),
+            NOT a single (str coll) blob"
+    (is (= "tag=a&tag=b"
+           (encoding/params->query {:tag ["a" "b"]}))
+        "a vector value repeats the key per element — not tag=%5B%22a%22...")
+    (is (= "id=1&id=2&id=3"
+           (encoding/params->query {:id [1 2 3]}))
+        "numeric elements coerce via url-encode like scalar values")
+    (is (= "id=1&id=2"
+           (encoding/params->query {:id (list 1 2)}))
+        "a list (seq) value is treated the same as a vector")
+    (is (= "q=a%20b&q=c%26d"
+           (encoding/params->query {:q ["a b" "c&d"]}))
+        "each element is independently percent-escaped"))
+  (testing "an empty sequential value contributes no pair"
+    (is (= "" (encoding/params->query {:tag []}))
+        "an empty vector value emits nothing")
+    (is (= "page=2"
+           (encoding/params->query {:page 2 :tag []}))
+        "an empty seq value drops out, scalar siblings still encode"))
+  (testing "a single-element sequential still uses the key once"
+    (is (= "tag=only"
+           (encoding/params->query {:tag ["only"]}))))
+  (testing "a set value (also sequential? false) is NOT repeat-keyed — only
+            ordered seqs are; a set falls through to scalar (str ...)"
+    ;; sets are unordered so repeat-key has no stable shape; treat as scalar.
+    (is (clojure.string/starts-with?
+          (encoding/params->query {:tag #{"a"}})
+          "tag=")
+        "a set value encodes via the scalar path (no defined repeat order)")))
+
 ;; ---- merge-params — `?` vs `&` separator selection ------------------------
 
 (deftest merge-params-selects-question-mark-or-ampersand
