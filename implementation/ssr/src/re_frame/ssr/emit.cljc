@@ -78,11 +78,20 @@
   ;; element-name) require an ASCII-lower first letter + a `-`; the
   ;; conservative grammar admits both standard elements and well-formed
   ;; custom-element names.
-  #"[A-Za-z][A-Za-z0-9-]*")
+  ;;
+  ;; rf2-77l9w — XML-namespaced SVG/MathML tags carry a single colon-
+  ;; separated prefix (e.g. `:svg:rect`, `:xlink:href`-style elements).
+  ;; Admit one optional `prefix:` segment where the prefix follows the
+  ;; same element-name grammar. A single colon only — embedded `<`, `>`,
+  ;; whitespace, `=` (the tag-injection vectors) remain rejected, and a
+  ;; bare/leading/trailing/double colon (`:rect`, `svg:`, `a::b`) still
+  ;; throws because each segment must be a well-formed element name.
+  #"(?:[A-Za-z][A-Za-z0-9-]*:)?[A-Za-z][A-Za-z0-9-]*")
 
 (defn- validate-tag-name!
   "Throw `:rf.error/invalid-tag-name` if `tag-name` does not match the
-  HTML5 / SVG / MathML element-name grammar (`[A-Za-z][A-Za-z0-9-]*`).
+  HTML5 / SVG / MathML element-name grammar (`[A-Za-z][A-Za-z0-9-]*`,
+  optionally prefixed by a single XML namespace segment `prefix:`).
   Per rf2-z7gor — DOM tag-name component of a hiccup keyword was emitted
   without validation, allowing tag-injection through hostile keywords
   like `(keyword \"img src=x onerror=alert(1)\")`."
@@ -96,7 +105,8 @@
                                     " (from hiccup head " (pr-str source-kw) ")"
                                     " does not match the HTML5/SVG/MathML"
                                     " element-name grammar"
-                                    " ([A-Za-z][A-Za-z0-9-]*) — DOM tag-name"
+                                    " ([A-Za-z][A-Za-z0-9-]*, optionally"
+                                    " namespaced prefix:local) — DOM tag-name"
                                     " injection forbidden")
                      :tag-name tag-name
                      :source   source-kw

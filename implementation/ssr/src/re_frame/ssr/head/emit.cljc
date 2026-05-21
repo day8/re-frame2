@@ -70,11 +70,33 @@
   [x]
   #?(:cljs (-> (js/JSON.stringify (clj->js x))
                html/escape-script-body-string)
-     :clj  (letfn [(emit [v]
+     :clj  (letfn [(emit-number [v]
+                     ;; rf2-8jl26 — `(str v)` produces non-JSON for two
+                     ;; numeric shapes the JVM admits but JSON.parse rejects:
+                     ;;   • Ratios print as `1/3` — coerce to a double so the
+                     ;;     wire form is `0.3333333333333333`.
+                     ;;   • Non-finite doubles/floats (`##Inf` / `##-Inf` /
+                     ;;     `##NaN`) have no JSON representation — fail-fast,
+                     ;;     same posture as the tag-name / header-value gates.
+                     (cond
+                       (ratio? v) (str (double v))
+                       (and (or (instance? Double v) (instance? Float v))
+                            (not (Double/isFinite (double v))))
+                       (throw (ex-info ":rf.error/invalid-json-ld-number"
+                                       {:rf.error/id :rf.error/invalid-json-ld-number
+                                        :where    'rf.ssr.head/emit
+                                        :reason   (str "JSON-LD number " (pr-str v)
+                                                       " is non-finite — JSON has no"
+                                                       " representation for ##Inf /"
+                                                       " ##-Inf / ##NaN")
+                                        :value    v
+                                        :recovery :no-recovery}))
+                       :else (str v)))
+                   (emit [v]
                      (cond
                        (nil? v)     "null"
                        (boolean? v) (if v "true" "false")
-                       (number? v)  (str v)
+                       (number? v)  (emit-number v)
                        (string? v)  (str "\""
                                          (-> v
                                              (str/replace "\\" "\\\\")
