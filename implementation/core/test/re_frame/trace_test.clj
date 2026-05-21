@@ -152,7 +152,7 @@
       (rf/dispatch-sync [:send-broken] {:frame :test/main})
 
       ;; ---- :rf.error/no-such-handler --------------------------------------
-      (rf/dispatch-sync [:no/such/event] {:frame :test/main})
+      (rf/dispatch-sync [:no.such/event] {:frame :test/main})
 
       ;; ---- :rf.error/handler-exception ------------------------------------
       (rf/reg-event-db :throws (fn [_ _] (throw (ex-info "oops" {:bad? true}))))
@@ -195,7 +195,7 @@
 
       ;; ---- :rf.error/frame-destroyed --------------------------------------
       ;; Subscribe against a frame that doesn't exist.
-      (rf/subscribe-once :no/such/frame [:n])
+      (rf/subscribe-once :no.such/frame [:n])
 
       ;; ---- :rf.error/drain-depth-exceeded ---------------------------------
       ;; A handler that re-dispatches itself; the drain bound (default 100)
@@ -451,7 +451,7 @@
           (is (has-op? events :error :rf.error/no-such-handler)
               "expected :error :rf.error/no-such-handler")
           (let [t (:tags (find-op events :error :rf.error/no-such-handler))]
-            (is (= :no/such/event (:event-id t)))
+            (is (= :no.such/event (:event-id t)))
             (is (= :event         (:kind t)))))
 
         (testing ":error :rf.error/no-such-sub"

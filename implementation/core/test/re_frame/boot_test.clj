@@ -193,6 +193,7 @@
     (is (nil? (adapter/current-adapter))
         "precondition: no adapter installed")
     (let [thrown (try
+                   #_:clj-kondo/ignore
                    (rf/init!)
                    nil
                    (catch clojure.lang.ArityException e e))]

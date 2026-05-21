@@ -32,8 +32,7 @@
   `byte-estimate-per-entry`). It is intentionally rough — the marker
   is consumed by agents for *planning* (\"is this slice worth
   drilling into?\"), not for precise budgeting. Agents needing a
-  precise size measure their drill-down result directly."
-  (:require))
+  precise size measure their drill-down result directly.")
 
 (def summary-keys-cap
   "Top-N keys included verbatim in a tree-summary marker. Above this,

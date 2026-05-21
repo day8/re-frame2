@@ -408,7 +408,7 @@
     ;; rf2-ojakd / rf2-olb64 (a) — :rf/suspense-boundary streaming SSR.
     ;; Three call kinds; one per Spec 011 §Streaming SSR step.
 
-    :ssr/streaming/render-shell
+    :ssr.streaming/render-shell
     (let [{:keys [shell-html continuations]}
           (try (ssr/streaming-render-shell (:input call))
                (catch Throwable e {:shell-html (str "<error: " (.getMessage e) ">")
@@ -429,7 +429,7 @@
                          (str "    continuations expected: " (pr-str conts-want) "\n"
                               "    continuations actual:   " (pr-str conts-actual) "\n"))))})
 
-    :ssr/streaming/render-continuation
+    :ssr.streaming/render-continuation
     (let [out  (try (ssr/streaming-render-continuation
                       :rf/default (:input call))
                     (catch Throwable e {:html (str "<error: " (.getMessage e) ">")
@@ -455,7 +455,7 @@
                          (str "    failed? expected: " (:failed? want) "\n"
                               "    failed? actual:   " (:failed? out) "\n"))))})
 
-    :ssr/streaming/build-final-payload
+    :ssr.streaming/build-final-payload
     (let [payload (try (ssr/streaming-build-final-payload
                          :rf/default
                          (:render-hash (:input call))

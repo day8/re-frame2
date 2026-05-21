@@ -223,6 +223,11 @@
         ;; Form-3 reagent class — call its render-fn directly with
         ;; the hiccup args. Skips React instantiation entirely.
         (some? render-fn)
+        ;; clj-kondo can't refine `render-fn` to non-nil through the
+        ;; surrounding `cond`+`some?` guard, so it reads the `apply`
+        ;; below as "received: nil". The guard is correct — silence
+        ;; the type-inference miss.
+        #_:clj-kondo/ignore
         (expand-tree (apply render-fn (rest tree)))
 
         ;; Plain function component — invoke as Reagent would.

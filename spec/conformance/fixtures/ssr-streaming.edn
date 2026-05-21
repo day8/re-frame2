@@ -76,7 +76,7 @@
   ;; outer structure plus inline rendering of :streaming.test/article-list,
   ;; with two <template … suspense-fallback> placeholders in document
   ;; order at the suspense-boundary sites.
-  {:call   :ssr/streaming/render-shell
+  {:call   :ssr.streaming/render-shell
    :input  [:streaming.test/root]
    :expect
    {:shell-html-includes
@@ -108,7 +108,7 @@
   ;; the view root per Spec 006). The fixture asserts head + content
   ;; substrings rather than full-string equality so it is robust to
   ;; the source-coord annotation's per-port surface variance.
-  {:call   :ssr/streaming/render-continuation
+  {:call   :ssr.streaming/render-continuation
    :input  {:id :streaming.test/comments
             :subtree [:streaming.test/comments-section]}
    :expect
@@ -119,7 +119,7 @@
     :failed? false}}
 
   ;; Step 3 — drain continuation #2 (FIFO continues).
-  {:call   :ssr/streaming/render-continuation
+  {:call   :ssr.streaming/render-continuation
    :input  {:id :streaming.test/related
             :subtree [:streaming.test/related]}
    :expect
@@ -138,7 +138,7 @@
   ;; conformance fixture opts in to whole-app-db so the payload-keys
   ;; expectation below covers the full canonical shape rather than a
   ;; sliced subset.
-  {:call   :ssr/streaming/build-final-payload
+  {:call   :ssr.streaming/build-final-payload
    :input  {:render-hash    "00000000"          ;; placeholder; the implementation
                                                 ;; supplies the real FNV-1a hex here
             :version        1

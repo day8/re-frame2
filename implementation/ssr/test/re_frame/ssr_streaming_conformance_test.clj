@@ -7,8 +7,8 @@
   Sibling to `re-frame.ssr-conformance-test` which drives the full
   `ssr-*.edn` corpus through the more elaborate runner (handler
   realisation, frame setup, request-result assertions). The streaming
-  fixture is a smaller direct-call shape — `:ssr/streaming/render-shell`,
-  `:ssr/streaming/render-continuation`, `:ssr/streaming/build-final-payload`
+  fixture is a smaller direct-call shape — `:ssr.streaming/render-shell`,
+  `:ssr.streaming/render-continuation`, `:ssr.streaming/build-final-payload`
   — and runs cleaner as a dedicated focused test that mirrors the
   conformance fixture step-for-step."
   (:require [clojure.edn :as edn]
@@ -57,7 +57,7 @@
   (testing "render-shell emits the shell HTML + 2 continuations the fixture pins"
     (let [fixture (load-streaming-fixture)
           shell-call (->> (:fixture/calls fixture)
-                          (filter #(= :ssr/streaming/render-shell (:call %)))
+                          (filter #(= :ssr.streaming/render-shell (:call %)))
                           first)
           {:keys [shell-html continuations]}
           (ssr/streaming-render-shell (:input shell-call))
@@ -74,7 +74,7 @@
   (testing "Each continuation's HTML matches the fixture's :html-includes pin"
     (let [fixture (load-streaming-fixture)
           cont-calls (->> (:fixture/calls fixture)
-                          (filter #(= :ssr/streaming/render-continuation (:call %))))
+                          (filter #(= :ssr.streaming/render-continuation (:call %))))
           ;; A frame to drain against — :rf/default. The fixture sets
           ;; :platform :server via :fixture/frame-config; reset-runtime
           ;; creates :rf/default and reset+reg-fixture-handlers wired the
@@ -92,7 +92,7 @@
   (testing "build-final-payload emits the four canonical :rf/* keys"
     (let [fixture (load-streaming-fixture)
           fp-call (->> (:fixture/calls fixture)
-                       (filter #(= :ssr/streaming/build-final-payload (:call %)))
+                       (filter #(= :ssr.streaming/build-final-payload (:call %)))
                        first)
           input   (:input fp-call)
           expect  (:expect fp-call)

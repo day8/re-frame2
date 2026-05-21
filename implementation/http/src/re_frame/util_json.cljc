@@ -36,8 +36,7 @@
   Overflow throws `:rf.error/malformed-json :reason :too-many-keys` —
   the `:rf.http/managed` cascade classifies this as
   `:rf.http/decode-failure`."
-  #?(:clj  (:require [cheshire.core :as cheshire])
-     :cljs (:require)))
+  #?(:clj  (:require [cheshire.core :as cheshire])))
 
 (def ^:const default-max-decoded-keys
   "Default cap on the number of unique object keys a single `json-parse`
