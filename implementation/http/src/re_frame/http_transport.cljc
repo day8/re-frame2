@@ -37,6 +37,14 @@
                    [java.time Duration]
                    [java.util.concurrent CompletableFuture])))
 
+;; rf2-b45uc — reflection warnings ON in the densest JVM-interop ns of
+;; the http surface (HttpClient, HttpRequest, BodyPublishers, HttpHeaders,
+;; CompletableFuture). The code is type-hinted today; the flag is the
+;; tripwire that catches a future un-hinted interop call compiling to
+;; reflective dispatch — exactly where interop is densest. Mirrors
+;; http_test_support.cljc:86. CLJS ignores the form.
+#?(:clj (set! *warn-on-reflection* true))
+
 ;; ---- platform transport: CLJS Fetch ---------------------------------------
 
 #?(:cljs

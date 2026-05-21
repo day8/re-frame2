@@ -38,6 +38,15 @@
   this as `:rf.http/decode-failure`."
   #?(:clj  (:require [cheshire.core :as cheshire])))
 
+;; rf2-b45uc — reflection warnings ON. This ns carries the other
+;; non-trivial JVM interop in the http surface (Cheshire's
+;; `generate-string` / `parse-string` and the `java.util.HashSet`
+;; keyword-cap counter). The HashSet calls are type-hinted; the flag
+;; keeps the tripwire on so a future un-hinted interop call surfaces as
+;; a compile-time reflection warning rather than silent reflective
+;; dispatch. CLJS ignores the form.
+#?(:clj (set! *warn-on-reflection* true))
+
 (def ^:const default-max-decoded-keys
   "Default cap on the number of unique object keys a single `json-parse`
   call may decode. Per rf2-wu1n5 — a defensive ceiling against the
