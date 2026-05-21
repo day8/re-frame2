@@ -18,9 +18,9 @@ Time-travel in Story rides [Causa](../causa/03-time-travel.md). Causa is mounted
 
 When you select a variant in the sidebar, Story re-opens Causa scoped to that variant's frame — Causa's ribbon, event list, and detail tabs all bind to the selected frame's spine. Click a different variant; Causa rebinds. The RHS chip-row picker lets you swap between Causa's panels (event-detail / app-db / views / trace / machines / routing / issues) without losing the selected variant.
 
-> 📸 **Screenshot needed**: a variant in Canvas mode with Causa embedded in the RHS, showing the L1 epoch-scrubber ribbon and the L2 event list. Annotate (1) the Story shell's main canvas on the left, (2) the Causa RHS panel, (3) the `◀ ▶ ⏭` ribbon at the top of Causa, (4) a selected epoch in the event list, (5) the chip-row picker that swaps between Causa's panel views.
->
-> Save as: `/docs/images/story/06-time-travel.png`
+![A variant in Canvas mode with Causa embedded in the RHS.](../images/story/06-time-travel.png)
+
+*(1) The Story shell's main canvas on the left. (2) The Causa RHS embed root. (3) The chip-row picker that swaps between Causa's panel views (Event / App-db / Views / Trace / Machines / Routing / Issues). (4) The active Causa panel host — Event panel by default — showing the variant's epoch buffer. (5) The Pop-out button that detaches the embed into a separate window.*
 
 (Yes, we know — for re-frame v1 users, this is the part where you brace for the "but where did 10x go?" question. The answer is: Causa is the post-v2 successor. Same gestures; better scoping; embedded in Story instead of hovering as a floating widget. You'll like it once your fingers retrain.)
 

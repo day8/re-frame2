@@ -81,9 +81,9 @@ Chromatic, Argos, Percy, Lost Pixel — every one of them keys on the hash. The 
 
 Story's *share via QR* button renders the snapshot identity (plus the picked workspace, active modes, and cell-overrides) into a QR code, displayed inline. Scan with a phone; the phone opens a URL into your locally-served Story instance at that exact picked state.
 
-> 📸 **Screenshot needed**: the QR share popover floating over a variant, with the QR code clearly visible. Annotate (1) the QR image, (2) the URL string below it (truncated), (3) the *Copy as image* button, (4) the *Copy as URL* button.
->
-> Save as: `/docs/images/story/05-qr-share.png`
+![The QR share popover floating over a variant.](../images/story/05-qr-share.png)
+
+*(1) The QR code itself, scannable from any phone camera. (2) The full share URL string above the QR. (3, 4) The popover hosts the Copy-as-image and Copy-as-URL affordances — both wired into the standard `navigator.clipboard` flow.*
 
 The motivating use case: design review against a real device. You've built the login form's `:error` variant; the design lead wants to see it on the actual phone they were thinking about, not the Chrome device emulator. Click the QR. Scan with the phone. The phone opens the variant on your dev server at the same picked state — same args, same mode, same workspace overrides. Two seconds, instead of the usual "let me get my laptop on the same WiFi as your phone."
 

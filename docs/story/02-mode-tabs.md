@@ -8,9 +8,9 @@ If chapter 1 was about getting a single variant to paint, this chapter is about 
 
 Storybook spent five years iterating on this layout. We borrowed the shape, because the shape is good. We diverged on a couple of details where re-frame2's substrate let us, and we'll call those out.
 
-> 📸 **Screenshot needed**: the mode-tab strip on a variant canvas. Annotate (1) the *Canvas / Docs / Tests* chip row at the top, (2) the viewport selector below it, (3) the background-colour picker, (4) the a11y chip, (5) the locale switcher.
->
-> Save as: `/docs/images/story/02-mode-tabs.png`
+![The mode-tab strip on a variant canvas.](../images/story/02-mode-tabs.png)
+
+*(1) The Canvas / Docs / Tests chip row at the top. (2) The viewport selector. (3) The background-colour picker. (4) The a11y panel in the right rail (the chrome-a11y surface). (5) The dispatch-console chip — Story doesn't ship a built-in locale chip; the toolbar slot is project-extensible.*
 
 ## Canvas / Docs / Tests
 
@@ -30,9 +30,9 @@ Story's Docs mode is *generative* — every section comes from data that the reg
 
 If you actually need richer per-story documentation (worked-example walkthroughs, embedded screenshots, links out), use a `:prose` workspace (chapter 4) that mixes prose blocks and variant cells. The `:prose` layout is Storybook's MDX-equivalent, except it round-trips as data.
 
-> 📸 **Screenshot needed**: a variant's Docs mode showing the auto-generated sections (`:doc`, args table, decorators table, parameters, tags). Annotate (1) the variant's `:doc` string at the top, (2) the resolved-args table with the four-layer breakdown visible if possible, (3) the decorator stack, (4) the tag chips at the bottom.
->
-> Save as: `/docs/images/story/02-docs-mode.png`
+![A variant's Docs mode showing the auto-generated sections.](../images/story/02-docs-mode.png)
+
+*(1) The variant's `:doc` string at the top. (2) The resolved-args table with the four-layer breakdown. (3) The decorator stack. (4) The tag chips at the bottom.*
 
 ### Tests
 
@@ -40,9 +40,9 @@ The Tests tab auto-runs the variant's `:play-script` on entry. The pane shows ea
 
 This is the surface that matters for *integrating Story into your testing story* (sorry, unavoidable pun). The pattern: tag every variant that exercises a meaningful state with `:test`. The chrome runs them in the background on every load and shows you the aggregate in the sidebar. The CI runner — `serve-and-run-story-play-scripts.cjs` — discovers every variant whose body carries a non-empty `:play-script`, navigates to each, waits for the terminal status, and asserts in CI. Same variants you wrote for visual inspection are running as tests in CI.
 
-> 📸 **Screenshot needed**: the Test-mode tab showing a variant with a mix of passing and failing assertion rows. Annotate (1) the aggregate status pill at top (e.g. "2 passed · 1 failed"), (2) one passing assertion row (green chip, with payload visible), (3) one failing assertion row (red chip), (4) the failure detail expanded with expected / actual diff, (5) the *Re-run* button.
->
-> Save as: `/docs/images/story/02-test-mode.png`
+![The Test-mode tab showing the failing-play diagnostic variant.](../images/story/02-test-mode.png)
+
+*(1) The aggregate status pill at top. (2) The single `:rf.assert/path-equals` row with `data-status=fail`. (3) The pass / fail / skipped counts. (4) The summary section with expected / actual breakdown. (5) The Re-run button.*
 
 Selection across the three tabs is **per-variant** and persists across reload in `localStorage` under `re-frame.story/active-mode-tab/<variant-id>`. Open a variant where you were on *Tests* last time, you're on *Tests* again. This is a quality-of-life detail that pays for itself the first time you spend a morning debugging an assertion failure and don't want to keep re-clicking the *Tests* tab every time hot-reload bounces.
 

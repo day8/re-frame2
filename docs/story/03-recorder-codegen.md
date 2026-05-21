@@ -31,9 +31,9 @@ Enough preamble. Let's record something.
 
 That's the whole gesture. The recorder doesn't capture mouse coordinates or DOM-level pixel events; it captures the *re-frame2 events your interactions produced*, plus an inferred `:rf.assert/path-equals` row reflecting the final `app-db` shape. The output is portable, readable, and parses by every other tool that consumes Story variants.
 
-> 📸 **Screenshot needed**: the recorder modal showing a generated `:play-script` body in EDN. Annotate (1) the modal title, (2) the EDN body in the left pane, (3) the live preview run on the right pane, (4) the *Copy* button, (5) the *Edit before pasting* toggle.
->
-> Save as: `/docs/images/story/03-recorder-modal.png`
+![The recorder export dialog showing a generated `:play-script` body in EDN.](../images/story/03-recorder-modal.png)
+
+*(1) The modal title — "Recorder → :play-script export". (2) The generated EDN snippet, ready to paste into your stories namespace. (3) The replay-run row that confirms the script reproduces against a fresh frame. (4) The Copy-to-clipboard button. (5) The auto-assert toggle that controls whether the trailing `:rf.assert/path-equals` row is included.*
 
 ## How the capture works
 
