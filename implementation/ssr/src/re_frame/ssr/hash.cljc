@@ -39,7 +39,7 @@
 
 (declare canonical-edn-into)
 
-(defn- ^:private append-children!
+(defn- append-children!
   "Append canonical-EDN of each non-nil child of `xs` into `sb`,
   separated by `sep`. Maps with nil values and sequential children
   that are nil are pruned at the parent per Spec 011 §Hydration-mismatch
@@ -58,7 +58,7 @@
             (canonical-edn-into sb x)
             (recur (next xs) false)))))))
 
-(defn- ^:private member-canonical
+(defn- member-canonical
   "Render one set/seq member's canonical form to a fresh accumulator.
   Used for the set branch where members must be lexicographically
   sorted by their canonical form before appending. Returns nil for
@@ -74,7 +74,7 @@
          (canonical-edn-into sb x)
          (.join sb "")))))
 
-(defn- ^:private append-sorted-set!
+(defn- append-sorted-set!
   "Sets: emit `#{` + sorted-by-canonical-EDN members + `}`. Members can
   be heterogeneous, so we materialise per-member canonical forms,
   sort the strings, then append. The set branch is the only place
@@ -99,7 +99,7 @@
                (recur (next items) false)))
            (.push sb "}")))))
 
-(defn- ^:private append-map!
+(defn- append-map!
   "Maps: emit `{` + sorted key-value pairs (`key value`, comma-joined) + `}`.
   Nil-valued entries pruned per Spec 011 §Hydration-mismatch detection."
   [sb m]
