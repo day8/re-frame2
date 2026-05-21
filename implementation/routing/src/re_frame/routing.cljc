@@ -41,6 +41,33 @@
   [url]
   (url/malformed-url? url))
 
+;; ---- canonical thrown-error shape ----------------------------------------
+;; Per Spec 009 §The thrown-error shape — the :rf.error/id ex-data
+;; contract. Every routing throw carries :rf.error/id (the canonical
+;; discriminator), :where (the public surface fn symbol the caller
+;; wrote — 'rf/route-url, 'rf/match-url, 'rf/reg-route — so a grep
+;; lands on the call site), :recovery, and a human-readable :reason.
+;; Per-site slots (:route-id / :slot / :value / :error / :param / :url
+;; / :limit / :count / :pattern) merge on top.
+;;
+;; NOTE the :error per-site slot (on :rf.error/route-url-validation)
+;; holds a Malli explainer payload — that is a SEPARATE contract from
+;; the :rf.error/id discriminator and is preserved verbatim.
+
+(defn- route-error
+  "Build a routing ex-info with the canonical thrown-error shape (per
+  Spec 009). `error-kw` becomes the message AND the `:rf.error/id`
+  discriminator slot; `where-sym` names the public surface; `reason` is
+  the human-readable diagnostic; `extras` merges per-site slots."
+  ([error-kw where-sym reason] (route-error error-kw where-sym reason nil))
+  ([error-kw where-sym reason extras]
+   (ex-info (str error-kw)
+            (merge {:rf.error/id error-kw
+                    :where       where-sym
+                    :recovery    :no-recovery
+                    :reason      reason}
+                   extras))))
+
 ;; ---- registration ---------------------------------------------------------
 ;; Pattern validation, the single-pass pattern parser, and the
 ;; `segment-end` / `canonical-route-pattern` helpers moved to
@@ -460,11 +487,13 @@
                           (reduced ::malformed-query)
                           (let [m' (assoc m kstr vstr)]
                             (when (> (count m') default-max-decoded-keys)
-                              (throw (ex-info ":rf.error/route-too-many-keys"
-                                              {:kind   :rf.error/route-too-many-keys
-                                               :url    url
-                                               :limit  default-max-decoded-keys
-                                               :count  (count m')})))
+                              (throw (route-error
+                                       :rf.error/route-too-many-keys
+                                       'rf/match-url
+                                       (str "the query string exceeded the per-call unique-key cap (" default-max-decoded-keys ") — a keyword-interning DoS guard; the URL is treated as a route-miss")
+                                       {:url   url
+                                        :limit default-max-decoded-keys
+                                        :count (count m')})))
                             m'))))
                     (array-map)
                     pairs))))]
@@ -572,7 +601,11 @@
          meta    (registrar/lookup :route route-id)
          pattern (:path meta)]
      (when (nil? pattern)
-       (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
+       (throw (route-error
+                :rf.error/no-such-route
+                'rf/route-url
+                (str "no route is registered under id " route-id)
+                {:route-id route-id})))
      ;; Per Spec 012 §Bidirectional URL ↔ params: validate the caller's
      ;; inputs against the route's :params / :query schemas BEFORE
      ;; emitting the URL. A schema mismatch is a caller bug; raise with
@@ -581,18 +614,24 @@
      ;; registered, this is a no-op.
      (let [[p-failed? p-error] (validate-route-shape meta :params path-params)]
        (when p-failed?
-         (throw (ex-info ":rf.error/route-url-validation"
-                         {:route-id route-id
-                          :slot     :params
-                          :value    path-params
-                          :error    p-error}))))
+         (throw (route-error
+                  :rf.error/route-url-validation
+                  'rf/route-url
+                  (str "the supplied :params did not validate against route " route-id "'s :params schema")
+                  {:route-id route-id
+                   :slot     :params
+                   :value    path-params
+                   :error    p-error}))))
      (let [[q-failed? q-error] (validate-route-shape meta :query query-params)]
        (when q-failed?
-         (throw (ex-info ":rf.error/route-url-validation"
-                         {:route-id route-id
-                          :slot     :query
-                          :value    query-params
-                          :error    q-error}))))
+         (throw (route-error
+                  :rf.error/route-url-validation
+                  'rf/route-url
+                  (str "the supplied :query did not validate against route " route-id "'s :query schema")
+                  {:route-id route-id
+                   :slot     :query
+                   :value    query-params
+                   :error    q-error}))))
      (let [n      (count pattern)
            ;; Per Spec 012 §Bidirectional URL ↔ params: optional groups
            ;; are emitted only when every inner param is supplied. The
@@ -658,8 +697,11 @@
                          ;; `if-some` discriminates correctly.
                          v     (if-some [v (get path-params k)]
                                  v
-                                 (throw (ex-info ":rf.error/missing-route-param"
-                                                 {:param k :route-id route-id})))]
+                                 (throw (route-error
+                                          :rf.error/missing-route-param
+                                          'rf/route-url
+                                          (str "route " route-id " requires path param " k " but it was absent (or nil)")
+                                          {:param k :route-id route-id})))]
                      (recur end (conj parts (url/url-encode v))))
 
                    (= ch \*)
@@ -668,8 +710,11 @@
                          k     (keyword (subs pattern start end))
                          v     (if-some [v (get path-params k)]
                                  v
-                                 (throw (ex-info ":rf.error/missing-route-param"
-                                                 {:param k :route-id route-id})))]
+                                 (throw (route-error
+                                          :rf.error/missing-route-param
+                                          'rf/route-url
+                                          (str "route " route-id " requires splat param " k " but it was absent (or nil)")
+                                          {:param k :route-id route-id})))]
                      (recur end (conj parts (url/url-encode-splat v))))
 
                    :else
