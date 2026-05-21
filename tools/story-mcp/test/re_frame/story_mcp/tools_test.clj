@@ -1975,8 +1975,9 @@
   ;; can't directly mutate `RF_STORY_MCP_ALLOW_WRITES`; the test exercises
   ;; the two-of-three combinations a unit-test environment can stage
   ;; (sysprop alone, CLI overrides sysprop). The third combination —
-  ;; pure env var — is exercised by the integration test `live-server.js`
-  ;; under the same precedence rule.
+  ;; pure env var — is exercised by the SDK-driven integration harness
+  ;; `tools/mcp-conformance/test/end-to-end-story.cjs` (which boots the
+  ;; server with --allow-writes) under the same precedence rule.
   (let [restore (System/getProperty "rf.story-mcp.allow-writes")]
     (try
       (testing "sysprop alone seeds allow-writes? true"

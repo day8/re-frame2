@@ -1,11 +1,11 @@
 // End-to-end MCP-client conformance test for tools/story-mcp.
 //
-// Unlike tools/story-mcp/test/{stdio-roundtrip,live-server}.js (which
-// hand-roll JSON-RPC on stdin/stdout), this harness drives the JVM
-// story-mcp server through the official @modelcontextprotocol/sdk
-// `Client`. The same library a real MCP-aware consumer (Claude Code,
-// Continue, …) would use. Catches protocol-mismatch bugs the
-// server-side tests cannot:
+// Unlike tools/story-mcp/test/stdio-roundtrip.js (which hand-rolls
+// JSON-RPC on stdin/stdout), this harness drives the JVM story-mcp
+// server through the official @modelcontextprotocol/sdk `Client`. The
+// same library a real MCP-aware consumer (Claude Code, Continue, …)
+// would use. Catches protocol-mismatch bugs the server-side tests
+// cannot:
 //
 //   - response-envelope drift (CallToolResultSchema rejection)
 //   - initialize-result drift (InitializeResultSchema rejection)
@@ -13,18 +13,37 @@
 //   - structuredContent shape drift (every assertion below routes
 //     through the SDK's own parse step before user code sees it)
 //
-// Workflow (canonical write-loop with --allow-writes enabled):
+// Workflow (canonical write-loop with --allow-writes enabled). This is
+// the single agent-loop integration harness for story-mcp's write
+// surface — it absorbed the four smokes that the now-deleted
+// tools/story-mcp/test/live-server.js used to add on top of a
+// hand-rolled copy of this same loop (rf2-2mx0q). Running one SDK-driven
+// boot instead of two hand-rolled + SDK boots saves a full JVM start in
+// CI for no loss of coverage:
 //
 //   1. connect (initialize + notifications/initialized via SDK)
-//   2. tools/list — confirm 19 tools advertised (mirrors live-server.js)
+//   2. tools/list — confirm 19 tools advertised
 //   3. register-variant — write a fixture variant
-//   4. run-variant — exercise lifecycle, assert :passing?=true
-//   5. read-failures — zero failures expected
-//   6. unregister-variant — symmetric teardown
-//   7. clean disconnect
+//   4. get-variant — read it back; assert the body :doc round-trips
+//      through the EDN text payload (ex-live-server smoke #1)
+//   5. preview-variant — exercise the run-variant lifecycle via the
+//      preview tool; assert a :lifecycle key surfaces (ex-live-server
+//      smoke #2)
+//   6. run-variant — exercise lifecycle via the testing-category tool,
+//      assert :passing?=true
+//   7. read-failures — zero failures expected
+//   8. snapshot-identity — same args ⇒ stable content-hash twice in a
+//      row (ex-live-server smoke #3)
+//   9. record-as-variant — zero-duration capture; proves the recorder
+//      bridge (rf2-luhdu) is wired into dispatch (ex-live-server
+//      smoke #4)
+//  10. unregister-variant — symmetric teardown + not-found verify
+//  11. JSON-RPC error-code conformance
+//  12. clean disconnect
 //
 // Run with: `node test/end-to-end-story.cjs` from this directory. Exits
-// 0 on success. Source: rf2-cum40.
+// 0 on success. Source: rf2-cum40 (loop) + rf2-2mx0q (live-server
+// absorption).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -58,8 +77,8 @@ const EXPECTED_TOOLS = JSON.parse(
 
 // Fixture variant — namespaced under `story.mcp-conformance` so it
 // won't collide with anything the canonical-vocabulary install
-// registers, and distinct from the live-server.js fixture so the two
-// test scripts could in principle run against the same JVM.
+// registers, and distinct from the `stdio-roundtrip.js` probe ids so
+// the two test scripts could in principle run against the same JVM.
 const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 
 // JVM boot is slow on a cold CI worker (~10-30s); the whole register →
@@ -110,8 +129,9 @@ runWithWatchdog(
     );
 
     // 3. register-variant — body as an EDN string so JSON's lack of
-    // keyword support doesn't dilute the assertion (same approach as
-    // live-server.js).
+    // keyword support doesn't dilute the assertion (Cheshire would
+    // coerce {"doc": "..."} into a string-keyed map, which Story's
+    // registrar rejects).
     const variantBodyEdn =
       '{:doc "MCP-conformance harness probe variant."' +
       ' :args {:label "OK"}' +
@@ -134,7 +154,45 @@ runWithWatchdog(
     }
     console.log('OK   register-variant -> ' + FIXTURE_VARIANT + ' registered');
 
-    // 4. run-variant — exercise lifecycle; vacuous pass since :play
+    // 4. get-variant — round-trip the body. Cheshire coerces keys to
+    // strings on the wire, so the comparison reads the :doc back from
+    // the text payload (EDN-encoded, keyword keys preserved). Absorbed
+    // from live-server.js (rf2-2mx0q) — proves the register→read
+    // round-trip the bare run/read loop did not.
+    const getResp = await client.callTool({
+      name: 'get-variant',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    if (getResp.isError) {
+      throw new Error('get-variant after register failed: ' + JSON.stringify(getResp));
+    }
+    const getText = getResp.content?.[0]?.text || '';
+    if (!/MCP-conformance harness probe variant\./.test(getText)) {
+      throw new Error('get-variant text payload missing :doc; got: ' + getText.slice(0, 200));
+    }
+    console.log('OK   get-variant -> body :doc round-trips through EDN text');
+
+    // 5. preview-variant — exercise the full lifecycle via the preview
+    // tool. With no :play events the run is vacuously passing; the
+    // contract is that a :lifecycle key surfaces (loaders → events →
+    // render → play wiring is live). Absorbed from live-server.js
+    // (rf2-2mx0q).
+    const prevResp = await client.callTool({
+      name: 'preview-variant',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    if (prevResp.isError) {
+      throw new Error('preview-variant on fixture failed: ' + JSON.stringify(prevResp));
+    }
+    const prevStruct = prevResp.structuredContent || {};
+    if (!('lifecycle' in prevStruct)) {
+      throw new Error(
+        'preview-variant structuredContent missing :lifecycle: ' + JSON.stringify(prevResp),
+      );
+    }
+    console.log('OK   preview-variant -> lifecycle=' + prevStruct.lifecycle);
+
+    // 6. run-variant — exercise lifecycle; vacuous pass since :play
     // is empty.
     const runResp = await client.callTool({
       name: 'run-variant',
@@ -154,7 +212,7 @@ runWithWatchdog(
     }
     console.log('OK   run-variant -> :passing?=true, assertions=[] (vacuous pass)');
 
-    // 5. read-failures — zero failures expected after a vacuous-pass
+    // 7. read-failures — zero failures expected after a vacuous-pass
     // run.
     const failResp = await client.callTool({
       name: 'read-failures',
@@ -174,7 +232,53 @@ runWithWatchdog(
     }
     console.log('OK   read-failures -> total=0, failures=[]');
 
-    // 6. unregister-variant — symmetric teardown.
+    // 8. snapshot-identity — same args ⇒ same content-hash. Absorbed
+    // from live-server.js (rf2-2mx0q): proves the stable-hash identity
+    // contract the bare loop did not exercise.
+    const snap1 = await client.callTool({
+      name: 'snapshot-identity',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    const snap2 = await client.callTool({
+      name: 'snapshot-identity',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    if (snap1.isError || snap2.isError) {
+      throw new Error(
+        'snapshot-identity errored: ' + JSON.stringify(snap1) + ' / ' + JSON.stringify(snap2),
+      );
+    }
+    const h1 = snap1.structuredContent?.['content-hash'];
+    const h2 = snap2.structuredContent?.['content-hash'];
+    if (!h1 || h1 !== h2) {
+      throw new Error('snapshot-identity content-hash not stable: ' + h1 + ' vs ' + h2);
+    }
+    console.log('OK   snapshot-identity -> stable hash: ' + h1);
+
+    // 9. record-as-variant — zero-duration capture; empty :play
+    // snippet. Proves the recorder bridge (rf2-luhdu) is wired into
+    // dispatch. Absorbed from live-server.js (rf2-2mx0q).
+    const recResp = await client.callTool({
+      name: 'record-as-variant',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    if (recResp.isError) {
+      throw new Error('record-as-variant zero-duration failed: ' + JSON.stringify(recResp));
+    }
+    const recStruct = recResp.structuredContent || {};
+    if (recStruct['recorded-event-count'] !== 0) {
+      throw new Error(
+        'record-as-variant :recorded-event-count expected 0; got: ' + JSON.stringify(recResp),
+      );
+    }
+    if (typeof recStruct['play-snippet'] !== 'string') {
+      throw new Error(
+        'record-as-variant :play-snippet missing/non-string: ' + JSON.stringify(recResp),
+      );
+    }
+    console.log('OK   record-as-variant -> recorded-event-count=0, play-snippet emitted');
+
+    // 10. unregister-variant — symmetric teardown.
     const unregResp = await client.callTool({
       name: 'unregister-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -201,7 +305,7 @@ runWithWatchdog(
     }
     console.log('OK   unregister-variant -> teardown verified by subsequent get-variant -> not-found');
 
-    // 7. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Mirrors
+    // 11. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Mirrors
     // the assertion in end-to-end-re-frame2-pair.cjs — story-mcp MUST emit the
     // same canonical codes from `mcp-base/vocab.cljc` for unknown-method
     // + malformed-params (its JVM transport reuses the same SDK
@@ -211,7 +315,7 @@ runWithWatchdog(
       'OK   JSON-RPC error codes -> MethodNotFound + (InvalidParams|InternalError)',
     );
 
-    // 8. Clean disconnect — runner handles client.close() on success.
+    // 12. Clean disconnect — runner handles client.close() on success.
     console.log('\nSTORY-MCP MCP-CLIENT CONFORMANCE GREEN');
   },
 );
