@@ -18,9 +18,9 @@
   Surfaces exercised:
 
   - `:rf.flow/registered`  (emitted by `reg-flow` on first-time register)
-  - `:rf.flow/computed`    (emitted by `recompute-flow` on successful run)
-  - `:rf.flow/skip`        (emitted by `recompute-flow` on value-equal inputs)
-  - `:rf.flow/failed`      (emitted by `recompute-flow` when :output throws)
+  - `:rf.flow/computed`    (emitted by `evaluate-flow!` on successful run)
+  - `:rf.flow/skip`        (emitted by `evaluate-flow!` on value-equal inputs)
+  - `:rf.flow/failed`      (emitted by `evaluate-flow!` when :output throws)
   - `:rf.flow/cleared`     (emitted by `clear-flow`)
 
   Naming convention: files ending in `-elision-prod-test.cljs` are

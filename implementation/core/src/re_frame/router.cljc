@@ -579,7 +579,7 @@
   section without a second emit."
   [effects coeffects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
-    (let [active-platform (or (get-in frame-record [:config :platform])
+    (let [active-platform (or (-> frame-record :config :platform)
                               interop/platform)
           event           (:event envelope)]
       (fx/do-fx frame fx-vec active-platform fx-overrides event envelope effects coeffects))))
