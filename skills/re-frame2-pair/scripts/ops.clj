@@ -176,19 +176,54 @@
 (def default-build-id
   (keyword (or (System/getenv "SHADOW_CLJS_BUILD_ID") "app")))
 
-(def port-file-candidates
+;; Relative port-file locations shadow-cljs may write to. We probe each
+;; both at the shell CWD *and* under an `implementation/` subdir, because
+;; the canonical re-frame2 dev build runs from `implementation/` while a
+;; shell often sits at the repo root. A stale repo-root
+;; `.shadow-cljs/nrepl.port` from an old run must not shadow the live
+;; `implementation/.shadow-cljs/nrepl.port`.
+(def port-file-rel-candidates
   ["target/shadow-cljs/nrepl.port"
    ".shadow-cljs/nrepl.port"
    ".nrepl-port"])
 
-(defn- read-port []
+;; Subdir prefixes searched relative to CWD, "" meaning CWD itself.
+;; `implementation/` is the re-frame2 reference-build root.
+(def port-file-dir-prefixes
+  ["" "implementation/"])
+
+(defn- candidate-port-files
+  "Every existing port file reachable from CWD across the rel-candidate ×
+   dir-prefix matrix, as a seq of java.io.File."
+  []
+  (for [prefix port-file-dir-prefixes
+        rel    port-file-rel-candidates
+        :let   [f (io/file (str prefix rel))]
+        :when  (.exists f)]
+    f))
+
+(defn- read-port
+  "Resolve the live shadow-cljs nREPL port. Resolution order:
+
+     1. $SHADOW_CLJS_NREPL_PORT  — explicit, CWD-independent override.
+        Set this to bypass file discovery entirely (e.g. when running
+        the shim from an unusual CWD, or to pin a specific build).
+     2. Otherwise scan every candidate port file (the standard
+        shadow-cljs locations, probed at both CWD and under
+        `implementation/`) and pick the **most-recently-modified** one.
+
+   Picking by mtime — rather than first-in-list — is what makes this
+   robust: the live dev build rewrites its port file on every (re)start,
+   so the freshest file is the live one. A stale repo-root
+   `.shadow-cljs/nrepl.port` left over from an earlier run can no longer
+   shadow the live `implementation/.shadow-cljs/nrepl.port`."
+  []
   (or (when-let [p (System/getenv "SHADOW_CLJS_NREPL_PORT")]
         (Integer/parseInt p))
-      (some (fn [path]
-              (let [f (io/file path)]
-                (when (.exists f)
-                  (Integer/parseInt (str/trim (slurp f))))))
-            port-file-candidates)))
+      (when-let [f (->> (candidate-port-files)
+                        (sort-by (fn [^java.io.File f] (.lastModified f)) >)
+                        first)]
+        (Integer/parseInt (str/trim (slurp f))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Output helpers

@@ -53,7 +53,7 @@ Three things need to be proven against a fixture before calling this beyond pre-
 
 `scripts/discover-app.sh` needs to actually connect against a real re-frame2 app. Specific unknowns:
 
-- nREPL port location across shadow-cljs versions (we try `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port`, and `$SHADOW_CLJS_NREPL_PORT` in that order).
+- nREPL port location across shadow-cljs versions. `$SHADOW_CLJS_NREPL_PORT` (a CWD-independent override) wins outright; otherwise we scan `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` at both the CWD and under `implementation/`, and pick the most-recently-modified file (so a live build's freshly-written port file beats a stale leftover).
 - CLJS-mode switch — does `(shadow.cljs.devtools.api/cljs-eval <build-id> <form-str> {})` return the `:value` in a parseable edn form, or wrapped in a shadow-specific result map?
 - `re-frame.interop/debug-enabled?` — verify the symbol is reachable post-init. The current health check reads the var directly, which works in CLJS but may need adjustment if the symbol is moved.
 

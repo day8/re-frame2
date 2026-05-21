@@ -198,7 +198,7 @@ Useful when you want to force the tool, or when the phrasing of your question do
 
 The skill's first op in a session is `discover-app`, which:
 
-1. Finds the running shadow-cljs nREPL (from `target/shadow-cljs/nrepl.port`, falling back to `.shadow-cljs/nrepl.port` or the `SHADOW_CLJS_NREPL_PORT` env var — the exact location depends on shadow-cljs version and config).
+1. Finds the running shadow-cljs nREPL. The `SHADOW_CLJS_NREPL_PORT` env var is a CWD-independent override that wins outright; otherwise the shim scans the standard port files (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port`) at both the CWD and under `implementation/`, and picks the **most-recently-modified** one — so a freshly (re)started build always beats a stale leftover port file.
 2. Verifies a browser runtime is attached to that build.
 3. Checks that `re-frame.core` is loaded and `re-frame.interop/debug-enabled?` is true.
 4. Probes the `re-frame2-pair.runtime` preload marker; refuses with `:reason :runtime-not-preloaded` and a setup hint when absent.

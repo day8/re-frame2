@@ -123,6 +123,12 @@ This locates the shadow-cljs nREPL port, connects, switches the session to `:clj
 
 If any precondition fails, the script returns a structured edn error like `{:ok? false :reason :runtime-not-preloaded}`. Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
 
+**Port discovery (bash-shim transport).** The shim finds the nREPL port by scanning shadow-cljs's standard port-file locations (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port`) at both the shell CWD *and* under `implementation/`, then picks the **most-recently-modified** file — so a freshly (re)started dev build always wins over a stale leftover port file. If discovery still resolves the wrong port (`connection refused` / wrong build) — e.g. multiple builds running, or a port file living somewhere non-standard — set **`SHADOW_CLJS_NREPL_PORT`** to the live port; it is a CWD-independent override that bypasses file discovery entirely:
+
+```
+SHADOW_CLJS_NREPL_PORT=51708 scripts/discover-app.sh
+```
+
 Between user turns, the nREPL session persists. A full page refresh in the browser drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect step is needed. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) before proceeding; if it's missing the op refuses with the structured `:runtime-not-preloaded` hint above.
 
 If you want a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` (formal name `mcp__re-frame2-pair__get-re-frame2-pair-instructions`) — it returns inline onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming-subscribe semantics, the wire pipeline) with no nREPL round-trip.
