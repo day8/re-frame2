@@ -332,9 +332,81 @@
   (is (= {:a 1 :b 2}
          (de/apply-patches {:a 1} [[[:b] :assoc 2]])))
   (is (= {:a 1}
-         (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))
-  (is (= []
-         (let [out (de/apply-patches {:a 1} [])]
-           ;; empty patches: identity passthrough
-           (is (= {:a 1} out))
-           []))))
+         (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
+
+(deftest apply-patches-empty-patches-is-identity
+  ;; Empty patch list ⇒ base returned unchanged.
+  (is (= {:a 1} (de/apply-patches {:a 1} []))))
+
+;; ---------------------------------------------------------------------------
+;; Decoder-boundary SECTION validation (rf2-j6oay / rf2-80y2h).
+;;
+;; `decode-db-after` validates the `:sections` vector via
+;; `validate-sections!` BEFORE flattening + replaying — encoder/decoder
+;; symmetry per the rf2-8e61v argument. The encoder boundary
+;; (`diff-encode-db-after`) was tested negatively
+;; (`diff-encode-db-after-emits-schema-conformant-sections` +
+;; `validate-patches!` direct), and `validate-sections!` was tested
+;; only positively (it never throws on a real encode). This pins the
+;; SYMMETRIC decode-side gate: a marker carrying malformed `:sections`
+;; reaching `decode-db-after` MUST throw `:rf.error/bad-diff-sections`
+;; rather than slip cosmetic `:section-kind` / `:section-path` slots
+;; through to an agent-host UI that paints them as truth.
+;; ---------------------------------------------------------------------------
+
+(deftest decode-db-after-rejects-malformed-sections
+  (testing "section with a non-vector :section-path throws"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections [{:section-path :not-a-vector
+                                         :section-kind :modified
+                                         :patches      [[[:a] :assoc 2]]}]}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-sections"
+            (de/decode-db-after epoch)))))
+  (testing "section with an unknown :section-kind throws"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections [{:section-path [:a]
+                                         :section-kind :renamed     ;; not in the enum
+                                         :patches      [[[:a] :assoc 2]]}]}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-sections"
+            (de/decode-db-after epoch)))))
+  (testing "section missing the :patches slot throws"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections [{:section-path [:a]
+                                         :section-kind :modified}]}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-sections"
+            (de/decode-db-after epoch)))))
+  (testing "ex-info carries the reserved :rf.error/bad-diff-sections code"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections [{:section-path :bad
+                                         :section-kind :modified
+                                         :patches      []}]}}]
+      (try
+        (de/decode-db-after epoch)
+        (is false "expected throw")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/bad-diff-sections
+                 (:rf.error/id (ex-data e)))
+              "ex-info carries the reserved :rf.error/* code")
+          (is (= 'mcp-base/diff-encode-db-after
+                 (:where (ex-data e)))
+              "ex-info names the validation site"))))))
+
+(deftest decode-db-after-well-formed-sections-round-trip
+  ;; The positive companion: well-formed sections decode silently and
+  ;; reconstruct :db-after — proving the decode gate is a guard, not a
+  ;; blanket reject.
+  (let [epoch   {:db-before {:user {:name "ada" :age 30}}
+                 :db-after  {:user {:name "ada" :age 31}}}
+        encoded (de/diff-encode-db-after epoch)
+        decoded (de/decode-db-after encoded)]
+    (is (= epoch decoded))))

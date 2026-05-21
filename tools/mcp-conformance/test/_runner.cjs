@@ -238,4 +238,89 @@ async function assertJsonRpcErrorCodes(client) {
   }
 }
 
-module.exports = { runWithWatchdog, assertJsonRpcErrorCodes };
+// ---------------------------------------------------------------------
+// Tool-descriptor shape gate (rf2-80y2h).
+//
+// Both `end-to-end-re-frame2-pair.cjs` and `end-to-end-story.cjs` ran four
+// near-identical `for (const t of listed.tools)` loops over the
+// catalogue, pinning cross-MCP-convention invariants the SDK's
+// ListToolsResultSchema does NOT model:
+//
+//   1. inputSchema.type === 'object'        (NAMING.md catalogue surface)
+//   2. inputSchema.properties has max-tokens (TOKEN-BUDGETS.md MUST)
+//   3. an :outputSchema map is declared      (rf2-3l3be)
+//   4. an :annotations map with at least one classification hint set
+//      (rf2-94p8q)
+//
+// The two copies (~60 LoC each) differed in EXACTLY one place: the
+// annotations classification set. re-frame2-pair-mcp permits
+// `openWorldHint` as a classifier (its eval-cljs / dispatch tools touch
+// an open world); story-mcp does not (its tools are closed-world reads /
+// fixture writes). Extracting the loops here with an `allowOpenWorld`
+// flag collapses that drift to a single maintained gate; a new
+// invariant is added once, not twice.
+//
+// Throws on the first violation with a descriptive, server-agnostic
+// message (the tool name + the failed invariant). Returns nothing.
+// ---------------------------------------------------------------------
+function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
+  // 1 + 2. inputSchema is a map with type=object and a max-tokens slot.
+  for (const t of tools) {
+    if (!t.inputSchema || typeof t.inputSchema !== 'object') {
+      throw new Error('tool ' + t.name + ' has no inputSchema');
+    }
+    if (t.inputSchema.type !== 'object') {
+      throw new Error(
+        'tool ' + t.name + " inputSchema.type MUST be 'object' (cross-MCP " +
+          'convention; NAMING.md catalogue surface); got: ' +
+          JSON.stringify(t.inputSchema.type),
+      );
+    }
+    const props = t.inputSchema.properties || {};
+    if (!('max-tokens' in props)) {
+      throw new Error(
+        'tool ' + t.name + " inputSchema.properties MUST expose 'max-tokens' " +
+          '(TOKEN-BUDGETS.md §"Per-call override slot": every tool surfaces ' +
+          'the cap-override slot so clients discover it automatically).',
+      );
+    }
+  }
+
+  // 3. outputSchema declared (rf2-3l3be).
+  for (const t of tools) {
+    if (!t.outputSchema || typeof t.outputSchema !== 'object') {
+      throw new Error(
+        'tool ' + t.name + ' MUST declare :outputSchema (rf2-3l3be); got: ' +
+          JSON.stringify(t.outputSchema),
+      );
+    }
+  }
+
+  // 4. annotations map with at least one classification hint (rf2-94p8q).
+  // openWorldHint counts as a classifier only when `allowOpenWorld` is
+  // set — the single per-server difference between the two harnesses.
+  for (const t of tools) {
+    if (!t.annotations || typeof t.annotations !== 'object') {
+      throw new Error(
+        'tool ' + t.name + ' MUST declare :annotations (rf2-94p8q); got: ' +
+          JSON.stringify(t.annotations),
+      );
+    }
+    const a = t.annotations;
+    const classified =
+      a.readOnlyHint === true ||
+      a.destructiveHint === true ||
+      (allowOpenWorld === true && a.openWorldHint === true);
+    if (!classified) {
+      const allowed = allowOpenWorld
+        ? 'readOnlyHint / destructiveHint / openWorldHint'
+        : 'readOnlyHint / destructiveHint';
+      throw new Error(
+        'tool ' + t.name + ' annotations MUST set at least one of ' +
+          allowed + '; got: ' + JSON.stringify(a),
+      );
+    }
+  }
+}
+
+module.exports = { runWithWatchdog, assertJsonRpcErrorCodes, assertDescriptorShape };

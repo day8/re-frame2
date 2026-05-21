@@ -1,0 +1,13 @@
+{
+  "name": "@day8/re-frame2-mcp-base",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLJS test harness for re-frame2-mcp-base — exercises the .cljc :cljs reader-conditional branches the JVM suite cannot reach (rf2-80y2h).",
+  "license": "MIT",
+  "scripts": {
+    "test:cljs": "shadow-cljs compile cljs-test && node out/cljs-test.js"
+  },
+  "devDependencies": {
+    "shadow-cljs": "3.4.10"
+  }
+}

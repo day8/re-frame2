@@ -81,6 +81,8 @@
             [clojure.test    :refer [deftest is testing]]
             [malli.core      :as m]
             [malli.error     :as me]
+            [re-frame.mcp-base.diff-encode :as de]
+            [re-frame.mcp-base.overflow :as mcp-overflow]
             [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
@@ -559,6 +561,118 @@
                            :cap-tokens 5000
                            :hint       "..."}}))
         "re-frame2-pair-shape emit missing :token-count must fail")))
+
+;; ---------------------------------------------------------------------------
+;; LIVE marker emission (rf2-80y2h).
+;;
+;; ## The gap this closes
+;;
+;; Pre-rf2-80y2h, only `:rf.mcp/overflow` had a LIVE emission assertion
+;; (`test/live-re-frame2-pair-overflow.cjs`, gated on a real nREPL +
+;; Playwright, hermetic on CI). Every other marker was pinned by exactly
+;; two layers:
+;;
+;;   1. an authored fixture validated against the canonical schema
+;;      (`every-fixture-conforms-to-its-canonical-schema`); and
+;;   2. a source-text grep that the marker LITERAL appears in
+;;      `mcp-base/vocab.cljc` (`marker-literal-appears-...-emit-source`).
+;;
+;; Neither layer observes the actual ENCODER producing the marker. The
+;; grep checks only that the literal is DECLARED in vocab.cljc — not that
+;; `diff-encode-db-after` still WRITES it into a real epoch. A regression
+;; that made `diff-encode-db-after` pass `:db-after` through unchanged
+;; (or emit a different key) would: leave the vocab literal in place
+;; (grep passes), leave the authored fixture untouched (fixture passes),
+;; and ship a tool that silently stopped diff-encoding. Every gate green.
+;;
+;; ## What this adds
+;;
+;; A live-emission gate for `:rf.mcp/diff-from`: drive the CANONICAL
+;; encoder (`re-frame.mcp-base.diff-encode/diff-encode-db-after`, the
+;; same fn re-frame2-pair-mcp's wire pipeline calls) over a real epoch
+;; and assert the emitted `:db-after` (a) carries the `:rf.mcp/diff-from`
+;; marker key and (b) validates against the canonical `DiffFromBody`
+;; schema pinned above. If the encoder stops emitting the marker — the
+;; exact regression the fixture+grep layers miss — this gate fails.
+;;
+;; ## Per-marker live-vs-fixture policy (Axis 4 of the rf2-80y2h audit)
+;;
+;; Only markers whose EMITTER is JVM-reachable from this pure-JVM gate
+;; get a live-emission assertion:
+;;
+;;   - :rf.mcp/diff-from   — LIVE here. Emitter is mcp-base
+;;                           `diff-encode-db-after` (`.cljc`, on the JVM
+;;                           classpath via the `:test` alias).
+;;   - :rf.mcp/overflow    — LIVE in `live-re-frame2-pair-overflow.cjs`
+;;                           (hermetic CI). Emitter is the re-frame2-pair-mcp
+;;                           CLJS wire boundary; the marker SHAPE builder
+;;                           (`mcp-base/overflow.cljc/overflow-payload`)
+;;                           is additionally exercised live below since
+;;                           it too is JVM-reachable.
+;;   - :rf.mcp/summary     — FIXTURE+grep only. Emitter is re-frame2-pair-mcp
+;;     :rf.mcp/dedup-table   CLJS (`tools/*.cljs`) with no JVM-reachable
+;;     :rf.mcp/cache-hit     counterpart; a pure-JVM live probe is
+;;     :rf.size/large-elided impossible. Their bodies are pure data
+;;                           transforms already unit-tested in mcp-base /
+;;                           re-frame2-pair-mcp; a live SDK probe for each
+;;                           is tracked as future work (it requires the
+;;                           heavyweight nREPL+Playwright orchestrator the
+;;                           overflow path uses).
+;; ---------------------------------------------------------------------------
+
+(deftest diff-from-marker-emitted-live-by-canonical-encoder
+  ;; The load-bearing live-emission gate. Drive the real encoder and
+  ;; assert the marker is actually written — not just declared in vocab.
+  (let [epoch    {:db-before {:cart {:items [{:sku "abc"}]}
+                              :checkout {:state :idle}
+                              :tmp 42}
+                  :db-after  {:cart {:items [{:sku "abc"} {:sku "xyz"}]}
+                              :checkout {:state :review}}
+                  :event     [:cart/add-item {:sku "xyz"}]}
+        encoded  (de/diff-encode-db-after epoch)
+        db-after (:db-after encoded)]
+    (testing "the encoder writes the :rf.mcp/diff-from marker"
+      (is (= :db-before (get db-after :rf.mcp/diff-from))
+          (str "diff-encode-db-after MUST emit the :rf.mcp/diff-from "
+               "marker. If this fails, the encoder stopped diff-encoding "
+               ":db-after — the regression the fixture+grep gates miss. "
+               "Got :db-after = " (pr-str db-after))))
+    (testing "the emitted body validates against the canonical DiffFromBody schema"
+      (is (m/validate DiffFromBody db-after)
+          (str "Live-emitted :db-after failed DiffFromBody validation:\n"
+               (me/humanize (m/explain DiffFromBody db-after)))))
+    (testing "the emitted marker decodes back to the original :db-after"
+      (is (= epoch (de/decode-db-after encoded))
+          "live encode → decode round-trips the epoch"))))
+
+(deftest diff-from-marker-absent-when-encoder-disabled
+  ;; The contrapositive: `:full` mode passes :db-after through unchanged,
+  ;; so the marker MUST be absent. This pins that the marker's presence
+  ;; is genuinely tied to the encoder running — proving the live test
+  ;; above isn't accidentally green because something else writes the key.
+  (let [epoch  {:db-before {:a 1} :db-after {:a 2}}
+        passed (first (de/diff-encode-epochs [epoch] :full))]
+    (is (not (contains? (:db-after passed) :rf.mcp/diff-from))
+        ":full mode must NOT carry the diff-from marker")
+    (is (= {:a 2} (:db-after passed))
+        ":full mode passes :db-after through verbatim")))
+
+(deftest overflow-marker-shape-emitted-live-by-canonical-builder
+  ;; `:rf.mcp/overflow`'s wire emission is live-tested in
+  ;; `live-re-frame2-pair-overflow.cjs`, but its SHAPE builder
+  ;; (`mcp-base/overflow.cljc/overflow-payload`) is also JVM-reachable.
+  ;; Drive it directly and assert the built marker validates against the
+  ;; canonical Overflow schema — a live counterpart to the authored
+  ;; overflow fixtures, catching a builder change that drifts the body
+  ;; shape without touching the fixtures.
+  (let [marker (mcp-overflow/overflow-payload
+                 {:tool "snapshot" :token-count 6250 :cap 5000
+                  :hint "Narrow the scope."})]
+    (is (= :rf.mcp/overflow (first (keys marker)))
+        "builder emits the canonical top-level :rf.mcp/overflow key")
+    (is (m/validate Overflow marker)
+        (str "Live-built overflow marker failed Overflow validation:\n"
+             (me/humanize (m/explain Overflow marker))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text vocabulary pin. The literal marker key MUST appear in
