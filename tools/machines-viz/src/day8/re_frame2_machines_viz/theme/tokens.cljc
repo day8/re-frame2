@@ -207,6 +207,31 @@
                (str "rgba(" r ", " g ", " b ", " alpha ")")
                hex)))))
 
+;; ---- CSS-variable theming (rf2-uv1on) ----------------------------------
+
+(defn css-var
+  "Resolve `token-key` to a `var(--rf-causa-<key>, <hex-fallback>)`
+  CSS string so a host that publishes the Causa CSS custom-property
+  surface (light + dark themes both live there) gets live theme-
+  switching, while a standalone embed degrades to the dark-palette
+  hex.
+
+  This mirrors Causa's own `theme/tokens/css-var` naming so the
+  variables resolve against the SAME host-published `:root` block —
+  the chart and the host paint from one palette. The fallback comes
+  from `dark-palette` (the chart's default surface) so a host that
+  does NOT publish the variables still renders correctly.
+
+  Pure data → string; JVM-portable. rf2-uv1on uses it for the
+  `:after`-ring overlay chrome so light + dark both flow through
+  `var(--*)` per the bead's theming requirement."
+  ([token-key] (css-var token-key dark-palette))
+  ([token-key palette]
+   (let [hex (get palette token-key)]
+     (if hex
+       (str "var(--rf-causa-" (name token-key) ", " hex ")")
+       (str "var(--rf-causa-" (name token-key) ")")))))
+
 ;; ---- motion seam (rf2-xfx6l) -------------------------------------------
 
 (def motion

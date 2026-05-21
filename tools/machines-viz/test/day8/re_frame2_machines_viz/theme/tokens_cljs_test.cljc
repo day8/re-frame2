@@ -4,6 +4,7 @@
    rf2-xfx6l — motion/duration-css)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [clojure.string :as str]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
 
 ;; ---- with-alpha (rf2-pyvmr) --------------------------------------------
@@ -79,6 +80,34 @@
     (let [s (tokens/with-alpha :cyan 0.5 tokens/light-palette)]
       ;; Light :cyan is #2A8B96 → rgba(42, 139, 150, 0.5)
       (is (= "rgba(42, 139, 150, 0.5)" s)))))
+
+;; ---- css-var (rf2-uv1on) -----------------------------------------------
+
+(deftest css-var-resolves-to-var-with-hex-fallback
+  (testing "css-var builds var(--rf-causa-<key>, <hex>) so a host that
+            publishes the Causa CSS custom-property surface drives
+            light + dark, while a standalone embed degrades to the
+            dark-palette hex"
+    (is (= "var(--rf-causa-green, #4ADE80)" (tokens/css-var :green)))
+    (is (= "var(--rf-causa-text-tertiary, #8990A0)"
+           (tokens/css-var :text-tertiary)))))
+
+(deftest css-var-name-matches-causa-convention
+  (testing "the variable name mirrors Causa's `var(--rf-causa-<key>)`
+            so the chart + host paint from ONE :root palette"
+    (is (str/starts-with? (tokens/css-var :cyan)
+                          "var(--rf-causa-cyan"))))
+
+(deftest css-var-falls-back-to-supplied-palette-hex
+  (testing "css-var resolves the fallback hex from the supplied palette
+            arg (light theme), not just the dark default"
+    (is (= "var(--rf-causa-cyan, #2A8B96)"
+           (tokens/css-var :cyan tokens/light-palette)))))
+
+(deftest css-var-no-fallback-for-unknown-key
+  (testing "an unknown token has no hex → bare var() (host MUST define
+            it; no garbage fallback)"
+    (is (= "var(--rf-causa-not-a-token)" (tokens/css-var :not-a-token)))))
 
 ;; ---- motion seam (rf2-xfx6l) -------------------------------------------
 
