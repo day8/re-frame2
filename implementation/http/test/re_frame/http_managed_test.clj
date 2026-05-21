@@ -8,8 +8,10 @@
 
   Per Spec 014 §Implementation status — JVM transport is part of the
   CLJS reference implementation's claim."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.util-json :as util-json]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -1096,4 +1098,246 @@
               ":reason is NOT :request-id-superseded (this is the regression guard)"))
 
         (.countDown latch)
+        (finally (stop-server! srv))))))
+
+;; ===========================================================================
+;; rf2-ohwgm — end-to-end coverage for the three untested spec contracts the
+;; http test-coverage audit (ai/findings/2026-05-21-testcov-http.md) flagged:
+;;   G1  — Malli schema decode failure → :rf.http/decode-failure
+;;          :schema-validation-failure? true (and too-many-keys e2e)
+;;   G2  — :accept returning {:failure ..} → :rf.http/accept-failure reply
+;;          carrying :detail + :decoded
+;;   G3  — request-side encoding (params query-string + :request-content-type
+;;          body) and the Content-Type clash guard, observed at a real server
+;; These ride the real java.net.http.HttpClient transport + in-process server
+;; so the WHOLE managed cascade (transport → decode → accept → classify →
+;; reply addressing) is exercised, not just the pure helpers.
+;; ===========================================================================
+
+;; ---- G1: Malli schema decode — validation failure e2e ---------------------
+
+(deftest jvm-schema-validation-failure-classifies-as-decode-failure
+  (testing "rf2-ohwgm — a 200 JSON response that parses but FAILS a Malli
+            :decode schema classifies as :rf.http/decode-failure with
+            :schema-validation-failure? true (Spec 014 §Classification
+            order step 3; http_transport.cljc:721-726)"
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; id arrives as a JSON string; the schema requires :int and
+              ;; the json-transformer can't coerce "oops" → int, so
+              ;; validation fails.
+              (write-response! ex 200 "application/json" "{\"id\":\"oops\"}")))]
+      (try
+        (rf/reg-event-fx :thing/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/thing")}
+                      :decode  [:map [:id :int]]}]]})))
+        (rf/dispatch-sync [:thing/load])
+        (let [db      (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/decode-failure (:kind failure))
+              "schema validation failure is a decode failure")
+          (is (true? (:schema-validation-failure? failure))
+              "the :schema-validation-failure? slot is set true (Spec 014 line 410)"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-schema-decode-success-coerces-value
+  (testing "rf2-ohwgm — a 200 JSON response that satisfies the Malli
+            :decode schema returns the coerced value as the :success reply
+            (string status coerced to keyword by the json-transformer)"
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json"
+                               "{\"id\":7,\"status\":\"active\"}")))]
+      (try
+        (rf/reg-event-fx :thing/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/thing")}
+                      :decode  [:map [:id :int] [:status :keyword]]}]]})))
+        (rf/dispatch-sync [:thing/load])
+        (let [db (await-reply! #(some? (:reply %)) 5000)]
+          (is (= :success (get-in db [:reply :kind])))
+          (is (= {:id 7 :status :active} (get-in db [:reply :value]))
+              "the schema coerces the string status to a keyword e2e"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-too-many-keys-cap-classifies-as-decode-failure
+  (testing "rf2-ohwgm — the :rf.http/max-decoded-keys cap threaded into the
+            schema-branch decode surfaces a :too-many-keys throw as
+            :rf.http/decode-failure end-to-end (NOT masked behind a schema
+            rejection; rf2-wu1n5)"
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json"
+                               "{\"a\":1,\"b\":2,\"c\":3}")))]
+      (try
+        (rf/reg-event-fx :thing/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request                  {:url (str "http://127.0.0.1:" port "/thing")}
+                      :decode                   [:map-of :keyword :int]
+                      :rf.http/max-decoded-keys 2}]]})))
+        (rf/dispatch-sync [:thing/load])
+        (let [db      (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/decode-failure (:kind failure))
+              "an over-cap payload classifies as a decode failure")
+          ;; The cap-throw is :rf.error/malformed-json, NOT a schema
+          ;; validation, so :schema-validation-failure? must be falsey.
+          (is (not (true? (:schema-validation-failure? failure)))
+              "too-many-keys is a malformed-json cap-throw, not a schema rejection"))
+        (finally (stop-server! srv))))))
+
+;; ---- G2: :accept returning {:failure ..} → :rf.http/accept-failure --------
+
+(deftest jvm-accept-failure-classifies-and-carries-detail-and-decoded
+  (testing "rf2-ohwgm — an :accept fn that returns {:failure ..} on a 2xx
+            response produces a :rf.http/accept-failure reply carrying the
+            user :detail and the pre-accept :decoded value
+            (http_transport.cljc:523-530; Spec 014 §`:accept` +
+            §Classification order step 4)"
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; 200 OK, but the domain payload says the operation failed —
+              ;; the :accept fn turns a transport-success into a domain
+              ;; failure.
+              (write-response! ex 200 "application/json"
+                               "{\"ok\":false,\"reason\":\"quota\"}")))]
+      (try
+        (rf/reg-event-fx :op/run
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/op")}
+                      :decode  :json
+                      :accept  (fn [decoded]
+                                 (if (:ok decoded)
+                                   {:ok decoded}
+                                   {:failure {:kind   :domain-rejected
+                                              :reason (:reason decoded)}}))}]]})))
+        (rf/dispatch-sync [:op/run])
+        (let [db      (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/accept-failure (:kind failure))
+              "an :accept-rejected 2xx classifies as :rf.http/accept-failure")
+          (is (= {:kind :domain-rejected :reason "quota"} (:detail failure))
+              "the user :failure map rides through verbatim as :detail")
+          (is (= {:ok false :reason "quota"} (:decoded failure))
+              "the pre-accept decoded value rides through as :decoded"))
+        (finally (stop-server! srv))))))
+
+;; ---- G3: request-side encoding observed at the server ---------------------
+
+(deftest jvm-request-params-encoded-into-query-string
+  (testing "rf2-ohwgm — :params is encoded onto the request URL as a query
+            string (keyword keys → name, values escaped) and arrives at
+            the server (http_encoding.cljc:50-67 via run-attempt!)"
+    (let [seen-query (atom nil)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; getRawQuery preserves the percent-encoding produced by
+              ;; the client; getQuery would decode it back, hiding whether
+              ;; the value was escaped on the wire.
+              (reset! seen-query (.getRawQuery (.getRequestURI ex)))
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :search/run
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url    (str "http://127.0.0.1:" port "/search")
+                                :params {:q "a b" :page 2}}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:search/run])
+        (await-reply! #(some? (:reply %)) 5000)
+        (let [q @seen-query]
+          (is (some? q) "the server saw a query string")
+          (is (clojure.string/includes? q "q=a%20b")
+              "the space-bearing value is percent-escaped in the query")
+          (is (clojure.string/includes? q "page=2")
+              "the keyword key is rendered via name; numeric value coerced"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-request-content-type-encodes-body-and-sets-header
+  (testing "rf2-ohwgm — :request-content-type :json encodes the body and
+            sets the Content-Type header; the server observes both
+            (http_encoding.cljc:76-102 + the header-set in run-attempt!)"
+    (let [seen-ct   (atom nil)
+          seen-body (atom nil)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (reset! seen-ct (.getFirst (.getRequestHeaders ex) "Content-Type"))
+              (reset! seen-body (slurp (.getRequestBody ex)))
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :item/create
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:method               :post
+                                :url                  (str "http://127.0.0.1:" port "/items")
+                                :body                 {:name "widget"}
+                                :request-content-type :json}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:item/create])
+        (await-reply! #(some? (:reply %)) 5000)
+        (is (= "application/json" @seen-ct)
+            ":request-content-type :json sets the Content-Type header")
+        (is (= {:name "widget"} (util-json/json-parse @seen-body))
+            "the body is JSON-encoded and round-trips at the server")
+        (finally (stop-server! srv))))))
+
+(deftest jvm-explicit-content-type-header-wins-clash-guard
+  (testing "rf2-ohwgm — when the request already carries a Content-Type
+            header, run-attempt! does NOT overwrite it with the
+            encode-body content-type (the clash guard at
+            http_transport.cljc:755-757)"
+    (let [seen-cts (atom nil)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; Capture ALL Content-Type header values so a double-set
+              ;; (guard regression) would show up as >1 entry.
+              (reset! seen-cts (vec (.get (.getRequestHeaders ex) "Content-Type")))
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :item/create
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:method               :post
+                                :url                  (str "http://127.0.0.1:" port "/items")
+                                ;; Caller pre-sets Content-Type; encode-body
+                                ;; would otherwise also propose application/json.
+                                :headers              {"Content-Type" "application/vnd.custom+json"}
+                                :body                 {:name "widget"}
+                                :request-content-type :json}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:item/create])
+        (await-reply! #(some? (:reply %)) 5000)
+        (let [cts @seen-cts]
+          (is (= ["application/vnd.custom+json"] cts)
+              "the caller's explicit Content-Type is preserved and NOT
+               supplemented by the encode-body content-type (clash guard)"))
         (finally (stop-server! srv))))))

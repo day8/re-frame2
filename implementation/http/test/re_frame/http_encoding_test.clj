@@ -2,6 +2,11 @@
   "Direct unit coverage for the pure-fn helpers in `re-frame.http-encoding`
   (rf2-9dro2; follow-on from rf2-q1z1u F2).
 
+  Extended under rf2-ohwgm (http test-coverage audit) with the request-side
+  encoding pipeline — `url-encode`, `params->query`, `merge-params`,
+  `encode-body` — and the default `run-accept` normalisation. These run on
+  every request / response yet had no direct test before.
+
   Specifically pins `compute-backoff-ms` against Spec 014 §Retry and
   backoff at the function boundary. The fn is currently exercised
   only indirectly via the managed-HTTP retry integration tests in
@@ -15,8 +20,10 @@
    - clamp: raw is clamped to :max-ms before any jitter
    - jitter (when true): ±25% offset uniformly distributed,
      floor of zero (never negative)"
-  (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http-encoding :as encoding]))
+  (:require [clojure.string]
+            [clojure.test :refer [deftest is testing]]
+            [re-frame.http-encoding :as encoding]
+            [re-frame.util-json :as util-json]))
 
 ;; ---- attempt → delay (deterministic, jitter off) -------------------------
 
@@ -228,3 +235,171 @@
                         :explicit-on   {:supplied? true :value :items/loaded}
                         :reply-payload reply-payload})
                      (catch clojure.lang.ExceptionInfo _ ::threw)))))))
+
+;; ===========================================================================
+;; rf2-ohwgm — request-side encoding pipeline (G3) + default `run-accept` (G2)
+;;
+;; Per the http test-coverage audit (ai/findings/2026-05-21-testcov-http.md):
+;; `encode-body` / `params->query` / `merge-params` / `url-encode` run on
+;; EVERY request via `run-attempt!` (http_transport.cljc:749,754) yet had
+;; zero direct test. The default `:accept` (`run-accept` with a nil
+;; accept-fn) was likewise only exercised incidentally. Both are pure /
+;; host-agnostic → the fast JVM layer.
+;; ===========================================================================
+
+;; ---- url-encode — Spec 014 §Body encoding (query escaping) ----------------
+
+(deftest url-encode-escapes-reserved-characters
+  (testing "rf2-ohwgm — url-encode percent-escapes reserved query
+            characters so a value never breaks out of its key=value slot"
+    (is (= "hello%20world" (encoding/url-encode "hello world"))
+        "JVM maps the URLEncoder `+` to `%20` (space) per the source")
+    (is (= "a%26b" (encoding/url-encode "a&b"))
+        "ampersand escaped so it can't be read as a param separator")
+    (is (= "a%3Db" (encoding/url-encode "a=b"))
+        "equals escaped so it can't be read as a key/value delimiter")
+    (is (= "a%2Bb" (encoding/url-encode "a+b"))
+        "literal plus escaped to %2B (not collapsed with the space encoding)"))
+  (testing "non-string args are coerced via (str ...) before encoding"
+    (is (= "42" (encoding/url-encode 42)))
+    (is (= "true" (encoding/url-encode true)))))
+
+;; ---- params->query — keyword keys, escaping, joining ----------------------
+
+(deftest params->query-encodes-keyword-keys-and-escapes-values
+  (testing "rf2-ohwgm — params->query renders keyword keys via `name`,
+            escapes values, and joins pairs with `&` (no leading `?`)"
+    (is (= "page=2" (encoding/params->query {:page 2}))
+        "keyword key → name; numeric value coerced via url-encode")
+    (is (= "q=a%20b" (encoding/params->query {:q "a b"}))
+        "value with a space is percent-escaped")
+    (is (= "q=a%26b" (encoding/params->query {:q "a&b"}))
+        "value with an ampersand is escaped so it can't forge a new param"))
+  (testing "string keys pass through, keyword keys lose their colon"
+    (is (= "limit=10" (encoding/params->query {"limit" 10}))))
+  (testing "an empty params map renders an empty string"
+    (is (= "" (encoding/params->query {})))))
+
+;; ---- merge-params — `?` vs `&` separator selection ------------------------
+
+(deftest merge-params-selects-question-mark-or-ampersand
+  (testing "rf2-ohwgm — merge-params appends the query string with `?`
+            when the URL has none, and `&` when the URL already carries a
+            `?` (http_encoding.cljc:60-67)"
+    (is (= "/items?page=2"
+           (encoding/merge-params "/items" {:page 2}))
+        "no existing `?` → join with `?`")
+    (is (= "/items?sort=asc&page=2"
+           (encoding/merge-params "/items?sort=asc" {:page 2}))
+        "existing `?` → join with `&`"))
+  (testing "no params (empty or nil) returns the URL unchanged"
+    (is (= "/items" (encoding/merge-params "/items" {})))
+    (is (= "/items" (encoding/merge-params "/items" nil)))))
+
+;; ---- encode-body — Spec 014 §Body encoding --------------------------------
+;;
+;; Returns a tuple [encoded-body content-type]; content-type may be nil
+;; (the caller decides whether to set the header). One assertion per
+;; branch (nil / :json / :form / :text / explicit-MIME / coll-heuristic /
+;; pass-through).
+
+(deftest encode-body-nil-body-emits-no-content-type
+  (testing "rf2-ohwgm — a nil body encodes to [nil nil] (no body, no
+            Content-Type header)"
+    (is (= [nil nil] (encoding/encode-body nil :json))
+        "nil body short-circuits regardless of the requested content-type")
+    (is (= [nil nil] (encoding/encode-body nil nil)))))
+
+(deftest encode-body-json-request-content-type
+  (testing "rf2-ohwgm — :request-content-type :json JSON-stringifies the
+            body and returns application/json"
+    (let [[body ct] (encoding/encode-body {:a 1 :b "two"} :json)]
+      (is (= "application/json" ct))
+      (is (= {:a 1 :b "two"} (util-json/json-parse body))
+          "the body round-trips through json-parse (stable across key order)"))))
+
+(deftest encode-body-form-request-content-type
+  (testing "rf2-ohwgm — :request-content-type :form URL-encodes the map as
+            a form body and returns application/x-www-form-urlencoded"
+    (let [[body ct] (encoding/encode-body {:q "a b" :page 2} :form)]
+      (is (= "application/x-www-form-urlencoded" ct))
+      ;; form body is `params->query` of the map — assert each escaped pair
+      ;; is present (map iteration order is not guaranteed).
+      (is (clojure.string/includes? body "q=a%20b")
+          "form value space-escaped")
+      (is (clojure.string/includes? body "page=2")))))
+
+(deftest encode-body-text-request-content-type
+  (testing "rf2-ohwgm — :request-content-type :text stringifies the body
+            and returns text/plain"
+    (is (= ["hello" "text/plain"] (encoding/encode-body "hello" :text)))
+    (is (= ["42" "text/plain"] (encoding/encode-body 42 :text))
+        "non-string body coerced via (str ...)")))
+
+(deftest encode-body-explicit-mime-string-request-content-type
+  (testing "rf2-ohwgm — an explicit MIME-string :request-content-type
+            stringifies the body and returns that exact MIME unchanged"
+    (is (= ["<x/>" "application/xml"]
+           (encoding/encode-body "<x/>" "application/xml")))))
+
+(deftest encode-body-coll-heuristic-defaults-to-json
+  (testing "rf2-ohwgm — with no explicit :request-content-type, a raw
+            Clojure coll (map / sequential / set) is JSON-encoded and
+            tagged application/json (the heuristic at http_encoding.cljc:97)"
+    (let [[mbody mct] (encoding/encode-body {:a 1} nil)]
+      (is (= "application/json" mct))
+      (is (= {:a 1} (util-json/json-parse mbody))))
+    (let [[vbody vct] (encoding/encode-body [1 2 3] nil)]
+      (is (= "application/json" vct))
+      (is (= [1 2 3] (util-json/json-parse vbody))))
+    (let [[_ sct] (encoding/encode-body #{1 2 3} nil)]
+      (is (= "application/json" sct)
+          "a set also trips the coll heuristic"))))
+
+(deftest encode-body-passthrough-string-no-content-type
+  (testing "rf2-ohwgm — a non-coll body with no :request-content-type (a
+            pre-encoded string / opaque value) passes through unchanged
+            with a nil content-type (the caller sets no header)"
+    (is (= ["already-encoded" nil]
+           (encoding/encode-body "already-encoded" nil))
+        "a bare string is pass-through: body kept, content-type nil")))
+
+;; ---- run-accept — Spec 014 §`:accept` default normalisation (G2) ----------
+;;
+;; The default `:accept` (nil accept-fn) maps 2xx → {:ok decoded} and any
+;; other status → {:failure {:kind :http-status ...}}. The user-fn branch
+;; is exercised end-to-end in http_managed_test (accept-failure round-trip);
+;; here we pin the DEFAULT and the simple user-fn pass-through.
+
+(deftest run-accept-default-2xx-is-ok
+  (testing "rf2-ohwgm — with no :accept fn, a 2xx status normalises the
+            decoded value to {:ok decoded}"
+    (is (= {:ok {:title "hello"}}
+           (encoding/run-accept nil {:title "hello"} {:status 200})))
+    (is (= {:ok {:title "hello"}}
+           (encoding/run-accept nil {:title "hello"} {:status 299}))
+        "the whole 2xx band is :ok")))
+
+(deftest run-accept-default-non-2xx-is-failure
+  (testing "rf2-ohwgm — with no :accept fn, a non-2xx status normalises to
+            {:failure {:kind :http-status :status N :body decoded}}"
+    (is (= {:failure {:kind :http-status :status 404 :body {:error "nope"}}}
+           (encoding/run-accept nil {:error "nope"} {:status 404}))
+        "the default treats any non-2xx as a domain failure carrying the
+         status + decoded body")
+    (is (= {:failure {:kind :http-status :status 500 :body nil}}
+           (encoding/run-accept nil nil {:status 500})))))
+
+(deftest run-accept-user-fn-overrides-default
+  (testing "rf2-ohwgm — a supplied :accept fn is invoked with the decoded
+            value and its return ({:ok ..} or {:failure ..}) is used
+            verbatim, overriding the status-based default"
+    (let [accept (fn [decoded]
+                   (if (:valid? decoded)
+                     {:ok (:data decoded)}
+                     {:failure {:kind :domain :reason :invalid}}))]
+      (is (= {:ok 42}
+             (encoding/run-accept accept {:valid? true :data 42} {:status 200})))
+      (is (= {:failure {:kind :domain :reason :invalid}}
+             (encoding/run-accept accept {:valid? false} {:status 200}))
+          "the user :accept can fail a 2xx response (domain-level rejection)"))))
