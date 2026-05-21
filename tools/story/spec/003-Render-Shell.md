@@ -495,10 +495,9 @@ no parallel mounting protocol. Five rules govern panel hosting:
 
 4. **Author calls `reg-story-panel` from anywhere on the classpath.**
    The built-in panels (`:rf.story.panel/a11y` /
-   `:rf.story.panel/chrome-a11y` / `:rf.story.panel/layout-debug` /
-   `:rf.story.panel/epoch`) register from inside
-   `install-canonical-vocabulary!`; third-party tooling (e.g. Causa's
-   epoch view, future statechart-viz panels) registers from its own
+   `:rf.story.panel/chrome-a11y` / `:rf.story.panel/layout-debug`)
+   register from inside `install-canonical-vocabulary!`; third-party
+   tooling (e.g. future statechart-viz panels) registers from its own
    boot. Per rf2-18t6p, the chrome-a11y panel is the sibling of `:a11y`
    scoped to `[data-rf-story-root]` (the chrome wrapper) rather than
    `[data-rf-story-variant-root]` — same engine, distinct scope, so

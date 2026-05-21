@@ -635,9 +635,7 @@
 
 (defn- main-pane
   "The main content pane — workspace if one is selected, otherwise the
-  variant canvas. Stage 6 (rf2-zhwd) appends any registered
-  `:bottom`-placement story panels (e.g. the 10x epoch panel stub)
-  below the canvas.
+  variant canvas.
 
   Renders as a `<main>` landmark (per rf2-xc65) so the rendered variant
   has a containing landmark and axe-core's `region` /
@@ -657,7 +655,6 @@
         variant-id (:selected-variant shell)
         ws-id      (:selected-workspace shell)
         story-id   (:selected-story shell)
-        vis        (:panel-visibility shell)
         mode-tab   (when variant-id
                      (state/active-mode-tab shell variant-id))]
     [:main {:style (merge (:main styles)
@@ -695,9 +692,7 @@
                       :color (:text-tertiary colors/tokens)
                       :font-style "italic"
                       :text-align "center"}}
-        "Select a variant or workspace from the sidebar."])
-     (when variant-id
-       [panels/render-panels-at-placement :bottom variant-id vis])]))
+        "Select a variant or workspace from the sidebar."])]))
 
 (defn shell
   "The top-level shell component. Composes the sidebar, main pane, and

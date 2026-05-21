@@ -29,29 +29,8 @@
                                 (rf2-18t6p; see
                                 `re-frame.story.ui.chrome-a11y`). Sibling
                                 of `:a11y`; shares the engine + opt-in.
-  - `:rf.story.panel/epoch`  — re-frame-10x epoch panel STUB (this ns;
-                                placeholder until Causa ships v1.0).
   - `:rf.story.panel/layout-debug` — the three layout-debug decorator
-                                toggles, hosted as a controls-style chrome.
-
-  ## 10x epoch panel — STUB
-
-  Per IMPL-SPEC §2.7 + §2.8.9 the 10x epoch panel ships in v1.0 as a
-  `reg-story-panel` registration. The actual successor
-  (Causa — `tools/causa/`, bd rf2-buor) is in design. Stage 6 ships a
-  stub view that documents the contract; the live embed lands when
-  Causa publishes its panel-render view id.
-
-  When Causa is ready, the stub registration replaces with:
-
-      (story/reg-story-panel :rf.story.panel/epoch
-        {:title \"Epochs (10x)\"
-         :placement :bottom
-         :render :rf.epoch-10x/panel-view})
-
-  …and the late-bind look-up in `re-frame.core/view` finds the panel
-  view registered by the Causa library when present, otherwise the
-  stub view registered here."
+                                toggles, hosted as a controls-style chrome."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.config :as config]
@@ -68,28 +47,7 @@
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
-  {:stub-wrap    {:padding "12px"
-                  :background (:bg-2 colors/tokens)
-                  :color (:text-primary colors/tokens)
-                  :font-family mono-stack
-                  :font-size (:caption typography/type-scale)
-                  :border-top "1px solid #444"}
-   :stub-title   {:color (:info colors/tokens)
-                  :font-weight "bold"
-                  :margin-bottom "8px"
-                  :text-transform "uppercase"
-                  :font-size (:micro typography/type-scale)
-                  :letter-spacing "0.5px"}
-   :stub-body    {:color (:text-secondary colors/tokens)
-                  :line-height "1.5"}
-   :stub-code    {:padding "8px"
-                  :background (:bg-canvas colors/tokens)
-                  :border "1px solid #444"
-                  :border-radius "3px"
-                  :margin-top "8px"
-                  :font-size (:micro typography/type-scale)
-                  :overflow-x "auto"}
-   :layout-wrap  {:padding "8px"
+  {:layout-wrap  {:padding "8px"
                   :background (:bg-2 colors/tokens)
                   :color (:text-primary colors/tokens)
                   :font-family mono-stack
@@ -112,41 +70,6 @@
                   :font-style "italic"
                   :font-size (:micro typography/type-scale)
                   :margin-top "6px"}})
-
-;; ---- 10x epoch panel stub ----------------------------------------------
-
-(def ^:const epoch-panel-id
-  "Story-panel id for the 10x epoch panel embed. Per IMPL-SPEC §2.7."
-  :rf.story.panel/epoch)
-
-(def ^:const epoch-panel-render-id
-  "View id the panel registration points at. The actual view (this ns
-  ships a stub; Causa replaces with the live panel via the same id
-  later) is registered as a re-frame view so the late-bind lookup in
-  `re-frame.core/view` finds whichever ships."
-  :rf.story.panel/epoch-view)
-
-(defn epoch-stub-view
-  "STUB view for the 10x epoch panel. Per IMPL-SPEC §2.7 + Stage 6
-  (rf2-zhwd) — displays a contract description until Causa
-  (`tools/causa/`, rf2-buor) ships its panel view.
-
-  The stub registration is the deliverable for Stage 6; the live view
-  replaces the same registered view id when Causa publishes."
-  [_variant-id]
-  [:div {:style (:stub-wrap styles)}
-   [:div {:style (:stub-title styles)} "Epochs (10x) — stub"]
-   [:div {:style (:stub-body styles)}
-    "The 10x epoch panel will be embedded here once Causa ships v1.0."]
-   [:div {:style (:stub-body styles)}
-    "Stage 6 (rf2-zhwd) ships the panel-registration contract; the live "
-    "view will register under the same id (" (pr-str epoch-panel-render-id)
-    ") when " [:code "day8/re-frame2-10x"] " is on the classpath."]
-   [:pre {:style (:stub-code styles)}
-    (str "(story/reg-story-panel " epoch-panel-id "\n"
-         "  {:title     \"Epochs (10x)\"\n"
-         "   :placement :bottom\n"
-         "   :render    " epoch-panel-render-id "})")]])
 
 ;; ---- layout-debug controls panel ---------------------------------------
 
@@ -233,7 +156,6 @@
 (defn install-canonical-panels!
   "Register the Stage 6 (rf2-zhwd) v1.0 panel set:
 
-  - `:rf.story.panel/epoch` — the 10x epoch panel embed STUB.
   - `:rf.story.panel/layout-debug` — the layout-debug toggle panel.
 
   The a11y panel registers separately via
@@ -247,14 +169,6 @@
   registration."
   []
   (when config/enabled?
-    ;; 10x epoch panel STUB.
-    (reg-view! epoch-panel-render-id epoch-stub-view)
-    (story-registrar/reg-story-panel*
-      epoch-panel-id
-      {:doc       "re-frame-10x epoch panel embed (stub until Causa v1.0)."
-       :title     "Epochs (10x)"
-       :placement :bottom
-       :render    epoch-panel-render-id})
     ;; Layout-debug controls panel.
     (reg-view! layout-debug-render-id layout-debug-view)
     (story-registrar/reg-story-panel*
@@ -278,8 +192,6 @@
 
 (def ^:private host-styles
   {:right-host  {:display "flex" :flex-direction "column"}
-   :bottom-host {:border-top "1px solid #444"
-                 :background (:bg-2 colors/tokens)}
    :panel-head  {:display "flex"
                  :justify-content "space-between"
                  :align-items "center"

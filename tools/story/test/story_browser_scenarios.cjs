@@ -681,11 +681,6 @@ module.exports = {
        *     :story.counter-matrix) — the panel filter removes the
        *     notes panel, parity-badge count drops back to 1
        *     (canvas only). Per Spec 008 §Panel applies-to filter.
-       *   - bottom-placement always-on panel: every variant mounts
-       *     the :rf.story.panel/epoch stub at the bottom slot
-       *     (no :for filter, default visible). Anchor on the panel-
-       *     head text "Epochs (10x)" — global panels render across
-       *     every variant.
        *   - panel-visibility toggle: programmatically toggle the
        *     notes panel off via the public swap-state! +
        *     toggle-panel transition (the contract this section
@@ -703,7 +698,7 @@ module.exports = {
        *
        *   panel <pid> has no registered :render view (<view-id>)
        *
-       * Step (e) below anchors on that string.
+       * Step (d) below anchors on that string.
        */
       await primeHelpDismissed(page);
       await gotoStory(page, '/counter-with-stories/#/stories');
@@ -734,15 +729,7 @@ module.exports = {
         5000,
       );
 
-      // (b) Bottom slot: the :rf.story.panel/epoch stub renders for
-      // every variant (no :for filter, default visible). Its panel-
-      // head reads "Epochs (10x)".
-      await expectVisible(
-        page.getByRole('main').getByText('Epochs (10x)', { exact: false }).first(),
-        5000,
-      );
-
-      // (c) :for-filter exclusion — switch to a /matrix variant
+      // (b) :for-filter exclusion — switch to a /matrix variant
       // (parent :story.counter-matrix). The notes panel's
       // `:for #{:story.counter}` filter excludes it; only the canvas
       // parity-badge remains.
@@ -759,7 +746,7 @@ module.exports = {
         },
       );
 
-      // (d) Toggle the notes panel's visibility via the public
+      // (c) Toggle the notes panel's visibility via the public
       // shell-state transition. The cljs-mangled symbol is
       // `re_frame.story.ui.state.swap_state_BANG_` and
       // `re_frame.story.ui.state.toggle_panel`. Go back to /loaded
@@ -810,7 +797,7 @@ module.exports = {
         },
       );
 
-      // (e) rf2-76wo5 — broken-render fallback. The testbed
+      // (d) rf2-76wo5 — broken-render fallback. The testbed
       // registers :Panel.counter-with-stories/broken-render whose
       // :render points at an unregistered view id. The panel-host
       // renders the fallback text "panel ... has no registered
