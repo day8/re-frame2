@@ -9,7 +9,7 @@ The `re-frame2-pair` skill is the AI pair-programming companion for a running re
 Three primitives carry the skill's agency, all part of re-frame2's [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md):
 
 1. **The REPL** — ClojureScript forms evaluated against the real app, usually through helpers in the injected `re-frame2-pair.runtime` namespace.
-2. **The trace stream** — `(rf/register-listener! id listener)` for live trace events; `(rf/trace-buffer opts)` for the retain-N ring of recent events.
+2. **The trace stream** — `(rf/register-listener! id listener)` for live trace events; `(re-frame.trace.tooling/trace-buffer opts)` for the retain-N ring of recent events (`rf/trace-buffer` is a JVM-only alias, so CLJS callers use the `re-frame.trace.tooling` ns).
 3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying `:db-before`, `:db-after`, `:trace-events`, and the assembled `:sub-runs` / `:renders` / `:effects` projections.
 
 The skill is **multi-frame aware** (Spec 002 — most apps run with one frame, larger apps run several). It registers exactly **one** trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`) so it coexists with other tools (e.g. `re-frame-10x` v2) on the same bus. Mutating ops refuse with `:ambiguous-frame` when the operating frame is unclear.
