@@ -446,6 +446,47 @@
       (is (= 2 @fired?)
           "removeEventListener stopped further deliveries"))))
 
+;; ---- malformed-% fail-closed (CLJS decode path) --------------------------
+;;
+;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding
+;; (rf2-wbvme + rf2-4ic0f). The JVM suite pins the fail-closed contract
+;; against `URLDecoder/decode` (routing_test.clj:781-808). The CLJS
+;; runtime decodes via `js/decodeURIComponent`, which throws on a
+;; DIFFERENT set of malformed inputs than the JVM decoder — so the
+;; security-critical fail-closed path (hostile / broken URLs → route-miss,
+;; never a runtime crash) needs a smoke on the runtime that actually
+;; ships to browsers. `safe-url-decode` must swallow `js/decodeURIComponent`'s
+;; throw and `match-url` must return nil, exactly as on the JVM.
+(deftest match-url-malformed-percent-fails-closed-cljs
+  (testing "rf2-4ic0f: malformed %-encoding fails closed on the CLJS
+            decodeURIComponent path — match-url returns nil, never throws"
+    (register-routes!)
+    (rf/reg-route :hist/search {:path "/search"})
+    ;; Path segment — bare `%`, incomplete pair, non-hex pair.
+    (is (nil? (routing/match-url "/articles/%"))
+        "bare `%` in path → route-miss (no decodeURIComponent throw escapes)")
+    (is (nil? (routing/match-url "/articles/x%a"))
+        "incomplete %-pair in path → route-miss")
+    (is (nil? (routing/match-url "/articles/x%XX"))
+        "non-hex %-pair in path → route-miss")
+    ;; Query value + key — whole URL fails closed (no partial slice).
+    (is (nil? (routing/match-url "/search?x=%"))
+        "malformed query VALUE → whole URL is a route-miss")
+    (is (nil? (routing/match-url "/search?%=v"))
+        "malformed query KEY → whole URL is a route-miss")
+    ;; Fragment.
+    (is (nil? (routing/match-url "/search#%"))
+        "malformed `#fragment` → route-miss")
+    ;; No registered route: even a bare `%` URL must not throw.
+    (is (nil? (routing/match-url "/%"))
+        "bare `%` with no matching route → route-miss, not an exception"))
+  (testing "well-formed %-encoding still decodes on the CLJS path"
+    (register-routes!)
+    (let [m (routing/match-url "/articles/hello%20world")]
+      (is (some? m) "well-formed %-encoded path segment matches")
+      (is (= "hello world" (get-in m [:params :id]))
+          "decodeURIComponent decodes the well-formed segment into the slice"))))
+
 ;; =========================================================================
 ;; 4. replaceState — no new history entry
 ;; =========================================================================

@@ -940,6 +940,42 @@
            (routing/route-url :route/docs4 {:page "routing"}))
         "2-arity → no query, no fragment")))
 
+;; ---- route-url query-string emission -------------------------------------
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params. The qs builder
+;; (routing.cljc:725-731) joins `(name k)=url-encode(v)` pairs with `&`.
+;; Coverage elsewhere only hits the single-pair `{:lang "en"}` case
+;; (route-url-4-arity-appends-fragment:918), which can't observe pair
+;; ORDERING or query-VALUE percent-encoding. These are the two behaviours
+;; the multi-pair `&`-join + per-value `url-encode` exist for.
+(deftest route-url-query-string-emission
+  (testing "multi-pair query: pairs joined with `&` in insertion order"
+    (rf/reg-route :route/list {:path "/list"})
+    (is (= "/list?a=1&b=2"
+           (routing/route-url :route/list {} (array-map :a "1" :b "2")))
+        "two query pairs join with `&`, preserving insertion order")
+    (is (= "/list?x=1&y=2&z=3"
+           (routing/route-url :route/list {} (array-map :x "1" :y "2" :z "3")))
+        "three query pairs join with `&` in insertion order"))
+
+  (testing "query VALUES are percent-encoded (encodeURIComponent semantics)"
+    (rf/reg-route :route/search {:path "/search"})
+    (is (= "/search?q=x%20y"
+           (routing/route-url :route/search {} {:q "x y"}))
+        "a space in a query value encodes to %20 (not '+')")
+    (is (= "/search?a=1&b=x%20y"
+           (routing/route-url :route/search {} (array-map :a "1" :b "x y")))
+        "multi-pair ordering AND value %-encoding together")
+    (is (= "/search?filter=a%26b%3Dc"
+           (routing/route-url :route/search {} {:filter "a&b=c"}))
+        "`&` and `=` in a value are encoded so they cannot inject extra pairs"))
+
+  (testing "query KEYS are percent-encoded too"
+    (rf/reg-route :route/k {:path "/k"})
+    (is (= "/k?a%20b=v"
+           (routing/route-url :route/k {} {(keyword "a b") "v"}))
+        "a space in a query key encodes to %20")))
+
 (deftest match-url-route-url-round-trip-with-fragment
   (testing "URL → match-url → route-url 4-arity → URL recovers the original
             (the full bidirectional contract including #fragment). rf2-5ifai:
@@ -2013,6 +2049,35 @@
       (let [built (routing/route-url :route/files {:rest "a/b/c"})]
         (is (= "/files/a/b/c" built)
             "route-url emits the splat segments preserving '/'")))))
+
+;; ---- url-encode-splat per-segment encoding -------------------------------
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params §Splat. `url-encode-splat`
+;; (url.cljc:27-31) splits on `/`, encodes EACH segment with
+;; encodeURIComponent semantics, and re-joins with literal `/`. The
+;; ASCII-safe round-trip ("a/b/c") above can't observe the encode step
+;; at all — it only proves `/` is preserved. This pins the actual reason
+;; the per-segment join exists: a segment that needs encoding is encoded,
+;; while the `/` separators between segments stay literal (NOT %2F).
+(deftest splat-segment-percent-encoding
+  (testing "a splat segment needing encoding is encoded; literal '/' is preserved"
+    (rf/reg-route :route/files {:path "/files/*rest"})
+    (is (= "/files/a/b%20c"
+           (routing/route-url :route/files {:rest "a/b c"}))
+        "the space inside a segment encodes to %20; the segment '/' stays literal")
+    (is (= "/files/a%20b/c%20d"
+           (routing/route-url :route/files {:rest "a b/c d"}))
+        "every segment is encoded individually; both '/' separators stay literal")
+    (is (= "/files/x%26y/z"
+           (routing/route-url :route/files {:rest "x&y/z"}))
+        "an `&` inside a segment is encoded so it cannot leak into a query"))
+
+  (testing "splat encode round-trips back through match-url (decode is the inverse)"
+    (rf/reg-route :route/files2 {:path "/files/*rest"})
+    (let [built (routing/route-url :route/files2 {:rest "a/b c"})]
+      (is (= "/files/a/b%20c" built))
+      (is (= "a/b c" (get-in (routing/match-url built) [:params :rest]))
+          "match-url decodes each segment back, recovering the original splat value"))))
 
 ;; ---- T6: :on-match dispatches AND :transition :loading observable ----
 
