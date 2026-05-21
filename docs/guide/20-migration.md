@@ -1,4 +1,4 @@
-# 18 — From re-frame v1
+# 20 — Migration from re-frame v1
 
 ## TL;DR
 
@@ -53,7 +53,7 @@ If a failure doesn't match any of the above, the skill surfaces it for human rev
 
 ### Migrating an HTTP layer
 
-A concrete instance of "problems you might run into": v1 codebases that registered their own `:http` fx — or used `re-frame-http-fx`, `re-frame-fetch-fx`, or one of their cousins — migrate onto `:rf.http/managed` (see [10 — Doing HTTP requests](10-doing-http-requests.md)). The skill recognises the shape; the rewrite is mechanical (Type A):
+A concrete instance of "problems you might run into": v1 codebases that registered their own `:http` fx — or used `re-frame-http-fx`, `re-frame-fetch-fx`, or one of their cousins — migrate onto `:rf.http/managed` (see [10 — Doing HTTP requests](12-http.md)). The skill recognises the shape; the rewrite is mechanical (Type A):
 
 1. Add the `day8/re-frame2-http` artefact and `(:require [re-frame.http-managed])` from the namespaces that issue requests.
 2. Replace `[:http {:url ... :on-success ... :on-error ...}]` fx vectors with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`. Wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) move inside `:request`.
@@ -92,5 +92,5 @@ Flows are frame-scoped, evaluated in topological order after each event drain, s
 ## Where to read next
 
 - [`skills/re-frame-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md) — the skill that drives the migration end-to-end.
-- [19 — Adapters](19-adapters.md) — substrate-agnostic story, the `init!` call shape, the three adapter packages, the slim-Reagent option.
-- [20 — Where to go next](20-where-next.md) — once the migration settles, where to head next.
+- [19 — Adapters](21-adapters.md) — substrate-agnostic story, the `init!` call shape, the three adapter packages, the slim-Reagent option.
+- [20 — Where to go next](22-where-next.md) — once the migration settles, where to head next.

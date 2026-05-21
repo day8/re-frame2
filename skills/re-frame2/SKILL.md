@@ -120,7 +120,7 @@ When the user asks how to test a re-frame2 view — "does the screen show the ri
 - *State-correct, view-broken* — handler updated db, view reads wrong path / forgets a branch.
 - *Wrong-frame dispatch* — `:on-click` dispatches into the wrong frame; host-frame state never changes.
 
-The hiccup-walk + invoke-handler pattern catches both, on JVM and Node-CLJS, with no browser. Full pattern walkthrough lives at [`docs/guide/13-testing.md` §Asserting the view shows the right thing](../../docs/guide/13-testing.md).
+The hiccup-walk + invoke-handler pattern catches both, on JVM and Node-CLJS, with no browser. Full pattern walkthrough lives at [`docs/guide/15-testing.md` §Asserting the view shows the right thing](../../docs/guide/15-testing.md).
 
 The `h/testid` authoring helper standardises the attrs fragment at view call sites:
 

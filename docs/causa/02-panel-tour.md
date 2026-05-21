@@ -66,7 +66,7 @@ See [chapter 8](08-machine-inspector.md).
 
 ## Flows
 
-Registered [flows](../guide/18-from-re-frame-v1.md#flows--the-replacement-for-on-changes) — re-frame2's reactive-derivation primitive. Per-flow status, last value, the inputs it watches, the last few recomputes. Only lights up if your app registers any.
+Registered [flows](../guide/20-migration.md#flows--the-replacement-for-on-changes) — re-frame2's reactive-derivation primitive. Per-flow status, last value, the inputs it watches, the last few recomputes. Only lights up if your app registers any.
 
 ## Routes
 
@@ -74,7 +74,7 @@ Static route table, plus the current route, plus the per-frame route history. Us
 
 ## Performance
 
-The `rf:`-prefixed User Timing entries (event / sub / fx / render) plotted on a millisecond scale. Off by default — it's the channel covered in [Guide 16 — Performance](../guide/16-performance.md). Turn it on when you're looking at a specific slow render.
+The `rf:`-prefixed User Timing entries (event / sub / fx / render) plotted on a millisecond scale. Off by default — it's the channel covered in [Guide 16 — Performance](../guide/17-performance.md). Turn it on when you're looking at a specific slow render.
 
 ## Issues
 
@@ -82,7 +82,7 @@ The unified feed: errors, warnings, schema violations, hydration mismatches. One
 
 ## Schemas
 
-The schema-violation timeline. One row per registered schema (`app-db` slot, sub return, event payload, cofx). Coloured dots per failure with recovery mode. Lit up only if you've registered any Malli schemas — see [Guide 04a — Schemas](../guide/04a-schemas.md).
+The schema-violation timeline. One row per registered schema (`app-db` slot, sub return, event payload, cofx). Coloured dots per failure with recovery mode. Lit up only if you've registered any Malli schemas — see [Guide 04a — Schemas](../guide/05-schemas.md).
 
 See [chapter 6](06-schema-timeline.md).
 

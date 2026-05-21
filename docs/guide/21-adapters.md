@@ -1,4 +1,4 @@
-# 19 — Adapters
+# 21 — Adapters
 
 ## TL;DR
 
@@ -73,4 +73,4 @@ For apps where bundle size matters, the `day8/reagent-slim` artefact wires re-fr
 
 ## Where next
 
-If you've finished the chapters, [20 — Where to go next](20-where-next.md) is the one-screen exit pointer — examples, pattern docs, and the API reference.
+If you've finished the chapters, [20 — Where to go next](22-where-next.md) is the one-screen exit pointer — examples, pattern docs, and the API reference.

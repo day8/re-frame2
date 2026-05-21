@@ -4,7 +4,7 @@ Your tester refreshes the page and the count flips from 12 to 0. Server-rendered
 
 That's a hydration mismatch, and the Hydration panel is the focused view. The Issues ribbon will already have a `:rf.error/hydration-mismatch` row; click into it and the panel paints both render trees side-by-side with the offending node highlighted. The diagnosis isn't "the trees don't agree" — it's "the view at `cart.views:cart-total:73` rendered `$12.00` on the server and `$0.00` on the client, because the cofx that seeds `:cart/items` read `(js/Date.)` in a way the JVM-side renderer couldn't."
 
-The panel **only appears in the sidebar when hydration actually runs in the page**. A SPA-only build won't see it at all. SSR ships at [Guide 11](../guide/11-server-side.md).
+The panel **only appears in the sidebar when hydration actually runs in the page**. A SPA-only build won't see it at all. SSR ships at [Guide 11](../guide/13-server-side.md).
 
 ![Hydration debugger — server and client trees side-by-side, mismatch highlighted](../images/causa/07-hydration.png)
 

@@ -1,4 +1,4 @@
-# 06a — Frames
+# 08 — Frames
 
 ## TL;DR
 
@@ -47,12 +47,12 @@ The canonical multi-frame use cases, roughly in order of how often you'll meet t
 
 - **Multiple live instances of the same widget.** The motivating example above — two panels, two date ranges, one widget definition. Devcards on a documentation page, embedded white-label widgets on a host page, multi-window or split-screen UIs.
 - **Stories.** [Story](../story/index.md) gives every variant its own frame. *"Show this view in the loaded state, the loading state, and the error state, side by side"* — three frames, one set of registered handlers, three different `app-db` values. The story tool owns the frame allocation; you don't see it directly.
-- **Per-test fixtures.** [Chapter 13 — Testing](13-testing.md) creates a fresh frame for each test and tears it down at the end, so no test leaks state into the next. `with-frame` and `make-frame` are the test-side primitives.
-- **Per-request server-side render.** [Chapter 11 — The server side](11-server-side.md) creates a new frame per HTTP request, runs the SSR cascade against it, serialises the resulting `app-db`, and destroys the frame. Concurrent requests can't pollute each other because they each have their own `app-db`.
+- **Per-test fixtures.** [Chapter 15 — Testing](15-testing.md) creates a fresh frame for each test and tears it down at the end, so no test leaks state into the next. `with-frame` and `make-frame` are the test-side primitives.
+- **Per-request server-side render.** [Chapter 13 — The server side](13-server-side.md) creates a new frame per HTTP request, runs the SSR cascade against it, serialises the resulting `app-db`, and destroys the frame. Concurrent requests can't pollute each other because they each have their own `app-db`.
 
 The cases that look like multi-frame and aren't:
 
-- **Different routes in one app.** Routing changes which slice of `app-db` matters at any moment; it doesn't change which frame is in play. One frame, many routes — [chapter 17](17-routing.md) walks through it.
+- **Different routes in one app.** Routing changes which slice of `app-db` matters at any moment; it doesn't change which frame is in play. One frame, many routes — [chapter 18](18-routing.md) walks through it.
 - **Different components on one page.** You don't isolate by component. The whole point of `app-db` is that components compose by sharing slices of it through subs.
 - **Different *apps* on one page.** That's micro-frontends, explicitly out of scope. Use iframes; the host-page boundary is already what you need.
 
@@ -184,11 +184,11 @@ A useful test: *if two instances might want to share state under any circumstanc
 
 The chapters that exercise the multi-frame story in anger are downstream:
 
-- **[Chapter 13 — Testing](13-testing.md)** — `with-frame` and `make-frame` as the per-test fixture. The pattern is "create a fresh frame, dispatch a sequence of events, assert against the frame's `app-db`, tear down." Tests that span more than one event use `with-frame`'s lexical-binding form so you don't write `{:frame f}` on every dispatch.
+- **[Chapter 15 — Testing](15-testing.md)** — `with-frame` and `make-frame` as the per-test fixture. The pattern is "create a fresh frame, dispatch a sequence of events, assert against the frame's `app-db`, tear down." Tests that span more than one event use `with-frame`'s lexical-binding form so you don't write `{:frame f}` on every dispatch.
 
 - **[Story](../story/index.md)** — every story variant is a frame, allocated by the story runner. The variant's `:events` slot is a sequence of regular event vectors that dispatch into that frame; the canvas renders against it. The frame disappears when the variant is unmounted.
 
-- **[Chapter 11 — The server side](11-server-side.md)** — the per-request frame. The SSR adapter calls `(rf/make-frame {:preset :ssr-server :on-create [:rf/server-init request]})`, runs the cascade, reads the resulting `app-db` for hydration shipping, and destroys the frame. Concurrent requests don't see each other.
+- **[Chapter 13 — The server side](13-server-side.md)** — the per-request frame. The SSR adapter calls `(rf/make-frame {:preset :ssr-server :on-create [:rf/server-init request]})`, runs the cascade, reads the resulting `app-db` for hydration shipping, and destroys the frame. Concurrent requests don't see each other.
 
 Each chapter walks its own surface; this chapter is the substrate they all stand on.
 
@@ -202,7 +202,7 @@ Most frames you'll register fall into one of four shapes: a normal client app, a
 (rf/reg-frame :ssr.req/abc123      {:preset :ssr-server})
 ```
 
-Each preset's intent is **visible at the call site** — a reader of the source can tell at a glance that this is a test frame, that one is a story variant. The expansion is locked, which keeps the four canonical for AI scaffolding. Chapter 11, chapter 13, and the [Story tutorial](../story/index.md) introduce each preset in the context that needs it.
+Each preset's intent is **visible at the call site** — a reader of the source can tell at a glance that this is a test frame, that one is a story variant. The expansion is locked, which keeps the four canonical for AI scaffolding. Chapter 13, chapter 15, and the [Story tutorial](../story/index.md) introduce each preset in the context that needs it.
 
 ## What we covered
 
@@ -216,11 +216,11 @@ Each preset's intent is **visible at the call site** — a reader of the source 
 
 ## Cross-references
 
-- [chapter 06 — Views and frames](06-views-and-frames.md) — `reg-view`, `frame-provider`, and the split-counter in context.
-- [chapter 13 — Testing](13-testing.md) — `with-frame`/`make-frame` as the per-test fixture; the `:test` preset.
+- [chapter 07 — Views and frames](07-views.md) — `reg-view`, `frame-provider`, and the split-counter in context.
+- [chapter 15 — Testing](15-testing.md) — `with-frame`/`make-frame` as the per-test fixture; the `:test` preset.
 - [Story](../story/index.md) — frame-per-variant; the `:story` preset.
-- [chapter 11 — The server side](11-server-side.md) — per-request frame; the `:ssr-server` preset.
+- [chapter 13 — The server side](13-server-side.md) — per-request frame; the `:ssr-server` preset.
 
 ## Next
 
-- [07 — Interceptors](07-interceptors.md) — the sandwich wrapping every event handler's invocation; the place where per-frame `:interceptors` get prepended.
+- [07 — Interceptors](09-interceptors.md) — the sandwich wrapping every event handler's invocation; the place where per-frame `:interceptors` get prepended.

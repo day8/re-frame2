@@ -66,7 +66,7 @@ The app-db slice and subscription id are intentionally feature-scoped
 (`:counter/value`, not a bare `:count`) so generated applications start
 with AI-readable, non-colliding state keys. This is the same counter
 shape the developer reads about in [Guide chapter 03 — Your first
-app](../../../docs/guide/03-your-first-app.md) and the canonical
+app](../../../docs/guide/03-first-app.md) and the canonical
 [`examples/reagent/counter`](../../../examples/reagent/counter/)
 example.
 
@@ -234,5 +234,5 @@ GitHub Release is cut.
   migration plan that established the current resource shape.
 - [DESIGN-RATIONALE.md §1](DESIGN-RATIONALE.md#1--deps-new-over-clj-new)
   — why deps-new + git-coord over clj-new + Clojars.
-- [Guide chapter 03 — Your first app](../../../docs/guide/03-your-first-app.md)
+- [Guide chapter 03 — Your first app](../../../docs/guide/03-first-app.md)
   — the counter walkthrough the generated app aligns with.

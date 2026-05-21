@@ -1,4 +1,4 @@
-# 12 — The dynamic-model story
+# 14 — The dynamic-model story
 
 ## TL;DR
 
@@ -107,7 +107,7 @@ Programmers, by habit, focus on **parts** — the dominoes, the handlers, the vi
 
 **App-db as the result of a perpetual reduce.** Event handlers have the signature `(state, event) → state`. That is exactly the signature of `reduce`'s combining function. So `app-db` is the running accumulator of `(reduce step initial-db events-so-far)` — where `step` is dispatch over the registered handler set. `app-db` isn't *primary*; it's *temporary storage for the fold*. Events are primary. Elm called this `foldp` — fold-from-the-past — and it is one of the most useful mental models in the framework.
 
-**The whole app as one finite state machine.** Chapter 09 talks about *registered* FSMs — small, explicit, named state machines for pieces of your app. There is a higher-level reading: the whole application is itself an FSM. Events are the triggers, handlers are the transition rules, `app-db`'s value is the current state. The dynamic story collapses to: in state `S`, event `E` arrives, the rules take you to state `S'`. The simplest computational model we have, applied to the whole app.
+**The whole app as one finite state machine.** Chapter 11 talks about *registered* FSMs — small, explicit, named state machines for pieces of your app. There is a higher-level reading: the whole application is itself an FSM. Events are the triggers, handlers are the transition rules, `app-db`'s value is the current state. The dynamic story collapses to: in state `S`, event `E` arrives, the rules take you to state `S'`. The simplest computational model we have, applied to the whole app.
 
 ## IV. The shape of the bet
 
@@ -157,7 +157,7 @@ That's what re-frame2 is. It is not the only way to build an SPA. It is, however
 
 The proof, in the end, is the experience of using it. Build a re-frame2 app. Build a feature in it. Write tests. Refactor. Onboard a teammate. Come back to it six months later and add a feature without re-reading the codebase. The properties this chapter argues for in theory — they show up empirically, every time, in ways that are hard to convey in writing but obvious in practice.
 
-If you want to see them, [chapter 03](03-your-first-app.md) is where the code starts.
+If you want to see them, [chapter 03](03-first-app.md) is where the code starts.
 
 > *To understand a program, you must become both the machine and the program.*
 > — Alan Perlis

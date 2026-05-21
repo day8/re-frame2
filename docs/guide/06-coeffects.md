@@ -1,4 +1,4 @@
-# 05 — Coeffects
+# 06 — Coeffects
 
 Coeffects are the *side-causes* — the data a handler reads from the world that isn't `app-db`: the current wall-clock time, a freshly-generated UUID, a value retrieved from `localStorage`, the browser's preferred language. Just as effects keep the handler from *performing* side-effects, coeffects keep the handler from *causing* them — no `(js/Date.)` in the handler body, no `(.getItem js/localStorage ...)`, no `(random-uuid)`. Inputs arrive in the coeffects map; the handler stays a function.
 
@@ -52,7 +52,7 @@ Three things are wrong with it, and they're the same three things that were wron
 
 **The handler isn't pure.** Same inputs no longer produce the same outputs. Calling the handler twice with `({} [:todo/add "buy milk"])` gives a different `:created-at` and a different `:id` each time. The test framework can't pin a value down without monkey-patching `js/Date` and `random-uuid` globally.
 
-**The boundary leaks into the body.** `js/Date` exists in the browser; on the JVM (where you want this handler's tests to run, per [chapter 13](13-testing.md)) it doesn't. Now the handler can't be tested without a CLJS runtime, even though the logic it expresses — "stamp this new todo with a creation time" — is host-neutral.
+**The boundary leaks into the body.** `js/Date` exists in the browser; on the JVM (where you want this handler's tests to run, per [chapter 15](15-testing.md)) it doesn't. Now the handler can't be tested without a CLJS runtime, even though the logic it expresses — "stamp this new todo with a creation time" — is host-neutral.
 
 **There's no override surface.** You can't, for one event, ask "what does the handler do if the time is fixed at noon on January 1st, 2026?" without reaching into `js/Date` itself — every other handler in the same test run gets the same redefinition, and tearing it back down is fiddly.
 
@@ -79,7 +79,7 @@ The handler is back to being a pure function. The two impure calls (`js/Date.`, 
 
 ## `reg-cofx` — registering an input
 
-A cofx handler is a function from context to context. It receives the full context map (the same one interceptors thread, per [chapter 07](07-interceptors.md)) and returns a new context with the cofx value `assoc-in`'d under `[:coeffects <id>]`:
+A cofx handler is a function from context to context. It receives the full context map (the same one interceptors thread, per [chapter 09](09-interceptors.md)) and returns a new context with the cofx value `assoc-in`'d under `[:coeffects <id>]`:
 
 ```clojure
 (rf/reg-cofx :now
@@ -259,7 +259,7 @@ When the sub takes arguments, parameterise the cofx with the binary form from ea
     {:db (assoc-in db [:orders 42 :status] :cancelled)}))
 ```
 
-You will reach for this often enough that "wrap as cofx" becomes muscle memory. It's worth flagging — and you may have noticed its absence — that re-frame2 deliberately does not ship a `cofx-from-sub` shortcut that collapses the five-line `reg-cofx` form into a single helper. The shortcut was considered (rf2-gw8j) and rejected. The five lines aren't friction to be papered over; they're the surface area that says "this is a coeffect, register it like one." A helper would imply subscribing-inside-handlers is the rule and the cofx is the workaround. It isn't — the cofx is the rule, and the wrap is the cost of admission for any handler that reads anything beyond `:db` and `:event`. The same five-line shape is what `:now`, `:new-id`, and `:local-store` use; sub-values aren't special.
+You will reach for this often enough that "wrap as cofx" becomes muscle memory. It's worth flagging — and you may have noticed its absence — that re-frame2 deliberately does not ship a `cofx-from-sub` shortcut that collapses the five-line `reg-cofx` form into a single helper. The five lines aren't friction to be papered over; they're the surface area that says "this is a coeffect, register it like one." A helper would imply subscribing-inside-handlers is the rule and the cofx is the workaround. It isn't — the cofx is the rule, and the wrap is the cost of admission for any handler that reads anything beyond `:db` and `:event`. The same five-line shape is what `:now`, `:new-id`, and `:local-store` use; sub-values aren't special.
 
 The same pattern, in agent-skill form (terser, with the gotchas pinned for AI authors): [`skills/re-frame2/`](../../skills/re-frame2/) → `reference/fundamentals/cofx.md` §*Reading a sub from a handler — wrap as cofx*.
 
@@ -296,9 +296,9 @@ This is the payoff. A handler that uses `(inject-cofx :now)` is testable without
 
 Three things to notice:
 
-**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. [Chapter 13](13-testing.md) walks the end-to-end-through-the-dispatch-loop variant of this test; this chapter shows the pure-function-of-coeffects shape.
+**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. [Chapter 15](15-testing.md) walks the end-to-end-through-the-dispatch-loop variant of this test; this chapter shows the pure-function-of-coeffects shape.
 
-**`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 13 §Registrar isolation](13-testing.md#registrar-isolation-with-fresh-registrar).
+**`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 15 §Registrar isolation](15-testing.md#registrar-isolation-with-fresh-registrar).
 
 **The handler-under-test never knew it was being tested.** It dispatched against a frame, asked for `:now` through `inject-cofx`, got back a fixed instant. No conditional in the handler body. No `if-test?` flag. The handler is the same shape in production and in the test; only the injected value changed.
 
@@ -308,12 +308,12 @@ This idiom generalises: any handler that depends on the outside world via cofx c
 
 A short orientation map for everything cofx-related you'll see in re-frame2 code:
 
-- **The cofx fn shape.** `(fn [ctx])` or `(fn [ctx value])`, returning the ctx with `[:coeffects <id>]` assoc'd. The handler runs as an interceptor's `:before`; the [interceptor chapter](07-interceptors.md) is the deep-dive on why that machinery exists.
+- **The cofx fn shape.** `(fn [ctx])` or `(fn [ctx value])`, returning the ctx with `[:coeffects <id>]` assoc'd. The handler runs as an interceptor's `:before`; the [interceptor chapter](09-interceptors.md) is the deep-dive on why that machinery exists.
 - **The handler's view.** `reg-event-fx`'s first argument is the coeffects map. Destructure `:db`, `:event`, and any injected cofx keys you registered.
 - **`reg-event-db` is unaffected.** `:db` and the event vector only; injected cofxes aren't visible. Promote to `reg-event-fx` if you need them.
 - **`reg-event-ctx`** is the rare third surface — handler receives the full context map (both `:coeffects` and `:effects`). Most cofx-using code doesn't need it; reach for it when you genuinely want to reshape the context itself.
 
-The forward link from [chapter 07's table](07-interceptors.md#the-context-map) points here: the `:coeffects` half of the context map is where every input lives, and `inject-cofx` is the canonical way to put something new in it.
+The forward link from [chapter 09's table](09-interceptors.md#the-context-map) points here: the `:coeffects` half of the context map is where every input lives, and `inject-cofx` is the canonical way to put something new in it.
 
 ## A note on async — coeffects MUST be synchronous
 
@@ -321,7 +321,7 @@ One firm rule before you start writing your own: **a cofx handler MUST resolve s
 
 The reason is the shape of the cascade. `inject-cofx` runs as an interceptor's `:before` on the way in, *before* the handler. The handler then runs as a pure function of `[coeffects event]` — every key it destructures out of `:coeffects` is assumed materialised at call time. An async cofx breaks this in one of two ways: either the runtime would have to *block* the cascade waiting for the promise to resolve (which defeats async-ness and stalls the whole drain loop), or the handler would run against an unresolved placeholder (which is just a bug). Neither is acceptable, so the runtime simply doesn't try; cofx handlers run, return a context, and the next interceptor sees the value sitting under `[:coeffects <id>]`.
 
-If you need data the world can only provide asynchronously — a fetch, a WebSocket round-trip, a `requestIdleCallback` — that work belongs on the *output* side, as a managed effect. The shape is: the user's interaction dispatches an event; the event's handler returns an effect map that includes the async effect (e.g. `:rf.http/managed`); the effect handler runs the async work and dispatches a follow-on event when the result lands. The follow-on event arrives synchronously like any other, its handler reads the now-materialised value out of its event vector (or out of `app-db` if a prior fx wrote it), and the cascade stays pure end-to-end. [Chapter 10](10-doing-http-requests.md) walks the HTTP version of this pattern.
+If you need data the world can only provide asynchronously — a fetch, a WebSocket round-trip, a `requestIdleCallback` — that work belongs on the *output* side, as a managed effect. The shape is: the user's interaction dispatches an event; the event's handler returns an effect map that includes the async effect (e.g. `:rf.http/managed`); the effect handler runs the async work and dispatches a follow-on event when the result lands. The follow-on event arrives synchronously like any other, its handler reads the now-materialised value out of its event vector (or out of `app-db` if a prior fx wrote it), and the cascade stays pure end-to-end. [Chapter 12](12-http.md) walks the HTTP version of this pattern.
 
 The wrong shape and the right shape, side by side:
 
@@ -365,6 +365,6 @@ The rule of thumb: **cofx for values the world can hand back instantly** (`js/Da
 
 ## Next
 
-- [06 — Views and frames](06-views-and-frames.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
-- [07 — Interceptors](07-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
-- [13 — Testing](13-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `make-reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
+- [06 — Views and frames](07-views.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
+- [07 — Interceptors](09-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
+- [13 — Testing](15-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `make-reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.

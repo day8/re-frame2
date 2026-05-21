@@ -62,40 +62,31 @@ nav:
   - Guide:
     - Overview: guide/README.md
     - "02 — app-db": guide/02-app-db.md
-    - "03 — Your first app": guide/03-your-first-app.md
-    - "04 — Events, state, the cycle": guide/04-events-state-cycle.md
-    - "04a — Schemas": guide/04a-schemas.md
-    - "05 — Coeffects": guide/05-coeffects.md
-    - "06 — Views and frames": guide/06-views-and-frames.md
-    - "06a — Frames": guide/06a-frames.md
-    - "07 — Interceptors": guide/07-interceptors.md
-    - "08 — Forms": guide/08-forms.md
-    - "09 — State machines": guide/09-state-machines.md
-    - "10 — Doing HTTP requests": guide/10-doing-http-requests.md
-    - "11 — The server side": guide/11-server-side.md
-    - "12 — The dynamic model": guide/12-the-dynamic-model.md
-    - "13 — Testing": guide/13-testing.md
-    - "14 — Errors": guide/14-errors.md
-    - "16 — Performance": guide/16-performance.md
-    - "17 — Routing": guide/17-routing.md
-    - "17a — Routing: reference and advanced topics": guide/17a-routing-reference.md
-    - "18 — From re-frame v1": guide/18-from-re-frame-v1.md
-    - "19 — Adapters": guide/19-adapters.md
-    - "20 — Where to go next": guide/20-where-next.md
+    - "03 — First app": guide/03-first-app.md
+    - "04 — Events": guide/04-events.md
+    - "05 — Schemas": guide/05-schemas.md
+    - "06 — Coeffects": guide/06-coeffects.md
+    - "07 — Views": guide/07-views.md
+    - "08 — Frames": guide/08-frames.md
+    - "09 — Interceptors": guide/09-interceptors.md
+    - "10 — Forms": guide/10-forms.md
+    - "11 — Machines": guide/11-machines.md
+    - "12 — HTTP": guide/12-http.md
+    - "13 — Server side": guide/13-server-side.md
+    - "14 — Dynamic model": guide/14-dynamic-model.md
+    - "15 — Testing": guide/15-testing.md
+    - "16 — Errors": guide/16-errors.md
+    - "17 — Performance": guide/17-performance.md
+    - "18 — Routing": guide/18-routing.md
+    - "19 — Routing reference": guide/19-routing-ref.md
+    - "20 — Migration from v1": guide/20-migration.md
+    - "21 — Adapters": guide/21-adapters.md
+    - "22 — Where to go next": guide/22-where-next.md
     - "Useful patterns":
-      - "22 — Production observability": guide/22-trace-to-datadog.md
-      - "23a — Privacy: keeping secrets out of traces": guide/23a-privacy-secrets.md
-      - "23b — Large blobs: keeping the wire small": guide/23b-large-blobs.md
-    - "24 — Configuration and safety primitives":
-      - Overview: guide/24-configuration-and-safety/index.md
-      - "24.01 — Framework configuration": guide/24-configuration-and-safety/01-framework-config.md
-      - "24.02 — HTTP safety primitives": guide/24-configuration-and-safety/02-http-safety.md
-      - "24.03 — Redirects and editor URIs": guide/24-configuration-and-safety/03-redirect-and-editor-uris.md
-      - "24.04 — Drain depth and error recovery": guide/24-configuration-and-safety/04-drain-depth-and-error-recovery.md
-      - "24.05 — Reserved namespaces": guide/24-configuration-and-safety/05-reserved-namespaces.md
-      - "24.06 — State-machine substrate features": guide/24-configuration-and-safety/06-state-machine-substrate-features.md
-      - "24.07 — Privacy and elision in practice": guide/24-configuration-and-safety/07-privacy-and-elision.md
-      - "24.08 — Exceptions under :sensitive?": guide/24-configuration-and-safety/08-exceptions-under-sensitive.md
+      - "23 — Observability": guide/23-observability.md
+      - "24 — Privacy": guide/24-privacy.md
+      - "25 — Large blobs": guide/25-large-blobs.md
+    - "26 — Configuration and safety": guide/26-config.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md

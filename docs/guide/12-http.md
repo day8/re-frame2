@@ -1,4 +1,4 @@
-# 10 — Doing HTTP requests
+# 12 — HTTP
 
 Most SPAs spend their lives talking to a server. A handler dispatches; a fetch goes out; some milliseconds later a reply lands; the handler integrates the reply; the view re-renders. Repeat a few thousand times per session.
 
@@ -223,7 +223,7 @@ The reply dispatch lands in the **same frame** the request was issued from. The 
 
 ## Test stubs
 
-For stubbing managed-HTTP requests in tests — the `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs and the `with-managed-request-stubs` helper — see [13 — Testing §Stubbing managed HTTP](13-testing.md#stubbing-managed-http).
+For stubbing managed-HTTP requests in tests — the `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs and the `with-managed-request-stubs` helper — see [13 — Testing §Stubbing managed HTTP](15-testing.md#stubbing-managed-http).
 
 ## The standard request-lifecycle slice
 
@@ -266,7 +266,7 @@ The realworld example is a worked sketch — broader than the counter demo, narr
 
 ## Migrating from re-frame v1's ad-hoc HTTP
 
-For callers coming from a v1 codebase with their own `:http` fx (or `re-frame-http-fx` / `re-frame-fetch-fx`), see [18 — From re-frame v1 §Migrating an HTTP layer](18-from-re-frame-v1.md#migrating-an-http-layer).
+For callers coming from a v1 codebase with their own `:http` fx (or `re-frame-http-fx` / `re-frame-fetch-fx`), see [18 — From re-frame v1 §Migrating an HTTP layer](20-migration.md#migrating-an-http-layer).
 
 ## Reference and tooling
 
@@ -301,4 +301,4 @@ Your codebase shouldn't carry HTTP archaeology. Every layer of "this is how we u
 
 ## Next
 
-- [11 — The server side](11-server-side.md) — SSR and hydration; the `:platforms` story for fx that should only run in one place; how the per-request frame composes with managed-HTTP for setup fetches.
+- [11 — The server side](13-server-side.md) — SSR and hydration; the `:platforms` story for fx that should only run in one place; how the per-request frame composes with managed-HTTP for setup fetches.

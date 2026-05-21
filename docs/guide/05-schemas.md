@@ -1,4 +1,4 @@
-# 04a — Schemas
+# 05 — Schemas
 
 ## TL;DR
 
@@ -8,7 +8,7 @@ A re-frame2 app's runtime story is "events change `app-db`, views read it." It w
 
 **Schemas** are the answer. A schema is a piece of data that says *what shape another piece of data must have*. Bind a schema to an `app-db` path and the runtime checks the slice after every handler. Bind a schema to an event via `:schema` and the runtime checks the event vector before the handler runs. In dev, you find out the moment a write goes wrong, with the explanation pointing at the exact key and value. In production, every validation call disappears at compile time.
 
-This chapter is the **Malli warmup**. The forms chapter ([08](08-forms.md)) and the HTTP chapter ([10](10-doing-http-requests.md)) lean on schemas heavily; rather than introduce the vocabulary mid-paragraph there, we cover it once here, before forms need it.
+This chapter is the **Malli warmup**. The forms chapter ([08](10-forms.md)) and the HTTP chapter ([10](12-http.md)) lean on schemas heavily; rather than introduce the vocabulary mid-paragraph there, we cover it once here, before forms need it.
 
 ## Why schemas
 
@@ -82,7 +82,7 @@ The slot properties map is also where you declare two framework-aware runtime fl
 - `:large? true` declares the slot's value is large enough that the framework should **elide** it from the wire — every trace event that would otherwise carry the value substitutes a `:rf.size/large-elided` marker (`{:path :bytes :type :hint :handle}`). The runtime walks every registered schema at boot, populates `[:rf/elision :declarations]`, and `rf/elide-wire-value` consults it on every emit.
 - `:sensitive? true` declares the slot's value is **sensitive** — the schema-validation error path redacts the value before it rides the trace stream (the sentinel `:rf/redacted` appears in place of the value), and consumers route on a top-level `:sensitive?` flag. The two compose; sensitive wins on both-flagged slots.
 
-Both flags accept the same two structural positions as `{:optional true}`: per-slot inside a `:map` (path is the slot's path), or container-level when the schema is registered at the path directly (e.g. `[:string {:sensitive? true}]`). The optional `:hint` string on the same props map rides through to the wire marker, orienting AI consumers without forcing a drill-down. **The schema is the one primary declaration site** for both axes — the framework auto-installs the trace scrub for `:sensitive?` slots and the wire marker for `:large?` slots; you do not write a separate interceptor or runtime registration. The full picture from the app-writer's side — the schema as the canonical truth, the one handler-meta `:sensitive?` escape hatch for cross-cutting cases, HTTP redaction, and the consumer-side composition rules — is split across [chapter 23a — Privacy](23a-privacy-secrets.md) (the `:sensitive?` half) and [chapter 23b — Large blobs](23b-large-blobs.md) (the `:large?` half); this section is just the discoverability hook from the schemas side.
+Both flags accept the same two structural positions as `{:optional true}`: per-slot inside a `:map` (path is the slot's path), or container-level when the schema is registered at the path directly (e.g. `[:string {:sensitive? true}]`). The optional `:hint` string on the same props map rides through to the wire marker, orienting AI consumers without forcing a drill-down. **The schema is the one primary declaration site** for both axes — the framework auto-installs the trace scrub for `:sensitive?` slots and the wire marker for `:large?` slots; you do not write a separate interceptor or runtime registration. The full picture from the app-writer's side — the schema as the canonical truth, the one handler-meta `:sensitive?` escape hatch for cross-cutting cases, HTTP redaction, and the consumer-side composition rules — is split across [chapter 24 — Privacy](24-privacy.md) (the `:sensitive?` half) and [chapter 25 — Large blobs](25-large-blobs.md) (the `:large?` half); this section is just the discoverability hook from the schemas side.
 
 ## `reg-app-schema` — binding a schema to a path
 
@@ -217,12 +217,12 @@ A schema-aware feature matches the convention when:
 
 ## Cross-references
 
-- [chapter 08 — Forms](08-forms.md) — the first heavy schema user: `FormSlice` for the slice shape, `LoginForm` for the value shape, both bound with `reg-app-schema`.
-- [chapter 10 — Doing HTTP requests](10-doing-http-requests.md) — schemas as the canonical `:decode` for response bodies.
-- [chapter 14 — Errors](14-errors.md) — what `:rf.error/schema-validation-failure` looks like as it flows through the trace stream.
+- [chapter 10 — Forms](10-forms.md) — the first heavy schema user: `FormSlice` for the slice shape, `LoginForm` for the value shape, both bound with `reg-app-schema`.
+- [chapter 12 — Doing HTTP requests](12-http.md) — schemas as the canonical `:decode` for response bodies.
+- [chapter 16 — Errors](16-errors.md) — what `:rf.error/schema-validation-failure` looks like as it flows through the trace stream.
 - [Malli's README](https://github.com/metosin/malli) — the full schema vocabulary, registries, custom schemas, generators.
 
 ## Next
 
-- [05 — Coeffects](05-coeffects.md) — the matching *inputs* half of the handler's contract (`:db`, `:event`, and the side-causes `inject-cofx` injects). Optional side-track.
-- [06 — Views and frames](06-views-and-frames.md) — what you put on the screen, and how you isolate state per frame.
+- [05 — Coeffects](06-coeffects.md) — the matching *inputs* half of the handler's contract (`:db`, `:event`, and the side-causes `inject-cofx` injects). Optional side-track.
+- [06 — Views and frames](07-views.md) — what you put on the screen, and how you isolate state per frame.

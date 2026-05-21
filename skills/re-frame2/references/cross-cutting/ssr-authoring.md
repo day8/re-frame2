@@ -134,7 +134,7 @@ These are **trace** events — DCE-eligible in CLJS production builds. To ship t
 
 - Spec normative: [`spec/011-SSR.md §Head/meta contract`](../../../../spec/011-SSR.md) (`reg-head` / `render-head` / `active-head`); [`§The :rf/hydrate event`](../../../../spec/011-SSR.md) (check fxs).
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
-- Guide chapter: [`docs/guide/11-server-side.md`](../../../../docs/guide/11-server-side.md) — narrative walkthrough, head/meta and hydration sections.
+- Guide chapter: [`docs/guide/13-server-side.md`](../../../../docs/guide/13-server-side.md) — narrative walkthrough, head/meta and hydration sections.
 - Worked example: [`examples/reagent/ssr/core.cljc`](../../../../examples/reagent/ssr/core.cljc) — the reference `:rf/hydrate` body matches this leaf verbatim.
 - Production trace fan-out: [`production-observability.md`](production-observability.md) — shipping `:rf.ssr/*` records off-box.
 - Trace catalogue: [`spec/009-Instrumentation.md §Error event catalogue`](../../../../spec/009-Instrumentation.md) — `:rf.ssr/*` keywords.

@@ -121,7 +121,7 @@ You opt in to seeing redacted events when you're debugging the redaction policy 
 
 The flag is read at the head of every listener body, so toggling it takes effect on the next trace event without re-registering anything. Reset to the default (`false`) by passing `false` or `nil`.
 
-For the wider picture — how events are stamped `:sensitive?`, the HTTP redaction surface, and the per-path `:large?` size-elision pathway — see [Guide 23a — Privacy](../guide/23a-privacy-secrets.md) and [Guide 23b — Large blobs](../guide/23b-large-blobs.md).
+For the wider picture — how events are stamped `:sensitive?`, the HTTP redaction surface, and the per-path `:large?` size-elision pathway — see [Guide 23a — Privacy](../guide/24-privacy.md) and [Guide 23b — Large blobs](../guide/25-large-blobs.md).
 
 ## When you'd open the Trace panel
 

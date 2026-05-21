@@ -17,13 +17,13 @@ spec docs:
 | Doc | Why permitted |
 |---|---|
 | `spec/Principles.md` | Framework philosophy; load-bearing for a curious reader |
-| `spec/000-Vision.md` | Human-readable philosophy track; the 'why re-frame2 exists' doc. Permitted but most chapters won't need it; ch.20 (spec portal) is its natural home. |
+| `spec/000-Vision.md` | Human-readable philosophy track; the 'why re-frame2 exists' doc. Permitted but most chapters won't need it; ch.22 (spec portal) is its natural home. |
 | `migration/from-re-frame-v1/README.md` | v1 → v2 migrants are a distinct audience; ch.18 is their on-ramp |
 | `spec/Pattern-AsyncEffect.md` | Runnable convention; cross-cutting across ch.04 / ch.09 / ch.16 |
 | `spec/Pattern-RemoteData.md` | Runnable convention; cross-cutting across ch.02 / ch.08 / ch.10 |
 | `spec/Pattern-Forms.md` | Runnable convention; the 7-event lifecycle is reused |
 
-**Chapter 20 (Where to go next) is exempt** from this restriction. It IS the
+**Chapter 22 (Where to go next) is exempt** from this restriction. It IS the
 spec portal — curated lists of every spec doc the curious reader can dive into
 are appropriate there.
 
@@ -58,7 +58,20 @@ don't reach for the link.
 
 ## Drift watch
 
-This policy was applied retrospectively via beads rf2-4470, rf2-09ew3,
-rf2-6e6yu, rf2-zfqgl, rf2-oi6mw, rf2-jdzjf, rf2-7wkwl, rf2-uvuyd (the 8
-chapter-surgery beads from audit rf2-7uz9). Future chapter authors who skip
-this policy will reintroduce the same drift.
+The guide's spec-link policy was tightened retrospectively after chapter
+authors had started reaching for spec URLs as a substitute for writing
+the explanation in chapter prose. Future chapter authors who skip this
+policy will reintroduce the same drift — keep the tutorial track
+self-sufficient.
+
+## No bead references in chapter prose
+
+User-facing docs state the **current truth** of the framework, not the
+historical trace of which decisions produced it. Do not introduce
+`(rf2-xxx)` citations, `Per rf2-xxx ...` constructions, or
+`as decided in rf2-xxx` style references into chapter text. Substantive
+content goes inline; the bead history lives in the bead tracker.
+
+Migration-rule ids (`M-NN`), spec section anchors (`#section-name`), and
+cross-doc filename links are all fine — those are normative anchors, not
+historical decision-trace references.

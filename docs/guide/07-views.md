@@ -1,4 +1,4 @@
-# 06 — Views and frames
+# 07 — Views and frames
 
 Two questions matter for the screen:
 
@@ -126,7 +126,7 @@ The view holds the `sort-by`, holds the price-formatting. Two responsibilities t
 
 And we're back where we started: *all this view does is render the product list*. The sort and the price-formatting run once per change to `:products`, in the sub cache, and every view that wants the sorted-and-formatted list shares the cached value. The view's job collapses to "walk the list, emit hiccup."
 
-Keep views as simple as possible. Don't give them knowledge or tasks outside their remit. If it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [16 — Performance](16-performance.md).
+Keep views as simple as possible. Don't give them knowledge or tasks outside their remit. If it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [16 — Performance](17-performance.md).
 
 ### A note on what views don't do
 
@@ -153,7 +153,7 @@ What's *not* wrapped is anything attached imperatively from inside the render bo
   [:div {:on-animation-end #(dispatch [:tile/finished])}])
 ```
 
-If there is no synthetic-event surface for what you need — `setTimeout`, `fetch`, `requestAnimationFrame`, `IntersectionObserver`, a WebSocket — the right shape is a **registered fx**. The fx captures the frame at registration; the per-event reply is a registered event the fx dispatches with the frame already resolved. [Chapter 10](10-doing-http-requests.md) walks through the HTTP instance. For mount-time imperative attach to a specific DOM node (a third-party library, a chart, a map), the substrate's lifecycle hook is the escape hatch — `reagent.core/create-class` via `reg-view*` in Reagent, `use-effect` in UIx / Helix.
+If there is no synthetic-event surface for what you need — `setTimeout`, `fetch`, `requestAnimationFrame`, `IntersectionObserver`, a WebSocket — the right shape is a **registered fx**. The fx captures the frame at registration; the per-event reply is a registered event the fx dispatches with the frame already resolved. [Chapter 12](12-http.md) walks through the HTTP instance. For mount-time imperative attach to a specific DOM node (a third-party library, a chart, a map), the substrate's lifecycle hook is the escape hatch — `reagent.core/create-class` via `reg-view*` in Reagent, `use-effect` in UIx / Helix.
 
 ### Animations
 
@@ -350,7 +350,7 @@ You don't need to do anything to get it. `reg-view` does it. The full story — 
 
 ## Routing as state
 
-Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 17](17-routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
+Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 18](18-routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
 
 ## A small example: split counter
 
@@ -393,8 +393,8 @@ A useful test: if two instances might want to share state under any circumstance
 
 Two adjacent topics deserve a pointer before you leave views and frames, but neither is needed up front:
 
-- **Flows — computed values stored in `app-db`** (rather than the per-frame sub-cache). A niche convenience for derived values that need to be visible to other handlers, survive SSR/hydration, or carry a schema. Reach for it only when a sub won't do. The canonical introduction lives at [18 — From re-frame v1 §Flows](18-from-re-frame-v1.md#flows--the-replacement-for-on-changes) (flows are the migration target for v1's `on-changes`).
-- **Nine-states UI checklist** — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`. Modelled as one parallel state machine with three regions; introduced once you've met parallel regions in [09 — State machines §Parallel regions](09-state-machines.md#parallel-regions).
+- **Flows — computed values stored in `app-db`** (rather than the per-frame sub-cache). A niche convenience for derived values that need to be visible to other handlers, survive SSR/hydration, or carry a schema. Reach for it only when a sub won't do. The canonical introduction lives at [18 — From re-frame v1 §Flows](20-migration.md#flows--the-replacement-for-on-changes) (flows are the migration target for v1's `on-changes`).
+- **Nine-states UI checklist** — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`. Modelled as one parallel state machine with three regions; introduced once you've met parallel regions in [09 — State machines §Parallel regions](11-machines.md#parallel-regions).
 
 ## What we covered
 
@@ -407,5 +407,5 @@ Two adjacent topics deserve a pointer before you leave views and frames, but nei
 
 ## Next
 
-- [08 — Forms](08-forms.md) — the standard slice + events + subs convention for input gathering.
-- [09 — State machines](09-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
+- [08 — Forms](10-forms.md) — the standard slice + events + subs convention for input gathering.
+- [09 — State machines](11-machines.md) — when an event handler's logic is a flow, model it as a state machine.

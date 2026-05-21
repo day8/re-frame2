@@ -138,7 +138,7 @@ clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-a
   substrates.
 - **The counter throughline.** Every variant emits a working
   counter, mirroring [Guide chapter 03 — Your first
-  app](https://github.com/day8/re-frame2/blob/main/docs/guide/03-your-first-app.md)
+  app](https://github.com/day8/re-frame2/blob/main/docs/guide/03-first-app.md)
   and the canonical `examples/<substrate>/counter*/` apps.
 - **Pin lockstep.** `:rf2-version`, `:shadow-version`,
   `:react-version` continue to track

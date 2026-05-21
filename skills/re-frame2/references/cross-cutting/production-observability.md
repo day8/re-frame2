@@ -142,7 +142,7 @@ Three independent conditions: **config env tag** (the app knows it's production)
 
 The two always-on listener APIs carve a minimal substrate that **survives** that elision: a tiny record shape, a `defonce` registry that hot reload won't blow away, fan-out gated on registry size (empty-map check short-circuits). Re-enable the full trace bus in production by flipping `:closure-defines {goog.DEBUG true}` if and only if the bundle cost is acceptable.
 
-Full rationale: [`docs/guide/22-trace-to-datadog.md`](../../../../docs/guide/22-trace-to-datadog.md) and [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489).
+Full rationale: [`docs/guide/23-observability.md`](../../../../docs/guide/23-observability.md) and [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489).
 
 ## Generic shipper recipe (Datadog / Sentry / Honeycomb)
 
@@ -162,7 +162,7 @@ The record shapes are tight enough to ship verbatim — every observability vend
 
 `:payload` (the `:event` slot) has **already** been passed through `rf/elide-wire-value` with off-box defaults (`:rf.size/include-large? false`, `:rf.size/include-sensitive? false`) by the time your listener runs. Do not re-walk unless you want to **widen** the policy (e.g. `:rf.size/include-digests? true` for a debug pipeline). See [`privacy-and-elision.md`](privacy-and-elision.md) for the elision composition rules.
 
-Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`docs/guide/22-trace-to-datadog.md`](../../../../docs/guide/22-trace-to-datadog.md).
+Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`docs/guide/23-observability.md`](../../../../docs/guide/23-observability.md).
 
 ## Common gotchas
 
@@ -174,7 +174,7 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 ## Cross-references
 
-- Guide chapter: [`docs/guide/22-trace-to-datadog.md`](../../../../docs/guide/22-trace-to-datadog.md) — narrative walkthrough with vendor-specific recipes.
+- Guide chapter: [`docs/guide/23-observability.md`](../../../../docs/guide/23-observability.md) — narrative walkthrough with vendor-specific recipes.
 - Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489) — substrate contracts.
 - Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — `:sensitive?` short-circuits BEFORE elision; payload already walked at listener entry.
 - Per-frame `:on-error` policy: [`references/fundamentals/frames.md`](../fundamentals/frames.md) §`:on-error` — in-app recovery, sibling to the corpus-wide error listener.

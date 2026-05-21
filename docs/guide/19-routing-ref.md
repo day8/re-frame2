@@ -1,4 +1,4 @@
-# 17a — Routing: reference and advanced topics
+# 19 — Routing: reference and advanced topics
 
 This chapter is the per-topic reference for routing. The sections are independent of one another — reach for them when the topic comes up, not as the next link in a linear sequence. `:on-error` is the route's response to a load failure. `:can-leave` blocks navigation when there's unsaved work. The nav-token section expands the basics-half callout into the full mechanism — cofx shape, the `:rf.route/with-nav-token` wrapper, a step-by-step worked example. Query strings, multi-frame routing, and the pure `match-url` / `route-url` helpers round out the surface. A RealWorld worked example shows the pieces wired together, and a closing section says what the AI-track gets from routing-as-state.
 
@@ -288,7 +288,7 @@ An auth guard (regular interceptor on `:rf.route/navigate`) consults `:tags` and
                   ctx)))))
 ```
 
-Guards are interceptors, not a special routing mechanism. They compose; multiple guards can layer. The interceptor primitive (`->interceptor`), the sandwich shape, and how `:before` modifies the context are covered in [chapter 07 — Interceptors](07-interceptors.md).
+Guards are interceptors, not a special routing mechanism. They compose; multiple guards can layer. The interceptor primitive (`->interceptor`), the sandwich shape, and how `:before` modifies the context are covered in [chapter 09 — Interceptors](09-interceptors.md).
 
 The editor's `:can-leave` guard plus a confirmation dialog are wired exactly as described in [§Navigation blocking](#navigation-blocking--the-can-leave-protocol) above — the dirty-flag drives the sub; the dialog renders from `:rf/pending-navigation`; user clicks dispatch `:rf.route/continue` or `:rf.route/cancel`.
 
@@ -317,6 +317,6 @@ That's the bet the previous chapter was defending: the URL is a sub.
 
 ## Next
 
-- [18 — From re-frame v1](18-from-re-frame-v1.md) — appendix-shaped migration notes if you're carrying a re-frame v1 app forward.
-- [20 — Where to go next](20-where-next.md) — the chapter wrap-up, with pointers to the worked examples and pattern docs.
-- [chapter 11](11-server-side.md) — how routing folds into SSR.
+- [18 — From re-frame v1](20-migration.md) — appendix-shaped migration notes if you're carrying a re-frame v1 app forward.
+- [20 — Where to go next](22-where-next.md) — the chapter wrap-up, with pointers to the worked examples and pattern docs.
+- [chapter 13](13-server-side.md) — how routing folds into SSR.

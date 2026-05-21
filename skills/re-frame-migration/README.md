@@ -43,7 +43,7 @@ It does **not** duplicate `migration/from-re-frame-v1/README.md` content. Each r
 
 ## Status
 
-Pre-alpha. The skill is authored; it has not yet been exercised end-to-end against a real v1 codebase migration. The structure mirrors the `re-frame2-setup` skill in this same repo. The content is grounded against `migration/from-re-frame-v1/README.md`, `docs/guide/18-from-re-frame-v1.md`, and `docs/the-mayor-method.md`'s paste-prompt pattern.
+Pre-alpha. The skill is authored; it has not yet been exercised end-to-end against a real v1 codebase migration. The structure mirrors the `re-frame2-setup` skill in this same repo. The content is grounded against `migration/from-re-frame-v1/README.md`, `docs/guide/20-migration.md`, and `docs/the-mayor-method.md`'s paste-prompt pattern.
 
 ## Layout
 

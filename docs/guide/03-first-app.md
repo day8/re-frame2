@@ -1,14 +1,24 @@
 # 03 — Your first app
 
+> **What you'll build.** A counter with a `+` button, a `-` button, and a number between them. Click `+`, number goes up. Click `-`, number goes down. Defaults to `5`. About fifty lines of CLJS, every load-bearing primitive in re-frame2 used at least once.
+>
+> **You should have working before you start.** A CLJS toolchain (shadow-cljs or equivalent), Node, and a browser. The [`examples/reagent/counter/`](../../examples/reagent/counter/) directory in the repo is the runnable form of this chapter — clone, `shadow-cljs watch app`, browse to the dev URL, and you can edit alongside.
+>
+> **What you'll learn.** The five primitives — `reg-event-db`, `reg-sub`, `reg-view`, `dispatch`, `subscribe`. The shape of `app-db`. How a click becomes an event becomes a state change becomes a re-render. Why none of those steps imperatively touches a DOM node. Where `init!` sits at the boundary.
+
 The smallest interesting program is a counter: a number, two buttons, the number changes. Let's build it.
 
-The full source is in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs). This chapter walks through it section by section, explaining what each piece is doing and *why it's shaped the way it is*. By the end you'll have seen every load-bearing primitive in re-frame2 at least once.
+The full source is in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs). This chapter walks through it section by section, explaining what each piece is doing and *why it's shaped the way it is*.
 
-This chapter uses **Reagent** — the canonical CLJS view substrate, the one the rest of the guide uses. (re-frame2 also has UIx and Helix adapters; for adapter comparisons and the `init!` call shape across substrates, see [chapter 19 — Adapters](19-adapters.md).)
+This chapter uses **Reagent** — the canonical CLJS view substrate, the one the rest of the guide uses. (re-frame2 also has UIx and Helix adapters; for adapter comparisons and the `init!` call shape across substrates, see [chapter 21 — Adapters](21-adapters.md).)
 
 ## What we're building
 
 A page with a `+` button, a `-` button, and a number between them. Click `+`: the number goes up. Click `-`: it goes down. Default value: `5`.
+
+> 📸 **Screenshot needed**: the running counter app in the browser, with the dev tools panel open showing `app-db`. Annotate (1) the `[-]`, `[5]`, `[+]` row in the page, (2) the `app-db` value `{:counter/value 5}` in the inspector, (3) the trace stream showing the most recent `:event/dispatched` entry.
+>
+> Save as: `/docs/images/guide/03-counter-running.png`
 
 Yes, this is trivial. But the shape we use to build it is the same shape we'd use for a real app — same primitives, same wiring, same testing approach. If the small case doesn't feel right, the large case won't either.
 
@@ -194,7 +204,7 @@ Four things happen here.
 
 `(rdc/render root [counter])` is the React/Reagent runtime asking "render this hiccup at this root." `[counter]` is hiccup referencing the Var that `reg-view` defed.
 
-Without `init!`, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. For the call shape across UIx, Helix, and SSR — and why the call is explicit at every call site — see [chapter 19 — Adapters](19-adapters.md).
+Without `init!`, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. For the call shape across UIx, Helix, and SSR — and why the call is explicit at every call site — see [chapter 21 — Adapters](21-adapters.md).
 
 ## What just happened
 
@@ -224,7 +234,7 @@ The handler is a pure function — given `db` and `event`, return new `db`. That
     (is (= {:counter/value 4} (dec-handler {:counter/value 5} [:counter/dec])))))
 ```
 
-That test runs on the JVM. There's no browser, no React, no runtime needed — `handler-meta` looks up the registered function, you call it with a value, you assert on the return. Tests like this run in milliseconds and you can have thousands of them. [Chapter 13 — Testing](13-testing.md) covers the richer testing primitives (driving a full event through the dispatch loop, sub computation, fixtures) for when "call the handler as a function" isn't enough.
+That test runs on the JVM. There's no browser, no React, no runtime needed — `handler-meta` looks up the registered function, you call it with a value, you assert on the return. Tests like this run in milliseconds and you can have thousands of them. [Chapter 15 — Testing](15-testing.md) covers the richer testing primitives (driving a full event through the dispatch loop, sub computation, fixtures) for when "call the handler as a function" isn't enough.
 
 ## What the example covered
 
@@ -237,9 +247,9 @@ We touched every load-bearing primitive at least once:
 
 What we didn't cover yet:
 
-- **Effects** that aren't state changes — HTTP, navigation, localStorage. Coming in [04 — Events, state, and the cycle](04-events-state-cycle.md).
-- **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [09 — State machines](09-state-machines.md).
-- **HTTP requests, the canonical way** — the `:rf.http/managed` fx with retry, abort, decode, and reply addressing. Coming in [10 — Doing HTTP requests](10-doing-http-requests.md).
+- **Effects** that aren't state changes — HTTP, navigation, localStorage. Coming in [04 — Events, state, and the cycle](04-events.md).
+- **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [09 — State machines](11-machines.md).
+- **HTTP requests, the canonical way** — the `:rf.http/managed` fx with retry, abort, decode, and reply addressing. Coming in [10 — Doing HTTP requests](12-http.md).
 
 ## A small extension
 
@@ -254,8 +264,21 @@ That's it. The shape doesn't change. There's no new primitive to learn. Every ch
 
 This is the real claim of re-frame2: **the cost of new features is bounded by the size of the feature, not by the size of the app**. In a poorly-shaped app, adding a feature requires reading a substantial fraction of the existing code to know where to wire it in. In a re-frame2 app, you read the events, the subs, and the view that touches the area you're changing, and that's enough.
 
-For how this same counter looks under UIx and Helix, what `init!` is doing under the hood, and the slim-Reagent option for ship-size builds, see [chapter 19 — Adapters](19-adapters.md).
+For how this same counter looks under UIx and Helix, what `init!` is doing under the hood, and the slim-Reagent option for ship-size builds, see [chapter 21 — Adapters](21-adapters.md).
+
+## Common mistakes the first time through
+
+A few that bite people new to the pattern:
+
+- **Calling `init!` more than once on the same page.** It's a one-shot at the boot boundary. Subsequent calls are diagnostic-emitting no-ops, but if your app has a hot-reload setup that re-evaluates the namespace on every save, wrap the `init!` call in a `defonce`-shaped guard or the rest of the app will get a fresh substrate every reload.
+- **`dispatch` from the top of a namespace.** Top-level `dispatch` runs at *load* time, before the substrate is installed and before any frame exists. The right place for boot-time events is the `:on-create` slot on a registered frame (or the `init!` call site, after the adapter has installed).
+- **`@(subscribe ...)` outside a registered view.** `subscribe` returns a Reagent reaction; deref-ing it outside a view body works once and then becomes stale — there's no surrounding component to re-render when the reaction's value changes. Outside views, reach for `(rf/sub-value [:my-sub])` instead — the snapshotting read that doesn't try to set up a reactive dependency.
+- **Renaming the namespace and forgetting `init!`.** If you refactor `counter.core` into `myapp.boot` and the new namespace doesn't carry the `init!` line forward, the page mounts but every dispatch is a no-op against a substrate-less runtime. The trace stream will show `:rf.error/no-substrate` on the first event.
+
+The trace surface catches all four of these by name. If something silently doesn't work, the first move is to check the trace stream — there's usually an event there saying exactly what didn't fire.
 
 ## Next
 
-- [04 — Events, state, and the cycle](04-events-state-cycle.md) — what the dynamic story looks like when handlers also produce side-effects, not just state changes.
+- [04 — Events, state, and the cycle](04-events.md) — what the dynamic story looks like when handlers also produce side-effects, not just state changes.
+- [05 — Schemas](05-schemas.md) — what changes when you start declaring what `app-db` is supposed to look like. The counter doesn't need this; the form in chapter 10 will.
+- [21 — Adapters](21-adapters.md) — the same counter written under UIx and Helix, plus what `init!` is doing under the hood.

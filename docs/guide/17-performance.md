@@ -1,4 +1,4 @@
-# 16 — Performance
+# 17 — Performance
 
 re-frame2 is a **fast pattern by design**. The runtime trims work everywhere the architecture lets it — subs are cached per-frame, drains coalesce renders, views run pure-equal checks because *data is data*. When you do need to tune, the cause is almost always one of four shapes, and the framework has a clean answer for each.
 
@@ -8,7 +8,7 @@ What you'll come away with:
 
 - A short, named taxonomy of where slowness comes from in a re-frame2 app.
 - The framework's answer to each shape — how to write views, subs, and callbacks so the pipeline stays cheap.
-- When to reach for the chunked-work state machine from [chapter 09](09-state-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine), and when to offload to a worker instead.
+- When to reach for the chunked-work state machine from [chapter 11](11-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine), and when to offload to a worker instead.
 - The `rf:` Performance API surface from the [Causa welcome page](../causa/index.md#performance-the-prod-friendly-channel) and how to read it in Chrome DevTools.
 - One worked example: a list-with-checkboxes that goes from "noticeably laggy" to "feels instant" through three small refactors.
 
@@ -150,7 +150,7 @@ The form-2 wrapper (`(fn render ...)`) is doing real work here — it's what mak
 
 ### Compute in subs, not views
 
-Chapter 06 makes the case in detail ([§Views compute hiccup only](06-views-and-frames.md#views-compute-hiccup-only)); the performance version is one sentence longer: **everything you compute in a view runs on every re-render of that view; everything you compute in a sub runs only when the sub's inputs change**.
+Chapter 07 makes the case in detail ([§Views compute hiccup only](07-views.md#views-compute-hiccup-only)); the performance version is one sentence longer: **everything you compute in a view runs on every re-render of that view; everything you compute in a sub runs only when the sub's inputs change**.
 
 ```clojure
 ;; Bad — sort runs on every re-render of every ancestor.
@@ -186,7 +186,7 @@ There are two real answers:
 1. **Offload to a Web Worker.** The main thread stays responsive; the work runs at full thread speed on another core; progress reports flow back as events. This is the right answer when the work is serialisable across the worker boundary.
 2. **Chunk and yield on the main thread.** When the work has to run on the main thread — DOM access, framework state, awkward-to-serialise data — split it into small batches and yield between batches. That's a state machine.
 
-The chunked machine has a canonical shape covered in detail in [chapter 09 §Pattern-LongRunningWork](09-state-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine). The summary: a five-state machine (`:idle`, `:processing`, `:checking-done`, `:yielding`, `:complete`) with `:after 0` in `:yielding` to hand the thread back to the browser between batches. Progress is a snapshot field; cancellation is a transition, not a flag. The full worked example is `:counter/scan` in chapter 09.
+The chunked machine has a canonical shape covered in detail in [chapter 11 §Pattern-LongRunningWork](11-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine). The summary: a five-state machine (`:idle`, `:processing`, `:checking-done`, `:yielding`, `:complete`) with `:after 0` in `:yielding` to hand the thread back to the browser between batches. Progress is a snapshot field; cancellation is a transition, not a flag. The full worked example is `:counter/scan` in chapter 09.
 
 The v1 idiom for this work — `^:flush-dom` event metadata, self-redispatching `{:dispatch [...]}` tail-call loops — is gone. The chunked machine is the v2 substitute. Reach for it whenever you're tempted to write a `for` loop that holds the thread for more than ~16 ms.
 
@@ -423,7 +423,7 @@ A few things the chapter deliberately does not cover.
 
 - **Bundle size.** Production bundle size is a Closure-compiler story, not a re-frame2 one. The framework's trace surface and the `rf:` channel both DCE under `goog.DEBUG=false`; how to keep *your* code small is a `:advanced` story.
 - **Animation performance.** Reagent renders into React renders into the DOM. Animation jank is usually a DOM / CSS story, not a re-frame2 one. The chunked-work machine helps when you've blocked the main thread; for `transform` / `opacity` smoothness, the browser's `will-change` and `transform: translateZ(0)` tricks live one layer deeper.
-- **Server-side rendering performance.** SSR is JVM-side; the `rf:` channel is browser-only; profiling SSR uses host tools. The shape of [chapter 11](11-server-side.md) is what governs server-side cost, not this chapter.
+- **Server-side rendering performance.** SSR is JVM-side; the `rf:` channel is browser-only; profiling SSR uses host tools. The shape of [chapter 13](13-server-side.md) is what governs server-side cost, not this chapter.
 - **Sub-graph topology analysis.** The static sub-graph (`(rf/sub-topology)`, see the [Causa welcome page](../causa/index.md#reference-the-static-sub-graph)) is the right lever when you want to find dead subs or visualise dependencies. The performance angle on it is "every redundant edge is a potential cache miss"; the tooling angle covers the rest.
 
 ## What we covered
@@ -435,5 +435,5 @@ A few things the chapter deliberately does not cover.
 
 ## Next
 
-- [09 — State machines §Pattern-LongRunningWork](09-state-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine) — the chunked-work machine in full.
+- [09 — State machines §Pattern-LongRunningWork](11-machines.md#pattern-longrunningwork--cpu-bound-work-as-a-chunked-machine) — the chunked-work machine in full.
 - [Causa](../causa/index.md) — the trace bus, the epoch records, the source-coord story.

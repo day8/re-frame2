@@ -51,7 +51,7 @@ The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JV
 
 ## state_machine_walkthrough — `examples/reagent/state_machine_walkthrough/`
 
-The runnable companion to `docs/guide/09-state-machines.md` — the guide chapter's login flow rendered as live code, with smoke tests for every section. Browser layer drives the canonical lockout scenario (three failures → `:locked-out`). Point at this example when teaching the machine grammar from scratch, when verifying the chapter's worked shape against the live implementation, or when authoring an event-driven sequence of FSM transitions that needs to be testable from a browser spec. Exercises 005 StateMachines, 014 HTTPRequests, and 008 Testing. Pedagogical sibling of `login/` — same domain, different aim (`login/` is the "single-feature scaffold"; this is the chapter's walkthrough).
+The runnable companion to `docs/guide/11-machines.md` — the guide chapter's login flow rendered as live code, with smoke tests for every section. Browser layer drives the canonical lockout scenario (three failures → `:locked-out`). Point at this example when teaching the machine grammar from scratch, when verifying the chapter's worked shape against the live implementation, or when authoring an event-driven sequence of FSM transitions that needs to be testable from a browser spec. Exercises 005 StateMachines, 014 HTTPRequests, and 008 Testing. Pedagogical sibling of `login/` — same domain, different aim (`login/` is the "single-feature scaffold"; this is the chapter's walkthrough).
 
 ## todomvc — `examples/reagent/todomvc/`
 

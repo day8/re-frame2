@@ -2,7 +2,7 @@
   "Browser entry-point for the state-machines walkthrough.
 
   The pure machine, fxs, subs and headless tests live in `core.cljc`
-  alongside docs/guide/09-state-machines.md. This namespace is the
+  alongside docs/guide/11-machines.md. This namespace is the
   CLJS-only browser layer: views + Reagent mount + a `run` fn that
   installs a per-frame `:fx-overrides` redirecting `:rf.http/managed`
   to the canned-failure stub registered in `core.cljc`.

@@ -84,7 +84,7 @@ The recorder is *opinionated* about what's worth keeping:
 
 - **Idle settle.** Sequences that the runtime quiesces between are recorded as one settle boundary, not a flood of fine-grained events. A click that dispatches three events asynchronously through the same router gets coalesced.
 
-- **Sensitive-flagged events.** Events whose handler is metadata-tagged `:sensitive? true` are recorded with elided payload (a `:rf/redacted` marker in their place). The privacy contract from [Guide 23a — Privacy + Secrets](../guide/23a-privacy-secrets.md) applies to the recorder too; you can't accidentally bake a password into a `:play-script` by recording a login flow.
+- **Sensitive-flagged events.** Events whose handler is metadata-tagged `:sensitive? true` are recorded with elided payload (a `:rf/redacted` marker in their place). The privacy contract from [Guide 23a — Privacy + Secrets](../guide/24-privacy.md) applies to the recorder too; you can't accidentally bake a password into a `:play-script` by recording a login flow.
 
 - **Multi-click coalescing.** Clicking *+1* five times produces five `[:dispatch-sync [:counter/inc]]` rows. Stable. Predictable. No `5× [:counter/inc]` coalescing — we deliberated on this and decided against it, because the coalesced form makes diffs less readable when the recording later needs editing.
 

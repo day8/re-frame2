@@ -1,5 +1,5 @@
 (ns state-machine-walkthrough.core
-  "Runnable companion to docs/guide/09-state-machines.md.
+  "Runnable companion to docs/guide/11-machines.md.
 
   This is the login-flow chapter as code. Every prose snippet in ch.09
   appears here in the order the chapter introduces it; each section
@@ -12,7 +12,7 @@
   shipped `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
   stubs (Spec 014 §Testing) so no real network traffic happens.
 
-  Read alongside docs/guide/09-state-machines.md."
+  Read alongside docs/guide/11-machines.md."
   (:require [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here

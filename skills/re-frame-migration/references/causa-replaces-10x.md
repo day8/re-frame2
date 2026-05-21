@@ -1,6 +1,6 @@
 # causa-replaces-10x
 
-The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Causa** (`day8/re-frame2-causa`). Causa is a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces — not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/guide/18-from-re-frame-v1.md` §A note on the tooling](../../../docs/guide/18-from-re-frame-v1.md#a-note-on-the-tooling) for the narrative version of this swap.
+The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Causa** (`day8/re-frame2-causa`). Causa is a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces — not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/guide/20-migration.md` §A note on the tooling](../../../docs/guide/20-migration.md#a-note-on-the-tooling) for the narrative version of this swap.
 
 **This is not an M-rule.** No application code triggers it; it's a dev-build hygiene step the author runs alongside the M-0 coord swap. The skill performs it when the codebase's dep file holds a `day8.re-frame-10x` coord or a `day8.re-frame-10x.preload` `:preloads` entry.
 
@@ -228,7 +228,7 @@ Full panel inventory: [`tools/causa/spec/000-Vision.md`](../../../tools/causa/sp
 - [`tools/causa/README.md`](../../../tools/causa/README.md) — entry-point summary, spec index, file layout.
 - [`tools/causa/spec/API.md`](../../../tools/causa/spec/API.md) — the full user-facing surface (`configure!`, `popout!`, programmatic open/close, the layout-host contract, `--rf-causa-inline-width`).
 - [`tools/causa/spec/011-Launch-Modes.md`](../../../tools/causa/spec/011-Launch-Modes.md) — true-inline default + standalone-via-MCP for remote-attach scenarios.
-- [`docs/guide/18-from-re-frame-v1.md` §A note on the tooling](../../../docs/guide/18-from-re-frame-v1.md#a-note-on-the-tooling) — the narrative version of the 10x → Causa swap.
+- [`docs/guide/20-migration.md` §A note on the tooling](../../../docs/guide/20-migration.md#a-note-on-the-tooling) — the narrative version of the 10x → Causa swap.
 
 ---
 

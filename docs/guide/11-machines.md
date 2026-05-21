@@ -1,4 +1,10 @@
-# 09 — State machines
+# 11 — State machines
+
+> **What you'll build.** A login flow — `:idle` → `:submitting` → `:authed` / `:error-shown` / `:locked-out` — modelled as a registered state machine. About forty lines of CLJS. Lockout-on-three-failures encoded as a guard, not a `cond` deep in some event handler.
+>
+> **You should have working before you start.** A re-frame2 app that boots ([chapter 03 — Your first app](03-first-app.md) is enough). A vague awareness that you've been writing `cond` branches over a state keyword and could probably stop.
+>
+> **What you'll learn.** What `reg-machine` registers (it's an event handler). What lives in `:on`, `:entry`, `:exit`. The contract on guards and actions. Why a registered machine sits under `[:rf/machines <id>]` and how snapshots flow through `app-db` like any other value. How the same six-domino cascade handles machine transitions.
 
 You've been writing these all along. You just haven't been calling them that.
 
@@ -68,6 +74,10 @@ This works. It's correct. But there are a few things to notice:
 The fix isn't to write better `cond` clauses. The fix is to step back and notice: **what we're trying to write is a state machine.**
 
 ## The same flow as a machine
+
+> 📸 **Screenshot needed**: Causa's Machine inspector showing the login flow's transition graph live in a browser. Annotate (1) the current state `:idle` highlighted in the diagram, (2) the transition arrows `:submit` → `:submitting`, (3) the `:guards` panel listing `:under-retry-limit`, (4) the snapshot panel showing `{:attempts 0 :error nil}`.
+>
+> Save as: `/docs/images/guide/11-machine-inspector.png`
 
 ```clojure
 (def login-flow
@@ -203,7 +213,7 @@ For HTTP / async callbacks, build a 2-element template and let the runtime conj 
 ;; sees [:auth.login/success {:kind :success :value v}].
 ```
 
-This "extras-fold" makes every async callback ship a value into the machine the same way. The reply-payload envelope (`{:kind :success :value v}` / `{:kind :failure :failure m}`) is the canonical `:rf.http/managed` shape — see [chapter 10](10-doing-http-requests.md).
+This "extras-fold" makes every async callback ship a value into the machine the same way. The reply-payload envelope (`{:kind :success :value v}` / `{:kind :failure :failure m}`) is the canonical `:rf.http/managed` shape — see [chapter 12](12-http.md).
 
 ## Guards and actions
 
@@ -311,7 +321,7 @@ For port authors: each substrate feature has a **capability-flag** name (`:fsm/h
 
 ## Patterns that bottom out in machines
 
-Three recurring shapes from [chapter 04](04-events-state-cycle.md) are state machines underneath. Each has a dedicated pattern doc — convention, not Spec — that walks the worked example end-to-end. The point of naming them here is that the moment you reach for `setTimeout`-driven reconnect logic, an `:app/init` event that does six things, or a `for` loop that locks the UI for two seconds, you'll recognise the shape and know where to look.
+Three recurring shapes from [chapter 04](04-events.md) are state machines underneath. Each has a dedicated pattern doc — convention, not Spec — that walks the worked example end-to-end. The point of naming them here is that the moment you reach for `setTimeout`-driven reconnect logic, an `:app/init` event that does six things, or a `for` loop that locks the UI for two seconds, you'll recognise the shape and know where to look.
 
 ### Pattern-WebSocket — a connection as a machine
 
@@ -323,7 +333,7 @@ For trivial boots — one or two steps, no progress UI — a chain of dispatched
 
 ### Pattern-LongRunningWork — CPU-bound work as a chunked machine
 
-A handler with significant CPU-bound work — iterating over a large dataset, encoding / decoding, indexing, parsing, running a simulation step — blocks the dispatch loop and freezes the UI. There are two real answers: **offload to a Web Worker** (the preferred answer whenever the work is serialisable across the worker boundary), or **chunk and yield on the main thread**. The chunked answer is a tiny machine — `:idle / :processing / :checking-done / :yielding / :complete / :cancelled` — cycling `:processing → :checking-done → :yielding → :processing` until done. The load-bearing line is `:yielding`'s `:after 0`, which hands the thread back to the browser between chunks so progress bars repaint and the cancel button stays clickable. Cancellation is a transition (not a flag), the partial result is preserved in `:data`, and the v1 idioms (`^:flush-dom`, self-redispatching `{:dispatch [...]}` loops) are gone. See also [16 — Performance](16-performance.md#when-to-reach-for-the-chunked-work-machine) for how this sits among the other shapes of performance work.
+A handler with significant CPU-bound work — iterating over a large dataset, encoding / decoding, indexing, parsing, running a simulation step — blocks the dispatch loop and freezes the UI. There are two real answers: **offload to a Web Worker** (the preferred answer whenever the work is serialisable across the worker boundary), or **chunk and yield on the main thread**. The chunked answer is a tiny machine — `:idle / :processing / :checking-done / :yielding / :complete / :cancelled` — cycling `:processing → :checking-done → :yielding → :processing` until done. The load-bearing line is `:yielding`'s `:after 0`, which hands the thread back to the browser between chunks so progress bars repaint and the cancel button stays clickable. Cancellation is a transition (not a flag), the partial result is preserved in `:data`, and the v1 idioms (`^:flush-dom`, self-redispatching `{:dispatch [...]}` loops) are gone. See also [16 — Performance](17-performance.md#when-to-reach-for-the-chunked-work-machine) for how this sits among the other shapes of performance work.
 
 ## When to reach for a machine, and when not to
 
@@ -353,7 +363,7 @@ Because `machine-transition` is pure — and guards / actions are inline-or-name
       (is (= :locked-out (:state s2))))))
 ```
 
-`machine-transition` returns a `re-frame.machines.result/Result` map — destructure `::result/snap` and `::result/fx` (or use `result/ok?` / `result/fail?` to discriminate). Per rf2-aa2rw the engine surfaces action / `:data`-fn throws via `result/fail` rather than the old `[::action-failed info]` sentinel.
+`machine-transition` returns a `re-frame.machines.result/Result` map — destructure `::result/snap` and `::result/fx` (or use `result/ok?` / `result/fail?` to discriminate). The engine surfaces action / `:data`-fn throws via `result/fail` rather than throwing out of the transition; tests inspect the failure shape rather than wrapping the call in `try/catch`.
 
 JVM-side. No browser, no network, no mocks. Each test runs in microseconds; you can have hundreds. This is the testing experience for *flows that are non-trivial* — exactly the case where unit testing usually gets hard.
 
@@ -520,12 +530,12 @@ The complete login flow from this chapter — including the runnable smoke tests
 
 ## The deeper claim
 
-State machines are a small example of the broader thesis [chapter 12](12-the-dynamic-model.md) makes: **constrained execution models are easier to reason about than free-form ones**. A finite state machine has, by construction, a small set of reachable states — you can enumerate them, prove things about transitions, render the whole flow as a diagram. A pile of `if` / `cond` clauses spread across event handlers has none of those properties: reachable states are implicit, transitions are scattered, "from this state, what can happen?" requires reading every handler that touches the state field.
+State machines are a small example of the broader thesis [chapter 14](14-dynamic-model.md) makes: **constrained execution models are easier to reason about than free-form ones**. A finite state machine has, by construction, a small set of reachable states — you can enumerate them, prove things about transitions, render the whole flow as a diagram. A pile of `if` / `cond` clauses spread across event handlers has none of those properties: reachable states are implicit, transitions are scattered, "from this state, what can happen?" requires reading every handler that touches the state field.
 
 The choice isn't a matter of style. It's a matter of which dynamic model you can hold in your head. When the flow has the shape of a machine, write a machine.
 
 ## Next
 
-- [10 — Doing HTTP requests](10-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end.
-- [11 — The server side](11-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.
-- See also: [08 — Forms](08-forms.md) — the standard form-slice convention; the login flow's machine sits on top of a form slice underneath.
+- [10 — Doing HTTP requests](12-http.md) — `:rf.http/managed`, the canonical request fx, end-to-end.
+- [11 — The server side](13-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.
+- See also: [08 — Forms](10-forms.md) — the standard form-slice convention; the login flow's machine sits on top of a form slice underneath.
