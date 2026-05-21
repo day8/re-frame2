@@ -168,7 +168,7 @@
   all belong to one frame.
 
   Required keys on the flow map: :id :inputs :output :path.
-  Optional: :doc :spec.
+  Optional: :doc :schema.
 
   The frame to register against comes from the optional :frame opt;
   default is (frame/current-frame) — usually :rf/default unless

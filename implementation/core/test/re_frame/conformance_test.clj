@@ -399,15 +399,15 @@
           (rf/reg-cofx cofx-id (assoc meta :handler-fn handler) handler))))
     (doseq [[id steps] (get handlers-map :event)]
       (let [[kind handler] (conformance/realise-event-handler steps)
-            ;; Per Spec 010 §step 1 (rf2-jwm4): pull :spec / :doc from
+            ;; Per Spec 010 §step 1 (rf2-jwm4): pull :schema / :doc from
             ;; the fixture's :fixture/registry :event meta and pass it
             ;; through to reg-event-* so validate-event! can find it.
             event-meta (get event-registry id {})
             ;; Per rf2-g25p: scan the body for [:cofx-key K] references;
             ;; for each K, auto-wire (inject-cofx C) for every C whose
             ;; namespace matches K (the conformance-corpus convention
-            ;; for the schemas/cofx fixture). With no :spec to flag,
-            ;; non-spec'd cofx still wire so the handler can read them.
+            ;; for the schemas/cofx fixture). With no :schema to flag,
+            ;; non-schema'd cofx still wire so the handler can read them.
             ks            (collect-cofx-keys steps)
             cofx-ids      (vec
                             (mapcat (fn [k]
@@ -428,7 +428,7 @@
                   (rf/reg-event-fx id handler))))))
     (doseq [[id steps] (get handlers-map :sub)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
-            ;; Per Spec 010 §step 6 (rf2-wcam): pull :spec from the
+            ;; Per Spec 010 §step 6 (rf2-wcam): pull :schema from the
             ;; sub's registry meta so validate-sub! sees it.
             sub-meta (get sub-registry id {})]
         (case kind
@@ -449,7 +449,7 @@
     ;; app-db, or :dispatch a follow-up event (e.g. http stubs).
     ;;
     ;; Two sources combine: :fixture/handlers :fx (bodies) and
-    ;; :fixture/registry :fx (metadata, including :platforms / :spec).
+    ;; :fixture/registry :fx (metadata, including :platforms / :schema).
     ;;
     ;; Per rf2-yhfgf: an id with NO body in :fixture/handlers but a meta
     ;; in :fixture/registry is "declare the dependency, leave the framework

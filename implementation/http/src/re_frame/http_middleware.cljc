@@ -35,7 +35,7 @@
 (defonce
   ^{:doc "frame-id → vector of `:rf/http-interceptor-meta` slots — each a map
   carrying `:id`, `:before`, and the captured registration-metadata
-  (`:doc`, `:spec`, `:tags`, `:sensitive?`, flat source-coord keys
+  (`:doc`, `:schema`, `:tags`, `:sensitive?`, flat source-coord keys
   `:ns`/`:line`/`:column`/`:file`). Per-frame so each frame's HTTP
   middleware chain is isolated. Order is registration-order; clearing an
   id and re-registering re-appends to the end."}

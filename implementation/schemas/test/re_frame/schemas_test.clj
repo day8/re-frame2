@@ -304,7 +304,7 @@
 
 (deftest sub-return-validation-fires-and-replaces-with-default
   (testing "Per Spec 010 §step 6 (rf2-wcam): a sub whose return value fails
-            its :spec emits :rf.error/schema-validation-failure :where :sub-return
+            its :schema emits :rf.error/schema-validation-failure :where :sub-return
             and the caller sees nil (default :replaced-with-default recovery)"
     (rf/reg-event-db :items/init (fn [_ _] {:items ["a" "b" "c"]}))
     (rf/reg-event-db :items/break (fn [db _] (assoc db :items [1 2 3])))
@@ -332,7 +332,7 @@
           (is (= :replaced-with-default (:recovery v))))))))
 
 (deftest compute-sub-validates-return-value
-  (testing "compute-sub validates the return against :spec — the pure
+  (testing "compute-sub validates the return against :schema — the pure
             test-time path mirrors the live reactive path"
     (rf/reg-sub :nums
       {:schema [:vector :int]}
@@ -353,7 +353,7 @@
 
 (deftest cofx-validation-fires-and-skips-handler
   (testing "Per Spec 010 §step 2 (rf2-7leq): a cofx whose injected value
-            fails its :spec emits :rf.error/schema-validation-failure
+            fails its :schema emits :rf.error/schema-validation-failure
             :where :cofx and the handler is NOT invoked"
     (rf/reg-cofx :app-version/bad
       {:schema :string}
@@ -370,7 +370,7 @@
         (rf/dispatch-sync [:cap/seed])
         (rf/unregister-listener! ::cf)
         (is (= 0 @calls)
-            "handler was skipped because the cofx :spec failed")
+            "handler was skipped because the cofx :schema failed")
         (let [violations (filter #(= :rf.error/schema-validation-failure
                                      (:operation %))
                                  @traces)]
@@ -408,7 +408,7 @@
 ;; ---- rf2-xp2o3 — fx-args validation (Spec 010 step 5) --------------------
 
 (deftest fx-args-validation-fires-and-skips-only-the-offending-fx
-  (testing "Per Spec 010 §step 5 (rf2-xp2o3): an fx whose args fail its :spec
+  (testing "Per Spec 010 §step 5 (rf2-xp2o3): an fx whose args fail its :schema
             emits :rf.error/schema-validation-failure :where :fx-args; the
             offending fx is skipped, sibling fx in the same :fx vector
             continue to run (recovery: :skipped)"
@@ -504,7 +504,7 @@
       (is (false? (schemas/validate-fx! :my/fx :ev/origin {:x "bad"} {:schema [:map [:x :int]]}))
           "malformed args fail")
       (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {}))
-          "no :spec → soft pass")
+          "no :schema → soft pass")
       (rf/unregister-listener! ::fxv4)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
@@ -1265,7 +1265,7 @@
 
 (deftest boundary-interceptor-passes-valid-event-through
   (testing "Per Spec 010 §Production builds (rf2-r2uh) — a valid event
-            against the handler's :spec passes through, the handler runs."
+            against the handler's :schema passes through, the handler runs."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/response
         {:schema [:cat [:= :api/response]
@@ -1293,7 +1293,7 @@
 
 (deftest boundary-interceptor-skips-handler-on-invalid-event
   (testing "Per Spec 010 §Production builds (rf2-r2uh) — an invalid event
-            against the handler's :spec causes the handler to be
+            against the handler's :schema causes the handler to be
             skipped. Under genuine `:advanced` + `goog.DEBUG=false` the
             router's step-1 validate-event! body elides and the
             boundary path is the only validation site; on the JVM
