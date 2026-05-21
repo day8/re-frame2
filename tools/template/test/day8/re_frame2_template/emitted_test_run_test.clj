@@ -110,38 +110,71 @@
 
 ;; --- node_modules symlink --------------------------------------------------
 
+(defn- junction-node-modules!
+  "Windows fall-back when a symlink can't be created: a directory
+  *junction* (`mklink /J`) reparse-points `dst` → `src` and — unlike a
+  symbolic link — needs no `SeCreateSymbolicLinkPrivilege`, so it works
+  on a stock Windows box without Developer Mode. Returns true on
+  success. No-op (false) off Windows, where the symlink path already
+  succeeded."
+  [^java.io.File src ^java.io.File dst]
+  (when (string/starts-with? (string/lower-case (System/getProperty "os.name")) "windows")
+    (try
+      ;; `cmd /c mklink /J <link> <target>` — both paths are passed as
+      ;; native Windows paths (backslashes); ProcessBuilder doesn't run
+      ;; the args through cmd's own parser, so no extra quoting needed.
+      (let [pb (ProcessBuilder.
+                 ^java.util.List ["cmd" "/c" "mklink" "/J"
+                                  (.getPath dst)
+                                  (.getCanonicalPath src)])]
+        (.redirectErrorStream pb true)
+        (let [p (.start pb)]
+          (slurp (.getInputStream p))
+          (zero? (.waitFor p))))
+      (catch Throwable _ false))))
+
 (defn- link-node-modules!
-  "Create a directory symlink from the emitted project's `node_modules`
-  to `<repo>/implementation/node_modules` so React + its peers resolve
-  when `node` runs the compiled bundle. On platforms without symlink
-  privileges (rare on Windows without dev-mode), falls back to a
-  best-effort directory-junction or — last resort — Files/copy. Returns
-  true if `node_modules` is now available inside `proj-dir`."
+  "Make `<repo>/implementation/node_modules` available inside the
+  emitted project as `node_modules`, so npm deps (React + peers)
+  resolve. Two consumers need this:
+
+    - the shadow-cljs `:browser` (`:app`) build resolves JS deps at
+      *compile* time and searches ONLY the project-local `node_modules`
+      — it does not honour `NODE_PATH`. The with-story tier compiles the
+      `:app` build, so a real project-local `node_modules` is mandatory,
+      not belt-and-braces.
+    - `node` running the compiled `:node-test` bundle resolves React at
+      *run* time, where `NODE_PATH` (set by the caller) is also honoured.
+
+  Strategy: a directory symlink first; on Windows without
+  `SeCreateSymbolicLinkPrivilege` (no Developer Mode) that fails, so we
+  fall back to a directory *junction* (`mklink /J`), which needs no
+  privilege. Returns true once `node_modules/react` resolves inside
+  `proj-dir` — the caller asserts on it, because the `:browser` compile
+  has no `NODE_PATH` safety net."
   [^java.io.File root ^java.io.File proj-dir]
-  (let [src   (io/file root "implementation/node_modules")
-        dst   (io/file proj-dir "node_modules")]
+  (let [src         (io/file root "implementation/node_modules")
+        dst         (io/file proj-dir "node_modules")
+        resolvable? #(.isDirectory (io/file dst "react"))]
     (cond
       (not (.isDirectory src))
       false
 
       (.exists dst)
-      true
+      (resolvable?)
 
       :else
-      (try
-        (Files/createSymbolicLink (.toPath dst)
-                                  (.toPath (.getCanonicalFile src))
-                                  (into-array FileAttribute []))
-        true
-        (catch Throwable _
-          ;; Symlink-create requires SeCreateSymbolicLinkPrivilege on
-          ;; Windows without Developer Mode. The shadow-cljs :node-test
-          ;; bundle's React imports resolve via Node's module-resolution
-          ;; algorithm, which walks parent directories looking for
-          ;; node_modules — set the NODE_PATH env var instead at run
-          ;; time. Caller still asserts true here because the run-time
-          ;; resolution covers the fall-back.
-          false)))))
+      (do
+        (try
+          (Files/createSymbolicLink (.toPath dst)
+                                    (.toPath (.getCanonicalFile src))
+                                    (into-array FileAttribute []))
+          (catch Throwable _
+            ;; Symlink-create requires SeCreateSymbolicLinkPrivilege on
+            ;; Windows without Developer Mode. Fall back to a junction,
+            ;; which doesn't.
+            (junction-node-modules! src dst)))
+        (resolvable?)))))
 
 ;; --- Process invocation ----------------------------------------------------
 
@@ -224,16 +257,25 @@
        (let [proj (run-template! tmp "acme/my-app" substrate include-story?)]
          (rewrite-deps-for-local-run! root proj substrate)
          (let [linked? (link-node-modules! root proj)
-               ;; Node's module-resolution walks parent dirs for
-               ;; node_modules, so an unlinked emitted project can still
-               ;; resolve React if implementation/node_modules sits on a
-               ;; parent path. Belt-and-braces: set NODE_PATH so the
-               ;; lookup is unambiguous either way.
+               ;; NODE_PATH covers the `node` *run* step (Node honours it
+               ;; at module-resolution time) and the `:node-test` *compile*
+               ;; (shadow's node target falls back to it). The `:browser`
+               ;; (`:app`) compile does NOT honour NODE_PATH — it searches
+               ;; only the project-local node_modules — so the with-story
+               ;; tier hard-requires `linked?` (a real symlink/junction).
                node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
                env-over  {"NODE_PATH" node-path}]
-           (is (or linked? (.isDirectory (io/file node-path)))
-               (str "implementation/node_modules must exist for `node` to "
-                    "resolve React (run `npm install` in implementation/ first)"))
+           (if include-story?
+             (is linked?
+                 (str "project-local node_modules must resolve for the "
+                      "`:app` (:browser) compile — it ignores NODE_PATH. "
+                      "Symlink/junction into " (.getPath proj)
+                      " failed; ensure implementation/node_modules exists "
+                      "(`npm install` in implementation/) and the OS allows "
+                      "a symlink or `mklink /J` junction."))
+             (is (or linked? (.isDirectory (io/file node-path)))
+                 (str "implementation/node_modules must exist for `node` to "
+                      "resolve React (run `npm install` in implementation/ first)")))
 
            ;; --- compile -----------------------------------------------------
            (testing (str label " — shadow-cljs compile "

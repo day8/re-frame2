@@ -20,7 +20,8 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [org.corfield.new :as deps-new])
-  (:import [java.nio.file Files LinkOption Path FileVisitOption]
+  (:import [java.nio.file Files LinkOption Path
+            FileVisitResult SimpleFileVisitor]
            [java.nio.file.attribute FileAttribute]))
 
 ;; --- tmp dirs --------------------------------------------------------------
@@ -32,20 +33,64 @@
   (.toAbsolutePath
     (Files/createTempDirectory prefix (into-array FileAttribute []))))
 
+(defn- reparse-point?
+  "True when `path` is a symbolic link OR a Windows directory *junction*.
+  `Files/isSymbolicLink` catches the former but NOT junctions — a junction
+  is a distinct reparse-point type that the JDK reports as a plain
+  directory. We detect it the only portable way: a junction's
+  `BasicFileAttributes` reports `isDirectory` true AND `isOther` true
+  (the reparse-point bit), whereas a real directory reports `isOther`
+  false. (On non-Windows this simply never matches, which is correct —
+  there are no junctions there.)"
+  [^Path path]
+  (or (Files/isSymbolicLink path)
+      (try
+        (let [attrs (Files/readAttributes
+                      path
+                      java.nio.file.attribute.BasicFileAttributes
+                      (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))]
+          (and (.isDirectory attrs) (.isOther attrs)))
+        (catch java.io.IOException _ false))))
+
 (defn delete-recursively
   "Recursively delete a directory tree (depth-first, deepest entries
   first). Swallows per-entry IO failures so a partially-removed tree on
-  a locked OS file (Windows) doesn't fail the enclosing `finally`."
+  a locked OS file (Windows) doesn't fail the enclosing `finally`.
+
+  CRITICAL: deletes symlinks and Windows *junctions* as a single unit —
+  it never descends THROUGH them. The behavioural emitted-test tier
+  junctions the project's `node_modules` to the shared
+  `implementation/node_modules`; a naive `Files/walk` (which follows
+  junctions, since the JDK treats them as plain directories) would walk
+  into that junction and delete the shared React install. We use
+  `walkFileTree` with a visitor that, on entering a reparse-point
+  directory, deletes the link and skips its subtree."
   [^Path path]
-  (when (Files/exists path (into-array LinkOption []))
-    (with-open [stream (Files/walk path (into-array FileVisitOption []))]
-      (->> stream
-           .iterator
-           iterator-seq
-           reverse
-           (run! #(try
-                    (Files/deleteIfExists ^Path %)
-                    (catch java.io.IOException _ nil)))))))
+  (when (Files/exists path (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
+    (Files/walkFileTree
+      path
+      (proxy [SimpleFileVisitor] []
+        (preVisitDirectory [dir attrs]
+          (if (reparse-point? dir)
+            ;; A junction/symlinked dir: unlink it (removes only the
+            ;; reparse point, never the target's contents) and do not
+            ;; descend.
+            (do (try (Files/deleteIfExists ^Path dir)
+                     (catch java.io.IOException _ nil))
+                FileVisitResult/SKIP_SUBTREE)
+            FileVisitResult/CONTINUE))
+        (visitFile [file attrs]
+          (try (Files/deleteIfExists ^Path file)
+               (catch java.io.IOException _ nil))
+          FileVisitResult/CONTINUE)
+        (visitFileFailed [file _exc]
+          ;; Couldn't stat/open the entry — keep going; the postVisit
+          ;; delete below sweeps what it can.
+          FileVisitResult/CONTINUE)
+        (postVisitDirectory [dir _exc]
+          (try (Files/deleteIfExists ^Path dir)
+               (catch java.io.IOException _ nil))
+          FileVisitResult/CONTINUE)))))
 
 ;; --- repo-root + template-resource-dir -------------------------------------
 
