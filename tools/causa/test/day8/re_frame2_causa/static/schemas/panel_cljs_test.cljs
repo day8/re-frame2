@@ -120,13 +120,46 @@
     (is (= 0 (count (panel/filter-rows rows "nope"))))))
 
 (deftest project-data-shape
+  ;; nil frame-id = list every frame's app-db schemas (see
+  ;; scope-app-schemas-to-frame).
   (let [data (panel/project-data (:schemas-by-frame sample-registry)
                                  (:events sample-registry)
                                  (:subs   sample-registry)
+                                 nil
                                  nil)]
     (is (= 3 (:total data)))
     (is (false? (:silent? data)))
-    (is (true? (:silent? (panel/project-data {} {} {} nil))))))
+    (is (true? (:silent? (panel/project-data {} {} {} nil nil))))))
+
+(deftest scope-app-schemas-to-frame-narrows
+  (let [multi {:rf/default {[:a] {:schema :int}}
+               :rf/cart    {[:b] {:schema :int}}}]
+    (testing "nil frame-id passes through verbatim"
+      (is (= multi (panel/scope-app-schemas-to-frame multi nil))))
+    (testing "a frame-id keeps only that frame's app-db schemas"
+      (is (= {:rf/default {[:a] {:schema :int}}}
+             (panel/scope-app-schemas-to-frame multi :rf/default))))
+    (testing "an absent frame-id yields an empty map"
+      (is (= {} (panel/scope-app-schemas-to-frame multi :rf/nope))))))
+
+(deftest project-data-scopes-app-db-schemas-but-not-global-specs
+  (let [multi-by-frame {:rf/default {[:user] {:schema :map}}
+                        :rf/cart    {[:cart] {:schema :map}}}
+        events         (:events sample-registry)   ;; one spec'd event
+        subs           (:subs   sample-registry)]  ;; one spec'd sub
+    (testing "frame :rf/default → its 1 app-db schema + the 2 global specs"
+      (let [data (panel/project-data multi-by-frame events subs :rf/default nil)]
+        (is (= 3 (:total data)) "1 app-db (default) + 1 event + 1 sub")
+        (is (= 1 (count (filterv #(= :app-db (:kind %)) (:schemas data))))
+            "only :rf/default's app-db schema, not :rf/cart's")))
+    (testing "frame :rf/cart → its 1 app-db schema + the same 2 global specs"
+      (let [data (panel/project-data multi-by-frame events subs :rf/cart nil)]
+        (is (= 3 (:total data)))
+        (is (= [[:cart]]
+               (mapv :id (filterv #(= :app-db (:kind %)) (:schemas data))))
+            "only :rf/cart's app-db schema surfaces")))
+    (testing "nil frame-id → both frames' app-db schemas + global specs"
+      (is (= 4 (:total (panel/project-data multi-by-frame events subs nil nil)))))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) registry wiring
@@ -153,6 +186,43 @@
     (let [data @(rf/subscribe [:rf.causa.static.schemas/tab-data])]
       (is (= 3 (:total data)))
       (is (false? (:silent? data))))))
+
+(def two-frame-registry
+  "Two frames each carrying a distinct app-db schema, plus the shared
+  process-global event + sub specs — fixture for the picker-scoping
+  regression."
+  {:schemas-by-frame
+   {:rf/default    {[:user] {:schema [:map [:id :int]]}}
+    :rf/cart-frame {[:cart] {:schema [:map [:n :int]]}}}
+   :events {:user/login {:spec [:tuple :keyword]}}
+   :subs   {:user/full-name {:spec :string}}})
+
+(deftest tab-data-scopes-app-db-schemas-to-picker-frame
+  (testing "the L1 frame picker scopes the app-db-schema rows — switching
+            the picker frame changes which frame's app-db schemas list,
+            while the process-global event + sub specs stay visible in
+            every frame"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.schemas/set-registry-override-for-test
+         two-frame-registry])
+      (testing "picker on :rf/default → its 1 app-db schema + 2 global specs"
+        (rf/dispatch-sync [:rf.causa/select-frame :rf/default])
+        (let [data    @(rf/subscribe [:rf.causa.static.schemas/tab-data])
+              app-dbs (filterv #(= :app-db (:kind %)) (:schemas data))]
+          (is (= 3 (:total data)) "1 app-db (default) + 1 event + 1 sub")
+          (is (= [[:user]] (mapv :id app-dbs))
+              "only :rf/default's app-db schema, not :rf/cart-frame's")))
+      (testing "picker on :rf/cart-frame → its 1 app-db schema + 2 global specs"
+        (rf/dispatch-sync [:rf.causa/select-frame :rf/cart-frame])
+        (let [data    @(rf/subscribe [:rf.causa.static.schemas/tab-data])
+              app-dbs (filterv #(= :app-db (:kind %)) (:schemas data))]
+          (is (= 3 (:total data)))
+          (is (= [[:cart]] (mapv :id app-dbs))
+              "only :rf/cart-frame's app-db schema surfaces — NOT the global 2")))
+      (rf/dispatch-sync
+        [:rf.causa.static.schemas/set-registry-override-for-test nil]))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) view rendering

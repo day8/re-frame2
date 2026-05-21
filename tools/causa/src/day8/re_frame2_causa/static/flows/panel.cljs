@@ -50,6 +50,22 @@
 
 ;; ---- pure helpers --------------------------------------------------------
 
+(defn scope-to-frame
+  "Narrow a `{frame-id {flow-id flow-map}}` registry snapshot to a
+  single `frame-id`, returning the same two-level shape carrying only
+  that frame's entry. The flows registry is genuinely per-frame (Spec
+  013 — `re-frame.flows.registry/flows` is keyed by frame-id), so the
+  L1 frame picker's selection MUST scope the catalogue: switching the
+  picker changes which frame's flows the Static Flows tab lists.
+
+  A nil `frame-id` (no frame resolved yet) returns the snapshot
+  verbatim — the cold-start empty-state stays useful rather than
+  blanking the list. Pure data — JVM-runnable."
+  [registry-snapshot frame-id]
+  (if (nil? frame-id)
+    registry-snapshot
+    (select-keys registry-snapshot [frame-id])))
+
 (defn project-rows
   "Flatten `{frame-id {flow-id flow-map}}` into a flat vector of rows,
   sorted by flow-id ascending. Pure data so the JVM unit-test target
@@ -93,9 +109,14 @@
        :flows       [<row> ...]
        :total       <pre-filter count>
        :filtered?   <bool>
-       :query       <string-or-nil>}"
-  [registry-snapshot query]
-  (let [rows     (project-rows registry-snapshot)
+       :query       <string-or-nil>}
+
+  `frame-id` scopes the per-frame registry to the picker's observed
+  frame before projecting (nil = no frame resolved → list every
+  frame's flows; see `scope-to-frame`)."
+  [registry-snapshot frame-id query]
+  (let [scoped   (scope-to-frame registry-snapshot frame-id)
+        rows     (project-rows scoped)
         silent?  (empty? rows)
         filtered (filter-rows rows query)]
     {:silent?   silent?
@@ -337,21 +358,27 @@
 
   ;; ---- view-facing composite -------------------------------------------
 
+  ;; `:rf.causa/observed-frame` is the L1 frame picker's current
+  ;; selection (installed by `app-db-diff-subs/install!`). The flows
+  ;; registry is per-frame (Spec 013), so the picker scopes the
+  ;; catalogue — switching frames changes which frame's flows list.
   (rf/reg-sub :rf.causa.static.flows/tab-data
     :<- [:rf.causa.static.flows/registered-flows]
+    :<- [:rf.causa/observed-frame]
     :<- [:rf.causa.static.flows/query]
-    (fn [[registry-snapshot query] _query]
-      (project-data registry-snapshot query)))
+    (fn [[registry-snapshot observed-frame query] _query]
+      (project-data registry-snapshot observed-frame query)))
 
   ;; rf2-2moh1 — register the Static Flows tab with the internal L4
-  ;; tab registry. Order 4 sits between :views (3) and :events (5)
-  ;; per the parent epic findings doc §2.4.
+  ;; tab registry. Contiguous order: machines 0 · routes 1 · schemas 2
+  ;; · flows 3 · interceptors 4 (the standalone :views / :events tabs
+  ;; rf2-b2fif removed previously left orders 3 + 5 as gaps).
   (panel-registry/reg-l4-tab!
     {:id    :flows
      :label "Flows"
      :mnem  "l"
      :modes #{:static}
-     :order 4
+     :order 3
      :panel Panel
      :placeholder-bead "rf2-uhsqb"})
 

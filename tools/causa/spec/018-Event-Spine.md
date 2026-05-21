@@ -59,7 +59,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1        │   L3 — 7 tabs
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routes ⚠Issues 1         │   L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 │   event vector · source · handler return · db writes · fx · fx-handlers │

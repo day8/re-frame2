@@ -1,6 +1,6 @@
 # 012-Views
 
-> **See also**: [`021-Dynamic-Panel-Designs.md` §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8) for the canonical View (formerly "Views") panel content design. The L3 tab display label was renamed `Views` → `View` per spec/021 §11.5; the tab key + spec doc continue to use `:views` / `012-Views.md` for stability. Per-panel content semantics moved to 021.
+> **See also**: [`021-Dynamic-Panel-Designs.md` §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8) for the canonical Views panel content design. The L3 tab display label is **`Views`** — the all-plural-domain-noun convention (Mike-direction 2026-05-21) keeps the tab vocabulary uniform across both tab sets (Views / Flows / Schemas / Routes / Machines are all plural). The tab key + spec doc continue to use `:views` / `012-Views.md` for stability. Per-panel content semantics moved to 021.
 
 ## Bug class
 

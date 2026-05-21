@@ -60,6 +60,25 @@
 
 ;; ---- pure helpers --------------------------------------------------------
 
+(defn scope-app-schemas-to-frame
+  "Narrow a `{frame-id {path schema-meta}}` app-db-schema snapshot to a
+  single `frame-id`. App-db schemas are genuinely per-frame (the
+  `re-frame.schemas.storage/schemas-by-frame` side-table is keyed by
+  frame-id), so the L1 frame picker scopes the app-db-schema rows.
+
+  A nil `frame-id` (no frame resolved yet) returns the snapshot
+  verbatim. Pure data — JVM-runnable.
+
+  NOTE: only the app-db-schema rows are frame-scoped. Event-spec and
+  sub-spec rows come from the process-global registrar (Spec 001 —
+  the registrar is per-process; frames isolate state, not
+  registrations), so they are unconditionally cross-frame and carry
+  `:frame nil`."
+  [schemas-by-frame frame-id]
+  (if (nil? frame-id)
+    schemas-by-frame
+    (select-keys schemas-by-frame [frame-id])))
+
 (defn project-app-schema-rows
   "Flatten `{frame-id {path schema-meta}}` into row maps.
   `schema-meta` carries `:schema`, `:doc`, plus `:file`/`:line`/`:ns`
@@ -123,8 +142,13 @@
         (filterv #(str/includes? (row-haystack %) needle) rows)))))
 
 (defn project-data
-  [schemas-by-frame events-map subs-map query]
-  (let [rows     (project-rows schemas-by-frame events-map subs-map)
+  "View-facing composite. `frame-id` scopes the per-frame app-db
+  schemas to the picker's observed frame (nil = every frame; see
+  `scope-app-schemas-to-frame`); event-spec + sub-spec rows are
+  process-global and always included."
+  [schemas-by-frame events-map subs-map frame-id query]
+  (let [scoped   (scope-app-schemas-to-frame schemas-by-frame frame-id)
+        rows     (project-rows scoped events-map subs-map)
         silent?  (empty? rows)
         filtered (filter-rows rows query)]
     {:silent?   silent?
@@ -392,11 +416,18 @@
 
   ;; ---- view-facing composite -------------------------------------------
 
+  ;; `:rf.causa/observed-frame` is the L1 frame picker's current
+  ;; selection. App-db schemas are per-frame (the `schemas-by-frame`
+  ;; side-table is keyed by frame-id), so the picker scopes the app-db
+  ;; rows — switching frames changes which frame's app-db schemas
+  ;; list. Event + sub specs are process-global (Spec 001) and stay
+  ;; cross-frame regardless of the picker.
   (rf/reg-sub :rf.causa.static.schemas/tab-data
     :<- [:rf.causa.static.schemas/registry]
+    :<- [:rf.causa/observed-frame]
     :<- [:rf.causa.static.schemas/query]
-    (fn [[{:keys [schemas-by-frame events subs]} query] _query]
-      (project-data schemas-by-frame events subs query)))
+    (fn [[{:keys [schemas-by-frame events subs]} observed-frame query] _query]
+      (project-data schemas-by-frame events subs observed-frame query)))
 
   ;; rf2-2moh1 — register the Static Schemas tab with the internal L4
   ;; tab registry.

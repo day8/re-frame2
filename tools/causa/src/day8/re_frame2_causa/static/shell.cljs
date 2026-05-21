@@ -23,11 +23,28 @@
       │ L4  Detail panel (fills remaining canvas)             │
       └───────────────────────────────────────────────────────┘
 
-  The L1 frame picker is mode-INDEPENDENT — Static registrations are
-  still frame-scoped, so the user must be able to pick which frame
-  they are browsing. The picker uses the canonical
-  `frame_switcher/frame-switcher-view` (same contract as Dynamic's
-  ribbon); mode toggles preserve the selection.
+  The L1 frame picker is mode-INDEPENDENT. Per Spec 001 the registrar
+  is process-GLOBAL — frames isolate state, not registrations — so
+  event / sub / route / interceptor / machine-definition catalogues are
+  shared across every frame and read the same regardless of the picker.
+  What the picker DOES scope is the genuinely per-frame surfaces each
+  panel projects:
+
+    - Machines    — live machine snapshots (`:rf/machines` in the
+                    target-frame db); the definition catalogue is global.
+    - Flows       — the flows registry is per-frame
+                    (`{frame-id {flow-id ...}}`, Spec 013).
+    - Schemas     — the app-db-schema side-table is per-frame
+                    (`schemas-by-frame`); event/sub specs are global.
+    - Routes      — the current-route slice (`:rf/route`) is per-frame;
+                    the route-definition catalogue is global.
+    - Interceptors— global (interceptor chains live on globally
+                    registered events).
+
+  So switching frames changes the per-frame projections above; the
+  global catalogues are deliberately cross-frame. The picker uses the
+  canonical `frame_switcher/frame-switcher-view` (same contract as
+  Dynamic's ribbon); mode toggles preserve the selection.
 
   L2 is also a functional signal: its absence is one of the four
   stacked mode-signal mechanisms (chrome silhouette) the parent epic

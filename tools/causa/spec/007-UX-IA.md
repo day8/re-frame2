@@ -87,7 +87,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App DB ○View 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1 │              L3 — 8 tabs
+│ ◉Event ○App DB ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routes ⚠Issues 1 │              L3 — 8 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -106,10 +106,10 @@ The four layers, top to bottom:
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
    `🌐` `🤖`) + trailing redaction marker (`[● REDACTED N]`). The
    spine sub `:rf.causa/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Eight tabs: Event / App DB / View / Trace /
-   Machines / Machines Canvas / Routing / Issues. Letter mnemonics:
-   `e` `a` `v` `t` `m` `c` `r` `i`. Count badges (`View 8`) update
-   with focused cascade. Routing was promoted to its own L3 tab in
+3. **L3 — Tab bar (40px).** Eight tabs: Event / App DB / Views / Trace /
+   Machines / Machines Canvas / Routes / Issues. Letter mnemonics:
+   `e` `a` `v` `t` `m` `c` `r` `i`. Count badges (`Views 8`) update
+   with focused cascade. Routes was promoted to its own L3 tab in
    rf2-nrbs9; Machines Canvas was promoted in rf2-mkpnb — both follow
    the cohesive-sub-domain rule (sub-domains earn their own lens tab).
    (rf2-4v67l — the Chrome A11y dogfood tab was removed in favour of
@@ -1172,8 +1172,8 @@ on `Esc`, click-outside, or invocation of any item.
 - Registered handlers (id + `:doc`)
 - Frames
 - Machines with current state
-- L4 tab jumps — Dynamic: Event / App DB / View / Trace / Machines
-  / Machines Canvas / Routing / Issues; Static: Machines / Routes /
+- L4 tab jumps — Dynamic: Event / App DB / Views / Trace / Machines
+  / Machines Canvas / Routes / Issues; Static: Machines / Routes /
   Schemas / Flows / Interceptors (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
@@ -1509,15 +1509,28 @@ surface is event-independent — and renders 3 layers:
 L2's absence is also a functional signal — see §Mode-signal mechanism
 below.
 
-The L1 frame picker is **mode-independent**. Static is also
-frame-scoped — registered events, subs, machines, routes, schemas,
-flows, and interceptors all live in a particular frame, so the user
-must be able to pick which frame they are browsing whether the lens is
-event-coupled (Dynamic) or event-independent (Static). Both shells
-mount the same `frame_switcher/frame-switcher-view` (the canonical L1
-contract); the selection persists across mode toggles. Dynamic's
-spine-coupled clusters (nav `[◀ ▶ ⏭]`, filter pills) remain hidden in
-Static — those have no meaning without a spine.
+The L1 frame picker is **mode-independent**. Per [Spec 001](../../../spec/001-Registration.md)
+the registrar is **process-global** — frames isolate *state*, not
+*registrations* — so event / sub / route / interceptor /
+machine-definition catalogues are shared across every frame and read
+the same regardless of the picker. What the picker scopes is the
+genuinely per-frame surface each Static panel projects:
+
+| Tab | Frame-scoped (picker changes it) | Process-global (cross-frame) |
+|---|---|---|
+| **Machines** | live machine snapshots (`:rf/machines` in the target-frame db) | the machine-definition catalogue |
+| **Routes** | the current-route slice (`:rf/route`) | the route-definition catalogue |
+| **Schemas** | the app-db-schema side-table (`schemas-by-frame`) | event-spec + sub-spec rows |
+| **Flows** | the flows registry (`{frame-id {flow-id …}}`, [Spec 013](../../../spec/013-Flows.md)) | — (fully per-frame) |
+| **Interceptors** | — | interceptor chains (live on globally registered events) |
+
+So switching the picker changes the per-frame projections above; the
+global catalogues are deliberately cross-frame. The picker stays in
+Static because four of the five tabs DO carry a per-frame surface.
+Both shells mount the same `frame_switcher/frame-switcher-view` (the
+canonical L1 contract); the selection persists across mode toggles.
+Dynamic's spine-coupled clusters (nav `[◀ ▶ ⏭]`, filter pills) remain
+hidden in Static — those have no meaning without a spine.
 
 ### Sub-tab inventory (Static L3)
 
@@ -1631,8 +1644,8 @@ with L2; Static is 3-layer without). The composer (`surface-composer`
 in `shell.cljs`) `case`-dispatches between the two on `[:rf.causa/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
-Dynamic ships 8 tabs (Event / App DB / View / Trace / Machines /
-Machines Canvas / Routing / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+Dynamic ships 8 tabs (Event / App DB / Views / Trace / Machines /
+Machines Canvas / Routes / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id

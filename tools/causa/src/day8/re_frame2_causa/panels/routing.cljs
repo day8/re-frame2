@@ -473,9 +473,14 @@
   ;; rf2-mkpnb — order bumped 5 → 6 to make room for the new Machines
   ;; Canvas tab at order 5 (sits adjacent to Machines so the two
   ;; machine sub-domain tabs render next to each other).
+  ;; Display label is the plural domain noun "Routes" — matching the
+  ;; Static Routes tab so the two tab sets share one vocabulary
+  ;; (all-plural-domain-noun convention, Mike-direction 2026-05-21).
+  ;; Internal id stays `:routing` (id is not a user contract; same
+  ;; posture as `:views` rendering as "Views").
   (panel-registry/reg-l4-tab!
     {:id    :routing
-     :label "Routing"
+     :label "Routes"
      :mnem  "r"
      :modes #{:dynamic}
      :order 6

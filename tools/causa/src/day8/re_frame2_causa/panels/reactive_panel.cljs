@@ -51,9 +51,12 @@
   ;; the slot for the smaller diff).
   (panel-registry/reg-l4-tab!
     {:id    :views
-     ;; rf2-e33ad — display label renamed from `Reactive` to `View`
-     ;; per Mike-direction 2026-05-21. Internal id stays `:views`.
-     :label "View"
+     ;; Display label renamed `Reactive` -> `View` -> `Views`. The
+     ;; all-plural-domain-noun convention (Mike-direction 2026-05-21)
+     ;; aligns the tab vocabulary across both tab sets — Views / Flows /
+     ;; Schemas / Routes / Machines are all plural. Internal id stays
+     ;; `:views`.
+     :label "Views"
      :mnem  "v"
      :modes #{:dynamic}
      :order 2
