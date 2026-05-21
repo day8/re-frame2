@@ -443,6 +443,53 @@
             (is (not= h-empty h-with)
                 "appending a decorator must produce a fresh hash")))))))
 
+(deftest snapshot-identity-changes-with-play-script
+  (testing "Per spec/007 §Variant snapshot identity — a variant-level
+            :play-script change MUST perturb the content-hash. Closes
+            rf2-bgwnf: variant-body-slice selected the legacy :play key
+            (removed by rf2-0wrud), so play-script edits were silently
+            dropped from the hash — breaking watch-mode auto-rerun and
+            visual-regression baseline invalidation."
+    (story/reg-story :story.id-ps
+      {:component :app/v})
+    (story/reg-variant :story.id-ps/v
+      {:events      []
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
+    (let [h1 (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
+      (story/reg-variant :story.id-ps/v
+        {:events      []
+         :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 2]]]})
+      (let [h2 (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
+        (is (not= h1 h2)
+            "editing the play-script must produce a fresh hash"))
+      (testing "adding a play-script to a previously play-less variant also perturbs the hash"
+        (story/reg-variant :story.id-ps/v {:events []})
+        (let [h-none (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
+          (story/reg-variant :story.id-ps/v
+            {:events      []
+             :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
+          (let [h-with (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
+            (is (not= h-none h-with)
+                "appending a play-script must produce a fresh hash")))))))
+
+(deftest snapshot-identity-changes-with-plays
+  (testing "Per spec/007 §Variant snapshot identity — the multi-play
+            :plays surface (rf2-tl7zk) also participates in the hash.
+            Companion to rf2-bgwnf: both play surfaces (:play-script and
+            :plays) must perturb snapshot identity."
+    (story/reg-story :story.id-plays
+      {:component :app/v})
+    (story/reg-variant :story.id-plays/v
+      {:events []
+       :plays  [{:name "happy" :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]}]})
+    (let [h1 (-> (story/snapshot-identity :story.id-plays/v) :content-hash)]
+      (story/reg-variant :story.id-plays/v
+        {:events []
+         :plays  [{:name "happy" :script [[:dispatch-sync [:rf.assert/path-equals [:n] 2]]]}]})
+      (let [h2 (-> (story/snapshot-identity :story.id-plays/v) :content-hash)]
+        (is (not= h1 h2)
+            "editing a play's script must produce a fresh hash")))))
+
 (deftest snapshot-identity-changes-with-view-schema-digest
   (testing "Per spec/007 §Variant snapshot identity (line 429) — the
             *registered* schema digest of the view (per spec/011

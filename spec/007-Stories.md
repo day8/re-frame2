@@ -427,8 +427,9 @@ The same data drives every consumer. No artefact duplication.
 
 Every variant has a stable **snapshot identity** comprising its `:variant-id` plus a content hash of its serialised body. The hash includes:
 
-- `:events` and `:play` event vectors (in order),
+- `:events` setup dispatches and the `:play-script` / `:plays` play surfaces (in order) — the legacy `:play` slot was removed (rf2-0wrud),
 - the resolved (post-`:extends`-merge) args, decorators, and tags,
+- the variant's `:viewport` / `:background` visual chrome (they land in the screenshot),
 - the parent story's component id (`:component`) and decorators,
 - the *registered* schema digest of the view (per [011 §`:rf/schema-digest`](011-SSR.md)) — so a schema change invalidates the snapshot identity.
 

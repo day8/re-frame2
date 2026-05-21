@@ -15,11 +15,15 @@
   includes:
 
   - Variant id
-  - `:events` and `:play` event vectors (in order)
-  - `:loaders` (in declared order; canonicalised)
+  - `:events` setup dispatches and the `:play-script` / `:plays` play
+    surfaces (in order) — rf2-0wrud removed the legacy `:play` slot
+  - `:loaders` / `:loaders-complete-when` / `:loaders-teardown`
+    (in declared order; canonicalised)
   - Effective `:args` (post-`:extends`-merge with story + active modes)
   - Variant `:decorators` id sequence + their ref-args
   - Variant `:tags` set
+  - Variant `:viewport` / `:background` visual chrome
+  - Variant `:args->events`, `:platforms`, `:substrates` targeting
   - Parent story `:component` id
   - Parent story `:decorators`
   - Parent story `:tags`
@@ -156,13 +160,52 @@
 
   Per spec/007 §Variant snapshot identity the variant-level `:decorators`
   participate in the hash — watch-mode auto-rerun keys off this identity
-  so a decorator-only edit MUST perturb it."
+  so a decorator-only edit MUST perturb it.
+
+  ## Slice membership (rf2-bgwnf)
+
+  A key belongs in the slice iff editing it changes the variant's
+  *settled rendered/tested state* — the thing a visual-regression
+  baseline or watch-mode rerun must invalidate on. Audited 2026-05-21:
+
+  Included:
+  - `:play-script` / `:plays` — the post-render interaction sequences.
+    A play edit changes the asserted/driven state, so it MUST perturb
+    the hash. (rf2-0wrud removed the legacy `:play` slot; this slice
+    tracked `:play`, which silently no longer existed — the bug
+    rf2-bgwnf fixes.)
+  - `:events` — pre-render setup dispatches.
+  - `:loaders` / `:loaders-complete-when` / `:loaders-teardown` — async
+    setup + the symmetric teardown; both shape the frame's settled state.
+  - `:decorators` / `:tags` — composition + classification.
+  - `:viewport` / `:background` — visual chrome that lands IN the
+    screenshot, so a baseline must invalidate when they change.
+  - `:args->events` / `:platforms` / `:substrates` — derivation +
+    targeting that change what is rendered.
+
+  Excluded (documented, not an oversight):
+  - `:args` — captured via `:effective-args` in `snapshot-tuple` (post-
+    `:extends`-merge + active-mode merge), so reproducing it here would
+    double-count.
+  - `:argtypes` — controls-panel metadata only; it shapes the controls
+    UI, not the rendered snapshot. The args it constrains are already
+    captured via `:effective-args`.
+  - `:modes` — the variant's *available* mode refs. The *active* mode
+    context is captured by `snapshot-tuple` (`:active-modes` slot +
+    merged into `:effective-args`); the available-mode SET does not
+    change the snapshot for a given active-mode context.
+  - `:dispatch-console?` / `:causa` — dev-tooling affordances; no effect
+    on the settled rendered state.
+  - `:doc` / `:source` — prose + coords; runtime-environmental.
+  - `:extends` — resolved away into `:effective-args` before hashing."
   [variant-id]
   (let [body (registrar/handler-meta :variant variant-id)]
     (when body
       (select-keys body
-                   [:events :play :loaders :loaders-complete-when
-                    :tags :decorators :args->events :platforms :substrates]))))
+                   [:events :play-script :plays
+                    :loaders :loaders-complete-when :loaders-teardown
+                    :tags :decorators :args->events :platforms :substrates
+                    :viewport :background]))))
 
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
@@ -221,6 +264,17 @@
       :story                 story
       :effective-args        effective
       :view-schema-digest    schema-digest
+      ;; rf2-z86vu — `:active-modes` already perturbs identity via
+      ;; `:effective-args` (mode args are merged in by `resolve-args`),
+      ;; so this top-level slot is intentionally belt-and-braces: it
+      ;; keeps the mode-id SET part of the identity so two distinct modes
+      ;; that happen to register identical args (and therefore identical
+      ;; `:effective-args`) still produce DIFFERENT snapshot hashes. The
+      ;; visual-regression baseline is keyed per active-mode context, so
+      ;; the mode id — not just its resolved args — is identity-bearing.
+      ;; Do not "simplify" this away. (Contrast `:cell-overrides`, which
+      ;; perturbs identity only via `:effective-args` — overrides carry
+      ;; no id, so there is no analogous collision risk.)
       :active-modes          (vec (or active-modes []))
       :substrate             substrate})))
 
