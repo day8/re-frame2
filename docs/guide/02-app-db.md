@@ -62,7 +62,7 @@ The old `db` still exists, unchanged, after the handler returns. The new map sha
 
 This buys you three things:
 
-- **Pure handlers.** Because `db` is just a value, not a mutable cell, a handler is a *function* of `(old-state, event) → new-state`. You can test it as a function — pass in any old-state, assert on the new-state. No mocking, no setup. (Chapter [03](03-your-first-app.md) shows the test.)
+- **Pure handlers.** Because `db` is just a value, not a mutable cell, a handler is a *function* of `(old-state, event) → new-state`. You can test it as a function — pass in any old-state, assert on the new-state. No mocking, no setup. (Chapter [03](03-first-app.md) shows the test.)
 
 - **No mutation-bug class.** Half of "what's wrong with my app" in mutable-state systems is "something changed state from somewhere I don't expect." In re-frame2, only event handlers change state, and they do it by returning a new value. There is no `db.cart.push(item)` somewhere in your codebase. There can't be.
 
@@ -72,7 +72,7 @@ The lost flexibility — you can't sneak a mutation in from a corner of the app 
 
 ## The data-flow loop
 
-re-frame2 is sometimes described as **six dominoes**. The full walkthrough of one event through all six is in [04 — Events, state, and the cycle §Walking one event through every domino](04-events-state-cycle.md#walking-one-event-through-every-domino); the abbreviated version, with app-db at the centre:
+re-frame2 is sometimes described as **six dominoes**. The full walkthrough of one event through all six is in [04 — Events, state, and the cycle §Walking one event through every domino](04-events.md#walking-one-event-through-every-domino); the abbreviated version, with app-db at the centre:
 
 ```
    event ─► handler ─► new app-db ─► subs recompute ─► view re-renders ─► DOM
@@ -96,13 +96,13 @@ A question new readers ask early: "Where does X go in app-db?"
 
 The honest answer is: re-frame2 doesn't prescribe. app-db is your app's state, shaped how your domain shapes it. But the framework has opinions about *certain recurring shapes*:
 
-- **HTTP request lifecycle data** — A standard five-key slice (`:status`, `:data`, `:error`, `:in-flight?`, `:last-fetched-at`) lives under `[:remote-data <feature> <id>]`. Chapter [10 — Doing HTTP requests](10-doing-http-requests.md) walks the full story.
+- **HTTP request lifecycle data** — A standard five-key slice (`:status`, `:data`, `:error`, `:in-flight?`, `:last-fetched-at`) lives under `[:remote-data <feature> <id>]`. Chapter [10 — Doing HTTP requests](12-http.md) walks the full story.
 
-- **Form state** — `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [08 — Forms](08-forms.md) walks the lifecycle.
+- **Form state** — `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [08 — Forms](10-forms.md) walks the lifecycle.
 
-- **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [09 — State machines](09-state-machines.md) covers this.
+- **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [09 — State machines](11-machines.md) covers this.
 
-- **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [17 — Routing](17-routing.md) walks routing.
+- **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [17 — Routing](18-routing.md) walks routing.
 
 A handful of root keys at the top of app-db are **runtime-managed** — `:rf/machines`, `:rf/route`, `:rf/system-ids`, `:rf/pending-navigation`. Don't write to these directly; they're internals the framework maintains for you. Everything else is yours.
 
@@ -137,6 +137,6 @@ That's app-db.
 
 ## What comes next
 
-Chapter [03 — Your first app](03-your-first-app.md) walks a counter end-to-end and shows app-db in motion: the `:on-create` event seeds the initial value, three event-handlers transform it, one subscription reads from it, one view renders.
+Chapter [03 — Your first app](03-first-app.md) walks a counter end-to-end and shows app-db in motion: the `:on-create` event seeds the initial value, three event-handlers transform it, one subscription reads from it, one view renders.
 
-If you're migrating from re-frame v1, [18 — From re-frame v1](18-from-re-frame-v1.md) covers the migration shape — the v1 mental model maps cleanly across, and most v1 apps move over with no shape change to `app-db`.
+If you're migrating from re-frame v1, [18 — From re-frame v1](20-migration.md) covers the migration shape — the v1 mental model maps cleanly across, and most v1 apps move over with no shape change to `app-db`.

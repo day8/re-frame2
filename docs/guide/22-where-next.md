@@ -1,4 +1,4 @@
-# 20 — Where to go next
+# 22 — Where to go next
 
 The mental model is in place. A few directions from here.
 
@@ -36,20 +36,20 @@ If you'd like a **frame-aware component playground** alongside the live app — 
 
 ## Pick a substrate adapter
 
-re-frame2's runtime is substrate-agnostic; three view-layer adapters ship today — Reagent, UIx, and Helix. [Chapter 19 — Adapters](19-adapters.md) covers the substrate-agnostic story, the `init!` call shape, the three `deps.edn` lines, and the slim-Reagent option for ship-size builds. Reach for it when you're deciding which adapter to mount, or when you're integrating with a non-Reagent codebase.
+re-frame2's runtime is substrate-agnostic; three view-layer adapters ship today — Reagent, UIx, and Helix. [Chapter 21 — Adapters](21-adapters.md) covers the substrate-agnostic story, the `init!` call shape, the three `deps.edn` lines, and the slim-Reagent option for ship-size builds. Reach for it when you're deciding which adapter to mount, or when you're integrating with a non-Reagent codebase.
 
 ## Look up a pattern by name
 
 When you hit a recurring shape — async work, websockets, forms, remote data, boot — a **Pattern doc** names the canonical answer. Patterns are conventions on top of the framework's primitives, closer in voice to this guide than to API reference, and they're the right next stop when the shape of your problem matches one of them.
 
-Two are introduced inline in [chapter 04](04-events-state-cycle.md#patterns-the-next-layer-up) because they bottom out on effects-as-data directly:
+Two are introduced inline in [chapter 04](04-events.md#patterns-the-next-layer-up) because they bottom out on effects-as-data directly:
 
 - **Pattern-AsyncEffect** — async work as data, not callbacks. The generic post-work-await-reply shape.
 - **Pattern-RemoteData** — the standard 5-key lifecycle slice for HTTP requests (idle / loading / loaded / error / stale).
 
 The rest — look these up when you hit the matching shape:
 
-- **Pattern-Forms** — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [08 — Forms](08-forms.md).)
+- **Pattern-Forms** — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [08 — Forms](10-forms.md).)
 - **Pattern-Boot** — chained app initialisation with progress UI and fail-fatal points.
 - **Pattern-WebSocket** — long-lived connection lifecycle modelled as a state machine.
 - **Pattern-LongRunningWork** — chunked yielding or worker offload for CPU-heavy work.
@@ -58,7 +58,7 @@ The rest — look these up when you hit the matching shape:
 
 ## Migrate from v1
 
-If you have an existing re-frame v1 app to bring across, [chapter 18](18-from-re-frame-v1.md) is the narrative version of the story. The mechanical version is an AI-driven migration prompt, currently 40+ rules, designed to be fed to an agent that does the rewrite. Read 18 first to know what's coming.
+If you have an existing re-frame v1 app to bring across, [chapter 20](20-migration.md) is the narrative version of the story. The mechanical version is an AI-driven migration prompt, currently 40+ rules, designed to be fed to an agent that does the rewrite. Read 18 first to know what's coming.
 
 ## Where re-frame came from
 

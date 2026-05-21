@@ -49,7 +49,7 @@ For `:substrates` to work, your view registration must be substrate-agnostic. Co
 
 - **For host-specific affordances, guard them.** Reagent's `[:>]` shape, UIx's `$` shape — if you genuinely need substrate-specific code (rare, but happens), guard it behind `(case (rf/substrate) :reagent ... :uix ...)`. Most apps never need this.
 
-Views that *do* need substrate-specific code aren't covered by `:substrates`; they live under a single-substrate parent story. The adapter chapters at [Guide 19 — Adapters](../guide/19-adapters.md) walk the gotchas in detail.
+Views that *do* need substrate-specific code aren't covered by `:substrates`; they live under a single-substrate parent story. The adapter chapters at [Guide 19 — Adapters](../guide/21-adapters.md) walk the gotchas in detail.
 
 The discipline of writing substrate-agnostic views is, frankly, also a discipline you should be aiming at *in general* — it pays for itself even if you never multi-substrate. Substrate-agnostic views are easier to test, easier to read, less coupled to the host React conventions, and (the kicker) immune to the periodic React-internal breaking changes that ripple through every framework downstream. We are not subtle about wanting you to write them this way regardless of multi-substrate.
 

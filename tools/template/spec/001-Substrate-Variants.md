@@ -93,7 +93,7 @@ across all three variants.
 Every variant emits a working counter. The counter is the same
 shape the developer reads about in:
 
-- [Guide chapter 03 — Your first app](../../../docs/guide/03-your-first-app.md)
+- [Guide chapter 03 — Your first app](../../../docs/guide/03-first-app.md)
   — the friendly walkthrough.
 - [`examples/reagent/counter/`](../../../examples/reagent/counter/) —
   the canonical Reagent counter.

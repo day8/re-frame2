@@ -39,7 +39,7 @@ template's role is over.
 Every variant emits a working counter. The counter:
 
 - Is the same shape developers read about in [Guide chapter 03
-  — Your first app](../../../docs/guide/03-your-first-app.md).
+  — Your first app](../../../docs/guide/03-first-app.md).
 - Matches the per-substrate `examples/<substrate>/counter*/`
   reference apps.
 - Uses the smallest amount of re-frame2 surface that demonstrates

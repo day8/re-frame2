@@ -4,7 +4,7 @@ You shipped a refactor on Monday — a small change to the `:cart/items` shape, 
 
 This is what schemas are for, and the Schemas panel is what you open. You'd registered a Malli schema on `:cart/items` weeks ago. The runtime has been validating against it on every crossing the whole time — and the moment the refactor landed, that boundary started failing on the shapes the old discount code emits. The Issues ribbon is showing the count. The Schemas panel is where you see *when* the contract drift started and *which* slot broke first.
 
-The panel lights up only when you've registered at least one schema. The companion narrative is [Guide 04a — Schemas](../guide/04a-schemas.md).
+The panel lights up only when you've registered at least one schema. The companion narrative is [Guide 04a — Schemas](../guide/05-schemas.md).
 
 ![Schema-violation timeline — a coloured dot per epoch, per registered schema](../images/causa/06-schema-timeline.png)
 

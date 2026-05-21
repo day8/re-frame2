@@ -49,7 +49,7 @@ If you want to inject an `app-db` value — bug repro shipping, an experimental 
 
 Three patterns the diff handles distinctively:
 
-- **Large blobs.** Slots tagged `:large?` (see [Guide 23b — Large blobs](../guide/23b-large-blobs.md)) render as `:rf/elided` placeholders in the diff. The diff still flags "this slot changed"; it doesn't expand the value. The *show large* toggle is per-session — useful when you actually need to look.
+- **Large blobs.** Slots tagged `:large?` (see [Guide 23b — Large blobs](../guide/25-large-blobs.md)) render as `:rf/elided` placeholders in the diff. The diff still flags "this slot changed"; it doesn't expand the value. The *show large* toggle is per-session — useful when you actually need to look.
 - **Sensitive values.** Slots whose schema declares `:sensitive? true` render as `:rf/redacted` by default, with a *N redacted* count at the bottom of the panel. Toggle on to inspect — same opt-in as the trace panel.
 - **Bigint and date types.** Values that don't pretty-print well in the default Clojure printer get a type chip — `[bigint]`, `[date]`, `[uuid]` — with the underlying value reachable through *expand*.
 

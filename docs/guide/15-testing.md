@@ -1,4 +1,4 @@
-# 13 — Testing
+# 15 — Testing
 
 re-frame2's pattern makes the full dynamic story of your app testable on the **JVM, in milliseconds per case** — no JSDOM, no fetch mocks, no timer wrestling, no `act()`. Pure event handlers, pure machine transitions, sub bodies that compute against an `app-db` value, an effect map that's just data — every load-bearing piece is a function from values to values, evaluable without a browser, a network, or a clock. Tests are short, fast, and stable, which means you write more of them and trust them more.
 
@@ -27,7 +27,7 @@ The artefact is dev-only and cleanly separated from the runtime — the testing 
 
 ## Fixtures: getting a fresh frame for each test
 
-The hardest part of testing imperative code is **isolation** — making sure test 1 doesn't leak state into test 2. re-frame v1 papered over this with global `app-db`-resetting helpers; re-frame2 makes it explicit through frames. If the per-test-frame mental model is new — what a frame is, why each test wants its own — read [chapter 06a — Frames](06a-frames.md) first; this chapter assumes the vocabulary.
+The hardest part of testing imperative code is **isolation** — making sure test 1 doesn't leak state into test 2. re-frame v1 papered over this with global `app-db`-resetting helpers; re-frame2 makes it explicit through frames. If the per-test-frame mental model is new — what a frame is, why each test wants its own — read [chapter 08 — Frames](08-frames.md) first; this chapter assumes the vocabulary.
 
 Three patterns, ranked roughly by frequency:
 
@@ -209,7 +209,7 @@ Equivalent to writing `{:data-testid "counter-inc" :on-click ...}` by hand. Pick
 
 Two flavours of view-content testing coexist:
 
-- `render-to-string` (covered in [chapter 11 — Server-side](11-server-side.md)) emits HTML. Best when the assertion is about the rendered markup — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". Output is a string.
+- `render-to-string` (covered in [chapter 13 — Server-side](13-server-side.md)) emits HTML. Best when the assertion is about the rendered markup — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". Output is a string.
 - The hiccup-walk pattern in this section operates on hiccup data. Best when the assertion is about **structure** ("is the testid present?") or **handlers** ("what does the button fire?"), or when the test wants to drive interaction by invoking `:on-click` directly.
 
 Reach for `render-to-string` when the test cares about HTML; reach for hiccup-walk when the test cares about handlers or testid-keyed structure.
@@ -473,7 +473,7 @@ Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, 
 
 After running a test sequence, `@recorded` carries the events that fired, in order. Useful for verifying control flow without checking every state transition.
 
-The `->interceptor` primitive used above, the sandwich shape, and the per-frame `:interceptors` slot are all covered in [chapter 07 — Interceptors](07-interceptors.md). If `:interceptors` on a frame is unfamiliar, read that first.
+The `->interceptor` primitive used above, the sandwich shape, and the per-frame `:interceptors` slot are all covered in [chapter 09 — Interceptors](09-interceptors.md). If `:interceptors` on a frame is unfamiliar, read that first.
 
 ### Disabling a logging interceptor
 
@@ -500,7 +500,7 @@ A handler that depends on the outside world via `inject-cofx` becomes determinis
              (-> (rf/get-frame-db f) :todos first val :created-at))))))
 ```
 
-`with-fresh-registrar` scopes the stub to the test body — the production `:now` is intact for the next test. The full cofx surface (`reg-cofx`, `inject-cofx`, common cofxes, the registration shape) is covered in [chapter 05 — Coeffects](05-coeffects.md); this entry locates the testing idiom within the broader stubbing story.
+`with-fresh-registrar` scopes the stub to the test body — the production `:now` is intact for the next test. The full cofx surface (`reg-cofx`, `inject-cofx`, common cofxes, the registration shape) is covered in [chapter 06 — Coeffects](06-coeffects.md); this entry locates the testing idiom within the broader stubbing story.
 
 ---
 
@@ -524,5 +524,5 @@ The split is the inverse of what most React-side test suites accumulate over tim
 
 ## Next
 
-- [14 — Errors and how to handle them](14-errors.md) — the trace-listener test pattern in this chapter generalises into a full surface for asserting error contracts; that chapter walks the `:rf.error/*` taxonomy end-to-end.
+- [14 — Errors and how to handle them](16-errors.md) — the trace-listener test pattern in this chapter generalises into a full surface for asserting error contracts; that chapter walks the `:rf.error/*` taxonomy end-to-end.
 - [Causa](../causa/index.md) — the trace bus, epochs, time-travel, source-coords, and the devtool that paints them.

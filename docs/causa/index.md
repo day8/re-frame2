@@ -71,7 +71,7 @@ A re-frame2 app, in dev mode, is **inspectable by default**. Without you writing
 
 These surfaces exist for **tools** to consume — not for you to consume by hand, although you can. The framework's job is to keep the data shapes stable and well-named. The tools' job is to present them.
 
-The same surfaces carry beyond the developer's browser too. For an off-box, production-shaped consumer — forwarding the trace bus through an interceptor and `rf/elide-wire-value` to Datadog, Honeycomb, Sentry, or any APM that takes structured events — see [Guide 22 — Trace to Datadog](../guide/22-trace-to-datadog.md). Same listener pattern; just a different endpoint at the other end.
+The same surfaces carry beyond the developer's browser too. For an off-box, production-shaped consumer — forwarding the trace bus through an interceptor and `rf/elide-wire-value` to Datadog, Honeycomb, Sentry, or any APM that takes structured events — see [Guide 22 — Trace to Datadog](../guide/23-observability.md). Same listener pattern; just a different endpoint at the other end.
 
 ## Performance: the prod-friendly channel
 
@@ -106,7 +106,7 @@ The channel is gated on `re-frame.performance/enabled?` — a `goog-define` bool
 
 The Performance API surface is CLJS-only — JVM artefacts (SSR, headless tests) emit no perf entries; tools running there use the host's profilers.
 
-For *when* to reach for this channel — and the four shapes of slowness the cures address — see the companion deep-dive [Guide 16 — Performance](../guide/16-performance.md).
+For *when* to reach for this channel — and the four shapes of slowness the cures address — see the companion deep-dive [Guide 16 — Performance](../guide/17-performance.md).
 
 ## Reference: the static sub-graph
 
@@ -129,7 +129,7 @@ The framework commits to stable data shapes and query APIs; tools own presentati
 - [`re-frame2-pair`](../skills/re-frame2-pair.md) — the AI pair-programming skill that attaches over nREPL.
 - [Story](../story/index.md) — the Storybook-class component playground.
 - The `story-mcp` JVM server packaging the Story surface as MCP tools for AI agents.
-- APM-shipper wiring — see [Guide 22 — Trace to Datadog](../guide/22-trace-to-datadog.md).
+- APM-shipper wiring — see [Guide 22 — Trace to Datadog](../guide/23-observability.md).
 
 Causa is the first of three Tool-Pair tools that share this substrate. Story sits alongside, with frame-per-variant isolation; the pair skill sits across, driving the running app through an editor's nREPL bridge. They never coordinate. They never need to.
 

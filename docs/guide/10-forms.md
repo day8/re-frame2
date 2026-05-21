@@ -1,4 +1,4 @@
-# 08 — Forms
+# 10 — Forms
 
 ## TL;DR
 
@@ -14,7 +14,7 @@ Every team that's tried to build a reusable `<Form>` component has watched it gr
 
 A convention pushes the opposite way. The slice shape is fixed; the event names are fixed; the visibility rule is fixed; the *code* is yours. When the next form needs something the last one didn't, you write the difference into the view or the handler, not into a shared abstraction that has to handle both. AI scaffolds (and other humans on your team) produce the boilerplate on autopilot because the recipe is uniform — but nothing you wrote yesterday gets in the way of what you need to write today.
 
-We'll use the **login form** as the running example — the same login flow that [chapter 09 — State machines](09-state-machines.md) returns to next; this chapter zooms in on the *form-slice* underneath. By the end of the chapter the slice shape, the seven events, the standard subs, and the standard view structure will be in front of you, end to end.
+We'll use the **login form** as the running example — the same login flow that [chapter 11 — State machines](11-machines.md) returns to next; this chapter zooms in on the *form-slice* underneath. By the end of the chapter the slice shape, the seven events, the standard subs, and the standard view structure will be in front of you, end to end.
 
 ## The form slice
 
@@ -94,7 +94,7 @@ The form's *value* — the actual shape it's collecting — is a separate schema
 (rf/reg-app-schema [:auth :login :draft] LoginForm)
 ```
 
-Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the Malli vocabulary (`[:map ...]`, `[:enum ...]`, `[:re #...]`, `[:string {:min N}]`) and the `reg-app-schema` / event `:spec` surfaces in general, see [chapter 04a — Schemas](04a-schemas.md).
+Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the Malli vocabulary (`[:map ...]`, `[:enum ...]`, `[:re #...]`, `[:string {:min N}]`) and the `reg-app-schema` / event `:spec` surfaces in general, see [chapter 05 — Schemas](05-schemas.md).
 
 ## Error visibility — touched OR submit-attempted
 
@@ -362,7 +362,7 @@ Passwords match. End-date is on or after start-date. Either-email-or-phone is re
 
 ### Multi-step forms / wizards
 
-A signup wizard, a checkout flow, a survey with branches. The form slice persists across steps; the *step* state is a small state machine over it. The machine handles "advance to step 3 when step 2's required fields are clean"; the form slice still holds the `:draft` accumulating across all steps. This is the place where this chapter and [chapter 09 — State machines](09-state-machines.md) compose directly — the machine on top, the form slice underneath.
+A signup wizard, a checkout flow, a survey with branches. The form slice persists across steps; the *step* state is a small state machine over it. The machine handles "advance to step 3 when step 2's required fields are clean"; the form slice still holds the `:draft` accumulating across all steps. This is the place where this chapter and [chapter 11 — State machines](11-machines.md) compose directly — the machine on top, the form slice underneath.
 
 ### Optimistic vs. pessimistic submit
 
@@ -401,10 +401,10 @@ The checklist is intentionally duplicated between this chapter and the Pattern d
 
 ## Cross-references
 
-- [chapter 09 — State machines](09-state-machines.md) — multi-step wizards layer a machine on top of the form slice.
+- [chapter 11 — State machines](11-machines.md) — multi-step wizards layer a machine on top of the form slice.
 - [`examples/reagent/realworld/auth.cljs`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld/auth.cljs) — RealWorld's login and register forms exercise the convention end-to-end; `article_editor.cljs` and `comments.cljs` extend it across longer drafts and inline-comment submissions.
 
 ## Next
 
-- [10 — Doing HTTP requests](10-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end. The submit step's network round-trip rides on top of this.
-- [11 — The server side](11-server-side.md) — SSR and hydration; how a form's `:draft` can be seeded from server-supplied initial values via `:rf/hydrate`.
+- [10 — Doing HTTP requests](12-http.md) — `:rf.http/managed`, the canonical request fx, end-to-end. The submit step's network round-trip rides on top of this.
+- [11 — The server side](13-server-side.md) — SSR and hydration; how a form's `:draft` can be seeded from server-supplied initial values via `:rf/hydrate`.

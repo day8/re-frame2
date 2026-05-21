@@ -1,8 +1,8 @@
-# 11 — The server side
+# 13 — The server side
 
 re-frame2 ships **first-class server-side rendering** with feature parity to Next.js, Remix, and SolidStart: SEO-ready first paint, social-media link previews, deep-link hydration, per-request response control. The same handlers, subs, and views run unchanged in the browser and on the server — one codebase, one mental model, no server-only carve-out.
 
-The SSR response-shape fxs (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/set-cookie`, `:rf.server/redirect`, ...) together with the Ring host adapter are **managed external effects** in the [ch.10](10-doing-http-requests.md) sense — the per-request response is built across the per-request frame's lifetime, then emitted as one structured response.
+The SSR response-shape fxs (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/set-cookie`, `:rf.server/redirect`, ...) together with the Ring host adapter are **managed external effects** in the [ch. 12](12-http.md) sense — the per-request response is built across the per-request frame's lifetime, then emitted as one structured response.
 
 This chapter explains how that works.
 
@@ -34,7 +34,7 @@ It works because the architecture has been *structurally* SSR-friendly from the 
 
 **Render-tree as serialisable data.** Hiccup is just nested vectors and maps. There's a pure function — `(rf/render-to-string hiccup-tree)` — that turns any hiccup into a string. No React. No DOM. No JavaScript runtime. It's a function from data to string, and it runs on the JVM.
 
-These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 12](12-the-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
+These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 14](14-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
 
 ## The hydration handshake
 
@@ -78,7 +78,7 @@ Step back from the mechanics for a moment and notice what *isn't* there.
 
 There's no second codebase. No "server views" file. No `if (typeof window === 'undefined')` branches scattered through handlers. No parallel data-loading pipeline that exists only because SSR demanded one. The server-render is your app, run with the same handlers and the same subs and the same views against a frame whose `app-db` was populated by the same setup events you'd dispatch in development. The output happens to be a string rather than a DOM tree. That's the only difference.
 
-**SSR is the same code as client render, in another runtime** — no carve-outs, no server-only layer. The architecture committed to pure handlers, pure subs, and a serialisable render-tree before it ever asked the SSR question; the constraints from [chapter 12](12-the-dynamic-model.md) — the ones that made the dynamic story testable and AI-amenable — turn out to be the same constraints that make the app JVM-runnable. SSR is a corollary of the pattern, available from day one.
+**SSR is the same code as client render, in another runtime** — no carve-outs, no server-only layer. The architecture committed to pure handlers, pure subs, and a serialisable render-tree before it ever asked the SSR question; the constraints from [chapter 14](14-dynamic-model.md) — the ones that made the dynamic story testable and AI-amenable — turn out to be the same constraints that make the app JVM-runnable. SSR is a corollary of the pattern, available from day one.
 
 ## Hydration mismatches
 
@@ -154,7 +154,7 @@ The SSR runtime owns the request lifecycle (frame create → drain → response 
 
 `ssr-handler` gensyms a per-request frame-id, populates the per-frame request slot via `ssr/set-request!` (so the `:rf.server/request` cofx can read the Ring request map during the drain), registers the frame with `:platform :server` via `reg-frame`, lets the drain settle synchronously, then reads the response accumulator, renders the root view, materialises structured cookies and headers to wire shape, and destroys the per-request frame in a `finally` block. The per-frame teardown hook (`:ssr/on-frame-destroyed`) drops the request slot — no leak across requests. A redirect short-circuits the body render. The adapter is also available as Ring middleware (`ssr-middleware`) when SSR is one of several handlers in a stack.
 
-The hydration-payload policy is **explicit and fail-closed** (rf2-gtgf9). Every handler MUST declare one of two opts:
+The hydration-payload policy is **explicit and fail-closed**. Every handler MUST declare one of two opts:
 
 - `:payload-keys [<top-level-app-db-keys>]` — an **allowlist**. Other keys are dropped, including any keys added later as the app evolves. The recommended primary mechanism: a denylist would silently leak each new server-only key as the app evolves; an allowlist forces a deliberate edit per new wire-bound key.
 - `:payload-policy :rf.ssr.payload/whole-app-db` — explicit opt-in to ship the whole `app-db`. Use only when the app's `app-db` is structurally safe to expose end-to-end (e.g. small SPAs where every server-set key is intended for the client).
@@ -256,7 +256,7 @@ The trace stream carries the **internal** error — full structured detail, stac
       {:status 500 :code :internal-error :message "Something went wrong." :retryable? true})))
 ```
 
-In dev, the projector's output also carries `:details` so the developer can see the trace. In prod, `:details` is absent — the public shape is exactly the four locked keys, and the security boundary is unconditional. The framework ships a default projector (`:rf.ssr/default-error-projector`) with the canonical mapping, so you only register your own when you want different status codes or messages. [Chapter 14 §Server-side error handling](14-errors.md) walks the projection idiom in more detail.
+In dev, the projector's output also carries `:details` so the developer can see the trace. In prod, `:details` is absent — the public shape is exactly the four locked keys, and the security boundary is unconditional. The framework ships a default projector (`:rf.ssr/default-error-projector`) with the canonical mapping, so you only register your own when you want different status codes or messages. [Chapter 16 §Server-side error handling](16-errors.md) walks the projection idiom in more detail.
 
 ## The server's per-request frame
 
@@ -281,7 +281,7 @@ A server handling concurrent requests can't have one global frame — each reque
 ;; the per-frame caches.
 ```
 
-The pattern from [chapter 06](06-views-and-frames.md) — frames as isolated runtime boundaries — is what makes this clean. Each request lives in its own frame; the frames don't share state. Concurrent requests don't pollute each other.
+The pattern from [chapter 07](07-views.md) — frames as isolated runtime boundaries — is what makes this clean. Each request lives in its own frame; the frames don't share state. Concurrent requests don't pollute each other.
 
 The `:on-create` event for the per-request frame typically dispatches setup via something like:
 
@@ -303,7 +303,7 @@ This is why run-to-completion drain matters for SSR: the server can't render hal
 
 ## Routing and SSR
 
-Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 06](06-views-and-frames.md)). The same handler runs server-side, fed the request URL.
+Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 07](07-views.md)). The same handler runs server-side, fed the request URL.
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
@@ -317,13 +317,13 @@ Routing on the server is the same as routing on the client. The route slice in `
 
 The view dispatches on the route id (case-on-`:rf.route/id` at the root, per the [routing example](../../examples/reagent/routing/core.cljs)) — and because the server-rendered route is the same data shape as the client route, the view code is identical.
 
-The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. [Chapter 17](17-routing.md) covers all of it. The server-side relevance: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
+The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. [Chapter 18](18-routing.md) covers all of it. The server-side relevance: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
 
 ## Parallel data fetch during drain — Pattern-SSR-Loaders
 
 The example `:rf/server-init` above issues one managed-HTTP request and lets the drain settle. Real pages need *several* independent fetches before render — the product, the related items, the most-recent reviews — and serialising three back-to-back `:rf.http/managed` calls from a single setup event adds their wall-clock costs together. The drain runs to fixed point but it runs in a single thread; the JVM transport blocks the drain on each call.
 
-**Pattern-SSR-Loaders** is the canonical fan-out shape: a state-machine spawned at `:on-create` time uses `:spawn-all` (per [chapter 09](09-state-machines.md)) to spawn N HTTP-fetching children in parallel, joins on all-complete, and writes the results into `app-db` from the join's `:entry`. Total wall-clock cost falls to `max(fetch-i) + overhead`. A phase-level `:after` deadline guards against a single fetch hanging the request. The same machine drives client-side navigation-fetch — only the spawn site changes (`:on-create` server-side, the route's `:on-match` client-side); the rest of the handler tree is identical.
+**Pattern-SSR-Loaders** is the canonical fan-out shape: a state-machine spawned at `:on-create` time uses `:spawn-all` (per [chapter 11](11-machines.md)) to spawn N HTTP-fetching children in parallel, joins on all-complete, and writes the results into `app-db` from the join's `:entry`. Total wall-clock cost falls to `max(fetch-i) + overhead`. A phase-level `:after` deadline guards against a single fetch hanging the request. The same machine drives client-side navigation-fetch — only the spawn site changes (`:on-create` server-side, the route's `:on-match` client-side); the rest of the handler tree is identical.
 
 This is the SSR-side answer to "how do I write the Next.js `Promise.all([...])` shape in re-frame2." The primitives — `:spawn-all`, `:rf.http/managed`, the `:rf.server/request` cofx — are all framework-locked; the Pattern names the composition.
 
@@ -331,9 +331,9 @@ This is the SSR-side answer to "how do I write the Next.js `Promise.all([...])` 
 
 The chapter so far has covered GET requests: the server renders, the client hydrates, the user is now on an interactive page. But SSR apps also have to handle **POSTs** — form submissions, especially in the no-JS / pre-hydration window. A form must work without JavaScript (the server processes the POST and re-renders), and the same submission code path should run client-side once JS hydrates (the client intercepts `:on-submit`, dispatches the same event, no full-page reload).
 
-**Pattern-FormAction** is the canonical shape. The HTML form renders with `method="POST" action="/<route>"` and a hidden CSRF token; the host adapter parses the POST body and binds it to the request as `:form-params`; `:rf/server-init` routes GET → page loader, POST → action event; the action event-handler validates against the registered schema (per [chapter 04a](04a-schemas.md)) and either emits `[:rf.server/redirect {:status 303 :location ...}]` on success (canonical POST-redirect-GET) or writes structured errors into the form slice and lets the standard re-render show them inline. The view's `:on-submit` interceptor — `(.preventDefault e); (dispatch [:cart/add-item ...])` — is purely additive once JS is alive; the *same* domain event runs in both contexts.
+**Pattern-FormAction** is the canonical shape. The HTML form renders with `method="POST" action="/<route>"` and a hidden CSRF token; the host adapter parses the POST body and binds it to the request as `:form-params`; `:rf/server-init` routes GET → page loader, POST → action event; the action event-handler validates against the registered schema (per [chapter 05](05-schemas.md)) and either emits `[:rf.server/redirect {:status 303 :location ...}]` on success (canonical POST-redirect-GET) or writes structured errors into the form slice and lets the standard re-render show them inline. The view's `:on-submit` interceptor — `(.preventDefault e); (dispatch [:cart/add-item ...])` — is purely additive once JS is alive; the *same* domain event runs in both contexts.
 
-Pattern-FormAction composes with the client-side form-slice convention from [chapter 08](08-forms.md) and with the server error projector (which maps schema failures to the 400 public-error shape). A page may use both Patterns — Loaders for the initial GET, FormAction for subsequent POSTs.
+Pattern-FormAction composes with the client-side form-slice convention from [chapter 10](10-forms.md) and with the server error projector (which maps schema failures to the 400 public-error shape). A page may use both Patterns — Loaders for the initial GET, FormAction for subsequent POSTs.
 
 ## What you give up
 
@@ -382,4 +382,4 @@ For non-Clojure hosts entirely (a TypeScript port of re-frame2), the exact same 
 
 ## Next
 
-- [18 — From re-frame v1](18-from-re-frame-v1.md) — what changes (and what doesn't) if you're already a re-frame user.
+- [18 — From re-frame v1](20-migration.md) — what changes (and what doesn't) if you're already a re-frame user.

@@ -1,4 +1,4 @@
-# 22 — Production observability
+# 23 — Production observability
 
 ## TL;DR
 
@@ -50,7 +50,7 @@ Every time an event finishes (successfully or with an error), the runtime invoke
 
 No `:op-type`, no `:operation`, no `:tags`, no `:source`. Those are trace-bus shape. Production observability doesn't need them.
 
-The record passes through `rf/elide-wire-value` **before** your listener sees it — so any `:sensitive?` handler drops the entire record, and any `:large?` payload (e.g., a 5MB base64 PDF in `:event`) is replaced with a `:rf.size/large-elided` marker. See [ch.23a — Privacy](23a-privacy-secrets.md) for the `:sensitive?` half and [ch.23b — Large blobs](23b-large-blobs.md) for the `:large?` half of the elision contract.
+The record passes through `rf/elide-wire-value` **before** your listener sees it — so any `:sensitive?` handler drops the entire record, and any `:large?` payload (e.g., a 5MB base64 PDF in `:event`) is replaced with a `:rf.size/large-elided` marker. See [ch. 24 — Privacy](24-privacy.md) for the `:sensitive?` half and [ch. 25 — Large blobs](25-large-blobs.md) for the `:large?` half of the elision contract.
 
 ## The error-emit record
 
@@ -68,7 +68,7 @@ Every time the runtime catches an error, the runtime invokes every registered er
 
 Same elision pass; same `:sensitive?` drop semantics; same `:large?` substitution. The `:exception` slot is `ex-data` from the thrown exception — no raw stack traces with PII embedded.
 
-`:on-error` per-frame policy ([ch.14](14-errors.md)) is the **in-app recovery** path — your frame says "if this fails, do X". `register-error-listener!` is the **observability** path — every error gets logged to Datadog regardless of per-frame recovery. The two are orthogonal; both fire on the same exception.
+`:on-error` per-frame policy ([ch. 16](16-errors.md)) is the **in-app recovery** path — your frame says "if this fails, do X". `register-error-listener!` is the **observability** path — every error gets logged to Datadog regardless of per-frame recovery. The two are orthogonal; both fire on the same exception.
 
 ## Registration
 
@@ -142,7 +142,7 @@ Notice: every Datadog tag is a string. Tag dimensions are flat — colons are th
 
 ## Sending via `:rf.http/managed`
 
-The managed HTTP fx ([ch.10](10-doing-http-requests.md)) is the right transport. You get:
+The managed HTTP fx ([ch. 12](12-http.md)) is the right transport. You get:
 
 - **Retry with backoff** on `:rf.http/transport` and `:rf.http/http-5xx` failures (Datadog's API is generally reliable, but a momentary 502 from a Cloudflare edge is exactly the failure mode `:retry` exists for).
 - **Abort on actor destroy** — if the frame that registered the listener gets destroyed, the in-flight requests it dispatched cancel cleanly. No leaked POSTs at SPA route changes.
@@ -206,7 +206,7 @@ A few things worth pointing at:
 
 1. **No filter inside the listener.** `event_emit` only fires on dispatched events; `error_emit` only fires on runtime errors. There's no sub recompute or fx-execute event to filter out — that's the whole point of these substrates being narrower than the trace bus.
 2. **No `rf/elide-wire-value` call in user code.** The framework runs every record through elision *before* invoking your listener. By the time you see the record, sensitive values are dropped and large values are marker-substituted. (Compare to ch.15's trace-bus consumers, where elision is the consumer's job because trace events are emitted before any elision pass.)
-3. **`:request-id` is unique per send.** A UUID per request lets the managed-HTTP in-flight registry track the POSTs independently. If you reuse an id, the second send aborts the first ([ch.10](10-doing-http-requests.md) covers the rules).
+3. **`:request-id` is unique per send.** A UUID per request lets the managed-HTTP in-flight registry track the POSTs independently. If you reuse an id, the second send aborts the first ([ch. 12](12-http.md) covers the rules).
 4. **The triple-gate is conservative on purpose.** If you forget any one of the three predicates, the integration silently no-ops. Configure thoughtfully; deploy carefully; the Datadog dashboard will tell you if events stop arriving.
 5. **`:rf.trace/no-emit? true` on the shipper closes the listener loop.** See the next section.
 
@@ -226,7 +226,7 @@ The opt-out is one key on the handler's registration meta:
 
 Apply the same meta to any other handler your listener might end up dispatching as part of the shipping pipeline (a batch flush handler, a back-off retry handler, anything that runs only because the listener fired). If a shipped record is the *only* reason a handler runs, that handler should opt out.
 
-`:rf.trace/no-emit?` does *not* protect against an error-emit feedback loop. The error-emit substrate does not honour the flag today — if a shipper handler reliably throws (a malformed URL, a credentials misconfiguration) and your error-emit listener dispatches the same shipper to forward the error record, you have a different loop on the error path. The cheap fix is the same shape: keep error-shipping idempotent and bounded (e.g., a circuit breaker that stops re-dispatching after N consecutive failures inside a window), or wrap the shipper's `:fx` in an `:on-error` per-frame policy ([ch.14](14-errors.md)) that swallows shipper exceptions before they re-enter the error-emit substrate.
+`:rf.trace/no-emit?` does *not* protect against an error-emit feedback loop. The error-emit substrate does not honour the flag today — if a shipper handler reliably throws (a malformed URL, a credentials misconfiguration) and your error-emit listener dispatches the same shipper to forward the error record, you have a different loop on the error path. The cheap fix is the same shape: keep error-shipping idempotent and bounded (e.g., a circuit breaker that stops re-dispatching after N consecutive failures inside a window), or wrap the shipper's `:fx` in an `:on-error` per-frame policy ([ch. 16](16-errors.md)) that swallows shipper exceptions before they re-enter the error-emit substrate.
 
 ## Batching
 
@@ -263,8 +263,8 @@ The point: the framework owns the production-observability shape and tools own t
 
 ## Next
 
-- [10 — Doing HTTP requests](10-doing-http-requests.md) — the managed-fx that does the actual POST, with retry and abort-on-destroy.
-- [14 — Errors and how to handle them](14-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-listener!`.
+- [10 — Doing HTTP requests](12-http.md) — the managed-fx that does the actual POST, with retry and abort-on-destroy.
+- [14 — Errors and how to handle them](16-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-listener!`.
 - [Causa](../causa/index.md) — the dev-only trace bus and the devtool that paints it (sibling tools: [`re-frame2-pair`](../skills/re-frame2-pair.md) and [Story](../story/index.md) consume the same bus).
-- [23a — Privacy: keeping secrets out of traces](23a-privacy-secrets.md) — the `:sensitive?` half of the wire-elision machinery the framework applies to every record before your listener sees it.
-- [23b — Large blobs: keeping the wire small](23b-large-blobs.md) — the `:large?` half of the same machinery.
+- [23a — Privacy: keeping secrets out of traces](24-privacy.md) — the `:sensitive?` half of the wire-elision machinery the framework applies to every record before your listener sees it.
+- [23b — Large blobs: keeping the wire small](25-large-blobs.md) — the `:large?` half of the same machinery.

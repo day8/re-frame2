@@ -29,7 +29,7 @@ Et tu, React? The same trade runs through Reagent. You write a view function tha
 
 re-frame2 generalises this trade to *every* side-effect, not just `app-db` and the DOM. Your handler doesn't fetch HTTP; it returns a value that *says* "an HTTP request should happen." Your handler doesn't write localStorage; it returns a value that says "this key should be written." Your handler doesn't navigate; it returns a value that says "the URL should change." In every case the handler causes; the runtime does.
 
-The handler is the cleanest layer in the system. Every function it calls is pure. Every value it touches is immutable. Every test it has runs in a millisecond, without a browser, without a network, without a clock. The price is that "do X" becomes "return a value describing X." That price is paid once, at one boundary, and the rest of the codebase composes by the rules of pure-function composition — [chapter 12](12-the-dynamic-model.md#v-the-banana-issue) makes the deeper case for why that matters.
+The handler is the cleanest layer in the system. Every function it calls is pure. Every value it touches is immutable. Every test it has runs in a millisecond, without a browser, without a network, without a clock. The price is that "do X" becomes "return a value describing X." That price is paid once, at one boundary, and the rest of the codebase composes by the rules of pure-function composition — [chapter 14](14-dynamic-model.md#v-the-banana-issue) makes the deeper case for why that matters.
 
 ### What goes wrong if you don't
 
@@ -75,9 +75,9 @@ Three things changed:
 2. The handler is **still pure**. It returns a Clojure map. Every value in that map is just data — strings, keywords, vectors. No `js/fetch`, no callbacks, no promises.
 3. The map describes everything: "set the db to this; *also*, fire a managed HTTP request to this URL, and on success dispatch this event."
 
-The shape above is the minimum needed to make the point. `:rf.http/managed` accepts more — `:method`, `:on-failure`, `:body`, retry policy, schema-driven decode — and [chapter 10](10-doing-http-requests.md) covers the full surface. For this chapter, "URL in, event out" is enough.
+The shape above is the minimum needed to make the point. `:rf.http/managed` accepts more — `:method`, `:on-failure`, `:body`, retry policy, schema-driven decode — and [chapter 12](12-http.md) covers the full surface. For this chapter, "URL in, event out" is enough.
 
-The handler's first argument — `{:keys [db]}` — is the **coeffects map**, the symmetric twin of the effect map on the way out. `:db` is the standard input every handler gets for free; the matching surface for handlers that need *other* inputs (the current time, a freshly-minted UUID, a value from `localStorage`) is `inject-cofx`, covered in [chapter 05](05-coeffects.md). The core path doesn't need cofx yet — the chapters that follow only destructure `:db` and the event — but the side-track is there the moment a handler wants to read something the runtime hasn't already put under its nose.
+The handler's first argument — `{:keys [db]}` — is the **coeffects map**, the symmetric twin of the effect map on the way out. `:db` is the standard input every handler gets for free; the matching surface for handlers that need *other* inputs (the current time, a freshly-minted UUID, a value from `localStorage`) is `inject-cofx`, covered in [chapter 06](06-coeffects.md). The core path doesn't need cofx yet — the chapters that follow only destructure `:db` and the event — but the side-track is there the moment a handler wants to read something the runtime hasn't already put under its nose.
 
 Then there's the follow-up handler, pure:
 
@@ -91,7 +91,7 @@ Then there's the follow-up handler, pure:
 
 The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx, and hands it the args. When the request resolves, the fx dispatches `[:counter/inc-loaded {:kind :success :value v}]`. That event goes through the queue exactly like any other event. The cycle runs.
 
-`:rf.http/managed` is the canonical HTTP fx — managed decoding, retry-with-backoff, abort, frame-aware reply addressing. This chapter uses it to make the effects-as-data shape concrete; the full surface lives in [chapter 10](10-doing-http-requests.md).
+`:rf.http/managed` is the canonical HTTP fx — managed decoding, retry-with-backoff, abort, frame-aware reply addressing. This chapter uses it to make the effects-as-data shape concrete; the full surface lives in [chapter 12](12-http.md).
 
 This shape makes the dynamic story tractable again. You can trace the counter-fetch flow by reading two handlers, in order, top to bottom. There are no callbacks. There are no `.then` chains. There's data going in, data going out, data going in again.
 
@@ -220,11 +220,11 @@ Three things to notice:
 
 2. **The fx receives a runtime context (carrying `:event` and other dispatch metadata) and the args the event handler put in the effect map.** Most fxs only use the args; ones that re-dispatch follow-up events thread the context through so the dispatch routes correctly.
 
-3. **`:platforms` says where this effect is allowed to run.** `#{:client}` means it's skipped during SSR with a `:rf.fx/skipped-on-platform` trace event; the handler doesn't have to branch. We'll come back to this in [chapter 11](11-server-side.md).
+3. **`:platforms` says where this effect is allowed to run.** `#{:client}` means it's skipped during SSR with a `:rf.fx/skipped-on-platform` trace event; the handler doesn't have to branch. We'll come back to this in [chapter 13](13-server-side.md).
 
 You'll register a handful of effects in any non-trivial app: `:localstorage/get` and `:localstorage/set` for persistence, `:rf.nav/push-url` for navigation, `:notify` for toasts. Each is registered once; every event handler describes its effects by id.
 
-For HTTP, the framework already ships `:rf.http/managed` — managed decoding, retry-with-backoff, abort, frame-aware reply addressing, schema-driven decode. You don't write your own HTTP fx; you use that one. [Chapter 10 — Doing HTTP requests](10-doing-http-requests.md) walks through it end-to-end.
+For HTTP, the framework already ships `:rf.http/managed` — managed decoding, retry-with-backoff, abort, frame-aware reply addressing, schema-driven decode. You don't write your own HTTP fx; you use that one. [Chapter 12 — Doing HTTP requests](12-http.md) walks through it end-to-end.
 
 ### How does that work?
 
@@ -232,7 +232,7 @@ A handler returns a map. Some entries in that map fire HTTP requests, write to l
 
 Every `reg-event-fx` handler runs inside a chain, and the runtime silently inserts a built-in interceptor — `do-fx` — at the front of that chain. After your handler returns, `do-fx` walks the effect map and, for each entry, looks up the registered fx handler by id and invokes it. `:db`, `:fx`, `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — they're all entries in the same registry, executed by the same loop. That's why registering a new fx is enough to make every event handler in the app able to use it: there's one dispatcher, looking at the registry, calling whatever it finds.
 
-[Chapter 07 — Interceptors](07-interceptors.md) covers the chain in full — how `do-fx` is just one interceptor among others, how you can insert your own, and how the chain handles the cross-cutting concerns middleware addresses elsewhere.
+[Chapter 09 — Interceptors](09-interceptors.md) covers the chain in full — how `do-fx` is just one interceptor among others, how you can insert your own, and how the chain handles the cross-cutting concerns middleware addresses elsewhere.
 
 ### Gotcha: registrations don't fire if the namespace isn't required
 
@@ -258,7 +258,7 @@ The benefits:
 
 **Tests don't need a network.** The handler that produces the effect map can be tested as a pure function. The success and error handlers similarly. The fx itself can be tested by stubbing the HTTP call. None of these tests need React, JSDOM, or a running server.
 
-**You can swap the implementation.** Effects are looked up by id. A test that wants `:rf.http/managed` to return a canned response overrides the entry for the test's duration — the framework ships `with-managed-request-stubs` (and the lower-level `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs) precisely so tests can synthesise managed-HTTP replies without a network. It's a registry redirect, not a mock — the same dispatch shape the real fx produces lands in the test handler. [Chapter 13](13-testing.md) walks through the full testing surface; the upshot for this chapter is: effects-as-data is what makes that override possible at all.
+**You can swap the implementation.** Effects are looked up by id. A test that wants `:rf.http/managed` to return a canned response overrides the entry for the test's duration — the framework ships `with-managed-request-stubs` (and the lower-level `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs) precisely so tests can synthesise managed-HTTP replies without a network. It's a registry redirect, not a mock — the same dispatch shape the real fx produces lands in the test handler. [Chapter 15](15-testing.md) walks through the full testing surface; the upshot for this chapter is: effects-as-data is what makes that override possible at all.
 
 **You can record what happened.** Because effects are data, the runtime can log them, replay them, ship them across the wire, store them in a fixture file. re-frame2's trace stream surfaces every effect that fired, with its args, in order. Debugging an asynchronous interaction stops being archaeology.
 
@@ -316,7 +316,7 @@ Two Patterns bottom out directly on what this chapter covered, so flag them now:
 - **Pattern-AsyncEffect** — the generic post-work-await-reply shape that the `:rf.http/managed` example above is one instance of.
 - **Pattern-RemoteData** — HTTP requests with a standard lifecycle slice (idle / loading / loaded / error / stale).
 
-The rest of the Pattern catalogue — Forms, Boot, WebSocket, LongRunningWork, StaleDetection, NineStates — is covered in [chapter 20 — Where to go next](20-where-next.md#look-up-a-pattern-by-name), with one-line summaries you can scan when the shape of your problem matches. Read the Pattern doc and copy the shape; don't invent a new one.
+The rest of the Pattern catalogue — Forms, Boot, WebSocket, LongRunningWork, StaleDetection, NineStates — is covered in [chapter 22 — Where to go next](22-where-next.md#look-up-a-pattern-by-name), with one-line summaries you can scan when the shape of your problem matches. Read the Pattern doc and copy the shape; don't invent a new one.
 
 ## A note on revertibility
 
@@ -334,7 +334,7 @@ One consequence of the discipline above worth pausing on: because state lives in
  :ui       {:sidebar-open? true :modal nil}}
 ```
 
-The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, you can attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 04a](04a-schemas.md) is the next stop for that surface.
+The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, you can attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 05](05-schemas.md) is the next stop for that surface.
 
 ## A note on naming
 
@@ -348,6 +348,6 @@ You don't have to follow this. But every re-frame2 codebase that does looks the 
 
 ## Next
 
-- [04a — Schemas](04a-schemas.md) — the Malli warmup: `reg-app-schema`, event `:spec`, dev-vs-production timing. Short core-path chapter before [08 — Forms](08-forms.md) and [10 — Doing HTTP requests](10-doing-http-requests.md), where schemas show up in volume.
-- [06 — Views and frames](06-views-and-frames.md) — what's on the screen and how to keep different parts isolated.
+- [04a — Schemas](05-schemas.md) — the Malli warmup: `reg-app-schema`, event `:spec`, dev-vs-production timing. Short core-path chapter before [08 — Forms](10-forms.md) and [10 — Doing HTTP requests](12-http.md), where schemas show up in volume.
+- [06 — Views and frames](07-views.md) — what's on the screen and how to keep different parts isolated.
 - The same pattern that handles `:rf.http/managed` handles every external-world interaction. Once you've internalised "side-effects are data the runtime interprets," you're ready for everything else.

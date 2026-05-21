@@ -415,7 +415,7 @@ Symmetric to subs. A flow whose `:inputs` include any sensitive `app-db` path yi
 
 ### 4. Subs → fx
 
-If a handler reads from a sensitive sub (via cofx-wrapping per [Guide ch.05 §Reading a sub from a handler](../docs/guide/05-coeffects.md#reading-a-sub-from-a-handler)) and threads the value into an `:fx` entry, the fx invocation's trace-bus emission inherits the mark on the slot the value lands in. Per-fx `:sensitive` declarations (per [§4. Effects](#4-effects--reg-fx) above) add to whatever the upstream propagation produced.
+If a handler reads from a sensitive sub (via cofx-wrapping per [Guide ch.05 §Reading a sub from a handler](../docs/guide/06-coeffects.md#reading-a-sub-from-a-handler)) and threads the value into an `:fx` entry, the fx invocation's trace-bus emission inherits the mark on the slot the value lands in. Per-fx `:sensitive` declarations (per [§4. Effects](#4-effects--reg-fx) above) add to whatever the upstream propagation produced.
 
 ### 5. Cofx → handler → fx
 
@@ -528,7 +528,7 @@ The author MUSTs at the assembly site:
 
 - **Name the *category* of failure in the exception message, not the value.** A category-only message ("Invalid credentials") plus `:dispatch-id` correlation against the (correctly redacted) `:app-db-before` snapshot recovers the failing user identity for the dev without leaking it into the trace.
 - **If the structure of the failing context is essential, substitute `:rf/redacted` at the assembly site.** `(throw (ex-info "User :rf/redacted failed login" {:user/email :rf/redacted}))` matches the sentinel form the walker emits everywhere else; the dev's mental model is uniform.
-- **Pick a per-app convention.** A twelve-line `safe-throw` helper that takes a category keyword, an optional context map, and an optional scrub-key set is the recommended shape. Worked example and three patterns lives in [docs/guide §24.08 — Exceptions under :sensitive?](../docs/guide/24-configuration-and-safety/08-exceptions-under-sensitive.md).
+- **Pick a per-app convention.** A twelve-line `safe-throw` helper that takes a category keyword, an optional context map, and an optional scrub-key set is the recommended shape. Worked example and three patterns lives in [docs/guide §24.08 — Exceptions under :sensitive?](../docs/guide/26-config.md#exceptions-under-sensitive).
 
 The framework deliberately does NOT ship a `rf/safe-throw` helper. The call-site knowledge of *which ex-data keys correspond to sensitive paths in this specific app* is author knowledge, not framework knowledge — a framework helper would either demand the author name the scrub keys at every call (no value over an in-app helper) or auto-detect (the rejected taint-tracking non-goal). The right shape is a per-app convention; the framework's job is the five path-walked observation surfaces.
 
@@ -568,5 +568,5 @@ Per-artefact unit tests cover the implementation-specific propagation mechanism 
 - [Conventions §Reserved indicator slots](Conventions.md#reserved-indicator-slots-mcp-shaped-returns) — the cross-MCP wire-vocabulary slots (`:dropped-sensitive`, `:elided-large`) that surface counters of sentinel substitutions on MCP tool responses.
 - [Security §Privacy / secret handling](Security.md#privacy--secret-handling) — pattern-level security posture; this Spec is the per-path declarative mechanism that grounds the pattern-level MUSTs documented there.
 - [Security §Author guidance for exceptions under path-level `:sensitive?`](Security.md#author-guidance-for-exceptions-under-path-level-sensitive) — pattern-level MUSTs for the exception-path residual surface this Spec leaves to the author.
-- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/24-configuration-and-safety/08-exceptions-under-sensitive.md) — author-side worked example, three patterns, and a copyable `safe-throw` helper convention.
+- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/26-config.md#exceptions-under-sensitive) — author-side worked example, three patterns, and a copyable `safe-throw` helper convention.
 - [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md), [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md) — the cross-MCP wire-elision walker that consumes the same marks at the MCP wire boundary.

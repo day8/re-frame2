@@ -1,4 +1,4 @@
-# 14 — Errors and how to handle them
+# 16 — Errors and how to handle them
 
 > *Errors should never pass silently. Unless explicitly silenced.*
 > — The Zen of Python
@@ -233,7 +233,7 @@ For server-side rendering, raw error events should never leak to the browser —
 
 The projector is the **canonical surface** for mapping raw errors to user-facing UX. The runtime calls it on the server side before render; the result is what reaches the browser. If the projector itself throws (or returns a non-`:rf/public-error` shape), the runtime falls back to a locked generic-500 shape and emits `:rf.error/sanitised-on-projection` — your monitoring dashboard sees when the public boundary fell back.
 
-[Chapter 11 §Server errors are sanitised](11-server-side.md) walks the chapter-side story end-to-end.
+[Chapter 13 §Server errors are sanitised](13-server-side.md) walks the chapter-side story end-to-end.
 
 Client-side UX mapping doesn't go through the projector. For client-side error UX — "show a toast when a handler exception fires," "show an inline error on a form when a schema validation fails" — you observe the trace stream (via `register-listener!`) and dispatch an event that updates app-db, the same way you'd react to any other signal.
 
@@ -483,7 +483,7 @@ Errors stop being incidents to recover from and start being signals you can rout
 
 ## Where to read next
 
-- **[13 — Testing](13-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
+- **[13 — Testing](15-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
 - **[Causa](../causa/index.md)** — what the devtools panel does with the trace stream, including the errors view.
 
 ## Next

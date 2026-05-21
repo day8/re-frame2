@@ -1,4 +1,4 @@
-# 17 — Routing
+# 18 — Routing
 
 **The URL is a sub.**
 
@@ -6,7 +6,7 @@ In re-frame2 the URL is a derivable view of `app-db`. Navigation is an event. Br
 
 There's no separate routing runtime, no route-aware components, no "router context." Routing is just data reflected in the address bar — feature parity with React Router, TanStack Router, and reitit's frontend module, while staying inside re-frame2's one mental model.
 
-This chapter walks the basics top-to-bottom: registering routes, navigating, reading the route in views, the not-found route, and a one-paragraph callout for the navigation token. The per-topic reference half — `:on-error`, the full nav-token walkthrough, the `:can-leave` protocol, query strings, multi-frame routing, the pure helpers, and a RealWorld worked example — lives in [17a — Routing: reference and advanced topics](17a-routing-reference.md). Read this chapter linearly; reach for 17a when the topic comes up.
+This chapter walks the basics top-to-bottom: registering routes, navigating, reading the route in views, the not-found route, and a one-paragraph callout for the navigation token. The per-topic reference half — `:on-error`, the full nav-token walkthrough, the `:can-leave` protocol, query strings, multi-frame routing, the pure helpers, and a RealWorld worked example — lives in [17a — Routing: reference and advanced topics](19-routing-ref.md). Read this chapter linearly; reach for 17a when the topic comes up.
 
 You'll know how to:
 
@@ -104,7 +104,7 @@ The navigation in the example above leaves a slice in `app-db`. The runtime main
 
 The `:rf/route` key is reserved. Path params (`:params`) and query params (`:query`) are distinct maps — captured separately, validated against separate schemas, kept separate in the slice. Consumers that prefer a merged map build one in a derived sub.
 
-`:fragment` carries the URL `#fragment` part. `:nav-token` is the runtime-allocated navigation epoch (see [17a §Navigation tokens](17a-routing-reference.md#navigation-tokens--stale-result-suppression)). Both are runtime-managed; user code reads them through subs.
+`:fragment` carries the URL `#fragment` part. `:nav-token` is the runtime-allocated navigation epoch (see [17a §Navigation tokens](19-routing-ref.md#navigation-tokens--stale-result-suppression)). Both are runtime-managed; user code reads them through subs.
 
 `:transition` is a tiny FSM driven by the runtime: `:idle` when no navigation is in flight; `:loading` while the active route's `:on-match` events are draining; `:error` if any errors. A global progress bar reads `:rf.route/transition` and renders when it's `:loading`; an error banner reads `:rf.route/error`.
 
@@ -155,7 +155,7 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
 (rf/reg-event-fx :rf.route/handle-url-change ...)
 ```
 
-The same handler runs **on the server during SSR** — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire server-side, populating server-rendered data the same way they do client-side. There is **no SSR-specific routing code**. (See [chapter 11](11-server-side.md) for the SSR story.)
+The same handler runs **on the server during SSR** — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire server-side, populating server-rendered data the same way they do client-side. There is **no SSR-specific routing code**. (See [chapter 13](13-server-side.md) for the SSR story.)
 
 ### Two URL-change events you'll see
 
@@ -240,7 +240,7 @@ The `:on-match` list is the **enumerable, machine-readable** answer to "what loa
 
 ### Async `:on-match` and stale results — the nav-token in one paragraph
 
-If an `:on-match` event kicks off an async load (HTTP, query, timer) and the user navigates away before it completes, the older load's reply can land *after* the user has moved on and clobber the newer state. Re-frame2's answer is the **navigation token (nav-token)**: each navigation gets a fresh token written into the `:rf/route` slice; an async result is committed only if its carried token still matches the current one. You don't allocate or thread the token by hand — `:on-match` handlers receive it as a cofx, and the runtime drops mismatched results with a `:rf.route.nav-token/stale-suppressed` trace. The mechanism is mostly invisible; you'll meet it when you write an `:on-match` continuation that fetches data. Full walkthrough with a worked example in [17a §Navigation tokens](17a-routing-reference.md#navigation-tokens--stale-result-suppression).
+If an `:on-match` event kicks off an async load (HTTP, query, timer) and the user navigates away before it completes, the older load's reply can land *after* the user has moved on and clobber the newer state. Re-frame2's answer is the **navigation token (nav-token)**: each navigation gets a fresh token written into the `:rf/route` slice; an async result is committed only if its carried token still matches the current one. You don't allocate or thread the token by hand — `:on-match` handlers receive it as a cofx, and the runtime drops mismatched results with a `:rf.route.nav-token/stale-suppressed` trace. The mechanism is mostly invisible; you'll meet it when you write an `:on-match` continuation that fetches data. Full walkthrough with a worked example in [17a §Navigation tokens](19-routing-ref.md#navigation-tokens--stale-result-suppression).
 
 ## The `:rf.route/not-found` route
 
@@ -271,6 +271,6 @@ URL-validation failures (a route's path matches but its `:params` schema rejects
 
 You now have the URL ↔ state loop: routes are registry entries, navigation is an event, the route is a sub, `:on-match` loads data, and unmatched URLs fall through to `:rf.route/not-found`. The per-topic reference half picks up the rest:
 
-- [17a — Routing: reference and advanced topics](17a-routing-reference.md) — `:on-error`, the full nav-token walkthrough, the `:can-leave` protocol for unsaved-changes prompts, query-string defaults and retain keys, multi-frame routing, the pure `match-url` / `route-url` helpers, and a RealWorld worked example.
-- [20 — Where to go next](20-where-next.md) — the chapter wrap-up, with pointers to the worked examples, pattern docs, the API ref, and the spec.
-- [chapter 11 — The server side](11-server-side.md) — how routing folds into SSR.
+- [17a — Routing: reference and advanced topics](19-routing-ref.md) — `:on-error`, the full nav-token walkthrough, the `:can-leave` protocol for unsaved-changes prompts, query-string defaults and retain keys, multi-frame routing, the pure `match-url` / `route-url` helpers, and a RealWorld worked example.
+- [20 — Where to go next](22-where-next.md) — the chapter wrap-up, with pointers to the worked examples, pattern docs, the API ref, and the spec.
+- [chapter 13 — The server side](13-server-side.md) — how routing folds into SSR.

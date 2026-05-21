@@ -1,12 +1,12 @@
-# 23a — Privacy: keeping secrets out of traces
+# 24 — Privacy: keeping secrets out of traces
 
 ## TL;DR
 
-You're shipping events and errors to a production observability service ([chapter 22](22-trace-to-datadog.md)), and you need to make sure credentials, tokens, and PII never go with them. This page shows how to declare which `app-db` slices are **sensitive** and how the wire-boundary walker honours the declaration.
+You're shipping events and errors to a production observability service ([chapter 23](23-observability.md)), and you need to make sure credentials, tokens, and PII never go with them. This page shows how to declare which `app-db` slices are **sensitive** and how the wire-boundary walker honours the declaration.
 
 One trace surface feeds every tool. That's the killer feature. It's also the killer threat: every event a user dispatches, every `:tags :event` payload, every `app-db` snapshot, every `:rf.http/*` request and response rides the same stream. If the stream goes off-box without privacy-honouring, the first sign-in form on the app leaks `password "shhh"` to every dev who attaches a listener, every Datadog dashboard, every Sentry queue, every pair-programming MCP server. The trace surface is built like a firehose because firehoses make great debuggers; firehoses make terrible auth-token loggers.
 
-This chapter is the **writer-side** companion to [chapter 22](22-trace-to-datadog.md) for the privacy half. Chapter 22 shows you how to *consume* the privacy flags from a listener; this one shows you how to *declare* them from your app so the consumers have something to honour. The companion chapter [23b — Large blobs](23b-large-blobs.md) covers the matching size half. The two halves close the loop.
+This chapter is the **writer-side** companion to [chapter 23](23-observability.md) for the privacy half. Chapter 23 shows you how to *consume* the privacy flags from a listener; this one shows you how to *declare* them from your app so the consumers have something to honour. The companion chapter [25 — Large blobs](25-large-blobs.md) covers the matching size half. The two halves close the loop.
 
 You'll know:
 
@@ -18,7 +18,7 @@ You'll know:
 
 ## Why the framework cares
 
-Observability is the third pillar — but observability without privacy is *the leak channel built into the runtime*. The Causa-MCP server (re-frame2-pair-mcp; the off-box AI surface) reads `app-db`. The Datadog forwarder you saw in [ch.22](22-trace-to-datadog.md) reads `:tags :event`. The Sentry bridge in [ch.14](14-errors.md) ships `:rf.error/*` events whose `:tags` include the event vector that triggered the throw. Every one of those consumers is downstream of the same stream — and every one of them, if it ships your password-bearing sign-in event unmodified, has a security incident.
+Observability is the third pillar — but observability without privacy is *the leak channel built into the runtime*. The Causa-MCP server (re-frame2-pair-mcp; the off-box AI surface) reads `app-db`. The Datadog forwarder you saw in [ch. 23](23-observability.md) reads `:tags :event`. The Sentry bridge in [ch. 16](16-errors.md) ships `:rf.error/*` events whose `:tags` include the event vector that triggered the throw. Every one of those consumers is downstream of the same stream — and every one of them, if it ships your password-bearing sign-in event unmodified, has a security incident.
 
 The framework's answer is *not* "filter at the consumer". Consumers are written by humans (you, the app writer) and AI agents and ops engineers — humans who forget, agents who don't know which slot is sensitive without being told. The framework's answer is **the registration declares the truth, the walker enforces it, the consumer reads the result**. Three pieces; one is yours.
 
@@ -43,7 +43,7 @@ Both elision flags live on the same surface: a Malli slot's per-slot props map. 
   [:map
    [:profile      [:map [:name :string] [:email :string]]]
    [:credit-card  {:sensitive? true}                              :string]    ;; redacted in traces
-   [:audit-log    {:large?     true :hint "Audit log entries"}    [:vector :map]]]) ;; elided in traces (see ch.23b)
+   [:audit-log    {:large?     true :hint "Audit log entries"}    [:vector :map]]]) ;; elided in traces (see ch.25)
 ```
 
 That's the declaration. Nothing else.
@@ -54,7 +54,7 @@ What `:sensitive? true` does:
 
 The value never appears in any trace, off-box ship, dev-panel render, or schema-validation error. At every wire emit, the slot's value is substituted with the `:rf/redacted` sentinel. The trace event also gets `:sensitive? true` stamped at the top level so off-box listeners can drop the whole event. **You do not need a separate interceptor**; the framework auto-installs the scrub for any handler that reads or writes a `:sensitive?` slot. The schema is the truth; the wiring is automatic.
 
-This is the AI-discoverable form. Schemas are the AI-first surface for app shape (per [ch.04a — Schemas](04a-schemas.md)); an agent reading the schema sees the privacy claim alongside the type, on the same line, in the same vocabulary. There is no separate handler-side declaration to cross-reference, no interceptor to grep for, no runtime registration to chase down.
+This is the AI-discoverable form. Schemas are the AI-first surface for app shape (per [ch. 05 — Schemas](05-schemas.md)); an agent reading the schema sees the privacy claim alongside the type, on the same line, in the same vocabulary. There is no separate handler-side declaration to cross-reference, no interceptor to grep for, no runtime registration to chase down.
 
 ## The one escape hatch — handler-meta `:sensitive?`
 
@@ -135,17 +135,17 @@ When a slot carries both flags (a 5 MB base64-encoded ID-card image stored under
 (cond
   (and sensitive? large?)  ::drop                  ; no marker; emit :sensitive? true
   sensitive?               ::redact-or-drop        ; :rf/redacted sentinel
-  large?                   ::elide-with-marker     ; :rf.size/large-elided (see ch.23b)
+  large?                   ::elide-with-marker     ; :rf.size/large-elided (see ch.25)
   :else                    ::pass-through)
 ```
 
-The same composition rule binds the schema-validation emit-site (per [§Schema-validation errors](#schema-validation-errors) below) and every tool that calls the walker downstream. The `:large?` side of the story lives in [chapter 23b](23b-large-blobs.md).
+The same composition rule binds the schema-validation emit-site (per [§Schema-validation errors](#schema-validation-errors) below) and every tool that calls the walker downstream. The `:large?` side of the story lives in [chapter 25](25-large-blobs.md).
 
 ## How elision uses what you declared
 
 The schema is the input; the elision pipeline is the output. The framework does the wiring between the two — you don't see it from the app-writer side, but the one paragraph is worth knowing:
 
-At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
+At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch. 23](23-observability.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
 
 **One declaration; every consumer honours it.** If you declare `:sensitive? true` on `[:user :credit-card]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body, every schema-validation error trace substitutes `:rf/redacted` for the slot's value. The platform handles the rest.
 
@@ -156,23 +156,23 @@ One function. Every tool that emits wire data calls it. The single normative emi
 ```clojure
 (rf/elide-wire-value v
                      {:rf.size/include-sensitive? false    ;; default false — sensitive drops
-                      :rf.size/include-large?     false    ;; default false — large elides (see ch.23b)
+                      :rf.size/include-large?     false    ;; default false — large elides (see ch.25)
                       :rf.size/include-digests?   false    ;; default false — no sha256 in marker
                       :rf.size/threshold-bytes    16384
                       :frame                      :rf/default})
 ;; → v unchanged, OR
 ;; → nil (sensitive event dropped entirely), OR
 ;; → v with :rf/redacted at sensitive paths, OR
-;; → v with :rf.size/large-elided markers at large paths (see ch.23b)
+;; → v with :rf.size/large-elided markers at large paths (see ch.25)
 ```
 
 ## HTTP coverage
 
-HTTP is the canonical privacy surface — passwords ride bodies, auth tokens ride headers, user PII rides response payloads. The framework's HTTP cascade (see [ch.10](10-doing-http-requests.md)) layers three cooperating pieces on top of the generic `:sensitive?` machinery — none of them are app-writer declarations, but all of them honour your schema's `:sensitive?` verdict.
+HTTP is the canonical privacy surface — passwords ride bodies, auth tokens ride headers, user PII rides response payloads. The framework's HTTP cascade (see [ch. 12](12-http.md)) layers three cooperating pieces on top of the generic `:sensitive?` machinery — none of them are app-writer declarations, but all of them honour your schema's `:sensitive?` verdict.
 
 **Header denylist (always-on).** A canonical set of header names is *always sensitive* — the name itself declares the value secret regardless of the surrounding handler's flag. The v1 closed list is twelve names: `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-Session-Token`, `X-CSRF-Token`, `X-XSRF-Token`, `Authentication`, `WWW-Authenticate`, `Proxy-Authenticate`. Their values become `:rf/redacted` in every `:rf.http/*` trace event that carries a `:headers` slot. Apps extend with `(rf.http/declare-sensitive-header! "X-Honeycomb-Team")`.
 
-**URL query-string denylist (always-on, rf2-2p8wr — in flight).** Parallel-axis: a closed set of query parameter names whose values redact inline regardless of handler `:sensitive?`. `?api_key=SECRET&page=2` becomes `?api_key=:rf/redacted&page=2` — the name and position survive (so you can see *which* endpoint was called), the secret value doesn't. A denylist hit also *stamps* `:sensitive? true` on the trace event — the presence of a denylisted param is itself a signal the request carries an auth secret. Extend with `(rf.http/declare-sensitive-query-param! "shop_token")`.
+**URL query-string denylist (always-on).** Parallel-axis: a closed set of query parameter names whose values redact inline regardless of handler `:sensitive?`. `?api_key=SECRET&page=2` becomes `?api_key=:rf/redacted&page=2` — the name and position survive (so you can see *which* endpoint was called), the secret value doesn't. A denylist hit also *stamps* `:sensitive? true` on the trace event — the presence of a denylisted param is itself a signal the request carries an auth secret. Extend with `(rf.http/declare-sensitive-query-param! "shop_token")`.
 
 **Body / params redaction (effective-sensitive).** When the request is sensitive — either because the handler-meta carries `:sensitive? true`, or because a schema slot the request body assembles from is `:sensitive?` — the body redaction kicks in: `:body`, `:body-text`, `:decoded`, `:detail`, `:params`, and **all** `:url` query-string param values become `:rf/redacted`. Three OR-reduced sources contribute the effective flag — handler `:sensitive?`, `:request` map `:sensitive?`, or top-level `:sensitive?` on the `:rf.http/managed` args. Any one true ⇒ sensitive.
 
@@ -222,7 +222,7 @@ Writer-side is half the picture. The other half is the *consumer*'s elision poli
 | Story panel (on-box dev UI) | `false` | `false` | No |
 | Causa panel (on-box dev UI) | `false` | `false` | No |
 
-[Chapter 22](22-trace-to-datadog.md)'s Datadog shipper is the sixth consumer — and it follows the same rule: **off-box shippers MUST default both `include-*` flags to `false`**. Off-box means "the data is leaving your trust boundary"; Datadog's trust boundary is not yours. The conservative default is the framework's safety net for app authors who opt into a published integration without reading its source.
+[Chapter 23](23-observability.md)'s Datadog shipper is the sixth consumer — and it follows the same rule: **off-box shippers MUST default both `include-*` flags to `false`**. Off-box means "the data is leaving your trust boundary"; Datadog's trust boundary is not yours. The conservative default is the framework's safety net for app authors who opt into a published integration without reading its source.
 
 On-box dev UIs (the Causa panel, the Story panel) show a `[● ELIDED N]`-style indicator when the marker is in the rendered view, and the user clicks to opt in for a single fetch. Production-trust on-box consumers MAY default to `true`, but the rationale must be documented per-consumer.
 
@@ -269,7 +269,7 @@ A login form with a sensitive password — `:sensitive?` declared once on the sc
 ;;     :sensitive? true}
 ;;    ;; HTTP cascade saw :password was :sensitive?; body redaction fired.
 
-;;    Event C — the Datadog shipper from ch.22
+;;    Event C — the Datadog shipper from ch.23
 ;;    Events A and B drop (sensitive). The Datadog dashboard sees the
 ;;    cascade shape, the timing, the error class — it just doesn't see
 ;;    the password.
@@ -279,9 +279,9 @@ One declaration site, one walker, every consumer honours it.
 
 ## Next
 
-- [23b — Large blobs: keeping the wire small](23b-large-blobs.md) — the matching size half. The `:large?` flag, the `:rf.size/large-elided` marker, opt-in fetch via `:handle`.
-- [04a — Schemas](04a-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
-- [10 — Doing HTTP requests](10-doing-http-requests.md) — the `:rf.http/managed` cascade that extends this chapter's privacy machinery.
-- [14 — Errors and how to handle them](14-errors.md) — the `:rf.error/*` taxonomy this chapter's schema-validation section bottoms out on.
+- [23b — Large blobs: keeping the wire small](25-large-blobs.md) — the matching size half. The `:large?` flag, the `:rf.size/large-elided` marker, opt-in fetch via `:handle`.
+- [04a — Schemas](05-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
+- [10 — Doing HTTP requests](12-http.md) — the `:rf.http/managed` cascade that extends this chapter's privacy machinery.
+- [14 — Errors and how to handle them](16-errors.md) — the `:rf.error/*` taxonomy this chapter's schema-validation section bottoms out on.
 - [Causa](../causa/index.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason privacy and size matter is that the bus has five+ consumers.
-- [22 — Production observability](22-trace-to-datadog.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.
+- [22 — Production observability](23-observability.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.
