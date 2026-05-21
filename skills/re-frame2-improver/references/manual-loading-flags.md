@@ -15,7 +15,7 @@ Structural signal: the data path and the flag path are siblings (`{:items [...] 
 
 ## Why it's an anti-pattern
 
-A boolean flag is a one-bit state machine implemented in `assoc` calls. It cannot represent the **nine** legal page-level states the framework's canonical pattern enumerates: `:nothing`, `:loading`, `:empty`, `:one`, `:some`, `:too-many`, `:error`, `:reloading`, `:stale`. Worse, the flag's lifecycle is implicit — every code path that can terminate the in-flight operation must remember to flip it. The most common bug is a missing `dissoc` on the failure branch, leaving the UI stuck on a spinner. The data and the flag drift: rendering needs both, must guard against the `{:items [] :items-loading? true}` race (is this "initial load" or "loaded zero items"?), and ends up with the boolean-discriminator-sub cluster downstream.
+A boolean flag is a one-bit state machine implemented in `assoc` calls. It cannot represent the **nine** legal page-level states the framework's canonical pattern enumerates across three independent regions — **data**: Nothing, Loading, Empty, One, Some, Too Many; **form**: Incorrect, Correct; **mode**: Done / Frozen. (Transport failure is the `:data` region's `:error` *branch*, not one of the canonical nine.) Worse, the flag's lifecycle is implicit — every code path that can terminate the in-flight operation must remember to flip it. The most common bug is a missing `dissoc` on the failure branch, leaving the UI stuck on a spinner. The data and the flag drift: rendering needs both, must guard against the `{:items [] :items-loading? true}` race (is this "initial load" or "loaded zero items"?), and ends up with the boolean-discriminator-sub cluster downstream.
 
 ## The canonical fix
 

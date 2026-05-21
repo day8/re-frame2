@@ -1,10 +1,10 @@
 # Anti-pattern — Schemaless events at boundaries
 
-`reg-event-fx` (or `reg-event-db`) handlers that ingest untrusted data — HTTP responses, WebSocket frames, `postMessage` payloads, query-string params, `localStorage` rehydration — without an always-on production validator at the boundary. Dev-only `:spec` and `reg-app-schema` are necessary but not sufficient: both are elided in production builds, so the handler writes whatever the source returned straight into `app-db` in the deployed bundle.
+`reg-event-fx` (or `reg-event-db`) handlers that ingest untrusted data — HTTP responses, WebSocket frames, `postMessage` payloads, query-string params, `localStorage` rehydration — without an always-on production validator at the boundary. Dev-only `:schema` and `reg-app-schema` are necessary but not sufficient: both are elided in production builds, so the handler writes whatever the source returned straight into `app-db` in the deployed bundle.
 
 ## Detection rules
 
-**The cardinal rule.** Any handler that crosses an untrusted boundary — HTTP response, WebSocket frame, `postMessage` payload, query-string param, `localStorage` rehydration, IndexedDB read, third-party iframe — is **flagged** unless **production validation** is wired. Production validation means an always-on gate: the `[spec/validate-at-boundary-interceptor]` interceptor on the handler, an equivalent always-on Malli-check interceptor, or a `:decode` schema on a Managed HTTP request that runs in production builds. `:spec` on the handler metadata and `reg-app-schema` on the destination path are necessary but **not sufficient on their own** — both are dev-elided in production builds (`goog.DEBUG = false`), so a handler that relies only on them is unvalidated in the deployed bundle.
+**The cardinal rule.** Any handler that crosses an untrusted boundary — HTTP response, WebSocket frame, `postMessage` payload, query-string param, `localStorage` rehydration, IndexedDB read, third-party iframe — is **flagged** unless **production validation** is wired. Production validation means an always-on gate: the `[rf/validate-at-boundary-interceptor]` interceptor on the handler, an equivalent always-on Malli-check interceptor, or a `:decode` schema on a Managed HTTP request that runs in production builds. `:schema` on the handler metadata and `reg-app-schema` on the destination path are necessary but **not sufficient on their own** — both are dev-elided in production builds (`goog.DEBUG = false`), so a handler that relies only on them is unvalidated in the deployed bundle.
 
 Greppable signals — flag when **any** of these match AND no production gate is wired:
 
@@ -18,11 +18,11 @@ Detection logic (apply for each candidate handler):
 
 1. Does the handler ingest data from an untrusted source? (See list above.) If no → not in scope for this leaf.
 2. Is **at least one** of these production-gate mechanisms present?
-   - `[spec/validate-at-boundary-interceptor]` (or an equivalent always-on validator) in the handler's interceptor chain.
+   - `[rf/validate-at-boundary-interceptor]` (or an equivalent always-on validator) in the handler's interceptor chain.
    - Managed HTTP `:decode <Schema>` on the originating request — runs in production.
    - A custom interceptor that performs Malli validation **outside `(when ^boolean js/goog.DEBUG …)`** or any dev-only conditional.
    If yes → not a finding.
-3. If no → **flag**, regardless of whether `:spec` and `reg-app-schema` are attached. Both are dev-elided in production; the boundary is open in the deployed bundle.
+3. If no → **flag**, regardless of whether `:schema` and `reg-app-schema` are attached. Both are dev-elided in production; the boundary is open in the deployed bundle.
 
 Structural signal: the boundary between **untrusted input** and **trusted `app-db`** is crossed without a Malli schema gate **that runs in production**.
 
@@ -30,11 +30,11 @@ Structural signal: the boundary between **untrusted input** and **trusted `app-d
 
 `app-db` is the trust boundary. The whole substrate downstream of it (subs, views, machine reads, story snapshots, time-travel) assumes the values it reads conform to the application's mental model. A schemaless boundary event smuggles arbitrary data past the gate — a stale API field, a server schema change, a malformed query string, a tampered `localStorage` payload — and the failure surfaces hundreds of dispatches later in a sub that crashes on a missing key. Schemas at boundaries are Cardinal Rule #4 (`skills/re-frame2/SKILL.md`).
 
-The runtime offers two complementary dev-time tools: handler `:spec` (validates the **event vector** before the handler runs) and `reg-app-schema` (validates the **app-db path** after the handler writes). The first catches malformed dispatches; the second catches malformed writes. **Both are dev-elided in production** (gated on `goog.DEBUG`) unless explicitly attached at the boundary via the always-on `validate-at-boundary-interceptor` interceptor (or an equivalent always-on validator, e.g. a Managed HTTP `:decode` schema on the originating request). A handler that carries only `:spec` and / or `reg-app-schema` is validated in dev but unvalidated in the deployed bundle — the exact place the boundary matters.
+The runtime offers two complementary dev-time tools: handler `:schema` (validates the **event vector** before the handler runs) and `reg-app-schema` (validates the **app-db path** after the handler writes). The first catches malformed dispatches; the second catches malformed writes. **Both are dev-elided in production** (gated on `goog.DEBUG`) unless explicitly attached at the boundary via the always-on `validate-at-boundary-interceptor` interceptor (or an equivalent always-on validator, e.g. a Managed HTTP `:decode` schema on the originating request). A handler that carries only `:schema` and / or `reg-app-schema` is validated in dev but unvalidated in the deployed bundle — the exact place the boundary matters.
 
 ## The canonical fix
 
-[`skills/re-frame2/references/fundamentals/schemas.md`](../../re-frame2/references/fundamentals/schemas.md) — at a minimum, an always-on gate at the boundary: the `[spec/validate-at-boundary-interceptor]` interceptor on the handler, or a Managed HTTP `:decode <Schema>` on the originating request, or an equivalent custom always-on Malli-check interceptor. `:spec` on the handler metadata and `reg-app-schema` on the destination path are valuable dev-time tools that surface mismatches early — but they do not satisfy this rule on their own, because both are elided when `goog.DEBUG` is false.
+[`skills/re-frame2/references/fundamentals/schemas.md`](../../re-frame2/references/fundamentals/schemas.md) — at a minimum, an always-on gate at the boundary: the `[rf/validate-at-boundary-interceptor]` interceptor on the handler, or a Managed HTTP `:decode <Schema>` on the originating request, or an equivalent custom always-on Malli-check interceptor. `:schema` on the handler metadata and `reg-app-schema` on the destination path are valuable dev-time tools that surface mismatches early — but they do not satisfy this rule on their own, because both are elided when `goog.DEBUG` is false.
 
 Spec source: [`spec/010-Schemas.md`](../../../spec/010-Schemas.md). The `:rf.error/schema-validation-failure` error category is the corresponding instrumentation signal.
 
@@ -64,9 +64,9 @@ Spec source: [`spec/010-Schemas.md`](../../../spec/010-Schemas.md). The `:rf.err
 (rf/reg-app-schema [:article] Article)                          ;; dev-only — surfaces mismatches in dev
 
 (rf/reg-event-fx :article/load
-  {:doc  "Load one article by slug."
-   :spec [:cat [:= :article/load] [:map [:slug :string]]]}      ;; dev-only — pins dispatch shape in dev
-  [spec/validate-at-boundary-interceptor]                                   ;; ALWAYS-ON — runs in production
+  {:doc    "Load one article by slug."
+   :schema [:cat [:= :article/load] [:map [:slug :string]]]}    ;; dev-only — pins dispatch shape in dev
+  [rf/validate-at-boundary-interceptor]                         ;; ALWAYS-ON — runs in production
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       {:db (assoc db :article (:value reply))}                  ;; reply is validated by Article on decode
@@ -78,7 +78,7 @@ Spec source: [`spec/010-Schemas.md`](../../../spec/010-Schemas.md). The `:rf.err
 
 ## Regression example — dev-only validation isn't enough
 
-The handler below carries **both** `:spec` and `reg-app-schema`, and looks like the "After" shape above. It is **still a finding** — no always-on gate is attached.
+The handler below carries **both** `:schema` and `reg-app-schema`, and looks like the "After" shape above. It is **still a finding** — no always-on gate is attached.
 
 ```clojure
 (def Article
@@ -88,9 +88,9 @@ The handler below carries **both** `:spec` and `reg-app-schema`, and looks like 
 (rf/reg-app-schema [:article] Article)                          ;; dev-only — elided in production
 
 (rf/reg-event-fx :article/load
-  {:doc  "Load one article by slug."
-   :spec [:cat [:= :article/load] [:map [:slug :string]]]}      ;; dev-only — elided in production
-  ;; NO [spec/validate-at-boundary-interceptor] in the interceptor chain.
+  {:doc    "Load one article by slug."
+   :schema [:cat [:= :article/load] [:map [:slug :string]]]}    ;; dev-only — elided in production
+  ;; NO [rf/validate-at-boundary-interceptor] in the interceptor chain.
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       {:db (assoc db :article (:value reply))}                  ;; production: writes raw HTTP body unchecked
@@ -99,14 +99,14 @@ The handler below carries **both** `:spec` and `reg-app-schema`, and looks like 
                                                                   ;; ^ no :decode either
 ```
 
-**Why it flags.** In dev, `goog.DEBUG = true` runs the `:spec` and `reg-app-schema` validators — mismatches surface fast. In a production build the JIT/CC-elision strips both, and the handler writes whatever the server returned straight into `app-db`. The trust boundary is open in the bundle the user actually ships. The fix is to add `[spec/validate-at-boundary-interceptor]` to the interceptor chain (validates the event vector at run-time, production included) or a Managed HTTP `:decode Article` on the request (validates the response at decode time, production included) — ideally both.
+**Why it flags.** In dev, `goog.DEBUG = true` runs the `:schema` and `reg-app-schema` validators — mismatches surface fast. In a production build the JIT/CC-elision strips both, and the handler writes whatever the server returned straight into `app-db`. The trust boundary is open in the bundle the user actually ships. The fix is to add `[rf/validate-at-boundary-interceptor]` to the interceptor chain (validates the event vector at run-time, production included) or a Managed HTTP `:decode Article` on the request (validates the response at decode time, production included) — ideally both.
 
 Other untrusted-boundary shapes that hit the same rule (the source varies, the gate is identical):
 
 ```clojure
 ;; query-string ingestion
 (rf/reg-event-db :route/params-received                          ;; flag — no always-on gate
-  {:spec [:cat keyword? :map]}
+  {:schema [:cat keyword? :map]}
   (fn [db [_ params]] (assoc db :route/params params)))
 
 ;; localStorage rehydration
@@ -120,7 +120,7 @@ Other untrusted-boundary shapes that hit the same rule (the source varies, the g
   (fn [db [_ msg]] (assoc db :embed/state (.-data msg))))
 ```
 
-Each writes an unvalidated payload past the trust boundary in production. Each is flagged regardless of any dev-only `:spec` / `reg-app-schema` it might carry.
+Each writes an unvalidated payload past the trust boundary in production. Each is flagged regardless of any dev-only `:schema` / `reg-app-schema` it might carry.
 
 ## Edge cases — when schemaless is fine
 
