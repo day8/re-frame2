@@ -20,7 +20,7 @@
    The shared 'Editorial Warm' visual identity comes from
    examples/_shared/css/style.css (rf2-v4fpe Option 2 — one identity
    across all three substrates)."
-  (:require [uix.core :as uix :refer [$ defui]]
+  (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core            :as rf]
             [re-frame.adapter.uix     :as uix-adapter]))
