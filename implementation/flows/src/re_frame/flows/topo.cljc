@@ -86,12 +86,14 @@
           ;; vector built from a dead end would lie to tools (Causa,
           ;; the flow panel) about the offending chain.
           (throw (ex-info ":rf.error/flow-cycle-extract-invariant"
-                          {:reason   ":rf.error/flow-cycle-extract-invariant"
-                           :node     node
-                           :stack    stack
-                           :seen     seen
-                           :remaining remaining
-                           :recovery :no-recovery}))
+                          {:rf.error/id :rf.error/flow-cycle-extract-invariant
+                           :where     'rf/reg-flow
+                           :recovery  :no-recovery
+                           :reason    "Cycle-path extraction reached a dead end: a stuck node found no stuck dependency to follow. Internal topo invariant violated — report with the :node / :stack / :seen / :remaining payload."
+                           :node      node
+                           :stack     stack
+                           :seen      seen
+                           :remaining remaining}))
 
           (contains? seen next-dep)
           ;; Cycle found. Slice the stack from the revisited node
@@ -168,16 +170,17 @@
                              rem0)]
               (recur ready' remaining' (conj order n)))
             (if (seq remaining)
-              ;; Per rf2-6mxr2: cycle ex-info carries the standard shape
-              ;; every other flow ex-info uses (`:error` / `:where` /
-              ;; `:recovery` / `:reason`) so tools (Causa, re-frame-10x,
-              ;; late-bind-missing wrappers) can read these slots
-              ;; uniformly across error surfaces. `topo.cljc` is the
-              ;; pure-data module — no `:require`s — so the shape is
-              ;; inlined rather than reaching for `registry.cljc`'s
-              ;; `flow-error` helper.
+              ;; Cycle ex-info carries the canonical thrown-error shape
+              ;; (per Spec 009 §The thrown-error shape) every other flow
+              ;; ex-info uses (`:rf.error/id` / `:where` / `:recovery` /
+              ;; `:reason`) so tools (Causa, re-frame-10x,
+              ;; late-bind-missing wrappers) read the `:rf.error/id`
+              ;; discriminator uniformly across error surfaces.
+              ;; `topo.cljc` is the pure-data module — no `:require`s —
+              ;; so the shape is inlined rather than reaching for
+              ;; `registry.cljc`'s `flow-error` helper.
               (throw (ex-info ":rf.error/flow-cycle"
-                              {:error    :rf.error/flow-cycle
+                              {:rf.error/id :rf.error/flow-cycle
                                :where    'rf/reg-flow
                                :recovery :no-recovery
                                :reason   "Cyclic flow dependency — at least one pair of flows' :path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."

@@ -414,10 +414,11 @@
       ;; inheritable envelope keys per Spec 002 §Cascade propagation.
       ;;
       ;; Generic typed-throw routing (rf2-eb4lp + rf2-on7sj-class
-      ;; pattern): if a reserved-fx body throws with an `:error`-keyed
-      ;; ex-data slot carrying a keyword category, route it through
-      ;; the always-on `error-emit` substrate so prod monitors get
-      ;; the typed signal; ex-data is preserved verbatim including
+      ;; pattern): if a reserved-fx body throws with the canonical
+      ;; `:rf.error/id` discriminator slot (per Spec 009 §The
+      ;; thrown-error shape) carrying a keyword category, route it
+      ;; through the always-on `error-emit` substrate so prod monitors
+      ;; get the typed signal; ex-data is preserved verbatim including
       ;; any reserved-fx-specific slots (e.g. `:cycle`). Reached via
       ;; the late-bind hook `:error-emit/dispatch-on-error` (fx.cljc
       ;; cannot statically require error-emit — would form a load
@@ -430,7 +431,7 @@
         (emit-handled! fx-id args frame-id)
         (catch #?(:clj Throwable :cljs :default) e
           (let [d        (ex-data e)
-                category (:error d)]
+                category (:rf.error/id d)]
             (if (keyword? category)
               (let [msg  #?(:clj (.getMessage ^Throwable e)
                             :cljs (.-message e))
@@ -459,7 +460,7 @@
                                         :exception         e
                                         :exception-message msg
                                         :recovery          :no-recovery}
-                                       (dissoc d :error))
+                                       (dissoc d :rf.error/id))
                      :recovery  :no-recovery}))
                 ;; Trace path for dev consumers; DCE'd in CLJS prod.
                 (trace/emit-error! category
@@ -470,7 +471,7 @@
                                            :exception         e
                                            :exception-message msg
                                            :recovery          :no-recovery}
-                                          (dissoc d :error))))
+                                          (dissoc d :rf.error/id))))
               ;; Untyped reserved-fx throw — preserve crash-loud
               ;; contract by re-throwing.
               (throw e)))))

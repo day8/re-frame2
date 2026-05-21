@@ -53,6 +53,11 @@
           (is (= ":rf.error/flows-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
+            ;; Per Spec 009 §The thrown-error shape: the canonical
+            ;; discriminator slot is `:rf.error/id` (require-fn! now
+            ;; stamps it; previously the kw lived only in the message).
+            (is (= :rf.error/flows-artefact-missing (:rf.error/id data))
+                "ex-data carries the canonical :rf.error/id discriminator")
             (is (= 'rf/clear-flow (:where data))
                 "ex-data carries :where = 'rf/clear-flow")
             (is (= :no-recovery (:recovery data))

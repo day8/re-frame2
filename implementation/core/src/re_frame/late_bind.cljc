@@ -143,14 +143,21 @@
   `:rf.error/<artefact>-artefact-missing` ex-info when the hook is
   unregistered.
 
+  Carries the canonical thrown-error shape (per Spec 009 §The
+  thrown-error shape):
+
     Message:  `<error-keyword>` printed as a string (e.g.
               \":rf.error/flows-artefact-missing\").
-    ex-data:  {:where    <where-sym>
-               :recovery :no-recovery
-               :reason   \"<where-sym> requires <maven> on the classpath;
-                          add it to deps and require <require-ns> at app boot.\"
+    ex-data:  {:rf.error/id <error-keyword>  ;; canonical discriminator
+               :where       <where-sym>
+               :recovery    :no-recovery
+               :reason      \"<where-sym> requires <maven> on the classpath;
+                             add it to deps and require <require-ns> at app boot.\"
                & extra-data}
 
+  The `:rf.error/id` slot is the canonical discriminator consumers read
+  uniformly (Causa, pair-tool, `:on-error`); the message string is the
+  stringified kw so `.getMessage` pivots to the same category.
   `where-sym` is the user-facing fn symbol stamped on the error.
   `artefact-info` carries `{:error-keyword :maven :require-ns}`.
   `extra-data` is the per-call ex-data merged in (e.g. `:flow-id`,
@@ -162,9 +169,10 @@
   ([hook-key where-sym {:keys [error-keyword maven require-ns]} extra-data]
    (or (get @hooks hook-key)
        (throw (ex-info (str error-keyword)
-                       (merge {:where    where-sym
-                               :recovery :no-recovery
-                               :reason   (str where-sym " requires " maven
-                                              " on the classpath; add it to deps and require "
-                                              require-ns " at app boot.")}
+                       (merge {:rf.error/id error-keyword
+                               :where       where-sym
+                               :recovery    :no-recovery
+                               :reason      (str where-sym " requires " maven
+                                                 " on the classpath; add it to deps and require "
+                                                 require-ns " at app boot.")}
                               extra-data))))))
