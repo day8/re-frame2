@@ -85,18 +85,84 @@
     (is (some :compound? top)
         "the compound parent carries the :compound? flag")))
 
-(deftest parse-definition-supports-parallel-projects-first-region
-  (let [parallel {:type :parallel
-                  :regions {:r1 {:initial :a :states {:a {:on {:go :b}}
-                                                      :b {}}}
-                            :r2 {:initial :x :states {:x {:on {:go :y}}
-                                                      :y {}}}}}
-        {:keys [nodes]} (layout/parse-definition parallel)
-        paths (set (map :path nodes))]
-    (is (contains? paths [:a]))
-    (is (contains? paths [:b]))
-    (is (not (contains? paths [:x]))
-        "v1 projects only the first region — :r2's nodes do not surface")))
+(deftest parse-definition-projects-every-parallel-region
+  (testing "rf2-lkwev xyflow Phase 2 — full parallel-region rendering:
+            EVERY region projects (Phase 1 deferred all but the first)"
+    (let [parallel {:type :parallel
+                    :regions {:r1 {:initial :a :states {:a {:on {:go :b}}
+                                                        :b {}}}
+                              :r2 {:initial :x :states {:x {:on {:go :y}}
+                                                        :y {}}}}}
+          {:keys [nodes edges parallel?]} (layout/parse-definition parallel)
+          paths (set (map :path (remove :region? nodes)))]
+      (is parallel? "the projection flags itself as parallel")
+      (is (contains? paths [:a]))
+      (is (contains? paths [:b]))
+      (is (contains? paths [:x])
+          "rf2-lkwev — :r2's nodes NOW surface (full parallel layout)")
+      (is (contains? paths [:y]))
+      ;; Both regions' edges surface.
+      (is (= #{:go} (set (map :event edges)))
+          "edges from both regions project")
+      (is (= 2 (count edges)) "one :go edge per region"))))
+
+(deftest parse-definition-emits-region-container-nodes
+  (testing "rf2-lkwev — each parallel region surfaces a synthetic
+            :region? compound container node with a region-prefixed id"
+    (let [parallel {:type :parallel
+                    :regions {:audio   {:initial :playing
+                                        :states {:playing {:on {:pause :paused}}
+                                                 :paused  {:on {:play :playing}}}}
+                              :display {:initial :on
+                                        :states {:on  {:on {:dim :off}}
+                                                 :off {:on {:lit :on}}}}}}
+          {:keys [nodes]} (layout/parse-definition parallel)
+          regions (filter :region? nodes)]
+      (is (= 2 (count regions)) "one container node per region")
+      (is (every? :compound? regions) "region containers are compound")
+      (is (= #{(layout/region-node-id :audio)
+               (layout/region-node-id :display)}
+             (set (map :id regions)))
+          "region node-ids are region-prefixed")
+      (is (= #{0 1} (set (map :region-index regions)))
+          "region containers carry their ordinal index for boundary colour"))))
+
+(deftest parse-definition-tags-region-states-with-parent
+  (testing "rf2-lkwev — every state inside a region carries :region +
+            :parent-id so the chart projector emits xyflow parentNode
+            sub-flow grouping"
+    (let [parallel {:type :parallel
+                    :regions {:r1 {:initial :a :states {:a {} :b {}}}
+                              :r2 {:initial :x :states {:x {} :y {}}}}}
+          {:keys [nodes]} (layout/parse-definition parallel)
+          states (remove :region? nodes)]
+      (is (every? :parent-id states) "every state has a parent region id")
+      (is (every? :region states)    "every state knows its region")
+      (let [r1-states (filter #(= :r1 (:region %)) states)]
+        (is (every? #(= (layout/region-node-id :r1) (:parent-id %)) r1-states)
+            ":r1 states point at the :r1 container")))))
+
+(deftest parse-definition-region-edges-stay-region-local
+  (testing "rf2-lkwev — orthogonality: a region's edges never reference
+            a sibling region's node (regions are independent zones)"
+    (let [parallel {:type :parallel
+                    :regions {:r1 {:initial :a :states {:a {:on {:go :b}} :b {}}}
+                              :r2 {:initial :x :states {:x {:on {:go :y}} :y {}}}}}
+          {:keys [nodes edges]} (layout/parse-definition parallel)
+          r1-ids (set (map :id (filter #(= :r1 (:region %)) (remove :region? nodes))))
+          r2-ids (set (map :id (filter #(= :r2 (:region %)) (remove :region? nodes))))]
+      (doseq [e edges]
+        (is (or (and (contains? r1-ids (:source e)) (contains? r1-ids (:target e)))
+                (and (contains? r2-ids (:source e)) (contains? r2-ids (:target e))))
+            "each edge stays within one region")))))
+
+(deftest region-node-id-is-prefixed-and-distinct
+  (testing "rf2-lkwev — region node-ids are region__-prefixed so they
+            never collide with a state node-id"
+    (is (= "region__r1" (layout/region-node-id :r1)))
+    (is (= "region__auth_main" (layout/region-node-id :auth/main)))
+    (is (not= (layout/region-node-id :r1) (layout/node-id [:r1]))
+        "a region container id differs from the same-named state id")))
 
 ;; ---- highlight-id ------------------------------------------------------
 

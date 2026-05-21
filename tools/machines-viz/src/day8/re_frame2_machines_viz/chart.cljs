@@ -50,6 +50,10 @@
             [day8.re-frame2-machines-viz.chart.edges :as edges]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as after-rings]
+            [day8.re-frame2-machines-viz.chart.overlays.spawn-all-join
+             :as overlay-spawn-all]
+            [day8.re-frame2-machines-viz.chart.overlays.cancellation-cascade
+             :as overlay-cascade]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
 
 ;; ---- xyflow React-class adapters ----------------------------------------
@@ -88,26 +92,64 @@
    "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
    "elk.edgeRouting"                            "SPLINES"})
 
+(defn- elk-child
+  "Build a single elk.js child descriptor for a parsed node (a plain
+  CLJS map; `->elk-input` `clj->js`-es the whole tree)."
+  [n]
+  {:id     (:id n)
+   :width  (if (:compound? n) 220 nodes/state-node-min-width)
+   :height (if (:compound? n) 120 nodes/state-node-min-height)
+   :labels [{:text (:label n)}]})
+
+(defn- ->elk-children
+  "Project parsed nodes into elk.js's `children` shape.
+
+  Flat (non-parallel) machines emit one flat child per node. Parallel
+  machines (rf2-lkwev) nest each region's states UNDER their region
+  container node so elkjs lays the states out INSIDE the region's
+  bounding box (xyflow's parentNode sub-flow then renders them inside
+  the dashed region boundary). Region containers carry their own
+  `elk.algorithm`/`elk.padding` so each orthogonal zone gets a clean
+  internal layout, and the regions themselves are laid side-by-side at
+  the root."
+  [{:keys [nodes parallel?]}]
+  (if-not parallel?
+    (mapv elk-child nodes)
+    (let [region-nodes (filterv :region? nodes)
+          ;; Group the non-region (state) nodes by their parent region.
+          by-parent    (group-by :parent-id (remove :region? nodes))]
+      (mapv (fn [rn]
+              (let [children (get by-parent (:id rn) [])]
+                {:id    (:id rn)
+                 :labels [{:text (:label rn)}]
+                 ;; Each region lays out its own states internally;
+                 ;; padding leaves room for the region header strip.
+                 :layoutOptions {"elk.algorithm" "layered"
+                                 "elk.padding"   "[top=34,left=14,bottom=14,right=14]"}
+                 :children (mapv elk-child children)}))
+            region-nodes))))
+
 (defn- ->elk-input
   "Build an elk.js JS-side input graph for the given parsed nodes +
-  edges + direction."
-  [{:keys [nodes edges]} direction layout-options]
+  edges + direction. Parallel machines (rf2-lkwev) get a hierarchical
+  graph (region containers with nested state children) so elkjs sizes
+  + positions each orthogonal zone and its states; flat machines get
+  the original single-level child list."
+  [{:keys [edges] :as parsed} direction layout-options]
   (let [dir-str (case direction
                   :lr "RIGHT"
                   :tb "DOWN"
                   "DOWN")
         opts    (-> default-elk-options
                     (merge (or layout-options {}))
-                    (assoc "elk.direction" dir-str))]
+                    (assoc "elk.direction" dir-str)
+                    ;; Hierarchical layout must descend into region
+                    ;; children for the parallel case (rf2-lkwev).
+                    (cond-> (:parallel? parsed)
+                      (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN")))]
     #js {:id "root"
          :layoutOptions (clj->js opts)
-         :children (clj->js
-                     (mapv (fn [n]
-                             {:id     (:id n)
-                              :width  (if (:compound? n) 220 nodes/state-node-min-width)
-                              :height (if (:compound? n) 120 nodes/state-node-min-height)
-                              :labels [{:text (:label n)}]})
-                           nodes))
+         :children (clj->js (->elk-children parsed))
          :edges (clj->js
                   (mapv (fn [e]
                           {:id (:id e)
@@ -119,21 +161,29 @@
 (defn- elk-result->positions
   "Adapter: elk.js JS result → `{node-id {:x :y :width :height}}` map.
   Used by `xyflow-graph` to merge xyflow-side node objects with
-  elk-laid-out positions."
+  elk-laid-out positions.
+
+  Walks nested elk children (rf2-lkwev — parallel machines nest each
+  region's states under the region container). elkjs reports a child's
+  `x`/`y` RELATIVE to its parent container, which is exactly what
+  xyflow's parentNode sub-flow wants — so we record each node's
+  position AS elkjs gives it, no re-basing. Region containers get
+  their root-relative position + the size elkjs computed for the zone."
   [elk-result]
-  (let [children (or (.-children elk-result) #js [])
-        n        (alength children)]
-    (loop [i 0
-           acc {}]
-      (if (< i n)
-        (let [c (aget children i)]
-          (recur (inc i)
-                 (assoc acc (.-id c)
-                        {:x      (or (.-x c) 0)
-                         :y      (or (.-y c) 0)
-                         :width  (or (.-width c) nodes/state-node-min-width)
-                         :height (or (.-height c) nodes/state-node-min-height)})))
-        acc))))
+  (let [acc (atom {})]
+    (letfn [(walk! [^js node]
+              (let [children (or (.-children node) #js [])
+                    n        (alength children)]
+                (dotimes [i n]
+                  (let [c (aget children i)]
+                    (swap! acc assoc (.-id c)
+                           {:x      (or (.-x c) 0)
+                            :y      (or (.-y c) 0)
+                            :width  (or (.-width c) nodes/state-node-min-width)
+                            :height (or (.-height c) nodes/state-node-min-height)})
+                    (walk! c)))))]
+      (walk! elk-result))
+    @acc))
 
 (defn compute-layout!
   "Run elk.js layout on `parsed` (the output of
@@ -186,27 +236,51 @@
    positions
    {:keys [highlight-id from-highlight-id to-highlight-id sim? on-state-click]}]
   {:nodes
+   ;; rf2-lkwev — region container nodes MUST precede their children in
+   ;; the xyflow nodes array (xyflow requires a parentNode to appear
+   ;; before any node that references it). Regions are already emitted
+   ;; before their states by `parse-parallel`, but sort defensively so
+   ;; the parent-before-child invariant holds regardless of upstream
+   ;; ordering.
    (mapv (fn [n]
-           (let [pos (get positions (:id n) {:x 0 :y 0})
+           (let [pos     (get positions (:id n) {:x 0 :y 0})
+                 region? (boolean (:region? n))
                  active? (= (:id n) highlight-id)
                  from-hi? (= (:id n) from-highlight-id)
-                 to-hi?   (= (:id n) to-highlight-id)]
-             {:id       (:id n)
-              :type     (if (:compound? n) "compound" "state")
-              :position {:x (:x pos) :y (:y pos)}
-              :data     {:label          (:label n)
-                         :path           (:path n)
-                         :active         active?
-                         :fromHighlight  from-hi?
-                         :toHighlight    to-hi?
-                         :sim            (boolean (and active? sim?))
-                         :final          (boolean (:final? n))
-                         :compound       (boolean (:compound? n))
-                         :tags           (vec (:tags n))
-                         :onClick        on-state-click}
-              :draggable false
-              :selectable false}))
-         nodes)
+                 to-hi?   (= (:id n) to-highlight-id)
+                 base
+                 {:id       (:id n)
+                  :type     (cond
+                              region?         "parallel-region"
+                              (:compound? n)  "compound"
+                              :else           "state")
+                  :position {:x (:x pos) :y (:y pos)}
+                  :data     (cond-> {:label          (:label n)
+                                     :path           (:path n)
+                                     :active         active?
+                                     :fromHighlight  from-hi?
+                                     :toHighlight    to-hi?
+                                     :sim            (boolean (and active? sim?))
+                                     :final          (boolean (:final? n))
+                                     :compound       (boolean (:compound? n))
+                                     :tags           (vec (:tags n))
+                                     :onClick        on-state-click}
+                              region? (assoc :regionId    (:region n)
+                                             :regionIndex (:region-index n)))
+                  :draggable false
+                  :selectable false}]
+             (cond-> base
+               ;; Region containers carry an explicit measured size so
+               ;; xyflow draws the zone box at the elk-computed extent.
+               region? (assoc :style {:width  (:width pos)
+                                      :height (:height pos)})
+               ;; A state inside a region attaches to its parent region
+               ;; via xyflow's parentNode sub-flow; `:extent "parent"`
+               ;; clamps it inside the dashed boundary.
+               (and (not region?) (:parent-id n))
+               (assoc :parentNode (:parent-id n)
+                      :extent     "parent"))))
+         (sort-by #(if (:region? %) 0 1) nodes))
    :edges
    (mapv (fn [e]
            (let [from-active? (or (= (:source e) highlight-id)
@@ -308,6 +382,31 @@
                          one rAF clock per chart, owned host-side).
     :on-after-ring-hover / :on-after-ring-leave — `(fn [node-id] ...)`
                          hover callbacks the overlay wires on each ring.
+    :spawn-all-join    — rf2-3ow55. Optional presentation-ready
+                         `:spawn-all` join-spec (`{:node-id :join
+                         :children :resolved? :on-all-complete
+                         :on-any-failed}`). When present the chart
+                         mounts the `chart.overlays.spawn-all-join`
+                         inspector beside the spawn-all-bearing state;
+                         it shows the spawned children + join state.
+                         The host owns the trace→spec projection from
+                         its `:rf.machine.spawn-all/*` buffer. nil →
+                         no inspector.
+    :on-spawn-child-click — `(fn [child-key] ...)`; fires on a join-
+                         inspector child-row click (Causa pivots to
+                         the child instance).
+    :cancellation-cascade — rf2-3ow55. Optional presentation-ready
+                         cascade-spec (`{:node-id :parent-label
+                         :from-state :steps}`). When present (and the
+                         step list is non-empty) the chart mounts the
+                         `chart.overlays.cancellation-cascade`
+                         waterfall beneath the parent state. The host
+                         owns the trace→spec projection from the
+                         cancellation trace cluster. nil / no steps →
+                         dormant (no overlay).
+    :overlay-tick      — opaque value the host bumps to force the
+                         spawn-all + cascade overlays to re-measure +
+                         repaint (mirrors `:after-ring-tick`).
     :testid            — root wrapper `data-testid`; defaults to
                          `\"rf-mv-chart\"` so tests + hosts find it."
   [_initial-props]
@@ -319,6 +418,8 @@
                  height show-minimap? show-controls? show-background?
                  after-ring-specs after-ring-tick
                  on-after-ring-hover on-after-ring-leave
+                 spawn-all-join on-spawn-child-click
+                 cancellation-cascade overlay-tick
                  testid]
           :or   {direction         :tb
                  height            "100%"
@@ -327,7 +428,11 @@
                  show-background?  true
                  testid            "rf-mv-chart"}}]
       (let [parsed     (layout/parse-definition definition)
-            n-states   (count (:nodes parsed))
+            ;; rf2-lkwev — exclude synthetic parallel-region container
+            ;; nodes from the state count + aria-label (they are zone
+            ;; chrome, not states).
+            n-states   (count (remove :region? (:nodes parsed)))
+            n-regions  (count (filter :region? (:nodes parsed)))
             n-trans    (count (:edges parsed))
             ;; Trigger an elk layout pass when the (definition,
             ;; direction, layout-options) tuple changes. Keep the
@@ -390,10 +495,15 @@
                                 " with " n-states " "
                                 (if (= 1 n-states) "state" "states")
                                 " and " n-trans " "
-                                (if (= 1 n-trans) "transition" "transitions") ".")]
+                                (if (= 1 n-trans) "transition" "transitions")
+                                (when (pos? n-regions)
+                                  (str " across " n-regions " parallel "
+                                       (if (= 1 n-regions) "region" "regions")))
+                                ".")]
             [:div {:data-testid testid
                    :data-machine-id (str machine-id)
                    :data-node-count (str n-states)
+                   :data-region-count (str n-regions)
                    :data-edge-count (str n-trans)
                    :data-highlight-id (or highlight-id "")
                    :data-from-highlight-id (or from-highlight-id "")
@@ -454,7 +564,30 @@
                 {:ring-specs after-ring-specs
                  :tick       after-ring-tick
                  :on-hover   on-after-ring-hover
-                 :on-leave   on-after-ring-leave}])]))))))
+                 :on-leave   on-after-ring-leave}])
+             ;; rf2-3ow55 — `:spawn-all` join inspector. Same
+             ;; sibling-overlay shape as the after-rings overlay: it
+             ;; walks the node DOM to anchor a join-state card beside
+             ;; the spawn-all-bearing state. The host projects the
+             ;; presentation-ready join-spec from its
+             ;; `:rf.machine.spawn-all/*` trace buffer.
+             (when (and spawn-all-join (:node-id spawn-all-join))
+               [overlay-spawn-all/SpawnAllJoinOverlay
+                {:join-spec      spawn-all-join
+                 :tick           overlay-tick
+                 :on-child-click on-spawn-child-click}])
+             ;; rf2-3ow55 — cancellation-cascade visualiser. Dormant
+             ;; unless the host supplies a cascade-spec with steps;
+             ;; when a parent transition cancels children the host
+             ;; projects the cascade from the cancellation trace
+             ;; cluster and the overlay paints the waterfall beneath
+             ;; the parent state.
+             (when (and cancellation-cascade
+                        (:node-id cancellation-cascade)
+                        (seq (:steps cancellation-cascade)))
+               [overlay-cascade/CancellationCascadeOverlay
+                {:cascade-spec cancellation-cascade
+                 :tick         overlay-tick}])]))))))
 
 ;; ---- empty-graph convenience for callers --------------------------------
 

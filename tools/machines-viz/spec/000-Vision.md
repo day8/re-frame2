@@ -333,7 +333,7 @@ same model.
 | Renderer | Layout | Output | Surface | Status |
 |---|---|---|---|---|
 | Mermaid | Mermaid-internal (Dagre-derived) | static SVG via DSL | docs prose, README, AI-pair chat replies | shipped (`re-frame.machines.mermaid`) |
-| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Causa panel + user-app drop-in + docs cells | v1.0 commitment (Phase 1 — rf2-gpzb4 xyflow migration; Reagent-only adapter, UIx/Helix substrate adapters follow-on) |
+| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Causa panel + user-app drop-in + docs cells | v1.0 commitment (Phase 2 COMPLETE — rf2-gpzb4 xyflow migration + rf2-lkwev/rf2-3ow55/rf2-yg9he/rf2-y9j79: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, UIx/Helix substrate adapters, browser-side visual-pin tests) |
 
 ### Alternatives rejected (with reasons)
 
@@ -403,18 +403,32 @@ continuing to lift the hand-rolled stack.
 **Accepted trade-offs** (captured here so future debate doesn't
 re-litigate them — these were knowingly traded, not overlooked):
 
-- **Substrate-agnostic hiccup contract LOST.** xyflow is a React
-  component library; the chart becomes React-component-shaped
-  rather than substrate-agnostic hiccup data. Phase 1 ships
-  Reagent-only; UIx and Helix substrate adapters are follow-on
-  beads. (The chart was always going to bottom out at a React
-  renderer eventually; this just moves the boundary earlier.)
-- **JVM-testability of the rendered output LOST.** The previous
+- **Substrate-agnostic hiccup contract LOST (substrate PARITY
+  restored Phase 2, rf2-yg9he).** xyflow is a React component
+  library; the chart becomes React-component-shaped rather than
+  substrate-agnostic hiccup data. Phase 1 shipped Reagent-only.
+  Phase 2 restored UIx + Helix parity: because xyflow IS React,
+  the Reagent `MachineChart` bottoms out at a React element tree,
+  and `reagent.core/reactify-component` lifts it to a plain React
+  class any host mounts. The shared bridge
+  (`adapters/react_chart.cljs`) reactifies ONCE; thin per-substrate
+  shells (`adapters/uix.cljs`, `adapters/helix.cljs`) present an
+  idiomatic surface. There is no fork of the chart per substrate —
+  all three render the same component through one bridge.
+- **JVM-testability of the rendered output LOST (browser-side CLJS
+  coverage restored Phase 2, rf2-y9j79).** The previous
   `chart/svg.cljc` was `.cljc`-testable from `clojure -M:test`;
   the new `chart.cljs` is CLJS-only because xyflow is a JS lib.
   The **parse layer** (`chart/layout.cljc`) stays JVM-testable —
   pure data → graph map, no xyflow dependency — so the
-  substrate-agnostic graph contract still has JVM coverage.
+  substrate-agnostic graph contract still has JVM coverage. Phase 2
+  added the browser-side visual-pin suite
+  (`test/.../chart/chart_dom_cljs_test.cljs`) — it mounts the chart
+  against a sample machine under headless Chromium and pins node /
+  edge counts, the node/edge class + testid contract, the
+  Controls / MiniMap / Background toggles, and the parallel-region
+  container rendering — restoring the rendered-output coverage the
+  JVM `.cljc` tests carried pre-migration.
 - **Aesthetic coherence requires extensive custom node + edge
   components.** xyflow's default look (rounded-corner default
   nodes, generic edge style) collides with the Causa devtool
