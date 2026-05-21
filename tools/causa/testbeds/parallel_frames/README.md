@@ -13,11 +13,11 @@ the shop testbed (rf2-yhxk3) as the canonical multi-frame exemplar; see
 │  Parallel Frames demo                                           │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  ABOVE frame  (:above)                                    │  │
-│  │  Counter | Clock | Title (HTTP via :title/flow machine)   │  │
+│  │  Counter | Title (HTTP via :title/flow machine)           │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  BELOW frame  (:below)                                    │  │
-│  │  Counter | Clock | Title (HTTP via :title/flow machine)   │  │
+│  │  Counter | Title (HTTP via :title/flow machine)           │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -38,9 +38,8 @@ isolated frames.
 
 | Feature       | Wiring                                                                                  | Causa lens that lights up                                |
 |---------------|-----------------------------------------------------------------------------------------|----------------------------------------------------------|
-| **Counter**   | `+ / −` buttons. Events: `::counter-inc`, `::counter-dec`. Sub: `::counter`.            | Event list; App-db diff (`:counter` slot)                |
-| **Clock**     | Per-frame **Tick** button — each click dispatches `::clock-tick` once against the surrounding frame. Sub: `::clock-ticks`. (rf2-gxgmt: the auto-tick chain was retired — spine pollution outweighed teaching value.) | Event list (one row per click); App-db diff (`:clock :ticks` slot) |
-| **Title HTTP**| Refresh / Force-error buttons. Drives `:title/flow` machine through `:idle → :loading → :loaded / :error`. Mock fx resolves ~600ms after dispatch. | Machines lens (state chart + transitions); Trace lens (HTTP-shaped rows); Issues lens (slow effect, ~600ms) |
+| **Counter**   | `+ / −` buttons. Events: `::counter-inc`, `::counter-dec`. Sub: `::counter`. Rendered by the `counter-view` `reg-view`. | Event list; App-db diff (`:counter` slot)                |
+| **Title HTTP**| Refresh / Force-error buttons. Drives `:title/flow` machine through `:idle → :loading → :loaded / :error`. Mock fx resolves ~600ms after dispatch. Rendered by the `title-view` `reg-view`. | Machines lens (state chart + transitions); Trace lens (HTTP-shaped rows); Issues lens (slow effect, ~600ms) |
 
 ## Frame isolation — the load-bearing rule
 
@@ -80,32 +79,23 @@ HTTP, Issues, Trace) panel between observing `:above` and `:below`.
    list is empty for `:below`; the App-db diff shows no `:counter`
    movement.
 
-2. **Independent clocks.** Click **Tick** in `:above` a few times,
-   then click **Tick** in `:below` once. Watch the App-db diff under
-   `:above` vs `:below`: only the frame whose Tick button you clicked
-   sees its `:clock :ticks` advance. The same `::clock-tick` handler
-   is registered once globally and resolves against whichever frame
-   the dispatch envelope targets via the frame-provider context —
-   proving on-demand per-frame isolation without continuous spine
-   noise. (rf2-gxgmt — the previous auto-tick chain was retired.)
-
-3. **Per-frame machine state.** Click Refresh on `:below`. Open the
+2. **Per-frame machine state.** Click Refresh on `:below`. Open the
    Machines tab — `:title/flow` reads `:loading`. Switch frame picker
    to `:above`. The same `:title/flow` machine reads `:idle` (because
    it's a different frame's `[:rf/machines :title/flow]` slot).
 
-4. **HTTP correlation per frame.** While `:below` is still in
+3. **HTTP correlation per frame.** While `:below` is still in
    `:loading`, observe Causa's Trace tab — one in-flight HTTP-shaped
    row, scoped to `:below`. Switch to `:above` — no in-flight rows.
 
-5. **Issues per request.** Each fetch (~600ms) trips Causa's
+4. **Issues per request.** Each fetch (~600ms) trips Causa's
    slow-effect Issue surface. The Issues panel scopes per frame; one
    row per fetch per frame.
 
-6. **Force-error per frame.** Click Force-error on `:above`. The
+5. **Force-error per frame.** Click Force-error on `:above`. The
    machine drives through `:idle → :loading → :error` — a legitimate
    failure cascade, not a deliberate bug. `:below`'s machine state
-   (likely `:loaded` from step 3) is unaffected.
+   (likely `:loaded` from step 2) is unaffected.
 
 ## Why not `shop/`?
 
@@ -122,15 +112,18 @@ shop testbed's deletion now that this clean exemplar lands.
 
 ## Files
 
-- `core.cljs` — the app + the two-frame mount. Single namespace,
-  ~350 LoC.
+- `core.cljs` — the app + the two-frame mount. Single namespace. The
+  panel is composed from two logical `reg-view`s — `counter-view` and
+  `title-view` — wrapped by `frame-panel`; each child resolves its own
+  injected `dispatch` / `subscribe` against the surrounding
+  `frame-provider` context.
 - `index.html` — minimal static host with the standard
   `[data-rf-causa-host]` aside so the Causa preload auto-mounts inline.
-- `spec.cjs` — Playwright smoke that asserts both frames mount, the
-  counters are isolated, the per-frame Tick buttons advance only
-  their own `:clock :ticks` slot, Refresh on `:below` doesn't move
-  `:above`, and Force-error on `:above` doesn't disturb `:below`'s
-  `:loaded` state.
+
+This testbed is test-free (rf2-8cevm). Regression coverage lives in
+the substrate contract tests (`npm run test:cljs`), the Causa
+feature-matrix gate, and the multi-frame e2e tests under
+`tools/causa/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs`.
 
 ## Running
 
