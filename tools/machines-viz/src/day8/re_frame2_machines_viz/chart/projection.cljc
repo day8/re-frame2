@@ -30,7 +30,8 @@
       tree), and the async `compute-layout!` promise pass stay in
       `chart.cljs`; they touch JS objects and are not portable to the
       JVM.
-    - **Topology parsing** — lives in `chart.layout`.")
+    - **Topology parsing** — lives in `chart.layout`."
+  (:require [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- node-size floor constants -----------------------------------------
 ;;
@@ -134,10 +135,24 @@
                            landing state.
     :sim?                — flips the highlight palette to amber.
     :on-state-click      — `(fn [path] ...)` invoked when a state
-                           node is clicked."
+                           node is clicked.
+    :chart               — rf2-k647w. The resolved visual-constants
+                           map for the active `:density`
+                           (`visual-constants/chart-for-density`).
+                           Threaded into every node/edge `:data` as
+                           `:chart` so the xyflow node/edge components
+                           — which React invokes OUTSIDE the render's
+                           dynamic-binding scope — read their geometry
+                           + typography off the payload instead of a
+                           hardcoded literal. Defaults to
+                           `visual-constants/chart-regular` so callers
+                           that omit it (the JVM projection tests, a
+                           density-less host) get the regular density
+                           pixel-identical to pre-rf2-k647w."
   [{:keys [nodes edges]}
    positions
-   {:keys [highlight-id from-highlight-id to-highlight-id sim? on-state-click]}]
+   {:keys [highlight-id from-highlight-id to-highlight-id sim? on-state-click chart]
+    :or   {chart vc/chart-regular}}]
   {:nodes
    ;; rf2-lkwev — region container nodes MUST precede their children in
    ;; the xyflow nodes array (xyflow requires a parentNode to appear
@@ -167,6 +182,14 @@
                                      :final          (boolean (:final? n))
                                      :compound       (boolean (:compound? n))
                                      :tags           (vec (:tags n))
+                                     ;; rf2-k647w — the resolved density's
+                                     ;; visual constants ride on every node
+                                     ;; payload so the xyflow node component
+                                     ;; reads geometry/typography off `:data`
+                                     ;; (it is invoked outside the render's
+                                     ;; binding scope, so a dynamic var would
+                                     ;; not be in effect).
+                                     :chart          chart
                                      :onClick        on-state-click}
                               region? (assoc :regionId    (:region n)
                                              :regionIndex (:region-index n)))
@@ -201,5 +224,9 @@
                        :focused    focused?
                        :afterMs    (:after e)
                        :guard      (some-> (:guard e) name)
-                       :action     (some-> (:action e) name)}}))
+                       :action     (some-> (:action e) name)
+                       ;; rf2-k647w — resolved density constants for the
+                       ;; edge-label typography (same rationale as the
+                       ;; node payload above).
+                       :chart      chart}}))
          edges)})

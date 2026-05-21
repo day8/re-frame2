@@ -40,7 +40,8 @@
   (:require ["react"            :as React]
             ["react-dom/client" :as react-dom-client]
             [cljs.test :refer-macros [deftest is testing]]
-            [day8.re-frame2-machines-viz.adapters.react-chart :as react-chart]))
+            [day8.re-frame2-machines-viz.adapters.react-chart :as react-chart]
+            [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- sample machines ----------------------------------------------------
 
@@ -51,6 +52,14 @@
              :loading {:on {:ok :done :err :failed}}
              :done    {:final? true}
              :failed  {:final? true}}})
+
+(def ^:private tagged-machine
+  "A machine whose idle state carries a state-tag, so the tag-pill DOM
+  (whose height/px/radius track the resolved density) is assertable
+  (rf2-k647w density-render pin)."
+  {:initial :idle
+   :states  {:idle    {:tags [:initial-tag] :on {:start :loading}}
+             :loading {:on {:done :idle}}}})
 
 (def ^:private parallel-machine
   "A parallel machine: 2 regions, 2 states each (rf2-lkwev)."
@@ -217,6 +226,82 @@
         (fn [_root node]
           (is (pos? (count-sel node ".react-flow__background"))
               "xyflow Background present by default"))))))
+
+;; ---- :density prop (rf2-k647w) ------------------------------------------
+
+(defn- tag-pill-height-px
+  "Read the integer px height off the first state-tag pill's inline
+  style (the pill's height tracks the resolved density per rf2-k647w).
+  Returns nil when no pill is present."
+  [^js node]
+  (when-let [pill (.querySelector node "[data-testid^=\"rf-mv-chart-state-tag-\"]")]
+    (let [h (.. pill -style -height)]            ;; e.g. "16px"
+      (js/parseInt h 10))))
+
+(deftest chart-data-density-defaults-to-regular
+  (testing "rf2-k647w — omitting :density surfaces data-density=\"regular\"
+            on the chart root (nil ≡ regular, the historical default)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done}
+        (fn [root _node]
+          (is (= "regular" (.getAttribute root "data-density"))
+              "data-density defaults to regular"))))))
+
+(deftest chart-data-density-reflects-prop
+  (testing "rf2-k647w — :density :compact / :cosy surface the matching
+            data-density on the root, so hosts + tests read the active
+            density without re-reading the bound prop"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (do
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done :density :compact}
+          (fn [root _node]
+            (is (= "compact" (.getAttribute root "data-density")))))
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done :density :cosy}
+          (fn [root _node]
+            (is (= "cosy" (.getAttribute root "data-density")))))))))
+
+(deftest chart-density-changes-tag-pill-geometry
+  (testing "rf2-k647w — :density actually changes the RENDER, not just
+            the attr: the state-tag pill height equals the resolved
+            density's :tag-pill-height (regular 16 / compact 13 / cosy
+            19), proving the renderer reads geometry off the threaded
+            visual-constants instead of a hardcoded literal"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (do
+        (with-mounted-chart
+          {:machine-id :test/tags :definition tagged-machine :density :regular}
+          (fn [_root node]
+            (is (= (:tag-pill-height vc/chart-regular) (tag-pill-height-px node))
+                "regular pill height matches chart-regular")))
+        (with-mounted-chart
+          {:machine-id :test/tags :definition tagged-machine :density :compact}
+          (fn [_root node]
+            (is (= (:tag-pill-height vc/chart-compact) (tag-pill-height-px node))
+                "compact pill height matches chart-compact")))
+        (with-mounted-chart
+          {:machine-id :test/tags :definition tagged-machine :density :cosy}
+          (fn [_root node]
+            (is (= (:tag-pill-height vc/chart-cosy) (tag-pill-height-px node))
+                "cosy pill height matches chart-cosy")))))))
+
+(deftest chart-default-tag-pill-is-pixel-identical
+  (testing "rf2-k647w — the DEFAULT (no :density) tag-pill height is the
+            shipped-reality 16px. This is the no-visual-regression pin:
+            a host that never passes :density gets exactly the
+            pre-rf2-k647w chart."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/tags :definition tagged-machine}
+        (fn [_root node]
+          (is (= 16 (tag-pill-height-px node))
+              "default tag-pill height is the shipped 16px"))))))
 
 ;; ---- empty / nil definition placeholders --------------------------------
 

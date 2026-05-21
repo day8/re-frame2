@@ -45,7 +45,30 @@
              :as parallel-region-node]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
-             :refer [mono-stack sans-stack]]))
+             :refer [mono-stack sans-stack]]
+            [day8.re-frame2-machines-viz.visual-constants :as vc]))
+
+;; ---- density-resolved constants -----------------------------------------
+;;
+;; rf2-k647w — the renderer no longer hardcodes geometry/typography. The
+;; projector threads the resolved density's `visual-constants` map onto
+;; every node payload as `:data {:chart {...}}`; xyflow `clj->js`-es the
+;; node array, so the map arrives as a JS object. `chart-constants`
+;; recovers a kebab-keyword CLJS map (the keys `visual-constants` ships),
+;; falling back to `vc/chart-regular` so a node payload without a `:chart`
+;; entry (legacy / direct construction) still renders the regular default.
+
+(defn- chart-constants
+  "Recover the resolved visual-constants map off a node's `:data`
+  (`(.-chart d)`). The projector emits a CLJS map; xyflow `clj->js`-es
+  it into a JS object, so we `js->clj` it back with keyword keys.
+  Returns `vc/chart-regular` when absent so the regular density stays
+  pixel-identical to the pre-rf2-k647w hardcoded numbers."
+  [^js d]
+  (let [c (.-chart d)]
+    (if (some? c)
+      (js->clj c :keywordize-keys true)
+      vc/chart-regular)))
 
 ;; ---- xyflow Handle adapter ----------------------------------------------
 
@@ -105,8 +128,11 @@
     :else           (:border-default tokens/tokens)))
 
 (defn- tag-pill
-  "Render a single state-tag pill. Hiccup."
-  [tag]
+  "Render a single state-tag pill. Hiccup. rf2-k647w — geometry +
+  typography read off the resolved density `vc` map (height / pad-x /
+  px / radius / gap) instead of hardcoded literals."
+  [tag {:keys [tag-pill-height tag-pill-pad-x tag-pill-px
+               tag-pill-radius tag-pill-gap]}]
   (let [label   (if (keyword? tag) (name tag) (str tag))
         token-k (tokens/tag-pill-color tag)
         fill    (tokens/with-alpha token-k 0.18)
@@ -117,14 +143,14 @@
             :data-tag    label
             :style {:display          "inline-flex"
                     :align-items      "center"
-                    :height           "16px"
-                    :padding          "0 6px"
-                    :margin-right     "3px"
+                    :height           (str tag-pill-height "px")
+                    :padding          (str "0 " tag-pill-pad-x "px")
+                    :margin-right     (str tag-pill-gap "px")
                     :background       fill
                     :border           (str "1px solid " stroke)
-                    :border-radius    "8px"
+                    :border-radius    (str tag-pill-radius "px")
                     :font-family      sans-stack
-                    :font-size        "9px"
+                    :font-size        (str tag-pill-px "px")
                     :font-weight      600
                     :color            stroke
                     :line-height      "1"
@@ -150,6 +176,7 @@
     - Final state: doubled border + small check glyph."
   [^js props]
   (let [d              (.-data props)
+        vc             (chart-constants d)
         label          (or (.-label d) "")
         path           (.-path d)
         active?        (boolean (.-active d))
@@ -168,10 +195,16 @@
                         :final?         final?}
         fill           (node-fill styled)
         stroke         (node-stroke styled)
+        ;; rf2-k647w — stroke widths read off the resolved density.
+        ;; The active-affordance stroke sits one notch above the
+        ;; emphasis stroke (active-affordance = emphasis + 0.75,
+        ;; preserving the shipped regular relationship 2.5 → 3.25).
+        {:keys [corner-radius stroke-width stroke-width-emphasis
+                state-label-px final-glyph-px tag-pill-row-gap]} vc
         stroke-w       (cond
-                         active-affordance? 3.25
-                         emphasised?        2.5
-                         :else              1.5)]
+                         active-affordance? (+ stroke-width-emphasis 0.75)
+                         emphasised?        stroke-width-emphasis
+                         :else              stroke-width)]
     (r/as-element
       [:div {:data-testid (str "rf-mv-chart-node-" (.-id props))
              :data-active (str active?)
@@ -192,9 +225,9 @@
                      :padding          "8px 12px"
                      :background       fill
                      :border           (str stroke-w "px solid " stroke)
-                     :border-radius    "6px"
+                     :border-radius    (str corner-radius "px")
                      :font-family      mono-stack
-                     :font-size        "13px"
+                     :font-size        (str state-label-px "px")
                      :font-weight      (if emphasised? 600 400)
                      :color            (if emphasised?
                                          (:text-primary tokens/tokens)
@@ -213,7 +246,8 @@
                        :right         "-3px"
                        :bottom        "-3px"
                        :border        (str "1px solid " (:green tokens/tokens))
-                       :border-radius "7px"
+                       ;; outer ring sits 1px proud of the node corner
+                       :border-radius (str (inc corner-radius) "px")
                        :pointer-events "none"}}])
        ;; State-tag pills
        (when (seq tags)
@@ -223,8 +257,8 @@
                               :flex-direction "row"
                               :justify-content "center"
                               :align-items    "center"
-                              :margin-bottom  "3px"}}]
-               (for [t tags] (tag-pill t))))
+                              :margin-bottom  (str tag-pill-row-gap "px")}}]
+               (for [t tags] (tag-pill t vc))))
        ;; Label
        [:div {:style {:line-height "1.2"}} label]
        ;; Final-state check glyph
@@ -233,7 +267,7 @@
                        :top         "4px"
                        :right       "8px"
                        :font-family mono-stack
-                       :font-size   "13px"
+                       :font-size   (str final-glyph-px "px")
                        :color       (:green tokens/tokens)}}
           "✓"])
        ;; xyflow attachment points (invisible — edges connect here)
@@ -260,8 +294,10 @@
   chrome."
   [^js props]
   (let [d     (.-data props)
+        vc    (chart-constants d)
         label (or (.-label d) "")
-        path  (.-path d)]
+        path  (.-path d)
+        {:keys [compound-pad-y compound-radius compound-title-px]} vc]
     (r/as-element
       [:div {:data-testid (str "rf-mv-chart-compound-" (.-id props))
              :data-node-id (.-id props)
@@ -271,16 +307,16 @@
                      :height           "100%"
                      :min-width        (str compound-node-min-width "px")
                      :min-height       (str compound-node-min-height "px")
-                     :padding-top      "24px"
+                     :padding-top      (str compound-pad-y "px")
                      :background       (tokens/with-alpha :accent-violet 0.06)
                      :border           (str "1px dashed " (:accent-violet tokens/tokens))
-                     :border-radius    "10px"
+                     :border-radius    (str compound-radius "px")
                      :pointer-events   "none"}}
        [:div {:style {:position    "absolute"
                      :top         "4px"
                      :left        "10px"
                      :font-family sans-stack
-                     :font-size   "13px"
+                     :font-size   (str compound-title-px "px")
                      :font-weight 600
                      :color       (:accent-violet tokens/tokens)}}
         label]])))
