@@ -94,7 +94,7 @@
   ;; the bundle still must NOT contain `react-dom/server` symbols,
   ;; because reagent2.dom.server is pure-CLJS (no
   ;; `["react-dom/server" :as ...]` import — see IMPL-SPEC §8).
-  ;; The result is logged so the closure compiler can't DCE the call.
-  (let [pre-rendered (rds/render-to-static-markup [counter-app])]
-    (js/console.log "[counter-slim-and-fast] pre-rendered html:" pre-rendered))
+  ;; The result is retained in `counter-log` so the closure compiler
+  ;; can't DCE the call (a no-op `js/console.log` would be elided).
+  (swap! counter-log conj [:pre-rendered (rds/render-to-static-markup [counter-app])])
   (rdc/render root [counter-app]))

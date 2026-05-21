@@ -70,8 +70,10 @@
                                        :note "from the server"})
           (let [post (get-in (rf/get-frame-db f) [:messages :received])]
             (assert (= (inc pre-count) (count post)))
-            ;; newest-first.
-            (assert (= {:type :push :note "from the server"} (first post)))))))))
+            ;; newest-first. Each logged message also carries a UI-assigned
+            ;; :rx-seq stamp (stable React key), so compare the body subset.
+            (assert (= {:type :push :note "from the server"}
+                       (dissoc (first post) :rx-seq)))))))))
 
 (defn subscription-tracking-test []
   (with-sync-mock!
@@ -106,5 +108,9 @@
       (assert (= [{:type :push :n 3}
                   {:type :push :n 2}
                   {:type :push :n 1}]
-                 received)
-              ":received list is newest-first"))))
+                 (mapv #(dissoc % :rx-seq) received))
+              ":received list is newest-first")
+      ;; Each message carries a monotonic :rx-seq stamp; newest-first means
+      ;; the head has the highest seq, giving every <li> a stable React key.
+      (assert (= [2 1 0] (mapv :rx-seq received))
+              ":rx-seq is a stable, monotonic, newest-first identity"))))

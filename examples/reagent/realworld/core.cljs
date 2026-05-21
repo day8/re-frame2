@@ -26,8 +26,8 @@
 
    This is the canonical Spec 014 (`:rf.http/managed`) demo. Every
    Conduit endpoint goes via the framework-shipped managed-HTTP fx;
-   the demo entry below installs a canned-stub override so the headless
-   smoke and Playwright run without a network."
+   the demo entry below installs a canned-stub override so the CLJS
+   test fixtures (realworld/test/realworld/) run without a network."
   (:require [clojure.string :as str]
             [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -95,9 +95,9 @@
 ;; ============================================================================
 
 (reg-view ^{:doc "The site header. Shows different links based on auth state.
-                  Each nav link carries a stable data-testid hook so the
-                  Playwright spec can target it without brittle class /
-                  text matching."}
+                  Each nav link carries a stable data-testid hook — the
+                  idiomatic way to give UI tests a target that survives
+                  styling churn (no brittle class / text matching)."}
           header []
   (let [authed? @(subscribe [:auth/authenticated?])
         user    @(subscribe [:auth/user])]
@@ -237,7 +237,7 @@
 
 (def ^:private demo-user
   "Canned `User` payload returned by /users/login, /users (register),
-   and /user (session restore). The Playwright spec submits matching
+   and /user (session restore). The auth fixtures submit matching
    credentials at the login form; the stub doesn't verify the body,
    it just synthesises the success reply the auth machine expects."
   {:email    "demo@conduit.dev"
@@ -280,7 +280,7 @@
       ;; GET /user — current-user session restore. We deliberately do
       ;; NOT auto-restore here (return empty payload so the schema
       ;; decode fails into the failure branch and the auth machine
-      ;; falls back to :idle). The Playwright spec relies on the app
+      ;; falls back to :idle). The auth fixtures rely on the app
       ;; starting unauthenticated.
       (and (= method :get) (str/ends-with? u "/user"))
       {}

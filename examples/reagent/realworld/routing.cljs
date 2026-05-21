@@ -118,10 +118,10 @@
 ;; ROUTER WIRING
 ;; ============================================================================
 
-;; The example may be served from a sub-path (e.g. /realworld/) by the
-;; Playwright orchestrator; in production it would be mounted at /.
-;; `*base-path*` lets the host strip a prefix before the route matcher
-;; runs. Set via `set-base-path!` in the run fn.
+;; The example may be served from a sub-path (e.g. /realworld/) by a
+;; host that stages many demos side by side; in production it would be
+;; mounted at /. `*base-path*` lets the host strip a prefix before the
+;; route matcher runs. Set via `set-base-path!` in the run fn.
 (def ^:dynamic *base-path* "")
 
 (defn set-base-path! [s]

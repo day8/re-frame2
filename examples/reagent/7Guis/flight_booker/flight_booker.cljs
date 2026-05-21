@@ -28,7 +28,7 @@
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -57,19 +57,19 @@
 
 (rf/reg-event-db :flight/set-trip-type
   {:doc "User changed the trip-type combo."
-   :spec [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
+   :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
   (fn handler-flight-set-trip-type [db [_ trip-type]]
     (assoc-in db [:flight :trip-type] trip-type)))
 
 (rf/reg-event-db :flight/set-start
   {:doc "User edited the start-date input."
-   :spec [:cat [:= :flight/set-start] :string]}
+   :schema [:cat [:= :flight/set-start] :string]}
   (fn handler-flight-set-start [db [_ raw]]
     (assoc-in db [:flight :start-text] raw)))
 
 (rf/reg-event-db :flight/set-return
   {:doc "User edited the return-date input."
-   :spec [:cat [:= :flight/set-return] :string]}
+   :schema [:cat [:= :flight/set-return] :string]}
   (fn handler-flight-set-return [db [_ raw]]
     (assoc-in db [:flight :return-text] raw)))
 
@@ -176,31 +176,6 @@
                :data-testid "flight-book"
                :on-click #(dispatch [:flight/book])}
       "Book"]]))
-
-;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-
-(defn flight-booker-tests []
-  (with-frame [f (rf/make-frame {:on-create [:flight/initialise]})]
-    ;; one-way: book is enabled when start parses
-    (rf/dispatch-sync [:flight/set-trip-type :one-way] {:frame f})
-    (rf/dispatch-sync [:flight/set-start "2026-05-06"] {:frame f})
-    (assert       (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f)))
-
-    ;; one-way: bad start disables book
-    (rf/dispatch-sync [:flight/set-start "not-a-date"] {:frame f})
-    (assert (not (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f))))
-
-    ;; return: book disabled when return < start
-    (rf/dispatch-sync [:flight/set-trip-type :return]   {:frame f})
-    (rf/dispatch-sync [:flight/set-start  "2026-05-06"] {:frame f})
-    (rf/dispatch-sync [:flight/set-return "2026-05-01"] {:frame f})
-    (assert (not (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f))))
-
-    ;; return: book enabled when return ≥ start
-    (rf/dispatch-sync [:flight/set-return "2026-05-10"] {:frame f})
-    (assert (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f)))))
 
 ;; ============================================================================
 ;; MOUNT

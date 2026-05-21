@@ -175,8 +175,8 @@
      [:h3 "Inbox"]
      [:p.muted (str (count msgs) " message" (when-not (= 1 (count msgs)) "s") " received")]
      [:ul {:data-testid "ws-inbox"}
-      (for [[i m] (map-indexed vector msgs)]
-        ^{:key i}
+      (for [m msgs]
+        ^{:key (:rx-seq m)}
         [:li (pr-str m)])]]))
 
 ;; ============================================================================
