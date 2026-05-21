@@ -206,3 +206,24 @@
           (set! (.-rfInstanceToken ^js cmp) tok)
           tok))
     (mint-instance-token!)))
+
+(defn component-lifecycle-reaction
+  "Return the per-component-instance lifecycle reaction (rf2-9hoos),
+  building it once via `(build-fn)` on first call and caching it on the
+  Reagent component object as `.-rfLifecycleReaction` so re-renders of
+  the same mounted instance reuse it. The reaction's disposal (on
+  `componentWillUnmount`) is what fires the `:rf.view/unmounted` emit —
+  caching guarantees one reaction per instance, hence one unmount emit.
+
+  When called outside a Reagent component (direct headless invocation of
+  the wrapper) there is no instance to cache against and no real unmount
+  lifecycle to observe, so this returns nil and the caller skips the
+  deref — headless direct invocations do not emit `:rf.view/unmounted`
+  (there is no teardown to trace). Likewise returns nil when `build-fn`
+  yields nil (the active adapter publishes no reaction primitive)."
+  [build-fn]
+  (when-let [cmp (current-component)]
+    (or (.-rfLifecycleReaction ^js cmp)
+        (when-let [rea (build-fn)]
+          (set! (.-rfLifecycleReaction ^js cmp) rea)
+          rea))))

@@ -93,6 +93,78 @@
   []
   *render-key*)
 
+;; ---- per-render deref sink (view→sub edges, rf2-9hoos) -------------------
+;;
+;; Captures the set of subscription query-vectors a view derefs DURING
+;; its render, so the `:rf.view/rendered` trace can carry the view's OWN
+;; sub set (the per-view "reason"), not just the cascade-wide
+;; `:cause-subs` (which over-reports — it lists every sub that ran in the
+;; cascade regardless of whether THIS view reads it). Distinct from the
+;; rf2-vh1k3 `:reader-render-key` learning, which captures only subs that
+;; RECOMPUTE synchronously in-render: this sink captures EVERY deref
+;; (memo-hit AND recompute), so a view that re-renders structurally and
+;; re-derefs unchanged subs still surfaces its full read-set.
+;;
+;; Bound per render by `build-frame-aware-view` to a fresh volatile set;
+;; nil outside a render (a handler that subscribes, an SSR walk) so the
+;; sink-push is a no-op there. The binding site rides
+;; `interop/debug-enabled?` and the consumer push is gated at the
+;; `re-frame.subs/subscribe` call site, so production DCEs the whole
+;; surface.
+
+(def ^:dynamic *view-deref-sink*
+  "Per-render volatile holding the set of subscription query-vectors the
+  in-flight view render has deref'd so far (rf2-9hoos). Bound by the
+  `build-frame-aware-view` wrapper for the duration of each render under
+  `interop/debug-enabled?`; nil otherwise."
+  nil)
+
+(defn record-view-deref!
+  "Union `query-v` into the in-flight render's deref sink (rf2-9hoos).
+  No-op when no render is on the stack (`*view-deref-sink*` nil — a
+  handler-side subscribe, an SSR walk, a direct read). Published through
+  late-bind under `:views/record-view-deref!` so `re-frame.subs/subscribe`
+  records the edge without a static require on this CLJS-only ns. The
+  caller gates the invocation on `interop/debug-enabled?`."
+  [query-v]
+  (when-let [sink *view-deref-sink*]
+    (vswap! sink conj query-v))
+  nil)
+
+;; ---- mount-vs-rerender discrimination (rf2-9hoos) ------------------------
+;;
+;; `:rf.view/rendered` fires on every render; the `:mount?` flag
+;; discriminates a component instance's FIRST render from its subsequent
+;; re-renders so a consumer can label the action mount vs rerender.
+;; Keyed by `:render-key` (`[view-id instance-token]`), which is stable
+;; across re-renders of the same mounted instance and fresh per new
+;; instance. The seen-set only grows within a process run; teardown of an
+;; instance does not evict its key (a remount mints a fresh
+;; instance-token, so the new key is unseen → `:mount? true` again).
+;; Test fixtures reset via `clear-seen-render-keys!`.
+
+(defonce ^:private seen-render-keys (atom #{}))
+
+(defn first-render?!
+  "Return `true` the FIRST time `render-key` is seen this process run,
+  `false` thereafter — the mount-vs-rerender discriminator (rf2-9hoos).
+  Side-effecting: records the key on first sighting. Caller gates on
+  `interop/debug-enabled?`."
+  [render-key]
+  (let [[old _new] (swap-vals! seen-render-keys conj render-key)]
+    (not (contains? old render-key))))
+
+(defn clear-seen-render-keys!
+  "Wipe the seen-render-keys set (rf2-9hoos). Test fixtures call this so
+  a sibling test's `:mount?` flag does not leak across cases (the
+  per-process set would otherwise report a re-used render-key as a
+  rerender in the next test). Wired into the chained
+  `:adapter/clear-warn-once-caches!` late-bind hook (rf2-4edk) so a
+  single fixture reset clears it alongside the warn-once caches."
+  []
+  (reset! seen-render-keys #{})
+  nil)
+
 ;; ---- re-exported public surface ------------------------------------------
 ;;
 ;; Plain `def` aliases (rather than `:refer`-imports) so
@@ -128,72 +200,152 @@
 ;; cost we already pay).
 (def ^:private view-rendered-cap 100)
 
-(defn- emit-render-trace!
-  "Emit per-render trace events tagged with the in-flight `:render-key`
-  and `:frame`. The traces ride the epoch-capture buffer (per
-  re-frame.epoch §capture-event!) so they route into the right per-
-  frame cascade. Goes through late-bind so this ns doesn't depend on
-  re-frame.trace (which itself routes through late-bind for
-  registrar/views ordering reasons). Production builds elide via the
-  `interop/debug-enabled?` gate the trace surface itself rides.
+(defn- emit-view-render-trace!
+  "Emit the `:view/render` render-event marker tagged with the in-flight
+  `:render-key` and `:frame` (Spec 009 §Trace ops). Fires at the START
+  of each render (before the user render-fn runs). Goes through late-bind
+  so this ns doesn't depend on re-frame.trace (which itself routes
+  through late-bind for registrar/views ordering reasons). Production
+  builds elide via the `interop/debug-enabled?` gate the trace surface
+  itself rides.
 
-  Two ops fire per render (both substrate-agnostic — every adapter
-  composes `views.cljs`'s frame-aware-view wrapper around its user
-  render-fn, so the same emits ride Reagent / UIx / Helix renders):
-
-    :view/render        — render-event marker (Spec 009 §Trace ops).
-                          Carries `:render-key` + `:frame`.
-
-    :rf.view/rendered   — cascade-attribution marker (rf2-25zo2,
-                          consumed by Causa's Reactive panel for
-                          cascade graphing). Carries `:render-key`,
-                          `:frame`, `:view-id`, and — when available
-                          from the in-flight cascade buffer —
-                          `:cause-event-id` and `:cause-subs`. Capped
-                          at 100 per cascade with a one-shot
-                          `:rf.view/rendered-cap-reached` marker
-                          (carries `:dropped-after :cap 100`)."
-  [view-id render-key]
+  Substrate-agnostic — every adapter composes `views.cljs`'s
+  frame-aware-view wrapper around its user render-fn, so this emit rides
+  Reagent / UIx / Helix renders. `frame-id` is resolved once by the
+  caller and threaded into both this and the post-render
+  `:rf.view/rendered` emit, so there is one `provider/current-frame`
+  resolution per render."
+  [render-key frame-id]
   (when interop/debug-enabled?
     ;; Sticky hook (rf2-f72pd) — `:trace/emit!` is published once at
     ;; re-frame.trace load and never withdrawn; this fires per render
     ;; under dev builds.
     (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
-      (let [frame-id (provider/current-frame)]
-        ;; Existing :view/render — unchanged shape.
-        (emit! :view :view/render
-               {:render-key render-key
-                :frame      frame-id})
-        ;; rf2-25zo2: :rf.view/rendered carries cascade-attribution.
-        ;; Resolved via the epoch capture's in-flight buffer; absent
-        ;; (or returns nil) when re-frame.epoch is not on the classpath
-        ;; — in that case we emit the op without attribution slots so
-        ;; consumers without the epoch artefact still see the marker.
-        (let [cause-fn (late-bind/get-fn-cached :epoch/cascade-cause)
-              cause    (when cause-fn (cause-fn frame-id))
-              n-so-far (long (or (:rendered-so-far cause) 0))]
-          (cond
-            ;; Past the cap — emit a one-shot marker on the threshold
-            ;; cross. The marker rides the same per-cascade buffer so
-            ;; consumers can detect truncation without inspecting state.
-            (= n-so-far view-rendered-cap)
-            (emit! :view :rf.view/rendered-cap-reached
-                   {:frame         frame-id
-                    :dropped-after view-rendered-cap})
+      (emit! :view :view/render
+             {:render-key render-key
+              :frame      frame-id}))))
 
-            (< n-so-far view-rendered-cap)
-            (emit! :view :rf.view/rendered
-                   (cond-> {:render-key render-key
-                            :view-id    view-id
-                            :frame      frame-id}
-                     (:cause-event-id cause)
-                     (assoc :cause-event-id (:cause-event-id cause))
-                     (:cause-subs cause)
-                     (assoc :cause-subs (:cause-subs cause))))
+(defn- emit-view-rendered-trace!
+  "Emit the `:rf.view/rendered` cascade-attribution marker (rf2-25zo2,
+  consumed by Causa's Reactive panel for cascade graphing). Fires AFTER
+  the user render-fn has run so the per-render deref sink is fully
+  populated (rf2-9hoos). Carries:
 
-            ;; n-so-far > cap — silent skip (the cap-reached marker
-            ;; fired already on the threshold cross).
-            :else nil))))))
+    :render-key     — `[view-id instance-token]` (parity with :view/render).
+    :view-id        — the registered view id.
+    :frame          — the frame the render landed in.
+    :mount?         — `true` on the component instance's first render,
+                      `false` on every subsequent re-render (rf2-9hoos —
+                      the mount-vs-rerender discriminator).
+    :deref-subs     — the vector of subscription query-vectors THIS view
+                      deref'd during the render (rf2-9hoos — the per-view
+                      read-set, the precise per-view reactive 'reason').
+                      First-seen order; absent when the view derefs no
+                      subs (a pure structural render). Distinct from
+                      cascade-wide `:cause-subs` (which over-reports).
+    :cause-event-id — (when in-cascade) the dispatching cascade's event-id.
+    :cause-subs     — (when in-cascade) distinct sub-ids that ran in the
+                      cascade, first-seen order, capped at 100.
+
+  Resolved via the epoch capture's in-flight buffer; the attribution
+  slots are absent (or the buffer returns nil) when re-frame.epoch is not
+  on the classpath — in that case the op fires without attribution slots
+  so consumers without the epoch artefact still see the marker. Capped at
+  100 `:rf.view/rendered` per cascade with a one-shot
+  `:rf.view/rendered-cap-reached` marker (carries `:frame` +
+  `:dropped-after`)."
+  [view-id render-key frame-id mount? deref-subs]
+  (when interop/debug-enabled?
+    (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
+      ;; rf2-25zo2: :rf.view/rendered carries cascade-attribution.
+      ;; Resolved via the epoch capture's in-flight buffer; absent
+      ;; (or returns nil) when re-frame.epoch is not on the classpath.
+      (let [cause-fn (late-bind/get-fn-cached :epoch/cascade-cause)
+            cause    (when cause-fn (cause-fn frame-id))
+            n-so-far (long (or (:rendered-so-far cause) 0))]
+        (cond
+          ;; Past the cap — emit a one-shot marker on the threshold
+          ;; cross. The marker rides the same per-cascade buffer so
+          ;; consumers can detect truncation without inspecting state.
+          (= n-so-far view-rendered-cap)
+          (emit! :view :rf.view/rendered-cap-reached
+                 {:frame         frame-id
+                  :dropped-after view-rendered-cap})
+
+          (< n-so-far view-rendered-cap)
+          (emit! :view :rf.view/rendered
+                 (cond-> {:render-key render-key
+                          :view-id    view-id
+                          :frame      frame-id
+                          :mount?     mount?}
+                   (seq deref-subs)
+                   (assoc :deref-subs deref-subs)
+                   (:cause-event-id cause)
+                   (assoc :cause-event-id (:cause-event-id cause))
+                   (:cause-subs cause)
+                   (assoc :cause-subs (:cause-subs cause))))
+
+          ;; n-so-far > cap — silent skip (the cap-reached marker
+          ;; fired already on the threshold cross).
+          :else nil)))))
+
+;; ---- view unmount (rf2-9hoos) --------------------------------------------
+;;
+;; `:rf.view/unmounted` fires when a registered-view component instance
+;; tears down, so a consumer (Causa's Views table) can label the action
+;; `unmount`. Not traced before rf2-9hoos.
+;;
+;; The teardown signal rides the per-render-instance reaction-dispose
+;; mechanism — the same one `r/with-let`'s `finally` arm uses: a
+;; reaction created in the wrapper, deref'd inside the render so the
+;; substrate's per-component render reaction tracks it as a dependency,
+;; with an `interop/add-on-dispose!` callback that fires
+;; `:rf.view/unmounted` when the reaction is disposed. On the Reagent
+;; family (stock + reagent-slim) the component's render reaction disposes
+;; its tracked dependencies on `componentWillUnmount`, so the callback
+;; fires exactly once per instance teardown. The whole surface rides
+;; `interop/debug-enabled?` so production DCEs it (the reaction is never
+;; created, the deref never happens, the emit never fires).
+
+(defn emit-view-unmounted!
+  "Emit the `:rf.view/unmounted` teardown marker for the view instance
+  named by `render-key` in `frame-id` (rf2-9hoos). Carries at least
+  `:view-id` + `:frame` (plus the `:render-key` instance tuple). Goes
+  through the `:trace/emit!` late-bind hook so this ns stays free of a
+  static re-frame.trace require. Gated on `interop/debug-enabled?` so
+  production DCEs the body."
+  [view-id render-key frame-id]
+  (when interop/debug-enabled?
+    (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
+      (emit! :view :rf.view/unmounted
+             {:render-key render-key
+              :view-id    view-id
+              :frame      frame-id}))))
+
+(defn install-unmount-hook!
+  "Wire `:rf.view/unmounted` emission to the teardown of the view
+  instance named by `render-key` (rf2-9hoos). Creates a per-instance
+  lifecycle reaction via `interop/make-reaction`, registers the unmount
+  emit as an on-dispose callback, and returns the reaction so the caller
+  can deref it inside the render — that deref registers the reaction as a
+  dependency of the substrate's per-component render reaction, which
+  disposes it (firing the callback) on `componentWillUnmount`.
+
+  Returns nil when no reaction primitive is available (the active adapter
+  did not publish `:adapter/make-reaction` — e.g. a React-hook substrate
+  or a headless build); in that case no unmount hook is installed and the
+  caller skips the deref. Gated on `interop/debug-enabled?`.
+
+  Idempotent per instance: the wrapper installs at most one lifecycle
+  reaction per `:render-key`, cached on the substrate component instance,
+  so re-renders of the same mounted instance reuse the same reaction and
+  the unmount emit fires exactly once."
+  [view-id render-key frame-id]
+  (when interop/debug-enabled?
+    (when-let [rea (interop/make-reaction (fn [] render-key))]
+      (interop/add-on-dispose! rea
+        (fn [] (emit-view-unmounted! view-id render-key frame-id)))
+      rea)))
 
 ;; ---- reg-view -------------------------------------------------------------
 ;;
@@ -254,12 +406,41 @@
   (when (and interop/debug-enabled? (not wrap-applied?))
     (source-coord/format-source-coord id metadata)))
 
+(defn- maybe-arm-unmount!
+  "Install (once per mounted instance) the `:rf.view/unmounted` teardown
+  hook for `render-key` and deref its lifecycle reaction so the
+  substrate's per-component render reaction tracks it (rf2-9hoos). The
+  reaction is cached on the component instance via
+  `provider/component-lifecycle-reaction` so re-renders reuse it and the
+  unmount emit fires exactly once. Returns nil; called for side effect
+  inside the render under `interop/debug-enabled?`.
+
+  No-op when the active adapter publishes no `:adapter/make-reaction`
+  primitive (`install-unmount-hook!` returns nil) — a React-hook
+  substrate or a headless build — or when there is no component instance
+  to cache against (a direct headless invocation of the wrapper)."
+  [id render-key frame-id]
+  (when interop/debug-enabled?
+    (let [rea (provider/component-lifecycle-reaction
+                (fn [] (install-unmount-hook! id render-key frame-id)))]
+      ;; Deref so the per-component render reaction registers `rea` as a
+      ;; dependency and disposes it (firing the unmount emit) on teardown.
+      (when (some? rea) @rea))))
+
 (defn- build-frame-aware-view
   "Build the per-render wrapped fn that ties view registration into
-  Reagent: each render binds `*render-key*` and `*handler-scope*`,
-  emits the `:view/render` trace, brackets the user render-fn in
-  performance marks, and (when serving the Reagent inline path)
-  annotates the rendered hiccup root with the source-coord attribute.
+  Reagent: each render binds `*render-key*`, `*handler-scope*` and the
+  per-render deref sink (`*view-deref-sink*`, rf2-9hoos), emits the
+  `:view/render` trace, brackets the user render-fn in performance
+  marks, emits the `:rf.view/rendered` trace (carrying the mount flag +
+  the view's deref'd subs, rf2-9hoos), arms the `:rf.view/unmounted`
+  teardown hook, and (when serving the Reagent inline path) annotates
+  the rendered hiccup root with the source-coord attribute.
+
+  Emit ordering (rf2-9hoos): `:view/render` fires BEFORE the user
+  render-fn (the render-start marker, unchanged shape);
+  `:rf.view/rendered` fires AFTER so the per-render deref sink is fully
+  populated and the trace can carry the view's own `:deref-subs`.
 
   The returned fn carries `{:contextType frame-context}` meta so
   Reagent's create-class / fn-to-class machinery hooks it up to the
@@ -270,23 +451,44 @@
   (with-meta
     (fn frame-aware-view [& args]
       (let [tok        (provider/reagent-component-token)
-            render-key [id tok]]
-        (binding [*render-key* render-key]
+            render-key [id tok]
+            ;; rf2-9hoos: fresh per-render deref sink (dev-only). The
+            ;; volatile is bound below so `re-frame.subs/subscribe`'s
+            ;; gated `record-view-deref!` call unions each deref'd
+            ;; query-v into it; read back AFTER the render to stamp
+            ;; `:deref-subs` onto `:rf.view/rendered`.
+            sink       (when interop/debug-enabled? (volatile! []))]
+        (binding [*render-key*     render-key
+                  *view-deref-sink* sink]
           (trace/with-handler-scope view-scope
-            (emit-render-trace! id render-key)
-            ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
-            ;; every render of a registered view brackets the user
-            ;; render-fn in performance marks so prod builds with the
-            ;; perf flag enabled produce a `rf:render:<view-id>` measure
-            ;; entry. Default-off; under :advanced +
-            ;; `re-frame.performance/enabled?=false` the bracket DCEs
-            ;; and the form collapses to the bare `(apply render-fn
-            ;; args)` call.
-            (let [out (performance/mark-and-measure :render id
-                        (apply render-fn args))]
-              (if (and interop/debug-enabled? (not wrap-applied?))
-                (source-coord/inject-source-coord-attr id coord-attr out)
-                out))))))
+            ;; Resolve the frame once per render — threaded into the
+            ;; unmount hook + both render emits (rf2-9hoos).
+            (let [frame-id (when interop/debug-enabled? (provider/current-frame))]
+              ;; rf2-9hoos: arm the unmount hook + compute the mount flag
+              ;; BEFORE the render so `first-render?!` reflects whether
+              ;; this is the instance's first render (the seen-set is
+              ;; updated here, not in the post-render emit).
+              (when interop/debug-enabled?
+                (maybe-arm-unmount! id render-key frame-id))
+              (let [mount? (when interop/debug-enabled? (first-render?! render-key))]
+                (emit-view-render-trace! render-key frame-id)
+                ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
+                ;; every render of a registered view brackets the user
+                ;; render-fn in performance marks so prod builds with the
+                ;; perf flag enabled produce a `rf:render:<view-id>`
+                ;; measure entry. Default-off; under :advanced +
+                ;; `re-frame.performance/enabled?=false` the bracket DCEs
+                ;; and the form collapses to the bare `(apply render-fn
+                ;; args)` call.
+                (let [out (performance/mark-and-measure :render id
+                            (apply render-fn args))]
+                  ;; rf2-9hoos: emit AFTER the render so the deref sink is
+                  ;; populated; carry the mount flag + the view's read-set.
+                  (emit-view-rendered-trace! id render-key frame-id mount?
+                                             (when sink @sink))
+                  (if (and interop/debug-enabled? (not wrap-applied?))
+                    (source-coord/inject-source-coord-attr id coord-attr out)
+                    out))))))))
     {:contextType frame-context}))
 
 (defn reg-view*
@@ -338,3 +540,28 @@
 ;; `interop/debug-enabled?` at the consumer so production DCEs it.
 
 (late-bind/set-fn! :views/reading-render-key reading-render-key)
+
+;; ---- late-bind publication (rf2-9hoos) ------------------------------------
+;;
+;; `re-frame.subs/subscribe` records each view→sub edge by pushing the
+;; query-v into the in-flight render's deref sink (`*view-deref-sink*`).
+;; Reaching `record-view-deref!` through late-bind keeps the subs layer
+;; (.cljc, must not hard-couple to the substrate) free of a static
+;; require on this CLJS-only views ns. Sticky-hook shape (rf2-f72pd): set
+;; once at views ns-load, never withdrawn. The subscribe-side call is
+;; gated on `interop/debug-enabled?` so production never resolves the
+;; hook.
+
+(late-bind/set-fn! :views/record-view-deref! record-view-deref!)
+
+;; ---- chained fixture-reset step (rf2-9hoos) -------------------------------
+;;
+;; The `:mount?` discriminator (rf2-9hoos) keys off a per-process
+;; seen-render-keys set; a fixture that reuses a render-key across cases
+;; would otherwise see the second case's first render reported as a
+;; rerender. Chain `clear-seen-render-keys!` into the existing
+;; `:adapter/clear-warn-once-caches!` reset hook (rf2-4edk) so the
+;; standard runtime-reset fixture wipes it alongside the warn-once
+;; caches — no new fixture wiring needed at call sites.
+
+(late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-seen-render-keys!)

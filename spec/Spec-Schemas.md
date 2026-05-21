@@ -533,7 +533,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:event/do-fx` | Effect-resolution pass after the handler returns | 009 |
 | `:sub/create` | Subscription created (first reference / registration into the reactive graph) | 009 |
 | `:sub/run` | Subscription computation ran (input changed; output recomputed) | 009 |
-| `:view/render` | View render (per [Spec 004 §Render-tree primitives](004-Views.md)) | 004 / 009 |
+| `:view/render` | View-substrate family (`:op-type :view`) — `:view/render` (per-render marker), plus the `:rf.view/rendered` per-render cascade-attribution / per-view ACTION+REASON marker (carries `:mount?` + `:deref-subs` per rf2-9hoos), its `:rf.view/rendered-cap-reached` truncation marker, and the `:rf.view/unmounted` instance-teardown marker (rf2-9hoos). Per [Spec 004 §Render-tree primitives](004-Views.md) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) | 004 / 009 |
 | `:fx` | Effect-substrate success-path / lifecycle events (e.g. `:rf.fx/handled`, `:rf.fx/override-applied`) — the universal discriminator for fx outcomes when not error/warning-shaped | 002 / 009 |
 
 **Family-level discriminators** (umbrella `:op-type` values whose per-emit-site `:operation` varies; consumers filter the whole family with one key):

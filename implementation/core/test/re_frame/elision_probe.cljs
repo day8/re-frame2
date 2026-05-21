@@ -289,6 +289,21 @@
   (let [_t (views/mint-instance-token!)
         _k (views/current-render-key)]
     nil)
+  ;; rf2-9hoos — touch the view-side capture surfaces so their gated
+  ;; bodies (the `:rf.view/unmounted` emit, the deref-sink push, the
+  ;; mount-vs-rerender discriminator) sit in a reachable module graph
+  ;; for the elision check. The `:rf.view/rendered` sentinel already
+  ;; covers the rendered-trace body (where `:mount?` / `:deref-subs`
+  ;; ride); the unmount op needs its own touch so the control build
+  ;; contains the sentinel and the methodology check has teeth. Under
+  ;; :advanced + goog.DEBUG=false every body DCEs.
+  (views/emit-view-unmounted! :probe/unmounted [:probe/unmounted 1] :rf/default)
+  (let [_rea (views/install-unmount-hook! :probe/unmounted [:probe/unmounted 1] :rf/default)]
+    nil)
+  (views/record-view-deref! [:probe/sub])
+  (let [_m (views/first-render?! [:probe/unmounted 1])]
+    nil)
+  (views/clear-seen-render-keys!)
   ;; Per Spec 004 §Plain Reagent fns and Spec 006 §Plain-fn-under-non-
   ;; default-frame warning (rf2-d3k3): the warn-once helper sits inside
   ;; `(when interop/debug-enabled? ...)`. Touch the helper's public

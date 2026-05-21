@@ -245,6 +245,20 @@ const DEV_ONLY_SENTINELS = [
   // goog.DEBUG=false alongside the existing view/render sentinel.
   { source: 're-frame.views/reg-view* frame-aware-view (rf.view/rendered)',
     sentinel: 'rf.view/rendered' },
+  // re-frame.views — :rf.view/unmounted teardown op (rf2-9hoos). Emitted
+  // by `emit-view-unmounted!` (via the per-render-instance reaction
+  // dispose installed by `install-unmount-hook!`) when a registered view
+  // instance tears down; carries :view-id, :frame and the :render-key
+  // tuple for Causa's Views table to label the `unmount` action. The
+  // emit body, the reaction creation, the on-dispose registration, and
+  // the in-render deref that arms it all sit inside
+  // `(when interop/debug-enabled? ...)`; the operation keyword's string
+  // fragment must elide under :advanced + goog.DEBUG=false. (The
+  // rf2-9hoos `:mount?` flag and the `:deref-subs` per-view read-set
+  // ride the existing `rf.view/rendered` sentinel above — same gated
+  // emit body, no separate sentinel needed.)
+  { source: 're-frame.views/emit-view-unmounted! (rf.view/unmounted)',
+    sentinel: 'rf.view/unmounted' },
   // re-frame.views — source-coord DOM annotation (Spec 006 §Source-coord
   // annotation, rf2-z7f7 / rf2-z9n1). The reg-view* wrapper merges
   // `:data-rf2-source-coord` onto the rendered root DOM element when

@@ -335,6 +335,18 @@
       :clj
       (subscribe (frame/resolve-current-frame) query-v)))
   ([frame-id query-v]
+   ;; rf2-9hoos (CLJS, dev-only): record the view→sub edge — push this
+   ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
+   ;; can carry the view's OWN read-set (`:deref-subs`). No-op outside a
+   ;; view render (the sink is unbound) and on the JVM. Routed through
+   ;; late-bind so this .cljc layer stays free of a static require on the
+   ;; CLJS-only views ns; the whole call sits inside `interop/debug-enabled?`
+   ;; so production DCEs it. Fires for every subscribe (hit AND miss) so
+   ;; the read-set is complete even for memo-hit re-derefs.
+   #?(:cljs
+      (when interop/debug-enabled?
+        (when-let [record! (late-bind/get-fn :views/record-view-deref!)]
+          (record! query-v))))
    (let [frame-record (frame/frame frame-id)]
      (cond
        ;; Missing or destroyed frame: trace and return nil rather than
