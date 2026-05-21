@@ -39,6 +39,8 @@
 import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
 import {
   default_extensions,
   complete_keymap,
@@ -193,6 +195,97 @@ function evalKeymap(getResultEl, render) {
   );
 }
 
+// --- Syntax highlighting ---------------------------------------------------
+//
+// clojure-mode parses + Lezer-tags every token (its `style_tags` map assigns
+// @lezer/highlight tags: Keyword/Boolean -> atom, NS/Operator/DefLike ->
+// keyword, strings -> string, LineComment/Discard! -> comment, Number ->
+// number, VarName -> definition(variableName), Nil -> null, RegExp -> regexp,
+// DocString -> emphasis), but `default_extensions` ships NO HighlightStyle and
+// no syntaxHighlighting() extension — so the tags were never painted and cells
+// rendered as plain monospace (rf2-wj623).
+//
+// We map each tag the grammar emits to a CSS custom property rather than a
+// literal colour, so a SINGLE HighlightStyle reads well under BOTH Material
+// schemes: the per-scheme palette is supplied by `--rf2-cm-*` vars defined in
+// the editor `EditorView.theme` block below, keyed off `[data-md-color-scheme]`
+// (default = light, slate = dark). The fallbacks in each var() keep tokens
+// legible even outside a Material page (e.g. the standalone smoke harness).
+const highlightStyle = HighlightStyle.define([
+  // Clojure :keywords + booleans (the grammar tags both as `atom`).
+  { tag: t.atom, color: "var(--rf2-cm-atom)" },
+  // Defining symbols (def/defn names): `(definition (variableName))`.
+  { tag: t.definition(t.variableName), color: "var(--rf2-cm-def)" },
+  { tag: t.variableName, color: "var(--rf2-cm-var)" },
+  // ns / def-like heads / operator symbols are tagged `keyword`.
+  { tag: t.keyword, color: "var(--rf2-cm-keyword)" },
+  { tag: t.string, color: "var(--rf2-cm-string)" },
+  { tag: t.number, color: "var(--rf2-cm-number)" },
+  { tag: t.regexp, color: "var(--rf2-cm-regexp)" },
+  { tag: t.null, color: "var(--rf2-cm-atom)" },
+  { tag: [t.lineComment, t.comment], color: "var(--rf2-cm-comment)", fontStyle: "italic" },
+  // DocStrings are tagged `emphasis`.
+  { tag: t.emphasis, color: "var(--rf2-cm-string)", fontStyle: "italic" },
+  // Bracket matching (paredit/match_brackets) — keep delimiters readable.
+  { tag: t.bracket, color: "var(--rf2-cm-bracket)" },
+]);
+
+// Per-scheme palette + token-span colour protection. Two concerns:
+//   1. Supply the `--rf2-cm-*` vars per Material scheme. The selectors below
+//      target an ancestor `[data-md-color-scheme]` of the editor so the var
+//      cascade resolves to the ACTIVE scheme (Material swaps that attribute on
+//      <html> when the reader toggles light/dark).
+//   2. Material's typeset CSS styles `code`/`pre` spans; CM6 token spans live
+//      inside `.cm-content` and could inherit. Pin token spans to `inherit`
+//      bg + the var colour so the highlight wins (extra specificity via the
+//      `.cm-content` scope), without touching playground.css (sibling owns it).
+const editorTheme = EditorView.theme({
+  "&": {
+    fontSize: "14px",
+    border: "1px solid var(--md-default-fg-color--lightest, #ccc)",
+    borderRadius: "4px",
+    // Light/default scheme palette (also the no-Material fallback).
+    "--rf2-cm-keyword": "#7c3aed",
+    "--rf2-cm-atom": "#0b7285",
+    "--rf2-cm-def": "#1864ab",
+    "--rf2-cm-var": "var(--md-typeset-color, #24292e)",
+    "--rf2-cm-string": "#2b8a3e",
+    "--rf2-cm-number": "#e8590c",
+    "--rf2-cm-regexp": "#c2255c",
+    "--rf2-cm-comment": "#868e96",
+    "--rf2-cm-bracket": "var(--md-default-fg-color--light, #5c6370)",
+  },
+  ".cm-content": { fontFamily: "var(--md-code-font, monospace)" },
+  // Keep CM token spans from inheriting Material typeset colours.
+  ".cm-content span": { backgroundColor: "transparent" },
+});
+
+// Slate (dark) palette. EditorView.theme scopes rules under the editor's
+// generated class, so a bare `[data-md-color-scheme="slate"]` selector would
+// not match an ANCESTOR. Define the dark palette as a plain document-level
+// stylesheet, injected once, that re-points the vars on any `.cm-editor`
+// living inside a slate-scheme subtree.
+let darkPaletteInjected = false;
+function ensureDarkPalette() {
+  if (darkPaletteInjected) return;
+  darkPaletteInjected = true;
+  const style = document.createElement("style");
+  style.id = "rf2-cm-dark-palette";
+  style.textContent =
+    '[data-md-color-scheme="slate"] .cm-editor {' +
+    "  --rf2-cm-keyword: #c792ea;" +
+    "  --rf2-cm-atom: #56d4dd;" +
+    "  --rf2-cm-def: #82aaff;" +
+    "  --rf2-cm-var: var(--md-typeset-color, #d6deeb);" +
+    "  --rf2-cm-string: #addb67;" +
+    "  --rf2-cm-number: #f78c6c;" +
+    "  --rf2-cm-regexp: #f78c6c;" +
+    "  --rf2-cm-comment: #7f95a3;" +
+    "  --rf2-cm-bracket: var(--md-default-fg-color--light, #93a1ad);" +
+    "}";
+  document.head.appendChild(style);
+}
+
 // --- Cell mount ------------------------------------------------------------
 
 function mountCell(preEl) {
@@ -216,22 +309,22 @@ function mountCell(preEl) {
   preEl.replaceWith(wrap);
   wrap.dataset.cljsMounted = "1";
 
+  // Inject the dark-scheme palette stylesheet once (no-op if already present).
+  ensureDarkPalette();
+
   const state = EditorState.create({
     doc: source,
     extensions: [
       lineNumbers(),
       history(),
       ...default_extensions, // clojure-mode: lezer syntax, close/match brackets, paredit
+      // Paint the Lezer tags clojure-mode emits. default_extensions parses +
+      // tags but ships NO HighlightStyle — without this the cells render as
+      // plain monospace (rf2-wj623).
+      syntaxHighlighting(highlightStyle),
       keymap.of([...complete_keymap, ...defaultKeymap, ...historyKeymap]),
       evalKeymap(() => resultEl, isRender),
-      EditorView.theme({
-        "&": {
-          fontSize: "14px",
-          border: "1px solid var(--md-default-fg-color--lightest, #ccc)",
-          borderRadius: "4px",
-        },
-        ".cm-content": { fontFamily: "var(--md-code-font, monospace)" },
-      }),
+      editorTheme,
     ],
   });
 
