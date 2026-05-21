@@ -10,7 +10,7 @@ Path: `spec/Tool-Pair.md` (the contract specification) + `spec/009-Instrumentati
 
 **This is the source of truth.** Every op the skill teaches is a structured call against one of the Tool-Pair surfaces:
 
-- `(rf/register-trace-listener id cb)` / `(rf/trace-buffer opts)` — the trace stream.
+- `(re-frame.trace.tooling/register-listener! id cb)` / `(re-frame.trace.tooling/trace-buffer opts)` — the trace stream. (`register-listener!` is also re-exported on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form.)
 - `(rf/register-epoch-listener! id cb)` / `(rf/epoch-history frame-id)` — the assembled epoch stream and per-frame ring.
 - `(rf/restore-epoch ...)` — first-class time-travel.
 - `(rf/frame-ids)` / `(rf/frame-meta id)` — multi-frame inspection.
@@ -23,7 +23,7 @@ The skill is one of the principal downstream consumers of these surfaces.
 
 For verifying that the public surface in `spec/Tool-Pair.md` is wired up in the reference impl:
 
-- `implementation/core/src/re_frame/core.cljc` — the public single-import API; `register-trace-listener`, `trace-buffer`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `frame-ids`, `frame-meta`, `app-schemas`, `handler-meta`, `configure`.
+- `implementation/core/src/re_frame/core.cljc` — the public single-import API; `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `frame-ids`, `frame-meta`, `app-schemas`, `handler-meta`, `configure`. (`trace-buffer` lives in `re-frame.trace.tooling`; `core.cljc` re-exports it on `rf/` JVM-side only.)
 - `implementation/core/src/re_frame/trace.cljc` — the trace stream's internals; what op-types are emitted, how `:op-type :error` filtering works.
 - `implementation/core/src/re_frame/epoch.cljc` — the per-frame epoch ring; what fields a `:rf/epoch-record` carries; the structured `:sub-runs` / `:renders` / `:effects` projections.
 - `implementation/core/src/re_frame/frame.cljc` — frame lifecycle; `:rf/default` registration; per-frame router queues.

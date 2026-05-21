@@ -11,7 +11,7 @@ Every script returns structured edn like `{:ok? false :reason ...}` rather than 
 - `:ns-not-loaded :missing :re-frame2` → re-frame2 isn't loaded; check the user's deps.
 - `:no-frames-registered` → no frame is up yet. Tell the user to call `(rf/init!)` (or wait for app boot).
 - `:ambiguous-frame` → multiple frames; ask the user to `frames/select` or pass `--frame :foo`.
-- `:handler-error` inside an epoch → the user's handler threw; surface the `:rf.error/handler-exception` trace event from `(rf/trace-buffer {:op-type :error})`.
+- `:handler-error` inside an epoch → the user's handler threw; surface the `:rf.error/handler-exception` trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})`. (Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime.)
 
 ## Pointing the user at the offending handler
 
@@ -22,7 +22,7 @@ Every `:rf.error/*` trace event carries `:rf.trace/trigger-handler` — `{:kind 
 
 ## `:on-error` policy violations
 
-Two error categories surface when a frame's `:on-error` policy violates its return-map contract. Both ride the trace stream like any other `:rf.error/*` event — pull them with `(rf/trace-buffer {:op-type :error})` and surface to the user verbatim. For the full contract (closed return shape, the `:recovery` enum, why `:retry-count` is gone), see [on-error.md](on-error.md).
+Two error categories surface when a frame's `:on-error` policy violates its return-map contract. Both ride the trace stream like any other `:rf.error/*` event — pull them with `(re-frame.trace.tooling/trace-buffer {:op-type :error})` and surface to the user verbatim. For the full contract (closed return shape, the `:recovery` enum, why `:retry-count` is gone), see [on-error.md](on-error.md).
 
 - `:rf.error/bad-on-error-return` (`:recovery :logged-and-skipped`) → the policy returned a map with a `:recovery` outside the closed enum (commonly the now-removed `:retried`), or set `:replacement` malformed or on a category that has no substitutable value. The runtime falls back to the original error's category default. `:tags {:received <map> :reason <str>}` names the offending shape — quote it to the user; the fix is almost always "drop `:retry-count` and pick a real `:recovery` keyword".
 - `:rf.error/on-error-policy-exception` (`:recovery :no-recovery`) → the policy fn itself threw. The runtime does NOT recursively invoke the policy on its own exception — it emits this trace and falls back to the original error's category default. `:tags {:original <input-error-event> :exception-message <str>}` carries the original error the policy was handling plus the throw message. Cascade halts; the policy's exception does not propagate to user code. Surface both the original op and the throw site to the user.

@@ -305,7 +305,7 @@
        {:ok?    false
         :frame  frame-id
         :reason :reset-rejected
-        :hint   "rf/reset-frame-db! returned false. Inspect (rf/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/reset-frame-db-during-drain, or :rf.epoch/reset-frame-db-schema-mismatch."})
+        :hint   "rf/reset-frame-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/reset-frame-db-during-drain, or :rf.epoch/reset-frame-db-schema-mismatch. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
      (catch :default e
        (let [{:keys [reason] :as data} (ex-data e)]
          {:ok?     false
@@ -629,7 +629,8 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The framework already maintains a retain-N ring buffer accessible via
-;; `(rf/trace-buffer opts)`. We register one listener here for callers
+;; `(re-frame.trace.tooling/trace-buffer opts)` (the `rf/` alias is
+;; JVM-only). We register one listener here for callers
 ;; that want a programmatic side-channel (e.g. a watch loop's idle
 ;; detector); the buffer remains the canonical query surface.
 
@@ -654,7 +655,7 @@
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
-   `:since` cursor for `(rf/trace-buffer {:since N})`."
+   `:since` cursor for `(re-frame.trace.tooling/trace-buffer {:since N})`."
   []
   @last-trace-id)
 
@@ -708,7 +709,7 @@
 ;;
 ;; Topic semantics:
 ;;   :trace  — every event in the raw trace stream matching `:filter`
-;;             (filter map mirrors `(rf/trace-buffer)` filter vocab —
+;;             (filter map mirrors `(re-frame.trace.tooling/trace-buffer)` filter vocab —
 ;;             see the trace-buffer surface). One event per delivered trace event.
 ;;   :epoch  — every assembled `:rf/epoch-record` matching `:filter`
 ;;             (filter map mirrors `epoch-matches?` — see watch-epochs).
@@ -752,7 +753,7 @@
 ;; happens in re-frame2-pair: the MCP server registers a subscription, polls
 ;; `drain-subscription!`, and forwards every drained event back to the
 ;; agent as a `notifications/progress` payload. The retain-N ring buffer
-;; reached via `(rf/trace-buffer)` is a separate, explicit read surface;
+;; reached via `(re-frame.trace.tooling/trace-buffer)` is a separate, explicit read surface;
 ;; agents asking for it are making a deliberate request and the filter
 ;; vocabulary already exposes `:sensitive? false` for tools that want to
 ;; pre-filter (see Spec 009 §Filter vocabulary).
@@ -764,7 +765,7 @@
 ;; The flag is consulted at `on-trace-streaming` entry — before any
 ;; subscription's queue sees the event. Dropped events still update the
 ;; `last-trace-id` cursor (so `last-trace-event-id` keeps incrementing
-;; monotonically) and still ride `(rf/trace-buffer)` unchanged — only
+;; monotonically) and still ride `(re-frame.trace.tooling/trace-buffer)` unchanged — only
 ;; the streaming dispatch is gated.
 
 (defonce ^:private privacy-config
@@ -821,7 +822,7 @@
 
 (defn- trace-matches?
   "Test a raw trace event against a filter map. Mirrors the filter
-   vocabulary of `(rf/trace-buffer opts)` — composes
+   vocabulary of `(re-frame.trace.tooling/trace-buffer opts)` — composes
    AND-wise, absent key means no constraint on that axis."
   [filter-map ev]
   (let [{:keys [operation op-type frame severity
@@ -1214,7 +1215,7 @@
 (defn restore-epoch
   "(rf/restore-epoch frame-id epoch-id). Returns true on success, false
    on any failure mode. Failure traces fire under :rf.epoch/* — read
-   them with `(rf/trace-buffer {:op-type :error})`."
+   them with `(re-frame.trace.tooling/trace-buffer {:op-type :error})`."
   ([epoch-id] (restore-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
    (rf/restore-epoch frame-id epoch-id)))

@@ -63,7 +63,7 @@ This is a **router skill**. The trigger-time guard rails live below; the operati
 Your agency runs through three coupled primitives, all part of re-frame2's own [Tool-Pair contract](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md):
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime, where ClojureScript forms evaluate against the real app.
-2. **The trace stream** — `(rf/register-trace-listener id cb)` for live trace events; `(rf/trace-buffer opts)` for the retain-N ring of recent events. This skill registers exactly *one* trace listener (under id `:re-frame2-pair`) so multiple tools can coexist.
+2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live trace events; `(re-frame.trace.tooling/trace-buffer opts)` for the retain-N ring of recent events. (`register-listener!` is re-exported on `rf/`, but `trace-buffer` is a **JVM-only** alias on `rf/` — CLJS callers, including this shim's `cljs-eval`, must reach for `re-frame.trace.tooling/trace-buffer` directly or the form silently returns nil.) This skill registers exactly *one* trace listener (under id `:re-frame2-pair`) so multiple tools can coexist.
 3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying the cascade's `:db-before`, `:db-after`, `:trace-events`, and the structured `:sub-runs` / `:renders` / `:effects` projections. `(rf/register-epoch-listener! id cb)` is the assembled-stream listener.
 
 Every operation eventually becomes a short ClojureScript form evaluated through the REPL, usually against a helper function in the `re-frame2-pair.runtime` namespace that the consumer app preloads (see §Setup below).
@@ -181,7 +181,7 @@ Load at most two references for a single task. If you find yourself wanting thre
   - The preload's `app-db-reset!` taps default-elide both `:previous` and `:next` payloads through `re-frame.core/elide-wire-value` before any registered tap consumer sees them.
   - The streaming subscription dispatch additionally drops `:sensitive? true` trace events at source (the preload's `streaming-drop?` filter).
 
-  Operators who need raw state for offline debug pass `--allow-sensitive-reads` at server launch — then the per-call MCP args win again (`:include-sensitive? true` and `:elision false` ride through). The retain-N ring buffer reached via `(rf/trace-buffer)` is a separate, explicit read surface — direct CLJS callers see everything regardless of the gate. Same architecture as the `--allow-eval` gate on `eval-cljs` and the canonically-named `--allow-sensitive-reads` gate on story-mcp. See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface).
+  Operators who need raw state for offline debug pass `--allow-sensitive-reads` at server launch — then the per-call MCP args win again (`:include-sensitive? true` and `:elision false` ride through). The retain-N ring buffer reached via `(re-frame.trace.tooling/trace-buffer)` is a separate, explicit read surface — direct CLJS callers see everything regardless of the gate. Same architecture as the `--allow-eval` gate on `eval-cljs` and the canonically-named `--allow-sensitive-reads` gate on story-mcp. See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface).
 
 ---
 

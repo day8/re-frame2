@@ -51,7 +51,7 @@ The filter map is `nil` (no filter) or a topic-specific map. Server-side normali
 
 ### `:trace` / `:fx` / `:error` — trace-buffer filter vocab
 
-Mirrors `(rf/trace-buffer)` per Spec 009. Recognised keys:
+Mirrors `(re-frame.trace.tooling/trace-buffer)` per Spec 009. Recognised keys:
 
 - `:operation` — exact trace operation keyword (e.g. `:event/dispatched`)
 - `:op-type` — broad category: `:event` `:sub` `:fx` `:render` `:cofx` `:error` `:registry` `:internal`
