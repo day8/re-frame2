@@ -82,12 +82,12 @@
   [:section.main {:id "main"}
    [:input#toggle-all.toggle-all
     {:type "checkbox"
-     :checked @(subscribe [:all-complete?])
+     :checked @(subscribe [:todo/all-complete?])
      :readOnly true
      :on-click #(dispatch [:todo/toggle-all])}]
    [:label {:for "toggle-all"} "Mark all as complete"]
    [:ul.todo-list {:id "todo-list"}
-    (for [{:keys [id] :as todo} @(subscribe [:visible-todos])]
+    (for [{:keys [id] :as todo} @(subscribe [:todo/visible-todos])]
       ^{:key id}
       [todo-item dispatch todo])]])
 
@@ -97,8 +97,8 @@
    label])
 
 (defn footer-controls [dispatch subscribe]
-  (let [[active completed] @(subscribe [:footer-counts])
-        showing @(subscribe [:showing])]
+  (let [[active completed] @(subscribe [:todo/footer-counts])
+        showing @(subscribe [:todo/showing])]
     [:footer.footer {:id "footer"}
      [:span.todo-count {:id "todo-count"}
       [:strong active]
@@ -124,7 +124,7 @@
 ;; with no need for their own registry slot or auto-defed Var; that
 ;; gives the cleanest read in this example.
 (reg-view root-view []
-  (let [todos @(subscribe [:todos])]
+  (let [todos @(subscribe [:todo/todos])]
     [:<>
      [:section.todoapp
       [task-entry dispatch]
