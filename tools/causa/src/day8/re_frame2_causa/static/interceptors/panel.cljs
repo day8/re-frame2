@@ -343,14 +343,14 @@
     (fn [[registrations-map query] _query]
       (project-data registrations-map query)))
 
-  ;; rf2-2moh1 — register the Static Interceptors tab. Order 6 — sits
-  ;; after :events (5).
+  ;; rf2-2moh1 — register the Static Interceptors tab. Contiguous order:
+  ;; machines 0 · routes 1 · schemas 2 · flows 3 · interceptors 4.
   (panel-registry/reg-l4-tab!
     {:id    :interceptors
      :label "Interceptors"
      :mnem  "i"
      :modes #{:static}
-     :order 6
+     :order 4
      :panel Panel
      :placeholder-bead "rf2-o5f5f.6"})
 

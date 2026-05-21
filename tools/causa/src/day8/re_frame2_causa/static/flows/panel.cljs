@@ -344,14 +344,15 @@
       (project-data registry-snapshot query)))
 
   ;; rf2-2moh1 — register the Static Flows tab with the internal L4
-  ;; tab registry. Order 4 sits between :views (3) and :events (5)
-  ;; per the parent epic findings doc §2.4.
+  ;; tab registry. Contiguous order: machines 0 · routes 1 · schemas 2
+  ;; · flows 3 · interceptors 4 (the standalone :views / :events tabs
+  ;; rf2-b2fif removed previously left orders 3 + 5 as gaps).
   (panel-registry/reg-l4-tab!
     {:id    :flows
      :label "Flows"
      :mnem  "l"
      :modes #{:static}
-     :order 4
+     :order 3
      :panel Panel
      :placeholder-bead "rf2-uhsqb"})
 
