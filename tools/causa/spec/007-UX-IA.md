@@ -1499,7 +1499,7 @@ panel). Static drops L2 — there is no spine in Static mode because the
 surface is event-independent — and renders 3 layers:
 
     ┌───────────────────────────────────────────────────────┐
-    │ L1  Top ribbon (56px) — mode pill + right icons       │
+    │ L1  Top ribbon — mode pill · frame picker · icons     │
     ├───────────────────────────────────────────────────────┤
     │ L3  Tab bar (40px) — 5 tabs                           │
     ├───────────────────────────────────────────────────────┤
@@ -1508,6 +1508,16 @@ surface is event-independent — and renders 3 layers:
 
 L2's absence is also a functional signal — see §Mode-signal mechanism
 below.
+
+The L1 frame picker is **mode-independent**. Static is also
+frame-scoped — registered events, subs, machines, routes, schemas,
+flows, and interceptors all live in a particular frame, so the user
+must be able to pick which frame they are browsing whether the lens is
+event-coupled (Dynamic) or event-independent (Static). Both shells
+mount the same `frame_switcher/frame-switcher-view` (the canonical L1
+contract); the selection persists across mode toggles. Dynamic's
+spine-coupled clusters (nav `[◀ ▶ ⏭]`, filter pills) remain hidden in
+Static — those have no meaning without a spine.
 
 ### Sub-tab inventory (Static L3)
 

@@ -16,12 +16,18 @@
   because Static is event-INDEPENDENT — and renders 3 layers:
 
       ┌───────────────────────────────────────────────────────┐
-      │ L1  Top ribbon (56px) — mode pill + right icons       │
+      │ L1  Top ribbon — mode pill · frame picker · icons     │
       ├───────────────────────────────────────────────────────┤
       │ L3  Tab bar (40px) — 5 tabs                           │
       ├───────────────────────────────────────────────────────┤
       │ L4  Detail panel (fills remaining canvas)             │
       └───────────────────────────────────────────────────────┘
+
+  The L1 frame picker is mode-INDEPENDENT — Static registrations are
+  still frame-scoped, so the user must be able to pick which frame
+  they are browsing. The picker uses the canonical
+  `frame_switcher/frame-switcher-view` (same contract as Dynamic's
+  ribbon); mode toggles preserve the selection.
 
   L2 is also a functional signal: its absence is one of the four
   stacked mode-signal mechanisms (chrome silhouette) the parent epic
@@ -86,6 +92,7 @@
     - rf2-uhsqb   — Flows registry browse
     - rf2-o5f5f.6 — Interceptors lens"
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.frame-switcher :as frame-switcher]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.static.mode-pill :as mode-pill]
             ;; Static panel views (Machines / Routes / Schemas / Views /
@@ -208,9 +215,19 @@
   "L1 ribbon — 56px chrome, Static-flavoured. Per parent-epic rf2-
   o5f5f mode-signal mechanism the ribbon paints a 2-px left-edge
   stripe in CYAN (Static) vs VIOLET (Dynamic). Mode pill sits at
-  ribbon-left; right-icons (Settings · Close) sit at ribbon-right.
-  Dynamic's nav / frame / filter clusters are HIDDEN — Static is
-  event-independent, those clusters have no meaning here.
+  ribbon-left; the L1 frame-switcher sits between mode-pill and the
+  right-icons cluster; right-icons (Settings · Close) sit at ribbon-
+  right.
+
+  The frame picker is MODE-INDEPENDENT — Static is also frame-scoped
+  (registrations — events · subs · machines · routes · schemas · flows
+  · interceptors — live in a particular frame, so the user must be
+  able to pick which frame they are browsing). Reaching through
+  `frame_switcher.cljs` (the canonical contract surface) keeps Static
+  on the same picker as Dynamic; mode toggles preserve the selection.
+  Dynamic's nav cluster (`[◀ ▶ ⏭]`) and filter pills remain HIDDEN in
+  Static — those clusters are spine-coupled and have no meaning in an
+  event-independent surface.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -228,6 +245,14 @@
                  :font-family      sans-stack
                  :font-size        (:body type-scale)}}
    [mode-pill/mode-pill]
+   ;; L1 frame-switcher slot (rf2-iwwou) — same contract as Dynamic's
+   ;; ribbon (`shell.cljs/ribbon`). The view reads `:rf.causa/current-
+   ;; frame` + `:rf.causa/available-frames` and writes via
+   ;; `:rf.causa/select-frame`. Mode-independent: the picker persists
+   ;; across mode toggles so the user can keep browsing the same
+   ;; frame's registrations as they flip between event-coupled
+   ;; (Dynamic) and event-independent (Static) lenses.
+   [frame-switcher/frame-switcher-view]
    [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
     [ribbon-right-icons]]])
 
