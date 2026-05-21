@@ -727,6 +727,38 @@
     "[data-testid^=\"rf-causa-edn-widget-browse-\"]:hover .rf-causa-edn-widget-copy,\n"
     "[data-testid^=\"rf-causa-edn-widget-browse-\"]:focus-within .rf-causa-edn-widget-copy {\n"
     "  opacity: 1;\n"
+    "}\n"
+    ;; rf2-8l03l — view-row hover-highlight (supersedes the flat grey
+    ;; :bg-3 inline tint). When the operator hovers a view-row in the
+    ;; Views / Reactive panel, `apply-highlight!` toggles this class on
+    ;; the hovered view's rendered DOM node (matched via the framework's
+    ;; `data-rf-view` attribute; Spec 006). The rule layers a translucent
+    ;; PINK DIAGONAL-STRIPE barber-pole (Tailwind pink-500 at two alphas)
+    ;; OVER the view's own background — pink-on-fainter-pink so the
+    ;; signal reads on BOTH light and dark app surfaces (white-on-white
+    ;; would vanish on a light page), and translucent so the view's own
+    ;; content + background show through.
+    ;;
+    ;; LAYOUT-SAFE (rf2-e33ad / Mike-direction 2026-05-21): background
+    ;; ONLY. No border / outline / box-shadow / box-model change → ZERO
+    ;; pixel shift on surrounding content. A `background-image` (gradient)
+    ;; paints inside the existing box without reflow. `!important` beats
+    ;; the per-view inline `background-image` (rare) so the stripe always
+    ;; lands; the class layers over the view's inline `background-color`
+    ;; without destroying it, and `clear-highlight!` simply removes the
+    ;; class to restore the node to its original look (no residue, no
+    ;; stash/restore dance).
+    ;;
+    ;; The selector is intentionally UNSCOPED (no `rf-causa-shell`
+    ;; ancestor) — the `data-rf-view` nodes live in the inspected app's
+    ;; frame, OUTSIDE the Causa shell, so the rule must reach the whole
+    ;; document. The `.rf-causa-view-highlight` class name is Causa-
+    ;; namespaced so it can't collide with host-app classes.
+    ".rf-causa-view-highlight {\n"
+    "  background-image: repeating-linear-gradient(\n"
+    "    45deg,\n"
+    "    rgba(236, 72, 153, 0.30) 0 6px,\n"
+    "    rgba(236, 72, 153, 0.10) 6px 12px) !important;\n"
     "}\n"))
 
 (defn- inject-motion-style!

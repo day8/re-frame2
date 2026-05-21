@@ -353,6 +353,70 @@
         (is (re-find #"Mark\s*!important" block)
             "Mark rule carries !important")))))
 
+;; ---- rf2-8l03l — view hover-highlight class ----------------------------
+;;
+;; The view-row hover-highlight (panels/reactive_panel_view
+;; apply-highlight! / clear-highlight!) toggles the
+;; `.rf-causa-view-highlight` class onto the hovered view's
+;; `data-rf-view` DOM node. The class rule lives in `motion-css` and
+;; paints a translucent PINK DIAGONAL-STRIPE barber-pole via
+;; `background-image` — pink-on-fainter-pink so it reads on both light
+;; and dark app surfaces. Layout-safe: background-only (no border /
+;; outline / box-shadow) so hovering shifts ZERO surrounding pixels.
+
+(deftest motion-css-declares-view-highlight-class
+  (testing "rf2-8l03l — the motion stylesheet ships a
+            `.rf-causa-view-highlight` rule (toggled by apply-highlight!
+            / clear-highlight! in reactive_panel_view) that supersedes
+            the old flat grey :bg-3 inline tint."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"\.rf-causa-view-highlight\s*\{" css)
+          "the Causa-namespaced highlight class rule is present"))))
+
+(deftest motion-css-view-highlight-is-pink-diagonal-stripe
+  (testing "rf2-8l03l — the highlight paints a translucent PINK
+            DIAGONAL-STRIPE barber-pole: a 45deg repeating-linear-
+            gradient of Tailwind pink-500 (rgb 236,72,153) at two
+            alphas (0.30 / 0.10). Pink-on-fainter-pink (NOT white) so
+            the signal reads on BOTH light and dark app backgrounds,
+            translucent so the view's own content shows through."
+    (let [css @#'gs/motion-css
+          rule (re-find #"\.rf-causa-view-highlight\s*\{[\s\S]*?\}" css)]
+      (is (some? rule) "highlight rule block found")
+      (when rule
+        (is (re-find #"repeating-linear-gradient" rule)
+            "uses a repeating-linear-gradient (barber-pole stripe)")
+        (is (re-find #"45deg" rule)
+            "the stripes run at 45deg (diagonal)")
+        (is (re-find #"rgba\(236,\s*72,\s*153,\s*0\.30\)" rule)
+            "the brighter pink band is pink-500 at 0.30 alpha")
+        (is (re-find #"rgba\(236,\s*72,\s*153,\s*0\.10\)" rule)
+            "the fainter pink band is pink-500 at 0.10 alpha")
+        (is (not (re-find #"255,\s*255,\s*255" rule))
+            "NOT white — white would vanish on a light app background")))))
+
+(deftest motion-css-view-highlight-is-layout-safe
+  (testing "rf2-8l03l / rf2-e33ad (Mike-direction 2026-05-21) — the
+            highlight is background-ONLY so hovering shifts ZERO
+            surrounding pixels. A `background-image` (gradient) paints
+            inside the existing box without reflow; there must be NO
+            border / outline / box-shadow / box-model property in the
+            rule that could perturb layout."
+    (let [css @#'gs/motion-css
+          rule (re-find #"\.rf-causa-view-highlight\s*\{[\s\S]*?\}" css)]
+      (is (some? rule) "highlight rule block found")
+      (when rule
+        (is (re-find #"background-image:" rule)
+            "paints via background-image (layout-safe)")
+        (is (not (re-find #"(?i)\bborder\b\s*:" rule))
+            "no border declaration (would shift the box)")
+        (is (not (re-find #"(?i)\boutline\b\s*:" rule))
+            "no outline declaration")
+        (is (not (re-find #"(?i)box-shadow\s*:" rule))
+            "no box-shadow declaration")
+        (is (not (re-find #"(?i)\b(margin|padding|width|height)\s*:" rule))
+            "no box-model property that could shift surrounding pixels")))))
+
 ;; ---- rf2-5kfxe.6 — light theme CSS variables ---------------------------
 
 (deftest themes-css-publishes-root-defaults
