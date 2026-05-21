@@ -1281,7 +1281,11 @@
          snap    snapshot
          depth   0]
     (cond
-      (> depth depth-limit)
+      ;; `>=` (not `>`) so the `:raise` drain permits exactly `depth-limit`
+      ;; recursions (depths 0..limit-1) — parity with the `:always` microstep
+      ;; loop's `(>= depth always-limit)` bound (rf2-r26e2). Both default 16
+      ;; with identical intent per Spec 005 §Bounded depth (005:1276).
+      (>= depth depth-limit)
       (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
                              {;; The live runtime spec carries the machine
                               ;; id under `:rf/parent-id`; the spec map forbids
