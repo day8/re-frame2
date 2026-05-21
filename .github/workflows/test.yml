@@ -1569,7 +1569,7 @@ jobs:
         run: npm test
 
   node-test-tools-story-mcp:
-    name: Node tools/story-mcp (stdio roundtrip + live-server, rf2-h8z5l)
+    name: Node tools/story-mcp (stdio roundtrip, rf2-h8z5l)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
@@ -1613,25 +1613,24 @@ jobs:
       # compiled via shadow-cljs, story-mcp launches via
       # `clojure -M -m re-frame.story-mcp.server`. The JVM unit tests live
       # in the parallel `jvm-tools-story-mcp` job above; this job adds the
-      # re-frame2-pair-mcp-parity integration tests landed by rf2-h8z5l:
+      # hand-rolled JSON-RPC wire probe landed by rf2-h8z5l:
       #
       #   - test/stdio-roundtrip.js — spawns the server, walks initialize
       #     → tools/list → tools/call across the canonical read-side tools,
       #     asserts the gating contract for register-variant, and verifies
       #     -32601 method-not-found for an unknown tool name.
-      #   - test/live-server.js   — drives a representative agent-loop
-      #     workflow with --allow-writes enabled (register-variant →
-      #     get-variant → preview-variant → run-variant → read-failures →
-      #     snapshot-identity → record-as-variant → unregister-variant).
       #
-      # Both scripts spawn a real Clojure subprocess so JVM boot latency
-      # is observable from the CI logs; the cold-cache job takes ~30-60s
-      # end-to-end. Per-script watchdogs cap at 60s/90s respectively.
+      # The agent-loop write-surface workflow (register → get → preview →
+      # run → read → snapshot → record → unregister) lives in the
+      # SDK-driven `mcp-conformance-story` job below: rf2-2mx0q absorbed
+      # the former `live-server.js` smokes into `end-to-end-story.cjs`,
+      # dropping a redundant JVM boot from this job.
+      #
+      # This script spawns a real Clojure subprocess so JVM boot latency
+      # is observable from the CI logs; the cold-cache job takes ~20-40s
+      # end-to-end. The script's watchdog caps at 60s.
       - name: Run stdio-roundtrip integration test (tools/story-mcp artefact)
         run: node test/stdio-roundtrip.js
-
-      - name: Run live-server workflow integration test (tools/story-mcp artefact)
-        run: node test/live-server.js
 
   # ---------------------------------------------------------------------------
   # MCP-client conformance jobs (rf2-cum40).

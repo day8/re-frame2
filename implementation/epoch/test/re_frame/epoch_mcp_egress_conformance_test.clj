@@ -52,8 +52,8 @@
   framework's epoch artefact owns the projection emission site (Spec
   Security.md §Epoch privacy posture line 104); pinning conformance from
   the artefact side keeps the test on the JVM next to the contract owner.
-  An MCP-side end-to-end test is the job of the live-server `test/end-
-  to-end-*.js` paths if and when MCP-server epoch tools ship."
+  An MCP-side end-to-end test is the job of the SDK-driven conformance
+  `test/end-to-end-*.cjs` paths if and when MCP-server epoch tools ship."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]

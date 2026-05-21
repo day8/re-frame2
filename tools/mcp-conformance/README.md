@@ -210,12 +210,24 @@ fixture's location and entry script in the orchestrator's preamble.
 
 ### `end-to-end-story.cjs`
 
+The single SDK-driven agent-loop harness for story-mcp's write surface.
+It absorbed the four smokes that `tools/story-mcp/test/live-server.js`
+used to add on top of a hand-rolled copy of this same loop (rf2-2mx0q),
+so CI runs one JVM boot here instead of two near-identical ones.
+
 1. Connect — `clojure -M -m re-frame.story-mcp.server --allow-writes`
 2. `tools/list` — confirm the 19 advertised tools
-3. Spot-check every descriptor carries an `inputSchema`
-4. `register-variant` → `run-variant` (vacuous pass) →
-   `read-failures` (total=0) → `unregister-variant` + verify
-5. Clean `Client.close()`
+3. `assertDescriptorShape` — every descriptor: `inputSchema`
+   (type=object + `max-tokens`) + `outputSchema` + an `annotations`
+   classification hint
+4. `register-variant` → `get-variant` (body `:doc` round-trips through
+   EDN text) → `preview-variant` (`:lifecycle` surfaces) →
+   `run-variant` (vacuous pass) → `read-failures` (total=0) →
+   `snapshot-identity` (stable content-hash twice) →
+   `record-as-variant` (recorder bridge wired, rf2-luhdu) →
+   `unregister-variant` + not-found verify
+5. `assertJsonRpcErrorCodes` — MethodNotFound + (InvalidParams|InternalError)
+6. Clean `Client.close()`
 
 Watchdog: 90s (cold JVM boot is ~10–30s on a CI runner).
 

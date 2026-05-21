@@ -20,8 +20,10 @@
 //   - tools/call no-such-tool     (expect method-not-found protocol error)
 //   - ping                        (empty result, liveness probe)
 //
-// A separate live-server.js drives a representative workflow against a
-// running server with --allow-writes enabled.
+// The representative agent-loop workflow against a running server with
+// --allow-writes enabled lives in the SDK-driven conformance harness
+// tools/mcp-conformance/test/end-to-end-story.cjs (rf2-2mx0q absorbed
+// the former live-server.js smokes there to drop a redundant JVM boot).
 //
 // Run with: `node test/stdio-roundtrip.js` from tools/story-mcp/. Exits 0 on
 // success, 1 with a FAIL marker on the failing assertion.
