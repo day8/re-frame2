@@ -69,7 +69,7 @@
   | Panel | Reads | Writes (via dispatch) |
   |---|---|---|
   | **event-detail** | `:rf.causa/focus` · `:rf.causa/cascades` · `:rf.causa/target-frame-db` | `:rf.causa/focus-cascade` |
-  | **app-db-diff** | `:rf.causa/app-db-diff` (composite over target-frame + epoch history + focused slice path) | `:rf.causa/focus-slice-path` · `:rf.causa/open-segment-inspector` |
+  | **app-db (current-state inspector)** | `:rf.causa/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area — rf2-okvit) | `:rf.causa/open-segment-inspector` |
   | **reactive-panel** | `:rf.causa/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.causa/reactive-toggle-unchanged` |
   | **trace** | `:rf.causa/trace-feed` (incremental projection over the buffer) | `:rf.causa/select-dispatch-id` · `:rf.causa/open-in-editor` |
   | **machine-inspector** | `:rf.causa/machine-chart-data` · `:rf.causa/active-timers-for-focused-machine` · `:rf.causa/machine-scrubber-position` | scrubber events · `:rf.causa/focus-cascade` |

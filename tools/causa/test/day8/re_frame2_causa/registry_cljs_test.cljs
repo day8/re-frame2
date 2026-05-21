@@ -113,6 +113,8 @@
    ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
    :rf.causa/active-timers-for-focused-machine
    :rf.causa/app-db-diff
+   ;; rf2-okvit — app-db tab current-state inspector section model.
+   :rf.causa/app-db-state
    ;; rf2-op9v2 — App-db panel downstream-subs overlay (per-path hover
    ;; popover listing subs/views downstream of each changed path).
    ;; Three popover-state subs + one per-path downstream query.
@@ -1432,6 +1434,8 @@
       ;; inputs; per-panel tests cover the populated cases.
       (doseq [sub-id [:rf.causa/event-detail
                       :rf.causa/app-db-diff
+                      ;; rf2-okvit — current-state inspector section model.
+                      :rf.causa/app-db-state
                       :rf.causa/issues-ribbon
                       :rf.causa/trace-feed
                       :rf.causa/machine-inspector-data

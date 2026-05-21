@@ -231,6 +231,127 @@
               [:rf/route {:id :app/home}]]
              summary)))))
 
+;; ---- (3b) current-state sectioning (rf2-okvit) --------------------------
+;;
+;; The app-db tab is a CURRENT-STATE inspector. `current-state-sections`
+;; splits the live app-db into:
+;;   - TOP: app-db MINUS reserved keys (user-domain).
+;;   - one section per reserved `:rf/*` area: machines/spawned fan out
+;;     one entry per instance id; route + the other slices are
+;;     singletons. Every area present even when empty (empty-state).
+
+(defn- area-by [model area]
+  (some (fn [a] (when (= area (:area a)) a)) (:areas model)))
+
+(deftest user-domain-db-strips-reserved-keys
+  (testing "user-domain-db drops every reserved :rf/* key, keeps the rest"
+    (is (= {:cart {:items []} :user "ada"}
+           (h/user-domain-db {:cart {:items []}
+                              :user "ada"
+                              :rf/machines {:m {}}
+                              :rf/route {:id :home}
+                              :rf/elision {}})))
+    (is (= {} (h/user-domain-db nil)) "nil db → empty map")
+    (is (= {} (h/user-domain-db {:rf/route {:id :home}}))
+        "reserved-keys-only db → empty user-domain map")))
+
+(deftest current-state-sections-top-is-user-domain
+  (testing "the :top section is the app-db minus reserved keys"
+    (let [db {:counter 5
+              :user {:name "ada"}
+              :rf/route {:id :app/home}}
+          model (h/current-state-sections db)]
+      (is (= {:counter 5 :user {:name "ada"}} (:top model))
+          ":top excludes :rf/route"))))
+
+(deftest current-state-sections-enumerates-every-reserved-area
+  (testing "every reserved area appears in :areas exactly once, even when
+            absent from the db (empty-state)"
+    (let [model (h/current-state-sections {:counter 1})
+          areas (set (map :area (:areas model)))]
+      (is (= h/reserved-app-db-keys areas)
+          "the :areas cover the full reserved inventory")
+      (is (every? :empty? (:areas model))
+          "with no reserved slots in the db, every area is flagged :empty?"))))
+
+(deftest current-state-sections-machines-fan-out-one-per-instance
+  (testing ":rf/machines fans out to one instance entry per machine id —
+            section title = the machine id, NOT a single combined blob"
+    (let [db {:rf/machines {:title/flow {:state :playing}
+                            :auth       {:state :idle}}}
+          area (area-by (h/current-state-sections db) :rf/machines)]
+      (is (= :instances (:kind area)))
+      (is (false? (:empty? area)))
+      (is (= 2 (count (:instances area))))
+      (is (= [:auth :title/flow] (mapv :id (:instances area)))
+          "instances sorted by (pr-str id) for stable order")
+      (is (= {:state :playing}
+             (:value (some #(when (= :title/flow (:id %)) %)
+                           (:instances area))))
+          "each instance carries its own snapshot value"))))
+
+(deftest current-state-sections-spawned-fans-out-per-parent
+  (testing ":rf/spawned (map-of-instances by parent id) also fans out"
+    (let [db {:rf/spawned {:parent-a {:invoke-1 :spawned-x}}}
+          area (area-by (h/current-state-sections db) :rf/spawned)]
+      (is (= :instances (:kind area)))
+      (is (= [:parent-a] (mapv :id (:instances area)))))))
+
+(deftest current-state-sections-empty-machines-registry-is-empty-state
+  (testing "an absent OR empty :rf/machines registry → :instances kind,
+            :empty? true, no instances (renders the empty-state section)"
+    (let [absent (area-by (h/current-state-sections {:counter 1}) :rf/machines)
+          empty  (area-by (h/current-state-sections {:rf/machines {}}) :rf/machines)]
+      (is (= :instances (:kind absent)))
+      (is (true? (:empty? absent)))
+      (is (= [] (:instances absent)))
+      (is (true? (:empty? empty))
+          "present-but-empty registry is still empty-state"))))
+
+(deftest current-state-sections-route-is-singleton
+  (testing ":rf/route is a SINGLE current-route slice → :singleton kind,
+            one section carrying the slice value"
+    (let [route {:id :app/article :params {:id "A"}
+                 :query {} :fragment nil :transition :idle
+                 :error nil :nav-token "nav-1"}
+          area  (area-by (h/current-state-sections {:rf/route route}) :rf/route)]
+      (is (= :singleton (:kind area)))
+      (is (false? (:empty? area)))
+      (is (= route (:value area))
+          "the section value is the whole current-route slice"))))
+
+(deftest current-state-sections-absent-route-is-empty-singleton
+  (testing "an absent :rf/route → :singleton kind, :empty? true (blank
+            section, not omitted)"
+    (let [area (area-by (h/current-state-sections {:counter 1}) :rf/route)]
+      (is (= :singleton (:kind area)))
+      (is (true? (:empty? area)))
+      (is (nil? (:value area))))))
+
+(deftest current-state-sections-empty-singleton-collection-is-empty
+  (testing "a present-but-empty singleton collection (e.g. {} pending-nav)
+            is flagged :empty? so it renders the empty-state"
+    (let [area (area-by (h/current-state-sections {:rf/pending-navigation {}})
+                        :rf/pending-navigation)]
+      (is (= :singleton (:kind area)))
+      (is (true? (:empty? area))
+          "{} is empty-state"))))
+
+(deftest current-state-sections-nil-and-empty-db-safe
+  (testing "nil-safe: nil / empty db yields an empty TOP + every reserved
+            area flagged empty"
+    (doseq [db [nil {}]]
+      (let [model (h/current-state-sections db)]
+        (is (= {} (:top model)))
+        (is (= h/reserved-app-db-keys (set (map :area (:areas model)))))
+        (is (every? :empty? (:areas model)))))))
+
+(deftest current-state-sections-area-order-is-stable
+  (testing "areas render in `reserved-area-order` — machines + spawned
+            (the registries) lead, then the singleton slices"
+    (let [model (h/current-state-sections {})]
+      (is (= h/reserved-area-order (mapv :area (:areas model)))))))
+
 ;; ---- (4) 'Show me when this changed' walker -----------------------------
 
 (defn- mk-record

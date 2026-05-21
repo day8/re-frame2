@@ -1,40 +1,39 @@
 (ns day8.re-frame2-causa.panels.app-db-diff-cljs-test
-  "CLJS-side wiring + view tests for Causa's App-DB Diff panel
-  (Phase 5, rf2-jps1o).
+  "CLJS-side wiring + view tests for Causa's app-db tab.
+
+  ## rf2-okvit — current-state inspector
+
+  The app-db tab was redesigned from a diff view into a CURRENT-STATE
+  inspector (re-frame-10x style), sectioned by reserved `:rf/*` area.
+  The view-render tests assert the inspector shape (TOP user-domain
+  section, per-instance machine fan-out, singleton route, empty-state
+  for absent areas) via `app-db-diff-state/state-body` through the
+  Panel. The diff data subs (`:rf.causa/selected-epoch-diff` and the
+  composite `:rf.causa/app-db-diff`) survive for the Event tab diff
+  surface + the redacted-modified count; their sub-level contracts are
+  still pinned here.
 
   ## Contracts under test (beyond the pure-data tests in
-  `app_db_diff_helpers_cljs_test.cljc`)
+  `app_db_diff_helpers_cljs_test.cljc` / the view-shape tests in
+  `app_db_diff_state_cljs_test.cljs`)
 
-  1. **Registry wires the Phase 5 subs / events** under the
-     `:rf.causa/*` namespace. The composite `:rf.causa/app-db-diff`
-     returns the panel's render data; the pin / unpin / focus events
-     write into `:rf/causa`'s app-db.
+  1. **Registry wires the subs / events** under the `:rf.causa/*`
+     namespace, including the new `:rf.causa/app-db-state` sub.
 
-  2. **Focus events update Causa's frame.**
-     Per spec §'Show me when this changed' — the view fires
-     `:rf.causa/focus-slice-path` and the state lives in the Causa
-     frame. (Pin / unpin / reorder events were dropped under rf2-e9tb0
-     when path-segment click-to-inspect superseded the pinned-watches
-     strip.)
+  2. **Focus events update Causa's frame.** `:rf.causa/focus-slice-path`
+     remains wired (the Event tab diff renderer dispatches it).
 
-  3. **Reserved-keys segregation at the panel level.** The view
-     renders the `[runtime]` group separately from the slice mini-
-     panels.
+  3. **Diff data subs** still produce correct triples / reserved-key
+     segregation / redacted-modified counts (sub-level).
 
-  4. **'Show me when this changed' returns only epochs that touched
-     the focused path.** Asserted both at the sub level (via
-     `:rf.causa/show-me-when-this-changed-result`) and at the view
-     level (via the focus-result-panel rendering).
+  4. **Current-state inspector view** renders the section model and
+     follows the picker-selected frame.
 
   ## Pure hiccup
 
-  Same approach as `event_detail_cljs_test.cljs` /
-  `time_travel_cljs_test.cljs`
-  — we walk the view's hiccup tree by `data-testid` rather than
-  mounting to a DOM. Keeps the suite fast + host-portable on node-
-  test."
+  We walk the view's hiccup tree by `data-testid` rather than mounting
+  to a DOM. Keeps the suite fast + host-portable on node-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -162,6 +161,8 @@
     (is (some? (registrar/handler :sub :rf.causa/focused-slice-path)))
     (is (some? (registrar/handler :sub :rf.causa/show-me-when-this-changed-result)))
     (is (some? (registrar/handler :sub :rf.causa/app-db-diff)))
+    ;; rf2-okvit — the current-state inspector's section-model sub.
+    (is (some? (registrar/handler :sub :rf.causa/app-db-state)))
     ;; rf2-e9tb0 — segment-inspector subs registered alongside.
     (is (some? (registrar/handler :sub :rf.causa/segment-inspector-open?)))
     (is (some? (registrar/handler :sub :rf.causa/segment-inspector-path)))
@@ -529,101 +530,71 @@
       (is (= "{:a 1}" (:text (first @captured))))
       (is (= "[:cart :items]" (:text (second @captured)))))))
 
-;; ---- (8) view renders ---------------------------------------------------
+;; ---- (8) view renders — current-state inspector (rf2-okvit) -------------
+;;
+;; The app-db tab is a CURRENT-STATE inspector, not a diff. The Panel
+;; renders `app-db-diff-state/state-body` over the observed frame's live
+;; app-db: a TOP user-domain section + one section per reserved `:rf/*`
+;; area (machines/spawned fan out per id; route + slices are singletons;
+;; absent/empty areas render an empty-state). The diff / focus-result /
+;; redacted-chip view affordances were dropped here (rf2-okvit) — their
+;; data subs survive and are exercised at the sub level above.
 
-(deftest empty-state-renders-when-history-empty
-  (testing "with no epoch history, the panel renders the empty state"
+(deftest panel-renders-current-state-container
+  (testing "the Panel renders the current-state inspector container +
+            the TOP user-domain section over the observed frame's db"
+    (seed-host-frame! {:counter 5 :user {:name "ada"}})
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
-    (frame/reg-frame :rf/default {})
     (rf/with-frame :rf/causa
       (let [tree (app-db-diff/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-empty"))
-            "empty-state container present")
-        (is (nil? (find-by-testid tree "rf-causa-app-db-diff-slices")))
-        ;; rf2-6xezz · Mike-direction 2026-05-21 — the panel header
-        ;; icon lived inside the deleted h1 heading. The L4 tab is
-        ;; now the panel-name source of truth.
-        (is (nil? (find-by-testid tree "rf-causa-app-db-panel-icon"))
-            "panel header icon is gone (lived in the scrubbed h1)")))))
-
-(deftest sections-render-when-diff-present
-  (testing "with history populated, the panel renders the sections-per-
-            cluster diff (rf2-gfxmk Phase 1). Replaces the prior
-            slice-mini-panel stack assertion — see the panel's docstring
-            for the rendering-model swap."
-    (seed-causa! {:cart {:items [{:id 7}]}
-                  :user "ada"}
-                 [(mk-record :e-1 [:cart/add-item]
-                             {:cart {:items []} :user "ada"}
-                             {:cart {:items [{:id 7}]} :user "ada"})])
-    (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-diff-sections"))
-            "sections container present")
-        (is (nil? (find-by-testid tree "rf-causa-app-db-diff-empty"))
-            "empty-state absent")
-        ;; The section block for [:cart :items] is present (the path
-        ;; lifts to :cart for the leaf-modification via singleton-
-        ;; promote-to-parent rule).
-        (is (or (some? (find-by-testid tree
-                                       "rf-causa-diff-section-[:cart :items]"))
-                (some? (find-by-testid tree
-                                       "rf-causa-diff-section-[:cart]"))))))))
-
-(deftest reserved-group-renders-when-rf-keys-present
-  (testing "the [runtime] group surfaces :rf/* keys present in app-db"
-    (seed-causa! {:rf/route {:id :app/cart}
-                  :rf/machines {:auth-id {:state :idle}}
-                  :cart {:items []}}
-                 [(mk-record :e-1 [:nav]
-                             {:cart {:items []}}
-                             {:cart {:items []} :rf/route {:id :app/cart}})])
-    (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-reserved-group"))
-            "runtime group container present")
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-reserved-:rf/route"))
-            "rf/route row present")
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-reserved-:rf/machines"))
-            "rf/machines row present")))))
-
-(deftest focus-result-panel-replaces-slice-stack-on-focus
-  (testing "when a slice path is focused, the panel renders the 'Show me
-            when this changed' result list instead of the slice stack"
-    (seed-causa! {:cart {:items [{:id 7}]}}
-                 [(mk-record :e-1 [:app/boot]
-                             {}
-                             {:cart {:items []}})
-                  (mk-record :e-2 [:cart/add-item]
-                             {:cart {:items []}}
-                             {:cart {:items [{:id 7}]}})])
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/focus-slice-path [:cart :items]])
-      (let [tree (app-db-diff/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-focus-result"))
-            "focus-result panel present")
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-focus-hits"))
-            "hit list present")
+        (is (some? (find-by-testid tree "rf-causa-app-db-diff"))
+            "panel root present")
+        (is (some? (find-by-testid tree "rf-causa-app-db-state"))
+            "current-state inspector body present")
+        (is (some? (find-by-testid tree "rf-causa-app-db-state-top"))
+            "TOP user-domain section present")
+        ;; rf2-okvit — no diff machinery on this view.
+        (is (nil? (find-by-testid tree "rf-causa-diff-sections"))
+            "no diff sections")
         (is (nil? (find-by-testid tree "rf-causa-app-db-diff-slices"))
-            "slice stack absent while focused")
-        (is (some? (find-by-testid tree
-                                   "rf-causa-app-db-diff-focus-hit-:e-2")))
-        (is (some? (find-by-testid tree
-                                   "rf-causa-app-db-diff-focus-hit-:e-1")))))))
+            "no slice stack")))))
 
-(deftest pinned-group-absent-after-rf2-e9tb0
-  (testing "rf2-e9tb0 — the Pinned-slices section was removed from the
-            App-DB Diff panel when the pinned-watches strip was
-            superseded by the segment-inspector popup. The panel
-            never renders the pinned-group testid hook anymore."
-    (seed-causa! {:user {:auth {:status :authenticated}}}
-                 [])
+(deftest panel-sections-reserved-areas
+  (testing "reserved :rf/* areas render as their own sections: machines
+            fan out one section per machine id; route is a singleton"
+    (seed-host-frame! {:cart {:items [{:id 7}]}
+                       :rf/route {:id :app/cart}
+                       :rf/machines {:auth {:state :idle}
+                                     :title/flow {:state :playing}}})
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
     (rf/with-frame :rf/causa
       (let [tree (app-db-diff/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-app-db-diff-pinned-group"))
-            "pinned-group is gone — the panel surface no longer carries
-             the pinned-watches strip")))))
+        ;; machines fan out one section per id (title = machine id).
+        (is (some? (find-by-testid
+                     tree "rf-causa-app-db-state-instance-:rf/machines-:auth"))
+            "machine :auth has its own section")
+        (is (some? (find-by-testid
+                     tree "rf-causa-app-db-state-instance-:rf/machines-:title/flow"))
+            "machine :title/flow has its own section")
+        ;; route is a singleton section.
+        (is (some? (find-by-testid tree "rf-causa-app-db-state-area-:rf/route"))
+            "route singleton section present")))))
+
+(deftest panel-renders-empty-reserved-areas
+  (testing "absent reserved areas still render (empty-state), not omitted
+            — the full :rf/* inventory is always visible"
+    (seed-host-frame! {:counter 1})
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    (rf/with-frame :rf/causa
+      (let [tree (app-db-diff/Panel)]
+        (doseq [area [:rf/machines :rf/spawned :rf/route :rf/system-ids
+                      :rf/pending-navigation :rf/elision]]
+          (is (some? (find-by-testid
+                       tree (str "rf-causa-app-db-state-area-" (pr-str area))))
+              (str "empty-state section present for " area)))))))
 
 (deftest focus-slice-path-event-still-wired
   (testing "the :rf.causa/focus-slice-path event remains registered. UI
@@ -665,32 +636,29 @@
              (:target-frame @(rf/subscribe [:rf.causa/app-db-diff])))
           "composite's :target-frame surface follows the picker"))))
 
-(deftest empty-state-renders-picker-selected-frame
-  (testing "rf2-fvplw — when history is empty for the picked frame, the
-            empty-state body shows the picked frame's name (NOT the
-            hardcoded `:rf/default`). Pre-fix the body always read
-            'app-db for :rf/default is at the boot value.' regardless
-            of picker selection — the contradiction Mike's testbed
-            surfaced when picking `:checkout-frame` displayed
-            `:rf/default` boot copy."
+(deftest current-state-view-follows-picker-selected-frame
+  (testing "rf2-okvit / rf2-fvplw — the current-state inspector reads the
+            observed (picker-selected) frame's live app-db via
+            `:rf.causa/target-frame-db`. Picking `:checkout-frame`
+            surfaces THAT frame's value in the TOP section, not the
+            `:rf/default` frame's."
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
     (frame/reg-frame :rf/default {})
     (frame/reg-frame :checkout-frame {})
+    ;; Give the two frames distinguishable values.
+    (rf/reset-frame-db! :rf/default {:counter 0})
+    (rf/reset-frame-db! :checkout-frame {:checkout {:step :payment}})
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-frame :checkout-frame])
       (let [tree (app-db-diff/Panel)
-            empty (find-by-testid tree "rf-causa-app-db-diff-empty")]
-        (is (some? empty) "empty state present (history is empty)")
-        ;; Walk the empty-state node and find the `:code` node carrying
-        ;; the frame id. The frame id renders inside a `[:code …]` child
-        ;; of the first `:p`; assert the text reflects the picker.
-        (let [rendered-text (pr-str empty)]
-          (is (str/includes? rendered-text ":checkout-frame")
-              "empty-state mentions the picker-selected frame")
-          (is (not (str/includes? rendered-text ":rf/default"))
-              "empty-state does NOT show the hardcoded default frame
-               when the picker has selected a different frame"))))))
+            top  (find-by-testid tree "rf-causa-app-db-state-top")]
+        (is (some? top) "TOP section present")
+        (is (= :checkout-frame @(rf/subscribe [:rf.causa/observed-frame]))
+            "inspector observes the picker-selected frame")
+        (is (= {:checkout {:step :payment}}
+               @(rf/subscribe [:rf.causa/target-frame-db]))
+            "the observed db is the picked frame's live value")))))
 
 ;; ---- rf2-ug1r6 — picker change resets epoch-history slot ----------------
 ;;
@@ -821,51 +789,10 @@
           (is (= 1 (count @app-db-diff-subs/redacted-modified-cache))
               "cache holds exactly one entry for the one live epoch"))))))
 
-(deftest redacted-modified-chip-renders-when-count-positive
-  (testing "the chip is in the rendered hiccup tree when the count is
-            > 0; the tooltip text mentions the redaction contract so
-            the developer understands what the chip means"
-    (let [before {:auth {:token :rf/redacted :method :jwt}}
-          after  {:auth {:token :rf/redacted :method :session}}]
-      (seed-causa! after [(mk-record :e-1 [:auth/rotate] before after)])
-      (rf/with-frame :rf/causa
-        (let [tree (app-db-diff/Panel)
-              chip (find-by-testid
-                     tree "rf-causa-app-db-diff-redacted-modified-chip")]
-          (is (some? chip) "chip is present when count > 0")
-          (let [chip-text (pr-str chip)]
-            (is (str/includes? chip-text "1 redacted path modified")
-                "singular phrasing for count = 1")
-            (is (str/includes? (or (:title (second chip)) "")
-                               "elision contract")
-                "tooltip mentions the contract that explains the chip")))))))
-
-(deftest redacted-modified-chip-absent-when-count-zero
-  (testing "the chip is NOT in the rendered hiccup tree when no
-            redacted-modified paths exist — no DOM clutter for the
-            common (no privacy declarations) case"
-    (seed-causa! {:counter 1}
-                 [(mk-record :e-1 [:counter/inc] {:counter 0} {:counter 1})])
-    (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/Panel)]
-        (is (nil? (find-by-testid
-                    tree "rf-causa-app-db-diff-redacted-modified-chip"))
-            "chip absent when count = 0")))))
-
-(deftest redacted-modified-chip-uses-plural-phrasing-for-many
-  (testing "more than one redacted path → plural form"
-    (let [before {:auth   {:token   :rf/redacted}
-                  :secret {:api-key :rf/redacted}}
-          after  {:auth   {:token   :rf/redacted :method :session}
-                  :secret {:api-key :rf/redacted :rotated-at 99}}]
-      (seed-causa! after [(mk-record :e-1 [:auth/rotate] before after)])
-      (rf/with-frame :rf/causa
-        (let [tree (app-db-diff/Panel)
-              chip (find-by-testid
-                     tree "rf-causa-app-db-diff-redacted-modified-chip")]
-          (is (some? chip))
-          (is (str/includes? (pr-str chip) "2 redacted paths modified")
-              "plural phrasing for count > 1"))))))
+;; rf2-okvit — the redacted-modified-chip was a DIFF-view affordance and
+;; was dropped from the current-state inspector. The redacted-modified
+;; COUNT sub survives (exercised above + in the Event tab diff surface);
+;; the chip's view-render tests went with the chip.
 
 ;; ============================================================================
 ;;  rf2-dl3gx — egress slot wins; heuristic is the absent-slot fallback

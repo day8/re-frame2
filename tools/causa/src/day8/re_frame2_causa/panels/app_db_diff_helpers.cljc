@@ -238,6 +238,128 @@
           :when (contains? db k)]
       [k (get db k)])))
 
+;; ---- current-state sectioning (rf2-okvit) -------------------------------
+;;
+;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style), not
+;; a diff. Its layout splits the live `app-db` value into:
+;;
+;;   - a TOP section — the app-db MINUS every reserved `:rf/*` key (the
+;;     user-domain app-db).
+;;   - one section per reserved `:rf/*` area (per spec/Conventions.md
+;;     §Reserved app-db keys).
+;;
+;; Each reserved area is one of two shapes:
+;;
+;;   - **map-of-instances** — a registry keyed by id whose values are
+;;     per-instance structured state. These FAN OUT to one named
+;;     sub-section per instance (section title = the instance id). The
+;;     canonical example is `:rf/machines` (`{<machine-id> →
+;;     :rf/machine-snapshot}`), so each machine renders under its own
+;;     id (`:title/flow`, …) rather than piling into one combined
+;;     "machines" blob. `:rf/spawned` (`{<parent-machine-id> → …}`) is
+;;     the same shape and fans out per parent-machine id.
+;;
+;;   - **singleton slice** — one current-value slice rendered as a
+;;     single section. `:rf/route` (the SINGULAR current-route slice
+;;     `{:id :params :query :fragment :transition :error :nav-token}`,
+;;     schema `:rf/route-slice`, spec/012 §The `:rf/route` slice),
+;;     `:rf/system-ids`, `:rf/pending-navigation`, and `:rf/elision`
+;;     are singletons.
+;;
+;; If a reserved area is ABSENT or empty the section still renders — as
+;; an empty-state placeholder — so the developer always sees the full
+;; reserved inventory and learns which areas are unpopulated rather than
+;; wondering whether the panel dropped them.
+
+(def reserved-area-order
+  "Render order for the reserved-area sections (after the user-domain
+  TOP section). Machines + spawned (the map-of-instances registries)
+  lead, then the singleton slices. Pure data."
+  [:rf/machines
+   :rf/spawned
+   :rf/route
+   :rf/system-ids
+   :rf/pending-navigation
+   :rf/elision])
+
+(def map-of-instances-areas
+  "Reserved areas whose value is a map-of-instances keyed by id — each
+  fans out to one section per instance (section title = the instance
+  id). `:rf/machines` (`{<machine-id> → snapshot}`) and `:rf/spawned`
+  (`{<parent-machine-id> → …}`) are both id-keyed registries of
+  structured per-id state. The remaining reserved areas are singleton
+  slices rendered as one section. Pure data."
+  #{:rf/machines :rf/spawned})
+
+(defn user-domain-db
+  "Return `db` with every reserved `:rf/*` key removed — the
+  user-domain app-db that heads the inspector's TOP section. Pure data
+  → map. nil-safe (nil db → empty map)."
+  [db]
+  (apply dissoc (or db {}) reserved-app-db-keys))
+
+(defn- instances-of
+  "Decompose a map-of-instances reserved-area value into an ordered
+  vector of `{:id <instance-id> :value <per-instance-state>}` maps,
+  sorted by `(pr-str id)` for stable render order. Returns `[]` when
+  the value is absent / not a map / empty. Pure data → data."
+  [area-value]
+  (if (and (map? area-value) (seq area-value))
+    (->> area-value
+         (map (fn [[id v]] {:id id :value v}))
+         (sort-by (comp pr-str :id))
+         vec)
+    []))
+
+(defn current-state-sections
+  "Decompose a current `app-db` value into the app-db tab's
+  current-state section model (rf2-okvit):
+
+      {:top   <db-minus-reserved-keys>          ;; user-domain app-db
+       :areas [{:area  :rf/machines
+                :kind  :instances
+                :empty? false
+                :instances [{:id :title/flow :value {…}} …]}
+               {:area  :rf/route
+                :kind  :singleton
+                :empty? false
+                :value {…}}
+               …]}
+
+  One area entry per reserved `:rf/*` key (in `reserved-area-order`),
+  ALWAYS present even when absent/empty — `:empty?` flags the
+  empty-state so the renderer draws a blank section rather than omitting
+  it. Map-of-instances areas (`map-of-instances-areas`) carry
+  `:kind :instances` + an `:instances` vector (one entry per id);
+  every other reserved area is `:kind :singleton` + a `:value`.
+
+  Pure data → data. JVM-runnable. nil-safe throughout (absent db,
+  empty db, absent reserved keys, empty registries)."
+  [db]
+  (let [db (or db {})]
+    {:top   (user-domain-db db)
+     :areas (vec
+              (for [area reserved-area-order]
+                (let [present?    (contains? db area)
+                      area-value  (get db area)]
+                  (if (contains? map-of-instances-areas area)
+                    (let [instances (instances-of area-value)]
+                      {:area      area
+                       :kind      :instances
+                       :empty?    (empty? instances)
+                       :instances instances})
+                    {:area   area
+                     :kind   :singleton
+                     ;; A singleton is empty when the key is absent, or
+                     ;; present-but-nil, or present-but-empty-collection
+                     ;; (e.g. `{}` pending-nav). Scalars / non-empty
+                     ;; collections are non-empty.
+                     :empty? (or (not present?)
+                                 (nil? area-value)
+                                 (and (coll? area-value)
+                                      (empty? area-value)))
+                     :value  area-value}))))}))
+
 ;; ---- 'Show me when this changed' walker ---------------------------------
 
 (defn path-touched?

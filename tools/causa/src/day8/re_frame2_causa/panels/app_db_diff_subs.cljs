@@ -304,6 +304,22 @@
         (h/epochs-touching-path history focused-path)
         [])))
 
+  ;; ---- rf2-okvit — current-state section model -------------------------
+  ;;
+  ;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style),
+  ;; not a diff. This sub decomposes the observed frame's LIVE app-db
+  ;; (`:rf.causa/target-frame-db`, which follows the picker / focused
+  ;; frame) into the section model `current-state-sections` produces:
+  ;; the TOP user-domain section (app-db minus reserved keys) + one
+  ;; section per reserved `:rf/*` area (machines/spawned fan out per
+  ;; instance; route + the other slices are singletons). nil-safe — an
+  ;; absent / empty db yields an empty TOP + every reserved area flagged
+  ;; `:empty?`.
+  (rf/reg-sub :rf.causa/app-db-state
+    :<- [:rf.causa/target-frame-db]
+    (fn [db _query]
+      (h/current-state-sections db)))
+
   ;; rf2-fvplw — `:target-frame` in the composite output is the
   ;; *observed* frame (picker-selected / focused-cascade frame), not
   ;; the legacy `:target-frame` slot. The empty-state body uses this
