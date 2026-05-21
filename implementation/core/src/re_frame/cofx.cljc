@@ -66,7 +66,7 @@
   precedence over the host-wide `interop/platform` marker."
   [frame-id]
   (or (when frame-id
-        (get-in (frame/frame frame-id) [:config :platform]))
+        (-> (frame/frame frame-id) :config :platform))
       interop/platform))
 
 (defn- maybe-validate-cofx!
