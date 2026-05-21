@@ -96,13 +96,19 @@ def on_pre_build(config):
             shutil.rmtree(dest)
         shutil.copytree(src, dest)
 
-# Case 1a: guide/* and skills/* pages link to spec via ../../spec/ — collapse
-# one level. Both trees live at docs/<tree>/X.md (depth 2 below repo root),
-# so from the source tree the correct ref to spec/ is ../../spec/, while in
-# the staged docs_dir (where spec/ is copied to docs/spec/) the correct ref
-# is ../spec/. The rewrite is identical for both trees because they share
-# the same depth.
+# Case 1a: guide/*, skills/*, and api/* pages link to spec via ../../spec/ —
+# collapse one level. All three trees live at docs/<tree>/X.md (depth 2 below
+# repo root), so from the source tree the correct ref to spec/ is ../../spec/,
+# while in the staged docs_dir (where spec/ is copied to docs/spec/) the
+# correct ref is ../spec/. The rewrite is identical for all three trees
+# because they share the same depth.
 _GUIDE_TO_SPEC = re.compile(r'\]\(\.\./\.\./spec/')
+
+# Case 1a-mig: depth-2 pages (guide/*, skills/*, api/*) link to migration via
+# ../../migration/. The staged tree puts migration/ at docs/migration/, so
+# from a depth-2 page the correct path is ../migration/. Same depth-collapse
+# rule as Case 1a, against the migration tree instead of the spec tree.
+_GUIDE_TO_MIGRATION = re.compile(r'\]\(\.\./\.\./migration/')
 
 # Case 1a-deep: chapter sub-pages live at docs/guide/<chapter-dir>/X.md (depth
 # 3 below repo root). From the source tree the correct ref to spec/ is
@@ -231,7 +237,7 @@ def on_page_markdown(markdown, page, config, files):
     """
     src = page.file.src_path.replace('\\', '/')
 
-    if src.startswith('guide/') or src.startswith('skills/'):
+    if src.startswith('guide/') or src.startswith('skills/') or src.startswith('api/'):
         # Choose by source depth. A guide sub-chapter at
         # docs/guide/<chapter-dir>/X.md is depth 3; its source spec ref is
         # ../../../spec/ and the staged path is ../../spec/. Plain
@@ -248,6 +254,7 @@ def on_page_markdown(markdown, page, config, files):
             markdown = _GUIDE_CAUSA_DIR.sub('](../../causa/index.md)', markdown)
         else:
             markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
+            markdown = _GUIDE_TO_MIGRATION.sub('](../migration/', markdown)
             # Bare ../../skills/X/ -> ../skills/X.md (in-tree summary page).
             # Only depth-2 guide pages emit this shape today; skills/ sub-
             # paths (e.g. ../../skills/X/SKILL.md) fall through to the

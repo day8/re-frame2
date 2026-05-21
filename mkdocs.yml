@@ -123,7 +123,24 @@ nav:
     - re-frame2-pair-retro: skills/re-frame2-pair-retro.md
 
   - API:
-    - Reference: spec/API.md
+    - Overview: api/README.md
+    - "01 — Core": api/01-core.md
+    - "02 — Views": api/02-views.md
+    - "03 — Effects": api/03-effects.md
+    - "04 — Machines": api/04-machines.md
+    - "05 — Flows": api/05-flows.md
+    - "06 — Routing": api/06-routing.md
+    - "07 — HTTP": api/07-http.md
+    - "08 — Schemas": api/08-schemas.md
+    - "09 — SSR": api/09-ssr.md
+    - "10 — Testing": api/10-testing.md
+    - "11 — Instrumentation": api/11-instrumentation.md
+    - "12 — Registrar": api/12-registrar.md
+    - "13 — Lifecycle": api/13-lifecycle.md
+    - "14 — Adapters": api/14-adapters.md
+    - "15 — Story": api/15-story.md
+    - "16 — Removed": api/16-removed.md
+    - "Normative reference": spec/API.md
 
   - Migration:
     - "From re-frame v1": migration/from-re-frame-v1/README.md
