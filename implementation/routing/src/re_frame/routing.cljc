@@ -260,10 +260,50 @@
         (transient {})
         (rest schema)))))
 
+(def ^:private int-literal-re
+  "rf2-oyw04: a strict integer-literal guard for `:int` query-value
+  coercion, applied **identically on JVM and CLJS**. A value is coerced to
+  a number only when the WHOLE string is an optionally-signed run of ASCII
+  digits; otherwise it passes through as a string on both hosts.
+
+  The host-divergent predecessor (`Long/parseLong` on JVM vs `js/parseInt`
+  on CLJS) disagreed on non-strict input — `?page=12abc` yielded the string
+  `\"12abc\"` server-side but the number `12` client-side, a Spec 011
+  hydration-mismatch hazard that violated Spec 012's \"same handler runs
+  server- and client-side\" contract and the Spec 000 Goal 2 cross-host
+  conformance bar. A shared regex makes the parse decision a pure function
+  of the string, independent of host.
+
+  Leading zeros (`\"007\"`) and surrounding whitespace are NOT special-cased
+  here beyond what the regex permits: `^-?\\d+$` rejects whitespace and
+  radix prefixes, so `\" 12\"`, `\"0x10\"`, `\"12abc\"` all stay strings on
+  both hosts. The downstream `:query` Malli schema (rf2-ug2m1 layered
+  validation) then surfaces `:validation-failed?` for a `:int`-typed slot
+  carrying a non-coerced string — the coercion contract is honoured on both
+  hosts, not silently passed through on one."
+  #"^-?\d+$")
+
+(defn- parse-int-strict
+  "Coerce `v` to an integer iff it is a whole integer literal per
+  `int-literal-re`; otherwise return `v` unchanged. Identical on JVM and
+  CLJS (rf2-oyw04). On CLJS the digit-string is parsed via `parseInt`
+  base-10 — safe because the regex has already proven the whole string is
+  `^-?\\d+$`, so no NaN / radix-sniffing / trailing-junk path is reachable."
+  [v]
+  (if (and (string? v) (re-matches int-literal-re v))
+    #?(:clj  (Long/parseLong v)
+       :cljs (js/parseInt v 10))
+    v))
+
 (defn- coerce-by-type-form
   "Apply a single Malli type-form coercion to a raw URL string. First-pass
   vocabulary: `:int` / `:boolean` plus the rf2-3k3o7 keyword variants:
 
+  - `:int` — coerced to a number **only when the whole string is an
+    integer literal** (`^-?\\d+$`), identically on JVM and CLJS (rf2-oyw04).
+    Non-integer-literal input (`\"12abc\"`, `\"0x10\"`, `\" 12\"`, `\"abc\"`)
+    stays a string on BOTH hosts; the route's `:query` schema then flags the
+    type mismatch via the layered validator.
   - `:rf.route/keyword-unbounded` — declared as `:keyword` with no enum
     constraint. **Stays as string** (no intern; the unbounded keyword-
     interning DoS surface is precisely what rf2-3k3o7 guards against).
@@ -276,11 +316,7 @@
   [type-form v]
   (cond
     (= :int type-form)
-    (try
-      #?(:clj  (Long/parseLong v)
-         :cljs (let [n (js/parseInt v 10)]
-                 (if (js/isNaN n) v n)))
-      (catch #?(:clj Throwable :cljs :default) _ v))
+    (parse-int-strict v)
 
     (= :boolean type-form)
     (case v "true" true "false" false v)

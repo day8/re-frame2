@@ -1818,7 +1818,32 @@
     (rf/reg-route :route/page2 {:path  "/p2"
                                 :query [:map [:n :int]]})
     (is (= "abc" (get-in (routing/match-url "/p2?n=abc") [:query :n]))
-        "non-numeric :int input is left as-is (no exception)")))
+        "non-numeric :int input is left as-is (no exception)"))
+
+  ;; rf2-oyw04: strict + host-IDENTICAL :int coercion. The whole string
+  ;; must be an integer literal (`^-?\d+$`) to coerce; otherwise it stays a
+  ;; string on BOTH hosts. The predecessor diverged on partial-numeric
+  ;; input: `Long/parseLong "12abc"` threw -> string passthrough (JVM),
+  ;; while `js/parseInt "12abc" 10` -> 12 (CLJS) — a Spec 011 hydration-
+  ;; mismatch hazard. Now both hosts agree. The cross-host conformance
+  ;; vehicle is fixtures/routing-query-string-coercion.edn (run by both the
+  ;; JVM and CLJS corpus harnesses); this is the artefact-local pin.
+  (testing "rf2-oyw04: :int coerces only whole integer literals; partial-
+            numeric and radix-prefixed input stays a string identically on
+            JVM and CLJS"
+    (rf/reg-route :route/page3 {:path  "/p3"
+                                :query [:map [:page :int]]})
+    (is (= 12 (get-in (routing/match-url "/p3?page=12") [:query :page]))
+        "clean integer literal coerces to a Long")
+    (is (= -7 (get-in (routing/match-url "/p3?page=-7") [:query :page]))
+        "signed integer literal coerces")
+    (is (= "12abc" (get-in (routing/match-url "/p3?page=12abc") [:query :page]))
+        "partial-numeric input stays a STRING — the JVM/CLJS asymmetry
+         rf2-oyw04 closes (was 12 on CLJS, \"12abc\" on JVM)")
+    (is (= "0x10" (get-in (routing/match-url "/p3?page=0x10") [:query :page]))
+        "radix-prefixed input stays a string on both hosts")
+    (is (= " 12" (get-in (routing/match-url "/p3?page=%2012") [:query :page]))
+        "leading-whitespace input stays a string on both hosts")))
 
 ;; ---- rf2-3k3o7: keyword-interning cap on query keys + values -------------
 ;;

@@ -487,6 +487,38 @@
       (is (= "hello world" (get-in m [:params :id]))
           "decodeURIComponent decodes the well-formed segment into the slice"))))
 
+;; rf2-oyw04: :int query coercion must be STRICT and IDENTICAL to the JVM.
+;; The predecessor used `js/parseInt v 10`, which is lenient: `parseInt
+;; "12abc" 10` -> 12, so `?page=12abc` produced the NUMBER 12 client-side
+;; while the JVM `Long/parseLong` threw and passed the STRING "12abc"
+;; through — a Spec 011 hydration-mismatch hazard violating Spec 012's
+;; "same handler both sides" + the Spec 000 Goal 2 cross-host bar. The fix
+;; coerces only when the whole string is an integer literal (`^-?\d+$`),
+;; else string passthrough — so this CLJS pin asserts the EXACT outputs the
+;; JVM `query-coercion-vocabulary` test (routing_test.clj T2) now expects.
+;; The corpus fixture routing-query-string-coercion.edn runs the same
+;; `?page=12abc` call through both harnesses for the formal cross-host bar.
+(deftest int-query-coercion-strict-cljs
+  (testing "rf2-oyw04: :int coerces only whole integer literals on CLJS;
+            lenient `js/parseInt` partial-numeric coercion is closed so the
+            client agrees with the JVM"
+    (register-routes!)
+    (rf/reg-route :hist/list {:path  "/list"
+                              :query [:map [:page :int]]})
+    (is (= 12 (get-in (routing/match-url "/list?page=12") [:query :page]))
+        "clean integer literal coerces to a number")
+    (is (= -7 (get-in (routing/match-url "/list?page=-7") [:query :page]))
+        "signed integer literal coerces")
+    (is (= "12abc" (get-in (routing/match-url "/list?page=12abc") [:query :page]))
+        "partial-numeric input stays a STRING (was 12 under js/parseInt) —
+         the cross-host asymmetry rf2-oyw04 closes")
+    (is (= "0x10" (get-in (routing/match-url "/list?page=0x10") [:query :page]))
+        "radix-prefixed input stays a string, matching the JVM")
+    (is (= " 12" (get-in (routing/match-url "/list?page=%2012") [:query :page]))
+        "leading-whitespace input stays a string, matching the JVM")
+    (is (= "abc" (get-in (routing/match-url "/list?page=abc") [:query :page]))
+        "fully non-numeric input stays a string (already symmetric)")))
+
 ;; =========================================================================
 ;; 4. replaceState — no new history entry
 ;; =========================================================================
