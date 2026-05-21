@@ -39,7 +39,7 @@ The dependency direction is one-way: adapters and feature artefacts depend on co
 
 ## The chapters
 
-The reference is divided into sixteen chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
+The reference is divided into fifteen chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
 
 The first three are foundational — **Core** (registration, dispatch, subscribe), **Views** (the view registry and the substrate-agnostic ergonomic surface), **Effects and interceptors** (the effect map, the standard interceptors, the context plumbing).
 
@@ -47,7 +47,9 @@ The next six cover feature domains: **State machines**, **Flows**, **Routing**, 
 
 The next four cover the operational surfaces: **Testing**, **Instrumentation** (listeners, tracing, epoch, performance), **Registrar** (the query API tools build against), **Lifecycle** (adapter install / dispose, `configure`).
 
-Then **Adapters** (the per-substrate surfaces — Reagent, UIx, Helix), **Story** (post-v1 — variants, workspaces, snapshot identity), and a closing **Removed / not shipped** chapter that says what's gone and what to use instead.
+Then **Adapters** (the per-substrate surfaces — Reagent, UIx, Helix), and a closing **Removed / not shipped** chapter that says what's gone and what to use instead.
+
+Story (variants, workspaces, snapshot identity) is a separate shipped tool with its own top-level [Story API](../story/api/index.md) section — it is not a chapter in this framework reference.
 
 ## When to reach for the spec instead
 
