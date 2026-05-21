@@ -4,8 +4,9 @@
   wire it, catching API ergonomics regressions that pure unit tests miss.
 
   Per rf2-kx74 examples are grouped per substrate; the namespaces below
-  (`ssr.core`, `state-machine-walkthrough.core`) live under
-  ../examples/reagent/{ssr,state_machine_walkthrough}/ on disk."
+  (`ssr.core`, `ssr-streaming.core`, `state-machine-walkthrough.core`)
+  live under
+  ../examples/reagent/{ssr,ssr_streaming,state_machine_walkthrough}/ on disk."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -37,6 +38,7 @@
   ;; Drop any cached require of example namespaces so each test re-evaluates
   ;; their namespace-level handlers against a fresh registrar.
   (remove-ns 'ssr.core)
+  (remove-ns 'ssr-streaming.core)
   (remove-ns 'state-machine-walkthrough.core)
   (test-fn))
 
@@ -48,6 +50,14 @@
     (let [result (@(resolve 'ssr.core/ssr-tests))]
       (is (= :ok result)
           "ssr.core/ssr-tests returned :ok — the full server flow worked"))))
+
+(deftest ssr-streaming-example-runs-end-to-end
+  (testing "examples/reagent/ssr_streaming/core.cljc runs its built-in streaming tests"
+    (require 'ssr-streaming.core :reload)
+    (let [result (@(resolve 'ssr-streaming.core/streaming-tests))]
+      (is (= :ok result)
+          "ssr-streaming.core/streaming-tests returned :ok — the full server
+           streaming flow (shell + per-card chunks + final payload) worked"))))
 
 (deftest state-machine-walkthrough-runs-headless
   (testing "examples/reagent/state-machine-walkthrough/core.cljc — every code block in

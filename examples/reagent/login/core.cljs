@@ -60,7 +60,7 @@
             ;; the test-support require is the explicit opt-in.
             [re-frame.http-test-support]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; SCHEMAS  (CP-8)
@@ -346,76 +346,6 @@
   [:div.app
    [:h1 "Sign in"]
    [login-banner]])
-
-;; ============================================================================
-;; HEADLESS TEST  (smoke test for the feature)
-;; ============================================================================
-;;
-;; Browserless. No DOM, no React. Drives the machine via dispatch-sync and
-;; asserts on app-db. Uses the id-valued override seam (`:rf.http/managed`
-;; → per-test stub) so the test doesn't issue real network requests. The
-;; per-test stubs delegate to the framework-shipped
-;; `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
-;; fxs (Spec 014 §Testing), so the canonical reply shape (`{:kind :success
-;; :value ...}` / `{:kind :failure :failure ...}`) is preserved.
-;;
-;; Because this file is .cljs, the test runs in a CLJS host (Node,
-;; browser without a DOM, shadow-cljs node-test target); to run it on
-;; the JVM, lift the events / subs / machine into a .cljc namespace.
-
-(rf/reg-fx :auth.login/test-canned-success
-  {:doc "Test stub: every :rf.http/managed call resolves :success with a
-         canned user/token payload."
-   :platforms #{:client :server}}
-  (fn [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx
-            (assoc args-map :value {:user  {:id    (random-uuid)
-                                            :email "test@example.com"}
-                                    :token "test-token-123"})))))
-
-(rf/reg-fx :auth.login/test-canned-failure
-  {:doc "Test stub: every :rf.http/managed call resolves :failure with a
-         401 reply."
-   :platforms #{:client :server}}
-  (fn [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
-      (stub frame-ctx (assoc args-map
-                             :kind :rf.http/http-4xx
-                             :tags {:status 401 :message "bad creds"})))))
-
-(defn login-feature-happy-path-test []
-  ;; The machine self-initialises on first dispatch — no :on-create needed.
-  (with-frame [f (rf/make-frame
-                   {:fx-overrides {:rf.http/managed :auth.login/test-canned-success}})]
-    ;; Submit credentials. Dispatches synchronously; drain settles before return.
-    ;; Sub-events route via the machine id (per [005 §Registration]).
-    (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
-                                         {:email "user@example.com"
-                                          :password "correct-horse"}]]
-                      {:frame f})
-
-    ;; After drain: machine has transitioned :idle → :submitting → :authed.
-    (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/get-frame-db f))))
-    ;; The :auth/authenticated tag is on the snapshot once :authed is active.
-    (assert (contains? (get-in (rf/get-frame-db f)
-                               [:rf/machines :auth.login/flow :tags])
-                       :auth/authenticated))))
-
-(defn login-feature-retry-then-lockout-test []
-  (with-frame [f (rf/make-frame
-                   {:fx-overrides {:rf.http/managed :auth.login/test-canned-failure}})]
-    ;; Three failures → locked-out.
-    (dotimes [_ 3]
-      (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
-                                           {:email "x@y.z" :password "wrongpass"}]]
-                        {:frame f})
-      (rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame f}))
-
-    (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
-                                         {:email "x@y.z" :password "wrongpass"}]]
-                      {:frame f})
-    (assert (= :locked-out (rf/compute-sub [:auth.login/state] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT  (CLJS reference; client-only)

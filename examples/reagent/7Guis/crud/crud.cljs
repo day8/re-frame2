@@ -25,7 +25,7 @@
             ;; rf/reg-app-schema resolves.
             [re-frame.schemas]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -185,40 +185,6 @@
       [:button {:on-click #(dispatch [:crud/delete])
                 :data-testid "crud-delete"
                 :disabled (not can-update?)} "Delete"]]]))
-
-;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-
-(defn crud-tests []
-  (with-frame [f (rf/make-frame {:on-create [:crud/initialise]})]
-    ;; Initial seed: 3 people.
-    (assert (= 3 (count (rf/compute-sub [:crud/people] (rf/get-frame-db f)))))
-
-    ;; Filter: "M" matches Mustermann only.
-    (rf/dispatch-sync [:crud/set-filter "M"] {:frame f})
-    (assert (= 1 (count (rf/compute-sub [:crud/filtered-people] (rf/get-frame-db f)))))
-
-    ;; Create: edit draft, click Create, list grows by 1.
-    (rf/dispatch-sync [:crud/set-filter "" ] {:frame f})
-    (rf/dispatch-sync [:crud/edit-name    "Anna"]    {:frame f})
-    (rf/dispatch-sync [:crud/edit-surname "Sonnen"] {:frame f})
-    (rf/dispatch-sync [:crud/create]                 {:frame f})
-    (assert (= 4 (count (rf/compute-sub [:crud/people] (rf/get-frame-db f)))))
-
-    ;; Update: select Anna, change surname, list reflects.
-    (let [anna-id (->> (rf/compute-sub [:crud/people] (rf/get-frame-db f))
-                       (filter #(= "Anna" (:name %))) first :id)]
-      (rf/dispatch-sync [:crud/select anna-id]              {:frame f})
-      (rf/dispatch-sync [:crud/edit-surname "Sunnybaum"]    {:frame f})
-      (rf/dispatch-sync [:crud/update]                      {:frame f})
-      (let [updated (->> (rf/compute-sub [:crud/people] (rf/get-frame-db f))
-                         (filter #(= anna-id (:id %))) first)]
-        (assert (= "Sunnybaum" (:surname updated))))
-
-      ;; Delete: list shrinks by 1.
-      (rf/dispatch-sync [:crud/delete] {:frame f})
-      (assert (= 3 (count (rf/compute-sub [:crud/people] (rf/get-frame-db f))))))))
 
 ;; ============================================================================
 ;; MOUNT

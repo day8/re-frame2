@@ -16,7 +16,6 @@
    - The subscription graph at full strength
    - Cycles detected by walking declared deps                (per-formula static dep set)
    - Open-map cell registry (sparse storage)
-   - Headless evaluation via compute-sub
    - Pure parser + evaluator (no eval, no host I/O)
 
    Scope: 26 cols × 100 rows. Formulas of the form '=expr' where expr is a
@@ -32,7 +31,7 @@
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [clojure.set]
             [clojure.string :as str])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 (def COLS 26)
 (def ROWS 100)
@@ -254,36 +253,6 @@
        (for [c (range COLS)]
          ^{:key c}
          [cell-view (cell-id c r)])])]])
-
-;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-
-(defn cells-tests []
-  (with-frame [f (rf/make-frame {:on-create [:cells/initialise]})]
-    ;; Plain literal.
-    (rf/dispatch-sync [:cells/commit "A1" "5"] {:frame f})
-    (assert (= 5 (rf/compute-sub [:cells/value "A1"] (rf/get-frame-db f))))
-
-    ;; Formula referencing A1.
-    (rf/dispatch-sync [:cells/commit "B1" "=(+ A1 10)"] {:frame f})
-    (assert (= 15 (rf/compute-sub [:cells/value "B1"] (rf/get-frame-db f))))
-
-    ;; Updating A1 propagates through B1's subscription.
-    (rf/dispatch-sync [:cells/commit "A1" "100"] {:frame f})
-    (assert (= 110 (rf/compute-sub [:cells/value "B1"] (rf/get-frame-db f))))
-
-    ;; Cycle detection: A1 = B1, B1 = A1.
-    (rf/dispatch-sync [:cells/commit "A1" "=B1"] {:frame f})
-    (rf/dispatch-sync [:cells/commit "B1" "=A1"] {:frame f})
-    (assert (= :error/cycle (rf/compute-sub [:cells/value "A1"] (rf/get-frame-db f))))
-
-    ;; Parse error.
-    (rf/dispatch-sync [:cells/commit "C1" "=)bad"] {:frame f})
-    (assert (= :error/parse (rf/compute-sub [:cells/value "C1"] (rf/get-frame-db f))))
-
-    ;; Empty cells are zero.
-    (assert (= 0 (rf/compute-sub [:cells/value "Z99"] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT

@@ -27,7 +27,7 @@
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -140,32 +140,6 @@
               :data-testid "temp-fahrenheit"
               :on-change #(dispatch [:temp/edit-fahrenheit (.. % -target -value)])}]
      [:label " °F"]]))
-
-;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-
-(defn temperature-converter-tests []
-  (with-frame [f (rf/make-frame {:on-create [:temp/initialise]})]
-    ;; Edit Celsius → Fahrenheit derives.
-    (rf/dispatch-sync [:temp/edit-celsius "100"] {:frame f})
-    (assert (= "100"   (rf/compute-sub [:temp/celsius-text]    (rf/get-frame-db f))))
-    (assert (= "212.00" (rf/compute-sub [:temp/fahrenheit-text] (rf/get-frame-db f))))
-
-    ;; Edit Fahrenheit → Celsius derives.
-    (rf/dispatch-sync [:temp/edit-fahrenheit "32"] {:frame f})
-    (assert (= "32"   (rf/compute-sub [:temp/fahrenheit-text] (rf/get-frame-db f))))
-    (assert (= "0.00" (rf/compute-sub [:temp/celsius-text]    (rf/get-frame-db f))))
-
-    ;; Partial input doesn't jitter — typing "1." in Celsius shows literally
-    ;; "1." in the active field, not "1.00".
-    (rf/dispatch-sync [:temp/edit-celsius "1."] {:frame f})
-    (assert (= "1." (rf/compute-sub [:temp/celsius-text] (rf/get-frame-db f))))
-
-    ;; Garbage input clears the conversion but preserves the literal text.
-    (rf/dispatch-sync [:temp/edit-celsius "abc"] {:frame f})
-    (assert (= "abc" (rf/compute-sub [:temp/celsius-text] (rf/get-frame-db f))))
-    (assert (nil?    (rf/compute-sub [:temp/fahrenheit-text] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT

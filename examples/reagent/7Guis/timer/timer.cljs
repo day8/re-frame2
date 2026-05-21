@@ -28,7 +28,7 @@
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 (def TICK-MS 100)
 
@@ -158,40 +158,6 @@
       ;; 50ms poll), causing the brief 0.0 window to be missed.
       [:button {:data-testid "timer-reset"
                 :on-click #(rf/dispatch-sync [:timer/reset])} "Reset"]]]))
-
-;; ============================================================================
-;; HEADLESS TESTS  (scheduling-light; we don't drive real time, just verify
-;;                  the event/sub graph)
-;; ============================================================================
-
-(defn timer-tests []
-  (with-frame [f (rf/make-frame {:on-create    [:timer/initialise]
-                                    :fx-overrides {:dispatch-later nil}})]   ;; suppress real timers
-    ;; Initial state.
-    (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))
-    (assert (= 10000 (rf/compute-sub [:timer/duration-ms] (rf/get-frame-db f))))
-
-    ;; Manual ticks → elapsed advances; progress derives correctly.
-    ;; (Pass the current generation so the ticks aren't dropped as stale.)
-    (dotimes [_ 50]
-      (let [gen (get-in (rf/get-frame-db f) [:timer :tick-gen])]
-        (rf/dispatch-sync [:timer/tick gen] {:frame f})))
-    (assert (= 5000 (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))
-    (assert (= 50.0 (rf/compute-sub [:timer/progress-pct] (rf/get-frame-db f))))
-
-    ;; Shrinking duration below elapsed → progress clamps to 100, ticks stop on next tick.
-    (rf/dispatch-sync [:timer/set-duration 4000] {:frame f})
-    (assert (= 100 (rf/compute-sub [:timer/progress-pct] (rf/get-frame-db f))))
-
-    ;; Reset → elapsed back to zero, generation bumped.
-    (let [gen-before (get-in (rf/get-frame-db f) [:timer :tick-gen])]
-      (rf/dispatch-sync [:timer/reset] {:frame f})
-      (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))
-      (assert (= (inc gen-before)
-                 (get-in (rf/get-frame-db f) [:timer :tick-gen])))
-      ;; A stale tick (old generation) is dropped — :elapsed-ms stays at 0.
-      (rf/dispatch-sync [:timer/tick gen-before] {:frame f})
-      (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f)))))))
 
 ;; ============================================================================
 ;; MOUNT

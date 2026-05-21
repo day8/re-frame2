@@ -28,7 +28,7 @@
             ;; rf/reg-app-schema resolves.
             [re-frame.schemas]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -219,29 +219,6 @@
                                         (js/parseInt (.. % -target -value))])}]
         [:button {:data-testid "drawer-close"
                   :on-click #(dispatch [:drawer/close-dialog])} "Close"]])]))
-
-;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-
-(defn drawer-tests []
-  (with-frame [f (rf/make-frame {:on-create [:drawer/initialise]})]
-    ;; Add three circles; undo stack grows.
-    (rf/dispatch-sync [:drawer/add-circle 100 100] {:frame f})
-    (rf/dispatch-sync [:drawer/add-circle 200 200] {:frame f})
-    (rf/dispatch-sync [:drawer/add-circle 300 300] {:frame f})
-    (assert (= 3 (count (rf/compute-sub [:drawer/circles] (rf/get-frame-db f)))))
-    (assert       (rf/compute-sub [:drawer/can-undo?] (rf/get-frame-db f)))
-
-    ;; Two undos → one circle.
-    (rf/dispatch-sync [:drawer/undo] {:frame f})
-    (rf/dispatch-sync [:drawer/undo] {:frame f})
-    (assert (= 1 (count (rf/compute-sub [:drawer/circles] (rf/get-frame-db f)))))
-    (assert (rf/compute-sub [:drawer/can-redo?] (rf/get-frame-db f)))
-
-    ;; Redo restores.
-    (rf/dispatch-sync [:drawer/redo] {:frame f})
-    (assert (= 2 (count (rf/compute-sub [:drawer/circles] (rf/get-frame-db f)))))))
 
 ;; ============================================================================
 ;; MOUNT

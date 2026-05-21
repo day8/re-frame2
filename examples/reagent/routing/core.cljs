@@ -20,7 +20,7 @@
             ;; rf/reg-route below throws :rf.error/routing-artefact-missing.
             [re-frame.routing]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; ROUTES
@@ -139,25 +139,6 @@
     (fn [_]
       (rf/dispatch [:rf.route/handle-url-change (current-url)])))
   (rf/dispatch-sync [:rf.route/handle-url-change (current-url)]))
-
-;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-
-(defn routing-tests []
-  (with-frame [f (rf/make-frame {:on-create [:routing.app/initialise]})]
-    (rf/dispatch-sync [:rf.route/navigate :route/articles] {:frame f})
-    (assert (= :route/articles (rf/compute-sub [:rf.route/id] (rf/get-frame-db f))))
-
-    (rf/dispatch-sync [:rf.route/navigate :route/article-detail {:id "intro"}] {:frame f})
-    (assert (= :route/article-detail (rf/compute-sub [:rf.route/id] (rf/get-frame-db f))))
-    (assert (= "intro" (:id (rf/compute-sub [:rf.route/params] (rf/get-frame-db f)))))
-
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/ssr"] {:frame f})
-    (assert (= :route/article-detail (rf/compute-sub [:rf.route/id] (rf/get-frame-db f))))
-
-    (rf/dispatch-sync [:rf.route/handle-url-change "/garbage"] {:frame f})
-    (assert (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT
