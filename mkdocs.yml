@@ -201,6 +201,14 @@ markdown_extensions:
         - name: klipse
           class: language-klipse
           format: !!python/name:pymdownx.superfences.fence_code_format
+        # Mermaid diagrams (rf2-9ewbc). Material renders ```mermaid fences
+        # natively (it ships Mermaid and wires the renderer when this fence
+        # is declared) — no extra plugin needed. Enables architecture,
+        # six-domino, state-machine, and routing-flow diagrams in the guide
+        # and spec as fenced blocks.
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.inlinehilite
   - pymdownx.details
   - pymdownx.tabbed:
