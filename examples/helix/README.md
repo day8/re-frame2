@@ -13,7 +13,7 @@ helix/
   process_monitor_helix/  <-- design-led example proving multi-pane layout on Helix
 ```
 
-Each example sits in its own folder with the CLJS source (`core.cljs`), a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The on-disk folder names carry the `_helix` suffix because the CLJS namespaces (`counter-helix.core`, `login-helix.core`) are deliberately distinct from their Reagent siblings (`counter.core`, `login.core`) and UIx siblings (`counter-uix.core`, `login-uix.core`) — every substrate tree ends up on the same shadow-cljs classpath, so the namespaces have to be unique. The folder name follows the namespace convention (`-` becomes `_` on disk).
+Each example sits in its own folder with the CLJS source (`core.cljs`) and a hand-written `index.html`. The `examples/` tree is **test-free** (locked policy, rf2-8cevm): no example ships a Playwright spec — see [Testing](#testing) below for where the real regression coverage lives. The on-disk folder names carry the `_helix` suffix because the CLJS namespaces (`counter-helix.core`, `login-helix.core`) are deliberately distinct from their Reagent siblings (`counter.core`, `login.core`) and UIx siblings (`counter-uix.core`, `login-uix.core`) — every substrate tree ends up on the same shadow-cljs classpath, so the namespaces have to be unique. The folder name follows the namespace convention (`-` becomes `_` on disk).
 
 The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **identical** to the Reagent and UIx siblings under [`../reagent/`](../reagent/) and [`../uix/`](../uix/); only the view layer differs. Helix components are written as `defnc` and consume subs via the `use-subscribe` hook (Decision 1).
 
@@ -22,23 +22,25 @@ Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc
 ## What each example demonstrates
 
 - **`helix/counter_helix/`** ([build id `examples/counter-helix`](../../implementation/shadow-cljs.edn))
-  Same `:counter/initialise` / `:counter/inc` / `:counter/dec` events as the Reagent counter; the view renders +/- buttons and a count between them. Smoke-spec asserts an initial render of `5` (seeded by `:counter/initialise`), then drives clicks and asserts the count moves.
+  Same `:counter/initialise` / `:counter/inc` / `:counter/dec` events as the Reagent counter; the view renders +/- buttons and a count between them. The count seeds to `5` (via `:counter/initialise`) and moves as the buttons dispatch.
 
 - **`helix/login_helix/`** ([build id `examples/login-helix`](../../implementation/shadow-cljs.edn))
-  Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`/`:locked-out`), same Malli schemas, same `:rf.http/managed.login-demo` stub fx as the Reagent and UIx login examples. The view layer is a Helix `defnc` form using `helix.hooks/use-state` for local input state. Smoke-spec drives credentials → submit → asserts the welcome banner appears on success.
+  Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`/`:locked-out`), same Malli schemas, same `:rf.http/managed.login-demo` stub fx as the Reagent and UIx login examples. The view layer is a Helix `defnc` form using `helix.hooks/use-state` for local input state. Entering credentials and submitting drives the machine to `:authed` and the welcome banner appears.
 
 - **`helix/process_monitor_helix/`** ([build id `examples/process-monitor-helix`](../../implementation/shadow-cljs.edn))
   Design-led example proving Helix can drive a substantive multi-pane layout. Shares the `_shared/css/style.css` "Editorial Warm" identity with the Reagent notebook and UIx dashboard counterparts. No state machines, no HTTP — design-led examples exist to prove polished visuals + interaction, not to replay platform features other examples already cover.
 
-## Running
+## Testing
 
-The Helix examples are wired into the same orchestrator as the Reagent and UIx sets. From `implementation/`:
+The `examples/` tree carries no tests (locked policy, rf2-8cevm). Browser smoke coverage for the Helix substrate lives at the **adapter level**: a single mount + dispatch + assert smoke at [`implementation/adapters/helix/testbed/spec.cjs`](../../implementation/adapters/helix/testbed/) (one each for Reagent, UIx, and Helix). Real regressions are caught by the substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance — not by per-example specs.
+
+From `implementation/`, the adapter smokes run via:
 
 ```bash
 npm run test:examples
 ```
 
-That compiles `examples/counter-helix`, `examples/login-helix`, and `examples/process-monitor-helix` alongside every Reagent and UIx example, stages each `index.html`, serves the lot, and drives the adapter-level smoke specs. The bundle-isolation grep at [`implementation/scripts/check-bundle-isolation.cjs`](../../implementation/scripts/check-bundle-isolation.cjs) runs against the Reagent counter; the per-substrate-per-example shadow-cljs builds let CI verify a Reagent example's `main.js` carries no Helix code and vice versa (and likewise for UIx ↔ Helix).
+That compiles the three adapter testbeds (`adapters/reagent-testbed`, `adapters/uix-testbed`, `adapters/helix-testbed`), stages each `index.html`, serves them, and drives the three `spec.cjs` smokes; the example builds in this directory are not staged because nothing tests them. Bundle isolation is verified separately (each per-substrate shadow-cljs build lets CI confirm a Reagent bundle's `main.js` carries no Helix code and vice versa, and likewise for UIx ↔ Helix).
 
 To iterate on one Helix example interactively, from `implementation/`:
 
@@ -46,7 +48,7 @@ To iterate on one Helix example interactively, from `implementation/`:
 shadow-cljs watch examples/counter-helix
 ```
 
-(Run `npm run test:examples` once first so `out/examples/counter-helix/index.html` is staged.)
+The build emits `main.js` into `out/examples/counter-helix/`; copy the example's hand-written [`counter_helix/index.html`](counter_helix/index.html) (and the shared assets it references under [`../_shared/`](../_shared/)) alongside it to load the watched build in a browser.
 
 ## Cross-references
 
