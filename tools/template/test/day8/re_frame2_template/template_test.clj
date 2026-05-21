@@ -349,7 +349,7 @@
     (let [tmp (tmp-dir "rf2-template-bad-")]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":substrate must be one of"
+                              #":rf\.error/template-substrate-must-be-one-of"
                               (run-template! tmp "acme/my-app" :svelte))
             "unknown substrate is rejected")
         (finally
@@ -449,11 +449,11 @@
     (let [tmp (tmp-dir "rf2-template-story-uix-")]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":include-story\? is Reagent-only"
+                              #":rf\.error/template-include-story-reagent-only"
                               (run-template! tmp "acme/my-app" :uix true))
             ":include-story? + :uix is rejected at the entry-fn")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":include-story\? is Reagent-only"
+                              #":rf\.error/template-include-story-reagent-only"
                               (run-template! tmp "acme/my-app" :helix true))
             ":include-story? + :helix is rejected at the entry-fn")
         (finally
@@ -464,7 +464,7 @@
     (let [tmp (tmp-dir "rf2-template-story-bad-")]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":include-story\? must be true or false"
+                              #":rf\.error/template-bad-include-story-flag"
                               (run-template! tmp "acme/my-app" :reagent "yes"))
             "non-boolean :include-story? is rejected")
         (finally

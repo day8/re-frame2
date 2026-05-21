@@ -78,7 +78,7 @@
                       :component-will-receive-props (fn [_this _new-props])})
                    nil
                    (catch :default e (ex-data e)))]
-      (is (= :rf.error/create-class-key-unsupported (:type thrown)))
+      (is (= :rf.error/create-class-key-unsupported (:rf.error/id thrown)))
       (is (contains? (set (:keys thrown)) :component-will-receive-props)
           "the offending key is named in the ex-data")
       (is (= component/cap-keys (:supported-keys thrown))
@@ -94,7 +94,7 @@
                       :component-will-mount         (fn [_])})
                    nil
                    (catch :default e (ex-data e)))]
-      (is (= :rf.error/create-class-key-unsupported (:type thrown)))
+      (is (= :rf.error/create-class-key-unsupported (:rf.error/id thrown)))
       (is (= #{:component-will-receive-props
                :should-component-update
                :component-will-mount}
@@ -107,7 +107,7 @@
                    (component/create-class* {:display-name "Foo"})
                    nil
                    (catch :default e (ex-data e)))]
-      (is (= :rf.error/create-class-missing-render (:type thrown))))))
+      (is (= :rf.error/create-class-missing-render (:rf.error/id thrown))))))
 
 (deftest create-class-accepts-every-cap-key
   (testing "spec with all 7 cap keys is accepted (no throw)"
@@ -666,8 +666,8 @@
                           (.call render instance)
                           nil
                           (catch :default e (ex-data e)))]
-          (is (= :rf.error/as-element-fn-unregistered (:type thrown))
-              ":type identifies the unregistered seam class")
+          (is (= :rf.error/as-element-fn-unregistered (:rf.error/id thrown))
+              ":rf.error/id identifies the unregistered seam class")
           (is (= :no-recovery (:recovery thrown))
               ":recovery is :no-recovery — there is no fallback path")
           (is (string? (:reason thrown))

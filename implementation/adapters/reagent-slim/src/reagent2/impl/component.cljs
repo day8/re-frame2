@@ -80,13 +80,14 @@
   (if-let [f @as-element-fn]
     (f hiccup)
     (throw (ex-info ":rf.error/as-element-fn-unregistered"
-             {:type     :rf.error/as-element-fn-unregistered
-              :hiccup   hiccup
-              :reason   (str "reagent2.impl.template/as-element was not"
-                             " registered before render. Require"
-                             " reagent2.impl.template (or reagent2.core)"
-                             " so its ns-load wires the as-element seam.")
-              :recovery :no-recovery}))))
+             {:rf.error/id :rf.error/as-element-fn-unregistered
+              :where       'reagent2.impl.component/->react-element
+              :recovery    :no-recovery
+              :reason      (str "reagent2.impl.template/as-element was not"
+                                " registered before render. Require"
+                                " reagent2.impl.template (or reagent2.core)"
+                                " so its ns-load wires the as-element seam.")
+              :hiccup      hiccup}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dynamic var: in-flight component instance
@@ -134,15 +135,16 @@
     (when (seq unsupported)
       (throw
         (ex-info ":rf.error/create-class-key-unsupported"
-          {:type           :rf.error/create-class-key-unsupported
-           :keys           unsupported
-           :supported-keys cap-keys
+          {:rf.error/id    :rf.error/create-class-key-unsupported
+           :where          'reagent2.core/create-class
+           :recovery       :no-recovery
            :reason         (str "create-class accepts a 7-key cap. "
                                 "Unsupported: " (pr-str unsupported) ". "
                                 "Migrate to the supported keys, restructure "
                                 "via :on-create / :on-destroy events, or "
                                 "switch to day8/reagent-classic.")
-           :recovery       :no-recovery}))))
+           :keys           unsupported
+           :supported-keys cap-keys}))))
   spec)
 
 ;; ---------------------------------------------------------------------------
@@ -481,9 +483,12 @@
   [spec]
   (validate-spec! spec)
   (let [render-fn (or (:reagent-render spec)
-                      (throw (ex-info "create-class spec missing :reagent-render"
-                               {:type :rf.error/create-class-missing-render
-                                :spec spec})))
+                      (throw (ex-info ":rf.error/create-class-missing-render"
+                               {:rf.error/id :rf.error/create-class-missing-render
+                                :where       'reagent2.core/create-class
+                                :recovery    :no-recovery
+                                :reason      "create-class spec is missing the required :reagent-render fn."
+                                :spec        spec})))
         ;; The constructor: extends React.Component via prototype chain.
         ^js klass (fn [props]
                     (this-as this

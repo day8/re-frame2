@@ -105,7 +105,8 @@
   (when (and (attaches-validate-at-boundary-interceptor? interceptors)
              (not (and (map? meta) (contains? meta :schema))))
     (throw (ex-info ":rf.error/at-boundary-missing-schema"
-                    {:error    :rf.error/at-boundary-missing-schema
+                    {:rf.error/id :rf.error/at-boundary-missing-schema
+                     :where    'rf/reg-event-db
                      :reg-fn   reg-fn-name
                      :id       id
                      :reason
@@ -282,15 +283,24 @@
           (map? middle)    [middle [] handler]
           (vector? middle) [{} middle handler]
           :else            (throw (ex-info
-                                    "reg-event-*: middle slot must be a metadata-map or an interceptor-vector"
-                                    {:args     args
-                                     :got      middle
-                                     :expected "metadata-map (e.g. {:doc \"...\"}) OR interceptor-vector (e.g. [(path :a)])"}))))
+                                    ":rf.error/reg-event-bad-middle-slot"
+                                    {:rf.error/id :rf.error/reg-event-bad-middle-slot
+                                     :where       'rf/reg-event-db
+                                     :recovery    :fix-registration
+                                     :reason      "the middle slot of a reg-event-* call must be a metadata-map (e.g. {:doc \"...\"}) or an interceptor-vector (e.g. [(path :a)])"
+                                     :args        args
+                                     :got         middle
+                                     :expected    "metadata-map (e.g. {:doc \"...\"}) OR interceptor-vector (e.g. [(path :a)])"}))))
     3 (let [[meta interceptors handler] args]
         [meta (or interceptors []) handler])
     (throw (ex-info
-             "reg-event-* arity error — expected (id handler), (id metadata handler), or (id metadata interceptors handler)"
-             {:args args :count (count args)}))))
+             ":rf.error/reg-event-bad-arity"
+             {:rf.error/id :rf.error/reg-event-bad-arity
+              :where       'rf/reg-event-db
+              :recovery    :fix-registration
+              :reason      "reg-event-* expects (id handler), (id metadata handler), or (id metadata interceptors handler)"
+              :args        args
+              :count       (count args)}))))
 
 (defn- merge-form-source
   "Merge `*pending-form-source*` into `m` under `:rf.handler/source`

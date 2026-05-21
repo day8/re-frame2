@@ -53,11 +53,18 @@
   #"^[A-Za-z][A-Za-z0-9_-]*$")
 
 (defn- route-pattern-error!
+  ;; Canonical thrown-error shape per Spec 009: :rf.error/id is the
+  ;; discriminator, :where names the public surface (reg-route compiles
+  ;; the pattern at registration), :recovery + :reason complete the
+  ;; required slots. Per-site :route-id / :pattern / :index merge on top.
   [route-id pattern reason index]
   (throw (ex-info ":rf.error/invalid-route-pattern"
-                  (cond-> {:route-id route-id
-                           :pattern  pattern
-                           :reason   reason}
+                  (cond-> {:rf.error/id :rf.error/invalid-route-pattern
+                           :where       'rf/reg-route
+                           :recovery    :no-recovery
+                           :reason      reason
+                           :route-id    route-id
+                           :pattern     pattern}
                     (some? index) (assoc :index index)))))
 
 (defn- valid-route-name? [s]

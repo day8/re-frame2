@@ -201,10 +201,16 @@
   [{:keys [on-create root-view] :as opts}]
   (when-not on-create
     (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
-                    {:reason "ssr-handler requires :on-create (an event vector)"})))
+                    {:rf.error/id :rf.error/ssr-ring-missing-on-create
+                     :where    'rf.ssr/ssr-handler
+                     :reason   "ssr-handler requires :on-create (an event vector)"
+                     :recovery :no-recovery})))
   (when-not root-view
     (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
-                    {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"})))
+                    {:rf.error/id :rf.error/ssr-ring-missing-root-view
+                     :where    'rf.ssr/ssr-handler
+                     :reason   "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"
+                     :recovery :no-recovery})))
   (payload-policy/validate-policy-opts! opts)
   (trust/validate-trusted-shell-opts! opts))
 

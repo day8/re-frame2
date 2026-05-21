@@ -1813,7 +1813,8 @@
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "over-cap URL throws ex-info")
       (let [data (ex-data thrown)]
-        (is (= :rf.error/route-too-many-keys (:kind data)))
+        (is (= :rf.error/route-too-many-keys (:rf.error/id data)))
+        (is (= 'rf/match-url (:where data)))
         (is (= routing/default-max-decoded-keys (:limit data)))
         (is (>= (:count data) routing/default-max-decoded-keys))))))
 

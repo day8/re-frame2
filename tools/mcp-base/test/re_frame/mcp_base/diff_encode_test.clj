@@ -277,14 +277,14 @@
     (let [bad [[[:a] :replace 1]]]
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
-            #"diff-encode patch grammar violated"
+            #":rf\.error/bad-diff-patches"
             (#'de/validate-patches! bad)))
       (try
         (#'de/validate-patches! bad)
         (is false "expected throw")
         (catch clojure.lang.ExceptionInfo e
           (is (= :rf.error/bad-diff-patches
-                 (:rf.error/code (ex-data e)))
+                 (:rf.error/id (ex-data e)))
               "ex-info carries the reserved :rf.error/* code"))))))
 
 ;; ---------------------------------------------------------------------------
@@ -306,17 +306,17 @@
     ;; reduce starts.
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"diff-encode patch grammar violated"
+          #":rf\.error/bad-diff-patches"
           (de/apply-patches {} [[[:a]]]))))
   (testing "unknown op throws"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"diff-encode patch grammar violated"
+          #":rf\.error/bad-diff-patches"
           (de/apply-patches {} [[[:a] :replace 1]]))))
   (testing "non-vector path throws"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"diff-encode patch grammar violated"
+          #":rf\.error/bad-diff-patches"
           (de/apply-patches {} [[:a :assoc 1]]))))
   (testing "ex-info carries reserved :rf.error/bad-diff-patches code"
     (try
@@ -324,7 +324,7 @@
       (is false "expected throw")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/bad-diff-patches
-               (:rf.error/code (ex-data e))))))))
+               (:rf.error/id (ex-data e))))))))
 
 (deftest apply-patches-well-formed-input-passes-validation
   ;; Soft contract: well-formed patches pass the gate silently and

@@ -1302,7 +1302,7 @@
                           (fn [_ _] {}))
                         (catch clojure.lang.ExceptionInfo e
                           (ex-data e)))]
-          (is (= :rf.error/at-boundary-missing-schema (:error data)))
+          (is (= :rf.error/at-boundary-missing-schema (:rf.error/id data)))
           (is (= "reg-event-fx" (:reg-fn data)))
           (is (= :api/no-schema-2-data (:id data)))
           (is (string? (:reason data)))

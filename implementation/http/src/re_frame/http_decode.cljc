@@ -28,8 +28,10 @@
   apps still load the namespace; the decode call falls through to a
   no-op (returns the parsed value) when Malli isn't on the classpath.
 
-  The schema-validation failure throws an ex-info with `:malli-error?
-  true`; the caller (`http-transport/handle-response!`) classifies as
+  The schema-validation failure throws an ex-info with
+  `:rf.error/id :rf.error/http-schema-validation-failed` (the canonical
+  discriminator per Spec 009); the caller
+  (`http-transport/handle-response!`) classifies as
   `:rf.http/decode-failure :schema-validation-failure? true`."
   (:require [clojure.string  :as str]
             [re-frame.http-privacy :as privacy]
@@ -117,8 +119,13 @@
                       :else                    value)]
     (when validate
       (when-not (validate schema decoded)
-        (throw (ex-info "schema validation failed"
-                        {:schema schema :value decoded :malli-error? true}))))
+        (throw (ex-info ":rf.error/http-schema-validation-failed"
+                        {:rf.error/id :rf.error/http-schema-validation-failed
+                         :where       'rf.http/decode-response-body
+                         :recovery    :no-recovery
+                         :reason      "the decoded response body failed Malli schema validation; the caller classifies this as :rf.http/decode-failure"
+                         :schema      schema
+                         :value       decoded}))))
     decoded))
 
 (defn decode-response-body
@@ -129,9 +136,10 @@
   `:max-decoded-keys` slot (from the request args' `:rf.http/max-decoded-keys`,
   defaulted at the handler) is threaded into `util-json/json-parse`.
   The Malli-schema branch propagates the cap-throw rather than
-  swallowing it — a `:rf.error/malformed-json :reason :too-many-keys`
-  is a security-relevant signal and must surface as
-  `:rf.http/decode-failure`, not be masked behind a malli rejection."
+  swallowing it — a `:rf.error/id :rf.error/malformed-json`
+  (`:cause :too-many-keys`) is a security-relevant signal and must
+  surface as `:rf.http/decode-failure`, not be masked behind a malli
+  rejection."
   [{:keys [body-text headers decode decode-supplied? request-id url sensitive?
            max-decoded-keys]}]
   (let [content-type (content-type-of headers)
@@ -187,7 +195,7 @@
       (let [parsed (try (util-json/json-parse body-text parse-opts)
                         (catch #?(:clj Throwable :cljs :default) e
                           (let [d (ex-data e)]
-                            (if (= :rf.error/malformed-json (:kind d))
+                            (if (= :rf.error/malformed-json (:rf.error/id d))
                               (throw e)
                               body-text))))]
         (malli-decode resolved parsed))

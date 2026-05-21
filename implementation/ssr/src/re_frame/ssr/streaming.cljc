@@ -237,7 +237,9 @@
         n        (count children)]
     (when-not (suspense-attrs? attrs)
       (throw (ex-info ":rf.error/suspense-boundary-invalid-attrs"
-                      {:reason   ":rf/suspense-boundary requires {:id … :fallback …} attrs map"
+                      {:rf.error/id :rf.error/suspense-boundary-invalid-attrs
+                       :where    'rf.ssr/streaming
+                       :reason   ":rf/suspense-boundary requires {:id … :fallback …} attrs map"
                        :got      attrs
                        :element  el
                        :recovery :no-recovery})))

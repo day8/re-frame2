@@ -169,16 +169,16 @@
 (deftest reg-story-id-shape
   (testing "reg-story rejects ids outside the :story.<path> grammar"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match the canonical id grammar"
+                          #":rf\.error/story-id-shape"
                           (story/reg-story* :NotAStoryId {})))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match the canonical id grammar"
+                          #":rf\.error/story-id-shape"
                           (story/reg-story* :foo.bar {})))))
 
 (deftest reg-story-bad-shape
   (testing "reg-story rejects a body that violates the schema"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match story schema"
+                          #":rf\.error/story-shape"
                           (story/reg-story :story.ui.bad
                             {:tags "not-a-set"})))))
 
@@ -188,7 +188,7 @@
       (story/reg-story :story.ui.bad {:tags #{:dev :totally-made-up}})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/unknown-tag (:rf.error (ex-data e))))
+        (is (= :rf.error/unknown-tag (:rf.error/id (ex-data e))))
         (is (= [:totally-made-up] (:unknown (ex-data e))))))))
 
 ;; ---- reg-variant basic -------------------------------------------------
@@ -250,7 +250,7 @@
          :events  []})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/extends-unknown (:rf.error (ex-data e))))))))
+        (is (= :rf.error/story-extends-unknown (:rf.error/id (ex-data e))))))))
 
 (deftest extends-cycle-detection
   (testing ":extends cycle raises :rf.error/extends-cycle"
@@ -263,7 +263,7 @@
                                  #(get lookup %))
         (is false "expected an exception")
         (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/extends-cycle (:rf.error (ex-data e)))))))))
+          (is (= :rf.error/story-extends-cycle (:rf.error/id (ex-data e)))))))))
 
 (deftest extends-depth-cap
   (testing ":extends depth cap fires at *max-extends-depth*"
@@ -284,7 +284,7 @@
                                    #(get chain %))
           (is false "expected an exception")
           (catch clojure.lang.ExceptionInfo e
-            (is (= :rf.error/extends-cycle (:rf.error (ex-data e))))))))))
+            (is (= :rf.error/story-extends-chain-too-long (:rf.error/id (ex-data e))))))))))
 
 ;; ---- Form-B desugaring -------------------------------------------------
 
@@ -375,7 +375,7 @@
 (deftest reg-workspace-bad-layout
   (testing "a :grid workspace without :variants fails validation"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match workspace schema"
+                          #":rf\.error/workspace-shape"
                           (story/reg-workspace :Workspace.bad/empty
                             {:layout :grid})))))
 
@@ -424,7 +424,7 @@
        :init [[:auth/restore-session {:user "alice"}]]})
     (is (= :frame-setup (:kind (story/handler-meta :decorator :mock-auth))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match decorator schema"
+                          #":rf\.error/decorator-shape"
                           (story/reg-decorator :mock-empty
                             {:kind :frame-setup})))))
 
@@ -442,7 +442,7 @@
 (deftest reg-decorator-unknown-kind
   (testing "decorator with an unknown :kind fails the schema"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match decorator schema"
+                          #":rf\.error/decorator-shape"
                           (story/reg-decorator :bad-kind
                             {:kind :no-such-kind})))))
 
@@ -515,14 +515,14 @@
 (deftest reg-tag-rejects-bad-default-filter
   (testing ":default-filter must be :include or :exclude"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match tag schema"
+                          #":rf\.error/tag-shape"
                           (story/reg-tag :bad/df
                             {:default-filter :sometimes})))))
 
 (deftest reg-tag-rejects-non-keyword-axis
   (testing ":axis must be a keyword"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"does not match tag schema"
+                          #":rf\.error/tag-shape"
                           (story/reg-tag :bad/axis
                             {:axis "status"})))))
 
@@ -541,7 +541,7 @@
 (deftest tags-with-bang-prefix-rejects-unknown
   (testing "the !-prefix variant rejects unknown base tags"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"unregistered tag"
+                          #":rf\.error/unknown-tag"
                           (story/reg-variant :story.bang/bad
                             {:events []
                              :tags   #{:!totally-unknown}})))))

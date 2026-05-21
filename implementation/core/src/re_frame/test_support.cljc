@@ -521,13 +521,18 @@
 
 (defn- poll-timeout-error
   "Shared timeout-error constructor — same shape JVM / CLJS so test code
-  that pattern-matches on `:rf.test/poll-timeout` works on either runtime."
+  that pattern-matches on the canonical `:rf.error/id
+  :rf.error/poll-until-timeout` discriminator (per Spec 009) works on
+  either runtime."
   [label elapsed-ms]
-  (ex-info (str "poll-until timed out"
-                (when label (str " — " label)))
-           {:rf.test/poll-timeout true
-            :elapsed-ms elapsed-ms
-            :label label}))
+  (ex-info ":rf.error/poll-until-timeout"
+           {:rf.error/id :rf.error/poll-until-timeout
+            :where       'rf/poll-until
+            :recovery    :no-recovery
+            :reason      (str "poll-until timed out"
+                              (when label (str " — " label)))
+            :elapsed-ms  elapsed-ms
+            :label       label}))
 
 #?(:clj
    (defn poll-until

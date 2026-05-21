@@ -94,7 +94,9 @@
     (if (re-matches attr-name-grammar s)
       s
       (throw (ex-info ":rf.error/ssr-invalid-attribute-name"
-                      {:reason    (str "attribute name violates HTML5 grammar "
+                      {:rf.error/id :rf.error/ssr-invalid-attribute-name
+                       :where     'rf.ssr/html-helpers
+                       :reason    (str "attribute name violates HTML5 grammar "
                                        "[A-Za-z][A-Za-z0-9_:-]*; got "
                                        (pr-str s))
                        :attribute k

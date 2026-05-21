@@ -91,12 +91,20 @@
   Per spec/007 §Canonical id grammar."
   [story-id variant-name]
   (when-not (keyword? story-id)
-    (throw (ex-info "re-frame2-story: story id must be a keyword"
-                    {:story-id story-id})))
+    (throw (ex-info ":rf.error/story-bad-id"
+                    {:rf.error/id :rf.error/story-bad-id
+                     :where    'rf.story/reg-story
+                     :recovery :fix-registration
+                     :reason   "re-frame2-story: story id must be a keyword"
+                     :story-id story-id})))
   (when-not (keyword? variant-name)
-    (throw (ex-info (str "re-frame2-story: variant-name in :variants map "
-                         "must be a keyword (got " (pr-str variant-name) ")")
-                    {:variant-name variant-name})))
+    (throw (ex-info ":rf.error/story-bad-variant-name"
+                    {:rf.error/id :rf.error/story-bad-variant-name
+                     :where    'rf.story/reg-story
+                     :recovery :fix-registration
+                     :reason   (str "re-frame2-story: variant-name in :variants map "
+                                    "must be a keyword (got " (pr-str variant-name) ")")
+                     :variant-name variant-name})))
   (let [story-str (subs (str story-id) 1)]    ; strip leading colon
     (keyword story-str (name variant-name))))
 

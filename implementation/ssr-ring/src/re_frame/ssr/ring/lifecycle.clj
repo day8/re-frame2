@@ -62,8 +62,11 @@
     (fn?     root-view) (root-view)
     :else
     (throw (ex-info ":rf.error/invalid-root-view"
-                    {:reason   "root-view must be a hiccup vector or a 0-arity fn"
-                     :received root-view}))))
+                    {:rf.error/id :rf.error/invalid-root-view
+                     :where    'rf.ssr/ssr-handler
+                     :reason   "root-view must be a hiccup vector or a 0-arity fn"
+                     :received root-view
+                     :recovery :no-recovery}))))
 
 (defn resolve-head
   "Resolve the active route's `:head` against `frame-id` (or the default
@@ -112,5 +115,8 @@
   (if (vector? on-create)
     on-create
     (throw (ex-info ":rf.error/invalid-on-create"
-                    {:reason   ":on-create must be a vector (event)"
-                     :received on-create}))))
+                    {:rf.error/id :rf.error/invalid-on-create
+                     :where    'rf.ssr/ssr-handler
+                     :reason   ":on-create must be a vector (event)"
+                     :received on-create
+                     :recovery :no-recovery}))))

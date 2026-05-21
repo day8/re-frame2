@@ -391,21 +391,31 @@
 
 (deftest normalise-args-rejects-overlong-and-malformed
   (testing "tail count > 3 throws the arity error"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"reg-event-\* arity error"
-          (rf/reg-event-db :test.fuudi/too-many
-            {:doc "..."}
-            [{:id :a :before identity :after identity}]
-            (fn [db _] db)
-            :surplus))))
+    (let [ex (try
+               (rf/reg-event-db :test.fuudi/too-many
+                 {:doc "..."}
+                 [{:id :a :before identity :after identity}]
+                 (fn [db _] db)
+                 :surplus)
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex))
+      (is (= ":rf.error/reg-event-bad-arity" (ex-message ex))
+          "message is the stringified discriminator kw")
+      (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex))))
+      (is (re-find #"reg-event-\*" (:reason (ex-data ex)))
+          ":reason names the arity error")))
   (testing "two-arg middle slot that is neither a map nor a vector throws"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"middle slot must be a metadata-map or an interceptor-vector"
-          (rf/reg-event-db :test.fuudi/bad-middle
-            "not-a-map-or-vector"
-            (fn [db _] db))))))
+    (let [ex (try
+               (rf/reg-event-db :test.fuudi/bad-middle
+                 "not-a-map-or-vector"
+                 (fn [db _] db))
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex))
+      (is (= ":rf.error/reg-event-bad-middle-slot" (ex-message ex)))
+      (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id (ex-data ex))))
+      (is (re-find #"interceptor-vector" (:reason (ex-data ex)))))))
 
 ;; ---- rf2-twt7m Change 3 — :rf/default? tag on auto-wrappers ---------------
 ;;
@@ -536,8 +546,8 @@
                         [at-boundary-stub]
                         (fn [_ _] {}))
                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-        (is (= :rf.error/at-boundary-missing-schema (:error data))
-            ":error keyword matches the catalogued :rf.error/* category")
+        (is (= :rf.error/at-boundary-missing-schema (:rf.error/id data))
+            ":rf.error/id matches the catalogued :rf.error/* category")
         (is (= "reg-event-fx" (:reg-fn data)))
         (is (= :test.iftj4/data-probe (:id data)))
         (is (string? (:reason data)))

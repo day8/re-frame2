@@ -73,47 +73,63 @@
 
 ;; ---- compile-error contract ----------------------------------------------
 
+;; The macro throw conforms to the canonical thrown-error shape
+;; (Spec 009): the message is the stringified discriminator kw and the
+;; human-readable prose rides on the `:reason` ex-data slot. A
+;; macroexpansion error wraps the original ex-info as its cause, so the
+;; ex-data is read off the cause when present.
+
+(defn- ex-data-in-chain
+  "Walk the cause chain of `e` and return the first ex-data carrying the
+  canonical `:rf.error/id` slot — the compiler wraps macro-side
+  ex-infos in a CompilerException whose own ex-data is a
+  `:clojure.error/*` map, so we skip past it to the real throw."
+  [e]
+  (loop [t e]
+    (when t
+      (let [d (ex-data t)]
+        (if (contains? d :rf.error/id)
+          d
+          (recur (.getCause ^Throwable t)))))))
+
+(defn- reg-view-error-reason
+  "Run `thunk` (which must throw a reg-view macro error) and return the
+  `:reason` from the canonical ex-data (walking the compiler's cause
+  chain)."
+  [thunk]
+  (try (thunk) nil
+       (catch Throwable e
+         (:reason (ex-data-in-chain e)))))
+
 (deftest reg-view-rejects-var-ref-body
   (testing "(reg-view sym some-fn) — a symbol where the args vector should be
             — throws at macroexpand"
-    (let [exp-fn (fn []
-                   (eval `(rf/reg-view bad-var ~'some-fn-ref)))
-          err    (try (exp-fn) nil
-                      (catch Exception e
-                        (or (some-> e .getCause .getMessage)
-                            (.getMessage e))))]
-      (is (some? err)
+    (let [reason (reg-view-error-reason
+                   (fn [] (eval `(rf/reg-view bad-var ~'some-fn-ref))))]
+      (is (some? reason)
           "macroexpand throws when the second arg is a symbol")
-      (is (re-find #"args vector" err)
-          "the message points at the missing args vector")
-      (is (re-find #"reg-view\*" err)
-          "the message points the user at the reg-view* escape hatch"))))
+      (is (re-find #"args vector" reason)
+          ":reason points at the missing args vector")
+      (is (re-find #"reg-view\*" reason)
+          ":reason points the user at the reg-view* escape hatch"))))
 
 (deftest reg-view-rejects-create-class-body
   (testing "(reg-view sym (reagent.core/create-class …)) — a list where the
             args vector should be — throws at macroexpand"
-    (let [exp-fn (fn []
-                   (eval `(rf/reg-view bad-cc (reagent.core/create-class {}))))
-          err    (try (exp-fn) nil
-                      (catch Exception e
-                        (or (some-> e .getCause .getMessage)
-                            (.getMessage e))))]
-      (is (some? err)
+    (let [reason (reg-view-error-reason
+                   (fn [] (eval `(rf/reg-view bad-cc (reagent.core/create-class {})))))]
+      (is (some? reason)
           "macroexpand throws when the second arg is a create-class call")
-      (is (re-find #"args vector" err)
-          "the message points at the missing args vector")
-      (is (re-find #"reg-view\*" err)
-          "the message points the user at the reg-view* escape hatch"))))
+      (is (re-find #"args vector" reason)
+          ":reason points at the missing args vector")
+      (is (re-find #"reg-view\*" reason)
+          ":reason points the user at the reg-view* escape hatch"))))
 
 (deftest reg-view-rejects-computed-body
   (testing "(reg-view sym (some-fn-returning-a-fn)) — a non-fn call where
             the args vector should be — throws at macroexpand"
-    (let [exp-fn (fn []
-                   (eval `(rf/reg-view bad-comp (~'compute-render-fn))))
-          err    (try (exp-fn) nil
-                      (catch Exception e
-                        (or (some-> e .getCause .getMessage)
-                            (.getMessage e))))]
+    (let [err (reg-view-error-reason
+                (fn [] (eval `(rf/reg-view bad-comp (~'compute-render-fn)))))]
       (is (some? err)
           "macroexpand throws when the second arg is a non-fn call")
       (is (re-find #"args vector" err)
@@ -122,20 +138,24 @@
 ;; ---- error message template ----------------------------------------------
 
 (deftest reg-view-error-message-matches-template
-  (testing "the compile-error message follows the documented template"
-    (let [err (try (eval `(rf/reg-view broken ~'naked-symbol))
-                   nil
-                   (catch Exception e
-                     (or (some-> e .getCause .getMessage)
-                         (.getMessage e))))]
-      (is (some? err))
-      (is (re-find #"reg-view second argument must be an args vector" err)
+  (testing "the canonical :reason follows the documented template; the
+            message string is the stringified discriminator kw"
+    (let [{:keys [reason id]}
+          (try (eval `(rf/reg-view broken ~'naked-symbol))
+               nil
+               (catch Throwable e
+                 (let [d (ex-data-in-chain e)]
+                   {:reason (:reason d)
+                    :id     (:rf.error/id d)})))]
+      (is (= :rf.error/reg-view-bad-args id)
+          ":rf.error/id is the canonical discriminator")
+      (is (re-find #"reg-view's second argument must be an args vector" reason)
           "leading clause matches the template")
-      (is (re-find #"defn-shape" err)
+      (is (re-find #"defn-shape" reason)
           "mentions defn-shape")
-      (is (re-find #"For runtime registration, use" err)
+      (is (re-find #"For runtime registration, use" reason)
           "directs the user to the escape hatch")
-      (is (re-find #"reg-view\*" err)
+      (is (re-find #"reg-view\*" reason)
           "names reg-view* explicitly"))))
 
 ;; ---- docstring slot ------------------------------------------------------

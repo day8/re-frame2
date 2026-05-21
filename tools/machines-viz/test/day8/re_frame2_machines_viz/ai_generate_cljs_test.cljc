@@ -128,7 +128,7 @@
                nil
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is ex)
-      (is (= :ai-generate/no-resolver (:reason (ex-data ex)))))))
+      (is (= :ai-generate/no-resolver (:rf.error/id (ex-data ex)))))))
 
 (deftest generate-with-non-string-resolver-response-throws-parse-failed
   (testing "resolver returning a non-string throws :parse-failed"
@@ -138,7 +138,7 @@
                nil
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is ex)
-      (is (= :ai-generate/parse-failed (:reason (ex-data ex)))))))
+      (is (= :ai-generate/parse-failed (:rf.error/id (ex-data ex)))))))
 
 (deftest generate-with-unparseable-edn-throws-parse-failed
   (testing "resolver returning malformed EDN throws :parse-failed"
@@ -148,7 +148,7 @@
                nil
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is ex)
-      (is (= :ai-generate/parse-failed (:reason (ex-data ex)))))))
+      (is (= :ai-generate/parse-failed (:rf.error/id (ex-data ex)))))))
 
 (deftest generate-with-non-machine-spec-throws-invalid-spec
   (testing "resolver returning valid EDN that isn't a machine shape
@@ -159,7 +159,7 @@
                nil
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is ex)
-      (is (= :ai-generate/invalid-spec (:reason (ex-data ex)))))))
+      (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex)))))))
 
 (deftest generate-with-non-map-spec-throws-invalid-spec
   (testing "resolver returning a vector / number / string throws :invalid-spec"
@@ -170,7 +170,7 @@
                  nil
                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
         (is ex (str "expected ex for " bad))
-        (is (= :ai-generate/invalid-spec (:reason (ex-data ex))))))))
+        (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex))))))))
 
 (deftest generate-rejects-parallel-without-regions
   (testing ":type :parallel without :regions throws :invalid-spec"
@@ -180,7 +180,7 @@
                nil
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is ex)
-      (is (= :ai-generate/invalid-spec (:reason (ex-data ex)))))))
+      (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; End-to-end — generated specs work with the rest of the substrate

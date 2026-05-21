@@ -93,12 +93,18 @@
            slot-meta (dissoc sym-meta :rf/id)]
        (when (nil? parsed)
          (throw (ex-info
-                  (str "reg-view second argument must be an args vector "
-                       "(defn-shape: (reg-view sym [args] body)). Got "
-                       (describe-reg-view-bad-second-arg (first more))
-                       ". For runtime registration, use "
-                       "(re-frame.core/reg-view* :id render-fn).")
-                  {:sym sym :got (first more) :args-after-sym (vec more)})))
+                  ":rf.error/reg-view-bad-args"
+                  {:rf.error/id    :rf.error/reg-view-bad-args
+                   :where          'rf/reg-view
+                   :recovery       :fix-registration
+                   :reason         (str "reg-view's second argument must be an args vector "
+                                        "(defn-shape: (reg-view sym [args] body)). Got "
+                                        (describe-reg-view-bad-second-arg (first more))
+                                        ". For runtime registration, use "
+                                        "(re-frame.core/reg-view* :id render-fn).")
+                   :sym            sym
+                   :got            (first more)
+                   :args-after-sym (vec more)})))
        (let [{:keys [docstring args body]} parsed
              form-tag (reagent-slim-form-tag body)
              def-form (if docstring
@@ -164,10 +170,15 @@
        ;; runtime error far from the call site.
        (vector? bindings)
        (throw (ex-info
-                (str "with-frame: vector binding must be [sym expr] (Shape 2). "
-                     "Got " (count bindings) " element"
-                     (when-not (= 1 (count bindings)) "s") ".")
-                {:got bindings :count (count bindings)}))
+                ":rf.error/with-frame-bad-binding"
+                {:rf.error/id :rf.error/with-frame-bad-binding
+                 :where       'rf/with-frame
+                 :recovery    :fix-registration
+                 :reason      (str "with-frame's vector binding must be [sym expr] (Shape 2). "
+                                   "Got " (count bindings) " element"
+                                   (when-not (= 1 (count bindings)) "s") ".")
+                 :got         bindings
+                 :count       (count bindings)}))
 
        :else
        `(binding [re-frame.frame/*current-frame* ~bindings]

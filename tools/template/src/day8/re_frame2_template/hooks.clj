@@ -53,13 +53,22 @@
             (symbol? raw)  (keyword (name raw))
             (string? raw)  (keyword (string/replace raw #"^:" ""))
             :else
-            (throw (ex-info (str "Unrecognised :substrate value: " (pr-str raw))
-                            {:substrate raw})))]
+            (throw (ex-info ":rf.error/template-unrecognised-substrate"
+                            {:rf.error/id :rf.error/template-unrecognised-substrate
+                             :where     'template/coerce-substrate
+                             :recovery  :fix-registration
+                             :reason    (str "unrecognised :substrate value: " (pr-str raw))
+                             :substrate raw})))]
     (when-not (valid-substrates s)
-      (throw (ex-info (str ":substrate must be one of "
-                           (pr-str valid-substrates)
-                           " (got " (pr-str s) ")")
-                      {:substrate s :valid valid-substrates})))
+      (throw (ex-info ":rf.error/template-substrate-must-be-one-of"
+                      {:rf.error/id :rf.error/template-substrate-must-be-one-of
+                       :where     'template/coerce-substrate
+                       :recovery  :fix-registration
+                       :reason    (str ":substrate must be one of "
+                                       (pr-str valid-substrates)
+                                       " (got " (pr-str s) ")")
+                       :substrate s
+                       :valid     valid-substrates})))
     s))
 
 ;; -- :include-story? coercion ----------------------------------------------
@@ -74,9 +83,13 @@
     (true? raw)         true
     (false? raw)        false
     :else
-    (throw (ex-info (str ":include-story? must be true or false (got "
-                         (pr-str raw) ")")
-                    {:include-story? raw}))))
+    (throw (ex-info ":rf.error/template-bad-include-story-flag"
+                    {:rf.error/id :rf.error/template-bad-include-story-flag
+                     :where     'template/coerce-include-story?
+                     :recovery  :fix-registration
+                     :reason    (str ":include-story? must be true or false (got "
+                                     (pr-str raw) ")")
+                     :include-story? raw}))))
 
 ;; -- name derivations ------------------------------------------------------
 ;;
@@ -145,12 +158,16 @@
         include-story?  (coerce-include-story? (:include-story? data))
         _               (when (and include-story? (not= substrate :reagent))
                           (throw (ex-info
-                                   (str ":include-story? is Reagent-only in v1 "
-                                        "(got :substrate " substrate
-                                        "). UIx + Helix variants follow once "
-                                        "Story's adapter coverage matches "
-                                        "Reagent's.")
-                                   {:substrate substrate
+                                   ":rf.error/template-include-story-reagent-only"
+                                   {:rf.error/id :rf.error/template-include-story-reagent-only
+                                    :where     'template/data-fn
+                                    :recovery  :fix-registration
+                                    :reason    (str ":include-story? is Reagent-only in v1 "
+                                                    "(got :substrate " substrate
+                                                    "). UIx + Helix variants follow once "
+                                                    "Story's adapter coverage matches "
+                                                    "Reagent's.")
+                                    :substrate substrate
                                     :include-story? include-story?})))
         substrate-nm    (name substrate)
         top             (:top data)

@@ -58,10 +58,10 @@
         {:tags "not-a-set"})                         ; :tags must be a set
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error (ex-data e)))
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e)))
             "ex-data carries the :rf.error/variant-shape sentinel")
-        (is (re-find #"variant schema" (.getMessage e))
-            "message names the failing kind")))))
+        (is (re-find #"variant schema" (:reason (ex-data e)))
+            ":reason names the failing kind")))))
 
 (deftest reg-workspace-bad-shape-carries-error-key
   (testing "an invalid workspace body raises with :rf.error in ex-data"
@@ -70,8 +70,8 @@
         {:layout :unknown-layout})                   ; :layout must be one of five
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/workspace-shape (:rf.error (ex-data e))))
-        (is (re-find #"workspace schema" (.getMessage e)))))))
+        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))
+        (is (re-find #"workspace schema" (:reason (ex-data e))))))))
 
 (deftest reg-workspace-isolation-slot-accepts-both-values
   ;; rf2-gqid4 — the optional `:isolation` slot accepts `:isolated`
@@ -89,7 +89,7 @@
         {:layout :variants-grid :isolation :sandboxed})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/workspace-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-decorator-bad-shape-carries-error-key
   (testing "an invalid decorator body raises with :rf.error in ex-data"
@@ -98,7 +98,7 @@
         {:kind :not-a-decorator-kind})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/decorator-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/decorator-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-tag-bad-shape-carries-error-key
   (testing "an invalid tag body raises with :rf.error in ex-data"
@@ -107,7 +107,7 @@
         {:default-filter :sometimes})                ; only :include / :exclude
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/tag-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/tag-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-mode-bad-shape-carries-error-key
   (testing "an invalid mode body raises with :rf.error in ex-data"
@@ -116,7 +116,7 @@
         {:args "not-a-map"})                         ; :args must be a map
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/mode-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/mode-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-story-panel-bad-shape-carries-error-key
   (testing "an invalid story-panel body raises with :rf.error in ex-data"
@@ -126,7 +126,7 @@
          :render    :some/view})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/story-panel-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/story-panel-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
 ;; rf2-tl7zk — :plays multi-play schema contract
@@ -151,7 +151,7 @@
          :plays  []})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-variant-plays-without-name-rejected
   (testing "each :plays entry must carry a :name"
@@ -161,7 +161,7 @@
          :plays  [{:script [[:dispatch [:foo]]]}]})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-variant-plays-duplicate-names-rejected
   (testing ":plays entries must have unique :name values"
@@ -172,7 +172,7 @@
                   {:name "p" :script [[:dispatch [:b]]]}]})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-variant-play-script-and-plays-mutually-exclusive
   (testing "a variant may not declare BOTH :play-script and :plays"
@@ -183,7 +183,7 @@
          :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
 ;; UNKNOWN-TAG CONTRACT — tag-vocab cross-check error carries the offending set
@@ -197,7 +197,7 @@
          :tags   #{:dev :totally-made-up :also-fake}})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/unknown-tag (:rf.error (ex-data e))))
+        (is (= :rf.error/unknown-tag (:rf.error/id (ex-data e))))
         (let [unknown (set (:unknown (ex-data e)))]
           (is (contains? unknown :totally-made-up))
           (is (contains? unknown :also-fake))
@@ -216,7 +216,7 @@
          :events  []})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/extends-unknown (:rf.error (ex-data e))))
+        (is (= :rf.error/story-extends-unknown (:rf.error/id (ex-data e))))
         (is (= :story.x/no-such-parent (:parent (ex-data e))))))))
 
 ;; ===========================================================================
@@ -230,14 +230,16 @@
       (story/reg-variant* "not-a-keyword" {:events []})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-id-shape (:rf.error (ex-data e))))
-        (is (re-find #"canonical id grammar" (.getMessage e)))))))
+        (is (= :rf.error/variant-id-shape (:rf.error/id (ex-data e))))
+        (is (re-find #"canonical id grammar" (:reason (ex-data e))))))))
 
 (deftest reg-workspace-bad-id-grammar-rejected
   (testing "a workspace id outside :Workspace.<path>/<name> is rejected"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"canonical id grammar"
-                          (story/reg-workspace* :NotAWorkspaceId {:layout :variants-grid})))))
+    (let [e (try (story/reg-workspace* :NotAWorkspaceId {:layout :variants-grid})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/workspace-id-shape (:rf.error/id (ex-data e))))
+      (is (re-find #"canonical id grammar" (:reason (ex-data e)))))))
 
 ;; ===========================================================================
 ;; SOURCE-COORD STAMPING — END-TO-END VIA THE FORM-B EXPANSION
@@ -292,14 +294,18 @@
 ;; a malformed registry id.
 
 (deftest variant-id-for-rejects-non-keyword-story-id
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"story id must be a keyword"
-                        (macros/variant-id-for "story.foo" :a))))
+  (let [e (try (macros/variant-id-for "story.foo" :a)
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :rf.error/story-bad-id (:rf.error/id (ex-data e))))
+    (is (re-find #"story id must be a keyword" (:reason (ex-data e))))))
 
 (deftest variant-id-for-rejects-non-keyword-variant-name
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"variant-name in :variants map"
-                        (macros/variant-id-for :story.foo "a"))))
+  (let [e (try (macros/variant-id-for :story.foo "a")
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :rf.error/story-bad-variant-name (:rf.error/id (ex-data e))))
+    (is (re-find #"variant-name in :variants map" (:reason (ex-data e))))))
 
 (deftest variant-id-for-builds-canonical-id
   (testing "the canonical :story.<path>/<variant> id shape"

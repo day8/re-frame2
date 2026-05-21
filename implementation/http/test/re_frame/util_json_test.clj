@@ -4,8 +4,9 @@
   Beads:
    - rf2-wu1n5 — JSON keyword-interning DoS: cap on unique keys decoded
                  (configurable via `:max-decoded-keys` option per call).
-                 Overflow throws `:rf.error/malformed-json :reason :too-many-keys`,
-                 which the `:rf.http/managed` cascade classifies as
+                 Overflow throws `:rf.error/id :rf.error/malformed-json`
+                 with `:cause :too-many-keys`, which the
+                 `:rf.http/managed` cascade classifies as
                  `:rf.http/decode-failure`.
    - rf2-dgsu1 — Cheshire is a hard JVM dep (no fallback reader). Native
                  Cheshire `JsonParseException`s propagate to the transport
@@ -45,8 +46,10 @@
                      (ex-data thrown))]
         (is (instance? clojure.lang.ExceptionInfo thrown)
             "expected ex-info when key-count exceeds cap")
-        (is (= :rf.error/malformed-json (:kind data)))
-        (is (= :too-many-keys (:reason data)))
+        (is (= :rf.error/malformed-json (:rf.error/id data)))
+        (is (= :too-many-keys (:cause data)))
+        (is (string? (:reason data))
+            ":reason is a human-readable sentence (canonical shape)")
         (is (= 10 (:limit data)))))))
 
 (deftest default-cap-enforced-at-default-max
@@ -63,8 +66,8 @@
                    (ex-data thrown))]
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "10001-key payload with no opts must trip the default cap")
-      (is (= :rf.error/malformed-json (:kind data)))
-      (is (= :too-many-keys (:reason data)))
+      (is (= :rf.error/malformed-json (:rf.error/id data)))
+      (is (= :too-many-keys (:cause data)))
       (is (= util-json/default-max-decoded-keys (:limit data))))))
 
 (deftest cap-counts-unique-not-total

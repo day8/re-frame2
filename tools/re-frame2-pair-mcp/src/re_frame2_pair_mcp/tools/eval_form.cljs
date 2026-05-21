@@ -126,8 +126,13 @@
   ;; Binding names must be symbols — they appear verbatim in the source
   ;; (no quoting) so body forms can refer to them by name.
   (when-not (symbol? n)
-    (throw (ex-info "rt-let binding name must be a symbol"
-                    {:name n :type (type n)})))
+    (throw (ex-info ":rf.error/pair-mcp-rt-let-binding-bad-shape"
+                    {:rf.error/id :rf.error/pair-mcp-rt-let-binding-bad-shape
+                     :where    'pair-mcp/rt-let
+                     :recovery :no-recovery
+                     :reason   "rt-let binding name must be a symbol"
+                     :name     n
+                     :type     (type n)})))
   (name n))
 
 (defn- emit-body [forms]

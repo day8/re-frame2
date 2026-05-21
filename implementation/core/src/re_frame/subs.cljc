@@ -87,8 +87,13 @@
 
         :else
         (throw (ex-info
-                 "reg-sub: bad args — expected layer-1 (handler-fn), layer-2 single (:<- [:upstream] handler-fn), or layer-2 multi (:<- [:a] :<- [:b] handler-fn)"
-                 {:id id :remaining remaining}))))))
+                 ":rf.error/reg-sub-bad-args"
+                 {:rf.error/id :rf.error/reg-sub-bad-args
+                  :where       'rf/reg-sub
+                  :recovery    :fix-registration
+                  :reason      "reg-sub expects layer-1 (handler-fn), layer-2 single (:<- [:upstream] handler-fn), or layer-2 multi (:<- [:a] :<- [:b] handler-fn)"
+                  :id          id
+                  :remaining   remaining}))))))
 
 (defn reg-sub
   "Register a subscription under `id`. The only sub-registration form

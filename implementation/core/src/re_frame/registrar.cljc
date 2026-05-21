@@ -244,8 +244,13 @@
   surface — `(rf2-6w7zn)`."
   [kind id metadata]
   (when-not (valid-kind? kind)
-    (throw (ex-info (str "re-frame2: unknown registry kind: " kind)
-                    {:kind kind :id id})))
+    (throw (ex-info ":rf.error/unknown-registry-kind"
+                    {:rf.error/id :rf.error/unknown-registry-kind
+                     :where       'rf/register-handler
+                     :recovery    :fix-registration
+                     :reason      (str "unknown registry kind " kind " — not one of the registered registry kinds")
+                     :kind        kind
+                     :id          id})))
   ;; Always-on error-coord parallel registry (rf2-3un2g §Production
   ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
   ;; carries the captured coord-map (slim in CLJS prod — no `:column`).

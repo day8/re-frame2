@@ -197,8 +197,11 @@
   (when validate-patches?
     (when-let [validate (resolve-malli-validate)]
       (when-not (validate patches-schema patches)
-        (throw (ex-info "diff-encode patch grammar violated"
-                        {:rf.error/code  :rf.error/bad-diff-patches
+        (throw (ex-info ":rf.error/bad-diff-patches"
+                        {:rf.error/id    :rf.error/bad-diff-patches
+                         :where          'mcp-base/diff-encode-db-after
+                         :recovery       :no-recovery
+                         :reason         "diff-encode patch grammar violated"
                          :schema         patches-schema
                          :patches        patches})))))
   nil)
@@ -212,8 +215,11 @@
   (when validate-patches?
     (when-let [validate (resolve-malli-validate)]
       (when-not (validate sections-schema sections)
-        (throw (ex-info "diff-encode section grammar violated"
-                        {:rf.error/code :rf.error/bad-diff-sections
+        (throw (ex-info ":rf.error/bad-diff-sections"
+                        {:rf.error/id   :rf.error/bad-diff-sections
+                         :where         'mcp-base/diff-encode-db-after
+                         :recovery      :no-recovery
+                         :reason        "diff-encode section grammar violated"
                          :schema        sections-schema
                          :sections      sections})))))
   nil)

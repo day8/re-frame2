@@ -109,10 +109,16 @@
                                                  (fn []
                                                    (try (.abort internal-controller "timeout")
                                                         (catch :default _ nil))
-                                                   (reject (ex-info "timeout"
-                                                                    {:rf.http/timeout? true
-                                                                     :elapsed-ms timeout-ms
-                                                                     :limit-ms timeout-ms})))
+                                                   (reject (ex-info ":rf.error/http-timeout"
+                                                                    {:rf.error/id      :rf.error/http-timeout
+                                                                     :where            ':rf.http/managed
+                                                                     :recovery         :no-recovery
+                                                                     :reason           (str "the request exceeded its " timeout-ms "ms timeout and was aborted")
+                                                                     ;; co-stamp the registry-hook signal the
+                                                                     ;; downstream classifier branches on
+                                                                     :rf.http/timeout? true
+                                                                     :elapsed-ms       timeout-ms
+                                                                     :limit-ms         timeout-ms})))
                                                  timeout-ms)))))])
                (.then (fn [resp]
                         (when-let [h @timeout-handle] (js/clearTimeout h))
@@ -680,7 +686,8 @@
                :body-text                  body-text
                :cause                      #?(:clj (.getMessage ^Throwable e)
                                               :cljs (.-message e))
-               :schema-validation-failure? (boolean (:malli-error? d))}))))
+               :schema-validation-failure? (= :rf.error/http-schema-validation-failed
+                                              (:rf.error/id d))}))))
 
       :else
       ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx that the

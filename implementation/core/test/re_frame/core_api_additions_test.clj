@@ -133,16 +133,20 @@
       (let [e (try (expand [] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) "[] must throw")
-        (is (re-find #"with-frame: vector binding must be \[sym expr\]"
-                     (.getMessage ^Throwable e))
-            "the message carries the structured reason"))
+        (is (= :rf.error/with-frame-bad-binding (:rf.error/id (ex-data e)))
+            ":rf.error/id is the canonical discriminator")
+        (is (re-find #"with-frame's vector binding must be \[sym expr\]"
+                     (:reason (ex-data e)))
+            ":reason carries the structured explanation"))
       ;; 3-element vector — typo of `[sym expr]` with extra tail.
       (let [e (try (expand '[f g h] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) "[f g h] must throw")
-        (is (re-find #"with-frame: vector binding must be \[sym expr\]"
-                     (.getMessage ^Throwable e))
-            "the message carries the structured reason")))))
+        (is (= :rf.error/with-frame-bad-binding (:rf.error/id (ex-data e)))
+            ":rf.error/id is the canonical discriminator")
+        (is (re-find #"with-frame's vector binding must be \[sym expr\]"
+                     (:reason (ex-data e)))
+            ":reason carries the structured explanation")))))
 
 ;; ===========================================================================
 ;; rf2-ewku — (rf/registrations kind pred-fn) filter arity

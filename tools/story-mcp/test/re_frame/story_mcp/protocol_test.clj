@@ -71,12 +71,12 @@
       (is (= 1 (:id m))))))
 
 (deftest json-parse-throws-on-malformed
-  (testing "malformed JSON throws ex-info with rf.error/parse-error"
+  (testing "malformed JSON throws ex-info with :rf.error/story-mcp-json-parse-failure"
     (try
       (proto/parse-json "{not json")
       (is false "should have thrown")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/parse-error (:rf.error (ex-data e))))))))
+        (is (= :rf.error/story-mcp-json-parse-failure (:rf.error/id (ex-data e))))))))
 
 (deftest json-encode-roundtrip
   (testing "encode then decode yields the same map (keywordised)"
@@ -117,7 +117,7 @@
         (proto/read-frame r)
         (is false "should have thrown")
         (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/parse-error (:rf.error (ex-data e)))))))))
+          (is (= :rf.error/story-mcp-json-parse-failure (:rf.error/id (ex-data e)))))))))
 
 (deftest write-frame-roundtrips
   (testing "write-frame appends a newline; round-trip via reader"

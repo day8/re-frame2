@@ -53,7 +53,10 @@
   ;; adapter is a programmer error worth surfacing loudly. Per Spec 006
   ;; §Plain-atom adapter and rf2-z1ke.
   (throw (ex-info ":rf.error/render-on-headless-adapter"
-                  {:reason "render is not supported on the SSR adapter; use render-to-string"})))
+                  {:rf.error/id :rf.error/render-on-headless-adapter
+                   :where    'rf/render
+                   :reason   "render is not supported on the SSR adapter; use render-to-string"
+                   :recovery :no-recovery})))
 
 (defn- ssr-register-context-provider [_frame-keyword]
   ;; No React context on the JVM; users thread frames as arguments per

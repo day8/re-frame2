@@ -72,7 +72,9 @@
       (let [v (get opts k)]
         (when (and (some? v) (not (string? v)))
           (throw (ex-info ":rf.error/ssr-trusted-shell-opt-invalid"
-                          {:reason   (str "ssr-handler / stream-handler " (pr-str k)
+                          {:rf.error/id :rf.error/ssr-trusted-shell-opt-invalid
+                           :where    'rf.ssr/trusted-shell
+                           :reason   (str "ssr-handler / stream-handler " (pr-str k)
                                           " must be a string (or nil) — the four "
                                           "trusted shell-hook opts ("
                                           (str/join ", " (map pr-str trusted-shell-string-opts))
