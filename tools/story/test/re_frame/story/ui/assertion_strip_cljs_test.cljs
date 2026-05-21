@@ -418,6 +418,63 @@
       (is (= 3 (count (into #{} keys)))
           "keys are unique strip-wide even across groups"))))
 
+;; ---- :key meta on the OUTER group seq (rf2-uhq5j / rf2-5lw9w-one-up) ------
+;;
+;; The strip nests two `for` seqs: outer groups → inner rows. The inner
+;; row keys are pinned above. The OUTER group element's
+;; `^{:key (str "group-" gi)}` (assertion_strip.cljs:468) was never
+;; asserted — a missing/duplicate group key warns in React exactly like
+;; the rf2-5lw9w row-key bug, one level up, and would slip past node-test
+;; the same way. These tests pin `(meta element) :key` on every group
+;; element so a regression there can't go silent.
+
+(defn- collect-group-seq-elements
+  "Walk `hiccup` and collect the outer group elements — the `[:div ...]`
+  vectors the group `for` produces, one per dispatching :event cluster.
+  Each carries `:data-test \"story-canvas-assertion-group\"` in its prop
+  map. Returns them in encounter order so callers can assert per-element
+  `:key` meta."
+  [hiccup]
+  (let [found (atom [])
+        group-element? (fn [x]
+                         (and (vector? x)
+                              (= :div (first x))
+                              (map? (second x))
+                              (= "story-canvas-assertion-group"
+                                 (:data-test (second x)))))]
+    (letfn [(walk [node]
+              (cond
+                (group-element? node) (swap! found conj node)
+                (vector? node)        (run! walk node)
+                (seq? node)           (run! walk node)
+                :else                 nil))]
+      (walk hiccup))
+    @found))
+
+(deftest assertion-strip-group-seq-elements-carry-key-meta
+  (testing "every outer group element carries a unique :key in its
+            metadata so React's GROUP seq is keyed — the rf2-5lw9w
+            failure mode one level up (the outer for over groups)"
+    (let [assertions [{:assertion :rf.assert/path-equals :passed? true
+                       :event [:click] :payload [[:c] 1]}
+                      {:assertion :rf.assert/path-equals :passed? false
+                       :event [:submit] :payload [[:c] 2] :reason "differ"}
+                      {:assertion :rf.assert/path-equals :passed? true
+                       :event [:reset] :payload [[:c] 3]}]
+          hiccup     (render-strip assertions)
+          groups     (collect-group-seq-elements hiccup)
+          keys       (map #(:key (meta %)) groups)]
+      (is (= 3 (count groups))
+          "one group element per dispatching event")
+      (is (every? vector? groups)
+          "group elements are vector literals — the :key sits on the
+           element React receives, not a call form")
+      (is (every? some? keys)
+          "every group element carries a :key in its metadata so React's
+           group seq is keyed (no missing-key warning)")
+      (is (= (count groups) (count (into #{} keys)))
+          ":key values are unique across the group seq"))))
+
 ;; ---- pure: value-display -------------------------------------------------
 
 (deftest value-display-short-no-clamp
