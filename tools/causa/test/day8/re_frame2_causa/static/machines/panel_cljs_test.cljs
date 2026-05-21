@@ -443,12 +443,13 @@
       (let [tree (panel/panel)]
         (is (some? (find-by-testid tree "rf-causa-machine-canvas-host"))
             "the chart is now wrapped in the interactive canvas-host")
-        (is (some? (find-by-testid tree "rf-causa-machine-canvas-toolbar"))
-            "controls toolbar (zoom / pan / fit) is present on static too")
-        ;; The inner SVG testid still resolves so existing static-panel
+        ;; rf2-gpzb4 (xyflow migration): the host-side controls toolbar
+        ;; is gone — xyflow renders its own `<Controls>` component
+        ;; inside the chart. The inner-testid still threads through
+        ;; via the `:inner-testid` prop so existing static-panel
         ;; selectors keep working.
         (is (some? (find-by-testid tree "rf-causa-static-machines-topology-svg"))
-            ":testid forwards through Chart to the SVG primitive")))))
+            ":inner-testid forwards through Chart to the xyflow root")))))
 
 (deftest topology-mode-omits-view-mode-toggle-on-static
   (testing "rf2-md9oz — Static surface already owns the per-machine

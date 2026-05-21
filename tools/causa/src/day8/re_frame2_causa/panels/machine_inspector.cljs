@@ -44,8 +44,6 @@
   enclosing `[rf/frame-provider {:frame :rf/causa}]` in `shell.cljs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.chart.layout :as chart-layout]
-            [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
-            [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
@@ -161,29 +159,14 @@
   overlay (on the chart)."
   [{:keys [machine-id from-state to-state on-event event microstep?
            definition guards actions]}]
+  ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
+  ;; layout dance (layout-or-fallback / ensure-elk! / compute-layout!)
+  ;; is GONE. xyflow + elkjs now own positioning end-to-end inside
+  ;; `mv-chart/MachineChart`; the panel only computes the from/to
+  ;; node-ids for the focused-event lens highlight.
   (let [from-id    (when from-state (chart-layout/highlight-id from-state))
         to-id      (when to-state   (chart-layout/highlight-id to-state))
-        direction  :tb
-        positioned (when definition
-                     (elk-layout/layout-or-fallback definition direction))
-        engine     (if (and definition
-                            (some? (elk-layout/cached-layout
-                                     definition direction)))
-                     "elk"
-                     "layered")
-        _          (when definition
-                     (elk-layout/ensure-elk!
-                       (fn [_inst]
-                         (when (and (= :ready (elk-layout/elk-status))
-                                    (nil? (elk-layout/cached-layout
-                                            definition direction)))
-                           (elk-layout/compute-layout!
-                             definition direction
-                             (fn [chart-layout]
-                               (when chart-layout
-                                 (rf/dispatch
-                                   [:rf.causa/machine-chart-layout-pulse]
-                                   {:frame :rf/causa}))))))))]
+        engine     "xyflow+elkjs"]
     [:section
      {:data-testid (str "rf-causa-machine-focused-event-section-"
                         (when machine-id
@@ -288,10 +271,10 @@
             ;; controls toolbar). The adapter owns the after-rings
             ;; overlay so they stay co-located with the canvas.
             [machine-canvas/Chart
-             {:positioned         positioned
+             {:definition         definition
               :machine-id         machine-id
-              :from-highlight-id  from-id
-              :to-highlight-id    to-id
+              :from-highlight     from-state
+              :to-highlight       to-state
               :on-state-click     (fn [path]
                                     (rf/dispatch
                                       [:rf.causa/machine-state-clicked

@@ -111,7 +111,14 @@
 (deftest static-machines-panel-mounts-with-browse-list-and-topology
   (testing "rf2-1laqx — with a host machine registered, the Static
             Machines panel mounts a non-empty browse-list AND a
-            Topology chart with ≥ 1 <g> layout-node child."
+            Topology chart hosting the machines-viz xyflow chart.
+
+            Post-rf2-gpzb4 (2026-05-21 xyflow migration): the chart
+            is rendered by `mv-chart/MachineChart`, a Reagent
+            component. Hiccup-level inspection sees the component
+            placeholder + its outer wrapper testids (chart wrapper +
+            inner-testid). The xyflow node groups themselves are
+            React-internal — covered by browser-side tests."
     (e2e/with-host-and-causa-frames
       {:install-host deep-machine/install-and-init!}
       (fn []
@@ -121,8 +128,8 @@
               rows    (row-buttons tree)
               chart   (th/find-by-attr tree :data-testid
                                        "rf-causa-static-machines-topology-chart")
-              g-nodes (th/find-by-attr-prefix tree :data-testid
-                                              "rf-mv-chart-")]
+              chart-inner (th/find-by-attr tree :data-testid
+                                           "rf-causa-static-machines-topology-svg")]
           (is (some? panel)
               "Static Machines L4 panel did not mount — :rf.causa/mode :static + default :machines sub-tab should yield the panel")
           (is (pos? (count rows))
@@ -130,12 +137,11 @@
                    "for the host's :deep/main registration"))
           (is (some? chart)
               "Topology chart wrapper missing — Topology is the default sub-mode and a definition IS registered for :deep/main")
-          (is (pos? (count g-nodes))
-              (str "Topology SVG has zero <g> layout nodes — machines-viz "
-                   "shim integrity regression per rf2-o9arp. (machines-viz "
-                   "mints :g hiccup carrying :data-testid prefix "
-                   "'rf-mv-chart-' for compounds / nodes / edges / "
-                   "viewport.)")))))))
+          (is (some? chart-inner)
+              (str "Topology xyflow chart wrapper missing — machines-viz "
+                   "shim integrity regression. The canvas wrapper must "
+                   "thread the inner-testid `rf-causa-static-machines-"
+                   "topology-svg` to the xyflow chart placeholder.")))))))
 
 (deftest static-machines-sub-strip-default-states
   (testing "rf2-1laqx — the 4-mode sub-strip mounts with Topology
@@ -165,7 +171,7 @@
           (is (true? (:disabled (th/attrs cascade)))
               "Cascade pill should carry the HTML disabled attribute so the click is a no-op"))))))
 
-(deftest static-machines-first-row-jump-flips-mode-and-opens-runtime-machines-tab
+(deftest static-machines-first-row-jump-flips-mode-and-opens-dynamic-machines-tab
   (testing "rf2-1laqx — the first row's → Dynamic JUMP chip fires
             the three-event handoff (set-mode :dynamic + select-tab
             :machines + select-machine-id <mid>) so the user lands

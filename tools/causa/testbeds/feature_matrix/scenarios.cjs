@@ -1437,15 +1437,16 @@ async function runDeepMachine(page, state) {
   state.deepMachine = state.deepMachine || {};
   state.deepMachine.chartInjection = chartInjection;
 
-  // rf2-bz72m — assert the machines-viz chart SVG actually renders.
-  // The chart layer was extracted into `tools/machines-viz/` under
-  // #1570 (rf2-o9arp); Causa retains thin re-export shims under
-  // `tools/causa/src/.../chart/{svg,layout,elk_layout}.{cljs,cljc}`.
-  // The pre-bead assertion only checked the panel mounts — a broken
-  // re-export shim would silently degrade the chart while the panel
-  // still mounted. Here we walk the inspector down to the canvas + SVG
-  // and assert layout-node groups rendered (proves ELK layout ran +
-  // the machines-viz primitive resolved through the shim chain).
+  // rf2-bz72m / rf2-gpzb4 — assert the machines-viz xyflow chart
+  // actually renders. The chart was migrated to `@xyflow/react` on
+  // 2026-05-21 (Mike override of the 2026-05-19 ELK+SVG lock); the
+  // canvas is no longer a raw `<svg>` but an xyflow `<div
+  // class="react-flow">` containing per-node child `<div>`s. The
+  // assertion now counts (1) the chart wrapper testid, (2) the
+  // xyflow root class, and (3) at least one rendered state node
+  // (`[data-testid^="rf-mv-chart-node-"]`) — non-zero proves elk.js
+  // laid out + xyflow rendered + the machines-viz custom node
+  // components resolved through the shim chain.
   let chartProjection = null;
   try {
     chartProjection = await waitForValue(
@@ -1455,40 +1456,32 @@ async function runDeepMachine(page, state) {
         const canvasHosts = Array.from(
           root.querySelectorAll('[data-testid="rf-causa-machine-canvas-host"]'),
         );
-        const svgs = Array.from(
-          root.querySelectorAll('[data-testid="rf-mv-chart-svg"]'),
+        const chartWrappers = Array.from(
+          root.querySelectorAll('[data-testid="rf-mv-chart"]'),
         );
-        const firstSvg = svgs[0] || null;
-        // The chart-svg primitive emits node groups under a
-        // `rf-mv-chart-nodes` container (machines-viz chart/svg.cljc).
-        // A non-zero count is the canonical proof that ELK layout
-        // produced positions + the machines-viz <g> emitters ran. We
-        // also fall back to counting all child <g> as a loose lower
-        // bound in case the testid is renamed in a future tweak.
-        const nodeGroupContainer = firstSvg
-          ? firstSvg.querySelector('[data-testid="rf-mv-chart-nodes"]')
-          : null;
-        const nodeGroupCount = nodeGroupContainer
-          ? nodeGroupContainer.querySelectorAll('g').length
-          : 0;
-        const totalGChildren = firstSvg ? firstSvg.querySelectorAll('g').length : 0;
+        // xyflow's canvas root carries the `.react-flow` class —
+        // distinctive enough that a non-zero count proves xyflow
+        // mounted (and elk laid out, since fitView only fires
+        // post-layout).
+        const flowRoots = Array.from(root.querySelectorAll('.react-flow'));
+        const nodeEls = Array.from(
+          root.querySelectorAll('[data-testid^="rf-mv-chart-node-"]'),
+        );
         return {
           canvasHostCount: canvasHosts.length,
-          svgCount: svgs.length,
-          svgTagName: firstSvg ? firstSvg.tagName.toLowerCase() : null,
-          svgTestId: firstSvg ? firstSvg.getAttribute('data-testid') : null,
-          nodeGroupCount,
-          totalGChildren,
+          chartWrapperCount: chartWrappers.length,
+          flowRootCount: flowRoots.length,
+          nodeCount: nodeEls.length,
         };
       }),
       (projection) =>
-        projection.svgCount > 0 &&
-        projection.svgTagName === 'svg' &&
-        (projection.nodeGroupCount > 0 || projection.totalGChildren > 0),
+        projection.canvasHostCount > 0 &&
+        projection.flowRootCount > 0 &&
+        projection.nodeCount > 0,
       {
         timeoutMs: 15000,
         description:
-          'machines-viz chart SVG renders with layout-node groups under the inspector',
+          'machines-viz xyflow chart mounts with at least one rendered state node under the inspector',
       },
     );
   } catch (waitErr) {

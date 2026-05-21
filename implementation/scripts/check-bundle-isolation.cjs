@@ -402,6 +402,30 @@ const ARTEFACTS = [
     consumerAllowList: null,
     expectedAllowListHits: 0,
   },
+
+  // elkjs (rf2-gpzb4 — Mike's 2026-05-21 xyflow override; elk.js
+  // runs as xyflow's layout engine inside the MachineChart). Same
+  // posture as xyflow: dev-only, used only by
+  // `tools/machines-viz/src/.../chart.cljs` and gated behind the
+  // Causa preload. Production bundles MUST NOT pull elkjs — it's
+  // ~1MB minified, ~250KB gzipped.
+  //
+  // Sentinel is a distinctive elk.js internal symbol that survives
+  // `:advanced`. `elk.algorithm` appears in elk's options-handling
+  // code as a literal string and in the layoutOptions keys the
+  // chart emits; presence in a production bundle means elk.js got
+  // dragged in.
+  {
+    name: 'elkjs',
+    internalSentinels: [
+      { source: 'elk.js algorithm-key string literal (elk.algorithm)',
+        sentinel: 'elk.algorithm' },
+      { source: 'elk.js layered-spacing-key string literal (elk.layered.spacing)',
+        sentinel: 'elk.layered.spacing' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
 ];
 
 // ----- helpers ---------------------------------------------------------------

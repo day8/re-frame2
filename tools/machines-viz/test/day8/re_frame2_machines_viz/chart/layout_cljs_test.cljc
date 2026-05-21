@@ -1,10 +1,11 @@
 (ns day8.re-frame2-machines-viz.chart.layout-cljs-test
-  "Pure-data tests for the chart-layout primitive (rf2-2tkza Phase 1;
-  relocated to machines-viz under rf2-o9arp).
+  "Pure-data tests for the chart-layout graph projector.
 
-  Dual-target convention: `.cljc` + `_cljs_test` ns name so the
-  Cognitect runner (CLJ) and Shadow's `:node-test` build both pick
-  it up via their default suffix regex."
+  Post rf2-gpzb4 (2026-05-21 xyflow migration) — the SVG-side
+  positioning primitives (`layout`, `layered-fallback`, `:x`/`:y`/
+  `:rank` on nodes, `:points` on edges) are gone; xyflow + elkjs own
+  positioning. This suite pins the substrate-agnostic graph parse
+  surface that survived the migration."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-machines-viz.chart.layout :as layout]))
@@ -51,6 +52,26 @@
     (is (contains? edge-pairs [[:loading] [:success] :ok]))
     (is (contains? edge-pairs [[:loading] [:failed] :err]))))
 
+(deftest parse-definition-emits-xyflow-shaped-edges
+  (testing "rf2-gpzb4 xyflow migration — every edge has :id, :source,
+            :target string ids (xyflow contract) AND :from-path,
+            :to-path vectors (substrate-side contract)"
+    (let [{:keys [edges]} (layout/parse-definition idle-loading-success)]
+      (is (every? :id edges)         "every edge has a stable string id")
+      (is (every? :source edges)     "every edge has :source (string)")
+      (is (every? :target edges)     "every edge has :target (string)")
+      (is (every? :from-path edges)  "every edge has :from-path (vector)")
+      (is (every? :to-path edges)    "every edge has :to-path (vector)")
+      (is (every? :event-label edges) "every edge has the xstate label"))))
+
+(deftest parse-definition-emits-xyflow-shaped-nodes
+  (testing "rf2-gpzb4 xyflow migration — every node has :id string
+            (xyflow contract) alongside :path (vector)"
+    (let [{:keys [nodes]} (layout/parse-definition idle-loading-success)]
+      (is (every? :id nodes))
+      (is (every? string? (map :id nodes)))
+      (is (every? :path nodes)))))
+
 (deftest parse-definition-extracts-compound-nodes
   (let [{:keys [nodes]} (layout/parse-definition compound-machine)
         paths (set (map :path nodes))
@@ -77,54 +98,6 @@
     (is (not (contains? paths [:x]))
         "v1 projects only the first region — :r2's nodes do not surface")))
 
-;; ---- layout ------------------------------------------------------------
-
-(deftest layout-empty-for-nil-definition
-  (let [g (layout/layout nil)]
-    (is (= [] (:nodes g)))
-    (is (= [] (:edges g)))
-    (is (pos? (:width g)))
-    (is (pos? (:height g)))))
-
-(deftest layout-positions-every-node
-  (let [g (layout/layout idle-loading-success)]
-    (is (= 4 (count (:nodes g))))
-    (doseq [n (:nodes g)]
-      (is (integer? (:x n)) (str "node " (:path n) " missing :x"))
-      (is (integer? (:y n)) (str "node " (:path n) " missing :y"))
-      (is (pos? (:width n)))
-      (is (pos? (:height n)))
-      (is (string? (:node-id n))))))
-
-(deftest layout-stratifies-by-rank-from-initial
-  (testing "initial state sits at rank 0 (top row); BFS ranks grow downward"
-    (let [{:keys [nodes]} (layout/layout idle-loading-success)
-          rank-of (fn [path]
-                    (some (fn [n] (when (= (:path n) path) (:rank n)))
-                          nodes))]
-      (is (= 0 (rank-of [:idle])))
-      (is (= 1 (rank-of [:loading])))
-      (is (= 2 (rank-of [:success])))
-      (is (= 2 (rank-of [:failed]))))))
-
-(deftest layout-routes-edges-with-points
-  (let [{:keys [edges]} (layout/layout idle-loading-success)]
-    (is (every? :from-id edges))
-    (is (every? :to-id edges))
-    (is (every? (comp #(= 2 (count %)) :points) edges)
-        "straight-line edges carry two points each")
-    (is (every? :event-label edges)
-        "every edge has a human-readable event-label")))
-
-(deftest layout-unreached-nodes-still-render-at-rank-zero
-  (testing "a state with no inbound edges still appears in the layout"
-    (let [orphan {:initial :a
-                  :states  {:a       {}
-                            :orphan  {:on {:noop :a}}}}
-          {:keys [nodes]} (layout/layout orphan)]
-      (is (= 2 (count nodes)))
-      (is (some #(= [:orphan] (:path %)) nodes)))))
-
 ;; ---- highlight-id ------------------------------------------------------
 
 (deftest highlight-id-handles-flat-state
@@ -141,30 +114,11 @@
 (deftest highlight-id-nil-for-nil-state
   (is (nil? (layout/highlight-id nil))))
 
-;; ---- layered-fallback (rf2-m7co9 Phase 4) ----------------------------
-
-(deftest layered-fallback-matches-layout
-  (testing "rf2-m7co9 exports `layered-fallback` as an explicit alias
-            for the layered placement so consumer code can request the
-            fallback path by name (ELK is the new primary engine)."
-    (let [via-layout    (layout/layout idle-loading-success)
-          via-fallback  (layout/layered-fallback idle-loading-success)]
-      (is (= via-layout via-fallback)
-          "layered-fallback returns the exact same chart-layout shape
-           as `layout` — they're aliases by design"))))
-
-(deftest layered-fallback-handles-empty
-  (let [g (layout/layered-fallback nil)]
-    (is (= [] (:nodes g)))
-    (is (= [] (:edges g)))
-    (is (pos? (:width g)))
-    (is (pos? (:height g)))))
-
-;; ---- node-id (rf2-m7co9 Phase 4 — exported) --------------------------
+;; ---- node-id ----------------------------------------------------------
 
 (deftest node-id-is-public-fn
-  (testing "node-id is exported (no longer private) so the ELK adapter
-            can mint matching ids on the way through ELK's graph"
+  (testing "node-id is exported so xyflow + SCXML + Mermaid emitters
+            address nodes the same way"
     (is (string? (layout/node-id [:idle])))
     (is (= (layout/node-id [:idle])
            (layout/node-id [:idle]))
@@ -174,11 +128,10 @@
   (is (not= (layout/node-id [:authenticated])
             (layout/node-id [:authenticated :browsing]))))
 
-;; ---- edge-label (rf2-jeim7) xstate-stately convention ------------------
-;;
+;; ---- edge-label xstate-stately convention -----------------------------
+
 ;; Shape: `event [guard] / action`. Brackets + slash appear ONLY when
-;; their segment is present, per xstate-stately. Public so the layered
-;; engine + ELK adapter emit identical labels.
+;; their segment is present, per xstate-stately.
 
 (deftest edge-label-event-only
   (is (= "submit"
@@ -223,8 +176,8 @@
            (layout/edge-label {:event :submit
                                :guard :auth/authed?})))))
 
-(deftest layout-edges-carry-event-label-with-guard-and-action
-  (testing "layout/layout emits the full xstate label on every edge"
+(deftest parse-definition-emits-event-label-with-guard-and-action
+  (testing "parse-definition emits the full xstate label on every edge"
     (let [m {:initial :idle
              :states  {:idle {:on {:submit [{:target :loading
                                              :guard  :authed?
@@ -233,7 +186,7 @@
                                              :guard  :anon?}]}}
                        :loading {}
                        :failed  {}}}
-          {:keys [edges]} (layout/layout m)
+          {:keys [edges]} (layout/parse-definition m)
           labels (set (map :event-label edges))]
       (is (contains? labels "submit [authed?] / log-it"))
       (is (contains? labels "submit [anon?]")))))

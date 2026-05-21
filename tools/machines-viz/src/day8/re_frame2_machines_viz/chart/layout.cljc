@@ -1,95 +1,73 @@
 (ns day8.re-frame2-machines-viz.chart.layout
-  "Pure-data layout primitive for the MachineChart (rf2-2tkza Phase 1;
-  relocated under rf2-o9arp from `day8.re-frame2-causa.chart.layout`).
+  "Pure-data graph projector for the MachineChart.
 
-  This ns is the `layout` half: data → data, JVM-runnable, fully
-  testable from `clojure -M:test`. The `svg` half (sibling ns)
-  consumes the positioned graph and emits hiccup. Per
-  `tools/machines-viz/spec/API.md` the chart is the substrate-
-  agnostic rendering surface; Causa, Story, the read-only viewer
-  page, and direct user-app embeddings all consume this surface.
+  rf2-gpzb4 (2026-05-21) — Mike's xyflow override of the 2026-05-19
+  ELK+SVG lock. This ns is no longer a layout engine: xyflow + elkjs
+  own positioning. What remains is the substrate-agnostic **graph
+  parse** — definition → flat list of nodes + edges + per-node /
+  per-edge metadata. The xyflow chart ns (`chart/xyflow.cljs`)
+  consumes this projection and hands the nodes/edges to xyflow's
+  React renderer; elkjs runs as xyflow's layout backend off the same
+  graph.
 
-  ## What this does
+  ## Why this ns survives the migration
 
-  Walks a machine definition (the map returned by `(rf/machine-meta
-  machine-id)` — see `spec/005-StateMachines.md` §Transition table
-  grammar) and produces a positioned graph:
+  Three reasons:
 
-      {:nodes      [{:id <kw>          ;; sanitised id, unique per path
-                     :label <str>      ;; human-readable label
-                     :path <vec-of-kw> ;; full hierarchical path
-                     :x <int> :y <int>
-                     :width <int> :height <int>
-                     :initial? <bool>
-                     :final? <bool>
-                     :depth <int>} ...]
-       :edges      [{:from <id> :to <id>
-                     :label <str>     ;; event id
-                     :guard <kw-or-nil>
-                     :action <kw-or-nil>
-                     :event-label <str> ;; xstate convention:
-                                        ;; \"event [guard] / action\"
-                     :points [[x y] [x y]]} ...]
-       :width      <int>            ;; viewport width
-       :height     <int>            ;; viewport height
-       :initial-id <id-or-nil>}     ;; the machine's :initial state id
+  1. **Substrate-independence for the parse.** The walker (states,
+     compound nesting paths, transition normalisation, after / always
+     edge emission) is pure CLJS data → data and JVM-runnable. Tests
+     pin the parse contract without DOM / React / xyflow.
+  2. **One source for `node-id` + `edge-label`.** xyflow needs string
+     ids; the same id contract is used by SCXML / Mermaid emitters
+     and the Causa topology overlay. Centralising it here means
+     every consumer addresses nodes the same way.
+  3. **`highlight-id` resolution.** Snapshot `:state` → xyflow
+     node-id mapping for the live-highlight surface. Pure fn, no
+     dependency on the renderer.
 
-  ## Layout choice — layered, not ELK
+  ## Shape
 
-  Spec 003 names ELK.js as the preferred layout engine; rf2-2tkza
-  Phase 1 ships a **simple layered layout** instead. ELK is a heavy
-  JS bundle (~250KB) and bringing it in for the foundation PR delays
-  the user-visible payoff. The layered approach:
+  `(parse-definition definition)` returns:
 
-    1. **Rank** each node by its depth from the initial state via
-       BFS — initial is rank 0, its targets are rank 1, etc. Cycles
-       and back-edges don't increase rank (the longest path wins).
-    2. **Stratify** nodes into rank-buckets; within each bucket
-       sort by id for determinism.
-    3. **Place** each rank as a horizontal row, centred; row spacing
-       is 100px, node spacing 40px, node size 120x40.
-    4. **Route** edges as straight lines from source-bottom to
-       target-top (simple — no orthogonal routing, no obstacle
-       avoidance). Self-loops render as a small arc above the node
-       (handled in the `svg` ns).
+      {:nodes        [{:id <string>          ;; xyflow node id
+                       :path <vec-of-kw>     ;; full hierarchical path
+                       :label <str>          ;; human-readable label
+                       :depth <int>          ;; nesting depth
+                       :initial? <bool>
+                       :final? <bool>
+                       :compound? <bool>
+                       :tags #{<keyword>}}
+                      ...]
+       :edges        [{:id <string>           ;; xyflow edge id
+                       :source <string>       ;; from node id
+                       :target <string>       ;; to node id
+                       :from-path <vec-of-kw> ;; source state path
+                       :to-path   <vec-of-kw> ;; target state path
+                       :event <kw>            ;; raw event id
+                       :event-label <str>     ;; xstate label
+                                              ;; `event [guard] / action`
+                       :guard <kw-or-nil>
+                       :action <kw-or-nil>
+                       :after <ms-or-nil>     ;; non-nil iff :after edge
+                       :always? <bool>}       ;; true iff :always edge
+                      ...]
+       :initial-path <vec-of-kw>}            ;; the machine's :initial path
 
-  Result: a chart that's readable for the typical 4-12 state machines
-  re-frame2 apps register, fast to render, and trivially debuggable.
-  Follow-on bead can swap in ELK behind the same data interface.
+  ## What this does NOT do (pre-migration, this ns DID do)
 
-  ## Compound state handling (v1: flat projection)
+  - **Positioning** (`bfs-ranks`, `place-nodes`, `route-edge`) —
+    REMOVED. xyflow owns positions; elkjs runs as xyflow's layout
+    backend.
+  - **Width / height / chart geometry** — REMOVED. xyflow's
+    `<ReactFlow>` container measures itself; `fitView` handles
+    initial framing.
+  - **Edge points + bend-points** — REMOVED. xyflow renders edges
+    via its own path-builder over its layouted graph.
 
-  Compound states (`:states {...}` inside a state) project their leaves
-  into the same rank-graph at v1. The `:path` slot carries the full
-  hierarchical path; the SVG renderer can use `:path` to group leaves
-  visually under their parent (a follow-on bead). For Phase 1 the
-  flat-with-paths view is enough to surface the user-visible topology.
-
-  ## What this does NOT do (deferred to follow-on beads)
-
-    - Orthogonal edge routing (rf2-2tkza Phase 4 follow-on).
-    - Parallel-region layout (`{:type :parallel :regions ...}`) —
-      v1 falls back to rendering the first region.
-    - `:spawn-all` inline child machines.
-    - `:after` countdown ring geometry.
-    - Compound-state visual nesting (boxes-within-boxes).
-    - Edge-bundling for high-degree nodes."
+  Per `tools/machines-viz/spec/000-Vision.md` §Decision trace
+  §Interactive renderer (revised 2026-05-21)."
   (:require [clojure.string :as str]))
-
-;; ---- layout constants ---------------------------------------------------
-
-;; rf2-cd053 — restored to 140×44 to give the refused-floor labels
-;; (state 11px, edge 9px per `visual-constants/chart`) the room
-;; they need. The earlier 120×40 (rf2-gz7vi) was the tail of a
-;; font-shrink cascade we've now reversed — typography is load-
-;; bearing, layout adapts. Width tracks the longest typical state
-;; label (a hierarchical `:auth/login.idle` reads at ~13ch in mono
-;; at 11px ≈ 110px + 30px breathing room).
-(def node-width 140)
-(def node-height 44)
-(def rank-gap 100)             ;; vertical gap between ranks
-(def node-gap 40)              ;; horizontal gap between same-rank nodes
-(def chart-margin 32)          ;; outer margin around the layout
 
 ;; ---- definition walker --------------------------------------------------
 
@@ -176,8 +154,7 @@
   [parent-path state-map]
   (mapcat (fn [[state-id state-node]]
             (let [path (conj parent-path state-id)
-                  self {:id       path
-                        :path     path
+                  self {:path     path
                         :label    (name state-id)
                         :depth    (count parent-path)
                         :initial? (:initial? state-node)
@@ -189,77 +166,12 @@
               (cons self children)))
           state-map))
 
-(defn parse-definition
-  "Project a machine definition map into a flat `{:nodes :edges
-  :initial-path}` graph. Pure fn.
-
-  For parallel definitions (`{:type :parallel :regions {...}}`) v1
-  projects the first region only; a follow-on bead handles full
-  parallel layout."
-  [definition]
-  (cond
-    (nil? definition)
-    {:nodes [] :edges [] :initial-path nil}
-
-    (= :parallel (:type definition))
-    (let [[_region-id region] (first (:regions definition))]
-      (parse-definition region))
-
-    :else
-    (let [{:keys [initial states]} definition
-          nodes     (vec (collect-nodes [] states))
-          ;; Mark the initial node
-          initial-path (when initial [initial])
-          nodes     (mapv (fn [n]
-                            (if (= (:path n) initial-path)
-                              (assoc n :initial? true)
-                              n))
-                          nodes)
-          edges     (vec (mapcat (fn [[state-id state-node]]
-                                   (collect-state-edges [state-id] state-node))
-                                 states))]
-      {:nodes        nodes
-       :edges        edges
-       :initial-path initial-path})))
-
-;; ---- ranking ------------------------------------------------------------
-
-(defn- adjacency
-  "Build a {from-path #{to-path ...}} map from the edge list."
-  [edges]
-  (reduce (fn [m {:keys [from to]}]
-            (update m from (fnil conj #{}) to))
-          {}
-          edges))
-
-(defn- bfs-ranks
-  "BFS from `start-path` over the adjacency map; return a `{path
-  rank}` map. Unreached nodes default to rank 0 so they still render.
-  Cycles are broken by keeping the first-seen rank."
-  [adj start-path all-paths]
-  (loop [queue (if start-path [[start-path 0]] [])
-         seen  (if start-path {start-path 0} {})]
-    (if-let [[path rank] (first queue)]
-      (let [next-queue (subvec (vec queue) 1)
-            children   (get adj path #{})
-            new-items  (for [c children
-                             :when (not (contains? seen c))]
-                         [c (inc rank)])
-            seen'      (merge seen (into {} (map (fn [[p r]] [p r]) new-items)))]
-        (recur (into next-queue new-items) seen'))
-      ;; Backfill unreached nodes at rank 0 (so they still render
-      ;; somewhere — e.g. dead states with no inbound edges).
-      (reduce (fn [acc p]
-                (if (contains? acc p) acc (assoc acc p 0)))
-              seen
-              all-paths))))
-
-;; ---- placement ----------------------------------------------------------
+;; ---- public ids ---------------------------------------------------------
 
 (defn node-id
-  "Stable string id for a node, suitable for SVG ids + React keys.
-  Exported so the ELK adapter can mint matching ids on the way through
-  ELK's JSON graph + back."
+  "Stable string id for a node, suitable for xyflow ids and SCXML
+  / Mermaid emitter ids. Exported so every consumer addresses nodes
+  the same way."
   [path]
   (->> path
        (map (fn [p]
@@ -270,52 +182,6 @@
                 (str p))))
        (str/join "__")
        (#(str/replace % #"[^a-zA-Z0-9_]" "_"))))
-
-(defn- place-nodes
-  "Given nodes + their ranks, position them into rows. Returns the
-  nodes with `:x` and `:y` filled. Deterministic — within a rank
-  nodes sort by their stable id."
-  [nodes ranks]
-  (let [by-rank (->> nodes
-                     (sort-by (fn [n] (node-id (:path n))))
-                     (group-by #(get ranks (:path %) 0))
-                     (into (sorted-map)))
-        rows    (for [[rank ns] by-rank]
-                  (let [n-count   (count ns)
-                        row-width (+ (* n-count node-width)
-                                     (* (max 0 (dec n-count)) node-gap))]
-                    {:rank rank :nodes ns :row-width row-width}))
-        max-row-width (apply max 0 (map :row-width rows))
-        chart-width   (+ max-row-width (* 2 chart-margin))
-        positioned
-        (mapcat (fn [{:keys [rank nodes row-width]}]
-                  (let [start-x (+ chart-margin
-                                   (quot (- max-row-width row-width) 2))
-                        y       (+ chart-margin
-                                   (* rank (+ node-height rank-gap)))]
-                    (map-indexed
-                      (fn [idx n]
-                        (assoc n
-                          :x     (+ start-x (* idx (+ node-width node-gap)))
-                          :y     y
-                          :width node-width
-                          :height node-height
-                          :rank  rank
-                          :node-id (node-id (:path n))))
-                      nodes)))
-                rows)
-        chart-height (+ chart-margin
-                        (* (inc (apply max 0 (keys by-rank)))
-                           (+ node-height rank-gap)))]
-    {:nodes positioned
-     :chart-width chart-width
-     :chart-height chart-height}))
-
-(defn- index-nodes
-  "Return a `{path node-with-coords}` map for cheap edge-routing
-  lookups."
-  [positioned-nodes]
-  (into {} (map (fn [n] [(:path n) n])) positioned-nodes))
 
 (defn- name-of
   "Render a guard/action symbol-like value as a short string. Keywords
@@ -335,9 +201,7 @@
 
     - regular event keyword → `\"event-id\"` (with namespace when present)
     - `:after` transition   → `\"after(<delay>)\"`
-    - `:always` transition  → `\"always\"`
-
-  Public so the ELK adapter (and tests) can use the same builder."
+    - `:always` transition  → `\"always\"`"
   [{:keys [event after always?]}]
   (cond
     after            (str "after(" after ")")
@@ -364,8 +228,7 @@
   `:after` and `:always` substitute for the event segment using the
   same bracket/slash rules.
 
-  Pure data → string. Public — the ELK adapter and renderer both call
-  this so the layered + ELK paths emit identical labels."
+  Pure data → string."
   [{:keys [guard action] :as edge}]
   (let [evt   (event-segment edge)
         g-str (name-of guard)
@@ -374,72 +237,61 @@
       g-str (str " [" g-str "]")
       a-str (str " / " a-str))))
 
-(defn- route-edge
-  "Straight-line routing: source-bottom-centre → target-top-centre.
-  Self-loops emit a small arc-control flag for the renderer."
-  [node-index {:keys [from to] :as edge}]
-  (let [src (get node-index from)
-        tgt (get node-index to)]
-    (when (and src tgt)
-      (let [self? (= from to)
-            src-x (+ (:x src) (quot (:width src) 2))
-            src-y (+ (:y src) (:height src))
-            tgt-x (+ (:x tgt) (quot (:width tgt) 2))
-            tgt-y (:y tgt)]
-        (assoc edge
-          :from-id (:node-id src)
-          :to-id   (:node-id tgt)
-          :self?   self?
-          :points  (if self?
-                     [[src-x src-y]
-                      [(+ src-x 70) (+ src-y 30)]
-                      [(+ src-x 70) (- tgt-y 30)]
-                      [tgt-x tgt-y]]
-                     [[src-x src-y] [tgt-x tgt-y]])
-          :event-label (edge-label edge))))))
+(defn- edge-id
+  "Stable string id for an edge — composite of source-id, target-id,
+  and event segment so multiple parallel edges between the same pair
+  of states do not collide."
+  [from-path to-path edge]
+  (str (node-id from-path)
+       "__"
+       (node-id to-path)
+       "__"
+       (event-segment edge)))
 
-;; ---- public entry -------------------------------------------------------
+;; ---- public projection --------------------------------------------------
 
-(defn layout
-  "Top-level: definition → positioned graph. Pure fn, JVM-runnable.
+(defn parse-definition
+  "Project a machine definition into a flat `{:nodes :edges
+  :initial-path}` graph. Pure fn — JVM-runnable.
 
-  Returns the shape documented in this ns's docstring. Empty
-  definition (no `:initial` / no `:states`) returns a stable empty
-  graph so the SVG renderer can show the empty-chart state."
+  For parallel definitions (`{:type :parallel :regions {...}}`) v1
+  projects the first region only; a follow-on bead handles full
+  parallel layout (xyflow exposes a `parentNode` mechanism that maps
+  cleanly onto regions; deferred to keep the migration tight)."
   [definition]
-  (let [{:keys [nodes edges initial-path]} (parse-definition definition)]
-    (if (empty? nodes)
-      {:nodes [] :edges [] :width 200 :height 80 :initial-id nil}
-      (let [all-paths (mapv :path nodes)
-            adj       (adjacency edges)
-            ranks     (bfs-ranks adj initial-path all-paths)
-            {:keys [nodes chart-width chart-height]} (place-nodes nodes ranks)
-            n-index   (index-nodes nodes)
-            edges     (vec (keep #(route-edge n-index %) edges))]
-        {:nodes      nodes
-         :edges      edges
-         :width      chart-width
-         :height     chart-height
-         :initial-id (when initial-path (node-id initial-path))}))))
+  (cond
+    (nil? definition)
+    {:nodes [] :edges [] :initial-path nil}
 
-(defn layered-fallback
-  "Explicit alias for the simple layered BFS-rank `layout` fn — exported
-  so callers (e.g. the ELK adapter in
-  `day8.re-frame2-causa.chart.elk-layout`) can request the fallback path
-  by name when ELK.js is unavailable or the topology is small enough that
-  the layered placement reads cleanly.
+    (= :parallel (:type definition))
+    (let [[_region-id region] (first (:regions definition))]
+      (parse-definition region))
 
-  Rationale: Phase 4 (rf2-m7co9) introduces an ELK-driven layout that
-  produces the same `{:nodes :edges :width :height :initial-id}` shape
-  this fn returns. Both routes flow through `chart/svg`'s renderer
-  unchanged. The fallback is what JVM tests + node-runtime tests assert
-  against (ELK is a browser-only async loader and is unavailable in
-  those rigs). Renaming the public surface to `layered-fallback`
-  documents the role so consumer code reads as `(layered-fallback def)`
-  rather than `(layout def)` — calling intent matters when there are
-  two layout engines."
-  [definition]
-  (layout definition))
+    :else
+    (let [{:keys [initial states]} definition
+          base-nodes (vec (collect-nodes [] states))
+          initial-path (when initial [initial])
+          nodes (mapv (fn [n]
+                        (let [n' (if (= (:path n) initial-path)
+                                   (assoc n :initial? true)
+                                   n)]
+                          (assoc n' :id (node-id (:path n')))))
+                      base-nodes)
+          raw-edges (vec (mapcat (fn [[state-id state-node]]
+                                   (collect-state-edges [state-id] state-node))
+                                 states))
+          edges (vec (map (fn [e]
+                            (assoc e
+                              :id          (edge-id (:from e) (:to e) e)
+                              :source      (node-id (:from e))
+                              :target      (node-id (:to e))
+                              :from-path   (:from e)
+                              :to-path     (:to e)
+                              :event-label (edge-label e)))
+                          raw-edges))]
+      {:nodes        nodes
+       :edges        edges
+       :initial-path initial-path})))
 
 (defn highlight-id
   "Resolve a snapshot `:state` value to the node-id used in the

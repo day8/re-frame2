@@ -4,15 +4,16 @@
   "private": true,
   "description": "CLJS test target for re-frame2 (node-runtime).",
   "devDependencies": {
-    "shadow-cljs": "3.4.10",
+    "@xyflow/react": "12.4.2",
+    "elkjs": "^0.11.1",
+    "http-server": "14.1.1",
+    "playwright": "1.59.1",
+    "qrcode-generator": "2.0.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "playwright": "1.59.1",
-    "http-server": "14.1.1",
+    "shadow-cljs": "3.4.10",
     "todomvc-app-css": "2.4.3",
-    "todomvc-common": "1.0.5",
-    "qrcode-generator": "2.0.4",
-    "@xyflow/react": "12.4.2"
+    "todomvc-common": "1.0.5"
   },
   "scripts": {
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",

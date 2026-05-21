@@ -306,12 +306,19 @@ The v1.0 `MachineChart` is built on:
   compatibility with re-frame2's MIT posture verified 2026-05-19
   (rf2-9lath); see §License compatibility below and the
   §License chain decision-trace row.
-- **Interactive renderer: hand-rolled SVG.** No React Flow, no
-  Cytoscape, no general-purpose graph library. Direct SVG output
-  driven by ELK's layout result. Cost: ~weeks of polish to reach
-  React Flow's out-of-the-box ergonomics on hover / pan / zoom /
-  edge-routing. Pay-off: full visual control, aesthetic coherence
-  with Causa, no opinionated default look.
+- **Interactive renderer: `@xyflow/react` (React Flow).**
+  Production-grade React graph renderer. The same engine Stately
+  Studio uses for its commercial editor. Custom node + edge
+  components (`chart.nodes` + `chart.edges`) recover the Causa
+  visual identity (rounded-rect bodies, state-tag pills, final-
+  state double border, active-state cyan tint + emphasised
+  stroke, mono typography). xyflow handles pan / zoom / fit /
+  minimap natively; elk.js runs as xyflow's layout backend
+  inside the chart component. Per the **2026-05-21 override**
+  recorded in §Decision trace §Interactive renderer below
+  (rf2-gpzb4) — Mike's override of the 2026-05-19 hand-rolled-
+  SVG lock after the polish-within-current-stack path repeatedly
+  failed to reach the Stately Studio quality bar.
 - **Static renderer: Mermaid** (already shipped, per the rf2-yamkm
   relocation to `implementation/machines/src/re_frame/machines/mermaid.cljc`).
   Stays in its lane: text-to-SVG via the `stateDiagram-v2` DSL for
@@ -319,14 +326,14 @@ The v1.0 `MachineChart` is built on:
 
 **Three renderers, one shared model.** All three consume the same
 `reg-machine` body. The interactive surfaces (Causa panel,
-user-app drop-in, docs cells) share the ELK + SVG renderer; the
-static surface (Mermaid) is a parallel emitter against the same
-model.
+user-app drop-in, docs cells) share the xyflow + elkjs renderer;
+the static surface (Mermaid) is a parallel emitter against the
+same model.
 
 | Renderer | Layout | Output | Surface | Status |
 |---|---|---|---|---|
 | Mermaid | Mermaid-internal (Dagre-derived) | static SVG via DSL | docs prose, README, AI-pair chat replies | shipped (`re-frame.machines.mermaid`) |
-| ELK + SVG (`MachineChart`) | ELK.js | interactive SVG | Causa panel + user-app drop-in + docs cells | v1.0 commitment |
+| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Causa panel + user-app drop-in + docs cells | v1.0 commitment (Phase 1 — rf2-gpzb4 xyflow migration; Reagent-only adapter, UIx/Helix substrate adapters follow-on) |
 
 ### Alternatives rejected (with reasons)
 
@@ -341,9 +348,13 @@ model.
   more opinion than the bar requires.
 - **D3-hierarchy + custom edge routing.** End up reinventing ELK
   badly.
-- **React Flow alone.** Opinionated default aesthetic
+- **React Flow with default look.** Opinionated default aesthetic
   (rounded-corner nodes, default edge style) collides with the
   "beautiful + integrated" bar without significant override work.
+  Rejected 2026-05-19; **superseded 2026-05-21** — the override
+  (rf2-gpzb4) accepts xyflow as the renderer BUT with extensive
+  custom node + edge components that recover the Causa identity;
+  the default look itself remains rejected.
 - **JointJS / GoJS.** Commercial; wrong fit for re-frame2's
   open-source posture.
 
@@ -378,32 +389,64 @@ current stack). Stately's legacy Visualizer used custom SVG; the
 Studio rebuild moved to React Flow for time-to-MVP and built-in
 pan / zoom / minimap affordances.
 
-**re-frame2's choice:** **Hand-rolled SVG. Diverge.**
+**re-frame2's choice (2026-05-21 — superseded the 2026-05-19
+lock):** **`@xyflow/react` (React Flow). Same as Stately.**
 
-**Rationale if diverge:** Three reasons compound.
+**Rationale (2026-05-21 override per rf2-gpzb4):** Mike's
+override of the 2026-05-19 hand-rolled-SVG lock after the polish-
+within-current-stack path was attempted and the result was still
+poor relative to the §Quality bar (Stately Studio is the
+explicit comparator). xyflow is the same engine Stately Studio
+uses; adopting it is the faster path to that quality bar than
+continuing to lift the hand-rolled stack.
 
-- **Aesthetic coherence with Causa.** React Flow has a
-  recognisable default look (rounded corners, particular edge
-  style); the Causa devtool aesthetic is distinct (re-com
-  typography, dense layout, source-coord chips everywhere). A
-  React Flow chart embedded in a Causa panel reads as a foreign
-  body unless heavily overridden — and heavy override defeats
-  the "out-of-the-box ergonomics" reason to pick React Flow.
-- **Full visual control.** Active-state highlighting is a CSS-
-  class swap on a rendered SVG node; transition glow is a stroke
-  animation on an SVG path. The hand-rolled surface lets every
-  pixel be intentional. React Flow's component model gates this
-  freedom.
-- **Distinctive look as a feature, not a bug.** Stately's choice
-  optimises for days-to-MVP. re-frame2's choice optimises for
-  weeks-of-polish-to-distinctive-aesthetic. The trade is
-  deliberate; both poles are defensible; re-frame2 picks the
-  latter pole.
+**Accepted trade-offs** (captured here so future debate doesn't
+re-litigate them — these were knowingly traded, not overlooked):
 
-The cost is named: ~weeks of polish to reach React Flow's pan /
-zoom / hover / edge-routing baseline. The pay-off is named:
-aesthetic coherence and visual distinctiveness against the
-Stately-clone risk.
+- **Substrate-agnostic hiccup contract LOST.** xyflow is a React
+  component library; the chart becomes React-component-shaped
+  rather than substrate-agnostic hiccup data. Phase 1 ships
+  Reagent-only; UIx and Helix substrate adapters are follow-on
+  beads. (The chart was always going to bottom out at a React
+  renderer eventually; this just moves the boundary earlier.)
+- **JVM-testability of the rendered output LOST.** The previous
+  `chart/svg.cljc` was `.cljc`-testable from `clojure -M:test`;
+  the new `chart.cljs` is CLJS-only because xyflow is a JS lib.
+  The **parse layer** (`chart/layout.cljc`) stays JVM-testable —
+  pure data → graph map, no xyflow dependency — so the
+  substrate-agnostic graph contract still has JVM coverage.
+- **Aesthetic coherence requires extensive custom node + edge
+  components.** xyflow's default look (rounded-corner default
+  nodes, generic edge style) collides with the Causa devtool
+  aesthetic. Custom Reagent node + edge components in
+  `chart.nodes` + `chart.edges` recover the Causa identity
+  (rounded-rect 6px-radius lock per rf2-g6cig, mono typography
+  per `theme/tokens`, state-tag pills per rf2-m1b88, final-
+  state double border, active-state cyan tint + emphasised
+  stroke).
+- **Bundle cost.** xyflow ≈ 60 KB gzipped; elkjs ≈ 250 KB
+  gzipped. Both `devDependency`-gated; production bundles MUST
+  NOT pull them. The bundle-isolation script
+  (`check-bundle-isolation.cjs`) pins sentinels for both.
+
+**Previous (2026-05-19) rationale for hand-rolled SVG**
+(retained here for the record; the 2026-05-21 override
+supersedes it):
+
+> Three reasons compounded — aesthetic coherence with Causa,
+> full visual control of every pixel, and distinctive look as a
+> feature not a bug. The cost was named: ~weeks of polish to
+> reach React Flow's baseline. The pay-off was named: aesthetic
+> coherence and visual distinctiveness against the Stately-clone
+> risk.
+
+The override (2026-05-21) accepts that the aesthetic-coherence
+goal is reachable via custom xyflow node + edge components
+(deferring a chunk of work into the component library) while
+gaining xyflow's production-grade pan/zoom/fit/minimap and
+edge-routing for free. The Stately-clone risk is mitigated by
+the custom component layer; we don't ship the xyflow default
+look.
 
 ### Static renderer
 
