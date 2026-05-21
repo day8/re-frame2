@@ -8,7 +8,7 @@
 
   Tests pin `decode-all-frames` directly from
   `re-frame2-pair-mcp.nrepl` — the source ns is the contract."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [applied-science.js-interop :as j]
             ["bencode" :as bencode]
             ["fs" :as fs]
@@ -348,3 +348,60 @@
       (is (= {} (:pending @conn)) "pending cleared so no stale resolvers")
       (is (= #{} (:probed-builds @conn))
           "probe cache cleared — a fresh connect must re-probe the preload"))))
+
+;; ===========================================================================
+;; `send-op!` connect→write race nil-guard (rf2-av5kl).
+;;
+;; `connect!`'s fast path resolves immediately when a live socket is present,
+;; but the socket close/error handlers can fire in the window between that
+;; resolve and the actual `.write`. If `:socket` got nilled by `close!` in
+;; that window, a bare `(.write nil ...)` would throw an opaque native
+;; "Cannot read .write of null" AND strand the just-registered id in
+;; `:pending`. We simulate the race by nilling `:socket` synchronously after
+;; the send-op! call but before the `.then` microtask runs.
+;; ===========================================================================
+
+(deftest send-op!-nil-socket-rejects-structured-and-cleans-pending
+  (testing "socket dropped between connect-resolve and write → structured reject, no pending leak"
+    (async done
+      (let [writes (atom 0)
+            ;; A fake live socket so connect!'s fast path resolves immediately.
+            sock   (j/lit {:write (fn [_] (swap! writes inc) nil)})
+            conn   (nrepl/make-conn 0 "127.0.0.1")]
+        ;; Pre-seed a healthy connection so connect! returns Promise.resolve.
+        (swap! conn assoc :socket sock :closed? false)
+        (let [p (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})]
+          ;; Synchronously — before the .then microtask writes — drop the
+          ;; socket exactly as a racing close! would.
+          (swap! conn assoc :socket nil)
+          (-> p
+              (.then (fn [_]
+                       (is false "send-op! must REJECT when the socket is nil at write time")
+                       (done)))
+              (.catch (fn [err]
+                        (is (= "nREPL socket dropped before write — retry to reconnect"
+                               (.-message err))
+                            "structured retry-to-reconnect message, not the native NPE")
+                        (is (zero? @writes) "no write attempted against a nil socket")
+                        (is (= {} (:pending @conn))
+                            "the just-registered id is dissoc'd — no pending leak")
+                        (done)))))))))
+
+(deftest send-op!-live-socket-writes-normally
+  (testing "with a live socket present at write time, send-op! writes the encoded op"
+    (async done
+      (let [writes (atom [])
+            sock   (j/lit {:write (fn [buf] (swap! writes conj buf) nil)})
+            conn   (nrepl/make-conn 0 "127.0.0.1")]
+        (swap! conn assoc :socket sock :closed? false)
+        ;; Don't drop the socket — the write should happen, the op stays
+        ;; pending (no :done frame is ever fed), and we just assert the write
+        ;; landed then resolve the test.
+        (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})
+        ;; Let the connect! fast-path microtask run before asserting.
+        (js/queueMicrotask
+          (fn []
+            (is (= 1 (count @writes)) "exactly one write against the live socket")
+            (is (= 1 (count (:pending @conn)))
+                "the op is registered as pending awaiting its :done frame")
+            (done)))))))

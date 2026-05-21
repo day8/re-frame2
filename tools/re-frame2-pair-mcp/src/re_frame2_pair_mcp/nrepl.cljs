@@ -302,8 +302,23 @@
                             (resolve @state)))))]
                 (swap! conn-atom assoc-in [:pending id] on-frame)
                 (let [op (j/assoc! (clj->js op-map) "id" id)
+                      ;; rf2-av5kl: re-read `:socket` immediately before the
+                      ;; write. `connect!` guarantees a live socket at resolve
+                      ;; time, but the close/error handlers (attach-handlers!)
+                      ;; can fire in the window between resolve and this write —
+                      ;; `close!` nils `:socket`. A bare `(.write nil ...)` would
+                      ;; throw an opaque native "Cannot read .write of null" in
+                      ;; the Promise executor AND strand the just-registered id
+                      ;; in `:pending`. Guard explicitly: clean up the pending
+                      ;; entry + timer and reject with a structured,
+                      ;; retry-to-reconnect message instead of the native NPE.
                       ^js sock (:socket @conn-atom)]
-                  (.write sock (bencode/encode op))))))))
+                  (if sock
+                    (.write sock (bencode/encode op))
+                    (do
+                      (swap! conn-atom update :pending dissoc id)
+                      (js/clearTimeout timer)
+                      (reject (js/Error. "nREPL socket dropped before write — retry to reconnect"))))))))))
       (.catch (fn [err] (js/Promise.reject err))))))
 
 ;; ---------------------------------------------------------------------------
