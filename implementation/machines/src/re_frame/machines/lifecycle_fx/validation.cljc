@@ -457,7 +457,12 @@
               t     (if (vector? t) t [t])]
         (check-guard!  (:guard t)  s)
         (check-action! (:action t) s))
-      (doseq [t (:always state-node)]
+      ;; `:always` admits a single entry map OR a vector of entry maps;
+      ;; normalise via `always-entries` so a single-map `:always`'s
+      ;; guard/action refs are validated (iterating the raw map yields
+      ;; MapEntries, so `(:guard t)`/`(:action t)` would no-op and a
+      ;; dangling ref would slip past fail-fast registration).
+      (doseq [t (always-entries state-node)]
         (check-guard!  (:guard t)  s)
         (check-action! (:action t) s))
       (check-action! (:entry state-node) s)
