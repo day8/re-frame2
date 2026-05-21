@@ -4,7 +4,7 @@
 ;;;;
 ;;;; Role
 ;;;; ----
-;;;; This file is the dispatcher behind the seven `scripts/*.sh` shims
+;;;; This file is the dispatcher behind the six `scripts/*.sh` shims
 ;;;; (`discover-app.sh`, `eval-cljs.sh`, `dispatch.sh`, `trace-window.sh`,
 ;;;; `watch-epochs.sh`, `tail-build.sh`). Each shell wrapper is a one-liner
 ;;;; that exec's `bb ops.clj <subcommand> [args...]` and forwards the edn

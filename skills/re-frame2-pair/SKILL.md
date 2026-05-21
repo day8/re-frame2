@@ -125,11 +125,13 @@ If any precondition fails, the script returns a structured edn error like `{:ok?
 
 Between user turns, the nREPL session persists. A full page refresh in the browser drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect step is needed. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) before proceeding; if it's missing the op refuses with the structured `:runtime-not-preloaded` hint above.
 
+If you want a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` (formal name `mcp__re-frame2-pair__get-re-frame2-pair-instructions`) — it returns inline onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming-subscribe semantics, the wire pipeline) with no nREPL round-trip.
+
 ---
 
 ## Multi-frame model — set the operating frame
 
-re-frame2 supports multiple, named frames (Spec 002). Most apps run with one frame (`:rf/default`); larger apps may run several (a stories build, an SSR slot, a sub-app island). Every read/write op takes an implicit operating frame; you can override per-call with `--frame :foo`.
+re-frame2 supports multiple, named frames (Spec 002). Most apps run with one frame (`:rf/default`); larger apps may run several (a stories build, an SSR slot, a sub-app island). Every read/write op takes an implicit operating frame; on the canonical MCP transport you override per-call with the `frame` arg, e.g. `{frame: ":foo"}` (the legacy bash-shim flag form `--frame :foo` is the back-compat appendix's equivalent — see [references/ops.md §Frames](references/ops.md#frames)).
 
 - `frames/list` — `(rf/frame-ids)` — set of registered, non-destroyed frame ids.
 - `frames/select` — set the session's default operating frame (the runtime caches it).

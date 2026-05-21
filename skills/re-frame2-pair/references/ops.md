@@ -7,6 +7,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 ## Contents
 
 - [Read](#read)
+- [Frames](#frames)
 - [Write](#write)
 - [Trace](#trace) — trace stream + epoch history
 - [DOM source bridge](#dom-source-bridge)
@@ -24,13 +25,25 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 | `app-db/get` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/app-db-at [:path :to :value])"}` | Path-scoped value (via `rf/snapshot-of`). For targeted reads, prefer the `get-path` tool below — single round-trip, structured `{:exists?}` answer, shared `:path` vocabulary with `snapshot`. |
 | `app-db/get-path` | `mcp__re-frame2-pair__get-path {path: "[:cart :items 0 :sku]"}` | Targeted read at `path`. `{:ok? true :exists? true :value <subtree>}` on hit; `{:ok? false :reason :path-not-found :deepest-valid-prefix [...]}` on miss. `:exists?` distinguishes a path that points at `nil` from a missing path. |
 | `app-db/schemas` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/schemas)"}` | Map of `path → schema` from `rf/app-schemas` |
-| `registrar/list` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/registrar-list :event)"}` | Ids registered under `:event` / `:sub` / `:fx` / `:cofx` (via `rf/registrations`) |
-| `registrar/describe` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/registrar-describe :event :cart/apply-coupon)"}` | Full handler metadata: kind, interceptor ids, `:ns` / `:line` / `:file`, `:rf/machine?`, retained source form when present |
+| `registrar/list` | `mcp__re-frame2-pair__list-handlers {kind: "event"}` | The **discovery** surface — every id registered under one kind. `{:ok? true :kind :event :ids [...] :count n}`, ids sorted (stable across calls). Supported kinds: `event` / `sub` / `fx` / `cofx` / `view` / `frame` / `route` / `flow` / `head` / `error-projector` / `machine` (the closed v1 registrar set minus `:app-schema` — use `app-db/schemas` for schemas). `machine` lists handlers flagged `:rf/machine? true`. Prefer this over a `registrar-list` eval — no wide-authority eval round-trip. *(eval fallback: `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/registrar-list :event)"}`.)* |
+| `registrar/describe` | `mcp__re-frame2-pair__handler-meta {kind: "event", id: ":cart/apply-coupon"}` | The **drill** surface — registration metadata for one id: source-coord (`:ns` / `:line` / `:column` / `:file`), `:doc`, `:tags`, plus an `:rf.source/uri` the host renders as a clickable jump-to-editor link. `{:ok? true :kind k :id i ...}` on a hit; `{:ok? false :reason :not-registered :kind k :id i}` on a miss. Pass composite-key sub ids as the vector-string form (`id: "[:rf/composite :x]"`). The `machine` kind routes through `rf/machine-meta`; others through `rf/handler-meta`. Prefer this over a `registrar-describe` eval — targeted read, no eval authority. *(eval fallback: `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/registrar-describe :event :cart/apply-coupon)"}` — also surfaces the retained source form when present.)* |
 | `subs/cache` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/sub-cache)"}` | `rf/sub-cache` — `{query-v {:value v :ref-count n}}` for every materialised subscription (CLJS-only) |
 | `subs/sample` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/subs-sample [:cart/total])"}` | One-shot value via `rf/compute-sub` (no cache mutation) or `@(rf/subscribe ...)` |
 | `machines/list` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machines-list)"}` | Machine ids (`rf/machines`) |
 | `machines/describe` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-describe :auth)"}` | The registered spec map (`rf/machine-meta`) |
 | `machines/state` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-state :auth)"}` | Current snapshot from `(rf/snapshot-of [:rf/machines :auth])` |
+
+## Frames
+
+Set and inspect the operating frame (SKILL.md §Multi-frame model). Every read/write op resolves an operating frame: an explicit per-call `frame: ":foo"` arg wins, else the session pin set by `frames/select`, else the sole registered frame, else `:ambiguous-frame` for mutating ops. These ops wrap the preload's frame helpers, so the MCP form is `eval-cljs`.
+
+| Op | Invocation | Returns |
+|---|---|---|
+| `frames/list` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/frames-list)"}` | `{:ok? true :frames [...] :selected <pinned-or-nil> :operating <resolved-or-nil>}` — registered, non-destroyed frame ids plus the resolved operating frame (`rf/frame-ids`). |
+| `frames/select` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/select-frame! :stories)"}` | Pin the session's default operating frame; subsequent ops use it unless they pass an explicit `frame` arg. `{:ok? true :frame :stories}`. |
+| `frames/meta` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/frames-meta :stories)"}` | Flat metadata map for one frame (`rf/frame-meta`): `:id`, `:created-at`, the preset-expansion keys (`:preset`, `:fx-overrides`, `:drain-depth`, …) and lifecycle fields (`:destroyed?`, `:listeners`) at the top level. `{:ok? false :reason :no-such-frame :frame-id id}` when unregistered. See `:rf/frame-meta` in Spec-Schemas. |
+
+To target one op at a non-operating frame without pinning the session, pass the per-call `frame` arg on the dedicated tools (`mcp__re-frame2-pair__dispatch {event: "[:foo]", frame: ":stories"}`, `mcp__re-frame2-pair__snapshot {frames: [":stories"]}`, `mcp__re-frame2-pair__get-path {path: "[...]", frame: ":stories"}`).
 
 ## Write
 
