@@ -37,7 +37,7 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 | Key | Type | Required? | Meaning |
 |---|---|---|---|
 | `:doc` | string | SHOULD (dev-warned) | One-sentence description of what this registration does. Surfaced in tooling, agent inspection, error messages. Absent on a `reg-*` call, the dev-build runtime emits `:rf.warning/missing-doc` once per `(kind, id)` pair (per [§`:doc` is dev-warned when absent](#doc-is-dev-warned-when-absent), below). The key is **not** structurally required — the registration succeeds without it; the warning is the nudge, not a gate. Production builds elide the check entirely. |
-| `:spec` | schema | optional | Shape description for the registration's input or output. In dynamic hosts, a Malli/Pydantic/Zod schema; in static hosts, the host's type system. (See [010](010-Schemas.md) for CLJS-specific Malli usage.) |
+| `:schema` | schema | optional | Shape description for the registration's input or output. In dynamic hosts, a Malli/Pydantic/Zod schema; in static hosts, the host's type system. (See [010](010-Schemas.md) for CLJS-specific Malli usage.) |
 | `:ns` | symbol | auto-supplied | Source namespace where the registration occurred. Captured by the macro at compile time (CLJS reference). |
 | `:line` | integer | auto-supplied | Source line. |
 | `:file` | string | auto-supplied | Source file. |
@@ -63,17 +63,17 @@ The middle slot of `reg-event-*` is either:
      (fn [m _] ...))
    ```
 
-2. **A metadata map** (reflection metadata only — `:doc`, `:spec`, `:tags`, ...):
+2. **A metadata map** (reflection metadata only — `:doc`, `:schema`, `:tags`, ...):
    ```clojure
    (rf/reg-event-fx :foo
-     {:doc "..." :spec ...}
+     {:doc "..." :schema ...}
      (fn [m _] ...))
    ```
 
 3. **Both — metadata map AND a positional interceptors vector** (the canonical form when an event has both reflection metadata and an interceptor chain):
    ```clojure
    (rf/reg-event-fx :foo
-     {:doc "..." :spec ...}
+     {:doc "..." :schema ...}
      [some-interceptor another-interceptor]
      (fn [m _] ...))
    ```
@@ -112,8 +112,8 @@ A named function is preferred.
 
 ```clojure
 (rf/reg-event-fx :cart.item/remove
-  {:doc  "Remove an item from the cart by id."
-   :spec [:cat [:= :cart.item/remove] :uuid]}
+  {:doc    "Remove an item from the cart by id."
+   :schema [:cat [:= :cart.item/remove] :uuid]}
   (fn handler-cart-item-remove [{:keys [db]} [_ id]]
     {:db (update-in db [:cart :items] (fn [items] (vec (remove #(= id (:id %)) items))))}))
 ```
@@ -295,9 +295,9 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 
 ## Schema integration
 
-Per [010-Schemas.md](010-Schemas.md): in dynamic hosts, the `:spec` metadata key holds a Malli schema. The CLJS reference validates against `:spec` in dev builds at the appropriate boundary (event vector before handler runs; sub return after compute; `app-db` after each handler). In production the validation is elided.
+Per [010-Schemas.md](010-Schemas.md): in dynamic hosts, the `:schema` metadata key holds a Malli schema. The CLJS reference validates against `:schema` in dev builds at the appropriate boundary (event vector before handler runs; sub return after compute; `app-db` after each handler). In production the validation is elided.
 
-In static hosts, the type system handles shape correctness instead of `:spec`. The metadata-map shape is the same; the `:spec` key may be omitted, or used as documentation for runtime inspection without runtime validation.
+In static hosts, the type system handles shape correctness instead of `:schema`. The metadata-map shape is the same; the `:schema` key may be omitted, or used as documentation for runtime inspection without runtime validation.
 
 The exact validation timing rules and dev-vs-prod elision live in Spec 010.
 
@@ -338,7 +338,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 ## Cross-references
 
 - [002-Frames §The public registrar query API](002-Frames.md#the-public-registrar-query-api) — the runtime side of the query API.
-- [010-Schemas](010-Schemas.md) — `:spec` metadata key and validation timing.
+- [010-Schemas](010-Schemas.md) — `:schema` metadata key and validation timing.
 - [009-Instrumentation §Error contract](009-Instrumentation.md#error-contract) — error events emitted by registration validation failures.
 - [Construction-Prompts §CP-1](Construction-Prompts.md) — how AIs scaffold registered events.
 - [Spec-Schemas §:rf/registration-metadata](Spec-Schemas.md#rfregistration-metadata) — the canonical shape for metadata.

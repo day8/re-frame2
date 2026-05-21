@@ -67,7 +67,7 @@ Optional keys (per the [001-Registration §Registration grammar](001-Registratio
 | Key | Meaning |
 |---|---|
 | `:doc` | One-sentence what-and-why; surfaces in tooling. |
-| `:spec` | Malli schema for the output value (dynamic-host validation in dev). |
+| `:schema` | Malli schema for the output value (dynamic-host validation in dev). |
 | `:ns`, `:line`, `:file` | Source coordinates (auto-captured by the registration macro per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). |
 
 `:inputs` is a positional vector matching `on-changes`. The vector form is short for the common 2–4-input case and the destructure-by-position is straightforward. (A map-keyed alternative was considered — see [§Open questions](#open-questions).)

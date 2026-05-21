@@ -13,7 +13,7 @@ This artefact is intended to be:
 
 - **Per-kind.** Separate templates for events, subscriptions, schema-bound views, state machines, features, routes, effects.
 - **Self-contained.** Each prompt provides enough context for an AI to scaffold the kind without needing to read the full Spec set.
-- **Shape-aware via the host's idiom.** The pattern requires shape description; the *mechanism* is host-specific. **Dynamic in-scope hosts** (CLJS + Malli, Squint + Zod): the prompts attach `:spec` metadata referring to a schema. **Static in-scope hosts** (TypeScript, Melange / ReScript / Reason, Fable (F#), Scala.js, PureScript, Kotlin/JS): the prompts emit type-annotated registrations whose shapes the compiler enforces. Either way, an AI reading the artefact has a description of the shapes; the prompts adapt to the host.
+- **Shape-aware via the host's idiom.** The pattern requires shape description; the *mechanism* is host-specific. **Dynamic in-scope hosts** (CLJS + Malli, Squint + Zod): the prompts attach `:schema` metadata referring to a schema. **Static in-scope hosts** (TypeScript, Melange / ReScript / Reason, Fable (F#), Scala.js, PureScript, Kotlin/JS): the prompts emit type-annotated registrations whose shapes the compiler enforces. Either way, an AI reading the artefact has a description of the shapes; the prompts adapt to the host.
 - **Worked-example-heavy.** Each prompt ends with one or two complete, runnable examples.
 - **Aligned with the [Goals in 000](000-Vision.md) and the [nine AI-first properties in Principles.md](Principles.md).** A construction-prompt-generated artefact is, by construction, AI-first.
 
@@ -43,8 +43,8 @@ Each entry below is one CP:
 
 ```clojure
 (rf/reg-event-db :feature/verb-noun
-  {:doc  "One-sentence what-and-why."
-   :spec EventSchema}                         ;; optional Malli schema for the event vector
+  {:doc    "One-sentence what-and-why."
+   :schema EventSchema}                       ;; optional Malli schema for the event vector
   (fn handler-feature-verb-noun [db [_ {:keys [field-1 field-2]}]]
     ;; Pure: read db and event payload, return the new db.
     ;; Multi-arg events take a single map payload; destructure named keys.
@@ -56,8 +56,8 @@ Each entry below is one CP:
 
 ```clojure
 (rf/reg-event-fx :feature/verb-noun
-  {:doc  "One-sentence what-and-why."
-   :spec EventSchema}
+  {:doc    "One-sentence what-and-why."
+   :schema EventSchema}
   ;; A positional interceptor vector goes here when needed; usually omitted.
   (fn handler-feature-verb-noun [{:keys [db] :as cofx} [_ payload]]
     ;; Pure: read db and any injected cofx, return an effect map.
@@ -84,7 +84,7 @@ Each entry below is one CP:
 - [ ] Id is namespaced and unused.
 - [ ] Handler is pure (no side-effects in the body of `reg-event-db`; effects are *returned* by `reg-event-fx`).
 - [ ] `:doc` is present and one sentence.
-- [ ] Shape is described by the host's idiom: `:spec` (Malli/Pydantic/Zod) in dynamic hosts, a type definition in static hosts. If neither: shape conformance is checked by tests/fixtures.
+- [ ] Shape is described by the host's idiom: `:schema` (Malli/Pydantic/Zod) in dynamic hosts, a type definition in static hosts. If neither: shape conformance is checked by tests/fixtures.
 - [ ] Handler has a meaningful name (not `fn`).
 - [ ] Smoke test passes.
 - [ ] If the handler writes a schema-bound `app-db` path (in a schema-bearing implementation), the test asserts the post-state validates.
@@ -100,8 +100,8 @@ Each entry below is one CP:
   [:tuple [:= :cart.item/remove] :uuid])      ;; [event-id item-id]
 
 (rf/reg-event-db :cart.item/remove
-  {:doc  "Remove an item from the cart by id."
-   :spec CartItemRemoveEvent}
+  {:doc    "Remove an item from the cart by id."
+   :schema CartItemRemoveEvent}
   (fn handler-cart-item-remove [db [_ item-id]]
     (update-in db [:cart :items] (fn [items] (vec (remove #(= item-id (:id %)) items))))))
 ```
@@ -199,7 +199,7 @@ Each entry below is one CP:
 (rf/reg-fx :http
   {:doc       "Issue an HTTP request. On completion, dispatch :on-success or :on-error."
    :platforms #{:server :client}                        ;; both server (SSR data fetch) and client
-   :spec      [:map
+   :schema    [:map
                [:method  [:enum :get :post :put :delete]]
                [:url     :string]
                [:body         {:optional true} :any]
@@ -244,7 +244,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 - [ ] Fx id is namespaced.
 - [ ] `:platforms` is set explicitly (don't rely on the default).
-- [ ] `:spec` describes the args shape.
+- [ ] `:schema` describes the args shape.
 - [ ] `:doc` is present.
 - [ ] Handler dispatches `:on-success`/`:on-error` (or equivalent) on the originating frame.
 - [ ] Handler does NOT mutate `app-db` — that's events' job.
@@ -256,7 +256,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 (rf/reg-fx :localstorage/set
   {:doc       "Write a key/value pair to browser localStorage. Client only."
    :platforms #{:client}
-   :spec      [:map
+   :schema    [:map
                [:key   :string]
                [:value :any]]}
   (fn fx-localstorage-set [_m {:keys [key value]}]
@@ -276,8 +276,8 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Template — Form-1 (simple render fn):**
 
 ```clojure
-(rf/reg-view ^{:doc  "One-sentence what-and-why."
-               :spec [:cat :string :int]}    ;; optional Malli schema for the props vector
+(rf/reg-view ^{:doc    "One-sentence what-and-why."
+               :schema [:cat :string :int]}  ;; optional Malli schema for the props vector
              component-name [label count-prop]
   (let [items @(subscribe [:feature/items])]   ;; frame-bound; resolves on the surrounding frame
     [:div.feature
@@ -675,8 +675,8 @@ test/my_app/
     (assoc db :cart {:items [] :loading? false :checkout-state :idle})))
 
 (rf/reg-event-db :cart.item/add
-  {:doc  "Add an item to the cart."
-   :spec [:cat [:= :cart.item/add] cs/CartItem]}
+  {:doc    "Add an item to the cart."
+   :schema [:cat [:= :cart.item/add] cs/CartItem]}
   (fn [db [_ item]]
     (update-in db [:cart :items] conj item)))
 
@@ -715,7 +715,7 @@ test/my_app/
 
 - [ ] All registrations use the chosen prefix; nothing else uses it.
 - [ ] `app-db` slice has a registered schema; init event produces a schema-valid value.
-- [ ] Every event has `:doc`; structurally-shaped events have `:spec`.
+- [ ] Every event has `:doc`; structurally-shaped events have `:schema`.
 - [ ] Every sub has `:doc` and reads from the feature's slice (`[:feature ...]`).
 - [ ] No view dispatches an unregistered event or reads an unregistered sub.
 - [ ] Happy-path smoke test runs headlessly (JVM-runnable).
@@ -866,20 +866,20 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 **Templates by site:**
 
 ```clojure
-;; Event-vector schema (attached via :spec on reg-event-*)
+;; Event-vector schema (attached via :schema on reg-event-*)
 (def CartItemRemoveEvent
   [:tuple [:= :cart.item/remove] :uuid])      ;; [event-id item-id]
 
 ;; Registered to the event:
 (rf/reg-event-db :cart.item/remove
-  {:spec CartItemRemoveEvent}
+  {:schema CartItemRemoveEvent}
   (fn [db [_ id]] ...))
 
-;; Sub-return schema (attached via :spec on reg-sub)
+;; Sub-return schema (attached via :schema on reg-sub)
 (def CartTotal :double)
 
 (rf/reg-sub :cart/total
-  {:spec CartTotal}
+  {:schema CartTotal}
   ...)
 
 ;; app-db slice schema (registered separately via reg-app-schema)
@@ -896,7 +896,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 
 ;; Fx args schema
 (rf/reg-fx :http
-  {:spec [:map [:method :keyword] [:url :string] [:body {:optional true} :any]]}
+  {:schema [:map [:method :keyword] [:url :string] [:body {:optional true} :any]]}
   ...)
 
 ;; Closed schema for an external boundary
@@ -907,7 +907,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
    [:timestamp  :int]])
 
 (rf/reg-event-fx :webhook/handle
-  {:spec [:cat [:= :webhook/handle] IncomingWebhookPayload]}
+  {:schema [:cat [:= :webhook/handle] IncomingWebhookPayload]}
   [rf/validate-at-boundary-interceptor]                                   ;; positional; rejects payload at boundary if invalid
   ...)
 ```
@@ -924,7 +924,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 - [ ] Schema describes shape, not types of objects.
 - [ ] Open by default (no `:closed true` unless at a boundary).
 - [ ] Path-based for `app-db` slices.
-- [ ] Attached as `:spec` on the relevant `reg-*` if it describes a registration's input/output.
+- [ ] Attached as `:schema` on the relevant `reg-*` if it describes a registration's input/output.
 - [ ] Schema is *named* — `(def CartState ...)` — not inline.
 - [ ] Conforms to [010](010-Schemas.md) registration shape.
 

@@ -87,7 +87,7 @@ of the v1 `process-event*` cascade:
 ```clojure
 (comp
   (xf-resolve-handler  registry)   ;; envelope -> envelope with :handler resolved
-  (xf-validate-event   registry)   ;; gated by :spec; tags :validation step on fail
+  (xf-validate-event   registry)   ;; gated by :schema; tags :validation step on fail
   (xf-run-interceptors)             ;; runs the pipeline; reads cofx, produces effects
   (xf-commit-app-db    container)   ;; computes :db-after; does NOT write
   (xf-apply-fx         fx-registry) ;; pulls non-:db effects out for the reducing fn

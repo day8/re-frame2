@@ -64,7 +64,7 @@ The server-side render + hydration contract from [011](011-SSR.md) — `:platfor
 
 #### Q4. Schemas?
 
-Boundary validation + introspection from [010](010-Schemas.md) — `:spec` registration metadata, `reg-app-schema`, validation-failure trace events.
+Boundary validation + introspection from [010](010-Schemas.md) — `:schema` registration metadata, `reg-app-schema`, validation-failure trace events.
 
 In **dynamically typed in-scope hosts** (CLJS, Squint) this is a runtime schema layer — Malli (CLJS reference) or Zod (Squint). In **statically typed in-scope hosts** (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS) the host's type system covers much of the territory at compile time. A static-host port may also ship a runtime validation library (Zod alongside TS types) or rely on types alone.
 
@@ -408,7 +408,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### Sch3. Introspection API
 
-- **Why it matters.** `(app-schemas)`, `(app-schema-at path)`, plus per-registration `(handler-meta kind id)` returning `:spec`.
+- **Why it matters.** `(app-schemas)`, `(app-schema-at path)`, plus per-registration `(handler-meta kind id)` returning `:schema`.
 - **Options by host.** Falls out of **F1** + **Sch1**.
 - **Reference-impl picks.** CLJS exposes via `re-frame.core`.
 - **Trade-offs.** Tooling and AI agents read this — make sure the schema is data, not opaque host objects.

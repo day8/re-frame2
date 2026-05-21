@@ -178,7 +178,7 @@ Combined with the layered constraint above, the pattern gives a system whose beh
 
 ## Rationale — schemas as decoders at boundaries
 
-A schema-at-a-boundary doubles as a decoder. At a wire boundary (hydration payload, `:http` response body, route params) you don't validate-then-cast, you *parse* into a typed value with a localised failure ("field `:user/email` was expected to be `:string` but got `nil`"). Malli's `m/decode` + `m/explain` already provides the machinery; the same shape-description schema can serve as both the validator and the decoder. The boundary-validation interceptor and `:spec` metadata are the documented form. A canonical `parse-payload` helper that returns either a typed value or a path-localised error is post-v1.
+A schema-at-a-boundary doubles as a decoder. At a wire boundary (hydration payload, `:http` response body, route params) you don't validate-then-cast, you *parse* into a typed value with a localised failure ("field `:user/email` was expected to be `:string` but got `nil`"). Malli's `m/decode` + `m/explain` already provides the machinery; the same shape-description schema can serve as both the validator and the decoder. The boundary-validation interceptor and `:schema` metadata are the documented form. A canonical `parse-payload` helper that returns either a typed value or a path-localised error is post-v1.
 
 ---
 
