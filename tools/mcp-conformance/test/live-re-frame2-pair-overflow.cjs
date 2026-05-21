@@ -175,7 +175,7 @@ function parseOverflowMarker(text) {
 
 // Pre-flight SKIP: route through the runner's shared skip helper so we
 // don't spawn a child or install a watchdog. Same posture as the sibling
-// end-to-end-causa.cjs placeholder. The skip helper prints the canonical
+// live-re-frame2-pair-subscribe.cjs. The skip helper prints the canonical
 // `SKIP <reason>` banner and exits 0.
 if (!process.env.SHADOW_CLJS_NREPL_PORT) {
   runWithWatchdog.skip(
