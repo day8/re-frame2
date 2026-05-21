@@ -27,11 +27,13 @@
 
 (defn malformed-url?
   "Public predicate: true when `url`'s percent-encoding is malformed in
-  any of its decode'd portions (path captures via the registered
-  routes' patterns, query keys, query values, or `#fragment`). Used by
-  `:rf.route/transitioned` / `:rf.route/handle-url-change` to discriminate the
-  bare route-miss case (`{:url url}`) from the malformed-URL fail-
-  closed case (`{:url url :reason :malformed-url}`) — both end up at
+  any of its decode'd portions — any non-empty path segment, any query
+  key or value, or the `#fragment`. The scan is purely lexical: it splits
+  the URL into pieces and tries to %-decode each one; no route table or
+  pattern is consulted. Used by `:rf.route/transitioned` /
+  `:rf.route/handle-url-change` to discriminate the bare route-miss case
+  (`{:url url}`) from the malformed-URL fail-closed case
+  (`{:url url :reason :malformed-url}`) — both end up at
   `:rf.route/not-found` but the structured `:reason` lets per-route
   error UIs and SSR projections branch on the cause.
 
@@ -1413,8 +1415,31 @@
 ;; ---- URL-driven navigation: shared full-rewrite path ---------------------
 ;; `:rf.route/transitioned` (forward nav, default scroll `:top`) and
 ;; `:rf.route/handle-url-change` (popstate / initial / SSR, default
-;; scroll `:restore`) share `url-change-fx`. The fragment-only branch is
-;; exclusive to `:rf.route/transitioned`.
+;; scroll `:restore`) share `url-change-fx`. The fragment-only branch
+;; (Spec 012 §Fragments rules 3-4) ALSO lives in `url-change-fx`, so both
+;; events honour it — popstate / Back-Forward to a same-page anchor must
+;; not allocate a new nav-token or re-fire `:on-match` (rf2-8oxj6).
+
+(defn- fragment-only-fx
+  "Spec 012 §Fragments rules 1-4: the new URL differs from the current
+  `:rf/route` slice ONLY in its `#fragment`. Update `:fragment`, emit the
+  `:rf.route/fragment-changed` op trace (rf2-cj9fn), and return the cofx
+  map — WITHOUT allocating a fresh nav-token (rule 3) or re-firing
+  `:on-match` (rule 4). The canonical op-name says what fires it (only a
+  `#fragment` differed) and disambiguates from the runtime event
+  `:rf.route/transitioned`, which fires on every URL transition. The
+  full URL transition path never emits this op and never coincides with
+  a `:rf.route.nav-token/allocated` on the same drain. Consumers carry
+  `:prev-fragment` / `:next-fragment` in `:tags`. Scroll-capture (for the
+  position the user is leaving) still rides along."
+  [db prev next-fragment]
+  (trace/emit! :event :rf.route/fragment-changed
+               {:route-id      (:id prev)
+                :prev-fragment (:fragment prev)
+                :next-fragment next-fragment})
+  (let [capture-fx (capture-scroll-fx-entry db)]
+    (cond-> {:db (assoc-in db [:rf/route :fragment] next-fragment)}
+      capture-fx (assoc :fx [capture-fx]))))
 
 (defn- url-change-fx
   "Pure helper: given db + url + default scroll strategy (+ optional
@@ -1451,6 +1476,22 @@
         ;; Malformed URLs surface no fragment in the slice — the
         ;; fragment was the (or potentially the) decode-fail site.
         fragment          (when-not malformed? (:fragment m))
+        ;; Spec 012 §Fragments rules 3-4: when the new URL differs from
+        ;; the current slice ONLY in its `#fragment` (same route-id,
+        ;; params, query) the runtime updates `:fragment`, emits the
+        ;; `:rf.route/fragment-changed` op trace, and short-circuits
+        ;; BEFORE allocating a fresh nav-token or re-firing `:on-match`.
+        ;; This branch lives in the shared helper so EVERY URL-driven
+        ;; event honours it — both forward nav (`:rf.route/transitioned`)
+        ;; AND popstate / initial / SSR (`:rf.route/handle-url-change`).
+        ;; Back/Forward to a same-page anchor must not re-fetch route
+        ;; data (rf2-8oxj6).
+        prev              (:rf/route db)
+        fragment-only?    (and prev m
+                               (= (:id prev)     (:route-id m))
+                               (= (:params prev) (:params m))
+                               (= (:query prev)  (:query m))
+                               (not= (:fragment prev) fragment))
         matched?          (some? m)
         validation-fail?  (:validation-failed? m)
         fallback?         (or (not matched?) validation-fail?)
@@ -1477,120 +1518,94 @@
                              :saved-pos (when (= :restore strategy)
                                           (lookup-scroll-position db url))
                              :fragment  fragment})]
-    ;; rf2-4ic0f: structured telemetry for the malformed-URL case so
-    ;; SSR error projections, security dashboards, and pair-tools can
-    ;; surface the failure independently of the generic miss trace.
-    ;; Emitted alongside the regular `:rf.error/no-such-handler` event
-    ;; below — the discriminator is the `:reason :malformed-url` slot
-    ;; on the slice's `:params`.
-    (when malformed?
-      (trace/emit! :warning :rf.warning/malformed-url
-                   (cond-> {:url url}
-                     frame (assoc :frame frame))))
-    ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
-    ;; when the unmatched-URL path resolves to :rf.route/not-found AND
-    ;; no such route is registered. Tools / AI scaffolds key off this.
-    (when (and fallback? (nil? route-meta))
-      (trace/emit! :warning :rf.warning/no-not-found-route
-                   {:url url}))
-    ;; :rf.error/no-such-handler discriminates from event / frame
-    ;; handler misses by :kind :route. The :frame tag (present when the
-    ;; caller threads it in — `:rf.route/handle-url-change`) lets the
-    ;; SSR error-projection listener attribute the trace per-frame.
-    ;; rf2-4ic0f: include `:reason :malformed-url` when applicable so
-    ;; the structured error is uniform across the trace + the slice.
-    (when fallback?
-      (trace/emit-error! :rf.error/no-such-handler
-                         (cond-> {:url url
-                                  :kind :route
-                                  :recovery :replaced-with-default}
-                           frame      (assoc :frame frame)
-                           malformed? (assoc :reason :malformed-url))))
-    (trace/emit! :event :rf.route.nav-token/allocated
-                 {:route-id  route-id
-                  :nav-token token})
-    ;; Per rf2-dn26r: route lifecycle pair. Fires after the nav-token
-    ;; allocation so trace consumers see {allocated → deactivated? →
-    ;; activated?} in that order for any cross-route transition.
-    (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
-    {:db (assoc db' :rf/route
-                {:id         route-id
-                 :params     params
-                 :query      query
-                 :fragment   fragment
-                 :transition transition
-                 :error      nil
-                 :nav-token  token})
-     :fx (vec (concat (when capture-fx [capture-fx])
-                      (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                      ;; Per Spec 012 §Per-route data loading §2:
-                      ;; settle :loading → :idle after the on-match
-                      ;; drain. FIFO order: settle runs after every
-                      ;; on-match event already queued above.
-                      (when (seq on-match-vec)
-                        [[:dispatch [:rf.route.internal/settle-transition token]]])
-                      (when scroll-fx [scroll-fx])))}))
+    (if fragment-only?
+      ;; Spec 012 §Fragments rules 3-4 (rf2-8oxj6): short-circuit BEFORE
+      ;; the nav-token allocation / on-match drain below. Honoured on
+      ;; both `:rf.route/transitioned` and `:rf.route/handle-url-change`
+      ;; (popstate) because the branch lives in the shared helper.
+      (fragment-only-fx db prev fragment)
+      (do
+        ;; rf2-4ic0f: structured telemetry for the malformed-URL case so
+        ;; SSR error projections, security dashboards, and pair-tools can
+        ;; surface the failure independently of the generic miss trace.
+        ;; Emitted alongside the regular `:rf.error/no-such-handler` event
+        ;; below — the discriminator is the `:reason :malformed-url` slot
+        ;; on the slice's `:params`.
+        (when malformed?
+          (trace/emit! :warning :rf.warning/malformed-url
+                       (cond-> {:url url}
+                         frame (assoc :frame frame))))
+        ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
+        ;; when the unmatched-URL path resolves to :rf.route/not-found AND
+        ;; no such route is registered. Tools / AI scaffolds key off this.
+        (when (and fallback? (nil? route-meta))
+          (trace/emit! :warning :rf.warning/no-not-found-route
+                       {:url url}))
+        ;; :rf.error/no-such-handler discriminates from event / frame
+        ;; handler misses by :kind :route. The :frame tag (present when the
+        ;; caller threads it in — `:rf.route/handle-url-change`) lets the
+        ;; SSR error-projection listener attribute the trace per-frame.
+        ;; rf2-4ic0f: include `:reason :malformed-url` when applicable so
+        ;; the structured error is uniform across the trace + the slice.
+        (when fallback?
+          (trace/emit-error! :rf.error/no-such-handler
+                             (cond-> {:url url
+                                      :kind :route
+                                      :recovery :replaced-with-default}
+                               frame      (assoc :frame frame)
+                               malformed? (assoc :reason :malformed-url))))
+        (trace/emit! :event :rf.route.nav-token/allocated
+                     {:route-id  route-id
+                      :nav-token token})
+        ;; Per rf2-dn26r: route lifecycle pair. Fires after the nav-token
+        ;; allocation so trace consumers see {allocated → deactivated? →
+        ;; activated?} in that order for any cross-route transition.
+        (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
+        {:db (assoc db' :rf/route
+                    {:id         route-id
+                     :params     params
+                     :query      query
+                     :fragment   fragment
+                     :transition transition
+                     :error      nil
+                     :nav-token  token})
+         :fx (vec (concat (when capture-fx [capture-fx])
+                          (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                          ;; Per Spec 012 §Per-route data loading §2:
+                          ;; settle :loading → :idle after the on-match
+                          ;; drain. FIFO order: settle runs after every
+                          ;; on-match event already queued above.
+                          (when (seq on-match-vec)
+                            [[:dispatch [:rf.route.internal/settle-transition token]]])
+                          (when scroll-fx [scroll-fx])))}))))
 
 (events/reg-event-fx :rf.route/transitioned
   (fn [{:keys [db frame]} [_ url opts :as event-vec]]
-    ;; Per Spec 012 §URL changes are events / §Fragments. match-url
-    ;; surfaces the URL's `#fragment` directly on its result; if only
-    ;; the fragment differs from the current slice, update :fragment but
-    ;; DO NOT re-fire :on-match — emit :rf.route/fragment-changed
-    ;; instead (rf2-cj9fn). Otherwise full nav: delegate to
-    ;; `url-change-fx`.
-    ;;
-    ;; Default scroll strategy for forward nav (click / programmatic
-    ;; push) is `:top` per Spec 012 §Scroll restoration; popstate /
-    ;; initial / SSR routes through `:rf.route/handle-url-change` which
-    ;; defaults to `:restore`.
-    (let [opts           (or opts {})
-          blocked        (maybe-block-navigation db (or frame :rf/default)
-                                                event-vec url
-                                                (:bypass-leave-guard? opts))
-          m              (when-not blocked (match-url url))
-          fragment       (:fragment m)
-          prev           (:rf/route db)
-          fragment-only? (and prev m
-                              (= (:id prev)     (:route-id m))
-                              (= (:params prev) (:params m))
-                              (= (:query prev)  (:query m))
-                              (not= (:fragment prev) fragment))]
-      (cond
-        blocked
-        blocked
-
-        fragment-only?
-        ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments
-        ;; (rf2-cj9fn): :rf.route/fragment-changed is the canonical
-        ;; op-name for fragment-only navigation. The op-name says what
-        ;; fires it (only a `#fragment` differed) and disambiguates from
-        ;; the runtime event `:rf.route/transitioned`, which fires on every URL
-        ;; transition. Pre-rf2-cj9fn this emitted `:rf.route/fragment-changed`
-        ;; — one path segment away from the runtime event with very
-        ;; different meaning. The new op-name pairs with the fragment-
-        ;; only branch's contract: full URL transitions never emit it,
-        ;; never coincide with a `:rf.route.nav-token/allocated` on the
-        ;; same drain. Consumers carry `:prev-fragment` / `:next-fragment`
-        ;; in `:tags`.
-        (do (trace/emit! :event :rf.route/fragment-changed
-                         {:route-id      (:id prev)
-                          :prev-fragment (:fragment prev)
-                          :next-fragment fragment})
-            (let [capture-fx (capture-scroll-fx-entry db)]
-              (cond-> {:db (assoc-in db [:rf/route :fragment] fragment)}
-                capture-fx (assoc :fx [capture-fx]))))
-
-        :else
-        (url-change-fx db url :top nil)))))
+    ;; Per Spec 012 §URL changes are events / §Fragments. Forward nav
+    ;; (link click / programmatic push). After the leave-guard check,
+    ;; delegate to the shared `url-change-fx`, which distinguishes a
+    ;; fragment-only change (update :fragment, emit
+    ;; :rf.route/fragment-changed, no nav-token / no :on-match — rf2-cj9fn)
+    ;; from a full slice rewrite. Default scroll strategy for forward nav
+    ;; is `:top` per Spec 012 §Scroll restoration; popstate / initial /
+    ;; SSR routes through `:rf.route/handle-url-change` (default
+    ;; `:restore`).
+    (let [opts    (or opts {})
+          blocked (maybe-block-navigation db (or frame :rf/default)
+                                          event-vec url
+                                          (:bypass-leave-guard? opts))]
+      (or blocked
+          (url-change-fx db url :top nil)))))
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db frame]} [_ url opts :as event-vec]]
     ;; Per Spec 012 §URL changes are events — popstate, initial load,
-    ;; SSR. Always a full slice rewrite (the fragment-only branch is
-    ;; exclusive to `:rf.route/transitioned`); default scroll strategy is
-    ;; `:restore` so the saved position trumps. `:frame` is threaded
-    ;; through to `url-change-fx` so the SSR error-projection listener
+    ;; SSR. Delegates to the shared `url-change-fx`, which honours the
+    ;; fragment-only short-circuit (Spec 012 §Fragments rules 3-4): a
+    ;; Back/Forward to a same-page `#fragment` updates :fragment WITHOUT
+    ;; allocating a new nav-token or re-firing :on-match (rf2-8oxj6). The
+    ;; default scroll strategy is `:restore` so the saved position trumps.
+    ;; `:frame` is threaded through so the SSR error-projection listener
     ;; can attribute the :no-such-handler trace per-frame.
     (let [opts    (or opts {})
           blocked (maybe-block-navigation db (or frame :rf/default)

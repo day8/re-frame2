@@ -60,20 +60,21 @@
 
 (defn malformed-url?
   "Public predicate: true when `url`'s percent-encoding is malformed in
-  any of its decode'd portions (path captures via the registered
-  routes' patterns, query keys, query values, or `#fragment`). Used by
-  `:rf.route/transitioned` / `:rf.route/handle-url-change` to discriminate the
-  bare route-miss case (`{:url url}`) from the malformed-URL fail-
-  closed case (`{:url url :reason :malformed-url}`) — both end up at
+  any of its decode'd portions — any non-empty path segment, any query
+  key or value, or the `#fragment`. Used by `:rf.route/transitioned` /
+  `:rf.route/handle-url-change` to discriminate the bare route-miss case
+  (`{:url url}`) from the malformed-URL fail-closed case
+  (`{:url url :reason :malformed-url}`) — both end up at
   `:rf.route/not-found` but the structured `:reason` lets per-route
   error UIs and SSR projections branch on the cause.
 
   Per Spec 012 §Routing failure semantics §Malformed percent-encoding
-  (rf2-4ic0f). The check decodes path captures against the registered
-  patterns (so a bare `%` in a non-captured static segment of a path
-  the route doesn't match is not flagged — it's just a normal miss);
-  for the query and fragment the full string is decoded, so any `%`
-  that won't decode anywhere in either flips the predicate.
+  (rf2-4ic0f). The scan is purely lexical and pattern-agnostic: the URL
+  is split into path segments (on `/`), query pairs (on `&`, then `=`),
+  and the `#fragment`, and each piece is run through `safe-url-decode`.
+  Any piece that won't decode flips the predicate — no route table or
+  compiled pattern is consulted, so a bare `%` in any path segment is
+  flagged regardless of whether a route would have captured it.
 
   O(URL-pieces) — runs once per URL-driven nav alongside the regular
   `match-url` walk; the cost is bounded by the URL length, not the
