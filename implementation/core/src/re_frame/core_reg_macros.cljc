@@ -91,9 +91,12 @@
      [sym]
      (let [v (ns-resolve (find-ns 're-frame.core) sym)]
        (when (nil? v)
-         (throw (ex-info (str "defreg-macro: cannot resolve delegate symbol " sym
-                              " in re-frame.core")
-                         {:sym sym})))
+         (throw (ex-info ":rf.error/defreg-macro-bad-delegate"
+                         {:rf.error/id :rf.error/defreg-macro-bad-delegate
+                          :where       'defreg-macro
+                          :recovery    :fix-registration
+                          :reason      (str "defreg-macro cannot resolve delegate symbol " sym " in re-frame.core")
+                          :sym         sym})))
        (symbol (str (.ns ^clojure.lang.Var v))
                (str (.sym ^clojure.lang.Var v))))))
 

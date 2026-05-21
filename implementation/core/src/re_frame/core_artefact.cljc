@@ -162,8 +162,12 @@
      (let [attrs (cond
                    (map? docstring-or-attrs)    docstring-or-attrs
                    (string? docstring-or-attrs) {:doc docstring-or-attrs}
-                   :else (throw (ex-info "defwrapper: expected docstring or attr-map"
-                                         {:got docstring-or-attrs})))
+                   :else (throw (ex-info ":rf.error/defwrapper-bad-args"
+                                         {:rf.error/id :rf.error/defwrapper-bad-args
+                                          :where       'defwrapper
+                                          :recovery    :fix-registration
+                                          :reason      "defwrapper's second argument must be a docstring or an attr-map"
+                                          :got         docstring-or-attrs})))
            attrs (cond-> attrs
                    (:arglists spec) (assoc :arglists (:arglists spec)))
            spec    (update spec :where #(or % (list 'quote (symbol "rf" (str name-sym)))))
