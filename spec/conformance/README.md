@@ -135,7 +135,33 @@ Routing and SSR pure-call fixtures use the same shape with different `:call` ops
   {:call :round-trip :url "/articles/intro"}]}
 ```
 
-The reserved `:call` operators currently used by the corpus are `:machine-transition`, `:match-url`, `:route-url`, `:round-trip`, `:assert-rank-greater`, and `:render-to-string`. The set is additive — new pure primitives may register a new `:call` op in subsequent fixture spec versions; existing ops cannot be redefined.
+The reserved `:call` operators currently used by the corpus are `:machine-transition`, `:reg-machine`, `:match-url`, `:route-url`, `:round-trip`, `:assert-rank-greater`, and `:render-to-string`. The set is additive — new pure primitives may register a new `:call` op in subsequent fixture spec versions; existing ops cannot be redefined.
+
+#### The `:reg-machine` op — registration-error taxonomy
+
+The `:reg-machine` op pins the machine **registration-error taxonomy** (the [009 §thrown-error shape](../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract) — the `:rf.error/id` ex-data contract) at the conformance layer. A re-frame2 machine spec is validated at registration time by a pure leaf fn (`validate-machine!` in the CLJS reference); each malformed spec throws an `ex-info` whose `:rf.error/id` ex-data slot names a `:rf.error/machine-*` category. The taxonomy is a spec-normative contract surface — consumers (Causa's error widget, the pair-tool overlay, `:on-error` policies) `case` on `:rf.error/id`, never the message string — so it deserves a corpus pin independent of any host's full registration machinery.
+
+A `:reg-machine` call carries the candidate `:definition` and either an `:expect-error` (the `:rf.error/<category>` keyword the validator must throw) or no `:expect-error` (a well-formed control that must validate silently):
+
+```clojure
+;; Excerpt — full file at fixtures/machine-reg-error-compound-state-missing-initial.edn
+{:fixture/id           :machine/reg-error-compound-state-missing-initial
+ :fixture/capabilities #{:fsm/hierarchical :fsm/registration-validation}
+ :fixture/calls
+ [;; A compound state declaring :states but no :initial is rejected.
+  {:call         :reg-machine
+   :definition   {:initial :authenticated
+                  :states  {:authenticated {:states {:dashboard {} :settings {}}}}}
+   :expect-error :rf.error/machine-compound-state-missing-initial}
+
+  ;; Control: a compound state that DOES declare :initial validates silently.
+  {:call       :reg-machine
+   :definition {:initial :authenticated
+                :states  {:authenticated {:initial :dashboard
+                                          :states  {:dashboard {} :settings {}}}}}}]}
+```
+
+The host runs the call by invoking its registration-time validator on `:definition` and comparing the thrown `:rf.error/id` against `:expect-error` (pass iff equal); a control call (no `:expect-error`) passes iff the validator does not throw. Fixtures using `:reg-machine` declare the `:fsm/registration-validation` capability alongside the FSM/actor capability the malformed shape exercises (`:fsm/hierarchical`, `:fsm/final-states`, `:actor/spawn-and-join`, …). A host that does not implement registration-time validation (e.g. a port that validates lazily) declares `:fsm/registration-validation` in its `known-skipped-capabilities` allowlist.
 
 ### Capability tagging
 
@@ -144,7 +170,7 @@ Per [Goal 6 — Hierarchical FSM substrate with implementor-chosen capabilities]
 Capability tag conventions:
 
 - `:core/*` — pattern-required basics every conformant port supports (event handler, frame, dispatch envelope, sub, trace, fx, error).
-- `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`).
+- `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/registration-validation`).
 - `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`).
 - `:routing/*`, `:ssr/*`, `:schemas/*` — per-spec capabilities for ports that ship them.
 
@@ -265,7 +291,7 @@ Each fixture defines an **invariant the implementation upholds**. The harness:
 2. **Realises handler bodies** — for each `:fixture/handlers` entry, interpret the DSL ops into a host-native closure and bind it to the id under the kind.
 3. **Creates the frame** — apply `:fixture/frame-config` via `make-frame` (or the host equivalent); this fires `:on-create` and any `:on-create` events seeded into the frame.
 4. **Runs `:fixture/dispatches`** — one event vector per call, each via `dispatch-sync`. Each settles to fixed point before the next.
-5. **Runs `:fixture/calls`** (if present) — direct invocations of pure primitives (`machine-transition`, `match-url`, `route-url`, `render-to-string`, `round-trip`, `assert-rank-greater`). Each call carries its own expectation; mismatches surface as fixture-level failures.
+5. **Runs `:fixture/calls`** (if present) — direct invocations of pure primitives (`machine-transition`, `reg-machine`, `match-url`, `route-url`, `render-to-string`, `round-trip`, `assert-rank-greater`). Each call carries its own expectation; mismatches surface as fixture-level failures.
 6. **Captures observables** (Mode A) — final `app-db`, sub values (per `:fixture/expect :sub-values`), trace events emitted, effects routed.
 7. **Compares** (Mode A) — partial-match per assertion. `:trace-emissions` partial-matches each trace event by its specified keys; absent keys are ignored. `:final-app-db` is a literal compare. `:effects-routed` matches the routed-fx pairs in declaration order.
 
@@ -288,7 +314,7 @@ Each fixture is **a single file** of <200 lines including registrations and expe
       - Compare actuals against `:fixture/expect`.
    d. **If `:fixture/calls` is present (Mode B):**
       - For each call record, invoke the named primitive with the supplied arguments.
-      - Compare the result against the call-local expectation (`:expect`, or operation-specific keys like `:expect-next-snapshot` + `:expect-effects`).
+      - Compare the result against the call-local expectation (`:expect`, or operation-specific keys like `:expect-next-snapshot` + `:expect-effects` for `:machine-transition`, or `:expect-error` for `:reg-machine`).
 3. Report pass/fail per fixture; total conformance score.
 
 The harness is small (~300 lines per host).
@@ -339,6 +365,10 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `after-single-delay.edn` | `:machine/after-single-delay` | Single `:after` entry fires after the configured delay; verifies `:rf.machine.timer/scheduled` at state entry, `:rf.machine.timer/fired` at expiry, and the snapshot transitions to the target after the test-clock advances past the delay. |
 | `after-stale-detection.edn` | `:machine/after-stale-detection` | A real `:on` event arrives before the `:after` timer expires; the machine transitions out of the state; the epoch advances; the eventual timer firing is detected as stale (`:rf.machine.timer/stale-after`) and silently ignored. The "real event beats the timer" race the epoch mechanism handles. |
 | `after-hierarchy.edn` | `:machine/after-hierarchy` | `:after` on a parent compound state remains active while the snapshot is in any child; sibling-leaf transitions inside the parent do NOT cancel the parent's `:after`. Exiting the parent advances the epoch and the parent-level timer's eventual firing is stale. |
+| `machine-reg-error-compound-state-missing-initial.edn` | `:machine/reg-error-compound-state-missing-initial` | `:reg-machine` Mode-B: a compound state-node declaring `:states` but no `:initial` is rejected at registration with `:rf.error/machine-compound-state-missing-initial`; the `:initial`-bearing control validates silently. |
+| `machine-reg-error-always-self-loop.edn` | `:machine/reg-error-always-self-loop` | `:reg-machine` Mode-B: an `:always` entry whose keyword/vector `:target` resolves to its own declaring state throws `:rf.error/machine-always-self-loop`; an internal (no-`:target`) `:always` and a sibling-target `:always` validate silently. |
+| `machine-reg-error-final-state-shape.edn` | `:machine/reg-error-final-state-shape` | `:reg-machine` Mode-B: a compound `:final?` state, a transition-bearing `:final?` state, and a non-final `:output-key` state throw `:rf.error/machine-final-state-compound` / `-final-state-has-transitions` / `-output-key-without-final` respectively; well-formed `:final?` leaves (with `:output-key` / `:entry` / `:exit`) validate silently. |
+| `machine-reg-error-spawn-all-shape.edn` | `:machine/reg-error-spawn-all-shape` | `:reg-machine` Mode-B: a node declaring both `:spawn` and `:spawn-all` throws `:rf.error/machine-spawn-all-with-spawn`; two `:spawn-all` children sharing an `:id` throw `:rf.error/machine-spawn-all-duplicate-id`; the distinct-`:id` control validates silently. |
 | `routing-match-url.edn` | `:routing/match-url` | Bidirectional URL ↔ params; round-trip property |
 | `routing-navigate.edn` | `:routing/navigate` | `:rf.route/navigate` updates `app-db` + emits `:rf.nav/push-url` fx |
 | `route-ranking-precedence.edn` | `:routing/ranking-precedence` | Deterministic 6-rule ranking cascade resolves overlapping routes; equal-score warning |

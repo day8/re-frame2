@@ -1,0 +1,59 @@
+;; Conformance fixture: machine/reg-error-always-self-loop
+;;
+;; Per [005 §Self-loop forbidden at registration](../../005-StateMachines.md#self-loop-forbidden-at-registration)
+;; and rf2-hh1pi: a state whose `:always` targets ITSELF is rejected at
+;; construction time. An eventless self-loop either fires repeatedly to
+;; depth-exceeded (guard stays true) or is a no-op (guard flips on first
+;; hit) — in both cases the author intended something else, so the bug is
+;; caught at registration rather than late at runtime via the
+;; depth-exceeded backstop.
+;;
+;; A keyword `:target` self-loops when it equals the declaring state's own
+;; key; a vector `:target` self-loops when it equals the declaring state's
+;; absolute path. An `:always` entry with NO `:target` is an INTERNAL
+;; eventless transition (the canonical action-microstep pattern) and is
+;; NOT a self-loop — the control case below pins that distinction.
+;;
+;; Mode-B `:reg-machine` fixture pinning the registration-error taxonomy
+;; (Spec 009 §The thrown-error shape). The `:rf.error/id` discriminator is
+;; `:rf.error/machine-always-self-loop`.
+
+{:fixture/id           :machine/reg-error-always-self-loop
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/eventless-always :fsm/registration-validation}
+ :fixture/doc          "An :always entry whose :target resolves to its own declaring state is rejected at registration with :rf.error/machine-always-self-loop. Keyword and vector self-targets both throw; an internal (no-:target) :always and a sibling-target :always validate silently."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) Keyword :target naming the declaring state — self-loop, rejected.
+  {:call         :reg-machine
+   :definition   {:initial :checking
+                  :guards  {:ready? :always/true?}
+                  :states  {:checking {:always [{:guard :ready? :target :checking}]}}}
+   :expect-error :rf.error/machine-always-self-loop}
+
+  ;; (2) Vector :target equal to the declaring leaf's absolute path — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :outer
+                  :guards  {:p? :always/true?}
+                  :states  {:outer {:initial :inner
+                                    :states  {:inner {:always [{:guard  :p?
+                                                                :target [:outer :inner]}]}}}}}
+   :expect-error :rf.error/machine-always-self-loop}
+
+  ;; (3) Control: internal :always (no :target, just :action) is the
+  ;; canonical action-microstep pattern — NOT a self-loop, validates silently.
+  {:call       :reg-machine
+   :definition {:initial :working
+                :guards  {:more? :always/false?}
+                :actions {:step :identity}
+                :states  {:working {:always [{:guard :more? :action :step}]}}}}
+
+  ;; (4) Control: an :always targeting a DIFFERENT sibling validates silently.
+  {:call       :reg-machine
+   :definition {:initial :asking
+                :guards  {:enough? :always/true?}
+                :states  {:asking {:always [{:guard :enough? :target :winner}]}
+                          :winner {}}}}]}

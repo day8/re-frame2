@@ -28,6 +28,10 @@
   Public surface re-exported from the sub-namespaces:
     - `reg-machine*`, `make-machine-handler` —
       `re-frame.machines.lifecycle-fx.registration`
+    - `validate-machine!` — `re-frame.machines.lifecycle-fx.validation`
+      (the pure registration-time validator; the conformance corpus's
+      `:reg-machine` Mode-B op pins the registration-error taxonomy
+      against it)
     - `machine-transition` — `re-frame.machines.parallel` (the public
       dispatch; flat / compound delegates to
       `re-frame.machines.transition`'s `machine-transition-single`)
@@ -44,6 +48,7 @@
             [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
+            [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.timer :as timer]
@@ -70,6 +75,11 @@
 
 (def reg-machine*           registration/reg-machine*)
 (def make-machine-handler registration/make-machine-handler)
+;; The pure registration-time validator (Spec 005 §registration validators,
+;; rf2-f9tu). Re-exported so the conformance corpus's `:reg-machine` Mode-B
+;; call op can pin the registration-error taxonomy (Spec 009 §thrown-error
+;; shape) directly against the leaf fn — no registrar/substrate fixture.
+(def validate-machine!      validation/validate-machine!)
 (def spawn-fx               spawn/spawn-fx)
 (def invoke-all-init-fx     spawn/invoke-all-init-fx)
 (def destroy-machine-fx     destroy/destroy-machine-fx)

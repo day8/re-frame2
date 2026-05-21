@@ -1,0 +1,68 @@
+;; Conformance fixture: machine/reg-error-final-state-shape
+;;
+;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key)
+;; and rf2-gn80 §`:final?` constraints. A `:final?` state-node's shape is
+;; constrained at registration:
+;;
+;;   - A `:final?` state MUST NOT be compound (no `:states`, no `:initial`)
+;;     — `:rf.error/machine-final-state-compound`.
+;;   - A `:final?` state MUST NOT declare `:on` / `:always` / `:after` /
+;;     `:spawn` / `:spawn-all` — final means final, no transitions out —
+;;     `:rf.error/machine-final-state-has-transitions`. (`:entry` / `:exit`
+;;     ARE permitted.)
+;;   - A NON-final state declaring `:output-key` is a registration error
+;;     — `:rf.error/machine-output-key-without-final` (D3: `:output-key`
+;;     is only meaningful on a `:final?` state).
+;;
+;; Mode-B `:reg-machine` fixture pinning three members of the
+;; registration-error taxonomy (Spec 009 §The thrown-error shape). Each
+;; call's `:expect-error` names the `:rf.error/id` discriminator.
+
+{:fixture/id           :machine/reg-error-final-state-shape
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/final-states :fsm/registration-validation}
+ :fixture/doc          "A compound :final? state, a transition-bearing :final? state, and a non-final state declaring :output-key each throw their distinct registration-error category. The control cases — a well-formed :final? leaf with :output-key, and a :final? leaf with :entry/:exit — validate silently."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) A :final? state that is ALSO compound (declares :states) — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :running
+                  :states  {:running {:on {:finish :done}}
+                            :done    {:final? true
+                                      :states {:sub {}}}}}    ;; final + compound
+   :expect-error :rf.error/machine-final-state-compound}
+
+  ;; (2) A :final? state declaring an outbound :on transition — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :running
+                  :states  {:running {:on {:finish :done}}
+                            :done    {:final? true
+                                      :on     {:restart :running}}}}  ;; final + :on
+   :expect-error :rf.error/machine-final-state-has-transitions}
+
+  ;; (3) A NON-final state declaring :output-key — rejected (D3).
+  {:call         :reg-machine
+   :definition   {:initial :running
+                  :states  {:running    {:output-key :result   ;; non-final + :output-key
+                                         :on {:finish :done}}
+                            :done       {:final? true}}}
+   :expect-error :rf.error/machine-output-key-without-final}
+
+  ;; (4) Control: a well-formed :final? leaf carrying :output-key validates silently.
+  {:call       :reg-machine
+   :definition {:initial :running
+                :states  {:running {:on {:finish :done}}
+                          :done    {:final?     true
+                                    :output-key :phase}}}}
+
+  ;; (5) Control: a :final? leaf MAY declare :entry / :exit — validates silently.
+  {:call       :reg-machine
+   :definition {:initial :running
+                :actions {:log :identity}
+                :states  {:running {:on {:finish :done}}
+                          :done    {:final? true
+                                    :entry  :log
+                                    :exit   :log}}}}]}

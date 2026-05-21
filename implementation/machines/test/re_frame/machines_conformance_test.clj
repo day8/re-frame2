@@ -69,16 +69,22 @@
       {:fixture/load-error (.getMessage e)
        :fixture/file       (.getName file)})))
 
-(defn- has-machine-transition-call?
-  "True if any `:fixture/calls` entry uses `:call :machine-transition`."
+(def machine-call-ops
+  "The Mode-B `:call` ops this artefact's runner executes:
+  `:machine-transition` (pure transition) and `:reg-machine` (pure
+  registration validation, pinning the registration-error taxonomy)."
+  #{:machine-transition :reg-machine})
+
+(defn- has-machine-call?
+  "True if any `:fixture/calls` entry uses a `:call` this runner executes."
   [fixture]
-  (some (fn [c] (= :machine-transition (:call c)))
+  (some (fn [c] (contains? machine-call-ops (:call c)))
         (or (:fixture/calls fixture) [])))
 
 (defn all-machine-transition-fixtures
   "Every fixture file whose `:fixture/calls` contains at least one
-  `:machine-transition` call. Returns a vector of `[filename fixture]`
-  pairs in stable lex order."
+  `:machine-transition` or `:reg-machine` call. Returns a vector of
+  `[filename fixture]` pairs in stable lex order."
   []
   (->> (file-seq fixtures-dir)
        (filter #(.isFile %))
@@ -87,7 +93,7 @@
        (map (fn [f] [(.getName f) (load-fixture f)]))
        (filter (fn [[_ fx]]
                  (and (not (:fixture/load-error fx))
-                      (has-machine-transition-call? fx))))
+                      (has-machine-call? fx))))
        vec))
 
 ;; ---- claimed capability set -----------------------------------------------
@@ -112,6 +118,10 @@
     :fsm/delayed-after
     :fsm/tags
     :fsm/final-states
+    ;; rf2-vf5cf: the registration-error taxonomy (Spec 009 thrown-error
+    ;; shape) — pinned by the `:reg-machine` Mode-B op against the pure
+    ;; `validate-machine!` validator.
+    :fsm/registration-validation
     :actor/spawn-destroy
     :actor/invoke
     :actor/spawn-and-join
@@ -254,18 +264,64 @@
                      "    expected effects:  " want-fx "\n"
                      "    actual   effects:  " fx-out))}))
 
+;; ---- single :reg-machine call ---------------------------------------------
+;;
+;; The `:reg-machine` Mode-B op pins the registration-error taxonomy
+;; (Spec 009 §The thrown-error shape — the :rf.error/id ex-data contract)
+;; against the pure registration validator `validate-machine!`. A
+;; well-formed `:definition` validates silently; a malformed one throws an
+;; ex-info whose `:rf.error/id` ex-data slot names the category the
+;; fixture's `:expect-error` pins. No registrar, no substrate, no app-db —
+;; the validator is a pure leaf fn of the machine map.
+
+(defn- run-reg-machine-call
+  "Execute one `:reg-machine` call. Returns `{:passed? bool :detail msg}`.
+
+  Validates `(:definition call)` via `re-frame.machines/validate-machine!`.
+  - With `:expect-error <category-kw>`: passes iff the validator throws an
+    ex-info whose `(:rf.error/id (ex-data e))` equals the category.
+  - With `:expect-valid? true` (or no `:expect-error`): passes iff the
+    validator does NOT throw (a well-formed control case)."
+  [call]
+  (let [definition (:definition call)
+        want-error (:expect-error call)
+        thrown     (try (machines/validate-machine! definition) nil
+                        (catch clojure.lang.ExceptionInfo e e)
+                        (catch Throwable e e))]
+    (if want-error
+      (let [got-id (when (instance? clojure.lang.ExceptionInfo thrown)
+                     (:rf.error/id (ex-data thrown)))
+            ok?    (= want-error got-id)]
+        {:passed? ok?
+         :detail  (when-not ok?
+                    (str "reg-machine\n"
+                         "    expected error :rf.error/id: " want-error "\n"
+                         "    actual   error :rf.error/id: " got-id "\n"
+                         "    thrown:                       " (some-> thrown ex-message)))})
+      ;; control: must NOT throw
+      {:passed? (nil? thrown)
+       :detail  (when (some? thrown)
+                  (str "reg-machine\n"
+                       "    expected: no error (well-formed machine)\n"
+                       "    thrown:   " (ex-message thrown)))})))
+
 ;; ---- fixture-level pass/fail ----------------------------------------------
 
 (defn- run-fixture
-  "Run every `:machine-transition` call in the fixture; return
-  `{:fixture-id ... :passed? bool :failures [detail ...]}`. Non-
-  `:machine-transition` calls in the same fixture are ignored — they
-  belong to other primitives that don't ship in this artefact."
+  "Run every `:machine-transition` and `:reg-machine` call in the fixture;
+  return `{:fixture-id ... :passed? bool :failures [detail ...]}`. Other
+  `:call` ops in the same fixture are ignored — they belong to primitives
+  that don't ship in this artefact."
   [fixture]
   (let [realised   (realise-machine-handlers fixture)
-        calls      (filter #(= :machine-transition (:call %))
-                           (or (:fixture/calls fixture) []))
-        results    (mapv #(run-machine-transition-call % realised) calls)
+        calls      (or (:fixture/calls fixture) [])
+        results    (->> calls
+                        (keep (fn [c]
+                                (case (:call c)
+                                  :machine-transition (run-machine-transition-call c realised)
+                                  :reg-machine        (run-reg-machine-call c)
+                                  nil)))
+                        vec)
         failures   (filterv (complement :passed?) results)]
     {:fixture-id (:fixture/id fixture)
      :calls-run  (count results)
