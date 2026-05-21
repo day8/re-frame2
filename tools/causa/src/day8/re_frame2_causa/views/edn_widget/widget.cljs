@@ -1,5 +1,6 @@
 (ns day8.re-frame2-causa.views.edn-widget.widget
-  "Canonical Causa EDN widget (rf2-9wsdy, Mike-direction 2026-05-21).
+  "Canonical Causa EDN widget — Mike-direction 2026-05-21
+  (`cljs-devtools EDN widget`).
 
   ## Purpose
 
@@ -9,22 +10,30 @@
   operator learns one expand/collapse + path-click + diff interaction
   and applies it everywhere.
 
-  ## Adoption
+  ## Two engines, one facade
 
-  The widget is a thin Reagent-agnostic facade on top of the existing
-  `data-display/render` engine (rf2-jgip1) which already implements the
-  lazy collapsible tree, sticky per-node expansion, diff gutters,
-  keyword-violet type coloring, click-to-navigate path segments, and
-  the §10.7 evicted-epoch placeholder. The facade exists so call sites
-  address ONE widget by name (Mike's 2026-05-21 design direction —
-  `cljs-devtools EDN widget`) regardless of how the engine evolves
-  underneath.
+  The widget is a thin Reagent-agnostic facade over two cooperating
+  engines:
 
-  Per the bead's variant taxonomy:
+  1. **`data-display/render`** — Causa's tree walker (collapsible,
+     diff-aware, path-clickable). Owns the contract for `browse` +
+     `diff` because diff semantics are pairwise over the CLJS values,
+     and sticky expansion lives in `:rf.causa/data-display-expansion`.
+     Neither concern is in scope for cljs-devtools.
 
-    `browse` — single-value tree (default; `:variant :browse`)
-    `diff`   — before/after tree (`:variant :diff` · `:before` slot)
-    `mini`   — one-liner inline (`:variant :mini` · for chips + rows)
+  2. **`cljs-devtools-render`** — `binaryage/cljs-devtools`'s
+     formatters, the same engine re-frame-10x uses, walked into hiccup
+     by a small JSONML→hiccup adapter (Phase 1 hand-rolled a per-leaf
+     classifier and stopped at primitive shapes; that stand-in is
+     gone). Owns the CLJS-aware rendering for non-collection leaves +
+     the `mini` one-liner: records keep their type tag, persistent
+     collections render with native delimiters, metadata gets the
+     `^{...}` annotation, IRecord vs IMap is distinguished. Faithful
+     CLJS-aware rendering — records · persistent-collections · meta ·
+     datafy/nav.
+
+  Callers don't see the split — they call `browse` / `diff` / `mini` /
+  `code-block` and the facade routes.
 
   ## Public API
 
@@ -46,40 +55,52 @@
 
   ## Posture
 
-  Pre-alpha · NO back-compat shims · dev-only · the underlying engine
-  must not leak into production bundles (bundle-isolation gate holds —
-  Causa as a whole is `:devtools/preloads`-gated).
-
-  ## Why not cljs-devtools formatters yet
-
-  Mike's direction names cljs-devtools as the formatter library; the
-  binaryage/cljs-devtools artefact would register Chrome
-  custom-formatters so opening DevTools' console sees pretty CLJS
-  values. That is complementary — it improves the console story, not
-  the in-Causa rendering surface. The in-DOM widget here delivers the
-  pixel contract Mike sketched; a follow-on bead can layer the
-  cljs-devtools console formatters on the same dep when needed."
+  Pre-alpha · NO back-compat shims · dev-only · bundle-isolated. The
+  cljs-devtools dep is Causa-only; the `:devtools/preloads` gate keeps
+  it out of production bundles per the contract in `tools/README.md`."
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.data-display.render :as data-display]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack]]))
+             :refer [tokens mono-stack]]
+            [day8.re-frame2-causa.views.edn-widget.cljs-devtools-render
+             :as cdt]))
 
 ;; ---- variant: browse -----------------------------------------------------
 
+(defn- collection-value?
+  "True when `v` is a collection — anything `data-display/render-tree`'s
+  tree walker treats as a node with children (map / vector / list / set).
+  Non-collections route through cljs-devtools' single-value formatter."
+  [v]
+  (or (map? v) (vector? v) (set? v) (sequential? v)))
+
 (defn browse
-  "Render `:value` as a path-aware expand/collapse tree. Browse mode —
-  no diff semantics. Returns hiccup.
+  "Render `:value` as a path-aware expand/collapse tree (collections)
+  or as a single cljs-devtools-formatted hiccup span (non-collection
+  leaves). Browse mode — no diff semantics. Returns hiccup.
 
   Required: `:value :panel-id :render-id`.
   Optional: `:default-depth` (defaults to 2 per §10.4)."
   [{:keys [value panel-id render-id default-depth]
     :or   {default-depth 2}}]
-  (data-display/render-tree
-    {:value         value
-     :diff?         false
-     :panel-id      panel-id
-     :render-id     render-id
-     :default-depth default-depth}))
+  (if (collection-value? value)
+    (data-display/render-tree
+      {:value         value
+       :diff?         false
+       :panel-id      panel-id
+       :render-id     render-id
+       :default-depth default-depth})
+    ;; Non-collection — record / scalar / function / etc. cljs-devtools
+    ;; owns the leaf shape (type tag, metadata, IRecord chrome).
+    [:div {:data-testid (str "rf-causa-edn-widget-browse-"
+                             (name (or panel-id :unknown))
+                             "-"
+                             (str (or render-id "")))
+           :style {:font-family mono-stack
+                   :font-size   "12px"
+                   :color       (:text-primary tokens)
+                   :line-height 1.4}}
+     (cdt/value->hiccup value)]))
 
 ;; ---- variant: diff -------------------------------------------------------
 
@@ -88,6 +109,11 @@
   the §10.3 gutter glyphs (+ added / - removed / ~ modified / ◴ has
   changed descendant) and a `← changed from <prior>` chip on modified
   leaves. Returns hiccup.
+
+  Diff semantics live in `data-display/render-tree` — the engine walks
+  before/after pairwise and threads diff-op classification through the
+  tree. cljs-devtools doesn't know about diff (it operates on a single
+  value), so diff stays here.
 
   Required: `:before :after :panel-id :render-id`.
   Optional: `:default-depth` (defaults to 2 per §10.4)."
@@ -104,35 +130,52 @@
 ;; ---- variant: mini -------------------------------------------------------
 
 (defn mini
-  "One-liner inline rendering of `value`. No expansion, no diff — used
-  in chip rows / table cells where the full tree would crowd the
-  layout. Returns hiccup `[:span ...]` shape so callers can embed
-  inline.
+  "One-liner inline rendering of `value` via cljs-devtools' formatters.
+  No expansion, no diff — used in chip rows / table cells where the
+  full tree would crowd the layout. Returns hiccup `[:span ...]` shape
+  so callers can embed inline.
 
-  Truncates at `max-len` (default 80) — long values get an ellipsis
-  plus the full value in the title attribute so hover reveals the full
-  pr-str."
+  When the formatter's coloured-span output renders longer than the
+  caller's pixel budget the parent's `text-overflow: ellipsis` kicks
+  in via the surrounding container; we still cap raw `pr-str` length
+  in the `:title` attribute so hover reveals up to `max-len` characters
+  of the underlying value."
   ([value] (mini value 80))
   ([value max-len]
-   (let [s   (try (pr-str value) (catch :default _ (str value)))
-         len (count s)
-         out (if (<= len max-len) s (str (subs s 0 max-len) "…"))]
+   (let [pr        (try (pr-str value) (catch :default _ (str value)))
+         truncated (if (<= (count pr) max-len)
+                     pr
+                     (str (subs pr 0 max-len) "…"))]
      [:span {:data-testid "rf-causa-edn-widget-mini"
-             :title       s
+             :title       pr
              :style       {:font-family mono-stack
                            :font-size   "11px"
                            :color       (:text-primary tokens)
                            :white-space "nowrap"
                            :overflow    "hidden"
-                           :text-overflow "ellipsis"}}
-      out])))
+                           :text-overflow "ellipsis"
+                           :max-width   "100%"
+                           :display     "inline-block"
+                           :vertical-align "bottom"}
+             ;; A `data-pr` attribute carries the raw pr-str so test
+             ;; assertions + a11y readers can still reach the value
+             ;; even when the visible content is cljs-devtools markup.
+             :data-pr     truncated}
+      (cdt/value->hiccup value)])))
 
 ;; ---- code-block (handler / interceptor source rendering) ----------------
+;;
+;; `code-block` renders Clojure SOURCE TEXT, not a CLJS value, so the
+;; cljs-devtools formatters API doesn't apply (it operates on live
+;; values, not strings). We keep a small in-bundle Clojure tokenizer
+;; for source rendering — ~30 LoC, zero deps, sufficient for the
+;; handler-source snippets the Event panel renders.
 
 (defn highlight-clojure-token
-  "Per-token colour resolution for the bundled lightweight Clojure
-  syntax highlighter. Pure data -> token-keyword for the token-type
-  classification. Public for unit tests."
+  "Per-token colour resolution for the in-bundle Clojure syntax
+  highlighter (source-text rendering only; CLJS-value rendering goes
+  through `cljs-devtools-render`). Pure data → token-keyword for the
+  token-type classification. Public for unit tests."
   [tok-type]
   (case tok-type
     :keyword  :accent-violet
@@ -145,7 +188,7 @@
     :text-primary))
 
 (def clojure-builtins
-  "Recognised Clojure builtins for the in-bundle lightweight
+  "Recognised Clojure builtins for the in-bundle source-text
   highlighter. Public so tests can assert membership."
   #{"def" "defn" "defn-" "defmacro" "let" "if" "when" "when-not"
     "cond" "case" "do" "loop" "recur" "fn" "fn*" "reify"
@@ -156,10 +199,10 @@
     "->" "->>" "some->" "some->>"})
 
 (defn classify-token
-  "Classify a Clojure token literal string. Pure fn; lightweight —
-  handles the cases that matter for handler-source rendering
-  (keywords, strings, numbers, comments, parens, builtins, plain
-  symbols)."
+  "Classify a Clojure source-text token literal string. Pure fn;
+  lightweight — handles the cases that matter for handler-source
+  rendering (keywords, strings, numbers, comments, parens, builtins,
+  plain symbols)."
   [s]
   (cond
     (str/blank? s)                            :whitespace
@@ -176,11 +219,7 @@
   "Split a Clojure source string into a vector of `[token-type
   literal]` pairs. Pure fn; greedy single-pass tokenizer good enough
   for the inline-source rendering. Strings + comments are matched
-  before symbols so they capture greedily.
-
-  This is intentionally lightweight — re-frame handlers are typically
-  short. A heavier highlight.js integration could land via a follow-on
-  bead; for now this keeps the bundle small and CSS-free."
+  before symbols so they capture greedily."
   [src]
   (loop [acc [] s src]
     (cond
@@ -228,8 +267,9 @@
 
 (defn code-block
   "Render `:source` as a syntax-highlighted code block. Pure hiccup —
-  Clojure-only highlighter (lightweight bundled tokenizer; cljs-devtools
-  + a heavier highlight.js can land in a follow-on bead).
+  Clojure-only highlighter for source-text strings (cljs-devtools
+  operates on live CLJS values, not source text, so it doesn't apply
+  here).
 
   Required: `:source`.
   Optional: `:lang` (defaults to `:clojure` — only `:clojure` highlights
