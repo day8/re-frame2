@@ -303,6 +303,39 @@
   [a b path]
   (collect-patches-into [] a b path))
 
+(defn- apply-patches*
+  "Replay an already-validated patch vector against `base`, returning
+  the reconstructed value. Patches are `[path :assoc v]` or
+  `[path :dissoc]`. Root-path patches (path `[]`) replace `base`
+  outright (for `:assoc`) or are a no-op (for `:dissoc`, by
+  convention).
+
+  This is the non-validating core: callers that have ALREADY validated
+  the patch grammar (e.g. `decode-db-after`, whose `validate-sections!`
+  gate walks each section's nested `:patches` against `patches-schema`
+  via `section-schema`) replay through here directly rather than
+  re-validating the flattened list a second time on the JVM decode hot
+  path (rf2-pfy8e). The public `apply-patches` validates first, then
+  delegates here."
+  [base patches]
+  (reduce
+    (fn [acc patch]
+      (let [[path op v] patch]
+        (cond
+          (empty? path)
+          (if (= op :assoc) v acc)
+          (= op :assoc)
+          (assoc-in acc path v)
+          (= op :dissoc)
+          (let [parent-path (vec (butlast path))
+                k           (last path)]
+            (if (empty? parent-path)
+              (dissoc acc k)
+              (update-in acc parent-path dissoc k)))
+          :else acc)))
+    base
+    patches))
+
 (defn apply-patches
   "Apply a vector of patches to `base`, returning the reconstructed
   value. Patches are `[path :assoc v]` or `[path :dissoc]`. Root-path
@@ -329,26 +362,16 @@
   Soft-pass behaviour mirrors the encoder: when Malli is not
   resolvable on the runtime classpath, validation is skipped. The
   CLJS `validate-patches?` `goog-define` toggle elides both gates
-  together in `:advanced` builds."
+  together in `:advanced` builds.
+
+  Note: `decode-db-after` does NOT route through this fn — it validates
+  `:sections` (whose nested `:patches` are walked against the same
+  `patches-schema`) and replays via the non-validating `apply-patches*`
+  to avoid a redundant second Malli walk of every patch tuple on the
+  JVM decode hot path (rf2-pfy8e)."
   [base patches]
   (validate-patches! patches 'mcp-base/apply-patches)
-  (reduce
-    (fn [acc patch]
-      (let [[path op v] patch]
-        (cond
-          (empty? path)
-          (if (= op :assoc) v acc)
-          (= op :assoc)
-          (assoc-in acc path v)
-          (= op :dissoc)
-          (let [parent-path (vec (butlast path))
-                k           (last path)]
-            (if (empty? parent-path)
-              (dissoc acc k)
-              (update-in acc parent-path dissoc k)))
-          :else acc)))
-    base
-    patches))
+  (apply-patches* base patches))
 
 (defn diff-encode-db-after
   "Replace an epoch's `:db-after` with a path-headed cluster
@@ -394,7 +417,7 @@
   Mirrors the encoder's `validate-sections!` gate. `sections->patches`
   is a permissive `mapcat :patches` — a section with malformed
   `:section-path` / `:section-kind` slots, or extra/missing slots,
-  would slip through to `apply-patches` whose own gate only validates
+  would slip through to a patch replay whose grammar gate only covers
   the flattened `:patches` list. Validating `sections` here gives
   encoder/decoder symmetry per the rf2-8e61v argument: the cross-MCP
   wire convention surfaces drift on the receiving side too, rather
@@ -404,7 +427,17 @@
   (rf2-4ypau).
 
   Soft-pass + `goog-define`-elidable by construction — reuses the
-  same `validate-sections!` helper as the encoder."
+  same `validate-sections!` helper as the encoder.
+
+  ## Single validation pass (rf2-pfy8e)
+
+  `section-schema` nests `patches-schema`, so the `validate-sections!`
+  gate above already Malli-walks every section's `:patches` against the
+  same grammar the public `apply-patches` would re-check. To avoid
+  validating each patch tuple twice on the JVM decode hot path
+  (`watch-epochs` / `trace-window` slices, where Malli is always
+  present), the replay routes through the non-validating
+  `apply-patches*` rather than the public `apply-patches`."
   [epoch]
   (let [da (when (map? epoch) (:db-after epoch))]
     (if-not (and (map? da)
@@ -414,7 +447,7 @@
             _         (validate-sections! (or sections []) 'mcp-base/decode-db-after)
             patches   (sg/sections->patches (or sections []))
             db-before (:db-before epoch)
-            rebuilt   (apply-patches db-before patches)]
+            rebuilt   (apply-patches* db-before patches)]
         (assoc epoch :db-after rebuilt)))))
 
 (defn diff-encode-epochs
