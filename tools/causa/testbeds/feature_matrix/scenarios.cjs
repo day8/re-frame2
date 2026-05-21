@@ -2285,69 +2285,17 @@ async function runStaticModeChromeAndChord(page, state) {
     { timeoutMs: 5000, description: 'Dynamic restored after clicking pill segment' },
   );
 
-  // ---- (4) Reload — localStorage round-trip -------------------------
-  // Per static/persistence.cljs the canonical slot is the bare string
-  // `"dynamic"` or `"static"` under localStorage key `causa.mode`. The
-  // mode-set fx writes this on every mode flip; a reload should re-
-  // hydrate the same mode (per rf2-8l3uk Static mode is unconditionally
-  // available — no feature flag re-opt-in needed).
-  const persistedBeforeReload = await page.evaluate(() => {
-    try { return window.localStorage.getItem('causa.mode'); }
-    catch (_) { return null; }
-  });
-  if (persistedBeforeReload !== 'dynamic') {
-    failWithDetails(
-      'localStorage causa.mode did not round-trip the last-set mode (expected "dynamic")',
-      { persistedBeforeReload, afterClickBack },
-    );
-  }
-  await page.reload({ waitUntil: 'load' });
-  await expectHostCounterEquals(page, 5, 10000);
-  const persistedAfterReload = await page.evaluate(() => {
-    try { return window.localStorage.getItem('causa.mode'); }
-    catch (_) { return null; }
-  });
-  if (persistedAfterReload !== 'dynamic') {
-    failWithDetails(
-      'localStorage causa.mode slot regressed across reload (expected "dynamic")',
-      { persistedAfterReload },
-    );
-  }
-  await openCausa(page);
-  // The hydrated mode should drive the surface — Dynamic here, so the
-  // L2 spine returns + the Static surface is absent.
-  const afterReload = await waitForValue(
-    () => page.evaluate(() => {
-      const pillGroup = document.querySelector(
-        '[data-testid="rf-causa-mode-pill"]',
-      );
-      const eventList = document.querySelector(
-        '[data-testid="rf-causa-event-list"]',
-      );
-      const surface = document.querySelector(
-        '[data-testid="rf-causa-static-surface"]',
-      );
-      return {
-        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
-        eventListPresent: Boolean(eventList),
-        staticSurfacePresent: Boolean(surface),
-      };
-    }),
-    (snap) =>
-      snap.pillGroupActiveMode === 'dynamic' &&
-      snap.eventListPresent &&
-      !snap.staticSurfacePresent,
-    { timeoutMs: 5000, description: 'persisted mode (Dynamic) hydrated after reload' },
-  );
+  // Per rf2-8l3uk Static mode is unconditionally available — no feature
+  // flag re-opt-in to exercise. The earlier reload/persistence cycle
+  // checked a localStorage round-trip that survived the gate removal
+  // only via a dangling `reoptIn` reference (rf2-rat6r); the branch is
+  // dead code and removed here.
   state.staticMode = {
     dynamicBaseline,
     afterChord,
     shippedSubTabRoots,
     placeholderTexts,
     afterClickBack,
-    persistedBeforeReload,
-    persistedAfterReload: reoptIn.persistedAfterReload,
-    afterReload,
   };
 }
 
@@ -2663,9 +2611,10 @@ const SCENARIOS = [
   },
   {
     // rf2-n39g2 — Static mode (rf2-o5f5f.1 / .2 / .3) browser
-    // coverage: chord + pill + 3-layer chrome silhouette +
-    // localStorage round-trip.
-    name: 'static mode chrome, chord, and persistence',
+    // coverage: chord + pill + 3-layer chrome silhouette.
+    // (Persistence round-trip dropped by rf2-rat6r — rf2-8l3uk made
+    // Static mode unconditional so the reload cycle is dead code.)
+    name: 'static mode chrome and chord',
     url: '/counter/',
     panels: [],
     coveredRows: [
