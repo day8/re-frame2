@@ -51,6 +51,14 @@ The v2 standard-interceptor surface is **three specific helpers** plus the `->in
   (inject-cofx id value)
   ```
 - **Description**: Inject a registered cofx into the handler's coeffect map. Macro: captures the call-site for `:rf.trace/call-site` on errors emitted from the cofx body. Does specific work — `:cofx` registry lookup — not subsumable by `->interceptor`.
+- **Example**:
+  ```clojure
+  (rf/reg-event-fx :todo/load
+    [(rf/inject-cofx :todo.storage/todos)]
+    (fn [{:keys [todo.storage/todos]} _event]
+      {:db {:todos todos}}))
+  ```
+- **In the wild**: [todomvc](https://github.com/day8/re-frame2/tree/main/examples/reagent/todomvc)
 
 ### `inject-cofx*`
 
@@ -150,7 +158,6 @@ The interceptor context — the ctx — is the value threaded through the chain.
   (get-coeffect ctx key)
   (get-coeffect ctx key not-found)
   ```
-- **Status**: v1 (preserved)
 - **Description**: "Read the coeffect map (or one slot of it)."
 
 ### `assoc-coeffect`
@@ -160,7 +167,6 @@ The interceptor context — the ctx — is the value threaded through the chain.
   ```clojure
   (assoc-coeffect ctx key value)
   ```
-- **Status**: v1 (preserved)
 - **Description**: "Write a coeffect slot in the ctx."
 
 ### `get-effect`
@@ -172,7 +178,6 @@ The interceptor context — the ctx — is the value threaded through the chain.
   (get-effect ctx key)
   (get-effect ctx key not-found)
   ```
-- **Status**: v1 (preserved)
 - **Description**: "Read the effect map (or one slot)."
 
 ### `assoc-effect`
@@ -182,7 +187,6 @@ The interceptor context — the ctx — is the value threaded through the chain.
   ```clojure
   (assoc-effect ctx key value)
   ```
-- **Status**: v1 (preserved)
 - **Description**: "Write an effect slot in the ctx."
 
 These are stable surfaces preserved from v1. If you're writing an interceptor that needs to read or modify what the handler will see / what the handler emitted, this is the surface.
@@ -198,7 +202,6 @@ The runtime supports three ways to swap fx behaviour without touching the handle
   ```clojure
   (with-fx-overrides {fx-id -> override, …} body+)
   ```
-- **Status**: v1
 - **Description**: "For the duration of this body, every `dispatch` / `dispatch-sync` merges this fx-overrides map into its envelope." Lexical scope; composes with `with-frame`. Renamed from v1's `with-overrides` per [MIGRATION §M-50](../../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
 
 The three scopes compose with a clear precedence:

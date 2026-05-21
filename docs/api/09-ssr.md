@@ -17,8 +17,13 @@ The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces li
   ```clojure
   (render-to-string view-or-hiccup opts) → HTML string
   ```
-- **Status**: v1
 - **Description**: The canonical server-side render. Walks the hiccup tree once, emits a string. JVM-runnable. Test-friendly because it's pure.
+- **Example**:
+  ```clojure
+  (rf/with-frame [f (rf/make-frame {:on-create [:app/server-init]})]
+    (ssr/render-to-string [app-root] {:frame f}))
+  ```
+- **In the wild**: [ssr](https://github.com/day8/re-frame2/tree/main/examples/reagent/ssr)
 
 ### `render-tree-hash`
 
@@ -27,7 +32,6 @@ The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces li
   ```clojure
   (render-tree-hash render-tree) → 32-bit FNV-1a structural hash (lowercase hex)
   ```
-- **Status**: v1
 - **Description**: A deterministic structural fingerprint of a render tree. Same canonical-EDN representation produces the same hash on JVM and CLJS. Used by the hydration compatibility check — if the server's hash doesn't match the client's hash, hydration is unsafe.
 
 ### `project-error`
@@ -37,7 +41,6 @@ The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces li
   ```clojure
   (project-error frame-id trace-event) → :rf/public-error
   ```
-- **Status**: v1
 - **Description**: Apply the active error-projector (selected by the frame's `:ssr {:public-error-id ...}` metadata) for the named frame. This is the seam between "internal error trace event with full diagnostic detail" and "client-safe public-error projection."
 
 ### Streaming render
@@ -52,8 +55,8 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
   (streaming-render-shell root-hiccup)
     → {:shell-html "..." :continuations [{:id :subtree} ...]}
   ```
-- **Status**: v1
 - **Description**: Walk the tree once; at each `:rf/suspense-boundary` emit a `<template …suspense-fallback>` placeholder and record a continuation. Returns the shell-html (ready to flush) and the continuations to drain.
+- **In the wild**: [ssr_streaming](https://github.com/day8/re-frame2/tree/main/examples/reagent/ssr_streaming)
 
 ### `streaming-render-continuation`
 
@@ -63,7 +66,6 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
   (streaming-render-continuation frame-id entry)
     → {:id :html :delta :failed?}
   ```
-- **Status**: v1
 - **Description**: Drain one continuation against `frame-id`'s app-db. Snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline (per [011 §Failure semantics — inline fallback](../../spec/011-SSR.md#failure-semantics--inline-fallback)).
 
 ### `streaming-build-final-payload`
@@ -74,7 +76,6 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
   (streaming-build-final-payload frame-id render-hash opts)
     → canonical :rf/hydration-payload
   ```
-- **Status**: v1
 - **Description**: Called after all continuations drain to populate the `__rf_payload` final chunk.
 
 The streaming surface is host-adapter territory — the SSR-aware host (`re-frame.ssr.ring` or equivalent) wires it. Most app code interacts via the host adapter and never touches `streaming-render-*` directly.
@@ -90,8 +91,14 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   ```clojure
   (reg-head id ?metadata head-fn)
   ```
-- **Status**: v1
 - **Description**: Register a head-fn keyed by id. Signature: `(fn [db route] head-model)`. Routes opt-in via `:head` route metadata.
+- **Example**:
+  ```clojure
+  (rf/reg-head :app/head
+    (fn [db _route]
+      {:title (str "MyApp — " (:page-title db))
+       :meta  [{:name "description" :content (:summary db)}]}))
+  ```
 
 ### `render-head`
 
@@ -100,7 +107,6 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   ```clojure
   (render-head head-id opts) → :rf/head-model
   ```
-- **Status**: v1
 - **Description**: Evaluate the registered head-fn for `head-id`. Returns a head-model.
 
 ### `active-head`
@@ -111,7 +117,6 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   (active-head) → :rf/head-model
   (active-head frame-id) → :rf/head-model
   ```
-- **Status**: v1
 - **Description**: Resolve the head-model for the currently active route in the named frame. Sub-shape: `[:rf/head]` subscribes to this.
 
 ### `head-model->html`
@@ -122,7 +127,6 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   (head-model->html head-model) → inner-head HTML string
   (head-model->html head-model {:wrap? bool}) → inner-head HTML string
   ```
-- **Status**: v1
 - **Description**: Render a head-model to its HTML representation. `:wrap?` controls whether `<head>` tags are emitted (default: false, so the result can be composed into a larger shell).
 
 ### `head-snapshot`
@@ -132,7 +136,6 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   ```clojure
   (head-snapshot frame-id) → {head-id → :rf/head-model}
   ```
-- **Status**: v1
 - **Description**: Read the per-frame snapshot of last-produced head-models. Returns `{}` for a frame that has never seen a `render-head` call. Useful for tests, introspection, and tools. Re-exported as `rf/head-snapshot`.
 
 ## Standard SSR events
@@ -194,8 +197,14 @@ A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-
   ```clojure
   (reg-error-projector id ?metadata projector-fn)
   ```
-- **Status**: v1
 - **Description**: Register a projector keyed by id. Signature: `(fn [trace-event] :rf/public-error)`. Named per-frame via the frame's `:ssr {:public-error-id ...}` metadata.
+- **Example**:
+  ```clojure
+  (rf/reg-error-projector :app/public-error
+    (fn [trace-event]
+      {:status  500
+       :message "Something went wrong."}))
+  ```
 
 The companion `project-error` accessor is rowed above in [§Rendering primitives](#project-error) — same signature; same job. Apply the active projector for the named frame.
 

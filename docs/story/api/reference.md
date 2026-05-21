@@ -1,6 +1,6 @@
 # Reference
 
-The complete symbol table for Story's public surface, organised by namespace and section for `Ctrl-F` use. Every row carries a signature, a status, and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
+The complete symbol table for Story's public surface, organised by namespace and section for `Ctrl-F` use. Every row carries a signature and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
 
 Surfaces fall into the facade plus seven sub-namespaces. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Causa preset, not from authored story bodies.
 
@@ -12,135 +12,135 @@ The canonical facade. Every user-callable surface lives here.
 
 ### Registration — macros
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `reg-story` | `(reg-story id metadata)` | v1 (dev-only) | Register a story (a cluster of variants). |
-| `reg-variant` | `(reg-variant id metadata)` | v1 (dev-only) | Register one variant — view, args, setup events, decorators, `:play-script`. |
-| `reg-workspace` | `(reg-workspace id metadata)` | v1 (dev-only) | Register a workspace — a curated grid of variants. |
-| `reg-decorator` | `(reg-decorator id metadata)` | v1 (dev-only) | Register a decorator. Three kinds: `:hiccup` / `:frame-setup` / `:fx-override`. |
-| `reg-story-panel` | `(reg-story-panel id metadata)` | v1 (dev-only) | Register a custom panel in the Story chrome. Five placement slots. |
-| `reg-tag` | `(reg-tag id metadata)` | v1 (dev-only) | Register a tag. The seven canonical tags auto-install. |
-| `reg-mode` | `(reg-mode id metadata)` | v1 (dev-only) | Register a mode — a saved tuple of args the chrome toggles into. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `reg-story` | `(reg-story id metadata)` | Register a story (a cluster of variants). |
+| `reg-variant` | `(reg-variant id metadata)` | Register one variant — view, args, setup events, decorators, `:play-script`. |
+| `reg-workspace` | `(reg-workspace id metadata)` | Register a workspace — a curated grid of variants. |
+| `reg-decorator` | `(reg-decorator id metadata)` | Register a decorator. Three kinds: `:hiccup` / `:frame-setup` / `:fx-override`. |
+| `reg-story-panel` | `(reg-story-panel id metadata)` | Register a custom panel in the Story chrome. Five placement slots. |
+| `reg-tag` | `(reg-tag id metadata)` | Register a tag. The seven canonical tags auto-install. |
+| `reg-mode` | `(reg-mode id metadata)` | Register a mode — a saved tuple of args the chrome toggles into. |
 
 ### Registration — `*`-suffix runtime helpers
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `reg-story*` | `(reg-story* id body)` | v1 (dev-only) | Programmatic story registration. |
-| `reg-variant*` | `(reg-variant* id body)` | v1 (dev-only) | Programmatic variant registration. The MCP write surface's `register-variant` tool routes here. |
-| `reg-workspace*` | `(reg-workspace* id body)` | v1 (dev-only) | Programmatic workspace registration. |
-| `reg-mode*` | `(reg-mode* id body)` | v1 (dev-only) | Programmatic mode registration. |
-| `reg-story-panel*` | `(reg-story-panel* id body)` | v1 (dev-only) | Programmatic panel registration. |
-| `reg-decorator*` | `(reg-decorator* id body)` | v1 (dev-only) | Programmatic decorator registration. |
-| `reg-tag*` | `(reg-tag* id body)` | v1 (dev-only) | Programmatic tag registration. |
-| `unregister!` | `(unregister! kind id)` | v1 (dev-only) | Remove a single id under `kind`. |
-| `clear-kind!` | `(clear-kind! kind)` | v1 (dev-only) | Remove every registration of `kind`. |
-| `clear-all!` | `(clear-all!)` | v1 (dev-only) | Reset every Story registration. Resets the auto-install gate. |
-| `install-canonical-vocabulary!` | `(install-canonical-vocabulary!)` | v1 (dev-only) | Idempotent explicit boot. Auto-install path is canonical; this is retained for hosts that want a literal boot step. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `reg-story*` | `(reg-story* id body)` | Programmatic story registration. |
+| `reg-variant*` | `(reg-variant* id body)` | Programmatic variant registration. The MCP write surface's `register-variant` tool routes here. |
+| `reg-workspace*` | `(reg-workspace* id body)` | Programmatic workspace registration. |
+| `reg-mode*` | `(reg-mode* id body)` | Programmatic mode registration. |
+| `reg-story-panel*` | `(reg-story-panel* id body)` | Programmatic panel registration. |
+| `reg-decorator*` | `(reg-decorator* id body)` | Programmatic decorator registration. |
+| `reg-tag*` | `(reg-tag* id body)` | Programmatic tag registration. |
+| `unregister!` | `(unregister! kind id)` | Remove a single id under `kind`. |
+| `clear-kind!` | `(clear-kind! kind)` | Remove every registration of `kind`. |
+| `clear-all!` | `(clear-all!)` | Reset every Story registration. Resets the auto-install gate. |
+| `install-canonical-vocabulary!` | `(install-canonical-vocabulary!)` | Idempotent explicit boot. Auto-install path is canonical; this is retained for hosts that want a literal boot step. |
 
 ### Global args + decorators
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `configure!` | `(configure! opts)` → nil | v1 (dev-only) | Top-level config. Map keyed by `:rf.story/*` and `:rf.privacy/*`. |
-| `reg-global-decorator` | `(reg-global-decorator id body)` / `(reg-global-decorator id body ref-args)` | v1 (dev-only) | Register a decorator AND opt it into the global stack in one call. |
-| `unreg-global-decorator!` | `(unreg-global-decorator! id)` | v1 (dev-only) | Remove `id` from the global-decorators vector. |
-| `global-decorators` | `(global-decorators)` → vec | v1 (dev-only) | Current ordered vector of global-decorator references. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `configure!` | `(configure! opts)` → nil | Top-level config. Map keyed by `:rf.story/*` and `:rf.privacy/*`. |
+| `reg-global-decorator` | `(reg-global-decorator id body)` / `(reg-global-decorator id body ref-args)` | Register a decorator AND opt it into the global stack in one call. |
+| `unreg-global-decorator!` | `(unreg-global-decorator! id)` | Remove `id` from the global-decorators vector. |
+| `global-decorators` | `(global-decorators)` → vec | Current ordered vector of global-decorator references. |
 
 ### Built-in decorator `*-id` Vars
 
-| Symbol | Status | Intuition |
-|---|---|---|
-| `force-fx-stub-id` | v1 (dev-only) | Universal fx-mocking primitive — HTTP, websockets, analytics, storage, navigation. |
-| `layout-debug-measure-id` | v1 (dev-only) | Storybook-style layout measure overlay. |
-| `layout-debug-outline-id` | v1 (dev-only) | Pesticide-style coloured outlines. |
-| `layout-debug-pseudo-id` | v1 (dev-only) | Pseudo-state forcing (`:hover` / `:focus` / `:active` / `:visited`). |
+| Symbol | Intuition |
+| --- | --- |
+| `force-fx-stub-id` | Universal fx-mocking primitive — HTTP, websockets, analytics, storage, navigation. |
+| `layout-debug-measure-id` | Storybook-style layout measure overlay. |
+| `layout-debug-outline-id` | Pesticide-style coloured outlines. |
+| `layout-debug-pseudo-id` | Pseudo-state forcing (`:hover` / `:focus` / `:active` / `:visited`). |
 
 ### Programmatic runtime
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `run-variant` | `(run-variant variant-id)` / `(run-variant variant-id opts)` → map | v1 (dev-only) | Materialise the variant — run four-phase lifecycle, return result map. |
-| `reset-variant` | `(reset-variant variant-id)` | v1 (dev-only) | Reset the variant to its post-events baseline. |
-| `watch-variant` | `(watch-variant variant-id)` / `(watch-variant variant-id callback)` | v1 (dev-only) | Live-updating result map. |
-| `unwatch-variant` | `(unwatch-variant variant-id)` | v1 (dev-only) | Stop the live update channel. Idempotent. |
-| `destroy-variant!` | `(destroy-variant! variant-id)` | v1 (dev-only) | Tear down the variant's frame. Symmetric with allocation. |
-| `execute-play!` | `(execute-play! variant-id)` → vec | v1 (dev-only) | Re-run only phase 4 against current `app-db`. |
-| `lifecycle-state` | `(lifecycle-state variant-id)` → keyword | v1 (dev-only) | Current lifecycle-machine state. |
-| `variant-frames` | `(variant-frames)` → set | v1 (dev-only) | Set of variant-ids currently allocated as frames. |
-| `variant-frame?` | `(variant-frame? variant-id)` → bool | v1 (dev-only) | Predicate. |
-| `resolve-args` | `(resolve-args variant-id)` / `(resolve-args variant-id opts)` → map | v1 (dev-only) | The effective args map (five-layer precedence). |
-| `resolve-decorators` | `(resolve-decorators variant-id)` / `(resolve-decorators variant-id opts)` → map | v1 (dev-only) | The resolved decorator stack classified by kind. |
-| `variants-of` | `(variants-of story-id)` → seq | v1 (dev-only) | Variant ids whose namespaced id-prefix matches `story-id`. |
-| `variants-by-story` | `(variants-by-story)` → map | v1 (dev-only) | Map from parent-story-id to variant ids. |
-| `variants-with-tags` | `(variants-with-tags tag-set)` → seq | v1 (dev-only) | Filter the catalogue by tag intersection. |
-| `variant-substrates` | `(variant-substrates variant-id)` → set | v1 (dev-only) | The substrate set for a specific variant. |
-| `variant->edn` | `(variant->edn variant-id)` → map | v1 (dev-only) | Variant body as serialisable EDN. |
-| `workspace->edn` | `(workspace->edn workspace-id)` → map | v1 (dev-only) | Workspace body as serialisable EDN. |
-| `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` → map | v1 (dev-only) | `{:variant-id ... :content-hash "..."}`. QR-share + visual-regression keying. |
-| `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id base-url opts)` → string | v1 (dev-only) | Sharable URL — encodes active modes + cell-overrides + substrate. |
-| `static-mode?` | `(static-mode?)` → bool | v1 (dev-only) | True iff Story is running in static-export mode. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `run-variant` | `(run-variant variant-id)` / `(run-variant variant-id opts)` → map | Materialise the variant — run four-phase lifecycle, return result map. |
+| `reset-variant` | `(reset-variant variant-id)` | Reset the variant to its post-events baseline. |
+| `watch-variant` | `(watch-variant variant-id)` / `(watch-variant variant-id callback)` | Live-updating result map. |
+| `unwatch-variant` | `(unwatch-variant variant-id)` | Stop the live update channel. Idempotent. |
+| `destroy-variant!` | `(destroy-variant! variant-id)` | Tear down the variant's frame. Symmetric with allocation. |
+| `execute-play!` | `(execute-play! variant-id)` → vec | Re-run only phase 4 against current `app-db`. |
+| `lifecycle-state` | `(lifecycle-state variant-id)` → keyword | Current lifecycle-machine state. |
+| `variant-frames` | `(variant-frames)` → set | Set of variant-ids currently allocated as frames. |
+| `variant-frame?` | `(variant-frame? variant-id)` → bool | Predicate. |
+| `resolve-args` | `(resolve-args variant-id)` / `(resolve-args variant-id opts)` → map | The effective args map (five-layer precedence). |
+| `resolve-decorators` | `(resolve-decorators variant-id)` / `(resolve-decorators variant-id opts)` → map | The resolved decorator stack classified by kind. |
+| `variants-of` | `(variants-of story-id)` → seq | Variant ids whose namespaced id-prefix matches `story-id`. |
+| `variants-by-story` | `(variants-by-story)` → map | Map from parent-story-id to variant ids. |
+| `variants-with-tags` | `(variants-with-tags tag-set)` → seq | Filter the catalogue by tag intersection. |
+| `variant-substrates` | `(variant-substrates variant-id)` → set | The substrate set for a specific variant. |
+| `variant->edn` | `(variant->edn variant-id)` → map | Variant body as serialisable EDN. |
+| `workspace->edn` | `(workspace->edn workspace-id)` → map | Workspace body as serialisable EDN. |
+| `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` → map | `{:variant-id ... :content-hash "..."}`. QR-share + visual-regression keying. |
+| `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id base-url opts)` → string | Sharable URL — encodes active modes + cell-overrides + substrate. |
+| `static-mode?` | `(static-mode?)` → bool | True iff Story is running in static-export mode. |
 
 ### Registry queries
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `registrations` | `(registrations kind)` → seq | v1 (dev-only) | All registrations for `kind`. |
-| `handler-meta` | `(handler-meta kind id)` → any | v1 (dev-only) | Registered body for `id`. |
-| `ids` | `(ids kind)` → seq | v1 (dev-only) | All registered ids of `kind`. |
-| `registered?` | `(registered? kind id)` → bool | v1 (dev-only) | Predicate. |
-| `all-kinds-with-counts` | `(all-kinds-with-counts)` → map | v1 (dev-only) | Map from each kind → registration count. |
-| `list-tags` | `(list-tags)` → seq | v1 (dev-only) | All registered tags. |
-| `list-modes` | `(list-modes)` → seq | v1 (dev-only) | All registered modes. |
-| `canonical-tags` | Var (set) | v1 (dev-only) | The seven canonical tags. |
-| `canonical-axes` | Var | v1 (dev-only) | The four canonical axes (audience / lifecycle / quality / status). |
-| `canonical-status-values` | Var | v1 (dev-only) | Status-axis tag values. |
-| `canonical-role-values` | Var | v1 (dev-only) | Role-axis tag values. |
-| `tags-by-axis` | `(tags-by-axis)` → map | v1 (dev-only) | Tags keyed by axis. |
-| `tags-without-axis` | `(tags-without-axis)` → seq | v1 (dev-only) | Tags not registered against any axis. |
-| `tags-default-excluded` | `(tags-default-excluded)` → set | v1 (dev-only) | Sidebar tag-filter default exclusions. |
-| `tag->axis-index` | `(tag->axis-index)` → map | v1 (dev-only) | Map from tag-id → axis. |
-| `registered-substrates` | `(registered-substrates)` → set | v1 (dev-only) | Registered substrate ids (CLJS-only). |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `registrations` | `(registrations kind)` → seq | All registrations for `kind`. |
+| `handler-meta` | `(handler-meta kind id)` → any | Registered body for `id`. |
+| `ids` | `(ids kind)` → seq | All registered ids of `kind`. |
+| `registered?` | `(registered? kind id)` → bool | Predicate. |
+| `all-kinds-with-counts` | `(all-kinds-with-counts)` → map | Map from each kind → registration count. |
+| `list-tags` | `(list-tags)` → seq | All registered tags. |
+| `list-modes` | `(list-modes)` → seq | All registered modes. |
+| `canonical-tags` | Var (set) | The seven canonical tags. |
+| `canonical-axes` | Var | The four canonical axes (audience / lifecycle / quality / status). |
+| `canonical-status-values` | Var | Status-axis tag values. |
+| `canonical-role-values` | Var | Role-axis tag values. |
+| `tags-by-axis` | `(tags-by-axis)` → map | Tags keyed by axis. |
+| `tags-without-axis` | `(tags-without-axis)` → seq | Tags not registered against any axis. |
+| `tags-default-excluded` | `(tags-default-excluded)` → set | Sidebar tag-filter default exclusions. |
+| `tag->axis-index` | `(tag->axis-index)` → map | Map from tag-id → axis. |
+| `registered-substrates` | `(registered-substrates)` → set | Registered substrate ids (CLJS-only). |
 
 ### Assertions
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `read-assertions` | `(read-assertions variant-id)` → vec | v1 (dev-only) | Current `:rf.story/assertions` vector. |
-| `assertions-passing?` | `(assertions-passing? result)` → bool | v1 (dev-only) | Project assertions vector → single boolean. |
-| `canonical-assertion-ids` | `(canonical-assertion-ids)` → set | v1 (dev-only) | The seven canonical `:rf.assert/*` event-ids. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `read-assertions` | `(read-assertions variant-id)` → vec | Current `:rf.story/assertions` vector. |
+| `assertions-passing?` | `(assertions-passing? result)` → bool | Project assertions vector → single boolean. |
+| `canonical-assertion-ids` | `(canonical-assertion-ids)` → set | The seven canonical `:rf.assert/*` event-ids. |
 
 ### Recorder
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `start-recording!` | `(start-recording! variant-id)` | v1 (dev-only) | Begin capturing canvas-dispatched events. |
-| `stop-recording!` | `(stop-recording!)` → vec | v1 (dev-only) | Stop + return captured events. |
-| `clear-recording!` | `(clear-recording!)` | v1 (dev-only) | Drop the buffer + return to idle. |
-| `recording?` | `(recording?)` → bool | v1 (dev-only) | Predicate. |
-| `recorder-state` | `(recorder-state)` → map | v1 (dev-only) | Read-only view of recorder state. |
-| `gen-play-snippet` | `(gen-play-snippet events opts)` → string | v1 (dev-only) | Render captured events as a `(reg-variant ...)` EDN snippet. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `start-recording!` | `(start-recording! variant-id)` | Begin capturing canvas-dispatched events. |
+| `stop-recording!` | `(stop-recording!)` → vec | Stop + return captured events. |
+| `clear-recording!` | `(clear-recording!)` | Drop the buffer + return to idle. |
+| `recording?` | `(recording?)` → bool | Predicate. |
+| `recorder-state` | `(recorder-state)` → map | Read-only view of recorder state. |
+| `gen-play-snippet` | `(gen-play-snippet events opts)` → string | Render captured events as a `(reg-variant ...)` EDN snippet. |
 
 ### Privacy primitives
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `add-marks` | `(add-marks variant-id marks-map)` | v1 (dev-only) | Merge marks additively. Re-export of `re-frame.core/add-marks`. |
-| `set-marks` | `(set-marks variant-id marks-map)` | v1 (dev-only) | Replace marks wholesale. Re-export of `re-frame.core/set-marks`. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `add-marks` | `(add-marks variant-id marks-map)` | Merge marks additively. Re-export of `re-frame.core/add-marks`. |
+| `set-marks` | `(set-marks variant-id marks-map)` | Replace marks wholesale. Re-export of `re-frame.core/set-marks`. |
 
 ### Substrate registration
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `register-substrate!` | `(register-substrate! substrate-id render-fn)` | v1 (dev-only) | Register a substrate render fn (CLJS-only). |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `register-substrate!` | `(register-substrate! substrate-id render-fn)` | Register a substrate render fn (CLJS-only). |
 
 ### Shell lifecycle (CLJS-only)
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `mount-shell!` | `(mount-shell! mount-point opts)` | v1 (dev-only) | Mount the Story shell. Production short-circuits before any DOM call. |
-| `unmount-shell!` | `(unmount-shell!)` | v1 (dev-only) | Unmount the shell. Idempotent. |
-| `active-shell` | `(active-shell)` → map / nil | v1 (dev-only) | Inspectable handle on the active shell. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `mount-shell!` | `(mount-shell! mount-point opts)` | Mount the Story shell. Production short-circuits before any DOM call. |
+| `unmount-shell!` | `(unmount-shell!)` | Unmount the shell. Idempotent. |
+| `active-shell` | `(active-shell)` → map / nil | Inspectable handle on the active shell. |
 
 ### Stage
 
@@ -152,11 +152,11 @@ The canonical facade. Every user-callable surface lives here.
 
 The rich DOM-capture-aware `:play-script` translator. Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection.
 
-| Symbol | Signature | Status | Intuition |
-|---|---|---|---|
-| `recording->play-script` | `(recording->play-script entries opts)` → map | v1 (dev-only) | Translate captured `:entries` into a normalised `:play-script` body map. |
-| `render-play-script` | `(render-play-script body)` → string | v1 (dev-only) | Render the `:play-script` map to EDN. |
-| `render-variant-form` | `(render-variant-form variant-id metadata)` → string | v1 (dev-only) | Render a full `(reg-variant ...)` form to EDN. |
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `recording->play-script` | `(recording->play-script entries opts)` → map | Translate captured `:entries` into a normalised `:play-script` body map. |
+| `render-play-script` | `(render-play-script body)` → string | Render the `:play-script` map to EDN. |
+| `render-variant-form` | `(render-variant-form variant-id metadata)` → string | Render a full `(reg-variant ...)` form to EDN. |
 
 ## `re-frame.story.ui.causa-embed`
 

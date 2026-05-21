@@ -41,8 +41,8 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
    :render …
    :dispose-adapter! …}
   ```
-- **Status**: v1
 - **Description**: The adapter spec passed to `(rf/init! ...)`.
+- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix)
 
 ### `uix-adapter/use-subscribe`
 
@@ -52,8 +52,8 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   (use-subscribe query-v) → current sub value
   (use-subscribe frame-kw query-v) → current sub value
   ```
-- **Status**: v1
 - **Description**: "Subscribe inside a UIx component." The hook-shaped equivalent of `subscribe` for UIx components. Re-renders when the sub value changes.
+- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix)
 
 ### `uix-adapter/use-current-frame`
 
@@ -62,7 +62,6 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```clojure
   (use-current-frame) → frame-kw
   ```
-- **Status**: v1
 - **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
 
 ### `uix-adapter/frame-provider`
@@ -72,7 +71,6 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```clojure
   ($ uix-adapter/frame-provider {:frame :session :children […]})
   ```
-- **Status**: v1
 - **Description**: The UIx-shaped frame provider.
 
 ### `uix-adapter/wrap-view`
@@ -82,7 +80,6 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```clojure
   (wrap-view id metadata user-fn) → wrapped fn
   ```
-- **Status**: v1
 - **Description**: Adapter-side source-coord injection. Most users register through `reg-view*`; `wrap-view` is for code-gen and library scaffolding.
 
 ### `uix-adapter/flush-views!`
@@ -93,7 +90,6 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   (flush-views!)
   (flush-views! f)
   ```
-- **Status**: v1
 - **Description**: Wraps React's `act()` for tests.
 
 ### `uix-adapter/set-hiccup-emitter!`
@@ -103,7 +99,6 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```clojure
   (set-hiccup-emitter! f)
   ```
-- **Status**: v1
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
 
 UIx users register their views by Var (the React-component idiom) or with `rf/reg-view*` if they want registry-keyed view addressing — `reg-view` (the Reagent macro) does **not** cover UIx. Full rationale: [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij).
@@ -135,8 +130,8 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
    :render …
    :dispose-adapter! …}
   ```
-- **Status**: v1
 - **Description**: The adapter spec passed to `(rf/init! ...)`.
+- **In the wild**: [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)
 
 ### `helix-adapter/use-subscribe`
 
@@ -146,8 +141,8 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   (use-subscribe query-v) → current sub value
   (use-subscribe frame-kw query-v) → current sub value
   ```
-- **Status**: v1
 - **Description**: "Subscribe inside a Helix component."
+- **In the wild**: [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)
 
 ### `helix-adapter/use-current-frame`
 
@@ -156,7 +151,6 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ```clojure
   (use-current-frame) → frame-kw
   ```
-- **Status**: v1
 - **Description**: "What frame am I in?"
 
 ### `helix-adapter/frame-provider`
@@ -166,7 +160,6 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ```clojure
   ($ helix-adapter/frame-provider {:frame :session :children […]})
   ```
-- **Status**: v1
 - **Description**: The Helix-shaped frame provider.
 
 ### `helix-adapter/wrap-view`
@@ -176,7 +169,6 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ```clojure
   (wrap-view id metadata user-fn) → wrapped fn
   ```
-- **Status**: v1
 - **Description**: Adapter-side source-coord injection.
 
 ### `helix-adapter/flush-views!`
@@ -187,7 +179,6 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   (flush-views!)
   (flush-views! f)
   ```
-- **Status**: v1
 - **Description**: Wraps React's `act()` for tests.
 
 ### `helix-adapter/set-hiccup-emitter!`
@@ -197,7 +188,6 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ```clojure
   (set-hiccup-emitter! f)
   ```
-- **Status**: v1
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam.
 
 The duplication between UIx and Helix is intentional — both expose the same hooks-first idiom; both decisions sets transfer; both surfaces are structurally identical. The two adapters are separate artefacts because the *underlying React-substrate libraries* are separate, not because the re-frame2 contract differs between them.

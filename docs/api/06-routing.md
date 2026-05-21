@@ -15,8 +15,8 @@ This chapter covers the registration shape, the dispatch / sub / fx surface, and
   ```clojure
   (reg-route id metadata)
   ```
-- **Status**: v1
 - **Description**: Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the metadata carries the URL shape, the match events, and the guards.
+- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/reagent/routing) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
 
 ### A minimal route
 
@@ -56,7 +56,6 @@ Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata sc
   ```clojure
   (match-url url) → {:route-id :params :query :validation-failed?} or nil
   ```
-- **Status**: v1
 - **Description**: "What route does this URL match?" Pure — JVM-runnable; useful for server-side rendering and tests.
 
 ### `route-url`
@@ -67,7 +66,6 @@ Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata sc
   (route-url route-id path-params) → URL string
   (route-url route-id path-params query-params) → URL string
   ```
-- **Status**: v1
 - **Description**: "Render this route to a URL." The inverse of `match-url`. Pure; JVM-runnable.
 
 ### `route-link`
@@ -77,8 +75,12 @@ Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata sc
   ```clojure
   [rf/route-link {:to :route-id :params {...} :query {...} :fragment "..."} & children]
   ```
-- **Status**: v1
 - **Description**: A registered view at `:route/link`. Renders an `<a>` with the right `href` and intercepts plain primary-button clicks to dispatch `:rf/url-requested` instead of navigating natively.
+- **Example**:
+  ```clojure
+  [rf/route-link {:to :route/article :params {:slug slug}} (:title article)]
+  ```
+- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/reagent/routing) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
 
 ### `route-link` click semantics
 
