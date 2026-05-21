@@ -44,7 +44,7 @@ The skill walks a six-step analysis: reconstruct goal → build timeline → ext
 
 ### L5 — Use the analysis-lenses taxonomy
 
-`references/analysis-lenses.md` defines ten root-cause lenses (skill structure / skill gap / misleading docs / missing structured op / unreliable op / default-or-fallback / platform bug / validation gap / upstream limitation / context-window issue). Each lens has a question to ask and a typical improvement shape. The skill walks these lenses **briefly** for each finding; doesn't force every finding through every lens.
+`references/analysis-lenses.md` defines nine root-cause lenses (`docs/discoverability` / `workflow-gap` / `missing-op` / `unreliable-op` / `default/fallback` / `platform-bug` / `validation-gap` / `upstream-gap` / `out-of-scope`). Each lens has a question to ask and a typical improvement shape. The skill walks these lenses **briefly** for each finding; doesn't force every finding through every lens.
 
 ### L6 — Bolder ideas are labelled
 
@@ -58,7 +58,7 @@ When the session has enough evidence, the retro uses these sections:
 - `Likely root causes` (one primary per finding; multiple contributors allowed)
 - `Improvement ideas` (2-5 grounded; bolder ideas separated)
 - `Bolder ideas` (if any)
-- `Bead candidates` (only if user asks)
+- `Issue candidates` (only if user asks)
 - `Other possibilities` (low-priority leftovers)
 
 If the session is too thin, the skill says so plainly and asks for either a recap or permission to use a longer conversation as input.
@@ -96,7 +96,7 @@ Bead drafts redact secrets, tokens, internal URLs, and unnecessary local file pa
 
 - Users finishing a `re-frame2-pair` session who want a structured retrospective.
 - Friction analysis: direct (user complaints) + indirect (repeated commands, fallback to lower-level tools, manual reconstruction).
-- Classification across the ten lenses in `references/analysis-lenses.md`.
+- Classification across the nine lenses in `references/analysis-lenses.md`.
 - Drafting beads against `re-frame2-pair` (tool changes) or `re-frame2` (upstream contract changes).
 - Spotting recurring patterns via `references/known-frictions.md`.
 
@@ -121,7 +121,7 @@ skills/re-frame2-pair-retro/
 ├── agents/
 │ └── openai.yaml (alt-host config — kept for cross-LLM operation)
 ├── references/
-│ ├── analysis-lenses.md (~140 lines; ten root-cause lenses + improvement shapes)
+│ ├── analysis-lenses.md (~140 lines; nine root-cause lenses + improvement shapes)
 │ ├── known-frictions.md (~120 lines; recurring re-frame2-pair pain patterns)
 │ └── issue-template.md (~90 lines; bead-body template, redaction rules)
 └── spec/
@@ -157,12 +157,12 @@ The pillars in §2 govern *what* the skill delivers; the rules below govern *how
 - **Positive gaps too.** What almost worked? What required too much expert knowledge? What capability existed but was undiscoverable? What should have been the default? Negative-space evidence is as load-bearing as failure evidence.
 - **Be creatively ambitious after diagnosis.** Start with grounded fixes; then ask what would make this workflow feel nearly automatic or hard to misuse. Include 1-2 higher-upside ideas when warranted, even if they reshape the workflow rather than patching a local symptom. Operationalises pillar 4 + L6.
 
-SKILL.md cross-links here rather than reciting these rules inline — keeps the orchestrator lean per 's leaf-size ceiling.
+SKILL.md cross-links here rather than reciting these rules inline — keeps the orchestrator lean per `skills/README.md` §Leaf size discipline's per-leaf size ceiling.
 
 ## 9. Why this design diverges from `re-frame2-pair`
 
 - **No structured-op catalogue.** This skill doesn't operate on a live app; it operates on a session transcript.
-- **No `allowed-tools` block in frontmatter.** The skill is conversational; the AI's tools are the default Read/Edit/Write/Grep/Glob set plus `gh issue create` when filing is opt-in (the skill files GitHub issues against the target repo — `bd` is the re-frame2 monorepo's internal tracker and is never invoked from a published skill).
+- **Read-only `allowed-tools` block in frontmatter.** The skill is conversational and diagnose-first, so it ships an explicit allow-list — `Read`, `Grep`, `Glob`, plus `Bash(gh issue list *)` / `Bash(gh issue view *)` / `Bash(gh issue create *)`. It deliberately omits `Edit` and `Write`: the skill never rewrites source, in this repo or another — friction routes to GitHub issues against the target repo, not edits. `gh issue create` is granted but approval-gated (L2). `bd` is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.
 - **No connect-first rule.** No live runtime to connect to.
 - **`agents/openai.yaml` is included.** The skill is portable across LLM hosts; the openai config carries the routing for non-Claude hosts.
 - **No `scripts/` directory.** The skill doesn't ship runtime tooling.

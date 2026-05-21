@@ -34,7 +34,7 @@ These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watc
 - `restore-epoch` calls that fail with one of the six named failure modes (`:rf.epoch/restore-unknown-epoch`, `restore-schema-mismatch`, `restore-missing-handler`, `restore-version-mismatch`, `restore-during-drain`, or `:rf.error/no-such-handler`) without a clear next-best-action
 - silent loss of history because `:epoch-history :depth` is too low for the user's workflow, with no warning when the target epoch ages out
 - stale or empty result because the build is `:advanced` (production-elided): the trace surface, schema validation, and epoch machinery are gated by `re-frame.interop/debug-enabled?` and elide entirely
-- source-coordinate workflows that assume `data--coord` is present when the runtime opt is off
+- source-coordinate workflows that assume `data-rf2-source-coord` is present when the runtime opt is off
 - private-namespace reach-through (`re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`) — these are off-contract per Tool-Pair §REPL-eval and may move
 - hot-swap that fired but the user could not tell because `:rf.registry/handler-replaced` was not surfaced
 - dispatch correlation gaps: cascade walks where `:dispatch-id` / `:parent-dispatch-id` were available but the tool did not stitch them
@@ -55,13 +55,13 @@ Friction signals specific to `:on-error`:
 - `:replacement` was set under a `:recovery` value other than `:replaced-with-default` (ignored by the runtime; may emit `:rf.warning/replacement-ignored-on-recovery`)
 - `:replacement` shape did not match the failing operation's normal return (effect-map for `:rf.error/handler-exception`, position-matched value for `:rf.error/schema-validation-failure`, etc.) — runtime rejected it as `:rf.error/bad-on-error-return`
 - `:replacement` was set on a non-substitutable category (registration-time failures, drain-depth-exceeded, `:rf.epoch/restore-*` rejections, `:rf.machine/*` registration-time rejections) — runtime cannot honour it
-- the user expected `:on-error` to fire in a CLJS production build but it didn't — pre- builds gated `:on-error` behind `goog.DEBUG`; surface the dev/prod divergence and route the fix upstream rather than working around it in the policy
+- the agent assumed `:on-error` elides in a CLJS production build and so dismissed a production handler-exception report — but the slot is **always-on**: it rides the `re-frame.error-emit` substrate, is NOT gated by `re-frame.interop/debug-enabled?`, and survives `:advanced` + `goog.DEBUG=false` for the `:rf.error/handler-exception` path (per `spec/009-Instrumentation.md` §Production elision and the posture matrix). Registered policy fns DO fire in prod for handler exceptions. Only the dev-side enrichments elide: `:dispatch-id` / source-coord correlation and the `:rf.error/bad-on-error-return` / `:rf.error/on-error-policy-exception` validation traces ride the dev trace surface, and policy-fn exceptions are caught silently in CLJS prod. Surface that real dev/prod split (recovery fires, validation diagnostics don't) rather than telling the user the slot is gone in production
 - the session reached into `re-frame.events` / `re-frame.registrar` to read the registered policy fn instead of using `(:on-error (rf/frame-meta <frame-id>))` — off-contract private-namespace reach-through per Tool-Pair §REPL-eval
 
 Routing the fix:
 
 - **re-frame2-pair skill** — the friction is that the agent didn't recognise the bad-return / policy-throw trace categories, or the inspection recipe was unclear → tighten `references/on-error.md`, add a recipe, or surface the trace categories more loudly in `references/errors.md`
-- **upstream re-frame2** — the friction is the runtime's behaviour itself (silent fallback, no warning trace, prod-elision of the slot, missing structured `:tags` on the bad-return trace) → file against `re-frame2`, cross-link to `spec/009-Instrumentation.md §Error-handler policy`
+- **upstream re-frame2** — the friction is the runtime's behaviour itself (silent fallback, no warning trace, a category the always-on error-emit substrate does not yet cover beyond `:rf.error/handler-exception`, missing structured `:tags` on the bad-return trace) → file against `re-frame2`, cross-link to `spec/009-Instrumentation.md §Error-handler policy`
 
 When proposing improvements, prefer turning a silent runtime fallback into a louder warning the agent can route to the user, and prefer a recipe over a doc paragraph when the friction is "I didn't know how to inspect the registered policy at the REPL".
 
@@ -106,7 +106,7 @@ Also consider higher-upside redesigns:
 Decide which target repo's GitHub issues the filing lives in before drafting:
 
 - **`day8/re-frame2-pair`** — the friction is in the tool's SKILL.md, scripts, attach logic, recipe selection, structured-result shape, cross-platform handling, or any concern that is not part of the framework's commitment.
-- **`day8/re-frame2`** — the friction is caused by a gap or ambiguity in the Tool-Pair contract itself: a missing trace event category, an under-specified `:rf.epoch/*` failure mode, a missing registrar query, a `data--coord` shape question, a schema-reflection limitation, or a private-namespace reach-through that should be promoted to public.
+- **`day8/re-frame2`** — the friction is caused by a gap or ambiguity in the Tool-Pair contract itself: a missing trace event category, an under-specified `:rf.epoch/*` failure mode, a missing registrar query, a `data-rf2-source-coord` shape question, a schema-reflection limitation, or a private-namespace reach-through that should be promoted to public.
 - **Both** — sometimes the fastest path is a tool-side workaround now plus an upstream issue for the long-term fix. File both, and reference one from the other.
 
 ## Prioritization
