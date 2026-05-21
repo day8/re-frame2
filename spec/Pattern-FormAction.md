@@ -181,7 +181,7 @@ The `:tempfile` is host-specific (Ring exposes a `java.io.File`; other adapters 
 
 - File contents MUST NOT appear in trace events. Implementations MUST treat the `:tempfile` slot as opaque and emit only the metadata fields (`:filename`, `:content-type`, `:size`) in trace events.
 - The header denylist ([014 §Header denylist](014-HTTPRequests.md#1-header-denylist-always-on)) applies unchanged for multipart requests: `Authorization`, `Cookie`, etc. remain redacted.
-- When the form is sensitive (`:sensitive? true` on the action handler per [014 §Per-call / per-request / per-handler `:sensitive?`](014-HTTPRequests.md#3-per-call--per-request--per-handler-sensitive)), implementations MUST redact the entire `:form-params` map in trace events — file metadata included, because filenames can themselves leak (`/tmp/passport.pdf`).
+- When the form is sensitive (`:sensitive? true` on the action's request per [014 §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive)), implementations MUST redact the entire `:form-params` map in trace events — file metadata included, because filenames can themselves leak (`/tmp/passport.pdf`).
 
 Apps that need fine-grained file-vs-field privacy (sensitive password field + non-sensitive avatar file in the same form) split into two separate POSTs.
 
@@ -258,7 +258,7 @@ A form-action implementation conforms to this convention when:
 - [010-Schemas.md §Validation timing](010-Schemas.md#validation-timing) — the `:spec` boundary check that runs on every dispatched event.
 - [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) — how `:sensitive?` propagates through schema-validation error reporting.
 - [014-HTTPRequests.md §Header denylist (always-on)](014-HTTPRequests.md#1-header-denylist-always-on) — the canonical sensitive-header set, including `X-CSRF-Token` / `X-XSRF-Token`.
-- [014-HTTPRequests.md §Per-call / per-request / per-handler `:sensitive?`](014-HTTPRequests.md#3-per-call--per-request--per-handler-sensitive) — how the action handler's `:sensitive? true` flag propagates to the request-side cascade for the JS-fetch path.
+- [014-HTTPRequests.md §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive) — how the action's per-request / per-call `:sensitive? true` flag propagates to the request-side cascade for the JS-fetch path.
 - [Pattern-Forms.md](Pattern-Forms.md) — the form-slice shape, the seven standard events, the per-field-error-visibility rule, and `:_form` form-level errors. This pattern reuses all of it on the server side.
 - [Pattern-SSR-Loaders.md](Pattern-SSR-Loaders.md) — the sibling pattern for the GET path: parallel data fetch during the drain. A page may use both — Loaders for the initial render, FormAction for subsequent POSTs.
 - [012-Routing.md](012-Routing.md) — the route-table that the action-event registry keys against.

@@ -66,7 +66,7 @@
      The single `signal` Fetch accepts is always our internal one; any
      caller signal funnels through `addEventListener` for cancellation."
      [{:keys [method url headers body credentials mode redirect cache referrer
-              integrity timeout-ms abort-signal internal-controller]}]
+              integrity timeout-ms abort-signal internal-controller decode]}]
      (let [init     #js {}
            _        (do (aset init "method" (str/upper-case (name method)))
                         (when (seq headers)
@@ -122,13 +122,43 @@
                                                  timeout-ms)))))])
                (.then (fn [resp]
                         (when-let [h @timeout-handle] (js/clearTimeout h))
-                        (-> (.text resp)
-                            (.then (fn [body-text]
-                                     {:ok? (.-ok resp)
-                                      :status (.-status resp)
-                                      :status-text (.-statusText resp)
-                                      :headers (fetch-headers->map (.-headers resp))
-                                      :body-text body-text}))))))]
+                        (let [ok?     (.-ok resp)
+                              headers (fetch-headers->map (.-headers resp))
+                              base    {:ok?         ok?
+                                       :status      (.-status resp)
+                                       :status-text (.-statusText resp)
+                                       :headers     headers}
+                              ;; rf2-5zj6t — a Fetch Response body may be
+                              ;; consumed only once, so the body-reader is
+                              ;; chosen up front from the resolved `:decode`
+                              ;; mode (mirroring `decode-response-body`).
+                              ;; Binary modes (`:blob` / `:array-buffer` /
+                              ;; `:form-data`) read the native body and ride
+                              ;; under `:body-binary`; everything else (and
+                              ;; every non-2xx response, whose raw text is
+                              ;; what the 4xx/5xx failure paths carry) reads
+                              ;; `.text()` into `:body-text`. Decode runs
+                              ;; only on 2xx, so a non-OK response always
+                              ;; takes the text path regardless of `:decode`.
+                              bin-kind (when ok?
+                                         (decode/binary-read-kind decode headers))]
+                          (case bin-kind
+                            :blob
+                            (-> (.blob resp)
+                                (.then (fn [b] (assoc base :body-binary b))))
+
+                            :array-buffer
+                            (-> (.arrayBuffer resp)
+                                (.then (fn [b] (assoc base :body-binary b))))
+
+                            :form-data
+                            (-> (.formData resp)
+                                (.then (fn [b] (assoc base :body-binary b))))
+
+                            ;; nil / text-based decode → read text.
+                            (-> (.text resp)
+                                (.then (fn [body-text]
+                                         (assoc base :body-text body-text)))))))))]
        promise)))
 
 #?(:cljs
@@ -644,7 +674,7 @@
   the failure category is `:rf.http/decode-failure`."
   [ctx result]
   (let [{:keys [decode decode-supplied? accept request-id url]} ctx
-        {:keys [ok? status status-text headers body-text]} result]
+        {:keys [ok? status status-text headers body-text body-binary]} result]
     (cond
       (and (>= status 400) (< status 500))
       (maybe-retry! ctx
@@ -666,6 +696,12 @@
       (try
         (let [decoded  (decode/decode-response-body
                          {:body-text        body-text
+                          ;; rf2-5zj6t — the CLJS transport reads a native
+                          ;; Blob / ArrayBuffer / FormData for binary decode
+                          ;; modes and rides it here; `decode-response-body`
+                          ;; returns it verbatim for `:blob` / `:array-buffer`
+                          ;; / `:form-data`. Absent on the text path / on JVM.
+                          :body-binary      body-binary
                           :headers          headers
                           :decode           decode
                           :decode-supplied? decode-supplied?
@@ -877,7 +913,12 @@
                         :integrity           (:integrity request)
                         :timeout-ms          timeout-ms
                         :abort-signal        abort-signal
-                        :internal-controller internal-controller})
+                        :internal-controller internal-controller
+                        ;; rf2-5zj6t — the transport picks the Fetch
+                        ;; body-reader (`.text()` vs `.blob()` /
+                        ;; `.arrayBuffer()` / `.formData()`) from the
+                        ;; resolved decode mode; pass it through.
+                        :decode              (:decode ctx)})
            (.then (fn [result] (handle-response! ctx' result)))
            ;; rf2-r40km — pass `url` so `classify-cljs-error` can
            ;; distinguish `:rf.http/cors` from `:rf.http/transport`

@@ -1090,30 +1090,22 @@ Apps extend the denylist for app-specific tokens (e.g. `shop_token` for Shopify,
 
 Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-query-params!)`.
 
-A query-param denylist hit **alone** (no per-handler / per-call `:sensitive?`) **stamps `:sensitive? true`** on the resulting trace event — the presence of a denylisted parameter name is itself a signal that the request carries an auth secret, and downstream privacy-honouring consumers should treat the event accordingly. This is the analogue of the header denylist contract: the name is the signal.
+A query-param denylist hit **alone** (no per-request / per-call `:sensitive?`) **stamps `:sensitive? true`** on the resulting trace event — the presence of a denylisted parameter name is itself a signal that the request carries an auth secret, and downstream privacy-honouring consumers should treat the event accordingly. This is the analogue of the header denylist contract: the name is the signal.
 
-### 3. Per-call / per-request / per-handler `:sensitive?`
+### 3. Per-request / per-call `:sensitive?`
 
-Three OR-reduced sources contribute the request-side `:sensitive?` flag for a given `:rf.http/managed` invocation:
+Two OR-reduced sources contribute the request-side `:sensitive?` flag for a given `:rf.http/managed` invocation:
 
-1. **Handler-level** — `:sensitive? true` on the originating event handler's `:rf/registration-metadata` map (per [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). The conventional site: the event handler that owns the request. Every `:rf.http/managed` dispatched from within a `:sensitive?`-marked handler inherits the flag.
+1. **Per-request** — `:sensitive? true` under the `:request` map of the `:rf.http/managed` args. The conventional site for opting a single request in (e.g. a generic POST handler that becomes sensitive only when posting to `/auth/login`). Composes with `:request-content-type`, `:body`, etc. unchanged.
 
-2. **Per-request** — `:sensitive? true` under the `:request` map of the `:rf.http/managed` args. For requests where the handler itself is not sensitive but **this specific call** is (e.g. a generic POST handler that becomes sensitive only when posting to `/auth/login`). Composes with `:request-content-type`, `:body`, etc. unchanged.
+2. **Per-call** — `:sensitive? true` at the top level of the `:rf.http/managed` args map. Pragmatic sugar for callers that prefer the flag alongside `:on-success` / `:on-failure` rather than nested under `:request`. Semantically identical to per-request.
 
-3. **Per-call** — `:sensitive? true` at the top level of the `:rf.http/managed` args map. Pragmatic sugar for callers that prefer the flag alongside `:on-success` / `:on-failure` rather than nested under `:request`. Semantically identical to per-request.
+Either source set to `true` makes the request sensitive; both sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the cascade emits sees the same flag (no per-emit re-resolution).
 
-Any source set to `true` makes the request sensitive; all sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the cascade emits sees the same flag (no per-emit re-resolution).
+Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per rf2-hjs2d, see [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, schema-derived (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on-rf2-2p8wr)) is a third, automatic stamping signal independent of these opt-ins.
 
 ```clojure
-;; Handler-level (Spec 009 §Privacy — the inherited form):
-(rf/reg-event-fx :auth/sign-in
-  {:doc        "Verify credentials and start a session."
-   :sensitive? true}
-  (fn [_ [_ creds]]
-    {:fx [[:rf.http/managed
-           {:request {:method :post :url "/auth" :body creds}}]]}))
-
-;; Per-request — a non-sensitive handler with one sensitive call:
+;; Per-request — opt a single request in:
 (rf/reg-event-fx :api/proxy
   (fn [_ [_ {:keys [target body]}]]
     {:fx [[:rf.http/managed
@@ -1137,9 +1129,9 @@ For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, 
 3. **Redact body / body-text / decoded / detail** slots when the effective `:sensitive?` is true. Specifically: `:body` (request and response), `:body-text` (decode-failure raw text), `:decoded` (the pre-`:accept` decoded value carried by `:rf.http/accept-failure`), and `:detail` (the user-supplied failure map carried by `:rf.http/accept-failure`). All slot values become `:rf/redacted`.
 4. **Redact `:params`** (the structured query-string params map on the request side) when the effective `:sensitive?` is true. The whole `:params` map value becomes `:rf/redacted`.
 5. **Redact ALL `:url` query-string param values** when the effective `:sensitive?` is true (broader rule than the always-on denylist) — when the request is sensitive, anything that rides the wire is. Non-denylisted params (e.g. `user_id=42`) are scrubbed alongside denylisted ones.
-6. **Stamp `:sensitive?`** on the trace event per [Spec 009 §Trace-event field](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level). The canonical contract is that the flag rides at the top level of the trace envelope (consumers consult `(:sensitive? ev)` for a one-keyword read). The HTTP layer stamps `:sensitive? true` on the tags map passed to `trace/emit!` / `trace/emit-error!`. A **query-param denylist hit alone** (no per-handler / per-call `:sensitive?`) also stamps `:sensitive? true` — the denylisted name is itself the signal. If the core trace surface implements the [rf2-isdwf](#) hoist (Spec 009 §Privacy core-stamping), the flag is moved from tags to top-level by the emit walker; if core does not yet hoist, the flag stays under `:tags`. Once core lands the hoist universally, the tags-slot becomes redundant but harmless. Absent (NOT `false`) when not sensitive — per Spec 009 line 1176 "Consumers treat absent as false."
+6. **Stamp `:sensitive?`** on the trace event per [Spec 009 §Trace-event field](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level). The canonical contract is that the flag rides at the top level of the trace envelope (consumers consult `(:sensitive? ev)` for a one-keyword read). The HTTP layer stamps `:sensitive? true` on the tags map passed to `trace/emit!` / `trace/emit-error!`. A **query-param denylist hit alone** (no per-request / per-call `:sensitive?`) also stamps `:sensitive? true` — the denylisted name is itself the signal. If the core trace surface implements the [rf2-isdwf](#) hoist (Spec 009 §Privacy core-stamping), the flag is moved from tags to top-level by the emit walker; if core does not yet hoist, the flag stays under `:tags`. Once core lands the hoist universally, the tags-slot becomes redundant but harmless. Absent (NOT `false`) when not sensitive — per Spec 009 line 1176 "Consumers treat absent as false."
 
-The cascade-wide stamping uses the **innermost in-scope handler** rule from [Spec 009 §Privacy](009-Instrumentation.md#the-sensitive-registration-metadata-key): each handler in a cascade contributes its own `:sensitive?` reading. A sensitive handler dispatching a non-sensitive child event does NOT transitively widen the flag — the HTTP fx fired inside the child handler's scope reflects the child's flag. The OR-reduce-by-cascade rollup is the consumer's responsibility (group by `:dispatch-id`).
+The `:sensitive?` flag a `:rf.http/*` trace event carries is the one resolved for **that specific request** from its per-request / per-call opt-ins (plus any automatic query-param-denylist stamp). Sensitivity does not transitively propagate across a dispatch cascade — a request fired from a non-sensitive call stays non-sensitive even when an ancestor handler in the cascade fired a sensitive request, and vice versa. The OR-reduce-by-cascade rollup, if a consumer wants one, is the consumer's responsibility (group by `:dispatch-id`).
 
 ### Composition
 
@@ -1150,7 +1142,7 @@ The cascade-wide stamping uses the **innermost in-scope handler** rule from [Spe
 | × Spec 014 §Middleware | Request-side interceptors run **before** the privacy machinery reads `:sensitive?` (the interceptor chain may itself attach an `Authorization` header). Headers added by interceptors are subject to the same denylist. |
 | × Spec 014 §Failure categories | Every category that carries body-side payload (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`) gets the redaction treatment when sensitive. `:rf.http/aborted` carries no body so no body redaction; headers (the denylist) still apply. |
 | × Spec 005 actor-destroy abort | The in-flight handle propagates the effective `:sensitive?` flag, so the `:rf.http/aborted-on-actor-destroy` emit (issued from the registry namespace, distant from the originating fx ctx) still stamps correctly. |
-| × WebSockets (future) | When `:rf.ws/*` (per [Pattern-WebSocket](Pattern-WebSocket.md)) lands, it inherits the same denylist + per-handler / per-call `:sensitive?` machinery; the per-message frame-stamping rule is its own affair, but the request-side concerns are shared. |
+| × WebSockets (future) | When `:rf.ws/*` (per [Pattern-WebSocket](Pattern-WebSocket.md)) lands, it inherits the same denylist + per-request / per-call `:sensitive?` machinery; the per-message frame-stamping rule is its own affair, but the request-side concerns are shared. |
 
 ### Production elision
 
@@ -1179,15 +1171,11 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all four items classify as **`:post-v1 tracked`** — additive surfaces that do not block v1.
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items classify as **`:post-v1 tracked`** — additive surfaces that do not block v1.
 
 ### Response-side middleware composition (post-v1, rf2-ean6m)
 
 Per [§Middleware](#middleware) (rf2-6y3q) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred to rf2-ean6m until the request-side surface settles in practice and the composition order with `:accept` is decided.
-
-### App-extensible query-param denylist (post-v1, rf2-j3nfp)
-
-Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on-rf2-2p8wr) (rf2-2p8wr) the always-on query-string denylist is a fixed framework-owned set. An extensible registration surface (`rf.http/declare-sensitive-query-param!` parallel to the header denylist) is a natural addition — deferred to rf2-j3nfp until a real app surfaces a query-param-auth pattern outside the default set.
 
 ### Streaming responses (`:rf.http/streaming`) (post-v1, rf2-jg6by)
 
@@ -1225,7 +1213,7 @@ Per [§Aborts](#aborts) (rf2-wvkn) `:rf.http/managed` requests issued from insid
 
 ### Privacy honoured via `:sensitive?` on HTTP trace events (rf2-bma05)
 
-Per [§Privacy](#privacy) (rf2-bma05) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call, per-request, and per-handler `:sensitive?` flags OR-reduce; the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive headers via `rf.http/declare-sensitive-header!`.
+Per [§Privacy](#privacy) (rf2-bma05) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call and per-request `:sensitive?` flags OR-reduce (handler-meta `:sensitive?` is no longer a source per rf2-hjs2d); the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive headers via `rf.http/declare-sensitive-header!`.
 
 ### Query-string denylist is always-on (rf2-2p8wr)
 

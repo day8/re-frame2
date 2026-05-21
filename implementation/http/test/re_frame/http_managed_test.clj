@@ -342,6 +342,78 @@
               (str "non-canonical Content-Type casing " (pr-str ct-key)
                    " must sniff to :json, not :blob")))))))
 
+;; ---- 5e. binary decode reads the native body, not body-text (rf2-5zj6t) ---
+;;
+;; Spec 014 §Decoding lists `:blob` / `:array-buffer` / `:form-data` as
+;; distinct binary decode shapes. The CLJS transport used to always
+;; pre-read the Fetch response via `(.text resp)`, so the binary decode
+;; branches resolved to the body-TEXT string — a caller asking
+;; `:decode :blob` for an image got a lossy UTF-8 string. The fix routes
+;; the resolved decode mode into the transport, which now picks the
+;; correct Fetch reader (`.blob()` / `.arrayBuffer()` / `.formData()`)
+;; and rides the native body under `:body-binary`; `decode-response-body`
+;; returns it verbatim for the binary branches.
+;;
+;; `binary-read-kind` is the pure resolution helper the transport calls
+;; BEFORE consuming the body (a Fetch Response body may be read once).
+;; These JVM unit tests exercise it and the `decode-response-body`
+;; binary-return path directly with stand-in binary values — they fail
+;; deterministically against the pre-fix code (which returned the text
+;; string for every binary mode).
+
+(deftest binary-read-kind-resolves-binary-decode-modes
+  (testing "explicit binary modes resolve to themselves"
+    (is (= :blob         (http-decode/binary-read-kind :blob {})))
+    (is (= :array-buffer (http-decode/binary-read-kind :array-buffer {})))
+    (is (= :form-data    (http-decode/binary-read-kind :form-data {}))))
+  (testing "text-based / structured modes resolve to nil (read .text)"
+    (is (nil? (http-decode/binary-read-kind :json {})))
+    (is (nil? (http-decode/binary-read-kind :text {})))
+    (is (nil? (http-decode/binary-read-kind (fn [_ _] :decoded) {})))
+    (is (nil? (http-decode/binary-read-kind [:map] {}))
+        "a Malli schema is a text (JSON-parse) mode, not binary"))
+  (testing ":auto sniffs the Content-Type — binary type → :blob (rf2-5zj6t)"
+    (is (= :blob (http-decode/binary-read-kind :auto {"content-type" "image/png"}))
+        ":auto over a binary Content-Type reads as a Blob, not lossy text")
+    (is (= :blob (http-decode/binary-read-kind nil {"content-type" "application/octet-stream"}))
+        "omitted :decode (== :auto) over a binary Content-Type also reads binary"))
+  (testing ":auto sniffs the Content-Type — text/JSON → nil (read .text)"
+    (is (nil? (http-decode/binary-read-kind :auto {"content-type" "application/json"})))
+    (is (nil? (http-decode/binary-read-kind :auto {"content-type" "text/plain"})))
+    (is (nil? (http-decode/binary-read-kind nil  {"content-type" "text/html"})))))
+
+(deftest decode-response-body-returns-native-binary-for-binary-modes
+  (testing "binary decode modes return the pre-read :body-binary verbatim"
+    ;; Stand-in for the native Blob / ArrayBuffer / FormData the CLJS
+    ;; transport reads. The decode pipeline must return THIS value, not
+    ;; the body-text string (the pre-fix bug).
+    (let [native (Object.)]
+      (doseq [mode [:blob :array-buffer :form-data]]
+        (testing (str "mode: " mode)
+          (is (identical? native
+                          (http-decode/decode-response-body
+                            {:body-text   "lossy-utf8-text"
+                             :body-binary native
+                             :headers     {}
+                             :decode      mode
+                             :decode-supplied? true
+                             :request-id  :test/req
+                             :url         "/test"
+                             :sensitive?  false}))
+              (str mode " must return the native binary body, not body-text"))))))
+  (testing "binary mode with no :body-binary (e.g. JVM transport) falls back to body-text"
+    (doseq [mode [:blob :array-buffer :form-data]]
+      (is (= "raw-payload"
+             (http-decode/decode-response-body
+               {:body-text        "raw-payload"
+                :headers          {}
+                :decode           mode
+                :decode-supplied? true
+                :request-id       :test/req
+                :url              "/test"
+                :sensitive?       false}))
+          (str mode " with absent :body-binary returns the raw body-text payload")))))
+
 ;; ---- 6. retry exhaustion --------------------------------------------------
 
 (deftest jvm-retry-exhaustion

@@ -111,9 +111,9 @@
         ;; handlers' dispatches yield nil and are not tracked.
         actor-id     (registry/compute-actor-id frame origin-event)
         ;; rf2-bma05 — compute the effective :sensitive? flag once and
-        ;; thread it through the attempt-and-retry loop. Three sources
-        ;; (OR-reduced): per-call args, per-request, and the originating
-        ;; handler's registration metadata. The flag rides every
+        ;; thread it through the attempt-and-retry loop. Two sources
+        ;; (OR-reduced): per-call args and per-request (handler-meta
+        ;; :sensitive? was removed per rf2-hjs2d). The flag rides every
         ;; :rf.http/* trace event emitted within the cascade so
         ;; consumers honour the privacy contract per Spec 009 §Privacy.
         sensitive?   (privacy/request-sensitive? args-map origin-event)
