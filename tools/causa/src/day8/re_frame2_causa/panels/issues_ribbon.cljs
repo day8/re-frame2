@@ -503,8 +503,7 @@
           (dissoc :issues-active-prefixes))))
 
   ;; rf2-2moh1 — register the Dynamic Issues tab with the internal L4
-  ;; tab registry. rf2-mkpnb — order bumped 6 → 7 to make room for the
-  ;; new Machines Canvas tab at order 5 + Routing at order 6.
+  ;; tab registry. Order 7 — Routing sits at order 6 (rf2-nrbs9).
   (panel-registry/reg-l4-tab!
     {:id    :issues
      :label "Issues"

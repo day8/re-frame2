@@ -34,7 +34,7 @@ This skill does **not** depend on or reference `re-frame-10x`. Causa is the stru
 
 ## Status
 
-Pre-alpha. The Causa surface itself is pre-alpha (some tabs are partial — the Machines tabs render through the shared xyflow styling under `panels/machines/` + `panels/machines_canvas/`, still stabilising; Schemas / Hydration only render when the relevant feature is wired into the host; several Static tabs carry placeholder beads). The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
+Pre-alpha. The Causa surface itself is pre-alpha (some tabs are partial — the Machines tab renders through the shared xyflow styling under `panels/machines/`, still stabilising; Schemas / Hydration only render when the relevant feature is wired into the host; several Static tabs carry placeholder beads). The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
 
 A future `re-frame2-causa-implementor` sibling skill is deferred to post-alpha until the Causa surface stabilises.
 

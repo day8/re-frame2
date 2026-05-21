@@ -150,7 +150,7 @@ Once `core.cljs` has loaded, the same six fns are reachable under `window.day8.r
 
 ## Panel reg-views (composed by the shell)
 
-Eight `Panel` reg-views ship in `day8.re-frame2-causa.panels.*`. They are **not** a host-facing single-panel embed surface — hosts that want to mount Causa embed the full shell via the [embedding contract](https://github.com/day8/re-frame2/blob/main/tools/causa/spec/008-Embedding-Contract.md). The panel exports are documented here for tool integrators (Story's chip-catalogue, the panel-gallery testbed) that compose against them.
+Seven `Panel` reg-views ship in `day8.re-frame2-causa.panels.*`. They are **not** a host-facing single-panel embed surface — hosts that want to mount Causa embed the full shell via the [embedding contract](https://github.com/day8/re-frame2/blob/main/tools/causa/spec/008-Embedding-Contract.md). The panel exports are documented here for tool integrators (Story's chip-catalogue, the panel-gallery testbed) that compose against them.
 
 | Panel | Namespace | Surface |
 |---|---|---|
@@ -159,7 +159,6 @@ Eight `Panel` reg-views ship in `day8.re-frame2-causa.panels.*`. They are **not*
 | Reactive (Views) | `day8.re-frame2-causa.panels.reactive-panel` | `Panel` reg-view |
 | Trace | `day8.re-frame2-causa.panels.trace` | `Panel` reg-view |
 | Machine Inspector | `day8.re-frame2-causa.panels.machine-inspector` | `Panel` reg-view |
-| Machines Canvas | `day8.re-frame2-causa.panels.machines-canvas.panel` | `Panel` reg-view |
 | Routing | `day8.re-frame2-causa.panels.routing` | `Panel` reg-view |
 | Issues Ribbon | `day8.re-frame2-causa.panels.issues-ribbon` | `Panel` reg-view |
 

@@ -140,15 +140,16 @@ Static (about the whole registry) — then route to the tab. For per-tab
 layout, iconography, stripe tokens, and "open it when…" depth see
 [`references/panels.md`](references/panels.md).
 
-### Dynamic mode — 8 lenses on the focused event
+### Dynamic mode — 7 lenses on the focused event
 
-The L3 tab bar holds **8 lenses on the focused event**, in the order set
-by spec/018 §5 (mnemonics `e a v t m c r i`): **Event · App DB · View ·
-Trace · Machines · Machines Canvas · Routing · Issues**. Cross-epoch
+The L3 tab bar holds **7 lenses on the focused event**, in the order set
+by spec/018 §5 (mnemonics `e a v t m r i`): **Event · App DB · View ·
+Trace · Machines · Routing · Issues**. Cross-epoch
 signal lives on the L2 timeline above (badges + stripes); every tab
-answers "what happened in **this** epoch?" through its own lens — except
-**Machines Canvas**, which is spine-INDEPENDENT (it browses a picked
-machine's full topology regardless of the focused event).
+answers "what happened in **this** epoch?" through its own lens. To
+browse a machine's full topology cold (spine-INDEPENDENT — picker +
+zoom / pan / fit, regardless of the focused event), flip to **Static
+mode** and open its Machines tab.
 
 | Tab | Mnem · Icon · Stripe | One-line purpose | When you'd open it |
 |---|---|---|---|
@@ -156,8 +157,7 @@ machine's full topology regardless of the focused event).
 | **App DB** | `a` · `◐` · cyan | Two-zone: DIFF (changed paths for this epoch) + STATE (full db at end of epoch via lazy tree). Hover any changed path for downstream-subs popover. | "What just changed in app-db?" / "What's downstream of `[:cart :items]`?" |
 | **View** | `v` · `◉` · cyan | The reactive cascade as a depth-first DAG: subs recomputed (step 7) + views re-rendered (step 8) with `caused-by ← sub ← path` causation on every leaf. (Display label is **View**, renamed from `Views`/`Reactive`; the internal tab id stays `:views`.) | "Why didn't my view update?" / "Trace the recompute chain for `:cart/total`." / "Which views re-rendered this epoch?" |
 | **Trace** | `t` · `⬢` · orange | Raw Spec 009 trace events for the focused epoch — one mono row per op, filterable by `[op-type ▾] [tag ▾]`, payload expands inline. | "Show me every raw op in this epoch." / "Is `:rf.fx/*` firing as expected?" |
-| **Machines** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation cascade for the focused event. BLANK when the focused event had no machine activity; per-machine prev/next walks the spine. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
-| **Machines Canvas** | `c` · `◆` · green | **Spine-INDEPENDENT canvas browser.** Master-detail: machine picker on the left, interactive Chart adapter on the right (zoom / pan / fit + keyboard). Always shows the picked machine's *full* topology, not just this event. | "What does my checkout machine look like overall?" / "Show me the whole state chart, not just this transition." |
+| **Machines** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation cascade for the focused event. BLANK when the focused event had no machine activity; per-machine prev/next walks the spine. To browse a machine's full topology cold (picker + zoom / pan / fit, spine-INDEPENDENT), use **Static mode**'s Machines tab. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
 | **Routing** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
 | **Issues** | `i` · `⚠` · red | Per-epoch errors + warnings + schema violations + hydration mismatches + perf-budget overruns + app console errors, unified. Head-fallback to most-recent epoch when the spine is at head. | "Anything broken in this epoch?" / "Show me all schema failures here." / "What warnings fired?" |
 
@@ -239,9 +239,9 @@ short of improvising.
  detail (the mount contract, the epoch pump's ordering guarantees, the
  redaction marker's grammar), link to the relevant
  `tools/causa/spec/*.md` and quote sparingly.
-- **Pre-alpha hedge.** Some surfaces are partial (the Machines tabs
- render through the shared xyflow styling at
- `panels/machines/xyflow_style.cljs` + `panels/machines_canvas/`, still
+- **Pre-alpha hedge.** Some surfaces are partial (the Machines tab
+ renders through the shared xyflow styling at
+ `panels/machines/xyflow_style.cljs`, still
  stabilising; Issues only populates the schema / hydration rows when the
  host has those features wired; several Static tabs carry placeholder
  beads). When a user asks about an in-progress surface, say so and point

@@ -174,8 +174,6 @@
    ;; zoom/pan/fit internally).
    :rf.causa.machine-canvas/view-mode-by-id
    :rf.causa.machine-canvas/view-mode-for
-   ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab (Dynamic).
-   :rf.causa.machines-canvas/selected-id
    ;; rf2-a9cke — focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
    :rf.causa/machine-transitions-for-focused-event
@@ -432,9 +430,6 @@
    ;; retired — xyflow owns zoom/pan/fit internally).
    :rf.causa.machine-canvas/hydrate-view-modes
    :rf.causa.machine-canvas/set-view-mode
-   ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab events.
-   :rf.causa.machines-canvas/select
-   :rf.causa.machines-canvas/state-clicked
    ;; rf2-jgip1 — emitted by the shared L4 data-display renderer
    ;; (clickable path → cross-panel propagation). The renderer
    ;; ships a no-op default handler so consumer panels override via

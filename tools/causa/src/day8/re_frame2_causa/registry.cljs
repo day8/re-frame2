@@ -65,7 +65,6 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
-            [day8.re-frame2-causa.panels.machines-canvas.panel :as machines-canvas-panel]
             [day8.re-frame2-causa.panels.managed-fx-subs :as managed-fx-subs]
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
@@ -315,8 +314,8 @@
 
     ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
 
-    ;; L3 tab bar — flip the active tab. Eight valid ids per spec/018 §5:
-    ;; :event :app-db :views :trace :machines :machines-canvas :routing :issues
+    ;; L3 tab bar — flip the active tab. Seven valid ids per spec/018 §5:
+    ;; :event :app-db :views :trace :machines :routing :issues
     ;; (rf2-2moh1 registry-driven; new tab requires only a reg-l4-tab! call).
     (rf/reg-event-db :rf.causa/select-tab
       (fn [db [_ tab-id]]
@@ -668,14 +667,6 @@
     (event-detail/install!)
     (issues-ribbon/install!)
     (machine-inspector/install!)
-    ;; Dynamic Machines Canvas tab (rf2-mkpnb) — spine-INDEPENDENT canvas
-    ;; browser. Sibling tab to the event-driven Machines Inspector
-    ;; (above): picker on the left, interactive `machine-canvas/Chart`
-    ;; on the right. Installs AFTER `machine-inspector/install!` so the
-    ;; canvas adapter's subs / events / fxs (`:rf.causa.machine-
-    ;; canvas/*`) are already registered. Registration order is purely
-    ;; cosmetic — re-frame resolves `:<-` chains lazily.
-    (machines-canvas-panel/install!)
     ;; Static Machines sub-tab (rf2-o5f5f.2) — browses every registered
     ;; machine + Topology + JUMP-to-Dynamic + Cascade-dimmed surfaces.
     ;; Installs AFTER `machine-inspector/install!` so the static-machines

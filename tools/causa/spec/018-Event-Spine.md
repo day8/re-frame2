@@ -38,7 +38,7 @@ Every selection event passes through a single spine sub — `:rf.causa/focus` �
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 9 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -405,11 +405,11 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ## §5 Tab bar + detail panel (Layers 3 + 4)
 
-### The 8 tabs
+### The 7 tabs
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1                │   L3
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │   L3
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -419,10 +419,9 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Bus.md`](013-Trace-Bus.md) |
-| 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.causa.static.machines/sim-*`, view at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
-| 6 | **Machines Canvas** | `c` | **Spine-INDEPENDENT canvas browser** (rf2-mkpnb). Master-detail — picker on the left (one row per registered machine, sorted by name), interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). No focused-event lens — the canvas always shows the picked machine's full topology. Promoted to its own L4 tab per the cohesive-sub-domain rule; sibling to the event-driven Machines Inspector at order 5. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Interactive Machines canvas (rf2-y3l8z) + [`007-UX-IA.md`](007-UX-IA.md) §Layout |
-| 7 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
-| 8 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
+| 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.causa.static.machines/sim-*`, view at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
+| 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
+| 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
 
 (rf2-4v67l — the Chrome A11y dogfood tab was removed. A11y
 dogfooding is properly Story's domain, where it already ships as the
@@ -441,7 +440,7 @@ noise that flagged the Causa events-list as a problem.)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1                │
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 

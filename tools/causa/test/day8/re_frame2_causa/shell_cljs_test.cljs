@@ -56,7 +56,6 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
-            [day8.re-frame2-causa.panels.machines-canvas.panel :as machines-canvas-panel]
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-causa.panels.trace :as trace]))
@@ -265,29 +264,30 @@
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-tab-ids
-  "Authoritative tab inventory per spec/018 §5 The 8 tabs (Routing
-  promoted to its own L3 tab per rf2-nrbs9; Machines Canvas promoted
-  per rf2-mkpnb). (rf2-4v67l — Chrome A11y was removed in favour of
-  Story's already-shipped chrome-a11y dogfood per rf2-18t6p; a11y
-  dogfooding is properly Story's domain.)"
-  [:event :app-db :views :trace :machines :machines-canvas :routing :issues])
+  "Authoritative tab inventory per spec/018 §5 The 7 tabs (Routing
+  promoted to its own L3 tab per rf2-nrbs9). (rf2-4v67l — Chrome A11y
+  was removed in favour of Story's already-shipped chrome-a11y dogfood
+  per rf2-18t6p; a11y dogfooding is properly Story's domain. rf2-ga16q
+  — the Machines Canvas tab was removed; its spine-INDEPENDENT
+  browse-all canvas relocated to the Static Machines sub-tab.)"
+  [:event :app-db :views :trace :machines :routing :issues])
 
 (deftest tab-bar-renders-seven-tabs
-  (testing "spec/018 §5 — eight tabs (Event / App-db / Views / Trace /
-            Machines / Machines Canvas / Routing / Issues). rf2-4v67l
-            removed the Chrome A11y dogfood in favour of Story's
-            shipped panel."
+  (testing "spec/018 §5 — seven tabs (Event / App-db / Views / Trace /
+            Machines / Routing / Issues). rf2-4v67l removed the Chrome
+            A11y dogfood in favour of Story's shipped panel; rf2-ga16q
+            removed the Machines Canvas tab (relocated to Static)."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             tabs (find-all-by-testid-prefix tree "rf-causa-tab-")]
         ;; Need to filter out the L4 detail panel and tab-bar root.
-        (is (= 8 (count (filter (fn [n]
+        (is (= 7 (count (filter (fn [n]
                                   (let [t (:data-testid (second n))]
                                     (some #(= t (str "rf-causa-tab-" (name %)))
                                           expected-tab-ids)))
                                 tabs)))
-            "8 tab buttons render")
+            "7 tab buttons render")
         (doseq [tab-id expected-tab-ids]
           (is (some? (find-by-testid tree (str "rf-causa-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))
@@ -413,7 +413,6 @@
    :views           reactive-panel/Panel
    :trace           trace/Panel
    :machines        machine-inspector/Panel
-   :machines-canvas machines-canvas-panel/Panel
    :routing         routing/Panel
    :issues          issues-ribbon/Panel})
 

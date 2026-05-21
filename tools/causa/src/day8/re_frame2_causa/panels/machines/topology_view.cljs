@@ -2,10 +2,10 @@
   "Reagent view ↔ xyflow projector composition (rf2-uwvyj · spec/021
   §6 + §17.4).
 
-  This is the public consumer surface: the Machines Canvas panel
-  (or any other Causa panel rendering a single machine's topology)
-  mounts `[topology-view {:machine-id ... :definition ...}]` and
-  gets the styled xyflow canvas back.
+  This is the public consumer surface: the Static Machines panel's
+  Topology mode (or any other Causa panel rendering a single
+  machine's topology) mounts `[topology-view {:machine-id ...
+  :definition ...}]` and gets the styled xyflow canvas back.
 
   ## Composition
 

@@ -18,7 +18,7 @@ Causa is one tool with two reading postures, toggled with `Cmd-Shift-M`. The mod
 ├───────────────────────────────────────────────────────┤
 │ L2  Event list (8 rows default; resizable; min 2)     │  the spine / timeline
 ├───────────────────────────────────────────────────────┤
-│ L3  Tab bar (40px) — 8 tabs                           │  projection selector
+│ L3  Tab bar (40px) — 7 tabs                           │  projection selector
 ├───────────────────────────────────────────────────────┤
 │ L4  Detail panel (fills remaining canvas)             │  per-tab content
 └───────────────────────────────────────────────────────┘
@@ -42,7 +42,7 @@ Static reuses Dynamic's full design language — same fonts, same palette, same 
 
 ---
 
-## Dynamic mode — the eight tabs
+## Dynamic mode — the seven tabs
 
 ### L1 — the ribbon
 
@@ -59,7 +59,7 @@ Single-line rows, latest-on-bottom, eight visible by default and vertically resi
 
 This *is* the timeline. Click a row → focus it (the spine flips to RETRO) and every tab rebinds in one frame. This is also where time-travel lives — there is no bottom rail; you scrub by walking the spine. See [chapter 3](03-time-travel.md).
 
-### L3 / L4 — the eight tabs
+### L3 / L4 — the seven tabs
 
 Selection lives on `:rf.causa/selected-tab` and drives the L4 detail panel. Mnemonic letters in brackets.
 
@@ -83,11 +83,7 @@ The raw multi-axis trace stream, filtered to the focused cascade (`:dispatch-id 
 
 #### Machines (`m`) — event-driven state-charts
 
-The event-driven machine lens. **Blank when the focused event touched no machine.** When it did, one section per affected machine: topology with the transition highlighted, the guards and actions that ran, the cancellation cascade, and `:after` rings. This is the "what did *this event* do to my machines?" view — for browsing a machine's full shape cold, use Machines Canvas (next) or Static mode. See [chapter 8](08-machine-inspector.md).
-
-#### Machines Canvas (`c`) — the topology browser
-
-A **spine-independent** canvas browser — it does *not* couple to the focused event. Master-detail: a picker on the left (one row per registered machine), an interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). The canvas always shows the picked machine's full topology, regardless of where the spine is. It earned its own tab — sibling to the event-driven Machines inspector — under the cohesive-sub-domain rule.
+The event-driven machine lens. **Blank when the focused event touched no machine.** When it did, one section per affected machine: topology with the transition highlighted, the guards and actions that ran, the cancellation cascade, and `:after` rings. This is the "what did *this event* do to my machines?" view — to browse a machine's full shape cold (spine-independent topology, picker, zoom / pan / fit), flip to **Static mode** and open its Machines tab. See [chapter 8](08-machine-inspector.md).
 
 #### Routing (`r`) — the focused-event route lens
 
