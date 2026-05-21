@@ -100,6 +100,13 @@ nav:
     - "5. Snapshot identity + QR sharing": story/05-snapshot-identity.md
     - "6. Time-travel in Story": story/06-time-travel.md
     - "7. Multi-substrate side-by-side": story/07-multi-substrate.md
+    - "API reference":
+      - "Overview": story/api/index.md
+      - "Registration": story/api/registration.md
+      - "Play scripts": story/api/play-script.md
+      - "Runtime": story/api/runtime.md
+      - "MCP surface": story/api/mcp-surface.md
+      - "Reference": story/api/reference.md
 
   - Causa:
     - "Welcome": causa/index.md
