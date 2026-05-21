@@ -37,9 +37,11 @@
 ;;
 ;; The elk projection (`elk-child`) and the node renderers
 ;; (`chart.nodes`) share these floors so a state's measured box and
-;; its laid-out slot agree. They live here (pure, JVM-readable) so the
-;; projection tests can reference them; `chart.nodes` re-exports them
-;; for the renderer's CSS `min-width` / `min-height`.
+;; its laid-out slot agree. This is their single canonical home (pure,
+;; JVM-readable, so the projection tests can reference them); rf2-kra7h
+;; — `chart.nodes` `:require`s this ns and reads them via
+;; `projection/<name>` for the renderer's CSS `min-width` /
+;; `min-height` rather than re-declaring its own copies.
 
 (def state-node-min-width
   "Minimum width in px for a state node body. xyflow lays out nodes

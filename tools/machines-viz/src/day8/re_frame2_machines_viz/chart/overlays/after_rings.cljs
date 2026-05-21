@@ -71,32 +71,21 @@
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.primitives :as prim]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings-geometry
-             :as geo]))
+             :as geo]
+            [day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
+             :as anchor]))
 
 ;; ---- DOM measurement ----------------------------------------------------
-
-(defn- rect->map
-  "JS DOMRect → the `{:left :top :width :height}` map the geometry
-  helper consumes."
-  [^js dom-rect]
-  (when dom-rect
-    {:left   (.-left dom-rect)
-     :top    (.-top dom-rect)
-     :width  (.-width dom-rect)
-     :height (.-height dom-rect)}))
 
 (defn- query-node-rect
   "Resolve a node-id's bounding rect by walking `root`'s subtree for
   `[data-testid=\"rf-mv-chart-node-<id>\"]`. Returns the rect map or
   nil when the node isn't in the DOM (off-screen / not yet mounted /
-  compound parent without a leaf)."
+  compound parent without a leaf). Uses the shared `overlay-anchor`
+  DOM seam (rf2-ed099)."
   [^js root node-id]
   (when (and root node-id)
-    (when-let [testid (geo/state->node-testid node-id)]
-      (let [sel (str "[data-testid=\"" testid "\"]")
-            el  (.querySelector root sel)]
-        (when el
-          (rect->map (.getBoundingClientRect el)))))))
+    (anchor/query-node-rect-by-testid root (geo/state->node-testid node-id))))
 
 (defn- measure-rings
   "Walk the DOM under `root` for every ring-spec's bearing node and
@@ -108,7 +97,7 @@
   this fn only gathers the DOM rects."
   [^js root ring-specs]
   (when root
-    (let [container-rect (rect->map (.getBoundingClientRect root))
+    (let [container-rect (anchor/rect->map (.getBoundingClientRect root))
           ;; xyflow bakes zoom into the rendered rects, so the
           ;; overlay reads them as-is (zoom 1.0 → no extra scaling of
           ;; the gap; the node's measured size already carries zoom).

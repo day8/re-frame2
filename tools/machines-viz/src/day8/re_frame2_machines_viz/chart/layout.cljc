@@ -5,7 +5,7 @@
   ELK+SVG lock. This ns is no longer a layout engine: xyflow + elkjs
   own positioning. What remains is the substrate-agnostic **graph
   parse** — definition → flat list of nodes + edges + per-node /
-  per-edge metadata. The xyflow chart ns (`chart/xyflow.cljs`)
+  per-edge metadata. The xyflow chart ns (`chart.cljs`)
   consumes this projection and hands the nodes/edges to xyflow's
   React renderer; elkjs runs as xyflow's layout backend off the same
   graph.

@@ -284,11 +284,3 @@
     (is (thrown? #?(:clj  Exception
                     :cljs js/Error)
                  (vc/chart-for-density "regular"))))) ;; string, not kw
-
-(deftest dynamic-chart-default-is-regular
-  (testing "rf2-32gw5 — `vc/*chart*` defaults to `chart-regular`
-            outside any `binding`. Helpers that destructure off
-            `vc/*chart*` outside the renderer's binding scope see
-            the same constants the namespace-level alias provided
-            before rf2-32gw5."
-    (is (= vc/chart-regular vc/*chart*))))

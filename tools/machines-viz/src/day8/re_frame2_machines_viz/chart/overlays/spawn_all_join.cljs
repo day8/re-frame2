@@ -42,29 +42,16 @@
 
 ;; ---- DOM measurement ----------------------------------------------------
 
-(defn- rect->map
-  [^js dom-rect]
-  (when dom-rect
-    {:left   (.-left dom-rect)
-     :top    (.-top dom-rect)
-     :width  (.-width dom-rect)
-     :height (.-height dom-rect)}))
-
-(defn- query-node-rect
-  [^js root node-id]
-  (when (and root node-id)
-    (when-let [testid (anchor/node->card-testid node-id)]
-      (let [el (.querySelector root (str "[data-testid=\"" testid "\"]"))]
-        (when el (rect->map (.getBoundingClientRect el)))))))
-
 (defn- measure-anchor
   "Walk the DOM under `root` for the join-spec's bearing node and
   return the overlay-local card anchor (or nil when the node isn't in
-  the DOM). Uses the pure `overlay-anchor/anchor-right-of`."
+  the DOM). Uses the shared `overlay-anchor` DOM seam + the pure
+  `overlay-anchor/anchor-right-of`."
   [^js root node-id]
   (when (and root node-id)
-    (let [container (rect->map (.getBoundingClientRect root))
-          node      (query-node-rect root node-id)]
+    (let [container (anchor/rect->map (.getBoundingClientRect root))
+          node      (anchor/query-node-rect-by-testid
+                      root (anchor/node->card-testid node-id))]
       (anchor/anchor-right-of node container))))
 
 ;; ---- child-row glyph ----------------------------------------------------

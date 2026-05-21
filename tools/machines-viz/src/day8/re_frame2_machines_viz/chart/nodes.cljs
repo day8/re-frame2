@@ -43,6 +43,7 @@
             [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.parallel-region-node
              :as parallel-region-node]
+            [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
              :refer [mono-stack sans-stack]]
@@ -86,25 +87,13 @@
 (def ^:private pos-bottom (.-Bottom Position))
 (def ^:private pos-left   (.-Left Position))
 
-;; ---- visual constants ---------------------------------------------------
-
-(def state-node-min-width
-  "Minimum width in px for a state node body. xyflow lays out nodes
-  based on their measured size; this floor gives every node a
-  consistent rhythm without overflowing labels."
-  140)
-
-(def state-node-min-height
-  "Minimum height in px for a state node body."
-  44)
-
-(def compound-node-min-width
-  "Minimum width for a compound container."
-  220)
-
-(def compound-node-min-height
-  "Minimum height for a compound container."
-  120)
+;; ---- node-size floor constants ------------------------------------------
+;;
+;; rf2-kra7h — single-sourced from `chart.projection`. The elk projection
+;; and these CSS `min-width` / `min-height` floors MUST agree (the
+;; laid-out slot vs. the measured box), so they live in one canonical,
+;; JVM-readable home (`projection`, the pure layer the projection tests
+;; pin) and the renderer reads them via `projection/<name>`.
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -220,8 +209,8 @@
                      :flex-direction   "column"
                      :align-items      "center"
                      :justify-content  "center"
-                     :min-width        (str state-node-min-width "px")
-                     :min-height       (str state-node-min-height "px")
+                     :min-width        (str projection/state-node-min-width "px")
+                     :min-height       (str projection/state-node-min-height "px")
                      :padding          "8px 12px"
                      :background       fill
                      :border           (str stroke-w "px solid " stroke)
@@ -305,8 +294,8 @@
              :style {:position         "relative"
                      :width            "100%"
                      :height           "100%"
-                     :min-width        (str compound-node-min-width "px")
-                     :min-height       (str compound-node-min-height "px")
+                     :min-width        (str projection/compound-node-min-width "px")
+                     :min-height       (str projection/compound-node-min-height "px")
                      :padding-top      (str compound-pad-y "px")
                      :background       (tokens/with-alpha :accent-violet 0.06)
                      :border           (str "1px dashed " (:accent-violet tokens/tokens))

@@ -19,8 +19,6 @@
       payloads carrying the active/from-highlight/to-highlight
       flags, event labels, tags, etc.
     - The elkjs `compute-layout!` async pass + cache.
-    - The substrate-agnostic re-export hook (`MachineChart`
-      registered against the v2 `:view` registration surface).
 
   ## What this does NOT own
 
@@ -212,8 +210,9 @@
 (defn MachineChart
   "Render a state-machine definition as an interactive xyflow chart.
 
-  Args (map — `:closed` schema enforced at registration time per
-  `tools/machines-viz/spec/API.md` §Props):
+  Args (map — see `tools/machines-viz/spec/API.md` §Props; the
+  component destructures the keys below with defaults and ignores
+  unknown keys):
 
     :machine-id        — keyword; identifies the machine. Surfaces as
                          the chart's aria-label and on every per-node
@@ -502,13 +501,3 @@
                [overlay-cascade/CancellationCascadeOverlay
                 {:cascade-spec cancellation-cascade
                  :tick         overlay-tick}])]))))))
-
-;; ---- empty-graph convenience for callers --------------------------------
-
-(defn render-from-definition
-  "Legacy entry-point — renders the chart from a definition map. Kept
-  for callers still using the pre-migration `render-from-definition`
-  surface; prefer the `MachineChart` component directly."
-  ([definition] (render-from-definition definition {}))
-  ([definition opts]
-   [MachineChart (assoc opts :definition definition)]))

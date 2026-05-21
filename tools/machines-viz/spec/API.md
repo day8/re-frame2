@@ -39,37 +39,41 @@ UIx / Helix).
 [viz/MachineChart props]
 ```
 
-`props` is a map; the schema below is closed (the chart rejects
-unrecognised keys at registration time).
+`props` is a map. The component destructures the keys below with
+defaults and ignores unrecognised keys; it does not run a closed-
+schema reject. The component is presentation-only — the host pulls
+the definition + the live snapshot and passes them in (this keeps the
+chart testable in isolation and avoids coupling it to a framework
+registry).
 
 ### Props
 
 | Prop | Required | Default | Meaning |
 |---|---|---|---|
-| `:machine-id` | yes | n/a | The id of the registered machine to render. The chart resolves the definition via `(rf/machine-meta machine-id)` and the snapshot via `[:rf/machines machine-id]`. |
-| `:frame-id` | yes | n/a | The frame within which to resolve the registration and the snapshot. Hosts that observe only one frame can hard-code it; multi-frame hosts (Causa, Story) pass the user-selected frame here. |
-| `:on-state-click` | no | `nil` | `(fn [state-id state-meta] ...)`. Fires when the user clicks a state node. Hosts wire this to their click semantics (Causa: jump to source; Story: highlight in chrome; viewer: no-op). |
-| `:on-transition-click` | no | `nil` | `(fn [from-state event-id to-state transition-meta] ...)`. Fires on a transition edge click. |
-| `:on-guard-click` | no | `nil` | `(fn [guard-name source-meta] ...)`. Fires when the user clicks a guard label inside a transition's tooltip. |
-| `:on-action-click` | no | `nil` | `(fn [action-name source-meta] ...)`. Fires when the user clicks an action label inside a state's entry/exit tooltip. |
-| `:read-only?` | no | `false` | If `true`, all `:on-*` callbacks are no-op'd regardless of what the host passes. The viewer page sets this. |
-| `:show-microsteps?` | no | `true` | Whether intermediate `:always` microstep nodes are rendered. |
-| `:show-after-rings?` | no | `true` | Whether `:after` countdown rings render on the source states. |
-| `:show-invoke-all?` | no | `true` | Whether `:spawn-all` children render as a row of mini-machines (vs. a collapsed single icon). |
-| `:show-spawned?` | no | `true` | Whether dynamically `:rf.machine/spawn`-ed children appear in the parent's spawn-tray. |
-| `:height` | no | `nil` (flex) | Fixed height in pixels. Useful for uniform-ribbon layouts. |
-| `:width` | no | `nil` (flex) | Fixed width in pixels. |
-| `:initial-zoom` | no | `1.0` | Starting zoom factor. The user can zoom/pan after mount; the prop only sets the initial value. |
-| `:auto-pan?` | no | `false` | Whether the chart auto-pans on every transition to keep the active state visible. Causa's panel sets this from its localStorage toggle; the viewer page leaves it off. |
-| `:current-state-override` | no | `nil` | A `{:state ... :data ...}` map that overrides the live snapshot. Used by the read-only viewer page to render the shared snapshot — when sourced from a share URL, `:data` is always absent (the share schema carries `:state` only; per [§Share-URL payload schema](#share-url-payload-schema)). Out-of-scope for live charts. |
-| `:direction` | no | `:tb` | Layout axis. `:tb` lays the chart top-to-bottom (rank flows down); `:lr` left-to-right (rank flows right). Promoted from an internal `chart.elk-layout/->elk-graph` arg to a top-level prop per rf2-ikdi3 so wide vs. narrow hosts can pick the axis without forking the file. |
-| `:layout-options` | no | `nil` | ELK `layoutOptions` overrides — a map of string → string keys that merge ON TOP of the canonical defaults (`chart.elk-layout/default-layout-options`). Hosts tighten / widen / swap individual knobs (`"elk.spacing.nodeNode"` for density, `"elk.layered.crossingMinimization.strategy"` for rank-order discipline, etc.) without re-stating the whole map. The `:direction` arg always wins for `"elk.direction"`. Per rf2-ikdi3. |
-| `:layout-engine` | no | `:auto` | Engine selector — `:auto` (cached ELK when available, layered fallback otherwise — the historical behaviour), `:elk` (cached ELK only; returns nothing when not ready so the host can choose 'wait + retry' over 'render the inferior engine'), `:layered` (force the layered fallback — useful for deterministic screenshot tests). Per rf2-ikdi3 — the two-engine reality (layered fallback + ELK) is now surfaced explicitly rather than hidden behind a single entry point. |
-| `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Picks the geometry + typography map from `visual-constants/chart-for-density`; the chart's `corner-radius` lock (rf2-g6cig) is invariant across every density so the chart's visual character stays consistent — only quantity scales. Per [§Density](#density) and rf2-32gw5. |
-| `:spawn-all-join` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready `:spawn-all` join-spec — `{:node-id <string> :join <:all\|:any\|{:n N}\|{:fn _}> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state, showing each spawned child + the join state. The host (Causa) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. nil → no inspector. |
+| `:machine-id` | no | `nil` | Identifies the machine. Surfaces as the chart's aria-label and on every per-node `:data` payload (read by tests + hosts). |
+| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf/machine-meta machine-id)` and pass it in. |
+| `:current-state` | no | `nil` | The live `:state` keyword/vector for the active-state highlight. `nil` renders no highlight. |
+| `:from-highlight` | no | `nil` | Focused-event lens origin (a `:state` value). |
+| `:to-highlight` | no | `nil` | Focused-event lens landing (a `:state` value). |
+| `:sim?` | no | `nil` | Flips the highlight palette to amber for the simulator path. |
+| `:on-state-click` | no | `nil` | `(fn [path] ...)`. Fires when the user clicks a state node; `path` is the clicked node's path. No-op'd when `:read-only?` is true. |
+| `:read-only?` | no | `nil` | When `true`, all `:on-*` callbacks are no-op'd. The viewer page sets this. |
+| `:direction` | no | `:tb` | Layout axis. `:tb` lays the chart top-to-bottom; `:lr` left-to-right. Fed to elkjs as `elk.direction`. |
+| `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). The `:direction` arg drives `elk.direction`. |
+| `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Resolves the geometry + typography map via `visual-constants/chart-for-density`; the resolved map is threaded through the projector onto every node/edge `:data` so the xyflow node/edge components render at the chosen density. The chart root surfaces the resolved density as `data-density`. `nil` ≡ `:regular`; an unknown density throws at render time. Per [§Density](#density) and rf2-32gw5. |
+| `:height` | no | `"100%"` | Outer wrapper height (CSS string). xyflow requires a non-zero parent height. |
+| `:show-minimap?` | no | `false` | When `true`, render xyflow's built-in MiniMap. |
+| `:show-controls?` | no | `true` | When `true`, render xyflow's built-in zoom/pan/fit Controls. |
+| `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
+| `:after-ring-specs` | no | `nil` | rf2-uv1on. Optional vector of presentation-ready `:after`-timer ring-specs (each `{:node-id :fraction :color :cancelled? :tooltip :testid}`). When non-empty the chart mounts the `chart.overlays.after-rings` overlay as a sibling of the canvas; it walks the rendered node DOM to position each ring. The host owns the trace→spec projection + the scrubber-aware fraction. `nil` / empty → no overlay. |
+| `:after-ring-tick` | no | `nil` | Opaque value the host bumps to force the after-rings overlay to re-measure + repaint (Causa passes `now-ms`; Lock #8 — one rAF clock per chart, owned host-side). |
+| `:on-after-ring-hover` | no | `nil` | `(fn [node-id] ...)`. Hover-enter callback the overlay wires on each ring. |
+| `:on-after-ring-leave` | no | `nil` | `(fn [node-id] ...)`. Hover-leave callback the overlay wires on each ring. |
+| `:spawn-all-join` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready `:spawn-all` join-spec — `{:node-id <string> :join <:all\|:any\|{:n N}\|{:fn _}> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state, showing each spawned child + the join state. The host (Causa) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. `nil` → no inspector. |
 | `:on-spawn-child-click` | no | `nil` | `(fn [child-key] ...)`. Fires on a join-inspector child-row click; Causa pivots to the child instance. |
-| `:cancellation-cascade` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready cascade-spec — `{:node-id <string> :parent-label <string?> :from-state <kw?> :steps [{:kind <:exit\|:destroy\|:abort\|:cleanup> :label <string> :note :delta-ms}]}`. When present (and `:steps` is non-empty) the chart mounts the `chart.overlays.cancellation-cascade` waterfall beneath the parent state, turning the scattered abort/destroy traces into one decision laid out vertically. The host projects the spec from the cancellation trace cluster. nil / no steps → dormant. |
+| `:cancellation-cascade` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready cascade-spec — `{:node-id <string> :parent-label <string?> :from-state <kw?> :steps [{:kind <:exit\|:destroy\|:abort\|:cleanup> :label <string> :note :delta-ms}]}`. When present (and `:steps` is non-empty) the chart mounts the `chart.overlays.cancellation-cascade` waterfall beneath the parent state, turning the scattered abort/destroy traces into one decision laid out vertically. The host projects the spec from the cancellation trace cluster. `nil` / no steps → dormant. |
 | `:overlay-tick` | no | `nil` | rf2-3ow55. Opaque value the host bumps to force the `:spawn-all` + cascade overlays to re-measure + repaint (mirrors `:after-ring-tick`). |
+| `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
 
 ### Parallel-region rendering (rf2-lkwev, xyflow Phase 2)
 
@@ -217,24 +221,27 @@ the SAME key set (asserted by `visual-constants-cljs-test`).
   matching named map via `visual-constants/chart-for-density`.
 - Any other value throws an `ex-info` at render time — picking an
   unknown density is a programmer error, not a runtime fallback.
-- The resolved density surfaces on the root `<svg>` element as
-  `data-density="<compact|regular|cosy>"` so hosts and tests can
+- The resolved density surfaces on the chart's root wrapper element
+  as `data-density="<compact|regular|cosy>"` so hosts and tests can
   read the active density without re-reading the bound prop.
 
 ### Implementation notes
 
-- The render entry-point (`chart.svg/render`) rebinds the dynamic
-  Var `visual-constants/*chart*` to the chosen density's map for
-  the duration of the call. Helpers destructure off `vc/*chart*`,
-  not off the namespace-level `vc/chart` alias.
-- Hiccup construction is eager (`into` over `for`) so every density-
-  resolved constant is captured in the returned data structure;
-  the dynamic binding unwinds before the hiccup is handed to
-  React.
-- Direct hiccup-walking tests that want a non-default density can
-  `binding [vc/*chart* (vc/chart-for-density :compact)] ...` and
-  call helpers directly; production code always goes through the
-  `:density` prop.
+- `MachineChart` resolves the `:density` prop ONCE per render via
+  `visual-constants/chart-for-density` (rf2-k647w). The resolved
+  map is threaded through the projector (`chart.projection/xyflow-
+  graph`) onto every node + edge `:data` as `{:chart <density-map>}`.
+- The xyflow node + edge components recover that map off their
+  `:data` prop (`chart.nodes/chart-constants` does `js->clj` on the
+  `clj->js`-ed `:chart` entry) and read their geometry / typography
+  off it. xyflow invokes these components OUTSIDE any dynamic-binding
+  scope, so the density travels in the data, not in a dynamic Var.
+- A node/edge payload without a `:chart` entry falls back to
+  `visual-constants/chart-regular`, so the regular density stays
+  pixel-identical to the pre-rf2-k647w hardcoded numbers.
+- Direct projection tests that want a non-default density pass it
+  through `xyflow-graph`'s `:chart` option and assert on the emitted
+  `:data`; production code always goes through the `:density` prop.
 
 Per rf2-32gw5 (resolves the `visual-constants.cljc` doc-string's
 'a future density toggle (compact / cosy / comfy) a one-knob change'

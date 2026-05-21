@@ -144,9 +144,10 @@
   "Backwards-compatible alias for the dark palette — same shape
   Causa's `tokens` map exposes so the chart's `(:bg-1 tokens)` style
   call sites read identically. The light theme is layered on top via
-  the `:palette` render option (rf2-usord); the 200+ inline-style
-  reads in `chart/svg` continue to resolve through this alias until
-  the CSS-variable migration consolidates the indirection."
+  the `:palette` render option (rf2-usord); the inline-style reads in
+  `chart.nodes`, `chart.edges`, `chart.cljs` and the overlays continue
+  to resolve through this alias until the CSS-variable migration
+  consolidates the indirection."
   dark-palette)
 
 ;; ---- font stacks -------------------------------------------------------
