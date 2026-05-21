@@ -25,6 +25,19 @@
   ([path]      [path {}])
   ([path opts] :delegate))
 
+(defwrapper app-schema-meta-at
+  "Return the full registration-metadata map for a path in a frame, or
+  nil. Unlike `app-schema-at` (which returns just the `:schema` value),
+  this returns the meta stamped at `reg-app-schema` — `:path`,
+  `:schema`, `:frame`, and the source-coords `:ns` / `:line` / `:file`.
+  The source-coord introspection surface pair-tools and 10x read when
+  they need the registration anchor (e.g. click-back-to-code). Per Spec
+  010 §Schemas as a tooling and agent surface. Returns nil when the
+  schemas artefact is not on the classpath."
+  {:hook :schemas/app-schema-meta-at :artefact schemas-artefact :on-absent :nil}
+  ([path]      [path {}])
+  ([path opts] :delegate))
+
 (defwrapper app-schemas
   "Return every registered `app-schema-at` declaration for a frame as a
   `{path → schema}` map. Per Spec 010 §Per-frame schemas. Returns `{}`

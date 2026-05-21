@@ -143,6 +143,7 @@
 (late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)
 (late-bind/set-fn! :schemas/reg-app-schemas       reg-app-schemas)
 (late-bind/set-fn! :schemas/app-schema-at         app-schema-at)
+(late-bind/set-fn! :schemas/app-schema-meta-at    app-schema-meta-at)
 (late-bind/set-fn! :schemas/app-schemas           app-schemas)
 (late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
 (late-bind/set-fn! :schemas/set-schema-validator! set-schema-validator!)
