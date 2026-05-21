@@ -2,6 +2,8 @@
 
 > Recording canvas interactions and pasting the captured trace into a `:play-script` body. Assumes you already know what record-and-save UX is (Storybook 9's marquee feature) — this leaf covers re-frame2's specific recorder surface and the canvas-as-fixture pattern that makes it work.
 
+> **Mental model: think in Storybook, map onto Story.** The recorder is Story's answer to Storybook 9's "record canvas interactions → CSF" feature. The difference is the output shape: Storybook emits a Testing-Library code translation; Story emits a pure-EDN `:play-script` step sequence with no DOM-event capture and no page-object layer. Picture the Storybook record-and-save flow, then map: `REC` toggle → `start-recording!` / `stop-recording!`; the generated CSF story → a `(reg-variant …)` form with an `:extends` link and a `:play-script` body. Full concept table in `stories.md` §Mental model.
+
 ## When to load this leaf
 
 - A variant's `:play-script` body needs to grow but you'd rather drive the canvas than hand-author the event vectors.

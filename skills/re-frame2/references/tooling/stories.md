@@ -2,7 +2,31 @@
 
 > Authoring `reg-story` / `reg-variant` (and the five other Story `reg-*` macros). Assumes you already know what a component playground / story is — this leaf only covers re-frame2's specific declarations.
 
-> **Tip**: stuck on how to model a story/variant/workspace shape? Ask *"how would Storybook do it?"* — Storybook is in your training data and re-frame2's primitives map cleanly: `reg-story` ≈ CSF story, `reg-variant` ≈ story export (`Default` / `WithProps` / etc.), `reg-decorator` ≈ Storybook decorator, `reg-story-panel` ≈ addon panel, `:play-script` ≈ Storybook play. Differences worth noting: re-frame2 has **`reg-workspace` as first-class composition** (Storybook doesn't quite — closer to Ladle's compose); `reg-mode` is re-frame2-specific (app-state modes like dark/light, not Storybook themes). Sketch in Storybook mentally, then translate.
+## Mental model: think in Storybook, map onto Story
+
+**Standing advice for all Story work: think about how you'd do it in Storybook JS, then map those ideas onto Story.** Storybook is the widely-known component-playground mental model and it's in your training data — sketch the shape there first ("which story, which args, which controls, which play step?"), then translate to re-frame2's `reg-*` declarations. The primitives line up cleanly, with a few deliberate divergences that are themselves the interesting part.
+
+| Storybook concept | Story equivalent | Notes |
+|---|---|---|
+| **story** (CSF named export `Default` / `WithProps` / …) | `reg-variant` (one variant per scenario); the component-level parent is `reg-story` | A `reg-story` carries the `:component` + shared defaults; each `reg-variant` is one scenario, exactly like a CSF named export. |
+| **args** | `:args` | Same concept, same name. Five layers compose by deep-merge (global → story → mode → variant → live cell-override); vectors replace. Matches Storybook's merge convention. |
+| **argTypes** | `:argtypes` — but rarely written | Story auto-derives the controls panel from the view's **Malli schema**. Write `[:int {:min 0 :max 100}]` once on the view and every story gets the slider. `:argtypes` is only the per-key override channel for what the schema can't say. |
+| **controls** | the controls panel | Schema-derived (see above). `:string`→text, bounded `:int`→slider, `[:enum …]`→select, `[:map …]`→nested group, `[:vector X]`→repeater. |
+| **play function** | `:play-script` (phase 4) | A vector of TAGGED steps (`[:dispatch-sync ev]` / `[:click sel]` / `[:type sel txt]` / `[:wait ms]` / …), NOT a closure. Assertions ride `[:dispatch-sync [:rf.assert/* …]]`. **Key divergence:** `:rf.assert/*` events *record* into `:assertions` and continue — Storybook's play throws on first failure; Story collects every mismatch. |
+| **decorators** (project / component / story) | `reg-decorator` + `:decorators` | Three kinds — `:hiccup` (wrapper), `:frame-setup` (seed app-db / fire init events), `:fx-override` (stub an fx). Project-wide decorators go in `configure! :rf.story/global-decorators` — the `preview.ts` `decorators: […]` parity. Compose order is global → story → variant, same as Storybook. |
+| **globals / globalTypes toolbar** (theme · viewport · locale · backgrounds) **+ Chromatic Modes** | `reg-mode` (saved arg tuples) | One primitive collapses all four Storybook toolbar addons. `(reg-mode :Mode.theme/dark {:axis :theme :args {:theme :dark}})` is the theme switcher; `:viewport` / `:locale` / `:background` axes cover the rest. Each `(variant × mode)` cell is independently snapshot-able — that's the Chromatic-Modes combinatorial-matrix idea, native. |
+| **tags** (`autodocs` / `test` / `dev`, `!`-removal) | `:tags` + `reg-tag` | Same inclusion-and-filter role; same `!`-prefix removal (`:!dev` drops an inherited tag). The seven canonical tags auto-register. |
+| **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:play-script` | EDN out, not Testing-Library code — no DOM-event translation layer. See `story-recorder.md`. |
+
+**Where Story deliberately has NO Storybook equivalent (read these as the payoff, not a gap):**
+
+- **CSF itself / the default-export + named-export file format.** Story is EDN-first: the seven `reg-*` macros, pure data, no `:render` fn-slot. The combined Form-B `(reg-story id {:variants {…}})` is the closest *shape* to CSF's default-export-plus-named-exports, but a variant body round-trips as data (over the wire, into the MCP pipeline, to a visual-regression server) in a way CSF's inline-JSX bodies cannot. This restriction is the design centre, not a missing feature.
+- **The render fn / `useArgs()` / `useState()`** — and the hooks-inside-stories re-render gotcha that comes with them. Every variant IS its own re-frame frame with its own `app-db`; stateful stories are the default, driven by `:events` (setup) and `:play-script` (post-render) and read with subs. No render fn means no place for a hook to break.
+- **A first-party visual-regression service** (Chromatic / Percy). Story ships the `snapshot-identity` hook for downstream services to consume; it is not in the pixel-capture/baseline-storage business.
+
+Sketch in Storybook mentally, then translate.
+
+> **One-liner for the next leaf:** the same "think in Storybook, map onto Story" bridge applies to the recorder (`story-recorder.md`) and the agent loop (`story-mcp-loop.md`).
 
 ## When to load this leaf
 
