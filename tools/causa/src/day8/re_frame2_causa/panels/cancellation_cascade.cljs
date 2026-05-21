@@ -478,12 +478,13 @@
                ;; rf2-7389r — WAI-ARIA dialog contract on the popover
                ;; wrapper. The cancellation-cascade popover already
                ;; carried `tab-index 0` markers hinting at focus-trap
-               ;; intent; this completes the modal contract with
-               ;; role/aria-modal/aria-label + a focus-on-mount ref
-               ;; (audit finding #3 + #19).
+               ;; intent; `a11y/dialog-ref` now delivers it for real —
+               ;; focus lands inside on open, Tab/Shift+Tab cycle within
+               ;; the dialog, and focus restores to the opener on close
+               ;; (audit finding #3 + #8 + #19).
                (a11y/dialog-attrs {:label "Cancellation cascade"})
                {:data-testid "rf-causa-cancellation-cascade-popover-dialog"
-                :ref         (a11y/focus-on-mount-ref)
+                :ref         (a11y/dialog-ref)
                 :on-click    #(.stopPropagation %)
                 :on-key-down handle-popover-keydown
                 :tab-index   0

@@ -542,11 +542,27 @@
      [:span {:aria-hidden "true"} "● "]
      (str "REDACTED " redacted-count)]))
 
+;; Forward declaration — the L2 scroll-into-view machinery is defined
+;; alongside the event-list renderer further down (it lives next to its
+;; sibling `scroll-focused-row-into-view!`), but the L1 focus chip below
+;; reaches it for the rf2-w738i "reveal pivot row" gesture.
+(declare scroll-row-into-view-by-id!)
+
 (defn- ribbon-focus-chip
   "Focus chip (rf2-a1z3b) — surfaces the active focus-set as
-  `🎯 <pivot-label> ✕`. Click `✕` clears focus; click the chip body
-  to scroll the pivot row into view (future). Renders nothing when
-  no focus-set is active.
+  `🎯 <pivot-label> ✕`. Renders nothing when no focus-set is active.
+
+  Two interactive surfaces:
+
+    - **Chip body** (rf2-w738i) — clicking (or Enter / Space on the
+      keyboard) scrolls the pivot row back into view in L2. The pivot
+      is the anchor row that established the focus (`:pivot-id`); after
+      stepping through the focus subset with `[◀][▶]` the user can lose
+      sight of it, so the chip body is the 'take me back to the anchor'
+      gesture. Wired to `scroll-row-into-view-by-id!` — the row is
+      located by the same `data-testid` the L2 renderer stamps.
+    - **`✕` clear button** — clears focus (`:rf.causa/clear-focus`).
+      `stopPropagation` keeps the body's scroll gesture from also firing.
 
   Placement: directly after the nav cluster so the user's eye picks
   it up next to `[◀][▶]` — those buttons step ONLY through the focus
@@ -554,11 +570,24 @@
   as 'stepping inside this focus'."
   [{:keys [focus-set]}]
   (when focus-set
-    (let [label (fh/pivot-label focus-set)
-          tip   (str "Focus: " (fh/dimension-label focus-set)
-                     " (Esc to clear)")]
+    (let [label    (fh/pivot-label focus-set)
+          pivot-id (:pivot-id focus-set)
+          scroll!  (fn [^js e]
+                     (.stopPropagation e)
+                     (scroll-row-into-view-by-id! pivot-id))
+          tip      (str "Focus: " (fh/dimension-label focus-set)
+                        " — click to reveal the pivot row (Esc to clear)")]
       [:div {:data-testid "rf-causa-focus-chip"
              :title       tip
+             :role        "button"
+             :tab-index   "0"
+             :aria-label  (str "Reveal pivot row for focus " label)
+             :on-click    scroll!
+             :on-key-down (fn [^js e]
+                            (let [k (.-key e)]
+                              (when (or (= k "Enter") (= k " "))
+                                (.preventDefault e)
+                                (scroll! e))))
              :style       {:display        "inline-flex"
                            :align-items    "center"
                            :gap            "4px"
@@ -569,6 +598,7 @@
                            :font-family    sans-stack
                            :font-size      (:body type-scale)
                            :color          (:text-primary tokens)
+                           :cursor         "pointer"
                            :max-width      "240px"}}
        ;; rf2-vxpq1 — `🎯` is a decorative glyph; the chip's
        ;; "Focus: <label>" tooltip + the label span carry the
@@ -587,7 +617,10 @@
                        :font-size     (:caption type-scale)}}
         label]
        [:button {:data-testid "rf-causa-focus-chip-clear"
-                 :on-click    #(rf/dispatch [:rf.causa/clear-focus] {:frame :rf/causa})
+                 :on-click    (fn [^js e]
+                                (.stopPropagation e)
+                                (rf/dispatch [:rf.causa/clear-focus]
+                                             {:frame :rf/causa}))
                  :title       "Clear focus (Esc)"
                  :aria-label  "Clear focus"
                  :style       {:background    "transparent"
@@ -821,6 +854,22 @@
   [^js el]
   (when (and el (.-scrollIntoView el))
     (.scrollIntoView el #js {:behavior "auto" :block "nearest"})))
+
+(defn- scroll-row-into-view-by-id!
+  "Scroll the L2 row whose `:dispatch-id` is `id` into view. Locates the
+  row by its `data-testid` (`rf-causa-event-row-<id>`) — the same id the
+  `event-row` renderer stamps — and delegates to
+  `scroll-focused-row-into-view!`. No-op when `js/document` is absent
+  (node-test) or the row isn't currently mounted (e.g. scrolled far out
+  of the virtual window). Returns the located element (or nil) so
+  callers / tests can assert the lookup."
+  [id]
+  (when (and (exists? js/document) (.-querySelector js/document) id)
+    (let [sel (str "[data-testid=\"rf-causa-event-row-" (str id) "\"]")
+          el  (.querySelector js/document sel)]
+      (when el
+        (scroll-focused-row-into-view! el))
+      el)))
 
 (defn- focused-row-ref
   "Build the `:ref` callback for a row that is BOTH focused AND in the

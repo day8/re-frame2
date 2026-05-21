@@ -1,16 +1,20 @@
 (ns day8.re-frame2-causa.theme.a11y-cljs-test
   "Pure-data tests for the shared a11y helper (rf2-7389r).
 
-  The helper extracts the WAI-ARIA dialog contract + a focus-on-mount
-  `:ref` callback shared by Causa's six modal surfaces. Tests cover:
+  The helper extracts the WAI-ARIA dialog contract + a full modal-
+  focus `:ref` callback (`dialog-ref` — capture-on-open, Tab trap,
+  restore-on-close) shared by Causa's six modal surfaces. Tests cover:
 
     1. `dialog-attrs` shape — role + aria-modal always present;
        labelled-by preferred over label; describedby attaches when set.
-    2. `focus-on-mount-ref` returns a fn (callback ref) that is a no-op
-       on unmount (`nil` node).
+    2. `trap-wrap-target` — the pure Tab-wrap math (JVM/node-runnable):
+       wrap at the boundaries, no-op mid-cycle, pull-in when focus is
+       outside the cycle, single-focusable wraps to itself.
+    3. `dialog-ref` returns a fn (callback ref) that is a no-op on
+       unmount (`nil` node) and tolerates a DOM-less runtime.
 
-  The interactive `.focus()` behaviour is exercised indirectly via the
-  modal integration tests (see `modals.aria-cljs-test`)."
+  The live `.focus()` capture / trap / restore behaviour against a real
+  DOM is exercised by `theme.a11y-dom-cljs-test` (browser-test build)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-causa.theme.a11y :as a11y]))
 
@@ -57,54 +61,57 @@
       (is (nil? (:aria-label attrs)))
       (is (nil? (:aria-labelledby attrs))))))
 
-;; ---- focus-on-mount-ref ---------------------------------------------------
+;; ---- trap-wrap-target (pure) ---------------------------------------------
+;;
+;; `:a` / `:b` / `:c` stand in for DOM elements — `trap-wrap-target` only
+;; ever compares them by identity, so plain keywords exercise the math.
 
-(deftest focus-on-mount-ref-returns-a-function
+(deftest trap-wrap-target-no-op-mid-cycle
+  (testing "rf2-tpn0u — Tab from a non-boundary focusable returns nil so
+            the browser's native Tab handles the move (no wrap needed)"
+    (is (nil? (a11y/trap-wrap-target [:a :b :c] :b false))
+        "Tab from the middle element → nil")
+    (is (nil? (a11y/trap-wrap-target [:a :b :c] :b true))
+        "Shift+Tab from the middle element → nil")))
+
+(deftest trap-wrap-target-tab-off-last-wraps-to-first
+  (testing "rf2-tpn0u — Tab from the LAST focusable wraps to the FIRST"
+    (is (= :a (a11y/trap-wrap-target [:a :b :c] :c false)))))
+
+(deftest trap-wrap-target-shift-tab-off-first-wraps-to-last
+  (testing "rf2-tpn0u — Shift+Tab from the FIRST focusable wraps to the
+            LAST"
+    (is (= :c (a11y/trap-wrap-target [:a :b :c] :a true)))))
+
+(deftest trap-wrap-target-pulls-in-when-focus-outside-cycle
+  (testing "rf2-tpn0u — when focus is OUTSIDE the focusable set (e.g. on
+            the tab-index=-1 dialog root), Tab pulls to the first +
+            Shift+Tab pulls to the last so the trap re-captures focus"
+    (is (= :a (a11y/trap-wrap-target [:a :b :c] :root false)))
+    (is (= :c (a11y/trap-wrap-target [:a :b :c] :root true)))))
+
+(deftest trap-wrap-target-single-focusable-wraps-to-itself
+  (testing "rf2-tpn0u — with one focusable, it is both first and last,
+            so any Tab keeps focus pinned on it"
+    (is (= :only (a11y/trap-wrap-target [:only] :only false)))
+    (is (= :only (a11y/trap-wrap-target [:only] :only true)))))
+
+(deftest trap-wrap-target-empty-is-nil
+  (testing "rf2-tpn0u — no focusables → nil (caller pins focus on the
+            dialog root instead)"
+    (is (nil? (a11y/trap-wrap-target [] :anything false)))))
+
+;; ---- dialog-ref factory --------------------------------------------------
+
+(deftest dialog-ref-returns-a-function
   (testing "the factory yields a React :ref callback (a fn)"
-    (let [ref (a11y/focus-on-mount-ref)]
+    (let [ref (a11y/dialog-ref)]
       (is (fn? ref)))))
 
-(deftest focus-on-mount-ref-tolerates-nil-unmount
-  (testing "rf2-7389r — React invokes the ref with `nil` on unmount;
-            the callback must short-circuit so it never throws after
-            the modal closes (e.g. backdrop click while focus was
-            pending)"
-    (let [ref (a11y/focus-on-mount-ref)]
+(deftest dialog-ref-tolerates-nil-unmount
+  (testing "rf2-tpn0u — React invokes the ref with `nil` on unmount;
+            the callback must short-circuit so it never throws after the
+            modal closes (e.g. backdrop click before any mount)"
+    (let [ref (a11y/dialog-ref)]
       (is (nil? (ref nil))
           "calling with nil returns nil and does not throw"))))
-
-(deftest focus-on-mount-ref-focuses-first-focusable-child
-  (testing "rf2-7389r — when a real DOM node mounts, the ref focuses
-            the first focusable descendant (matches the WAI-ARIA APG
-            dialog pattern: focus lands inside the dialog)"
-    (when (exists? js/document)
-      (let [host (.createElement js/document "div")
-            input (.createElement js/document "input")
-            btn   (.createElement js/document "button")]
-        (set! (.-tabIndex host) -1)
-        (.appendChild host input)
-        (.appendChild host btn)
-        (.appendChild (.-body js/document) host)
-        (try
-          (let [ref (a11y/focus-on-mount-ref)]
-            (ref host)
-            (is (= input (.-activeElement js/document))
-                "first focusable child receives focus (the <input>)"))
-          (finally
-            (.removeChild (.-body js/document) host)))))))
-
-(deftest focus-on-mount-ref-falls-back-to-root-when-no-focusable
-  (testing "rf2-7389r — when the dialog has no focusable child (e.g.
-            empty-state mute manager), the dialog root itself receives
-            focus via tabindex=-1. Keeps Esc / arrow-keys functional."
-    (when (exists? js/document)
-      (let [host (.createElement js/document "div")]
-        (set! (.-tabIndex host) -1)
-        (.appendChild (.-body js/document) host)
-        (try
-          (let [ref (a11y/focus-on-mount-ref)]
-            (ref host)
-            (is (= host (.-activeElement js/document))
-                "the dialog root receives focus as fallback"))
-          (finally
-            (.removeChild (.-body js/document) host)))))))

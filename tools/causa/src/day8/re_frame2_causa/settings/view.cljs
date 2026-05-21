@@ -1138,13 +1138,15 @@
      [:div (merge
              ;; rf2-7389r — WAI-ARIA dialog contract: role/aria-modal/
              ;; aria-labelledby pointing at the visible title span.
-             ;; `:ref` focuses the first focusable descendant on mount
-             ;; so keyboard users land inside the modal rather than on
-             ;; <body> (audit finding #3 + #8).
+             ;; `:ref` (a11y/dialog-ref) wires the full modal focus
+             ;; contract: focus lands inside on open, Tab/Shift+Tab
+             ;; cycle within the dialog (focus trap), and focus restores
+             ;; to the opener (the ⚙ ribbon button) on close — so
+             ;; keyboard users never get dropped on <body>.
              (a11y/dialog-attrs {:labelled-by "rf-causa-settings-title"})
              {:data-testid "rf-causa-settings-dialog"
               :data-rf-causa-mode "settings"
-              :ref         (a11y/focus-on-mount-ref)
+              :ref         (a11y/dialog-ref)
               :on-click    #(.stopPropagation %)
               :on-key-down handle-keydown
               :tab-index   "-1"
