@@ -473,11 +473,15 @@
   []
   (let [muted @(rf/subscribe [:rf.causa/muted-event-ids])]
     [:div (merge
-            ;; rf2-7389r — WAI-ARIA dialog contract + focus capture on
-            ;; mount (audit finding #3).
+            ;; rf2-7389r — WAI-ARIA dialog contract. `:ref`
+            ;; (a11y/dialog-ref) lands focus inside on open, traps
+            ;; Tab/Shift+Tab within the dialog (the empty-state body
+            ;; has no focusable child, so the trap pins focus on the
+            ;; tab-index=-1 root), and restores focus to the opener on
+            ;; close (audit finding #3 + #8).
             (a11y/dialog-attrs {:labelled-by "rf-causa-mute-manager-title"})
             {:data-testid "rf-causa-mute-manager-dialog"
-             :ref         (a11y/focus-on-mount-ref)
+             :ref         (a11y/dialog-ref)
              :tab-index   "-1"
              :on-click    (fn [^js e] (.stopPropagation e))
              :on-key-down (fn [^js e]

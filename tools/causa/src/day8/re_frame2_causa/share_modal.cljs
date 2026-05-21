@@ -306,12 +306,13 @@
         export-avail?  @(rf/subscribe [:rf.causa/cascade-export-available?])
         export-status  @(rf/subscribe [:rf.causa/cascade-export-status])]
     [:div (merge
-            ;; rf2-7389r — WAI-ARIA dialog contract + focus capture on
-            ;; mount so keyboard users land inside the modal (audit
-            ;; finding #3).
+            ;; rf2-7389r — WAI-ARIA dialog contract. `:ref`
+            ;; (a11y/dialog-ref) lands focus inside on open, traps
+            ;; Tab/Shift+Tab within the dialog, and restores focus to
+            ;; the opener on close (audit finding #3 + #8).
             (a11y/dialog-attrs {:labelled-by "rf-causa-share-modal-title"})
             {:data-testid "rf-causa-share-modal-dialog"
-             :ref         (a11y/focus-on-mount-ref)
+             :ref         (a11y/dialog-ref)
              :tab-index   "-1"
              :on-click    (fn [e] (.stopPropagation e))
              :on-key-down (fn [^js e]

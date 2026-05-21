@@ -277,12 +277,14 @@
            :style       (backdrop-style positioning)}
      [:div (merge
              ;; rf2-7389r — WAI-ARIA dialog contract. The edit-popup
-             ;; already auto-focuses the pattern input on mount, so a
-             ;; focus-on-mount ref would duplicate the work. The
-             ;; existing auto-focus satisfies "focus captured inside
-             ;; the dialog" without an additional ref pass.
+             ;; `:auto-focus`es the pattern input, so `a11y/dialog-ref`
+             ;; detects focus already inside the dialog on mount and
+             ;; leaves it there (no double focus). The ref still installs
+             ;; the Tab/Shift+Tab focus trap and restores focus to the
+             ;; opener (the clicked pill / add-pill button) on close.
              (a11y/dialog-attrs {:labelled-by "rf-causa-edit-popup-title"})
              {:data-testid "rf-causa-edit-popup-dialog"
+              :ref         (a11y/dialog-ref)
               :tab-index   "-1"
               :on-click    #(.stopPropagation %)
               :style       (dialog-style)})

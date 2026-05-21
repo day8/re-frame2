@@ -763,6 +763,55 @@
         "auto-track? false → nil ref")))
 
 ;; -------------------------------------------------------------------------
+;; (3b) Focus chip body click — reveal pivot row (rf2-w738i)
+;; -------------------------------------------------------------------------
+;;
+;; The chip body used to advertise a "(future)" scroll-to-pivot gesture
+;; with no handler — a broken-claim affordance. It now WIRES that gesture
+;; to `scroll-row-into-view-by-id!`, locating the pivot row by the same
+;; `data-testid` the L2 renderer stamps.
+
+(deftest focus-chip-renders-nothing-without-focus-set
+  (testing "rf2-w738i — no active focus-set → the chip renders nothing
+            (no stray clickable chrome)"
+    (is (nil? (#'shell/ribbon-focus-chip {:focus-set nil})))))
+
+(deftest focus-chip-body-is-an-interactive-button
+  (testing "rf2-w738i — the chip body is a real button affordance:
+            role=button, keyboard-focusable, with both pointer + key
+            activation wired (no longer a misleading dead surface)"
+    (let [chip  (#'shell/ribbon-focus-chip
+                  {:focus-set {:dimension :event-id
+                               :value     :some/event
+                               :pivot-id  7}})
+          attrs (second chip)]
+      (is (= "rf-causa-focus-chip" (:data-testid attrs)))
+      (is (= "button" (:role attrs)) "chip body exposes role=button")
+      (is (= "0" (:tab-index attrs)) "chip body is keyboard-focusable")
+      (is (string? (:aria-label attrs)) "chip body has an accessible name")
+      (is (= "pointer" (get-in attrs [:style :cursor]))
+          "cursor:pointer telegraphs the (now-real) interactivity")
+      (is (fn? (:on-click attrs)) "pointer activation wired")
+      (is (fn? (:on-key-down attrs)) "keyboard activation wired"))))
+
+(deftest focus-chip-clear-button-stops-propagation
+  (testing "rf2-w738i — clicking ✕ clears focus WITHOUT also firing the
+            body's scroll gesture (stopPropagation on the clear button)"
+    (let [chip       (#'shell/ribbon-focus-chip
+                       {:focus-set {:dimension :event-id
+                                    :value     :some/event
+                                    :pivot-id  7}})
+          clear-btn  (find-by-testid chip "rf-causa-focus-chip-clear")
+          stopped?   (atom false)
+          stub-event #js {:stopPropagation #(reset! stopped? true)}]
+      (is (some? clear-btn) "clear ✕ button present")
+      ;; Invoking the handler must call stopPropagation (so the chip
+      ;; body's on-click doesn't also run). We don't assert the dispatch
+      ;; here (covered by the focus-clear event tests); only the guard.
+      ((:on-click (second clear-btn)) stub-event)
+      (is @stopped? "clear button stops propagation to the chip body"))))
+
+;; -------------------------------------------------------------------------
 ;; (4a) Ribbon nav button enable/disable state — rf2-htik0 Bug 1
 ;; -------------------------------------------------------------------------
 ;;

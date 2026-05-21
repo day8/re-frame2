@@ -213,13 +213,15 @@
      [:div (merge
              ;; rf2-7389r — WAI-ARIA dialog contract on the inspector
              ;; popover. The previous tab-index 0 marker hinted at
-             ;; focus-trap intent but lacked role/aria-modal; this
-             ;; finishes the contract + adds focus-on-mount so keyboard
-             ;; users start inside the dialog (audit findings #3 + #19).
+             ;; focus-trap intent but lacked role/aria-modal; `:ref`
+             ;; (a11y/dialog-ref) finishes the contract — focus lands
+             ;; inside on open, Tab/Shift+Tab cycle within the dialog,
+             ;; and focus restores to the opener on close (audit
+             ;; findings #3 + #8 + #19).
              (a11y/dialog-attrs {:labelled-by "rf-causa-segment-inspector-title"})
              {:data-testid "rf-causa-segment-inspector-dialog"
               :data-rf-causa-mode "segment-inspector"
-              :ref         (a11y/focus-on-mount-ref)
+              :ref         (a11y/dialog-ref)
               :on-click    #(.stopPropagation %)
               :on-key-down handle-keydown
               :tab-index   0
