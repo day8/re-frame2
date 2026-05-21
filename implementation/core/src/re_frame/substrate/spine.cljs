@@ -652,8 +652,8 @@
 (defn- resolve-act-fn
   "Return React's act() if available, else nil. React 19 hosts act on
   the React namespace directly; React 18 hosts it on react-dom/test-utils.
-  Mirrors the Reagent test harness's act-fn at
-  `adapters/reagent/test/re_frame/frame_provider_context_cljs_test.cljs:467`."
+  Mirrors the Reagent test harness's act-fn in
+  `adapters/reagent/test/re_frame/frame_provider_context_cljs_test.cljs`."
   []
   (or (when (exists? (.-act React)) (.-act React))
       (try

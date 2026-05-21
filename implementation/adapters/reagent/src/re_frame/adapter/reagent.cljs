@@ -26,7 +26,10 @@
   nil)
 
 (defn- subscribe-container [container on-change]
-  (let [k (gensym "rf-sub-")]
+  ;; Substrate-scoped gensym prefix so a cross-substrate test bundle / log
+  ;; / inspector can attribute the watch back to the Reagent adapter rather
+  ;; than confusing it with a slim watch (l4dmr / rf2-l4dmr LOW-1).
+  (let [k (gensym "rf-reagent-sub-")]
     (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
     (fn unsubscribe [] (remove-watch container k))))
 
