@@ -246,6 +246,193 @@
   (reset! last-settled-epoch {})
   nil)
 
+;; ---- mount-epoch tracking + render-attribution resolution (rf2-vh1k3) ----
+;;
+;; rf2-qs6dl back-fills a post-settle render to the frame's most-recently-
+;; settled epoch — the cascade that ran just before the React commit. That
+;; is correct for a genuine reactive re-render, but WRONG for a MOUNT
+;; render whose commit lands late: React/Reagent batch a freshly-mounted
+;; component's render onto a later tick, so a view's mount render can
+;; commit AFTER the first user interaction settles. Attributed to
+;; last-settled, it shows up spuriously in the first post-mount cascade's
+;; RENDERED list (e.g. parallel-frames' title-view appearing in the first
+;; counter-inc epoch even though its subs never changed).
+;;
+;; The discriminator is the rf2-l1jz8 `:value-changed?` attribution
+;; already on the reactive `:sub/run` trace, plus the rf2-vh1k3
+;; `:reader-render-key` stamp naming the view whose render deref'd the
+;; sub. A render of view K belongs to epoch N iff N's cascade actually
+;; drove K's re-render — i.e. some `:sub/run` with `:reader-render-key K`
+;; AND `:value-changed? true` landed in N. When no recent epoch shows a
+;; value-change for K, the render is a mount (or mount-burst tail) and is
+;; attributed to K's MOUNT epoch (its first-ever attribution) rather than
+;; whatever cascade happens to be settling.
+
+(defonce ^:private mount-epoch-by-render-key
+  ;; frame-id → {render-key → epoch-id} : the epoch a render-key was
+  ;; FIRST attributed to (its mount epoch). Bounds: one entry per live
+  ;; render-key per frame; pruned with the frame on teardown.
+  (atom {}))
+
+;; frame-id → {render-key → #{sub-id ...}} : which subscriptions each
+;; view reads. Learned from the `:reader-render-key` stamp on `:sub/run`
+;; traces — which the runtime only sets when the reaction recomputes
+;; SYNCHRONOUSLY inside the view's render (the mount / first-paint
+;; deref). A post-settle reactive recompute fires during Reagent's
+;; reaction-flush phase with no `*render-key*` bound, so the stamp is
+;; absent there; the mount-time learning is sufficient because a view's
+;; sub set is stable across its life. The index lets the render
+;; back-fill (`value-changed-epoch-for`) decide whether a cascade
+;; actually re-rendered a view by checking value-change on the view's
+;; OWN subs, even when the post-settle sub-run carries no render-key.
+(defonce ^:private render-deps-by-render-key (atom {}))
+
+(defn record-render-deps!
+  "Union `sub-id` into `render-key`'s read-set for `frame-id`. Called for
+  every `:sub/run` that arrives stamped with a `:reader-render-key`
+  (rf2-vh1k3) — the synchronous in-render deref that names the reading
+  view. Idempotent; the set only grows."
+  [frame-id render-key sub-id]
+  (when (and frame-id render-key sub-id)
+    (swap! render-deps-by-render-key
+           update-in [frame-id render-key] (fnil conj #{}) sub-id))
+  nil)
+
+(defn render-deps-for
+  "Return the set of sub-ids `render-key` is known to read in `frame-id`,
+  or nil when none learned yet."
+  [frame-id render-key]
+  (get-in @render-deps-by-render-key [frame-id render-key]))
+
+(defn drop-frame-render-deps!
+  "Forget every render-key's read-set for `frame-id` (frame teardown)."
+  [frame-id]
+  (swap! render-deps-by-render-key dissoc frame-id)
+  nil)
+
+(defn reset-render-deps!
+  "Wipe the render-deps map across all frames (fixture reset)."
+  []
+  (reset! render-deps-by-render-key {})
+  nil)
+
+(defn mount-epoch-for
+  "Return the epoch-id `render-key` was first attributed to in `frame-id`,
+  or nil when never seen."
+  [frame-id render-key]
+  (get-in @mount-epoch-by-render-key [frame-id render-key]))
+
+(defn record-mount-epoch!
+  "Record `epoch-id` as `render-key`'s mount epoch for `frame-id`, but
+  only on the FIRST sighting — later attributions never overwrite the
+  mount epoch (a re-render of an existing instance must not move its
+  mount anchor)."
+  [frame-id render-key epoch-id]
+  (when (and frame-id render-key epoch-id)
+    (swap! mount-epoch-by-render-key
+           (fn [m]
+             (if (get-in m [frame-id render-key])
+               m
+               (assoc-in m [frame-id render-key] epoch-id)))))
+  nil)
+
+(defn drop-frame-mount-epochs!
+  "Forget every render-key's mount epoch for `frame-id` (frame teardown)."
+  [frame-id]
+  (swap! mount-epoch-by-render-key dissoc frame-id)
+  nil)
+
+(defn reset-mount-epochs!
+  "Wipe the mount-epoch map across all frames (fixture reset)."
+  []
+  (reset! mount-epoch-by-render-key {})
+  nil)
+
+(defn- epoch-value-changed-for-view?
+  "True when epoch record `r` carries a value-changed `:sub/run` belonging
+  to the view named by `render-key` — i.e. a `:sub/run` with
+  `:value-changed? true` whose `:reader-render-key` is `render-key`
+  (the synchronous in-render deref, when stamped) OR whose `:sub-id` is
+  in the view's learned read-set `deps` (the post-settle reactive
+  recompute, which carries no render-key). `deps` may be nil when the
+  view's read-set was never learned — then only the render-key match
+  applies."
+  [r render-key deps]
+  (some (fn [ev]
+          (and (= :sub/run (:operation ev))
+               (true? (-> ev :tags :value-changed?))
+               (let [t (:tags ev)]
+                 (or (= render-key (:reader-render-key t))
+                     (and deps (contains? deps (:sub-id t)))))))
+        (:trace-events r)))
+
+(defn- value-changed-epoch-for
+  "Scan `frame-id`'s ring (most-recent first) for the newest epoch in
+  which the view named by `render-key` had a value-changed `:sub/run` —
+  i.e. the cascade that genuinely re-rendered the view. Returns that
+  epoch-id, or nil when no retained epoch shows a value-change for the
+  view (a mount / mount-burst tail).
+
+  A view's subs are matched two ways (see `epoch-value-changed-for-view?`):
+  by the `:reader-render-key` stamp (synchronous in-render deref) and by
+  the view's learned read-set (`render-deps-for`) for post-settle reactive
+  recomputes that carry no render-key. The read-set is learned at mount
+  from the stamped synchronous derefs; a view's sub set is stable across
+  its life, so mount-time learning suffices.
+
+  Reads only `:trace-events`, which the most-recent `:trace-events-keep`
+  records retain — exactly the window a post-settle render can target
+  (the back-fill never reaches older, projection-only records). One pass
+  newest-first; short-circuits at the first matching epoch."
+  [frame-id render-key]
+  (let [history (history-for frame-id)
+        deps    (render-deps-for frame-id render-key)]
+    (loop [i (dec (count history))]
+      (when (>= i 0)
+        (let [r (nth history i)]
+          (if (epoch-value-changed-for-view? r render-key deps)
+            (:epoch-id r)
+            (recur (dec i))))))))
+
+(defn resolve-render-epoch
+  "Resolve the epoch a post-settle render of `render-key` should be
+  attributed to in `frame-id` (rf2-vh1k3). Falls back to
+  `default-epoch-id` (the rf2-qs6dl most-recently-settled epoch) when no
+  better anchor is found, preserving the qs6dl behaviour for genuine
+  reactive re-renders and for the degenerate no-render-key case.
+
+  Resolution order:
+    1. The newest epoch in which the view's OWN inputs changed
+       (`value-changed-epoch-for`) — a genuine reactive re-render rides
+       its causing cascade exactly as rf2-qs6dl intends.
+    2. Otherwise the view's MOUNT epoch (`mount-epoch-for`) — a mount
+       render, or a mount-burst tail that re-deref'd unchanged subs, is
+       anchored to where the instance first rendered rather than leaking
+       into the first post-mount cascade.
+    3. Otherwise `default-epoch-id` — a brand-new instance whose very
+       first render commits post-settle (no mount epoch recorded yet, no
+       value-change scan hit): treat the settling cascade as its mount,
+       which `record-mount-epoch!` then anchors."
+  [frame-id render-key default-epoch-id]
+  (or (when render-key (value-changed-epoch-for frame-id render-key))
+      (when render-key (mount-epoch-for frame-id render-key))
+      default-epoch-id))
+
+(defn render-key-already-in-epoch?
+  "True when `frame-id`'s epoch `epoch-id` record already carries a
+  `:renders` row for `render-key` — used to de-dup a mount-burst tail
+  that resolves back to the mount epoch where the render already landed
+  (rf2-vh1k3). Reads the structured `:renders` projection (always
+  present on a built record), not the optional `:trace-events`."
+  [frame-id epoch-id render-key]
+  (let [history (history-for frame-id)]
+    (boolean
+      (some (fn [r]
+              (and (= epoch-id (:epoch-id r))
+                   (some (fn [row] (= render-key (:render-key row)))
+                         (:renders r))))
+            history))))
+
 (defn back-fill-render!
   "Append `render-event` and its projected `:renders` row into the
   already-committed epoch record identified by `frame-id` + `epoch-id`
@@ -408,11 +595,14 @@
 
 (defn reset-histories!
   "Wipe every frame's recorded epochs. Also clears the last-settled-epoch
-  map (rf2-qs6dl) so a fixture's first cascade can't back-fill a render
-  into a previous fixture's record."
+  map (rf2-qs6dl) and the mount-epoch map (rf2-vh1k3) so a fixture's
+  first cascade can't back-fill a render into a previous fixture's
+  record nor inherit a stale render-key→mount-epoch anchor."
   []
   (reset! histories {})
   (reset-last-settled-epochs!)
+  (reset-mount-epochs!)
+  (reset-render-deps!)
   nil)
 
 ;; ---- listener registry ----------------------------------------------------

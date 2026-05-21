@@ -3014,3 +3014,233 @@
           "no record materialised from an orphan sub-run")
       (is (= [] @seen)
           "no listener fan-out for a sub-run with no causing cascade"))))
+
+;; ---- rf2-vh1k3: late MOUNT render → mount epoch, not the next cascade -----
+;;
+;; THE BUG (P3, confirmed live on parallel-frames :below via headless
+;; Chrome — see the bead's before/after capture): a view's MOUNT render
+;; commits LATE. React/Reagent batch a freshly-mounted component's render
+;; onto a later tick, so a view's mount render can fire at React commit
+;; time AFTER the first user interaction settles. rf2-qs6dl back-fills a
+;; post-settle render to the frame's most-recently-settled epoch — correct
+;; for a genuine reactive re-render, but for a late mount render that means
+;; the view shows up spuriously in the FIRST post-mount cascade's RENDERED
+;; list (parallel-frames: title-view appears in the first counter-inc epoch
+;; though counter-inc cannot change any title sub).
+;;
+;; LIVE REPRO (parallel-frames :below, before fix):
+;;   epoch 2 initialise  RENDERED [frame-panel counter-view title-view]  (mount)
+;;   1st '+' counter-inc RENDERED [counter-view TITLE-VIEW]  ← title-view spurious
+;;   2nd '+' counter-inc RENDERED [counter-view]             (clean thereafter)
+;;
+;; THE DISCRIMINATOR: the rf2-l1jz8 `:value-changed?` attribution on the
+;; reactive `:sub/run` trace, plus the rf2-vh1k3 `:reader-render-key`
+;; stamp naming the view whose render deref'd the sub. A render of view K
+;; belongs to epoch N iff some `:sub/run` with `:reader-render-key K` AND
+;; `:value-changed? true` landed in N. counter-view's first-'+' render is
+;; legit (its ::counter sub changed 0→1); title-view's is a mount-burst
+;; tail (its subs re-deref'd UNCHANGED), so it anchors to the mount epoch
+;; where the instance first rendered.
+;;
+;; WHY THE PRIOR (qs6dl) SUITE MISSED IT: those tests model a render that
+;; fires exactly once per cascade and re-renders a DIFFERENT view each
+;; cascade. None modelled a view that mounts in epoch A and then commits a
+;; late mount-burst render in epoch B with UNCHANGED inputs — the precise
+;; shape that mis-attributes here.
+
+(def ^:private cv-rk
+  "counter-view render-key (a stable [view-id instance-token] tuple)."
+  [:counter-view 6])
+
+(def ^:private tv-rk
+  "title-view render-key."
+  [:title-view 7])
+
+(defn- emit-mount-sub-run!
+  "Emit a `:sub/run` the way a reaction does on its FIRST compute — the
+  SYNCHRONOUS in-render deref at mount/first-paint. `*render-key*` is
+  bound on that path, so the runtime stamps `:reader-render-key` (the
+  rf2-vh1k3 read-set-learning signal). Carries the rf2-l1jz8 value-change
+  attribution; the first recompute always reports value-changed? true."
+  [frame-id sub-id reader-rk prev-value value]
+  (trace/emit! :sub/run :sub/run
+               {:sub-id            sub-id
+                :query-v           [sub-id]
+                :frame             frame-id
+                :value-changed?    (not= prev-value value)
+                :prev-value        prev-value
+                :value             value
+                :cascade?          false
+                :cause-sub         nil
+                :reader-render-key reader-rk}))
+
+(defn- emit-post-settle-reactive-sub-run!
+  "Emit a `:sub/run` the way a reaction does on a POST-SETTLE recompute —
+  Reagent's reaction-flush phase, which fires OUTSIDE any view render, so
+  `*render-key*` is NOT bound and the runtime emits NO `:reader-render-key`
+  stamp (verified live on parallel-frames :below — see the bead's headless
+  capture). The render back-fill must therefore resolve the view's
+  value-change via the read-set learned at mount, NOT a per-event stamp.
+  This is the load-bearing distinction the fix turns on."
+  [frame-id sub-id prev-value value]
+  (trace/emit! :sub/run :sub/run
+               {:sub-id         sub-id
+                :query-v        [sub-id]
+                :frame          frame-id
+                :value-changed? (not= prev-value value)
+                :prev-value     prev-value
+                :value          value
+                :cascade?       false
+                :cause-sub      nil}))
+
+(defn- emit-post-settle-render-rk!
+  "Emit a `:view/render` the way the substrate does at React commit time
+  (post-settle, empty buffer), carrying an explicit `:render-key` tuple."
+  [frame-id render-key]
+  (trace/emit! :view :view/render
+               {:render-key render-key
+                :frame      frame-id}))
+
+(defn- rendered-keys
+  "The render-key tuples present in an epoch record's `:renders`."
+  [record]
+  (->> (:renders record) (map :render-key) set))
+
+(deftest mount-render-attributed-to-mount-epoch-not-next-cascade
+  (testing "rf2-vh1k3 — a late MOUNT render (a freshly-mounted view whose
+            render commits AFTER the next cascade settled, with UNCHANGED
+            inputs) is attributed to its MOUNT epoch, NOT the cascade that
+            happens to be settling. A genuine reactive re-render (inputs
+            changed) still rides its causing cascade."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed        (fn [_ _] {:counter 0}))
+    (rf/reg-event-db :counter-inc (fn [db _] (update db :counter inc)))
+
+    ;; MOUNT epoch: seed settles, then both views mount. Model the mount
+    ;; renders + their first sub recomputes (value-changed? true on the
+    ;; first recompute) IN-FLIGHT-equivalent — here, immediately after the
+    ;; seed cascade so they back-fill into the seed (mount) epoch.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [mount-epoch (last (rf/epoch-history :test/main))]
+      ;; counter-view mounts: render + its ::counter sub first-recompute
+      ;; (SYNCHRONOUS in-render deref → reader-render-key stamped → read-set
+      ;; learned). The mount render commits and back-fills into the seed
+      ;; (mount) epoch.
+      (emit-post-settle-render-rk! :test/main cv-rk)
+      (emit-mount-sub-run! :test/main :counter cv-rk nil 0)
+      ;; title-view mounts: render + its ::title-state sub first-recompute.
+      (emit-post-settle-render-rk! :test/main tv-rk)
+      (emit-mount-sub-run! :test/main :title-state tv-rk nil :idle)
+
+      ;; FIRST '+' : counter-inc settles as the next epoch.
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+      (let [inc-epoch (last (rf/epoch-history :test/main))]
+        ;; Post-settle commit burst after the first '+'. Reactive
+        ;; recomputes here fire OUTSIDE any render → NO reader-render-key
+        ;; stamp (the live shape):
+        ;;   counter-view re-renders — its ::counter sub CHANGED 0 → 1
+        ;;   (a genuine reactive re-render). Resolved via the learned
+        ;;   read-set {::counter} → value-change in THIS epoch → rides it.
+        (emit-post-settle-reactive-sub-run! :test/main :counter 0 1)
+        (emit-post-settle-render-rk! :test/main cv-rk)
+        ;;   title-view's MOUNT render commits LATE — its ::title-state sub
+        ;;   re-derefs UNCHANGED (:idle → :idle), so this is a mount-burst
+        ;;   tail, NOT a counter-inc-driven re-render. No value-change for
+        ;;   title-view's read-set in this epoch → anchors to the mount
+        ;;   epoch where the instance first rendered.
+        (emit-post-settle-reactive-sub-run! :test/main :title-state :idle :idle)
+        (emit-post-settle-render-rk! :test/main tv-rk)
+
+        (let [history (rf/epoch-history :test/main)
+              m       (some #(when (= (:epoch-id mount-epoch) (:epoch-id %)) %) history)
+              i       (some #(when (= (:epoch-id inc-epoch)   (:epoch-id %)) %) history)]
+          (is (= :seed        (:event-id m)))
+          (is (= :counter-inc (:event-id i)))
+
+          ;; THE FIX, pinned: the counter-inc epoch's RENDERED list is
+          ;; [counter-view] ONLY. title-view's late mount render does NOT
+          ;; leak into it (pre-fix it did — the rf2-vh1k3 defect).
+          (is (contains? (rendered-keys i) cv-rk)
+              "counter-inc epoch carries counter-view's GENUINE re-render
+               (its ::counter sub changed 0 → 1)")
+          (is (not (contains? (rendered-keys i) tv-rk))
+              "counter-inc epoch does NOT carry title-view's late mount
+               render — title-view's subs never changed on a counter-inc,
+               so its mount-burst render must NOT leak into this cascade
+               (the rf2-vh1k3 defect: pre-fix it spuriously appeared here)")
+
+          ;; The mount epoch still carries title-view's mount render —
+          ;; the late tail is absorbed into where the instance first
+          ;; rendered, not dropped on the floor.
+          (is (contains? (rendered-keys m) tv-rk)
+              "the mount epoch carries title-view's mount render")
+          (is (contains? (rendered-keys m) cv-rk)
+              "the mount epoch carries counter-view's mount render"))))))
+
+(deftest mount-render-tail-into-mount-epoch-is-deduped
+  (testing "rf2-vh1k3 — a mount-burst tail render that resolves back to its
+            mount epoch (where the instance already rendered) is de-duped:
+            it does not add a second :renders row for the same render-key."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed        (fn [_ _] {:counter 0}))
+    (rf/reg-event-db :counter-inc (fn [db _] (update db :counter inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    ;; title-view mounts in the seed epoch (render + first sub recompute,
+    ;; stamped → read-set learned).
+    (emit-post-settle-render-rk! :test/main tv-rk)
+    (emit-mount-sub-run! :test/main :title-state tv-rk nil :idle)
+
+    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+    ;; Two late mount-burst tail renders for title-view after the next
+    ;; cascade, each with UNCHANGED subs (post-settle reactive, no stamp)
+    ;; — both must resolve to the mount epoch and be absorbed (no
+    ;; duplicate rows).
+    (emit-post-settle-reactive-sub-run! :test/main :title-state :idle :idle)
+    (emit-post-settle-render-rk! :test/main tv-rk)
+    (emit-post-settle-render-rk! :test/main tv-rk)
+
+    (let [history     (rf/epoch-history :test/main)
+          mount-epoch (first history)
+          tv-rows     (->> (:renders mount-epoch)
+                           (filter #(= tv-rk (:render-key %))))]
+      (is (= :seed (:event-id mount-epoch)))
+      (is (= 1 (count tv-rows))
+          "title-view appears exactly ONCE in its mount epoch's :renders —
+           the late mount-burst tail is de-duped, not appended again"))))
+
+(deftest genuine-re-render-of-mounted-view-rides-its-cascade
+  (testing "rf2-vh1k3 — once a view has mounted, a LATER genuine re-render
+            (its own inputs change in a subsequent cascade) is attributed
+            to THAT cascade, not redirected back to the mount epoch. The
+            mount-epoch anchor only governs mount-burst tails."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed        (fn [_ _] {:counter 0}))
+    (rf/reg-event-db :counter-inc (fn [db _] (update db :counter inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    ;; counter-view mounts (stamped → read-set {::counter} learned).
+    (emit-post-settle-render-rk! :test/main cv-rk)
+    (emit-mount-sub-run! :test/main :counter cv-rk nil 0)
+
+    ;; First '+'.
+    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+    (let [inc1 (last (rf/epoch-history :test/main))]
+      (emit-post-settle-reactive-sub-run! :test/main :counter 0 1)
+      (emit-post-settle-render-rk! :test/main cv-rk)
+
+      ;; Second '+'.
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+      (let [inc2 (last (rf/epoch-history :test/main))]
+        (emit-post-settle-reactive-sub-run! :test/main :counter 1 2)
+        (emit-post-settle-render-rk! :test/main cv-rk)
+
+        (let [history (rf/epoch-history :test/main)
+              e1      (some #(when (= (:epoch-id inc1) (:epoch-id %)) %) history)
+              e2      (some #(when (= (:epoch-id inc2) (:epoch-id %)) %) history)]
+          (is (contains? (rendered-keys e1) cv-rk)
+              "the first counter-inc carries counter-view's re-render")
+          (is (contains? (rendered-keys e2) cv-rk)
+              "the second counter-inc ALSO carries counter-view's re-render
+               — a genuine re-render rides its own cascade, never collapses
+               back to the mount epoch"))))))

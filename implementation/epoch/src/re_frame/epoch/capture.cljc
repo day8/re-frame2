@@ -158,6 +158,19 @@
           tags     (:tags event)
           frame-id (or (:frame tags)
                        (:frame event))]
+      ;; rf2-vh1k3 — learn which subs each view reads from the
+      ;; `:reader-render-key` stamp the runtime sets on a `:sub/run`
+      ;; that recomputes SYNCHRONOUSLY inside a view's render (the mount /
+      ;; first-paint deref). A post-settle reactive recompute fires
+      ;; outside any render binding and carries no stamp, so this learns
+      ;; the read-set at mount; a view's sub set is stable across its
+      ;; life. The render back-fill (`state/value-changed-epoch-for`)
+      ;; uses the read-set to tell a view's genuine re-render from a
+      ;; mount-burst tail. Fires regardless of the routing branch below.
+      (when frame-id
+        (when-let [reader-rk (:reader-render-key tags)]
+          (when (= :sub/run op)
+            (state/record-render-deps! frame-id reader-rk (:sub-id tags)))))
       (when (and frame-id (not (contains? skip-ops op)))
         (cond
           ;; Post-settle render — attribute to the causing cascade.

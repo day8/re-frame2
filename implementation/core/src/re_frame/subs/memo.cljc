@@ -216,17 +216,29 @@
         ;; §Privacy for why we MUST NOT elide here.
         (if interop/debug-enabled?
           (let [cascade?  (boolean (seq input-signals))
-                cause-sub (changed-cause-sub prev-in-vals in-vals input-signals)]
+                cause-sub (changed-cause-sub prev-in-vals in-vals input-signals)
+                ;; rf2-vh1k3 — the render-key of the view whose render is
+                ;; deref-ing this reaction (nil outside a view render). The
+                ;; epoch back-fill reads this off the target epoch's
+                ;; `:sub-runs` so a late-arriving render is attributed to
+                ;; the epoch where the rendering view's OWN inputs changed,
+                ;; not whatever cascade is settling when a mount-burst tail
+                ;; commits. Resolved through late-bind so this .cljc subs
+                ;; layer stays free of a require on the CLJS-only views ns.
+                reader-rk (when-let [f (late-bind/get-fn-cached
+                                         :views/reading-render-key)]
+                            (f))]
             (trace/emit! :sub/run :sub/run
-                         {:sub-id         query-id
-                          :query-v        query-v
-                          :frame          frame-id
-                          :value-changed? (not= prev-value validated)
-                          :prev-value     (when-not (= unset prev-value)
-                                            prev-value)
-                          :value          validated
-                          :cascade?       cascade?
-                          :cause-sub      cause-sub}))
+                         (cond-> {:sub-id         query-id
+                                  :query-v        query-v
+                                  :frame          frame-id
+                                  :value-changed? (not= prev-value validated)
+                                  :prev-value     (when-not (= unset prev-value)
+                                                    prev-value)
+                                  :value          validated
+                                  :cascade?       cascade?
+                                  :cause-sub      cause-sub}
+                           reader-rk (assoc :reader-render-key reader-rk))))
           (trace/emit! :sub/run :sub/run
                        {:sub-id  query-id
                         :query-v query-v
