@@ -275,3 +275,66 @@
                  "disposes. Sample: " (vec (take 20 under)))))
       (is (= n-trials (count @per-trial))
           "all trials accounted for"))))
+
+;; ---- 4. cache-hit re-validates after cancelling the grace-dispose timer ----
+
+;; The race (rf2-7pqe7): on a cache hit with a pending grace-dispose,
+;; `subscribe` reads the entry, cancels the timer, then bumps the
+;; ref-count. On a concurrent host the grace timer can fire
+;; `dispose-entry-now!` on another thread between the `(get @cache k)`
+;; snapshot and the `clear-timeout!` — dissoc-ing the slot and disposing
+;; the reaction. The `clear-timeout!` is best-effort (the cancel races a
+;; fire that already started). Pre-fix, `subscribe` then blindly
+;; `(update k inc-ref-count)`-ed the (now absent) slot — resurrecting a
+;; PHANTOM entry with no `:reaction` and handing the caller back the
+;; already-DISPOSED reaction.
+;;
+;; The fix re-validates after the cancel: the bump only lands when the slot
+;; still holds the SAME reaction; otherwise `subscribe` falls through to a
+;; fresh build. We simulate the concurrent eviction deterministically by
+;; redef-ing `clear-timeout!` to evict the slot at exactly the cancel
+;; point (the worst-case interleave). This single-threaded simulation
+;; drives the same code path the concurrent race would.
+(deftest cache-hit-revalidates-when-slot-evicted-during-timer-cancel
+  (testing "a cache hit whose slot is concurrently evicted during the
+            grace-timer cancel rebuilds a fresh reaction rather than
+            returning the disposed one or pinning a phantom entry"
+    (subs-cache/configure! {:grace-period-ms 50})  ;; grace > 0 so a timer is stashed
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed])
+
+    (let [cache (:sub-cache (frame/frame :rf/default))
+          ;; First subscribe builds + caches the reaction (ref-count 1).
+          r1    (rf/subscribe [:n])]
+      (is (= 7 @r1) "first subscribe yields the seeded value")
+      (let [k (first (keys @cache))]
+        ;; Drop to zero → schedules a grace-period dispose, stashing a
+        ;; pending-dispose timer handle on the slot.
+        (rf/unsubscribe [:n])
+        (is (some? (get-in @cache [k :pending-dispose]))
+            "a grace-dispose timer is pending after the 1→0 drop")
+
+        ;; Simulate the concurrent grace-fire winning the cancel race:
+        ;; `clear-timeout!` evicts the slot (as `dispose-entry-now!` would
+        ;; have on another thread) at exactly the cancel point.
+        (let [evicted-reaction (get-in @cache [k :reaction])]
+          (with-redefs [interop/clear-timeout!
+                        (fn [_handle]
+                          ;; The grace timer "fired" on another thread:
+                          ;; slot gone, reaction disposed.
+                          (swap! cache dissoc k)
+                          nil)]
+            (let [r2 (rf/subscribe [:n])]
+              (is (some? r2) "subscribe returns a live reaction, not nil")
+              (is (= 7 @r2)
+                  "the rebuilt reaction computes the current value")
+              (is (not (identical? evicted-reaction r2))
+                  "subscribe rebuilt a FRESH reaction — it did NOT hand back
+                   the reaction the concurrent grace-fire disposed")
+              ;; The slot must hold a real reaction (the rebuild), never a
+              ;; phantom entry resurrected with no :reaction.
+              (is (some? (get-in @cache [(first (keys @cache)) :reaction]))
+                  "the cache slot holds a real reaction, not a phantom entry")
+              (is (= 1 (get-in @cache [(first (keys @cache)) :ref-count]))
+                  "the rebuilt slot starts at ref-count 1"))))))))

@@ -689,9 +689,16 @@
 
 (defn- run-chain
   "Execute the interceptor chain bracketed in performance marks. When
-  event-payload validation failed the handler is not invoked; per Spec
-  010 §Per-step recovery step 1 the initial context is returned
-  unchanged and the downstream queue continues.
+  event-payload validation failed (`event-ok?` false) the handler is
+  suppressed via `:rf/skip-handler?` on the initial context — the same
+  mechanism the cofx-failure path (Spec 010 step 2) uses — rather than
+  skipping the chain wholesale. Per Spec 010 §Per-step recovery step 1
+  the handler does not run and the downstream queue continues; per Spec
+  002 §Interceptor chain execution rule 2 the chain STILL executes so
+  the `:after` pass always runs in full and cleanup-on-`:after`
+  interceptors (debug pp/snapshot, Story snapshot capturer) fire even
+  on a pre-handler validation failure. Symmetric with the cofx path:
+  both failures keep teardown intact.
 
   Per Spec 009 §Performance instrumentation (rf2-du3i): the
   `performance/mark-and-measure` bracket produces a
@@ -700,10 +707,11 @@
   `re-frame.performance/enabled?=false` the bracket DCEs and the call
   collapses to a plain `execute-chain` invocation."
   [event-id full-chain initial-ctx event-ok?]
-  (if event-ok?
+  (let [ctx (if event-ok?
+              initial-ctx
+              (assoc initial-ctx :rf/skip-handler? true))]
     (performance/mark-and-measure :event event-id
-      (interceptor/execute-chain full-chain initial-ctx))
-    initial-ctx))
+      (interceptor/execute-chain full-chain ctx))))
 
 (defn- commit-and-flow!
   "Settle the cascade: surface any chain exception, commit :db, run

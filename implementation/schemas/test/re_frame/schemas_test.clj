@@ -241,6 +241,44 @@
             (is (= :user/register (-> v :tags :failing-id)))
             (is (= :user/register (-> v :tags :schema-id)))))))))
 
+(deftest event-payload-validation-failure-still-runs-after-pass
+  (testing "Per Spec 002 §Interceptor chain execution rule 2 (rf2-i36mm):
+            a schema-validation failure on the event vector (Spec 010 step
+            1) suppresses the HANDLER but the interceptor chain STILL runs,
+            so every :after stage fires — symmetric with the cofx-failure
+            path (step 2) which uses :rf/skip-handler?. The :after pass
+            must run regardless of the pre-handler failure so cleanup-on-
+            :after interceptors (debug pp, Story snapshot capturer) are not
+            leaked."
+    (let [handler-calls (atom 0)
+          before-calls  (atom 0)
+          after-calls   (atom 0)
+          probe         (rf/->interceptor
+                          :id     ::after-probe
+                          :before (fn [ctx] (swap! before-calls inc) ctx)
+                          :after  (fn [ctx] (swap! after-calls inc) ctx))]
+      (rf/reg-event-db :user/probe
+        {:schema [:cat [:= :user/probe] :int]}
+        [probe]
+        (fn [db _] (swap! handler-calls inc) db))
+      (let [traces (atom [])]
+        (rf/register-listener! ::after-ev (fn [ev] (swap! traces conj ev)))
+        ;; Malformed payload — event-vector validation fails pre-handler.
+        (rf/dispatch-sync [:user/probe "not-an-int"])
+        (rf/unregister-listener! ::after-ev)
+        (is (= 1 (count (filter #(= :rf.error/schema-validation-failure
+                                    (:operation %))
+                                @traces)))
+            "the schema-validation failure fired")
+        (is (zero? @handler-calls)
+            "the handler was suppressed via :rf/skip-handler?")
+        (is (= 1 @after-calls)
+            "the :after pass STILL ran in full on the validation failure")
+        (is (= 1 @before-calls)
+            "the :before pass ran too — the chain executes end-to-end, the
+            handler-wrapper :before is the only stage that honours
+            :rf/skip-handler?")))))
+
 (deftest event-payload-validation-elides-when-debug-disabled
   (testing "validate-event! is a no-op when debug-enabled? is false (production)"
     (let [calls (atom 0)]
