@@ -40,6 +40,14 @@
   (when (and el (.-props el))
     (aget (.-props el) "data-rf2-source-coord")))
 
+(defn- react-element-view-attr
+  "Pull `data-rf-view` off a React element's `.-props`, or nil.
+  Defensively returns nil on every branch so the test assertions can
+  use `nil?`."
+  [el]
+  (when (and el (.-props el))
+    (aget (.-props el) "data-rf-view")))
+
 ;; ---- annotation elides under :advanced + goog.DEBUG=false ----------------
 
 (deftest reg-view-output-has-no-source-coord-under-prod-helix
@@ -58,7 +66,10 @@
         (is (= "span" (.-type out))
             "root element's type preserved")
         (is (nil? (react-element-source-coord out))
-            "NO data-rf2-source-coord on the rendered root — elision contract holds")))))
+            "NO data-rf2-source-coord on the rendered root — elision contract holds")
+        (is (nil? (react-element-view-attr out))
+            "NO data-rf-view on the rendered root — view-id tagging rides the
+             same interop/debug-enabled? gate and elides too (rf2-ihcib)")))))
 
 (deftest reg-view-with-attrs-has-no-source-coord-under-prod-helix
   (testing "Even with an existing props map on the root, the wrapper does
@@ -78,4 +89,7 @@
         (is (= "card" (aget props "className")) "user className preserved")
         (is (= "x"    (aget props "id")) "user id preserved")
         (is (nil? (aget props "data-rf2-source-coord"))
-            "NO data-rf2-source-coord merged into the props — elision contract holds")))))
+            "NO data-rf2-source-coord merged into the props — elision contract holds")
+        (is (nil? (aget props "data-rf-view"))
+            "NO data-rf-view merged into the props — view-id tagging elides on the
+             same gate (rf2-ihcib)")))))
