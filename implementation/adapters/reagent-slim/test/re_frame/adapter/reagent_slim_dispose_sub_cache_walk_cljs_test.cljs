@@ -139,6 +139,49 @@
             (str "post-dispose: frame " (pr-str fid)
                  "'s sub-cache atom is empty"))))))
 
+(deftest dispose-adapter-walk-is-best-effort
+  (testing "rf2-sx77q G3: a throwing per-entry dispose does NOT abort the
+  rest of the walk. The best-effort tolerance is spine-shared but was
+  previously pinned ONLY on the Reagent adapter; this slim sibling closes
+  the gap so a future spine refactor that drops the per-entry try/catch
+  is caught at the slim surface too (slim claims drop-in Reagent parity)."
+    (rf/reg-frame :walk/a {})
+    (rf/reg-frame :walk/b {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+
+    (rf/dispatch-sync [:seed] {:frame :walk/a})
+    (rf/dispatch-sync [:seed] {:frame :walk/b})
+
+    (let [r-a (rf/subscribe :walk/a [:n])
+          r-b (rf/subscribe :walk/b [:n])]
+      (is (= 1 @r-a))
+      (is (= 1 @r-b))
+
+      ;; Inject a sentinel reaction into walk/a's sub-cache whose dispose
+      ;; path throws — mirrors a misbehaving downstream (e.g. an
+      ;; on-dispose hook raising). The walk must still drain the rest of
+      ;; walk/a's cache AND walk/b's cache.
+      (let [cache-a      (:sub-cache (frame/frame :walk/a))
+            poison-entry {:reaction (js-obj "not" "a reaction")}]
+        (swap! cache-a assoc [:poison] poison-entry)
+
+        (let [reactions-before [r-a r-b]
+              disposed         (atom #{})]
+          (doseq [r reactions-before]
+            (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
+
+          (adapter/dispose-adapter!)
+
+          (doseq [r reactions-before]
+            (is (contains? @disposed r)
+                "the walk reached and disposed the real Reaction past the poison entry"))
+
+          (is (= {} @(:sub-cache (frame/frame :walk/a)))
+              "walk/a's cache was still cleared despite the throw")
+          (is (= {} @(:sub-cache (frame/frame :walk/b)))
+              "walk/b's cache was still cleared after the throwing walk/a entry"))))))
+
 (deftest dispose-adapter-walk-tolerates-an-empty-frames-registry
   (testing "dispose-adapter! on an installed slim adapter with no live
   frames is a no-op (no throw)"
