@@ -279,6 +279,28 @@
         (is (str/includes? html "\"@type\":\"schema/Article\""))
         (is (str/includes? html "\"my.app/headline\":\"my.app/hello\""))))))
 
+(deftest head-model->html-json-ld-emits-json-valid-numbers
+  (testing "rf2-8jl26 — the JVM JSON-LD emitter must produce JSON-valid
+            numbers. A Clojure ratio is coerced to a double (so the wire
+            form is a JSON number, not `1/3`); JSON.parse never sees a
+            ratio literal."
+    (let [html (rf/head-model->html
+                 {:json-ld [{"@type" "Rating"
+                             "ratingValue" 1/3}]})]
+      (is (str/includes? html "\"ratingValue\":0.3333333333333333")
+          "the ratio 1/3 is emitted as its double value, not `1/3`")
+      (is (not (str/includes? html "1/3"))
+          "no raw ratio literal survives into the JSON-LD body")))
+  (testing "rf2-8jl26 — non-finite doubles (##Inf / ##-Inf / ##NaN) have no
+            JSON representation; the emitter fails fast rather than emitting
+            `Infinity` / `NaN`, which JSON.parse rejects"
+    (doseq [bad [##Inf ##-Inf ##NaN]]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo #":rf\.error/invalid-json-ld-number"
+            (rf/head-model->html
+              {:json-ld [{"@type" "Rating" "ratingValue" bad}]}))
+          (str "non-finite JSON-LD number " (pr-str bad) " is rejected")))))
+
 (deftest head-model->html-json-ld-escapes-script-close-in-string-values
   (testing "rf2-m5u23 / security audit 2026-05-14 §P1.1 — a string value
             containing `</script>` MUST NOT close the surrounding

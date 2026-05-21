@@ -592,10 +592,14 @@
                                           :host     host
                                           :reason   :relative-only-violation})
 
-              ;; Step 4: :allow [...] allowlist
+              ;; Step 4: :allow [...] allowlist. DNS hostnames are
+              ;; case-insensitive (RFC 1035 §2.3.3), so lower-case both
+              ;; sides — matching the header/cookie token-grammar treatment
+              ;; elsewhere in this file.
               (and (seq allow)
                    host
-                   (not (contains? (set allow) host)))
+                   (not (contains? (into #{} (map clojure.string/lower-case) allow)
+                                   (clojure.string/lower-case host))))
               (emit-safe-redirect-error! :rf.error/safe-redirect-host-disallowed
                                          {:frame    frame
                                           :location location

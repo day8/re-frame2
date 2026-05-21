@@ -1295,6 +1295,25 @@
              (-> resp :redirect :location))
           ":location lands on the response :redirect slot"))))
 
+(deftest safe-redirect-allowlist-host-match-is-case-insensitive
+  (testing "rf2-lgmiw step 4: DNS hostnames are case-insensitive (RFC 1035
+            §2.3.3) — a mixed-case host matches a lowercase :allow entry and
+            the redirect succeeds with no trace"
+    (rf/reg-event-fx :sr/in-allow-mixed-case
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "https://APP.Example.COM/dashboard"
+                :allow    ["app.example.com" "alt.example.com"]}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/in-allow-mixed-case] {:frame f})))
+          resp   (get-response f)]
+      (is (empty? traces)
+          "no :rf.error/safe-redirect-* trace — case-folded host matches allow")
+      (is (= "https://APP.Example.COM/dashboard"
+             (-> resp :redirect :location))
+          ":location passes through unchanged (only the COMPARISON folds case)"))))
+
 ;; --- Validation order: parse runs before scheme runs before policy --------
 
 (deftest safe-redirect-validation-order-parse-precedes-scheme
@@ -1394,7 +1413,20 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
             (rf/render-to-string [hostile] {}))
-          (str "hostile tag-name " (pr-str hostile))))))
+          (str "hostile tag-name " (pr-str hostile)))))
+
+  (testing "rf2-77l9w — admitting one namespaced colon segment does NOT
+            admit malformed colon shapes: a bare/leading/trailing/double
+            colon or an empty/ill-formed segment still throws"
+    (doseq [hostile [(keyword ":rect")        ; leading colon — empty prefix
+                     (keyword "svg:")         ; trailing colon — empty local
+                     (keyword "a:b:c")        ; two colons — not a single ns
+                     (keyword "svg::rect")    ; double colon — empty segment
+                     (keyword "svg:rect onload=x")]] ; injection after colon
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
+            (rf/render-to-string [hostile] {}))
+          (str "malformed namespaced tag-name " (pr-str hostile))))))
 
 (deftest ssr-render-accepts-legit-tag-keywords
   (testing "rf2-z7gor — regression guard: HTML / SVG / MathML / custom
@@ -1413,7 +1445,19 @@
         ":tag#id.cls sugar still parses (validator runs on the tag fragment)")
     (is (= "<p>a</p><p>b</p>"
            (rf/render-to-string [:<> [:p "a"] [:p "b"]] {}))
-        ":<> fragment renders children with no wrapper")))
+        ":<> fragment renders children with no wrapper"))
+
+  (testing "rf2-77l9w — XML-namespaced SVG/MathML tags carry a single colon
+            segment and are admitted by the grammar"
+    (is (= "<svg:rect></svg:rect>"
+           (rf/render-to-string [:svg:rect] {}))
+        "namespaced SVG tag `:svg:rect` is accepted")
+    (is (= "<xlink:href>a</xlink:href>"
+           (rf/render-to-string [:xlink:href "a"] {}))
+        "xlink-namespaced tag is accepted")
+    (is (= "<svg:rect id=\"r\" class=\"c\"></svg:rect>"
+           (rf/render-to-string [:svg:rect#r.c] {}))
+        "namespaced tag still composes with the #id.cls sugar")))
 
 (deftest ssr-set-header-rejects-invalid-name
   (testing "rf2-z7gor — :rf.server/set-header with CRLF in :name surfaces
