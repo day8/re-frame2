@@ -149,7 +149,7 @@ If the author declines, document the warning in the report.
 **Decision shape**:
 
 1. **Author the `:on-create` event**. `(rf/reg-frame :rf/default {:on-create [[:app/seed initial-state]]})` plus the `[:app/seed initial]` event handler that writes the seed into `app-db`.
-2. **Move the seed to test fixtures only** if the seed is test-specific. (`with-frame` in `re-frame.test-support` accepts an `:initial-db` opt.)
+2. **Move the seed to test fixtures only** if the seed is test-specific. Seed the test frame the same way — via `:on-create` — never a top-level `app-db` poke: `(rf/with-frame [f (rf/make-frame {:on-create [:test/seed initial]})] ...)`.
 
 Present the seed value and the proposed rewrite; confirm with the author; apply both the M-1 require-removal and the M-15 `:on-create` rewrite together.
 
