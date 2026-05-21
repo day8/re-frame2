@@ -44,7 +44,7 @@
   (testing "compound state — sibling-leaf transition fires only the leaf exit/entry"
     ;; Tracks which entry/exit hooks fired so we can assert the LCA cascade.
     (let [log (atom [])
-          tag (fn [k] (fn [_ _] (swap! log conj k) {}))
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
           {:initial :authenticated
            :data    {}
@@ -88,7 +88,7 @@
 
   (testing "deepest-wins — leaf overrides parent for same event id"
     (let [log (atom [])
-          tag (fn [k] (fn [_ _] (swap! log conj k) {}))
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
           {:initial :authenticated
            :data    {}
@@ -128,7 +128,7 @@
 (deftest machine-hierarchical-wildcard-precedence-cljs
   (testing "leaf :* shadows parent's explicit handler for the same event"
     (let [log (atom [])
-          tag (fn [k] (fn [_ _] (swap! log conj k) {}))
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
           {:initial :authenticated
            :data    {}
@@ -153,7 +153,7 @@
 
   (testing "parent fallthrough still works when leaf has neither explicit nor :*"
     (let [log (atom [])
-          tag (fn [k] (fn [_ _] (swap! log conj k) {}))
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
           {:initial :authenticated
            :data    {}

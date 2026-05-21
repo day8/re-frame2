@@ -47,11 +47,12 @@
           {:initial :idle
            :data    {:credentials {:user "alice" :pass "secret"}}
            :on-spawn-actions
-           ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
-           ;; on-spawn callback signature is (fn [data spawned-id] new-data).
-           ;; The runtime patches the returned data back into the snapshot.
-           {:auth/record-actor (fn [data actor-id]
-                                 (assoc data :pending actor-id))}
+           ;; Per Spec 005 §Declarative :spawn (rf2-grw4i / rf2-v0rrr):
+           ;; on-spawn callback takes a single context-map and returns the
+           ;; new data. The callback is advisory — the runtime tracks the
+           ;; spawned id at [:rf/spawned <parent> <invoke-id>] regardless.
+           {:auth/record-actor (fn [{data :data id :id}]
+                                 (assoc data :pending id))}
            :states
            {:idle
             {:on {:submit :authenticating}}
