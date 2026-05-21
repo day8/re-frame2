@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>rf2-qk3sh spike — CM6 + clojure-mode + Scittle eval cell</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.2rem; }
+    .cljs-cell { margin: 1rem 0; }
+    .cljs-result {
+      margin-top: 4px; padding: 6px 10px; border-radius: 4px;
+      background: #f4f7f4; font-family: monospace; white-space: pre-wrap;
+      min-height: 1.4em;
+    }
+    .cljs-result.err { background: #fdecec; color: #a40000; }
+    .cljs-out { color: #555; }
+    .cljs-val { font-weight: 600; color: #1a5e1a; }
+    .hint { color: #777; font-size: 0.85rem; }
+  </style>
+  <!-- Scittle: classic <script>, installs window.scittle. NOT an ES module. -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.js"></script>
+</head>
+<body>
+  <h1>rf2-qk3sh spike: CM6 + nextjournal/clojure-mode + Scittle eval cell</h1>
+  <p class="hint">Click into a cell, edit, press <kbd>Ctrl/Cmd-Enter</kbd> to eval.</p>
+
+  <h2>Cell 1 — arithmetic</h2>
+  <pre class="language-cljs">(+ 1 2 3)</pre>
+
+  <h2>Cell 2 — defn + call + println (multi-form, *out* capture)</h2>
+  <pre class="language-cljs">(defn square [x] (* x x))
+(println "computing...")
+{:squares (map square [1 2 3 4]) :set #{:a :b} :nested {:k [1 2]}}</pre>
+
+  <h2>Cell 3 — deliberate error (must render, not crash)</h2>
+  <pre class="language-cljs">(this-var-does-not-exist 1 2)</pre>
+
+  <!-- Bundled CM6 + clojure-mode entry (esbuild IIFE). -->
+  <script src="./cell.bundle.js"></script>
+</body>
+</html>
