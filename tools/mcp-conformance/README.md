@@ -40,7 +40,7 @@ Every existing test surface for these servers is **server-side**:
 
 - per-tool unit tests (under each server artefact's `test/`)
 - `stdio-roundtrip.js` — a hand-rolled JSON-RPC wire-format probe
-- `live-{nrepl,server}.js` — workflow tests against a running runtime
+- `live-nrepl.js` — workflow tests against a running runtime
 
 None of these drive a server from the **client** side of MCP — they all
 either hand-roll JSON-RPC framing or skip the protocol layer entirely.
@@ -113,8 +113,9 @@ npm test
 ### `end-to-end-re-frame2-pair.cjs`
 
 1. Connect — full SDK handshake against the freshly spawned bundle
-2. `tools/list` — confirm the twelve advertised tools match the pinned
-   catalogue
+2. `tools/list` — confirm the advertised tools match the pinned
+   catalogue (sourced from re-frame2-pair-mcp's `tool-names.json`
+   fixture — the single source of truth)
 3. Spot-check every descriptor carries an `inputSchema`
 4. Walk degraded-mode `dispatch` / `watch-epochs` / `snapshot` /
    `subscribe` — each call routes through the SDK's
