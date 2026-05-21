@@ -1,19 +1,23 @@
 (ns day8.re-frame2-causa.panels.reactive-panel-subs
   "Subscriptions for the Reactive panel (rf2-wyvf2 · spec/021 §3).
 
-  The panel reads the focused cascade's `:trace-events` slot for the
-  three substrate ops landed in #1728 / #1729:
+  The panel reads the focused epoch record's normalized structured
+  projections — `:sub-runs` and `:renders` — assembled by the
+  substrate on each `:rf/epoch-record` (per spec/018). It does NOT
+  re-derive rows from raw `:trace-events` by op-keyword: the canonical
+  ops are `:sub/run` / `:rf.sub/skip` / `:rf.view/rendered`
+  (Spec 009 §:op-type vocabulary), and the earlier op-keyword path
+  grepped for names the substrate never emits (`:rf.sub/computed` /
+  `:rf.sub/skipped`), pinning subs-ran / subs-skipped to zero
+  regardless of how many subs actually ran.
 
-  - `:rf.sub/computed`  · sub recomputed (existing)
-  - `:rf.sub/skipped`   · sub skipped — input-unchanged
-                          short-circuit (#1729)
-  - `:rf.view/rendered` · view re-render at render-commit boundary
-                          (#1728)
-  - `:rf.cascade/captured` · optional end-of-epoch aggregate
-                              (counts only) (#1729)
+  - `:sub-runs` → subs-ran (`:recomputed?` true) + subs-skipped
+    (memo-hit, `:recomputed?` false)
+  - `:renders`  → views-rendered (`:render-key` → top-level `:view-id`)
+  - flow counts → tallied from `:trace-events` (`:rf.flow/computed` /
+    `:rf.flow/skip`), the one slice with no structured projection.
 
-  No new instrumentation — pure consumer over the trace stream the
-  epoch capture carries on `:rf/epoch-record :trace-events`.
+  No new instrumentation — pure consumer over the epoch record.
 
   ## Public surface
 
@@ -63,38 +67,46 @@
   [event]
   (or (:operation event) (:op event)))
 
-(defn project-trace-events
-  "Project an epoch record's `:trace-events` into the Reactive-panel
-  shape. Pure data — keyed off the canonical op keywords.
+(defn project-record
+  "Project an epoch record into the Reactive-panel shape. Pure data.
+
+  Reads the substrate's normalized structured projections — `:sub-runs`
+  and `:renders` — directly off the `:rf/epoch-record` (per spec/018),
+  rather than re-deriving rows from raw `:trace-events` by op-keyword.
+  The op-keyword path this replaced grepped for names the substrate
+  never emits (`:rf.sub/computed` / `:rf.sub/skipped`) where the
+  canonical ops are `:sub/run` / `:rf.sub/skip` (Spec 009 §:op-type
+  vocabulary), so subs-ran / subs-skipped were perpetually zero.
+
+  `:sub-runs` entries carry `:sub-id` / `:query-v` / `:recomputed?`;
+  the `:recomputed?` flag splits genuine recomputes (subs-ran) from
+  memo-hit skips (subs-skipped). `:renders` entries carry `:render-key`
+  (a `[view-id idx]` vector); `:view-id` is lifted to the top level for
+  the panel's row renderer.
+
+  Flows have no structured projection on the record, so flow counts are
+  tallied from `:trace-events` using the canonical `:rf.flow/computed`
+  / `:rf.flow/skip` op names.
 
   Returns the map shape documented in the ns docstring (sans the
   focus / frame / dispatch-id keys; those come from the spine sub)."
-  [trace-events]
-  (let [grouped (group-by op-kw (or trace-events []))
-        subs-computed (mapv (fn [e] (or (:payload e) e))
-                            (get grouped :rf.sub/computed []))
-        subs-skipped  (mapv (fn [e] (or (:payload e) e))
-                            (get grouped :rf.sub/skipped []))
-        views-rend    (mapv (fn [e] (or (:payload e) e))
-                            (get grouped :rf.view/rendered []))
+  [record]
+  (let [sub-runs (vec (:sub-runs record))
+        ran      (filterv :recomputed? sub-runs)
+        skipped  (filterv (complement :recomputed?) sub-runs)
+        renders  (mapv (fn [r] (assoc r :view-id (first (:render-key r))))
+                       (:renders record))
+        grouped  (group-by op-kw (or (:trace-events record) []))
         flows-comp    (count (get grouped :rf.flow/computed []))
-        flows-skipped (count (get grouped :rf.flow/skipped []))
-        aggregate     (some-> (first (get grouped :rf.cascade/captured))
-                              (or {})
-                              :payload)
-        ;; Prefer the aggregate's counts when present; fall back to
-        ;; the projected vector lengths so the panel renders even when
-        ;; the optional :rf.cascade/captured op is absent.
-        counts        (or aggregate
-                          {:subs-ran         (count subs-computed)
-                           :subs-skipped     (count subs-skipped)
-                           :views-rendered   (count views-rend)
-                           :flows-recomputed flows-comp
-                           :flows-skipped    flows-skipped})]
-    {:subs-ran        subs-computed
-     :subs-skipped    subs-skipped
-     :views-rendered  views-rend
-     :counts          counts}))
+        flows-skipped (count (get grouped :rf.flow/skip []))]
+    {:subs-ran        ran
+     :subs-skipped    skipped
+     :views-rendered  renders
+     :counts          {:subs-ran         (count ran)
+                       :subs-skipped     (count skipped)
+                       :views-rendered   (count renders)
+                       :flows-recomputed flows-comp
+                       :flows-skipped    flows-skipped}}))
 
 (defn- triggered-by
   "Reconstruct the triggering event from the epoch record. Reuses the
@@ -130,7 +142,7 @@
     :<- [:rf.causa/epoch-history]
     (fn [[focus history] _query]
       (let [record (focused-epoch-record history (:epoch-id focus))
-            proj   (project-trace-events (when record (:trace-events record)))]
+            proj   (project-record record)]
         (merge proj
                {:focus        focus
                 :frame        (:frame focus)
