@@ -21,11 +21,16 @@
 
   ## Data source
 
-  Reads the live `re-frame.flows.registry/flows` atom shape
-  `{frame-id {flow-id flow-map}}` via the
-  `:rf.causa.static.flows/registered-flows` sub. The sub flattens the
-  per-frame nesting into a vector of rows so the view never reasons
-  about the registry's two-level shape directly.
+  Reads the registered flows through the public introspection surface
+  `(rf/registrations :flow)` (Tool-Pair.md §public APIs; spec/014
+  catalogues `:rf.causa/registered-flows` as `(rf/registrations :flow)`)
+  rather than reaching the private `re-frame.flows.registry/flows`
+  atom. The registrar slot keys on flow-id with `:frame` stamped per
+  entry (registry.cljc — `reg-flow` stamps `:frame` into the metadata),
+  so the sub groups the flat `{flow-id meta}` map by `:frame` back into
+  the `{frame-id {flow-id flow-map}}` shape the per-frame projection +
+  picker-scoping helpers consume. The view never reasons about the
+  registry's two-level shape directly.
 
   Optional test override slot: `:rf.causa.static.flows/registered-
   flows-override` lets the CLJS test suite inject deterministic
@@ -42,7 +47,6 @@
   `[rf/frame-provider {:frame :rf/causa}]` in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.flows.registry :as flows-registry]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -66,6 +70,23 @@
   (if (nil? frame-id)
     registry-snapshot
     (select-keys registry-snapshot [frame-id])))
+
+(defn registrations->by-frame
+  "Group the flat `(rf/registrations :flow)` shape — `{flow-id meta}`
+  where each `meta` carries a `:frame` stamped at `reg-flow`-time — back
+  into the per-frame `{frame-id {flow-id flow-map}}` shape the
+  projection + picker-scoping helpers consume.
+
+  An entry whose `:frame` slot is absent (defensive — every flow
+  registration stamps `:frame`) buckets under `:rf/default`. Pure data —
+  JVM-runnable."
+  [registrations]
+  (reduce-kv
+    (fn [acc flow-id meta]
+      (let [frame-id (get meta :frame :rf/default)]
+        (assoc-in acc [frame-id flow-id] meta)))
+    {}
+    registrations))
 
 (defn project-rows
   "Flatten `{frame-id {flow-id flow-map}}` into a flat vector of rows,
@@ -328,8 +349,9 @@
     - `:rf.causa.static.flows/set-registered-flows-override-for-test`
         — test-only override setter.
     - `:rf.causa.static.flows/registered-flows` — production data sub
-                                                  reading the live
-                                                  flows registry atom
+                                                  reading the public
+                                                  `(rf/registrations
+                                                  :flow)` surface
                                                   (or override).
     - `:rf.causa.static.flows/tab-data`         — view-facing composite."
   []
@@ -360,8 +382,11 @@
 
   ;; ---- production data sub ---------------------------------------------
 
-  ;; The flows registry is a top-level atom (per-frame) in the flows
-  ;; artefact; deref it once per sub re-fire. `:<-`-composing against
+  ;; Read the registered flows through the public `(rf/registrations
+  ;; :flow)` introspection surface (Tool-Pair.md §public APIs) once per
+  ;; sub re-fire, then regroup the flat `{flow-id meta}` shape into the
+  ;; per-frame `{frame-id {flow-id flow-map}}` shape the projection +
+  ;; picker-scoping helpers consume. `:<-`-composing against
   ;; `:rf.causa/trace-buffer` keeps the sub reactive against the same
   ;; "something changed" pulse the other static-mode subs ride —
   ;; without it, a fresh `reg-flow!` wouldn't surface until the next
@@ -371,7 +396,7 @@
     :<- [:rf.causa.static.flows/registered-flows-override]
     (fn [[_buffer override] _query]
       (or override
-          (try @flows-registry/flows
+          (try (registrations->by-frame (rf/registrations :flow))
                (catch :default _ {})))))
 
   ;; ---- view-facing composite -------------------------------------------

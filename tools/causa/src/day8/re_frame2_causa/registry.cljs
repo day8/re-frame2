@@ -700,16 +700,19 @@
     ;; `:<-` chains lazily.
     (static-routes-panel/install!)
     ;; Static Schemas sub-tab (rf2-o5f5f.4) — browse every registered
-    ;; Malli schema across app-db slots + events + subs. Reads
-    ;; `re-frame.schemas.storage/schemas-by-frame` + the registrar's
-    ;; `:event` / `:sub` `:spec` slots. Source-coord chip dispatches
-    ;; `:rf.causa/open-in-editor` (open-in-editor installed above).
+    ;; Malli schema across app-db slots + events + subs. Reads the
+    ;; public `re-frame.schemas` façade (`rf/frame-ids` +
+    ;; `app-schemas` + `app-schema-meta-at`) + `(rf/registrations
+    ;; :event)` / `(rf/registrations :sub)` `:spec` slots. Source-coord
+    ;; chip dispatches `:rf.causa/open-in-editor` (open-in-editor
+    ;; installed above).
     (static-schemas-panel/install!)
     ;; Static Flows sub-tab (rf2-uhsqb) — browse every flow registered
-    ;; via `re-frame.flows/reg-flow`. Reads the per-frame flows atom
-    ;; `re-frame.flows.registry/flows`. Flows are frame-scoped per
-    ;; Spec 013 — the sub flattens the two-level shape into a single
-    ;; row vector for the view.
+    ;; via `re-frame.flows/reg-flow`. Reads the public
+    ;; `(rf/registrations :flow)` surface, regrouping the flat
+    ;; `{flow-id meta}` shape by each entry's stamped `:frame`. Flows
+    ;; are frame-scoped per Spec 013 — the sub flattens the two-level
+    ;; shape into a single row vector for the view.
     (static-flows-panel/install!)
     (reactive-panel/install!)
     (trace/install!)
