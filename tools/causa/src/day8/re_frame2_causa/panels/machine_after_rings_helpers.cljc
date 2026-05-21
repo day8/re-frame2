@@ -422,46 +422,55 @@
 
       (str state-s " · " (when status (name status))))))
 
-;; ---- geometry for the chart overlay -------------------------------------
+;; ---- xyflow overlay ring-specs (rf2-uv1on) -----------------------------
 
-(defn state-node-center
-  "Resolve the `[cx cy r]` triple for a chart-node corresponding to
-  `state`. `id-fn` is `chart.layout/highlight-id` (passed in to avoid
-  a compile-time dep from this ns into the chart layout); `node-index`
-  is the `{node-id node}` map produced by `arc-h/nodes->index`.
+(defn timer->ring-spec
+  "Project a single `timer` record into the presentation-ready ring
+  spec the machines-viz xyflow `AfterRingsOverlay` consumes. The
+  overlay walks the DOM to POSITION the ring (xyflow owns node
+  positions post-migration); this helper supplies the colour /
+  fraction / tooltip + the `:node-id` the overlay queries the DOM
+  for. Pure fn — JVM-runnable.
 
-  The radius is half the longer node dimension + a small breathing
-  gap so the ring sits OUTSIDE the node rectangle. Returns nil when
-  the state has no corresponding node in the positioned graph."
-  [state node-index id-fn]
-  (when (and state id-fn node-index)
-    (let [nid (id-fn state)
-          n   (get node-index nid)]
-      (when n
-        (let [cx (+ (:x n) (quot (:width n) 2))
-              cy (+ (:y n) (quot (:height n) 2))
-              ;; Radius = half-diagonal + a 4px breathing gap so the
-              ;; ring sits clearly outside the node's stroke.
-              w  (:width n)
-              h  (:height n)
-              r  (+ 4 (quot (long (Math/ceil (Math/sqrt
-                                               (+ (* w w) (* h h))))) 2))]
-          [cx cy r])))))
+  `id-fn` is `chart.layout/highlight-id` (passed in to keep this ns
+  free of a compile-time dep on the chart layout). It resolves the
+  timer's `:state` keyword / path to the string node-id xyflow stamps
+  on the bearing node's `data-testid`.
 
-(defn timers->ring-positions
-  "For each armed/cancelled `timer`, resolve its centre + radius via
-  `state-node-center`. Returns a vec of `{:timer <r> :cx :cy :r}` —
-  the view maps over this to render each ring. Pure fn.
+  `now-ms` is the wall-clock instant the fraction freezes at — live
+  mode passes the rAF-bumped now; retrospective mode passes the
+  scrubber's anchor time, so the ring's swept arc reflects the
+  scrubbed instant (scrubber-aware retro-replay).
 
-  Drops timers whose state has no corresponding chart node (e.g. a
-  compound parent without leaves in the projected graph)."
-  [timers node-index id-fn]
+  Returns nil when the state has no resolvable node-id."
+  [timer id-fn now-ms]
+  (when-let [nid (and id-fn (some-> (:state timer) id-fn))]
+    (let [state-id (if (keyword? (:state timer))
+                     (name (:state timer))
+                     (pr-str (:state timer)))]
+      {:node-id    nid
+       :fraction   (ring-fraction timer now-ms)
+       :color      (timer-color timer now-ms)
+       :cancelled? (= :cancelled (:status timer))
+       :tooltip    (format-timer-tooltip timer now-ms)
+       :testid     (str "rf-causa-machine-inspector-after-ring-" state-id)
+       ;; Carried through so the host's hover handler can key the
+       ;; timer-hover slot by its identity tuple.
+       :machine-id (:machine-id timer)
+       :state      (:state timer)
+       :epoch      (:epoch timer)})))
+
+(defn timers->ring-specs
+  "Map a vector of `timers` into machines-viz overlay ring-specs.
+  Drops timers whose state has no resolvable node-id. Pure fn —
+  JVM-runnable. Replaces the SVG-era `timers->ring-positions` (which
+  resolved `{:cx :cy :r}` from a positioned graph); positioning now
+  lives in the overlay's DOM walk, so this fn only carries the
+  presentation payload + the `:node-id` the overlay queries."
+  [timers id-fn now-ms]
   (vec
-    (keep
-      (fn [t]
-        (when-let [[cx cy r] (state-node-center (:state t) node-index id-fn)]
-          {:timer t :cx cx :cy cy :r r}))
-      (or timers []))))
+    (keep (fn [t] (timer->ring-spec t id-fn now-ms))
+          (or timers []))))
 
 ;; ---- tick driver gating -------------------------------------------------
 

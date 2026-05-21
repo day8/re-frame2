@@ -9,17 +9,26 @@
   time; in retrospective mode (scrubber not at `:present`) it freezes
   at the position it occupied when the scrubber was paused.
 
-  ## Architecture
+  ## Architecture (rf2-uv1on — xyflow Phase 2)
+
+  The rf2-gpzb4 xyflow migration moved POSITIONING out of this ns:
+  xyflow owns node positions in the rendered DOM, so the overlay must
+  WALK the DOM rather than read a positioned graph. The split is now:
 
     1. **Helpers (`machine_after_rings_helpers.cljc`)** — pure
        projection from the trace buffer into a vector of timer
-       records + the ring-fraction maths. JVM-runnable.
-    2. **This ns** — installs the sub/event family + mounts the SVG
-       overlay + drives the rAF tick loop that re-renders the rings
-       in live mode.
-    3. **`chart/svg.cljc`** — owns the `countdown-ring` primitive (a
-       pure-data SVG hiccup builder). The view here positions one ring
-       per active timer over the chart's positioned graph.
+       records + the ring-fraction maths + the
+       `timers->ring-specs` projection into machines-viz overlay
+       specs. JVM-runnable.
+    2. **This ns** — installs the sub/event family, drives the single
+       per-chart rAF tick loop (Lock #8), and is the DATA owner: it
+       projects the trace buffer into presentation-ready ring-specs
+       and delegates positioning + paint to (3).
+    3. **`day8.re-frame2-machines-viz.chart.overlays.after-rings`** —
+       the machines-viz xyflow overlay. Walks the rendered node DOM
+       (`[data-testid=rf-mv-chart-node-...]`) to position each ring +
+       paints the `countdown-ring` glyph. Owns no clock — it
+       re-measures whenever this ns re-renders it (tick bump).
 
   ## Subs/events surface
 
@@ -73,22 +82,10 @@
   (:require [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [day8.re-frame2-causa.chart.layout :as chart-layout]
-            [day8.re-frame2-causa.chart.svg :as chart-svg]
+            [day8.re-frame2-machines-viz.chart.overlays.after-rings
+             :as mv-after-rings]
             [day8.re-frame2-causa.panels.machine-after-rings-helpers
              :as rings-h]))
-
-;; ---- positioned-nodes index --------------------------------------------
-;;
-;; Build a `{node-id node}` map for cheap ring-overlay lookups. Inlined
-;; here (rf2-y9xmf) so the rings overlay does not depend on
-;; `machine_inspector_arc_helpers.cljc` (deleted with the arc UI).
-
-(defn- nodes->index
-  "Build a `{node-id node}` map for the positioned graph. Pure fn."
-  [positioned-nodes]
-  (into {}
-        (map (fn [n] [(:node-id n) n]))
-        (or positioned-nodes [])))
 
 ;; ---- wall-clock reader (overridable for tests) -------------------------
 
@@ -266,109 +263,75 @@
   []
   (swap! tick-state assoc :running? false))
 
-;; ---- view: SVG ring overlay --------------------------------------------
+;; ---- view: xyflow ring overlay -----------------------------------------
+;;
+;; rf2-uv1on (xyflow Phase 2) — positioning moved to the machines-viz
+;; `chart.overlays.after-rings/AfterRingsOverlay`, which WALKS the
+;; rendered xyflow node DOM (`[data-testid=rf-mv-chart-node-...]`) to
+;; find each bearing node's bounding box. xyflow owns node positions
+;; post-migration, so the old positioned-graph SVG model (resolving
+;; `{:cx :cy :r}` from elk coordinates + a viewport-transform) is
+;; gone. This ns stays the DATA owner: it projects Causa's trace
+;; buffer into presentation-ready ring-specs and drives the rAF tick
+;; clock; the machines-viz overlay owns DOM measurement + paint.
+
+(defn- timer-hovered!
+  "Wire a ring's hover into the Causa timer-hover slot. The overlay
+  passes the bearing node-id back; we re-resolve the timer identity
+  from the live spec list so the slot carries the full
+  `(machine-id, state, epoch)` tuple a follow-on rich tooltip wants."
+  [specs node-id]
+  (when-let [spec (some (fn [s] (when (= node-id (:node-id s)) s)) specs)]
+    (rf/dispatch [:rf.causa/timer-hover
+                  {:machine-id (:machine-id spec)
+                   :state      (:state spec)
+                   :epoch      (:epoch spec)}]
+                 {:frame :rf/causa})))
 
 (defn AfterRingsOverlay
-  "Renders the focused machine's `:after` countdown rings as an SVG
-  overlay positioned over the chart's `<svg>` viewport. Takes the
-  chart's positioned graph (so it can resolve timer states to node-
-  centres + radii); subscribes to the timers + now-ms internally.
+  "Mounts the focused machine's `:after` countdown rings over the
+  xyflow chart. Subscribes to the active timers + now-ms + scrubber
+  internally; projects each timer into a presentation-ready ring-spec
+  (scrubber-aware fraction baked in — retrospective mode freezes the
+  ring at the scrubber's anchor instant); kicks the single per-chart
+  rAF clock in live mode; then delegates positioning + paint to the
+  machines-viz `AfterRingsOverlay`, which walks the xyflow node DOM.
 
-  Accepts the positioned graph either as the first positional arg
-  (legacy single-arity call site) OR as the `:positioned` key in an
-  options map. The map form additionally accepts:
+  Accepts an optional opts map (currently unused — reserved for a
+  future per-call testid override). The legacy positioned-graph /
+  viewport-transform args are GONE (xyflow owns positions; the
+  overlay reads them off the DOM).
 
-    :viewport-transform — rf2-obp4z. Optional `{:scale s :tx tx :ty ty}`
-                          map carrying the chart's current zoom + pan.
-                          When supplied (non-identity), the rings group
-                          is wrapped in `<g transform=\"translate(tx,ty)
-                          scale(s)\">` so the rings track the chart
-                          nodes as the user zooms / pans. nil / absent
-                          leaves the overlay at 1:1 (back-compat for
-                          callers that don't have a viewport — the
-                          legacy single-arity Inspector path takes
-                          this branch).
-
-  Returns nil when the projection has no active timers (the SVG layer
-  drops out of the chart so unrelated chart hover handlers aren't
-  shadowed)."
-  ([positioned]
-   (AfterRingsOverlay positioned nil))
-  ([{:keys [nodes width height]} {:keys [viewport-transform]}]
-   (let [timers   @(rf/subscribe [:rf.causa/active-timers-for-focused-machine])
-         now      @(rf/subscribe [:rf.causa/now-ms])
-         scrub    @(rf/subscribe [:rf.causa/machine-scrubber-position])
-         node-idx (nodes->index nodes)
+  Returns nil when the projection has no active timers (the overlay
+  layer drops out so unrelated chart hover handlers aren't shadowed)."
+  ([] (AfterRingsOverlay nil))
+  ([_opts]
+   (let [timers @(rf/subscribe [:rf.causa/active-timers-for-focused-machine])
+         now    @(rf/subscribe [:rf.causa/now-ms])
+         scrub  @(rf/subscribe [:rf.causa/machine-scrubber-position])
          ;; Kick the rAF loop iff ticking is needed (live mode + at
          ;; least one armed timer). Cheap to call per render — the
-         ;; `:running?` sentinel collapses duplicate kicks.
-         _        (when (rings-h/needs-ticking? timers scrub)
-                    (kick-tick!))
-         rings    (rings-h/timers->ring-positions
-                    timers node-idx chart-layout/highlight-id)
-         ;; rf2-obp4z — align the rings with the chart's viewport
-         ;; transform. The chart wraps its body in `translate(tx,ty)
-         ;; scale(s)`; we mirror that transform on the rings group
-         ;; so the rings track their node centres under zoom + pan.
-         ;; When the viewport is identity (or absent) the transform
-         ;; attr is omitted entirely — back-compat: the legacy
-         ;; single-arity call site (Machine Inspector pre-canvas
-         ;; path) gets a byte-identical render.
-         {:keys [scale tx ty]
-          :or   {scale 1 tx 0 ty 0}}
-         (or viewport-transform {})
-         transform-applied? (or (not= 1 scale) (not= 0 tx) (not= 0 ty))
-         rings-transform    (when transform-applied?
-                              (str "translate(" tx "," ty ")"
-                                   " scale(" scale ")"))]
-     (when (seq rings)
-       [:svg {:data-testid "rf-causa-machine-inspector-after-rings-overlay"
-              :data-timer-count (count rings)
-              :data-viewport-scale (str scale)
-              :data-viewport-tx (str tx)
-              :data-viewport-ty (str ty)
-              :viewBox (str "0 0 " (or width 0) " " (or height 0))
-              :width "100%"
-              :preserveAspectRatio "xMidYMin meet"
-              :style {:position "absolute"
-                      :top 0
-                      :left 0
-                      :width "100%"
-                      :height "100%"
-                      :pointer-events "none"   ;; rings opt in below
-                      :overflow "visible"}}
-        (into [:g (cond-> {:data-testid "rf-causa-machine-inspector-after-rings"
-                           :style {:pointer-events "all"}}
-                    rings-transform (assoc :transform rings-transform))]
-              (for [{:keys [timer cx cy r]} rings
-                    :let [fraction (rings-h/ring-fraction timer now)
-                          color    (rings-h/timer-color timer now)
-                          cancelled? (= :cancelled (:status timer))
-                          tooltip  (rings-h/format-timer-tooltip timer now)
-                          state-id (if (keyword? (:state timer))
-                                     (name (:state timer))
-                                     (pr-str (:state timer)))
-                          testid   (str "rf-causa-machine-inspector-after-ring-"
-                                        state-id)]]
-                ^{:key (str (:state timer) "/" (:epoch timer))}
-                [:g {:on-mouse-enter
-                     (fn [_]
-                       (rf/dispatch [:rf.causa/timer-hover
-                                     {:machine-id (:machine-id timer)
-                                      :state      (:state timer)
-                                      :epoch      (:epoch timer)}]
-                                    {:frame :rf/causa}))
-                     :on-mouse-leave
-                     (fn [_]
+         ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8
+         ;; this is the SINGLE per-chart clock (O(charts), not
+         ;; O(rings × charts)); the machines-viz overlay runs no clock
+         ;; of its own — it just re-measures the DOM when `:tick` bumps.
+         _      (when (rings-h/needs-ticking? timers scrub)
+                  (kick-tick!))
+         specs  (rings-h/timers->ring-specs
+                  timers chart-layout/highlight-id now)]
+     (when (seq specs)
+       [mv-after-rings/AfterRingsOverlay
+        {:ring-specs specs
+         ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
+         ;; bumping it on every frame forces the overlay to re-measure
+         ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
+         ;; cadence, driven by THIS ns's clock, not the overlay's).
+         :tick       now
+         :testid     "rf-causa-machine-inspector-after-rings-overlay"
+         :on-hover   (fn [node-id] (timer-hovered! specs node-id))
+         :on-leave   (fn [_node-id]
                        (rf/dispatch [:rf.causa/timer-hover nil]
-                                    {:frame :rf/causa}))}
-                 (chart-svg/countdown-ring
-                   {:cx cx :cy cy :r r
-                    :fraction fraction
-                    :color    color
-                    :cancelled? cancelled?
-                    :testid   testid
-                    :tooltip  tooltip})]))]))))
+                                    {:frame :rf/causa}))}]))))
 
 ;; ---- public install entry -----------------------------------------------
 

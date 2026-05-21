@@ -65,7 +65,12 @@
         arc-len   (* f circ)
         gap-len   (- circ arc-len)
         token-key (get ring-color->token color :text-tertiary)
-        stroke    (get tokens/tokens token-key)
+        ;; rf2-uv1on — resolve through `var(--rf-causa-<key>, <hex>)`
+        ;; so light + dark themes both flow through the host's CSS
+        ;; custom-property surface (the xyflow overlay paints from the
+        ;; same palette the chart + host do). Falls back to the dark-
+        ;; palette hex for standalone embeds + the JVM hiccup tests.
+        stroke    (tokens/css-var token-key)
         opacity   (if cancelled? 0.4 0.85)]
     [:g {:data-testid    (or testid "rf-mv-chart-countdown-ring")
          :data-color     (name color)
@@ -74,7 +79,7 @@
          :pointer-events "all"}
      [:circle {:cx cx :cy cy :r r
                :fill "none"
-               :stroke (:border-subtle tokens/tokens)
+               :stroke (tokens/css-var :border-subtle)
                :stroke-width (* 0.6 sw)
                :opacity 0.4
                :pointer-events "none"}]
@@ -92,7 +97,7 @@
        (let [diag (long (* 0.707 r))]
          [:line {:x1 (- cx diag) :y1 (- cy diag)
                  :x2 (+ cx diag) :y2 (+ cy diag)
-                 :stroke (:red tokens/tokens)
+                 :stroke (tokens/css-var :red)
                  :stroke-width (* 0.8 sw)
                  :stroke-linecap "round"
                  :opacity 0.7

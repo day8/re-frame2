@@ -21,7 +21,9 @@
     5. `ring-color` / `timer-color`         — colour tier mapping +
                                               status-based overrides.
     6. `format-timer-tooltip`               — per-status messages.
-    7. `state-node-center` / `timers->ring-positions` — node geometry.
+    7. `timer->ring-spec` / `timers->ring-specs` — xyflow overlay
+       ring-spec projection (rf2-uv1on; replaced the SVG-era
+       `state-node-center` / `timers->ring-positions`).
     8. `needs-ticking?`                     — rAF tick driver gate.
     9. `ms-remaining`                       — tooltip-ms calc."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -319,45 +321,63 @@
                  {:state :idle :status :guard-suppressed :duration-ms 5000
                   :closed-at 2000} 3000))))
 
-;; ---- (7) state-node-center / timers->ring-positions --------------------
-
-(def ^:private fixture-nodes
-  ;; Two flat nodes — a chart of `:idle / :authing`.
-  [{:node-id :idle    :x 100 :y 100 :width 140 :height 48}
-   {:node-id :authing :x 300 :y 100 :width 140 :height 48}])
-
-(def ^:private fixture-node-index
-  ;; { :idle <node> :authing <node> }
-  (into {} (map (fn [n] [(:node-id n) n]) fixture-nodes)))
+;; ---- (7) timer->ring-spec / timers->ring-specs (rf2-uv1on) -------------
+;;
+;; Post-xyflow the helper no longer resolves `{:cx :cy :r}` from a
+;; positioned graph — xyflow owns positions in the DOM and the
+;; machines-viz overlay walks it. The helper now projects each timer
+;; into a presentation-ready ring-spec (`:node-id` + colour / fraction
+;; / tooltip); positioning is the overlay's job.
 
 (defn- id-fn
   "Stub the chart-layout/highlight-id resolver — flat keywords map to
-  themselves."
+  their string node-id (matching `chart.layout/node-id`'s shape for
+  flat states); a `:ghost` state resolves to nil so the spec is
+  dropped."
   [state]
   (cond
-    (keyword? state) state
-    (vector?  state) (first state)
+    (= :ghost state) nil
+    (keyword? state) (name state)
+    (vector?  state) (name (first state))
     :else            nil))
 
-(deftest state-node-center-returns-cx-cy-r
-  (let [[cx cy r] (h/state-node-center :idle fixture-node-index id-fn)]
-    (is (= 170 cx)  "x + width/2")
-    (is (= 124 cy)  "y + height/2")
-    (is (pos? r)    "radius is positive (half-diagonal + 4px gap)")))
+(deftest timer->ring-spec-carries-node-id-and-presentation-payload
+  (let [spec (h/timer->ring-spec
+               {:machine-id :auth/login :state :idle :status :armed
+                :armed-at 1000 :fires-at 6000 :duration-ms 5000 :epoch 0}
+               id-fn 2000)]
+    (is (= "idle" (:node-id spec)) "resolves the bearing node-id via id-fn")
+    (is (= 0.8    (:fraction spec)) "(6000-2000)/5000 = 0.8 remaining")
+    (is (= :green (:color spec))    "0.8 fraction → green tier")
+    (is (false?  (:cancelled? spec)))
+    (is (re-find #"idle" (:tooltip spec)))
+    (is (= "rf-causa-machine-inspector-after-ring-idle" (:testid spec)))
+    (is (= :auth/login (:machine-id spec)))
+    (is (= :idle (:state spec)))
+    (is (= 0 (:epoch spec)) "identity tuple carried for the hover slot")))
 
-(deftest state-node-center-nil-when-state-not-in-graph
-  (is (nil? (h/state-node-center :ghost fixture-node-index id-fn))))
+(deftest timer->ring-spec-cancelled-flag
+  (let [spec (h/timer->ring-spec
+               {:machine-id :m :state :idle :status :cancelled
+                :duration-ms 5000 :closed-at 2000} id-fn 3000)]
+    (is (true? (:cancelled? spec)))
+    (is (= :gray (:color spec)) "cancelled rings render gray")))
 
-(deftest state-node-center-nil-on-nil-state
-  (is (nil? (h/state-node-center nil fixture-node-index id-fn))))
+(deftest timer->ring-spec-nil-when-state-unresolvable
+  (is (nil? (h/timer->ring-spec {:state :ghost :status :armed} id-fn 1000))
+      "no node-id → no spec (overlay would have nothing to position)")
+  (is (nil? (h/timer->ring-spec {:state nil :status :armed} id-fn 1000))))
 
-(deftest timers-ring-positions-maps-each-armed-timer
-  (let [timers [{:state :idle    :status :armed}
-                {:state :authing :status :cancelled}
-                {:state :ghost   :status :armed}]   ;; dropped — no node
-        rings  (h/timers->ring-positions timers fixture-node-index id-fn)]
-    (is (= 2 (count rings)))
-    (is (every? (every-pred :cx :cy :r :timer) rings))))
+(deftest timers->ring-specs-maps-each-resolvable-timer
+  (let [timers [{:machine-id :m :state :idle    :status :armed
+                 :armed-at 1000 :fires-at 6000 :duration-ms 5000 :epoch 0}
+                {:machine-id :m :state :authing :status :cancelled
+                 :duration-ms 3000 :closed-at 2000 :epoch 0}
+                {:machine-id :m :state :ghost   :status :armed}]  ;; dropped
+        specs  (h/timers->ring-specs timers id-fn 2000)]
+    (is (= 2 (count specs)) "ghost (no node-id) is dropped")
+    (is (every? :node-id specs))
+    (is (= #{"idle" "authing"} (set (map :node-id specs))))))
 
 ;; ---- (8) needs-ticking? -------------------------------------------------
 
