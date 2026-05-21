@@ -8,7 +8,7 @@
 
   Tests pin `decode-all-frames` directly from
   `re-frame2-pair-mcp.nrepl` — the source ns is the contract."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [applied-science.js-interop :as j]
             ["bencode" :as bencode]
             ["fs" :as fs]
@@ -163,6 +163,61 @@
       (fn []
         (is (nil? (nrepl/read-port-from-fs)))))))
 
+;; ---------------------------------------------------------------------------
+;; --port-file explicit override (rf2-3dbwh). The 1-arity `read-port-from-fs`
+;; takes an explicit, cwd-independent path that wins over BOTH the env var and
+;; the relative file-scan candidates. nil/blank ⇒ falls through to the normal
+;; precedence chain.
+;; ---------------------------------------------------------------------------
+
+(deftest port-discovery-explicit-port-file-wins-over-env
+  (testing "an explicit --port-file path beats SHADOW_CLJS_NREPL_PORT"
+    ;; env says 7777, the explicit file says 9001 → explicit wins. The
+    ;; env must NOT short-circuit ahead of the explicit path.
+    (with-fs-stub! "7777"
+      (read-returning "explicit/nrepl\\.port" "9001")
+      (fn []
+        (is (= 9001 (nrepl/read-port-from-fs "explicit/nrepl.port"))
+            "explicit --port-file is highest precedence")))))
+
+(deftest port-discovery-explicit-port-file-wins-over-file-scan
+  (testing "an explicit --port-file path beats the cwd-relative candidates"
+    (with-fs-stub! nil
+      (fn [^js path]
+        (let [p (str path)]
+          (cond
+            (re-find #"explicit[\\/]nrepl\.port" p) "9002"
+            (re-find #"target/shadow-cljs/nrepl\.port" p) "6001"
+            :else (throw (js/Error. "ENOENT")))))
+      (fn []
+        (is (= 9002 (nrepl/read-port-from-fs "explicit/nrepl.port"))
+            "explicit path wins over the relative scan")))))
+
+(deftest port-discovery-explicit-port-file-trimmed-and-parsed
+  (testing "explicit-path content is trimmed + parsed like the candidates"
+    (with-fs-stub! nil
+      (read-returning "explicit/nrepl\\.port" "  9003  \n")
+      (fn []
+        (is (= 9003 (nrepl/read-port-from-fs "explicit/nrepl.port")))))))
+
+(deftest port-discovery-explicit-port-file-missing-falls-through
+  (testing "an absent explicit path falls through to env then file scan"
+    ;; The explicit path throws ENOENT; env (7777) must then resolve.
+    (with-fs-stub! "7777" throwing-read
+      (fn []
+        (is (= 7777 (nrepl/read-port-from-fs "nope/missing.port"))
+            "missing --port-file ⇒ fall through to env")))))
+
+(deftest port-discovery-explicit-port-file-nil-is-normal-chain
+  (testing "nil explicit path behaves exactly like the 0-arity chain"
+    (with-fs-stub! nil
+      (read-returning "target/shadow-cljs/nrepl.port" "6001")
+      (fn []
+        (is (= 6001 (nrepl/read-port-from-fs nil))
+            "nil explicit ⇒ normal env→file precedence")
+        (is (= 6001 (nrepl/read-port-from-fs))
+            "0-arity stays equivalent")))))
+
 ;; ===========================================================================
 ;; Transport data-handler — `attach-handlers!` (rf2-wnrpi, finding G3).
 ;;
@@ -293,3 +348,60 @@
       (is (= {} (:pending @conn)) "pending cleared so no stale resolvers")
       (is (= #{} (:probed-builds @conn))
           "probe cache cleared — a fresh connect must re-probe the preload"))))
+
+;; ===========================================================================
+;; `send-op!` connect→write race nil-guard (rf2-av5kl).
+;;
+;; `connect!`'s fast path resolves immediately when a live socket is present,
+;; but the socket close/error handlers can fire in the window between that
+;; resolve and the actual `.write`. If `:socket` got nilled by `close!` in
+;; that window, a bare `(.write nil ...)` would throw an opaque native
+;; "Cannot read .write of null" AND strand the just-registered id in
+;; `:pending`. We simulate the race by nilling `:socket` synchronously after
+;; the send-op! call but before the `.then` microtask runs.
+;; ===========================================================================
+
+(deftest send-op!-nil-socket-rejects-structured-and-cleans-pending
+  (testing "socket dropped between connect-resolve and write → structured reject, no pending leak"
+    (async done
+      (let [writes (atom 0)
+            ;; A fake live socket so connect!'s fast path resolves immediately.
+            sock   (j/lit {:write (fn [_] (swap! writes inc) nil)})
+            conn   (nrepl/make-conn 0 "127.0.0.1")]
+        ;; Pre-seed a healthy connection so connect! returns Promise.resolve.
+        (swap! conn assoc :socket sock :closed? false)
+        (let [p (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})]
+          ;; Synchronously — before the .then microtask writes — drop the
+          ;; socket exactly as a racing close! would.
+          (swap! conn assoc :socket nil)
+          (-> p
+              (.then (fn [_]
+                       (is false "send-op! must REJECT when the socket is nil at write time")
+                       (done)))
+              (.catch (fn [err]
+                        (is (= "nREPL socket dropped before write — retry to reconnect"
+                               (.-message err))
+                            "structured retry-to-reconnect message, not the native NPE")
+                        (is (zero? @writes) "no write attempted against a nil socket")
+                        (is (= {} (:pending @conn))
+                            "the just-registered id is dissoc'd — no pending leak")
+                        (done)))))))))
+
+(deftest send-op!-live-socket-writes-normally
+  (testing "with a live socket present at write time, send-op! writes the encoded op"
+    (async done
+      (let [writes (atom [])
+            sock   (j/lit {:write (fn [buf] (swap! writes conj buf) nil)})
+            conn   (nrepl/make-conn 0 "127.0.0.1")]
+        (swap! conn assoc :socket sock :closed? false)
+        ;; Don't drop the socket — the write should happen, the op stays
+        ;; pending (no :done frame is ever fed), and we just assert the write
+        ;; landed then resolve the test.
+        (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})
+        ;; Let the connect! fast-path microtask run before asserting.
+        (js/queueMicrotask
+          (fn []
+            (is (= 1 (count @writes)) "exactly one write against the live socket")
+            (is (= 1 (count (:pending @conn)))
+                "the op is registered as pending awaiting its :done frame")
+            (done)))))))

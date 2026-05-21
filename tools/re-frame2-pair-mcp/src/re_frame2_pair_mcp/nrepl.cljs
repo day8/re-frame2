@@ -51,20 +51,43 @@
    ".shadow-cljs/nrepl.port"
    ".nrepl-port"])
 
+(defn- read-port-file
+  "Read + parse an nREPL port from a single file `path`. Returns an
+  integer or nil (file absent / unreadable / non-numeric content)."
+  [path]
+  (try
+    (let [content (str/trim (.toString (.readFileSync fs path)))
+          n       (js/parseInt content 10)]
+      (when-not (js/isNaN n) n))
+    (catch :default _ nil)))
+
 (defn read-port-from-fs
   "Read the nREPL port from the standard shadow-cljs / nrepl locations.
-  Returns an integer or nil."
-  []
-  (or (when-let [env (j/get-in js/process [:env :SHADOW_CLJS_NREPL_PORT])]
-        (let [n (js/parseInt env 10)]
-          (when-not (js/isNaN n) n)))
-      (some (fn [path]
-              (try
-                (let [content (str/trim (.toString (.readFileSync fs path)))
-                      n       (js/parseInt content 10)]
-                  (when-not (js/isNaN n) n))
-                (catch :default _ nil)))
-            port-file-candidates)))
+  Returns an integer or nil.
+
+  ## Precedence (highest first)
+
+    1. `--port-file <path>`   explicit, cwd-independent escape hatch
+                              (rf2-3dbwh). Passed as `explicit-port-file`.
+    2. `$SHADOW_CLJS_NREPL_PORT` env var.
+    3. `target/shadow-cljs/nrepl.port`  ┐
+    4. `.shadow-cljs/nrepl.port`        ├ cwd-relative scan (steps 3-5).
+    5. `.nrepl-port`                    ┘
+
+  The file-scan candidates (steps 3-5) are bare relative paths resolved
+  against `process.cwd()`. An MCP server launched as a subprocess of the
+  agent host (Claude Code / Cursor / Copilot) frequently has a cwd that
+  is NOT the consumer project root — in that case the scan misses
+  silently and only the env var or `--port-file` work. `--port-file`
+  (step 1) is the cwd-independent escape hatch; see the tool README."
+  ([] (read-port-from-fs nil))
+  ([explicit-port-file]
+   (or (when (and explicit-port-file (seq explicit-port-file))
+         (read-port-file explicit-port-file))
+       (when-let [env (j/get-in js/process [:env :SHADOW_CLJS_NREPL_PORT])]
+         (let [n (js/parseInt env 10)]
+           (when-not (js/isNaN n) n)))
+       (some read-port-file port-file-candidates))))
 
 ;; ---------------------------------------------------------------------------
 ;; bencode framing — handle concatenated frames in one TCP packet.
@@ -279,8 +302,23 @@
                             (resolve @state)))))]
                 (swap! conn-atom assoc-in [:pending id] on-frame)
                 (let [op (j/assoc! (clj->js op-map) "id" id)
+                      ;; rf2-av5kl: re-read `:socket` immediately before the
+                      ;; write. `connect!` guarantees a live socket at resolve
+                      ;; time, but the close/error handlers (attach-handlers!)
+                      ;; can fire in the window between resolve and this write —
+                      ;; `close!` nils `:socket`. A bare `(.write nil ...)` would
+                      ;; throw an opaque native "Cannot read .write of null" in
+                      ;; the Promise executor AND strand the just-registered id
+                      ;; in `:pending`. Guard explicitly: clean up the pending
+                      ;; entry + timer and reject with a structured,
+                      ;; retry-to-reconnect message instead of the native NPE.
                       ^js sock (:socket @conn-atom)]
-                  (.write sock (bencode/encode op))))))))
+                  (if sock
+                    (.write sock (bencode/encode op))
+                    (do
+                      (swap! conn-atom update :pending dissoc id)
+                      (js/clearTimeout timer)
+                      (reject (js/Error. "nREPL socket dropped before write — retry to reconnect"))))))))))
       (.catch (fn [err] (js/Promise.reject err))))))
 
 ;; ---------------------------------------------------------------------------

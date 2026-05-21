@@ -5,11 +5,12 @@
 
   ## Lifecycle
 
-  1. boot: read nREPL port from `SHADOW_CLJS_NREPL_PORT` env or the
-     standard port-files. Open the persistent socket lazily on first
-     tool call (so the server starts cleanly even before shadow-cljs
-     is running — the first tool that needs the socket gets a
-     structured error).
+  1. boot: read nREPL port from the `--port-file <path>` flag, the
+     `SHADOW_CLJS_NREPL_PORT` env var, or the standard cwd-relative
+     port-files (in that precedence — see `nrepl/read-port-from-fs`).
+     Open the persistent socket lazily on first tool call (so the
+     server starts cleanly even before shadow-cljs is running — the
+     first tool that needs the socket gets a structured error).
   2. `initialize`: standard MCP handshake.
   3. `tools/list`: returns the twelve tool descriptors (the seven
      bash-shim-overlap ops `discover-app` / `eval-cljs` / `dispatch` /
@@ -51,19 +52,25 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- resolve-port
-  "Look up the nREPL port. Returns an integer or throws with a hint."
-  []
-  (or (nrepl/read-port-from-fs)
+  "Look up the nREPL port. Returns an integer or throws with a hint.
+
+  `explicit-port-file` (from the `--port-file <path>` launch flag) takes
+  precedence over the env var and the cwd-relative file scan — see
+  `nrepl/read-port-from-fs` and the tool README (rf2-3dbwh)."
+  [explicit-port-file]
+  (or (nrepl/read-port-from-fs explicit-port-file)
       (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
                       {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
                        :where    'pair-mcp/resolve-port
                        :recovery :no-recovery
                        :reason   (str "nREPL port not found. Start your shadow-cljs dev build "
                                       "(`shadow-cljs watch <build>`), or set "
-                                      "SHADOW_CLJS_NREPL_PORT explicitly.")}))))
+                                      "SHADOW_CLJS_NREPL_PORT explicitly, or pass "
+                                      "`--port-file <absolute-path-to-nrepl.port>` "
+                                      "(the cwd-independent escape hatch).")}))))
 
-(defn- new-conn []
-  (let [port (resolve-port)]
+(defn- new-conn [explicit-port-file]
+  (let [port (resolve-port explicit-port-file)]
     (log! "nREPL port =" port)
     (nrepl/make-conn port "127.0.0.1")))
 
@@ -143,9 +150,35 @@
                                          :text (pr-str payload)}]
              :structuredContent (clj->js payload)}))))
 
+(defn- parse-port-file-flag
+  "Pluck the value of the `--port-file` launch flag out of `argv`.
+  Accepts both the space form `--port-file <path>` and the equals form
+  `--port-file=<path>`. Returns the path string, or nil if absent /
+  given without a value. Last occurrence wins (consistent with argv
+  override semantics). Public-ish (private) — exercised via
+  `parse-launch-flags` in tests."
+  [argv]
+  (loop [items argv
+         found nil]
+    (if-let [item (first items)]
+      (cond
+        ;; --port-file=<path>
+        (str/starts-with? item "--port-file=")
+        (recur (rest items) (subs item (count "--port-file=")))
+
+        ;; --port-file <path>  (value is the next argv element)
+        (= item "--port-file")
+        (let [v (second items)]
+          (if (and v (not (str/starts-with? v "--")))
+            (recur (drop 2 items) v)
+            (recur (rest items) found)))
+
+        :else
+        (recur (rest items) found))
+      found)))
+
 (defn parse-launch-flags
-  "Pluck the named boolean launch flags out of the raw process argv. Two
-  flags today:
+  "Pluck the named launch flags out of the raw process argv. Flags today:
 
     --allow-eval             — opt-in to the `eval-cljs` tool (rf2-cxx5s
                                cascade from rf2-czv3p). Default OFF.
@@ -155,16 +188,22 @@
                                Default OFF. Canonical cross-MCP name
                                (rf2-2x3ql) — matches story-mcp's identically
                                named gate (rf2-g9fje / rf2-uaymx).
+    --port-file <path>       — explicit, cwd-independent nREPL port-file
+                               path (rf2-3dbwh). Highest precedence in the
+                               port-discovery chain — see
+                               `nrepl/read-port-from-fs`. Accepts both
+                               `--port-file <path>` and `--port-file=<path>`.
 
-  Returns `{:allow-eval? bool :allow-raw-state? bool}`. The internal
-  keyword `:allow-raw-state?` is the pair-mcp implementation-side
-  identifier for the gate's state; the CLI flag is the operator-facing
-  name. Unknown flags are ignored — node's shadow-cljs entry passes its
-  own argv prelude (script path), and future flags can land here without
-  breaking older invocations."
+  Returns `{:allow-eval? bool :allow-raw-state? bool :port-file str-or-nil}`.
+  The internal keyword `:allow-raw-state?` is the pair-mcp
+  implementation-side identifier for the gate's state; the CLI flag is the
+  operator-facing name. Unknown flags are ignored — node's shadow-cljs
+  entry passes its own argv prelude (script path), and future flags can
+  land here without breaking older invocations."
   [argv]
   {:allow-eval?      (boolean (some #{"--allow-eval"} argv))
-   :allow-raw-state? (boolean (some #{"--allow-sensitive-reads"} argv))})
+   :allow-raw-state? (boolean (some #{"--allow-sensitive-reads"} argv))
+   :port-file        (parse-port-file-flag argv)})
 
 (defn- apply-launch-flags!
   "Wire launch-flag state into the relevant tool gates. Called once
@@ -195,20 +234,23 @@
                " abuse-window-ms="           (:abuse-window-ms merged)))))
 
 (defn main [& args]
-  (let [argv (vec args)]
-    (apply-launch-flags! (parse-launch-flags argv))
-    (apply-resource-controls! argv))
-  (try
-    (let [conn   (new-conn)
-          server (boot! conn)]
-      (log! "starting stdio transport")
-      (connect-transport! server "ready — awaiting MCP frames on stdin"))
-    (catch :default e
-      (log! "boot failed:" (.-message e))
-      ;; Even on boot failure (e.g. nREPL port missing) we keep the
-      ;; process alive so the MCP client can talk to us, list tools,
-      ;; and surface a structured error from the first tool call. The
-      ;; bash-shim chain had the same semantics — the error came back
-      ;; as `{:ok? false :reason :nrepl-port-not-found}`.
-      (let [server (build-server (degraded-handler e))]
-        (connect-transport! server "ready (degraded — no nREPL port)")))))
+  (let [argv         (vec args)
+        launch-flags (parse-launch-flags argv)]
+    (apply-launch-flags! launch-flags)
+    (apply-resource-controls! argv)
+    (when-let [pf (:port-file launch-flags)]
+      (log! "nREPL port-file (--port-file):" pf))
+    (try
+      (let [conn   (new-conn (:port-file launch-flags))
+            server (boot! conn)]
+        (log! "starting stdio transport")
+        (connect-transport! server "ready — awaiting MCP frames on stdin"))
+      (catch :default e
+        (log! "boot failed:" (.-message e))
+        ;; Even on boot failure (e.g. nREPL port missing) we keep the
+        ;; process alive so the MCP client can talk to us, list tools,
+        ;; and surface a structured error from the first tool call. The
+        ;; bash-shim chain had the same semantics — the error came back
+        ;; as `{:ok? false :reason :nrepl-port-not-found}`.
+        (let [server (build-server (degraded-handler e))]
+          (connect-transport! server "ready (degraded — no nREPL port)"))))))
