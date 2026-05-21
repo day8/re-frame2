@@ -1,7 +1,7 @@
 {
   "name": "@day8/re-frame2-causa",
   "version": "0.1.0-alpha.1",
-  "description": "Read-only tour skill for Causa — the re-frame2 in-app devtools panel. Teaches how to launch Causa (true-inline, pop-out, programmatic, hotkeys) and which of its 13 panels surfaces the data you're looking for.",
+  "description": "Read-only tour skill for Causa — the re-frame2 in-app devtools panel. Teaches how to launch Causa (true-inline, pop-out, programmatic, hotkeys, Dynamic ↔ Static mode toggle) and which tab — across the 8 Dynamic event-spine tabs and 5 Static registry-browse tabs — surfaces the data you're looking for.",
   "keywords": [
     "claude-code",
     "claude-code-skill",

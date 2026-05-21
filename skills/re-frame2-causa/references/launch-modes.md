@@ -56,7 +56,9 @@ The preload runs four foundation side-effects (per
 3. Register the epoch collector via `register-epoch-listener!` under
  `:rf.causa/epoch-collector` (no-op when the
  `day8/re-frame2-epoch` artefact is absent).
-4. Attach the global `Ctrl+Shift+C` keydown listener.
+4. Attach the global keydown listener (one capture-phase handler routing
+ `Ctrl+Shift+C` shell-toggle, `Cmd/Ctrl+Shift+M` mode-toggle,
+ `Cmd/Ctrl+K` command-palette, and the focus-gated spine keys).
 
 It schedules an auto-open into `[data-rf-causa-host]` once
 `current-adapter` is ready. The preload MUST NOT mount synchronously
@@ -205,21 +207,24 @@ Caveats inherited from the `window.opener` posture:
 
 ## Wired hotkeys
 
-Only two listeners are attached today (`keybinding.cljs`), both using
-Ctrl+Shift to avoid Safari's Cmd+Shift+C Inspect collision on macOS:
+Four hotkey families have keydown listeners attached today
+(`keybinding.cljs`). Three are **global**; the fourth is **focus-gated**
+(fires only inside the Causa shell, on non-editable, non-modal targets):
 
-| Key | What it does |
-|---|---|
-| `Ctrl+Shift+C` | Toggle the Causa shell (mount on first press; CSS show/hide thereafter). |
+| Key | Scope | What it does |
+|---|---|---|
+| `Ctrl+Shift+C` | global | Toggle the Causa shell (mount on first press; CSS show/hide thereafter). `Ctrl+Shift` avoids Safari's `Cmd+Shift+C` Inspect collision on macOS. |
+| `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static (`:rf.causa/toggle-mode`). Cmd on macOS, Ctrl elsewhere. |
+| `Cmd/Ctrl+K` | global | Open the command palette (`:rf.causa/palette-toggle`); opens the shell first if it's hidden. Cmd on macOS, Ctrl elsewhere. |
+| `Space` `L` `j` `k` `G` `,`/`s` `Esc` | focus-gated | Spine + chrome shortcuts. Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup · `Esc` = clear the focus lens. |
 
 [`spec/007-UX-IA.md` §Keyboard](../../../tools/causa/spec/007-UX-IA.md#keyboard)
-catalogues additional shortcuts (`?`, `,`, `Ctrl+F`, `Esc`, `j`/`k`,
-`[`/`]`, panel-jump mnemonics). These are normative for the future but
-require focus inside Causa today; most are per-panel rather than
-global. The historical `Ctrl+K` command palette was never wired and
-was struck under (Cluster C cleanup) — do not surface it
-as a launch path. The command palette opens through the top-strip
-control once that surface lands.
+catalogues additional shortcuts that remain normative for the future but
+are not yet wired. Note: `Cmd/Ctrl+K` **is** wired today (the command
+palette) — do not say it was struck. Embed hosts can suppress Causa's
+global listeners via `:rf.causa/keybinding-enabled?` (e.g. Story's RHS, so
+its own `Cmd/Ctrl+K` palette is not swallowed). Source of truth:
+[`keybinding.cljs`](../../../tools/causa/src/day8/re_frame2_causa/keybinding.cljs).
 
 ## Hidden-state semantics
 
