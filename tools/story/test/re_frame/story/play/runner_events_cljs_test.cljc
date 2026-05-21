@@ -13,59 +13,167 @@
 
   - The runner's pure state machine (via `runner-test`).
   - The chip + banner label helpers (via `play-status-cljs-test`).
-  - `coerce-script` lifts (verified inline below)."
-  (:require [clojure.test :refer [deftest is testing #?(:clj use-fixtures)]]
+  - The dispatch→assertion outcome-matching bridge (`failed-since` +
+    `dispatch-step-result`, exercised directly below — rf2-uhq5j)."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.play.runner :as runner]
-            #?@(:clj
-                [[re-frame.core             :as rf]
-                 [re-frame.frame            :as frame]
-                 [re-frame.registrar        :as registrar]
-                 [re-frame.story            :as story]
-                 [re-frame.story.assertions :as assertions]
-                 [re-frame.story.async      :as async]
-                 [re-frame.story.config     :as config]
-                 [re-frame.story.loaders    :as loaders]
-                 [re-frame.story.play       :as legacy-play]
-                 [re-frame.story.play.runner-events :as re]
-                 [re-frame.machines         :as machines]
-                 [re-frame.substrate.plain-atom :as plain-atom]])))
+            [re-frame.core              :as rf]
+            [re-frame.frame             :as frame]
+            [re-frame.story             :as story]
+            [re-frame.story.assertions  :as assertions]
+            [re-frame.story.loaders     :as loaders]
+            [re-frame.story.play        :as legacy-play]
+            [re-frame.story.play.runner-events :as re]
+            [re-frame.machines          :as machines]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.registrar         :as registrar]
+            ;; `re-frame.story.async/deref-blocking` is JVM-only (it
+            ;; blocks a thread) and `config/set-global-args!` is only
+            ;; needed by the JVM `reset-all` lineage — the integration
+            ;; tests below that use them are themselves JVM-gated.
+            #?@(:clj [[re-frame.story.async  :as async]
+                      [re-frame.story.config :as config]])))
+
+;; ---- CLJS+JVM: the dispatch→assertion outcome-matching bridge -----------
+;;
+;; `failed-since` + `dispatch-step-result` (runner_events.cljc) turn a
+;; handler-recorded `:rf.assert/*` failure into a runner `step-fail` so
+;; the play's terminal status flips. Before rf2-uhq5j these were hit only
+;; transitively via the heavy JVM `run-blocking` integration tests below;
+;; this section drives them directly on BOTH runtimes by seeding a known
+;; `:rf.story/assertions` vector on a live frame, then asserting the
+;; step-fail / step-skip shape + `:message`/`:expected`/`:actual`
+;; projection. Both fns are private — reached via var-quote (the
+;; established Story-test seam pattern, e.g. play/listener-for-frame).
+
+(def ^:private failed-since        @#'re/failed-since)
+(def ^:private dispatch-step-result @#'re/dispatch-step-result)
+
+(def ^:private bridge-frame :story.bridge/frame)
+
+(defn- seed-assertions!
+  "Append each record in `recs` to `bridge-frame`'s `:rf.story/assertions`
+  via a real `dispatch-sync`, mirroring how the `:rf.assert/*` handlers
+  land their records. Returns the post-seed assertion count."
+  [recs]
+  (doseq [r recs]
+    (rf/dispatch-sync [::seed r] {:frame bridge-frame}))
+  (count (:rf.story/assertions (rf/get-frame-db bridge-frame))))
+
+(defn- bridge-reset!
+  "Single namespace fixture (rf2-uhq5j unified the prior JVM-only
+  `reset-all`). Resets every Story side-table + the re-frame frame
+  registry, reinstalls the canonical vocabulary, and registers the
+  bridge test frame + its `::seed` event. Runs on both runtimes; the
+  JVM-only `:reload` of machines + `config/set-global-args!` are gated."
+  [test-fn]
+  (story/clear-all!)
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (try (rf/init! plain-atom/adapter)
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+  #?(:clj (require 're-frame.machines :reload))
+  (machines/reset-timers!)
+  (loaders/clear-watchers!)
+  #?(:clj (config/set-global-args! {}))
+  (reset! assertions/trace-accumulators {})
+  (reset! legacy-play/stepper-state {})
+  (reset! re/run-state {})
+  (story/install-canonical-vocabulary!)
+  (frame/ensure-default-frame!)
+  (frame/reg-frame bridge-frame {:doc "outcome-matching bridge test frame"})
+  (rf/reg-event-db ::seed
+    (fn [db [_ rec]]
+      (update db :rf.story/assertions (fnil conj []) rec)))
+  (test-fn))
+
+(use-fixtures :each bridge-reset!)
+
+(deftest failed-since-filters-to-failures-after-prev-count
+  (testing "failed-since returns only the :passed? false records appended
+            after prev-count — the dispatched event's contribution"
+    (let [prev (seed-assertions! [{:passed? true  :id :rf.assert/path-equals}])
+          _    (seed-assertions! [{:passed? false :id :rf.assert/path-equals
+                                   :expected :loaded :actual :idle :message "boom"}
+                                  {:passed? true  :id :rf.assert/path-equals}])
+          out  (failed-since bridge-frame prev)]
+      (is (= 1 (count out))
+          "only the one new failing record is returned — the earlier pass
+           (before prev-count) and the trailing pass are excluded")
+      (is (= :loaded (:expected (first out))))
+      (is (= :idle   (:actual   (first out)))))))
+
+(deftest failed-since-empty-when-no-new-failures
+  (testing "failed-since is empty when nothing failed since prev-count"
+    (let [prev (seed-assertions! [{:passed? false :id :rf.assert/path-equals}])]
+      ;; prior failure is BEFORE prev-count; a clean pass lands after.
+      (seed-assertions! [{:passed? true :id :rf.assert/path-equals}])
+      (is (empty? (failed-since bridge-frame prev))
+          "the pre-prev failure is excluded; the post-prev pass is filtered"))))
+
+(deftest failed-since-tolerates-prev-count-overshoot
+  (testing "failed-since clamps prev-count to the current length (subvec
+            never throws even if the accumulator shrank)"
+    (seed-assertions! [{:passed? false :id :rf.assert/path-equals}])
+    (is (= [] (failed-since bridge-frame 999))
+        "an out-of-range prev-count yields an empty slice, not an error")))
+
+(deftest dispatch-step-result-projects-failure-to-step-fail
+  (testing "a new failing assertion since prev becomes a runner step-fail
+            carrying the record's :expected / :actual / :message"
+    (let [step [:dispatch-sync [:rf.assert/path-equals [:status] :loaded]]
+          prev (seed-assertions! [])
+          _    (seed-assertions! [{:passed? false :id :rf.assert/path-equals
+                                   :expected :loaded :actual :idle
+                                   :message  "expected :loaded, got :idle"}])
+          out  (dispatch-step-result bridge-frame prev 3 step)]
+      (is (false? (:passed? out)) "the step result flips to fail")
+      (is (= :dispatch-sync (:type out)) "step-type is preserved")
+      (is (= 3 (:idx out)))
+      (is (= step (:step out)))
+      (is (= :loaded (:expected out)))
+      (is (= :idle   (:actual out)))
+      (is (= "expected :loaded, got :idle" (:message out))))))
+
+(deftest dispatch-step-result-synthesizes-message-when-record-has-none
+  (testing "when the failing record carries no :message, the bridge
+            synthesizes one from :id / :payload / :expected / :actual"
+    (let [step [:dispatch [:rf.assert/path-equals [:k] 1]]
+          prev (seed-assertions! [])
+          _    (seed-assertions! [{:passed? false :id :rf.assert/path-equals
+                                   :payload  [[:k] 1] :expected 1 :actual 0}])
+          out  (dispatch-step-result bridge-frame prev 0 step)]
+      (is (false? (:passed? out)))
+      (is (re-find #":rf.assert/path-equals" (:message out))
+          "the synthesized message names the assertion id")
+      (is (re-find #"expected 1" (:message out)))
+      (is (re-find #"actual 0"   (:message out))))))
+
+(deftest dispatch-step-result-skips-when-no-failure
+  (testing "a dispatch that contributed no failing assertion is a
+            step-skip — :passed? nil, so it doesn't count toward failures"
+    (let [step [:dispatch-sync [:some/event]]
+          prev (seed-assertions! [{:passed? true :id :rf.assert/path-equals}])]
+      ;; A clean pass lands after prev — no failures contributed.
+      (seed-assertions! [{:passed? true :id :rf.assert/path-equals}])
+      (let [out (dispatch-step-result bridge-frame prev 1 step)]
+        (is (nil? (:passed? out)) "step-skip leaves :passed? nil")
+        (is (= :dispatch-sync (:type out)))
+        (is (= 1 (:idx out)))
+        (is (= step (:step out)))))))
 
 ;; ---- CLJS-runnable: pure-data coverage of the script lift ---------------
-
-(deftest bare-event-vector-lift-via-coerce
-  (testing "a bare [:event ...] entry in :script lifts to [:dispatch <vec>]"
-    (is (= [[:dispatch [:rt/touch]] [:dispatch [:rt/touch]]]
-           (runner/coerce-script [[:rt/touch] [:rt/touch]])))
-    (let [spec (runner/parse-spec {:auto-run? false
-                                    :script    [[:rt/touch]
-                                                [:wait 0]
-                                                [:assert-db [:k] nil]]})]
-      (is (= [[:dispatch [:rt/touch]]
-              [:wait 0]
-              [:assert-db [:k] nil]]
-             (:script spec))))))
+;;
+;; (rf2-uhq5j) the former `bare-event-vector-lift-via-coerce` test here
+;; was removed: it duplicated the pure `coerce-script` / `parse-spec`
+;; contract already asserted in `runner-test`
+;; (coerce-script-lifts-bare-event-vectors + parse-spec-lifts-bare-
+;; vectors-inside-map). The wrong-layer copy added no signal.
 
 ;; ---- JVM-only: integration tests against a live re-frame frame ----------
-
-#?(:clj
-   (defn reset-all [test-fn]
-     (story/clear-all!)
-     (registrar/clear-all!)
-     (reset! frame/frames {})
-     (try (rf/init! plain-atom/adapter)
-          (catch clojure.lang.ExceptionInfo _ nil))
-     (require 're-frame.machines :reload)
-     (machines/reset-timers!)
-     (loaders/clear-watchers!)
-     (config/set-global-args! {})
-     (reset! assertions/trace-accumulators {})
-     (reset! legacy-play/stepper-state    {})
-     (reset! re/run-state                 {})
-     (story/install-canonical-vocabulary!)
-     (frame/ensure-default-frame!)
-     (test-fn)))
-
-#?(:clj (use-fixtures :each reset-all))
+;;
+;; These reuse the namespace-wide `bridge-reset!` fixture above (which
+;; unified the prior JVM-only `reset-all`).
 
 #?(:clj
    (defn- run-blocking
