@@ -296,10 +296,10 @@
         ;; the wall-clock would fire it at 30000ms; the synthetic event
         ;; drives the same code path deterministically).
         (let [epoch (or (get-in (snapshot :app/after-test)
-                                [:data :rf/after-epoch])
+                                [:data :rf/after-epoch [:authenticating]])
                         0)]
           (rf/dispatch-sync [:app/after-test
-                             [:rf.machine.timer/after-elapsed 30000 epoch]]))
+                             [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]]))
         (is (= :timed-out (:state (snapshot :app/after-test)))
             ":after firing exited :authenticating to :timed-out")
         (is (empty? (http-managed/actor-in-flight-snapshot))

@@ -177,7 +177,9 @@
           ;; current :after-epoch from :data and fire the after-elapsed
           ;; event keyed by the fn-form spec.
           (let [snap-now (snapshot (rf/get-frame-db f))
-                epoch    (get-in snap-now [:data :rf/after-epoch])
+                ;; Per Spec 005 §Hierarchy interaction the epoch is
+                ;; per-decl-path; :reconnecting is the :after-bearing node.
+                epoch    (get-in snap-now [:data :rf/after-epoch [:reconnecting]])
                 ;; The :after table on :reconnecting has exactly one
                 ;; entry — the fn-form delay. Pull it out so we can
                 ;; replay the matching synthetic event.
@@ -197,7 +199,7 @@
             ;; canonicalise the key either way; whichever matches
             ;; advances the state.
             (rf/dispatch-sync [:ws/connection
-                               [:rf.machine.timer/after-elapsed resolved-delay epoch]]
+                               [:rf.machine.timer/after-elapsed resolved-delay epoch [:reconnecting]]]
                               {:frame f}))
           ;; After firing the :after timer the machine re-enters :active.
           ;; In sync-mode the open-auth-ok cascade runs to :connected

@@ -318,90 +318,170 @@
 
 (defn- after-epoch-path
   "Return the path inside the snapshot's `:data` map where the
-  `:after`-timer epoch counter lives for `machine`.
+  `:after`-timer epoch MAP lives for `machine`.
 
-  Per Spec 005 §Delayed `:after` transitions, the epoch is `[:data
-  :rf/after-epoch]` for flat / compound machines. Per Spec 005 §Per-
-  region `:always` / `:after` / `:spawn` scoping (rf2-l67o / Stage 2):
-  when `machine` is a region of a parallel-region parent (signalled by
-  `:rf/region` on the synthetic region-machine spec), the epoch is
-  region-scoped — `[:data :rf/after-epoch-by-region <region-name>]` —
-  so a sibling region's transition doesn't invalidate this region's
-  in-flight timers via the shared `:data` slot."
+  Per Spec 005 §Delayed `:after` transitions §Hierarchy interaction, the
+  epoch is tracked **per scheduling node** — the slot holds a map
+  `{<decl-path-vector> <non-negative int>}` rather than a single scalar.
+  This is the per-level tracking the normative external contract
+  (005 §Hierarchy interaction) requires: a leaf-only sibling transition
+  bumps only the leaf's entry, leaving a still-active parent's entry — and
+  thus its in-flight `:after` timer — untouched, while a transition that
+  exits the parent bumps the parent's entry so its pending timers go
+  stale on next firing.
+
+  For flat / compound machines the map lives at `[:data :rf/after-epoch]`.
+  Per Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping
+  (rf2-l67o / Stage 2): when `machine` is a region of a parallel-region
+  parent (signalled by `:rf/region`), the map is region-scoped —
+  `[:data :rf/after-epoch-by-region <region-name>]` — so a sibling
+  region's transition doesn't invalidate this region's in-flight timers
+  via the shared `:data` slot."
   [machine]
   (if-let [rn (:rf/region machine)]
     [:data :rf/after-epoch-by-region rn]
     [:data :rf/after-epoch]))
 
+(defn- node-epoch
+  "Read the per-node `:after` epoch for the scheduling node at `decl-path`
+  from `snapshot`. Absent nodes read as 0 (a node never entered has no
+  in-flight timer; a carried epoch of 0 against an absent node is the
+  bootstrap-then-stale shape). `decl-path` is the absolute state path the
+  `:after` was declared at (for a region, the path WITHIN the region —
+  matching the `:rf/spawn-id` the timer carries)."
+  [machine snapshot decl-path]
+  (or (get-in snapshot (conj (after-epoch-path machine) (vec decl-path))) 0))
+
+(defn- prefix-of?
+  "True iff `pre` is a (possibly equal) prefix of `whole` — i.e. the
+  scheduling node at `pre` is still on the active `whole` path."
+  [pre whole]
+  (and (<= (count pre) (count whole))
+       (= (vec pre) (vec (take (count pre) whole)))))
+
 (defn- pick-after-transition
-  "Per Spec 005 §Delayed :after transitions. The synthetic event
-  [:rf.machine.timer/after-elapsed delay-key carried-epoch] arrives.
-  Walk path leaf→root for an :after table containing delay-key (the
-  deepest-wins rule named in `path-walk/walk-path-leaf-to-root`). If
-  the carried epoch matches the snapshot's current `:rf/after-epoch`,
-  evaluate the transition's :guard (if any).
+  "Per Spec 005 §Delayed :after transitions §Hierarchy interaction. The
+  synthetic event
+
+      [:rf.machine.timer/after-elapsed delay-key carried-epoch carried-decl-path]
+
+  arrives. `carried-decl-path` (the scheduling node's absolute path) is
+  carried by the runtime so the staleness check is per scheduling node —
+  the per-level tracking the normative external contract (005 §Hierarchy
+  interaction) requires. Legacy 3-element events (no decl-path) fall back
+  to a leaf→root walk for the delay-key, resolving against the matched
+  node's per-path epoch — sufficient when delay-keys do not collide
+  across hierarchy levels.
+
+  A timer is **live** iff its scheduling node is still on the active path
+  (its `carried-decl-path` is a prefix of the current path) AND the
+  carried epoch equals that node's current per-path epoch. A leaf-only
+  sibling transition under a parent leaves the parent's per-path epoch
+  untouched, so the parent's in-flight `:after` timer stays live; a
+  transition that exits the parent bumps the parent's per-path epoch, so
+  the parent's pending timers observe a mismatch and drop as stale.
 
   Returns one of:
     nil — no matching :after entry; benign (timer carried from a state
           we've exited and re-entered without that delay-key).
-    {:stale? true ...} — epoch mismatch; caller emits
-          :rf.machine.timer/stale-after.
+    {:stale? true ...} — node exited, or per-node epoch mismatch
+          (re-entry); caller emits :rf.machine.timer/stale-after.
     {:transition t :decl-path p :delay :epoch} — guard pass; caller
           fires the transition through the standard cascade and emits
           :rf.machine.timer/fired with :fired? true.
     {:guard-suppressed? true :state :delay :epoch} — guard returned
           false; caller emits :rf.machine.timer/fired with :fired? false
           and other in-flight :after timers continue per Spec 005
-          §Multi-stage interaction with :guard.
-
-  When no :after table is found at any level along the current path,
-  the synthetic timer event was carried from a state the machine has
-  since exited. Matching epochs with no table are treated as a no-op
-  (return nil); non-matching is surfaced as stale."
+          §Multi-stage interaction with :guard."
   [machine path event snapshot]
-  (let [[_ delay-key carried-epoch] event
-        current-epoch (get-in snapshot (after-epoch-path machine))
-        stale?        (not= carried-epoch current-epoch)
-        hit
-        (path-walk/walk-path-leaf-to-root
-          machine path
-          (fn [prefix n]
-            (when-let [t (get-in n [:after delay-key])]
-              (if stale?
-                {:stale?          true
-                 :state           (last prefix)
-                 :delay           delay-key
-                 :scheduled-epoch carried-epoch
-                 :current-epoch   current-epoch}
-                (let [tspec     (if (keyword? t) {:target t} t)
-                      guard-ref (:guard tspec)
-                      pass?     (evaluate-guard machine guard-ref snapshot event)]
-                  (if pass?
-                    {:transition tspec
-                     :decl-path  prefix
-                     :delay      delay-key
-                     :epoch      carried-epoch}
-                    ;; Guard returned false. Per Spec 005 §Multi-stage
-                    ;; interaction with :guard: the timer is "fired and
-                    ;; discarded" — no transition, no epoch advance;
-                    ;; sibling :after timers continue.
-                    {:guard-suppressed? true
-                     :state             (last prefix)
-                     :delay             delay-key
-                     :epoch             carried-epoch}))))))]
+  (let [[_ delay-key carried-epoch raw-carried-decl-path] event
+        region        (:rf/region machine)
+        ;; Per Spec 005 §Per-region :after scoping: the runtime carries a
+        ;; region-name-prefixed decl-path (`prefix-region-invoke-id`) for
+        ;; timers scheduled inside a parallel region. Within a region's
+        ;; `pick-after-transition` the active path is in-region, so strip
+        ;; the region-name head. A carried path naming a DIFFERENT region
+        ;; is not this region's timer — decline (the broadcast routes the
+        ;; firing to the bearing region only).
+        decline-region?  (and region
+                              raw-carried-decl-path
+                              (not= region (first raw-carried-decl-path)))
+        carried-decl-path (cond
+                            (nil? raw-carried-decl-path) nil
+                            region (vec (rest raw-carried-decl-path))
+                            :else  (vec raw-carried-decl-path))
+        resolve-hit
+        (fn [prefix tspec]
+          (let [guard-ref (:guard tspec)
+                pass?     (evaluate-guard machine guard-ref snapshot event)]
+            (if pass?
+              {:transition tspec
+               :decl-path  prefix
+               :delay      delay-key
+               :epoch      carried-epoch}
+              ;; Guard returned false. Per Spec 005 §Multi-stage
+              ;; interaction with :guard: the timer is "fired and
+              ;; discarded" — no transition, no epoch advance; sibling
+              ;; :after timers continue.
+              {:guard-suppressed? true
+               :state             (last prefix)
+               :delay             delay-key
+               :epoch             carried-epoch})))]
     (cond
-      hit    hit
-      ;; No `:after` table matched along any level of the path. If the
-      ;; epoch is stale the timer carried in from a state we've since
-      ;; exited — surface it so the lifecycle can emit
-      ;; `:rf.machine.timer/stale-after`. (Matching epoch + no table is
-      ;; a benign no-op — return nil.)
-      stale? {:stale?          true
-              :state           (last path)
-              :delay           delay-key
-              :scheduled-epoch carried-epoch
-              :current-epoch   current-epoch}
-      :else  nil)))
+      decline-region? nil
+
+      (some? carried-decl-path)
+      ;; Per-node path supplied by the runtime — route directly to the
+      ;; scheduling node so colliding delay-keys across hierarchy levels
+      ;; resolve unambiguously.
+      (let [decl-path carried-decl-path
+            cur-epoch (node-epoch machine snapshot decl-path)
+            node      (when (prefix-of? decl-path path)
+                        (node-at machine decl-path))
+            t         (when node (get-in node [:after delay-key]))]
+        (cond
+          ;; Node still active and its per-path epoch matches the carried
+          ;; epoch → the timer is live; resolve its transition + guard.
+          (and t (= carried-epoch cur-epoch))
+          (resolve-hit decl-path (if (keyword? t) {:target t} t))
+
+          ;; Node still active but the per-path epoch advanced (a re-entry
+          ;; scheduled a fresh timer) → this in-flight timer is stale.
+          ;; Likewise when the node has been exited (no longer on the
+          ;; active path) → stale.
+          :else
+          {:stale?          true
+           :state           (last decl-path)
+           :delay           delay-key
+           :scheduled-epoch carried-epoch
+           :current-epoch   cur-epoch}))
+
+      ;; Legacy 3-element event — resolve via the leaf→root walk.
+      :else
+      (let [hit
+            (path-walk/walk-path-leaf-to-root
+              machine path
+              (fn [prefix n]
+                (when-let [t (get-in n [:after delay-key])]
+                  (let [cur-epoch (node-epoch machine snapshot prefix)]
+                    (if (= carried-epoch cur-epoch)
+                      (resolve-hit prefix (if (keyword? t) {:target t} t))
+                      {:stale?          true
+                       :state           (last prefix)
+                       :delay           delay-key
+                       :scheduled-epoch carried-epoch
+                       :current-epoch   cur-epoch})))))]
+        (cond
+          hit    hit
+          ;; No `:after` table matched along any level of the path — the
+          ;; timer carried in from a state the machine has since exited.
+          ;; Surface it as stale so the lifecycle emits
+          ;; `:rf.machine.timer/stale-after`.
+          :else  {:stale?          true
+                  :state           (last path)
+                  :delay           delay-key
+                  :scheduled-epoch carried-epoch
+                  :current-epoch   nil})))))
 
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
@@ -562,7 +642,6 @@
   [machine entered-pairs internal? snap-final]
   (when-not internal?
     (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
-          epoch     (get-in snap-final (after-epoch-path machine))
           server?   (= :server (:rf/platform machine))
           ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
           frame-id  (:rf/frame machine)]
@@ -570,7 +649,13 @@
         (mapcat
           (fn [[prefix n]]
             (when-let [after-map (:after n)]
-              (let [leaf-state (last prefix)]
+              ;; Per Spec 005 §Hierarchy interaction: each scheduling node
+              ;; carries ITS OWN per-path epoch (just bumped in commit-
+              ;; snapshot), so a parent and a child entered in the same
+              ;; cascade get independent epochs and the synthetic event
+              ;; carries the decl-path for unambiguous staleness routing.
+              (let [leaf-state (last prefix)
+                    epoch      (node-epoch machine snap-final prefix)]
                 (mapv
                   (fn [[delay-key _target]]
                     (let [delay-source (cond
@@ -936,8 +1021,14 @@
                       first; this slot is unreversed for spawn/destroy
                       identification by prefix).
     :entered-pairs  — same shape, for states being entered.
-    :epoch-bumps?   — true iff any exited/entered node carries an `:after`
-                      table (per Spec 005 §Hierarchy interaction)."
+    :after-bump-paths — the decl-paths (prefix vectors) of exited/entered
+                      nodes that declare an `:after` table. `commit-
+                      snapshot` bumps each one's per-path epoch so its
+                      pending timers go stale; a still-active parent that
+                      is neither exited nor entered keeps its epoch (and
+                      thus its live timer). Per Spec 005 §Hierarchy
+                      interaction (the per-level tracking the normative
+                      external contract requires)."
   [machine snapshot transition]
   (let [src-path      (state-path (:state snapshot))
         decl-path     (:decl-path transition (vec (take 1 src-path)))
@@ -966,9 +1057,16 @@
         entry-refs    (when-not internal?
                         (map (fn [[_ n]] (:entry n)) entered-pairs))
         action-refs   [(:action transition)]
-        epoch-bumps?  (and (not internal?)
-                           (boolean (some (fn [[_ n]] (:after n))
-                                          (concat exited-pairs entered-pairs))))]
+        ;; Per Spec 005 §Hierarchy interaction: bump the per-path epoch
+        ;; ONLY for the `:after`-bearing nodes that are actually exited or
+        ;; entered by this transition. A still-active parent above the LCA
+        ;; appears in neither pair-vec, so its per-path epoch — and its
+        ;; in-flight `:after` timer — survive a child-only transition.
+        after-bump-paths (when-not internal?
+                           (->> (concat exited-pairs entered-pairs)
+                                (keep (fn [[prefix n]] (when (:after n) (vec prefix))))
+                                distinct
+                                vec))]
     {:src-path      src-path
      :decl-path     decl-path
      :raw-target    raw-target
@@ -981,7 +1079,7 @@
      :entry-refs    entry-refs
      :action-refs   action-refs
      :all-refs      (concat exit-refs action-refs entry-refs)
-     :epoch-bumps?  epoch-bumps?}))
+     :after-bump-paths after-bump-paths}))
 
 (defn- run-cascade
   "Phase 2 — run the ordered cascade (`exit` shallowest-first → `action`
@@ -992,10 +1090,25 @@
   [machine snapshot event cascade]
   (collect-actions machine snapshot event (:all-refs cascade)))
 
+(defn- bump-after-epochs
+  "Bump the per-path `:after` epoch for each decl-path in `bump-paths`
+  (the exited/entered `:after`-bearing nodes). Each path's counter is
+  monotonic — `(inc (or old 0))` — so a re-entry always lands on a fresh
+  value that any in-flight timer from the prior visit observes as a
+  mismatch. Paths absent from `bump-paths` (a still-active parent) keep
+  their counter, so their pending timers stay live. Per Spec 005
+  §Hierarchy interaction."
+  [machine snap bump-paths]
+  (let [epoch-base (after-epoch-path machine)]
+    (reduce (fn [s p]
+              (update-in s (conj epoch-base p) (fnil inc 0)))
+            snap
+            bump-paths)))
+
 (defn- commit-snapshot
   "Phase 3 — write the new `:state` onto the post-cascade snapshot and
-  bump the `:after` epoch when any state being exited/entered declares
-  `:after`. Per Spec 005 §Delayed `:after` transitions §Hierarchy
+  bump the per-path `:after` epoch for each exited/entered `:after`-
+  bearing node. Per Spec 005 §Delayed `:after` transitions §Hierarchy
   interaction. Internal transitions preserve the input snapshot's
   `:state` unchanged."
   [machine snapshot snap-after cascade]
@@ -1006,26 +1119,18 @@
   ;; arm was dead: `internal?` already covers the nil-raw-target case,
   ;; and `:target` validation upstream rejects anything other than
   ;; keyword/vector/nil.
-  (let [{:keys [internal? raw-target target-leaf epoch-bumps?]} cascade
+  (let [{:keys [internal? raw-target target-leaf after-bump-paths]} cascade
         new-state (cond
                     internal?             (:state snapshot)
                     (vector? raw-target)  (vec target-leaf)
                     (keyword? raw-target) (if (= 1 (count target-leaf))
                                             (first target-leaf)
                                             (vec target-leaf)))]
-    (cond
-      internal?
+    (if internal?
       (assoc snap-after :state new-state)
-
-      epoch-bumps?
-      (let [epoch-path (after-epoch-path machine)
-            new-epoch  (inc (or (get-in snap-after epoch-path) 0))]
-        (-> snap-after
-            (assoc :state new-state)
-            (assoc-in epoch-path new-epoch)))
-
-      :else
-      (assoc snap-after :state new-state))))
+      (bump-after-epochs machine
+                         (assoc snap-after :state new-state)
+                         after-bump-paths))))
 
 (defn- run-spawn-phase
   "Phase 4 — reduce over `entered-pairs` dispatching `:spawn` /
@@ -1178,11 +1283,16 @@
     (cond
       (> depth depth-limit)
       (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
-                             {:machine-id (:id machine) :depth depth
+                             {;; The live runtime spec carries the machine
+                              ;; id under `:rf/parent-id`; the spec map forbids
+                              ;; `:id`. Mirror the guard/action traces'
+                              ;; fallback so the trace names the real machine.
+                              :machine-id (or (:rf/parent-id machine) (:id machine))
+                              :depth      depth
                               ;; Per rf2-ko8jb: epoch-capture admission
                               ;; requires `:frame`.
                               :frame      (:rf/frame machine)
-                              :recovery :no-recovery})
+                              :recovery   :no-recovery})
           (result/ok snap accum))
 
       (empty? pending)
@@ -1307,7 +1417,12 @@
                 (cond
                   (>= depth always-limit)
                   (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                         {:machine-id (:id machine)
+                                         {;; The live runtime spec carries the
+                                          ;; machine id under `:rf/parent-id`;
+                                          ;; the spec map forbids `:id`. Mirror
+                                          ;; the guard/action traces' fallback.
+                                          :machine-id (or (:rf/parent-id machine)
+                                                          (:id machine))
                                           :depth      depth
                                           :path       visited
                                           ;; Per rf2-ko8jb: epoch-capture

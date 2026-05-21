@@ -41,7 +41,7 @@
   (testing ":after schedules with current epoch on entry; fires on synthetic timer event"
     (let [machine
           {:initial :idle
-           :data    {:rf/after-epoch 0}
+           :data    {}
            :states
            {:idle    {:on {:fetch :loading}}
             :loading {:after {5000 :timeout}
@@ -55,7 +55,8 @@
       (rf/dispatch-sync [:http/flow [:fetch]])
       (let [s (snapshot :http/flow)]
         (is (= :loading (:state s)))
-        (is (= 1 (get-in s [:data :rf/after-epoch]))
+        ;; Per Spec 005 §Hierarchy interaction the epoch is per-decl-path.
+        (is (= 1 (get-in s [:data :rf/after-epoch [:loading]]))
             "epoch advanced on entry to an :after-bearing state"))
       (is (some (fn [ev]
                   (and (= :rf.machine.timer/scheduled (:operation ev))
@@ -66,12 +67,12 @@
           "expected :rf.machine.timer/scheduled trace with :delay-source :literal")
       ;; Step 2 — fire the synthetic timer-elapsed event with matching epoch.
       (reset! traces [])
-      (rf/dispatch-sync [:http/flow [:rf.machine.timer/after-elapsed 5000 1]])
+      (rf/dispatch-sync [:http/flow [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (let [s (snapshot :http/flow)]
         (is (= :timeout (:state s))
             "matching-epoch timer firing transitioned :loading → :timeout")
-        (is (= 2 (get-in s [:data :rf/after-epoch]))
-            "epoch advanced again on the timer-driven transition"))
+        (is (= 2 (get-in s [:data :rf/after-epoch [:loading]]))
+            "the :loading node's per-path epoch advanced on the timer-driven exit"))
       (is (some (fn [ev]
                   (and (= :rf.machine.timer/fired (:operation ev))
                        (true? (:fired? (:tags ev)))
@@ -83,7 +84,7 @@
   (testing ":after stale detection — real event beats timer; stale firing must not transition"
     (let [machine
           {:initial :idle
-           :data    {:rf/after-epoch 0}
+           :data    {}
            :states
            {:idle    {:on {:fetch :loading}}
             :loading {:after {5000 :timeout}
@@ -95,24 +96,24 @@
       ;; Enter :loading — epoch advances to 1.
       (rf/dispatch-sync [:http2/flow [:fetch]])
       (is (= :loading (:state (snapshot :http2/flow))))
-      (is (= 1 (get-in (snapshot :http2/flow) [:data :rf/after-epoch])))
+      (is (= 1 (get-in (snapshot :http2/flow) [:data :rf/after-epoch [:loading]])))
       ;; Real :loaded event arrives BEFORE the timer would fire.
-      ;; Snapshot moves to :ready; epoch advances to 2; the in-flight timer
-      ;; (carrying epoch 1) is now stale.
+      ;; Snapshot moves to :ready; the :loading node's per-path epoch
+      ;; advances to 2; the in-flight timer (carrying epoch 1) is now stale.
       (rf/dispatch-sync [:http2/flow [:loaded]])
       (is (= :ready (:state (snapshot :http2/flow))))
-      (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch])))
+      (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch [:loading]])))
       ;; Now the stale timer fires. Per Spec 005 §Epoch-based stale
       ;; detection: (a) the stale firing MUST NOT cause a transition, and
       ;; (b) the runtime emits :rf.machine.timer/stale-after as the
       ;; canonical signal so observers can distinguish "suppressed stale
       ;; firing" from "no firing at all" (rf2-7urp).
       (trace-tooling/register-listener! ::stale (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:http2/flow [:rf.machine.timer/after-elapsed 5000 1]])
+      (rf/dispatch-sync [:http2/flow [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (trace-tooling/unregister-listener! ::stale)
       (is (= :ready (:state (snapshot :http2/flow)))
           "stale timer must not fire its transition")
-      (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch]))
+      (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch [:loading]]))
           "stale firing does not bump epoch")
       ;; Per rf2-7urp: the stale-after trace must emit even though the
       ;; current state (:ready) no longer carries an :after table.
@@ -140,7 +141,7 @@
 (deftest machine-after-multi-stage-guard-cljs
   (testing "multiple :after entries; guard-false suppresses one, sibling continues"
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0 :slow? false}
+             :data    {:slow? false}
              :guards  {:slow? (fn [{data :data}] (:slow? data))}
              :states
              {:idle    {:on {:fetch :loading}}
@@ -154,9 +155,9 @@
       (rf/reg-machine :a/multi-cljs m)
       (trace-tooling/register-listener! ::mg (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/multi-cljs [:fetch]])
-      (let [epoch (get-in (snapshot :a/multi-cljs) [:data :rf/after-epoch])]
+      (let [epoch (get-in (snapshot :a/multi-cljs) [:data :rf/after-epoch [:loading]])]
         ;; The 5s timer fires first; guard :slow? false → suppressed.
-        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 5000 epoch]])
+        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
         (is (= :loading (:state (snapshot :a/multi-cljs)))
             "guard-suppressed :after must not transition")
         (is (some (fn [ev]
@@ -165,7 +166,7 @@
                   @traces)
             ":fired? false trace emitted on guard suppression")
         ;; Sibling 30s still live (same epoch) — fire it, transition fires.
-        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 30000 epoch]])
+        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
         (is (= :timeout (:state (snapshot :a/multi-cljs)))
             "sibling timer transitions on its own")
         (trace-tooling/unregister-listener! ::mg)))))
@@ -182,7 +183,7 @@
       (fn [db _] (:timeout-config db)))
     (rf/dispatch-sync [:a/sub-config-set 4000])
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states
              {:idle    {:on {:fetch :loading}}
               :loading {:after {[:a/timeout-config] :timeout}

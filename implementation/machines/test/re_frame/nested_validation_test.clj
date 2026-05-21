@@ -314,6 +314,144 @@
       (is (some? thrown)
           ":always misuse inside a region SHOULD throw at registration"))))
 
+;; ---- :always self-loop forbidden at registration (rf2-hh1pi) -------------
+;;
+;; Per Spec 005 §Self-loop forbidden at registration (005:1290-1301): a
+;; state whose `:always` targets itself is rejected at construction time
+;; via `:rf.error/machine-always-self-loop`. Before rf2-hh1pi this was
+;; only caught LATE at runtime via the depth-exceeded backstop.
+
+(deftest always-self-loop-keyword-target-rejected
+  (testing "an :always entry whose keyword :target names its own state is rejected"
+    (let [m {:initial :checking
+             :guards  {:ready? (fn [_] true)}
+             :states  {:checking {:always [{:guard :ready? :target :checking}]}}}
+          thrown (registration-throws? :rf.always-self-loop/kw m)]
+      (is (some? thrown) "same-state :always self-loop SHOULD throw at registration")
+      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))
+          "error category names the self-loop contract")
+      (is (= :checking (:state (ex-data thrown)))
+          "ex-data carries the declaring state-keyword"))))
+
+(deftest always-self-loop-no-guard-rejected
+  (testing "an :always entry that self-targets with no guard is rejected"
+    (let [m {:initial :spin
+             :states  {:spin {:always [{:target :spin}]}}}
+          thrown (registration-throws? :rf.always-self-loop/no-guard m)]
+      (is (some? thrown) "guard-less self-target SHOULD throw")
+      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))))))
+
+(deftest always-internal-no-target-permitted
+  (testing "an internal :always (no :target, just :action) is the canonical
+            action-microstep pattern and is NOT a self-loop (control)"
+    ;; Per Spec 005 §What :always is: `{:guard :more? :action :step}`
+    ;; runs the action and settles when the guard flips false. This is
+    ;; the flush-queue / counter pattern — registration must accept it.
+    (let [m {:initial :working
+             :guards  {:more? (fn [_] false)}
+             :actions {:step  (fn [{d :data}] {:data d})}
+             :states  {:working {:always [{:guard :more? :action :step}]}}}
+          thrown (registration-throws? :rf.always-self-loop/internal m)]
+      (is (nil? thrown)
+          "an internal action-only :always must NOT be rejected at registration"))))
+
+(deftest always-self-loop-vector-target-rejected
+  (testing "an :always entry whose vector :target is its own absolute path is rejected"
+    (let [m {:initial :outer
+             :guards  {:p? (fn [_] true)}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:always [{:guard  :p?
+                                                           :target [:outer :inner]}]}}}}}
+          thrown (registration-throws? :rf.always-self-loop/vec m)]
+      (is (some? thrown) "vector self-target SHOULD throw")
+      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown)))
+      (is (= :inner (:state (ex-data thrown)))
+          "ex-data names the declaring leaf state"))))
+
+(deftest always-self-loop-single-map-form-rejected
+  (testing "an :always declared as a single map (not a vector) is still walked"
+    (let [m {:initial :checking
+             :guards  {:ready? (fn [_] true)}
+             :states  {:checking {:always {:guard :ready? :target :checking}}}}
+          thrown (registration-throws? :rf.always-self-loop/single m)]
+      (is (some? thrown) "single-map :always self-loop SHOULD throw")
+      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))))))
+
+(deftest always-sibling-target-permitted
+  (testing "an :always targeting a DIFFERENT sibling registers cleanly (control)"
+    (let [m {:initial :asking
+             :guards  {:enough? (fn [_] true)}
+             :states  {:asking {:always [{:guard :enough? :target :winner}]}
+                       :winner {}}}
+          thrown (registration-throws? :rf.always-self-loop/sibling-ok m)]
+      (is (nil? thrown)
+          "a non-self :always target is legitimate and must not be rejected"))))
+
+(deftest always-self-loop-in-region-rejected
+  (testing "an :always self-loop inside a parallel region is rejected"
+    (let [m {:type    :parallel
+             :guards  {:p? (fn [_] true)}
+             :actions {}
+             :regions
+             {:region-a {:initial :a
+                         :states  {:a {:always [{:guard :p? :target :a}]}}}
+              :region-b {:initial :x
+                         :states  {:x {}}}}}
+          thrown (registration-throws? :rf.always-self-loop/region m)]
+      (is (some? thrown) "region :always self-loop SHOULD throw at registration")
+      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))))))
+
+;; ---- compound state missing :initial rejected (rf2-boryv) ----------------
+;;
+;; Per Spec 005 §Initial-state cascading (005:930): every compound
+;; state-node MUST declare `:initial`. Without it the cascade has no
+;; entry-point and would silently yield a non-leaf `:state` snapshot
+;; instead of failing registration.
+
+(deftest compound-state-missing-initial-rejected
+  (testing "a top-level compound state without :initial is rejected"
+    (let [m {:initial :authenticated
+             :states  {:authenticated
+                       {:states {:dashboard {}
+                                 :settings  {}}}}}     ;; no :initial — rejected
+          thrown (registration-throws? :rf.missing-initial/top m)]
+      (is (some? thrown) "compound state without :initial SHOULD throw")
+      (is (= ":rf.error/machine-compound-state-missing-initial" (.getMessage thrown))
+          "error category names the missing-initial contract")
+      (is (= :authenticated (:state (ex-data thrown)))
+          "ex-data carries the compound state-keyword"))))
+
+(deftest nested-compound-state-missing-initial-rejected
+  (testing "a deeply-nested compound state without :initial is rejected"
+    (let [m {:initial :outer
+             :states  {:outer {:initial :mid
+                               :states  {:mid {:states {:leaf {}}}}}}}  ;; :mid compound, no :initial
+          thrown (registration-throws? :rf.missing-initial/nested m)]
+      (is (some? thrown) "nested compound state without :initial SHOULD throw")
+      (is (= ":rf.error/machine-compound-state-missing-initial" (.getMessage thrown)))
+      (is (= :mid (:state (ex-data thrown)))
+          "ex-data names the offending nested compound state"))))
+
+(deftest compound-state-with-initial-registers
+  (testing "a compound state that DOES declare :initial registers cleanly (control)"
+    (let [m {:initial :authenticated
+             :states  {:authenticated
+                       {:initial :dashboard
+                        :states  {:dashboard {}
+                                  :settings  {}}}}}
+          thrown (registration-throws? :rf.missing-initial/ok m)]
+      (is (nil? thrown)
+          "a compound state with :initial is well-formed and must not be rejected"))))
+
+(deftest leaf-state-without-initial-registers
+  (testing "a leaf state (no :states) does NOT require :initial (control)"
+    (let [m {:initial :idle
+             :states  {:idle {:on {:go :done}}
+                       :done {}}}
+          thrown (registration-throws? :rf.missing-initial/leaf-ok m)]
+      (is (nil? thrown)
+          "a leaf state must not be required to declare :initial"))))
+
 (deftest parallel-region-good-shape-registers
   (testing "Sanity: a parallel machine whose region-internal keyword refs ARE
             resolvable registers cleanly (control case for the negative tests)"

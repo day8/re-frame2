@@ -39,7 +39,7 @@
    :snapshot     {:state {:data :idle :ui :neutral} :data {}}
    :event        [:start]
    :expect-next-snapshot {:state {:data :loading :ui :neutral}
-                          :data  {:rf/after-epoch-by-region {:data 1}}}
+                          :data  {:rf/after-epoch-by-region {:data {[:loading] 1}}}}
    :expect-effects
    [[:rf.machine/after-schedule
      {:rf/parent-id :rf/transition-pure

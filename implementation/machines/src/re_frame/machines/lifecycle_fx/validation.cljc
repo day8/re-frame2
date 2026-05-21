@@ -286,6 +286,114 @@
              {:state      state-key
               :output-key (:output-key state-node)}))))
 
+(defn- compound? [state-node]
+  "A state node is compound iff it declares a non-empty `:states` map."
+  (and (map? (:states state-node))
+       (seq (:states state-node))))
+
+(defn- validate-compound-initial!
+  "Per Spec 005 §Initial-state cascading: every compound state-node MUST
+  declare `:initial` — the substate to enter when control reaches the
+  compound state without a deeper target. A compound node without
+  `:initial` would otherwise yield a non-leaf `:state` snapshot (the
+  cascade has no entry-point to descend into) instead of failing
+  registration, so reject it here.
+
+  Emits `:rf.error/machine-compound-state-missing-initial`."
+  [state-key state-node]
+  (when (and (compound? state-node)
+             (not (contains? state-node :initial)))
+    (throw (validation-error
+             :rf.error/machine-compound-state-missing-initial
+             (str "compound state " state-key
+                  " declares :states but no :initial — every compound state "
+                  "must name the substate to enter when control reaches it "
+                  "without a deeper target.")
+             {:state state-key}))))
+
+(defn- always-entries
+  "Normalise a state-node's `:always` slot to a vector of entry maps.
+  `:always` admits a single entry map or a vector of entry maps; absent
+  yields the empty vector."
+  [state-node]
+  (let [a (:always state-node)]
+    (cond
+      (nil? a)    []
+      (vector? a) a
+      :else       [a])))
+
+(defn- always-self-loop?
+  "True iff an `:always` entry's `:target` resolves to its own declaring
+  state at `path` (a self-loop). A keyword target names a sibling at the
+  declaring level — it self-targets when it equals the declaring state's
+  own key (the last element of `path`). A vector target is an absolute
+  path — it self-targets when it equals `path`.
+
+  An `:always` entry with NO `:target` is an *internal* eventless
+  transition (it runs its `:action` without changing state) — the
+  canonical action-microstep pattern (per Spec 005 §What `:always` is),
+  e.g. `{:guard :has-queued? :action :flush-queue}` where the action
+  flips the guard false and the loop settles. Internal `:always` is NOT
+  a self-loop; only an explicit self-`:target` is rejected at
+  registration (per Spec 005 §Self-loop forbidden at registration — the
+  rule keys off the `:target` resolving to the declaring state)."
+  [path entry]
+  (let [target (:target entry)]
+    (cond
+      (nil? target)     false
+      (keyword? target) (= target (peek path))
+      (vector? target)  (= target path))))
+
+(defn- validate-always-self-loop!
+  "Per Spec 005 §Self-loop forbidden at registration: a state whose
+  `:always` targets itself is rejected at construction time. The loop
+  either fires repeatedly to depth-exceeded (guard stays true) or is a
+  no-op (guard flips on first hit) — in both cases the author intended
+  something else. Catch the topology bug at registration rather than
+  late at runtime via the depth-exceeded backstop.
+
+  `path` is the declaring state's absolute path; `state-key` is its leaf
+  key (the trace-tag the spec catalogue pins). Emits
+  `:rf.error/machine-always-self-loop`."
+  [path state-key state-node]
+  (doseq [entry (always-entries state-node)]
+    (when (always-self-loop? path entry)
+      (throw (validation-error
+               :rf.error/machine-always-self-loop
+               (str "state " state-key
+                    " declares an :always transition that targets itself — "
+                    "an eventless self-loop either runs to depth-exceeded or "
+                    "is a no-op. Use :after for a re-arming timer, or target a "
+                    "distinct state.")
+               {:state state-key})))))
+
+(defn- walk-state-nodes-with-path
+  "Like `walk-state-nodes` but yields `[absolute-path state-node]` pairs —
+  the absolute path is the vector of state keys from the (region) root
+  down to the node. Used by the self-loop validator, which needs the
+  declaring node's path to resolve vector `:target`s.
+
+  Per Spec 005 §Parallel regions: for parallel-region machines, walks
+  each region's `:states`. Region-name keywords are NOT part of the
+  yielded path (region identifiers are not states — `:always` targets
+  resolve within a region, exactly as in `walk-state-nodes`)."
+  [machine]
+  (letfn [(walk [path nodes]
+            (mapcat
+              (fn [[k n]]
+                (let [p (conj path k)]
+                  (cons [p n]
+                        (when (:states n)
+                          (walk p (:states n))))))
+              nodes))]
+    (cond
+      (parallel/parallel? machine)
+      (mapcat (fn [[_region region-body]] (walk [] (:states region-body)))
+              (:regions machine))
+
+      :else
+      (walk [] (:states machine)))))
+
 (defn validate-machine!
   "Run every registration-time check the machine grammar requires (rf2-f9tu).
   Composed at the top of `make-machine-handler` so the registered handler
@@ -305,13 +413,26 @@
   Per rf2-oz9t: every `:on` / `:always` / `:entry` / `:exit` slot's guard
   and action keyword refs must resolve against the machine's `:guards` /
   `:actions` maps. Throws `:rf.error/machine-unresolved-guard` /
-  `:rf.error/machine-unresolved-action` on dangling refs."
+  `:rf.error/machine-unresolved-action` on dangling refs.
+
+  Per Spec 005 §Initial-state cascading: every compound state-node
+  (declares `:states`) MUST declare `:initial`. Throws
+  `:rf.error/machine-compound-state-missing-initial`.
+
+  Per Spec 005 §Self-loop forbidden at registration: an `:always` entry
+  that targets its own declaring state is rejected. Throws
+  `:rf.error/machine-always-self-loop`."
   [machine]
   (validate-parallel! machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-invoke-all! s n)
     (validate-no-invoke-timeout-ms! s n)
-    (validate-final-state! s n))
+    (validate-final-state! s n)
+    (validate-compound-initial! s n))
+  ;; The self-loop check needs each declaring node's absolute path to
+  ;; resolve vector `:target`s, so it drives off the path-aware walker.
+  (doseq [[path n] (walk-state-nodes-with-path machine)]
+    (validate-always-self-loop! path (peek path) n))
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.

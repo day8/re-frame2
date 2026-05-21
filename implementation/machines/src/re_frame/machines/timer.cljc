@@ -217,15 +217,19 @@
               ;; Resolve the active path inside the bearing region; the
               ;; epoch lives at the per-region epoch slot.
               parallel-snap? (and snap (map? (:state snap)))
+              ;; Per Spec 005 §Hierarchy interaction: the epoch slot holds
+              ;; a per-decl-path map `{<path> <int>}`, so the per-region /
+              ;; flat base path is suffixed with the scheduling node's
+              ;; decl-path to read the node's own epoch.
               [in-region-invoke-id active epoch-slot]
               (if parallel-snap?
                 (let [rn (first invoke-id)
                       iid-tail (vec (rest invoke-id))]
                   [iid-tail
                    (when-let [rs (get (:state snap) rn)] (transition/state-path rs))
-                   [:data :rf/after-epoch-by-region rn]])
+                   [:data :rf/after-epoch-by-region rn iid-tail]])
                 [invoke-id (when snap (transition/state-path (:state snap)))
-                 [:data :rf/after-epoch]])
+                 [:data :rf/after-epoch (vec invoke-id)]])
               still-here? (and active
                                 (= (vec in-region-invoke-id)
                                    (vec (take (count in-region-invoke-id) active))))]
@@ -302,8 +306,14 @@
                       ;; the resulting dispatch with :rf/dispatch-origin
                       ;; :timer so Causa can prefix the L2 row + filter on
                       ;; timer-origin epochs.
+                      ;; Per Spec 005 §Hierarchy interaction: carry the
+                      ;; scheduling node's decl-path (`invoke-id`) so the
+                      ;; pure side routes the firing to the correct
+                      ;; per-path epoch — colliding delay-keys across
+                      ;; hierarchy levels (a parent and child both with
+                      ;; `:after {30000 ...}`) resolve unambiguously.
                       (dispatch! [parent-id [:rf.machine.timer/after-elapsed
-                                              delay-key epoch]]
+                                              delay-key epoch (vec invoke-id)]]
                                  {:frame frame-id :rf/dispatch-origin :timer})))
                   resolved-ms)
                 watch-key (when (= :sub delay-source)

@@ -48,7 +48,7 @@
 
 (def ^:private spec
   {:initial :idle
-   :data    {:rf/after-epoch 0}
+   :data    {}                          ;; :rf/after-epoch is runtime-managed (per-decl-path map)
    :states
    {:idle    {:on {:fetch :loading}}
     :loading {:after {3600000 :timeout}
