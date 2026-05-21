@@ -4,6 +4,12 @@ The EP-by-EP implementation walk for Phase 2. Each section names: what to read f
 
 The walking order is dependency-driven. Earlier EPs are foundations for later ones; do not skip ahead.
 
+**Three cross-cutting anchors to keep open for every EP below:**
+
+- [`spec/Ownership.md`](https://day8.github.io/re-frame2/spec/Ownership/) — the canonical "where does X live" contract-surface map. When an EP touches a surface and you're unsure which spec owns it, this is the index. Read it once before EP 001 and consult it per-EP.
+- [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) — the reserved `:rf/*` single-root namespace scheme, reserved fx-ids, reserved app-db keys, the `reg-*` macro inventory. Every framework id your port emits lands under `:rf/*`; honour the scheme from EP 001 onward (cardinal rule 11). Conformance fixtures assert `:rf.*` operation ids.
+- [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) — the consolidated public signature list. Read the relevant entries first whenever an EP's "The contract" names a public surface (`reg-*`, `dispatch`, `subscribe`, the fx/cofx surface, …).
+
 ## Walking order
 
 1. EP 001 — Registration
@@ -21,12 +27,12 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 ## EP 001 — Registration
 
-**Read first.** [`spec/001-Registration.md`](https://day8.github.io/re-frame2/spec/001-Registration/). Plus [Implementor-Checklist §F6 Hot-reload primitive](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f6-hot-reload-primitive) for the re-registration contract.
+**Read first.** [`spec/001-Registration.md`](https://day8.github.io/re-frame2/spec/001-Registration/). Plus [Implementor-Checklist §F6 Hot-reload primitive](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f6-hot-reload-primitive) for the re-registration contract, [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) for the reserved `:rf/*` scheme the registrar must honour, and the `reg-*` entries in [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) for the public registration signatures.
 
 **The contract.**
 
 - A single registrar — a `(kind, id) → metadata-bearing entry` map.
-- Closed kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:machine-action`, `:machine-guard`, plus any kinds gated by optional EPs (e.g. `:story` if Q5 yes).
+- Closed kinds (the v1 set): `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:app-schema`, `:head`, `:error-projector`, `:flow`. Always implement the core five (`:event`, `:sub`, `:fx`, `:cofx`, `:view`) plus `:frame`; the rest (`:route`, `:app-schema`, `:head`, `:error-projector`, `:flow`) are written only as their optional EPs come into scope (Routing 012, Schemas 010, SSR 011, error projection, Flows 013). Adding a kind outside this set is a spec change, not a port choice. There is **no** `:machine`, `:machine-action`, or `:machine-guard` kind — a machine registers as an ordinary `:event` entry; its guards/actions are machine-scoped, not registry kinds. Per [`spec/001-Registration.md` §Registry model](https://day8.github.io/re-frame2/spec/001-Registration/#registry-model--the-canonical-kind-keyword-set) (`there is no :machine, :machine-action, or :machine-guard registry kind`) and the CLJS reference's closed set in `implementation/core/src/re_frame/registrar.cljc` (`kinds`).
 - Public `reg-*` surface — one per kind. Each `reg-*` takes id + metadata + handler-or-spec.
 - Registration metadata — `:doc`, source coords (`:ns`/`:line`/`:file` if the host supports source-coord capture), `:tags`, kind-specific keys.
 - Hot-reload semantics: re-registration replaces the entry atomically and emits `:rf.registry/handler-replaced`.
@@ -45,7 +51,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 ## EP 002 — Frames + events + effects + subscriptions
 
-**Read first.** [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) — this is the spec's biggest chapter and most load-bearing. Plan two reads: one for the frame contract, one for the drain semantics.
+**Read first.** [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) — this is the spec's biggest chapter and most load-bearing. Plan two reads: one for the frame contract, one for the drain semantics. Keep the `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `dispatch` / `subscribe` / `reg-frame` entries in [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) open for the exact public signatures.
 
 **The contract.**
 
@@ -66,8 +72,8 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 - **Closed effect-map shape.** New top-level keys do NOT go in `:db` or `:fx` peer position — they go inside `:fx`. The v1→v2 migration walks this rule under M-8; your port enforces it from the start. Per [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) and the M-8 entry in [`migration/from-re-frame-v1/README.md`](https://day8.github.io/re-frame2/migration/from-re-frame-v1/).
 - **Run-to-completion vs sync vs async fx.** Sync fx run inline; async fx schedule via host's promise/timeout and re-enter through `:dispatch` after the side effect completes. Async fx must NOT call back into the runtime during the current drain — that would violate run-to-completion.
-- **Sub cache invalidation.** The cache invalidates by value equality on inputs. Identity-only equality (`===` in JS without deep compare; `eq?` in Lisp; reference equality in Java) breaks the contract. Your persistent data structure choice (D4.2) must provide cheap value-equality.
-- **Frame revertibility.** The frame's full state — `app-db` plus any per-frame registry tier — must be revertible by value swap. This propagates the D4.2 (persistent data structures) requirement.
+- **Sub cache invalidation.** The cache invalidates by value equality on inputs. Identity-only equality (`===` in JS without deep compare; reference equality in general) breaks the contract. Your persistent data structure choice (F2) must provide cheap value-equality.
+- **Frame revertibility.** The frame's full state — `app-db` plus any per-frame registry tier — must be revertible by value swap. This propagates the F2 (persistent data structures) requirement.
 
 ---
 
@@ -84,7 +90,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 - **Revertibility constraint on adapters.** Adapter-internal state must be derivable from the frame value. No "shadow state" inside the adapter that the frame value can't reproduce on revert. Per [`spec/006-ReactiveSubstrate.md` §Revertibility constraints on adapters](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#revertibility-constraints-on-adapters).
 - **Subscription cache invalidation contract.** Per [`spec/006-ReactiveSubstrate.md` §Subscription cache — contract and operational semantics](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#subscription-cache--contract-and-operational-semantics).
 
-**What the CLJS reference did (example).** Two adapters in-tree: `re-frame2-reagent` (browser; atop Reagent + React) and a plain-atom adapter (JVM / SSR). The Reagent adapter uses Reagent's reaction primitive for subs; the plain-atom adapter uses a hand-rolled signal graph. Mount/unmount hook into Reagent's component lifecycle.
+**What the CLJS reference did (example).** The substrate contract lives inside core (`implementation/core/src/re_frame/substrate/`): `adapter.cljc` defines the contract, `plain_atom.cljc` provides a dependency-free reference substrate (a plain-atom signal graph, used for JVM / non-browser / SSR paths). On top of that, the React-binding adapters ship as sibling artefacts under `implementation/adapters/` — `reagent`, `reagent-slim`, `uix`, `helix` (plus `test-react` for the test harness). The Reagent-family adapters use Reagent's reaction primitive for subs and hook mount/unmount into React's component lifecycle; the in-core plain-atom substrate uses a hand-rolled signal graph. None of this layout is normative — the split between an in-core reference substrate and per-binding adapters is one worked example.
 
 **Conformance fixtures.** `:core/substrate` family. Verify: replace-container fires the invalidation hook; subscription cache evicts on input change; revert by container swap restores prior view state.
 

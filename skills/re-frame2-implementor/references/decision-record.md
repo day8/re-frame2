@@ -49,38 +49,109 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 | **Q6 — Tool-Pair adapters** | <yes / no> | |
 | **Q7 — AI-Audit grading** | <yes / no> | |
 
-## D4. Foundation choices
+## D4. Always-required realisation decisions
 
-### D4.1 Identity primitive
+> Sub-ids mirror Implementor-Checklist Part 2 1:1 — Foundation F1–F6, State storage S1–S3, Subscriptions Sub1–Sub2, Views V1–V3, Tracing T1–T3, Errors E1–E2. Fill in every block; all are always required (T2's bridge may be omitted — record the choice).
+
+### Foundation (F1–F6)
+
+#### F1 Identity primitive
 
 - **Mechanism:** <e.g. "branded string types with naming convention" / "polymorphic variants" / "sealed-class hierarchies">
 - **Required properties verified:** stable / namespaceable / value-equal / cheap / serialisable / human-readable / reflective — <confirm all seven, name the helper(s) that provide each>
 
-### D4.2 Persistent data structures
+#### F2 Persistent data structures
 
-- **Library:** <e.g. "Immer" / "im (Rust)" / "pyrsistent" / "native Clojure persistent collections">
+- **Library:** <e.g. "Immer" / "Immutable.js" / "native Clojure persistent collections" / "native F# Map/Set">
 - **Snapshot mechanism:** <e.g. "pointer swap" / "Immer's `produce` drafts" / "deep-copy fallback for X cases">
 
-### D4.3 Reactive substrate
+#### F3 Reactive substrate
 
 - (Locked in D2.)
 
-### D4.4 Effect-handling primitive
+#### F4 Effect-handling primitive
 
 - **Sync default:** <yes — fx run inline when the handler returns / no — different model>
-- **Async re-entry:** <e.g. "Promise.then → :dispatch" / "asyncio task → schedule_dispatch" / "tokio spawn → mpsc sender">
+- **Async re-entry:** <e.g. "Promise.then → :dispatch" / "queueMicrotask → schedule dispatch">
 - **Standard fx the port ships:** <e.g. ":dispatch / :dispatch-later / :http">
 
-### D4.5 Concurrency model
+#### F5 Concurrency model
 
-- **Model:** <e.g. "single-threaded JS event loop" / "single-threaded asyncio" / "single-threaded tokio">
+- **Model:** <e.g. "single-threaded JS event loop (browser / Node main thread)">
 - **Cross-frame serialisation:** <how dispatch is serialised per frame in multi-frame setups>
 - **No core.async confirmation:** <confirm the directive — no channels in the public dispatch contract>
 
-### D4.6 Hot-reload primitive
+#### F6 Hot-reload primitive
 
-- **Mechanism:** <e.g. "Vite HMR module boundary at reg-* call sites" / "watch + reimport via importlib.reload" / "compile-replace via dynamic library swap">
+- **Mechanism:** <e.g. "Vite HMR module boundary at reg-* call sites" / "figwheel/shadow-cljs reload">
 - **State-preservation contract:** <how frame state survives re-registration of `reg-frame`>
+
+### State storage (S1–S3)
+
+#### S1 App-db container
+
+- **Container:** <e.g. "Reagent ratom" / "useSyncExternalStore-backed atom store" / "MutableStateFlow-shaped cell">
+- **Revertibility check:** <confirm no non-derivable adapter state lives outside the container>
+
+#### S2 Snapshot/restore mechanism
+
+- **Mechanism:** <e.g. "pointer swap (persistent collections)" / "value capture + replace-container!"> — depends on F2.
+
+#### S3 Path-access primitive
+
+- **Mechanism:** <e.g. "native assoc-in/update-in/get-in" / "Immer produce + lodash.get" / "lens helpers over Belt.Map">
+
+### Subscriptions (Sub1–Sub2)
+
+#### Sub1 Signal graph + caching
+
+- **Graph backing:** <e.g. "Reagent reactions" / "Solid createMemo" / "hand-rolled signal DAG">
+- **Cache key:** <confirm `=`-by-value equality for invalidation; identity-only equality is out>
+
+#### Sub2 Lifecycle (when to dispose)
+
+- **Disposal policy:** <e.g. "last-deref-disposes after a delay (Reagent)" / "explicit subscribe/unsubscribe ref-count">
+
+### Views (V1–V3)
+
+#### V1 Render-tree shape
+
+- **Shape:** <e.g. "hiccup" / "JSX-as-data / snabbdom vnodes" / "Feliz Html.div DSL"> — must serialise for SSR + tooling.
+
+#### V2 Render trigger
+
+- **Trigger:** <how a subscribed-value change re-renders the view> — falls out of F3.
+
+#### V3 Mount/unmount
+
+- **Lifecycle hooks:** <how mount fires `:on-create` / unmount fires `:on-destroy` on the surrounding frame>
+
+### Tracing & instrumentation (T1–T3)
+
+#### T1 Trace-event delivery
+
+- **Registry shape:** <e.g. "single listener-registry atom + separate ring-buffer atom">
+- **Ring buffer:** <retain-N for tools that attach after events fired; N = ?>
+
+#### T2 Performance API equivalent
+
+- **Bridge:** <ships the perf bridge (`performance.mark`/`measure`) / omits it — the bridge is optional; T1 is the contract>
+
+#### T3 Production elision
+
+- **Mechanism:** <e.g. "Closure DCE via debug-enabled?" / "Vite define + tree-shake" / "#if !DEBUG">
+- **CI verifier:** <sentinel-string scan asserting dev-only strings absent from production bundles>
+
+### Errors (E1–E2)
+
+#### E1 Error capture / recover
+
+- **Capture sites:** <try/catch around handler bodies / fx invocations / sub computations>
+- **No-silent-swallow:** <confirm every catch fires `:operation :rf.error/<category>` + `:op-type :error`>
+
+#### E2 Error reporting to tools
+
+- **Policy slot:** <the per-frame `:on-error` slot in `reg-frame` metadata> — errors flow through the trace stream (T1).
 
 ## D5. Schema mechanism
 

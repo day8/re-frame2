@@ -71,6 +71,16 @@ Filing a GitHub issue against `day8/re-frame2` from inside the engineer's port r
 
 Invoking the skill is consent to the *workflow*, not consent to each *cross-repo write*. Treat the two as separate gates.
 
+## 10. Pin the spec corpus before reading it
+
+The kickoff prompt names a specific `day8/re-frame2` commit/tag. Verify the checkout's HEAD and origin before reading the spec, and record the pinned hash in `DECISIONS.md` (the preamble before D1). Confirm `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin and that the origin is `https://github.com/day8/re-frame2`. An unpinned or unverified checkout is not the contract — it is whatever happens to be on the filesystem. (This restates, as a standalone rule, the pinning discipline also threaded through rule 1.)
+
+## 11. Honour the reserved `:rf/*` namespace scheme
+
+re-frame2 reserves **one root keyword namespace** for framework-owned ids: `:rf/*` (and its sub-namespaces — `:rf.fx/*`, `:rf.machine/*`, `:rf.error/*`, `:rf.registry/*`, …). Every framework runtime id — events, fx, cofx, app-db keys (`:rf/machines`, `:rf/route`), trace operations, error categories, warnings, registrar mutations, the default frame id (`:rf/default`) — lives under that root. **User code MUST NOT register handlers, fx, subs, or frames under `:rf/*`.** Your port must (a) emit framework ids under the reserved scheme and (b) leave the scheme free for the framework, never user code.
+
+This is a conformance surface, not a style preference. Fixtures assert `:rf.*` operation ids on the trace stream and reserved app-db keys at known paths; a port that invents its own framework-id namespace, or lets app code squat `:rf/*`, fails them. The reserved set, reserved fx-ids, and reserved app-db keys are catalogued in [`spec/Conventions.md`](../../../spec/Conventions.md). The "which spec owns this surface" map — the single most useful index for a port author asking "where does X live?" — is [`spec/Ownership.md`](../../../spec/Ownership.md). Consult [`spec/API.md`](../../../spec/API.md) for the consolidated public signatures when wiring each EP's surface.
+
 ---
 
 ## Anti-patterns (rule corollaries)

@@ -31,9 +31,9 @@ Produced at the end of the Phase 1 walkthrough. The decision record is committed
   - Q5 stories: <yes / no>
   - Q6 Tool-Pair: <yes / no>
   - Q7 AI-Audit: <yes / no>
-- **Identity primitive:** <D4.1 mechanism>
-- **Persistent data structures:** <D4.2 library>
-- **Concurrency model:** <D4.5>
+- **Identity primitive:** <F1 mechanism>
+- **Persistent data structures:** <F2 library>
+- **Concurrency model:** <F5>
 - **Schema mechanism:** <D5>
 - **Decision record:** committed to `DECISIONS.md` at <commit-hash>.
 

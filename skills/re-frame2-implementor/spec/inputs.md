@@ -21,7 +21,9 @@ The most load-bearing files for the skill:
 - **`spec/009-Instrumentation.md`** — EP 009. Trace event stream, error contract, production elision.
 - **`spec/005-StateMachines.md`** — EP 005. Walked in Phase 2 only if D3 Q1 = yes; the spec's largest EP (~2,900 lines).
 - **`spec/conformance/README.md`** — the acceptance test. Capability tagging, the harness shape, the fixture format. The skill's `references/conformance.md` is the operational walk of this doc.
-- **`spec/API.md`** — the consolidated signatures. Reference target in the SKILL.md done checklist.
+- **`spec/API.md`** — the consolidated signatures. A per-EP "read first" anchor in `references/phase-2-impl-order.md` wherever the public surface matters, plus the SKILL.md done checklist.
+- **`spec/Ownership.md`** — the canonical "where does X live" contract-surface map. A port author's single most useful index for "which spec owns this surface". A Phase-2 reading anchor in `references/phase-2-impl-order.md`.
+- **`spec/Conventions.md`** — the reserved `:rf/*` single-root namespace scheme, reserved fx-ids, reserved app-db keys, the `reg-*` macro inventory. A port that ignores the reserved-namespace scheme fails conformance fixtures asserting `:rf.*` operation ids. A Phase-2 reading anchor and a cardinal rule.
 
 The skill cites every spec file by URL (the published docs URL: `https://day8.github.io/re-frame2/spec/<file>/`). Cross-references to specific sections use anchor links.
 
@@ -33,8 +35,8 @@ Path: `implementation/` in the re-frame2 repo.
 
 The most load-bearing directories for the tour:
 
-- **`implementation/core/src/re_frame/`** — public API + the heart of EP 001 / 002 / 009.
-- **`implementation/adapters/{reagent,plain-atom}/`** — EP 006's two adapter realisations.
+- **`implementation/core/src/re_frame/`** — public API + the heart of EP 001 / 002 / 009; also `core/src/re_frame/substrate/` (the substrate contract `adapter.cljc` + the in-core plain-atom reference substrate `plain_atom.cljc`).
+- **`implementation/adapters/{reagent,reagent-slim,uix,helix,test-react}/`** — EP 006's React-binding adapter realisations (plain-atom is NOT here; it lives in core's `substrate/`).
 - **`implementation/{epoch,flows,http,machines,routing,schemas,ssr}/`** — the per-feature artefacts (per the pay-as-you-go split).
 
 The tour names what's in each directory, calls out CLJS-specific choices, and names pattern-required behaviour. The tour does not transcribe source.

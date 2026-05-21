@@ -10,12 +10,14 @@ Every decision in Phase 1 propagates through every line of Phase 2 code. Spendin
 - D1. Target host language
 - D2. Substrate / view layer
 - D3. Scope — which EPs ship now
-- D4. Foundation choices (identity, persistent data, reactive, effect, concurrency, hot-reload)
+- D4. Always-required realisation decisions (the checklist's Part 2 always-required blocks: Foundation F1–F6, State storage S1–S3, Subscriptions Sub1–Sub2, Views V1–V3, Tracing T1–T3, Errors E1–E2)
 - D5. Schema mechanism
 - D6. Integration story
 - D7. Conformance capability tag set
 
 For each block: the question, what's at stake, options, how to choose, where the spec speaks to it.
+
+**Id scheme — this skill mirrors the checklist's.** D4 below is sub-numbered with the **exact** Part 2 ids from [`spec/Implementor-Checklist.md`](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) — F1–F6, S1–S3, Sub1–Sub2, V1–V3, T1–T3, E1–E2 — so the decision record cross-walks 1:1 with the checklist. (Earlier drafts numbered these D4.1–D4.6 and silently dropped the State storage / extra Views / extra Tracing blocks; the ids and the missing blocks are now reconciled to the spec.)
 
 ---
 
@@ -117,11 +119,15 @@ The [Implementor-Checklist](https://day8.github.io/re-frame2/spec/Implementor-Ch
 
 ---
 
-## D4. Foundation choices
+## D4. Always-required realisation decisions
 
-Six sub-decisions, all required, all from [Implementor-Checklist Part 2 §Foundation](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#foundation-always-required). Each propagates through every line of Phase 2 code.
+The checklist's Part 2 splits the always-required realisation decisions into six groups: **Foundation (F1–F6)**, **State storage (S1–S3)**, **Subscriptions (Sub1–Sub2)**, **Views (V1–V3)**, **Tracing & instrumentation (T1–T3)**, and **Errors (E1–E2)**. Every block below is **always required** (T2 Performance API is required-but-may-omit-the-bridge; see its note) and each propagates through Phase 2 code. The sub-ids match [Implementor-Checklist Part 2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-2--how-achieved) exactly.
 
-### D4.1 Identity primitive
+### Foundation (F1–F6)
+
+From [Implementor-Checklist §Foundation](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#foundation-always-required).
+
+#### F1 Identity primitive
 
 **The question.** What represents an id?
 
@@ -135,7 +141,7 @@ Six sub-decisions, all required, all from [Implementor-Checklist Part 2 §Founda
 
 **Where the spec speaks.** [`spec/000-Vision.md` §The identity primitive — required properties](https://day8.github.io/re-frame2/spec/000-Vision/#the-identity-primitive--required-properties) and the per-host realisation table.
 
-### D4.2 Persistent data structures
+#### F2 Persistent data structures
 
 **The question.** What does `app-db` (and every snapshot of it) physically live in?
 
@@ -145,11 +151,11 @@ Six sub-decisions, all required, all from [Implementor-Checklist Part 2 §Founda
 
 **Where the spec speaks.** [Implementor-Checklist §F2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f2-persistent-data-structures).
 
-### D4.3 Reactive substrate
+#### F3 Reactive substrate
 
-Already locked in D2.
+Already locked in D2 (the substrate / view-layer choice). Recorded here for cross-walk completeness with the checklist; no separate answer needed.
 
-### D4.4 Effect-handling primitive
+#### F4 Effect-handling primitive
 
 **The question.** How does the runtime invoke registered effects? Sync vs async?
 
@@ -159,7 +165,7 @@ Already locked in D2.
 
 **Where the spec speaks.** [Implementor-Checklist §F4](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f4-effect-handling-primitive).
 
-### D4.5 Concurrency model
+#### F5 Concurrency model
 
 **The question.** Single-threaded event loop vs multi-threaded vs actor-shaped?
 
@@ -169,15 +175,147 @@ Already locked in D2.
 
 **Where the spec speaks.** [`spec/002-Frames.md` §Run-to-completion dispatch drain semantics](https://day8.github.io/re-frame2/spec/002-Frames/). [Implementor-Checklist §F5](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f5-concurrency-model).
 
-### D4.6 Hot-reload primitive
+#### F6 Hot-reload primitive
 
 **The question.** How does re-registration surgically replace registry entries without restarting the runtime?
 
-**Options.** figwheel/shadow-cljs (CLJS); Vite HMR (JS/TS); watch+reimport (Python); compile-replace cycle with `dlopen` (Rust); recompile-and-rerun for compiled-only hosts.
+**Options.** figwheel/shadow-cljs (CLJS); Vite HMR (JS/TS) — and the analogous Vite-HMR-compatible source-build pipeline for each in-scope host (Squint, Fable, Scala.js, PureScript, Kotlin/JS, Melange / ReScript / Reason).
 
 **Constraint.** Re-registration emits `:rf.registry/handler-replaced` per [`spec/001-Registration.md` §Hot-reload semantics](https://day8.github.io/re-frame2/spec/001-Registration/). Frame state preserved across re-registration of `reg-frame`.
 
 **Where the spec speaks.** [Implementor-Checklist §F6](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f6-hot-reload-primitive).
+
+### State storage (S1–S3)
+
+From [Implementor-Checklist §State storage](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#state-storage-always-required). All three are always required.
+
+#### S1 App-db container
+
+**The question.** What container physically holds the frame's `app-db` value?
+
+**What's at stake.** The container's *value* is the frame's `app-db`; all reads/writes go through `read-container` / `replace-container!`. The container's value is what's restored on revert; its identity is stable.
+
+**Options.** Usually the same library that supplies F3's reactive substrate (Reagent ratom / `clojure.core/atom` in the CLJS reference; a `useSyncExternalStore`-backed atom-shaped store, a signal-library cell, or a `MutableStateFlow`-shaped cell per host).
+
+**Constraint.** Adapters MUST NOT hold non-derivable state outside the container (per [`spec/006-ReactiveSubstrate.md` §Revertibility constraints on adapters](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#revertibility-constraints-on-adapters)).
+
+**Where the spec speaks.** [Implementor-Checklist §S1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#s1-app-db-container).
+
+#### S2 Snapshot/restore mechanism
+
+**The question.** How is full-frame-state captured and restored as a value swap?
+
+**What's at stake.** Test fixtures, epoch history (`epoch/restore-epoch` + `epoch/reset-frame-db!`), and time-travel all depend on snapshot/restore being a value swap. With persistent collections (F2) a snapshot is a pointer and restore is `replace-container!`; without them, snapshot is deep-copy and expensive — this is why F2 is pattern-required.
+
+**Where the spec speaks.** [Implementor-Checklist §S2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#s2-snapshotrestore-mechanism).
+
+#### S3 Path-access primitive
+
+**The question.** What provides `assoc-in` / `update-in` / `get-in` over the frame's app-db?
+
+**What's at stake.** Used by handlers, the `path` standard interceptor, registered subs that read paths, and `(rf/snapshot-of path)`. Path operations are hot — choose a fast implementation.
+
+**Options.** Native `assoc-in` / `update-in` / `get-in` (CLJS, Squint); Immer `produce` / `lodash.set`-immutably (TS); lens helpers over the host's immutable map (Belt / F# `Map` / Monocle / `purescript-profunctor-lenses` / Arrow Optics) per host.
+
+**Where the spec speaks.** [Implementor-Checklist §S3](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#s3-path-access-primitive).
+
+### Subscriptions (Sub1–Sub2)
+
+From [Implementor-Checklist §Subscriptions](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#subscriptions-always-required). Both fall out of F3 + S1, but record them explicitly.
+
+#### Sub1 Signal graph + caching
+
+**The question.** What backs the subscription DAG, and how is the per-query cache keyed?
+
+**What's at stake.** Subscriptions form a DAG over `app-db`; values cache per `=`-equality. Layer-1 subs read `app-db` directly; layer-2+ compose via `:<-`. **Equality-by-value is required** for cache invalidation — identity-only equality breaks the contract.
+
+**Where the spec speaks.** [Implementor-Checklist §Sub1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#sub1-signal-graph--caching). [`spec/006-ReactiveSubstrate.md` §Subscription cache](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#subscription-cache--contract-and-operational-semantics).
+
+#### Sub2 Lifecycle (when to dispose)
+
+**The question.** When is a sub no view is reading torn down?
+
+**What's at stake.** Subs unread by any view should dispose to release resources; the mechanism varies by reactive substrate (Reagent: last-deref-disposes after a delay). Pick a policy and document it.
+
+**Where the spec speaks.** [Implementor-Checklist §Sub2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#sub2-lifecycle-when-to-dispose).
+
+### Views (V1–V3)
+
+From [Implementor-Checklist §Views](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#views-always-required). All three always required.
+
+#### V1 Render-tree shape
+
+**The question.** What is the serialisable data form of the render-tree?
+
+**What's at stake.** Pure `(state, props) → render-tree`; the render-tree must be serialisable data for SSR (011) and inspectable for view-tree tooling. Closed component trees that don't serialise (raw React elements with closures) break SSR + inspection.
+
+**Options.** Hiccup (CLJS, Squint); JSX-as-data / snabbdom-style vnodes (TS); Feliz `Html.div [...]` (Fable); `R.div [] [...]` (PureScript); `<.div(...)` (Scala.js); `div { ... }` (Kotlin/JS) — every in-scope host targets React + VDOM, so the shape is the host's idiomatic data-form over `createElement`.
+
+**Where the spec speaks.** [Implementor-Checklist §V1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#v1-render-tree-shape). [`spec/004-Views.md`](https://day8.github.io/re-frame2/spec/004-Views/).
+
+#### V2 Render trigger
+
+**The question.** When does the view re-render?
+
+**What's at stake.** Falls out of F3; signal libraries trigger re-render on subscribed-value change. The trigger must be observably equivalent to "change in `app-db` → recompute affected subs → re-render dependent views".
+
+**Where the spec speaks.** [Implementor-Checklist §V2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#v2-render-trigger).
+
+#### V3 Mount/unmount
+
+**The question.** How do component lifecycle hooks fire frame events?
+
+**What's at stake.** Lifecycle should fire `:on-create` (mount-time) and `:on-destroy` (unmount-time) events on the surrounding frame, integrating with the run-to-completion drain.
+
+**Where the spec speaks.** [Implementor-Checklist §V3](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#v3-mountunmount).
+
+### Tracing & instrumentation (T1–T3)
+
+From [Implementor-Checklist §Tracing & instrumentation](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#tracing--instrumentation-always-required).
+
+#### T1 Trace-event delivery
+
+**The question.** What delivers each emitted trace map to every registered listener?
+
+**What's at stake.** Synchronous, in-order, event-at-a-time delivery on the runtime's emit call stack, plus a retain-N ring buffer for tools that attach after events have fired. Listener-invocation **order is not** contract; "every listener, exactly once, synchronously" is. Hot path — listener invocation must short-circuit when no listeners are registered.
+
+**Where the spec speaks.** [Implementor-Checklist §T1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#t1-trace-event-delivery). [`spec/009-Instrumentation.md` §Listener invocation rules](https://day8.github.io/re-frame2/spec/009-Instrumentation/#listener-invocation-rules).
+
+#### T2 Performance API equivalent
+
+**The question.** Does the port bridge to a profiling/perf-marking API?
+
+**What's at stake.** The CLJS reference ships a Chrome Performance API bridge (`performance.mark` / `performance.measure`) for DevTools cross-correlation. Every in-scope host targets the browser, so the Performance API is uniformly available; the **bridge itself is optional** — the underlying trace surface (T1) is the contract. Record explicitly whether the port ships the bridge or omits it.
+
+**Where the spec speaks.** [Implementor-Checklist §T2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#t2-performance-api-equivalent). [`spec/009-Instrumentation.md` §Performance instrumentation](https://day8.github.io/re-frame2/spec/009-Instrumentation/#performance-instrumentation).
+
+#### T3 Production elision
+
+**The question.** How does every emit site, the listener registry, the trace buffer, and the perf bridge elide in production?
+
+**What's at stake.** All tracing is dev-only; production builds must elide it entirely. Mechanism is host-discretion (Closure DCE for CLJS via `re-frame.interop/debug-enabled?`; Vite `define` + tree-shake for TS/Squint; `#if !DEBUG` + tree-shake for Fable; link-time-`if` for Scala.js; release-variant module omission for Kotlin/JS). Copy the CLJS reference's CI sentinel-string verifier pattern.
+
+**Where the spec speaks.** [Implementor-Checklist §T3](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#t3-production-elision). [`spec/009-Instrumentation.md` §Production builds](https://day8.github.io/re-frame2/spec/009-Instrumentation/#production-builds-zero-overhead-zero-code).
+
+### Errors (E1–E2)
+
+From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#errors-always-required).
+
+#### E1 Error capture / recover
+
+**The question.** How are handler / fx / sub exceptions, schema-validation failures, and drain-depth-exceeded caught, classified, and reported?
+
+**What's at stake.** Try/catch around handler bodies, fx invocations, sub computations. Capture must NOT swallow errors silently — every catch fires a structured trace event with `:operation :rf.error/<category>` and `:op-type :error`.
+
+**Where the spec speaks.** [Implementor-Checklist §E1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#e1-error-capture--recover). [`spec/009-Instrumentation.md` §Recovery contract](https://day8.github.io/re-frame2/spec/009-Instrumentation/#recovery-contract).
+
+#### E2 Error reporting to tools
+
+**The question.** How do tools consume errors, and where does error policy live?
+
+**What's at stake.** Errors are emitted as structured trace events (falls out of T1); tools branch on `:op-type :error` and `:operation` prefix. The per-frame `:on-error` slot in `reg-frame` metadata is the policy mechanism. Strings-as-errors are out — every error has an `:operation` namespaced keyword and a `:tags` map.
+
+**Where the spec speaks.** [Implementor-Checklist §E2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#e2-error-reporting-to-tools). [`spec/009-Instrumentation.md` §Error contract](https://day8.github.io/re-frame2/spec/009-Instrumentation/#error-contract).
 
 ---
 

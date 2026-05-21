@@ -147,7 +147,7 @@ The bead surfaced three open questions; the skill resolves them as follows.
 
 **Resolved: prose walkthrough.** `phase-1-decisions.md` is a structured walkthrough — one section per decision block, each section with question / what's at stake / options / how to choose / where the spec speaks. Not a yes/no decision tree.
 
-**Why**: yes/no trees over-simplify the decisions (D4.1 identity primitive has 8+ options per host, not 2; D3 scope has 7 independent questions). A prose walkthrough that names the options + their trade-offs respects the engineer's expertise. The walkthrough is *structured* (consistent block shape per decision) so it's predictable, but the decision is made in prose, not by walking a binary tree.
+**Why**: yes/no trees over-simplify the decisions (F1 identity primitive has 8+ options per host, not 2; D3 scope has 7 independent questions). A prose walkthrough that names the options + their trade-offs respects the engineer's expertise. The walkthrough is *structured* (consistent block shape per decision) so it's predictable, but the decision is made in prose, not by walking a binary tree.
 
 ### OQ2 — Granularity of Phase 2 — one EP at a time, or clusters?
 

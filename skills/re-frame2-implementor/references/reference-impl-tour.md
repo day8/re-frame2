@@ -27,10 +27,19 @@ implementation/
 │       ├── router.cljc      EP 002 — dispatch routing + drain
 │       ├── views.cljs       EP 004 — view registration
 │       ├── spec.cljc        EP 010 — schema hooks + validation
+│       ├── trace.cljc       EP 009 — trace listener registry + ring buffer
+│       ├── emit.cljc        EP 009 — trace emit sites
+│       ├── error.cljc       EP 009 — structured error contract
+│       ├── substrate/       EP 006 — substrate contract + reference substrate
+│       │   ├── adapter.cljc   the six-function substrate contract
+│       │   └── plain_atom.cljc plain-atom reference substrate (JVM / SSR / headless)
 │       └── test_support.cljc EP 008 — test fixtures + helpers
-├── adapters/
-│   ├── reagent/             EP 006 — Reagent + React substrate adapter
-│   └── plain-atom/          EP 006 — JVM / SSR / headless substrate adapter
+├── adapters/                EP 006 — React-binding substrate adapters
+│   ├── reagent/             Reagent + React adapter
+│   ├── reagent-slim/        slim Reagent variant (no stock Reagent / react-dom)
+│   ├── uix/                 UIx + React adapter
+│   ├── helix/               Helix + React adapter
+│   └── test-react/          test-only React harness adapter
 ├── epoch/                   EP 009 — epoch history for time-travel
 ├── flows/                   EP 013 — flows (separate artefact)
 ├── http/                    EP 014 — Managed HTTP (separate artefact)
@@ -62,14 +71,14 @@ The per-feature directories ship as **separate artefacts** in the published libr
 **What's CLJS-specific.**
 
 - Interceptors as the implementation strategy for the six-step pipeline. They're an internal implementation detail per [`spec/Cross-Spec-Interactions.md`](https://day8.github.io/re-frame2/spec/Cross-Spec-Interactions/); your port can use a different mechanism (a monadic computation, a coroutine, a state machine over the dispatch envelope) so long as the observable contract from EP 002 is preserved.
-- Reagent ratom + auto-tracked subscriptions. Your reactive substrate (D2 / D4.3) decides how this works.
+- Reagent ratom + auto-tracked subscriptions. Your reactive substrate (D2 / F3) decides how this works.
 - `defmulti` for fx resolution. A simple lookup table works too.
 
 **What's pattern-required.** Frame as `{state, queue, sub-cache, id}`; event handler is pure `(state, event) → effects-map`; closed effect-map; run-to-completion drain per frame; subscription cache invalidates by value-equality.
 
-### EP 006 — Reactive substrate (`adapters/{reagent,plain-atom}/`)
+### EP 006 — Reactive substrate (`core/src/re_frame/substrate/` + `adapters/`)
 
-**What you'll find.** Two adapters in-tree. The Reagent adapter is browser-facing — `r/atom` as the container, Reagent `r/reaction` for subs, React for the render trigger. The plain-atom adapter is JVM-facing — `clojure.core/atom`, hand-rolled signal graph, no render trigger (SSR / headless). Both adapters implement the same six-function contract.
+**What you'll find.** The substrate contract is defined in-core at `core/src/re_frame/substrate/adapter.cljc`, with a dependency-free reference substrate alongside it at `core/src/re_frame/substrate/plain_atom.cljc` — `clojure.core/atom`, hand-rolled signal graph, no render trigger (JVM / SSR / headless). The React-binding adapters then ship as sibling artefacts under `adapters/` — `reagent`, `reagent-slim`, `uix`, `helix` (plus `test-react` for the test harness). The Reagent-family adapters are browser-facing — `r/atom` as the container, Reagent `r/reaction` for subs, React for the render trigger. The in-core plain-atom substrate and every adapter implement the same six-function contract.
 
 **What's CLJS-specific.**
 
@@ -90,9 +99,9 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 **What's pattern-required.** Pure `(state, props) → render-tree`. Render-tree is serialisable data. `reg-view` is the registry-aware entry point. Frame propagation is supported.
 
-### EP 009 — Instrumentation (`core/src/re_frame/trace.cljc` and related)
+### EP 009 — Instrumentation (`core/src/re_frame/{trace,emit,error}.cljc`)
 
-**What you'll find.** A listener-registry atom + a ring-buffer atom. Emit walks the registry inline. Production elision via `goog-define :debug-enabled?` + Closure DCE. A CI script (`scripts/check-elision.cjs`) scans production bundles for dev-only sentinel strings; the build fails if any are found.
+**What you'll find.** A listener-registry + ring buffer in `trace.cljc`, the emit sites in `emit.cljc`, and the structured error contract in `error.cljc`. Emit walks the registry inline. Production elision via `goog-define :debug-enabled?` + Closure DCE. A CI script (`implementation/scripts/check-elision.cjs`) scans production bundles for dev-only sentinel strings; the build fails if any are found.
 
 **What's CLJS-specific.**
 
@@ -140,7 +149,7 @@ EP 011 implementation. Pure hiccup → HTML emitter (~200 lines) for the server 
 
 ## When to consult the tour
 
-- **Phase 1.** As a sanity check on Phase 1 decisions — "the CLJS reference picked X for D4.5; I'm picking Y because my host gives me Z." The tour grounds the choice.
+- **Phase 1.** As a sanity check on Phase 1 decisions — "the CLJS reference picked X for F5; I'm picking Y because my host gives me Z." The tour grounds the choice.
 - **Phase 2, per EP.** As a starting point for "where would I look to see how to handle the awkward case in EP N?" Open the matching directory above; read the corresponding source file.
 - **Spec gaps.** When a spec section is ambiguous and the tour shows the reference made a specific choice — that's not the spec's choice, that's the reference's. Draft a GitHub issue against `day8/re-frame2` asking for the spec to clarify, show the engineer the draft, wait for explicit OK before filing (see [`cardinal-rules.md` §§8–9](cardinal-rules.md) for the filing pattern and the per-issue approval gate).
 
