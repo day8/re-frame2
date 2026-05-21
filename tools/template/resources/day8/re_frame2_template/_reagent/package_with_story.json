@@ -6,7 +6,6 @@
   "scripts": {
     "watch":   "shadow-cljs watch app",
     "release": "shadow-cljs release app",
-    "story":   "shadow-cljs watch app",
     "test":    "shadow-cljs compile test && node out/node-test.js"
   },
   "devDependencies": {
