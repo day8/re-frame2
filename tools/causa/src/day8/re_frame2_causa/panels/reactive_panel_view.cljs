@@ -1,31 +1,31 @@
 (ns day8.re-frame2-causa.panels.reactive-panel-view
   "Root view for the Views panel (rf2-e33ad / rf2-8ve8z · Mike-direction
-  2026-05-21 · prior beads: rf2-wyvf2, rf2-isun6).
+  2026-05-21 · prior beads: rf2-wyvf2, rf2-isun6 · chrome cleanup
+  rf2-fhh34).
 
   Renders the reactive cascade flowing toward the UI as THREE STACKED
   TABLES, top→bottom mirroring the cascade (rf2-8ve8z, phase-B of the
   Views-tab redesign; phase-A landed the substrate captures in
   rf2-9hoos):
 
-      Level 1 subs (observe app-db)   one row per Level 1 sub that ran
-                                      this cascade. Columns:
-                                        name | changed | code
-                                      `changed` is the accent flag from
-                                      the `:value-changed?` projection;
-                                      `code` is a jump-to-source [code]
-                                      chip from the static topology
-                                      coord.
+      Level 1 Subscriptions   one row per Level 1 sub that ran this
+                              cascade. Columns:
+                                name | changed | code
+                              `changed` is the accent flag from the
+                              `:value-changed?` projection; `code` is a
+                              jump-to-source [code] chip from the static
+                              topology coord.
 
-      Level 2+ subs                   one row per composed sub that ran.
-                                      Columns:
-                                        name | changed | inputs | code
-                                      `inputs` lists the input-sub names
-                                      ONE PER LINE (the static `:<-`
-                                      chain from `sub-topology`).
+      Level 2+ Subscriptions  one row per composed sub that ran.
+                              Columns:
+                                name | changed | inputs | code
+                              `inputs` lists the input-sub names ONE PER
+                              LINE (the static `:<-` chain from
+                              `sub-topology`).
 
-      Views:                          one row per view render / unmount
-                                      this cascade. Columns:
-                                        name | action | reason
+      Views                   one row per view render / unmount this
+                              cascade. Columns:
+                                name | action | reason
                                       `name` is hoverable (reuses the
                                       pink diagonal-stripe DOM highlight,
                                       rf2-8l03l); `action` is mount /
@@ -90,15 +90,14 @@
 ;; ---- styling primitives -------------------------------------------------
 
 (def ^:private section-label-style
-  "Bare body-text label preceding each table. NOT a large h1/h2 heading;
-  uppercase 11px sans-stack matches the rf2-n4ad0 Event panel section
-  labels."
+  "Bare title-case label preceding each table. NOT a large h1/h2 heading;
+  12px sans-stack semibold (rf2-fhh34 chrome cleanup — the titles read as
+  written: `Level 1 Subscriptions` / `Level 2+ Subscriptions` / `Views`,
+  no uppercase transform, no count badge)."
   {:padding       "8px 12px 4px 12px"
    :font-family   sans-stack
-   :font-size     "11px"
+   :font-size     "12px"
    :font-weight   600
-   :letter-spacing "0.6px"
-   :text-transform "uppercase"
    :color         (:text-secondary tokens)})
 
 (def ^:private empty-row-style
@@ -107,15 +106,6 @@
    :font-style  "italic"
    :font-family sans-stack
    :font-size   "11px"})
-
-(def ^:private chevron-style
-  {:padding-left "4px"
-   :color        (:text-tertiary tokens)
-   :font-family  mono-stack
-   :font-size    "10px"
-   :line-height  1
-   :user-select  "none"
-   :opacity      "0.6"})
 
 ;; ---- table styling (rf2-8ve8z) -----------------------------------------
 
@@ -243,15 +233,6 @@
          :style       section-label-style}
    title])
 
-(defn- pipeline-chevron
-  "Small downward chevron `⋁` separating adjacent tables. Muted
-  (`:text-tertiary`) so the chevron is rhythm not foreground."
-  [from-id]
-  [:div {:data-testid (str "rf-causa-reactive-chevron-" from-id)
-         :aria-hidden "true"
-         :style       chevron-style}
-   "⋁"])
-
 (defn- empty-row
   "Render a muted placeholder for an empty table. Empty states are
   ALWAYS visible so the pipeline rhythm holds (Mike-direction
@@ -363,27 +344,6 @@
                   (.remove (.-classList node) highlight-class)))
       nil)))
 
-;; ---- header (outcome line; no h1) --------------------------------------
-
-(defn- header-block
-  "Compact metadata strip — replaces the large h1 heading per rf2-6xezz.
-  Renders a single line with the frame + cascade counts so the operator
-  has the rhythm without the heading."
-  [data]
-  (when (:has-cascade? data)
-    [:header {:data-testid "rf-causa-reactive-header-meta"
-              :style {:padding "8px 12px"
-                      :border-bottom (str "1px solid " (:border-subtle tokens))
-                      :background    (:bg-3 tokens)
-                      :font-family   sans-stack
-                      :font-size     "11px"
-                      :color         (:text-tertiary tokens)}}
-     (let [counts (:counts data)]
-       (str "frame " (:frame data)
-            " · " (or (:subs-ran counts) 0) " subs ran · "
-            (or (:subs-skipped counts) 0) " skipped · "
-            (or (:view-rows counts) (:views-rendered counts) 0) " view renders"))]))
-
 ;; ---- shared cell renderers --------------------------------------------
 
 (defn- changed-cell
@@ -431,7 +391,7 @@
   (let [rows (:level-1-subs data)
         n    (count rows)]
     [:<>
-     (section-label "l1" (str "LEVEL 1 SUBS (OBSERVE APP-DB) (" n ")"))
+     (section-label "l1" "Level 1 Subscriptions")
      (if (seq rows)
        [:table {:data-testid "rf-causa-reactive-l1-table"
                 :style       table-style}
@@ -490,7 +450,7 @@
   (let [rows (:level-2-subs data)
         n    (count rows)]
     [:<>
-     (section-label "l2" (str "LEVEL 2+ SUBS (" n ")"))
+     (section-label "l2" "Level 2+ Subscriptions")
      (if (seq rows)
        [:table {:data-testid "rf-causa-reactive-l2-table"
                 :style       table-style}
@@ -574,7 +534,7 @@
   (let [rows (:view-rows data)
         n    (count rows)]
     [:<>
-     (section-label "views" (str "VIEWS: (" n ")"))
+     (section-label "views" "Views")
      (if (seq rows)
        [:table {:data-testid "rf-causa-reactive-views-table"
                 :style       table-style}
@@ -625,7 +585,6 @@
                        :color (:text-primary tokens)
                        :font-family sans-stack
                        :font-size "14px"}}
-     (header-block data)
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         (not (:has-cascade? data))
@@ -633,13 +592,8 @@
 
         :else
         [:div {:data-testid "rf-causa-reactive-pipeline"
-               :style {:border-left   (str "1px solid " (:border-subtle tokens))
-                       :margin-left   "16px"
-                       :padding-left  "12px"
-                       :padding-top   "8px"
+               :style {:padding-top   "8px"
                        :padding-bottom "8px"}}
          (level-1-section data)
-         (pipeline-chevron "l1")
          (level-2-section data)
-         (pipeline-chevron "l2")
          (views-section data)])]]))

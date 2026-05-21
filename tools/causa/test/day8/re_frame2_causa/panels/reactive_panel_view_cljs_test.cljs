@@ -75,8 +75,9 @@
 
 (deftest reactive-panel-renders-three-tables
   (testing "rf2-8ve8z — a focused cascade renders THREE stacked tables
-            (Level 1 subs · Level 2+ subs · Views) with chevrons between
-            them, top→bottom mirroring the reactive cascade."
+            (Level 1 subs · Level 2+ subs · Views), top→bottom mirroring
+            the reactive cascade. rf2-fhh34 chrome cleanup: NO chevrons
+            between sections."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
@@ -95,8 +96,43 @@
       (is (has-testid? tree "rf-causa-reactive-l1-table")  "Level 1 table renders")
       (is (has-testid? tree "rf-causa-reactive-l2-table")  "Level 2+ table renders")
       (is (has-testid? tree "rf-causa-reactive-views-table") "Views table renders")
-      (is (has-testid? tree "rf-causa-reactive-chevron-l1") "chevron after Level 1")
-      (is (has-testid? tree "rf-causa-reactive-chevron-l2") "chevron after Level 2"))))
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-chevron-l1"))
+          "rf2-fhh34 — no chevron after Level 1")
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-chevron-l2"))
+          "rf2-fhh34 — no chevron after Level 2"))))
+
+(deftest reactive-panel-section-titles-are-clean-no-counts
+  (testing "rf2-fhh34 chrome cleanup — section titles read exactly
+            `Level 1 Subscriptions` / `Level 2+ Subscriptions` / `Views`,
+            with NO `(observe app-db)` suffix and NO trailing count badge."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
+    (let [tree (view/reactive-panel)]
+      (is (= "Level 1 Subscriptions"
+             (text-of tree "rf-causa-reactive-section-l1-label"))
+          "Level 1 title is clean — no suffix, no count")
+      (is (= "Level 2+ Subscriptions"
+             (text-of tree "rf-causa-reactive-section-l2-label"))
+          "Level 2+ title is clean — no count")
+      (is (= "Views"
+             (text-of tree "rf-causa-reactive-section-views-label"))
+          "Views title carries no count number"))))
+
+(deftest reactive-panel-omits-summary-ribbon
+  (testing "rf2-fhh34 chrome cleanup — the per-cascade summary ribbon
+            (`frame · N subs ran · …`) is gone."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {:subs-ran 2 :subs-skipped 0 :view-rows 1}
+       :level-1-subs [] :level-2-subs [] :view-rows []})
+    (let [tree (view/reactive-panel)]
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-header-meta"))
+          "summary ribbon header is removed"))))
 
 (deftest level-1-row-renders-name-and-code
   (testing "rf2-8ve8z — a Level 1 sub row carries its name + a code chip
