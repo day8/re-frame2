@@ -139,4 +139,4 @@ For the full declarative-`:spawn` desugaring rules, composition with hierarchica
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (declarative-`:spawn` desugar, `:spawn-all` join engine, `:on-spawn` stamping) @ main `89bd9c3`, and `spec/conformance/fixtures/invoke-all-*` fixtures. Re-verify after `:spawn`/`:spawn-all` runtime changes.*
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (declarative-`:spawn` desugar, `:spawn-all` join engine, `:on-spawn` stamping) @ main `89bd9c3`, and `spec/conformance/fixtures/spawn-all-*` fixtures. Re-verify after `:spawn`/`:spawn-all` runtime changes.*

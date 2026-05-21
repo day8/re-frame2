@@ -61,14 +61,21 @@ The canonical cross-framework benchmark — persistence (localStorage), in-place
 
 A cluster of six small benchmark apps from the [7GUIs](https://eugenkiss.github.io/7guis/) suite — `temperature/`, `flight_booker/`, `timer/`, `crud/`, `circle_drawer/`, `cells/`. Each app is a focused stress on one shape: bidirectional derivations (`temperature`), form-validity-driven button enablement (`flight_booker`), `:dispatch-later` periodic ticks (`timer`), list-CRUD with selection-as-state (`crud`), undo/redo via a snapshot-on-write interceptor and modal-as-state (`circle_drawer`), and a full formula-graph subscription substrate with cycle detection (`cells`). Point at the 7GUIs cluster when picking the right shape for a small focused concern: a controlled input pair, a Book-button-enables-only-when-valid flow, a periodic-tick UI, list operations with selection, undo/redo, or formula-driven cell propagation. Exercises 004 Views, 002 Frames, 006 ReactiveSubstrate, and Pattern-Forms. See `examples/reagent/7Guis/README.md` for the cluster's own narrative.
 
-## In-flight examples (pending)
+## websocket — `examples/reagent/websocket/`
 
-Two examples are listed in `examples/README.md` as **pending** worked examples — they accompany pattern leaves that ship with inline mini-examples until their own `examples/reagent/<x>/` directories land:
+The canonical Pattern-WebSocket worked example — a connection lifecycle machine where a hierarchical compound `:active` state parents `:connecting` / `:authenticating` / `:connected` and owns a `:spawn`d socket actor whose lifetime spans all three child leaves; `:reconnecting` rides `:after` exponential backoff; `:always` flushes the offline send-queue on `:connected`; `:fsm/tags` carry queryable connection-state predicates for the view; the live `:socket-id` doubles as the connection epoch for staleness checks; request/reply correlation is wired end-to-end. Runs against an in-process mock WebSocket — no network needed. Point at this example when authoring any long-lived-connection feature, when verifying the `:spawn`-at-parent-level lifetime idiom, the connection-epoch staleness pattern, or `:after`-backoff reconnection. Source spans `connection.cljs` (the machine), `messages.cljs`, `schema.cljs`, and `views.cljs`. Exercises Pattern-WebSocket, Pattern-StaleDetection, and 005 StateMachines. The worked-source companion to `patterns/websocket.md`.
 
-- **`examples/reagent/websocket/` (pending)** — will become the canonical Pattern-WebSocket example: a state machine that owns the long-lived connection lifecycle (`:disconnected → :connecting → :authenticating → :connected → :reconnecting → :failed`), heartbeat, queued-sends-when-disconnected, re-auth on reconnect, and topic-subscription preservation across reconnects.
-- **`examples/reagent/long_running_work/` (pending)** — will become the canonical Pattern-LongRunningWork example: a CPU-bound batch job (process N items in chunks of 100) running on the main thread via a state machine that yields between chunks with `:after 0`, reports progress through `:data`, and supports user-initiated cancel.
+## long_running_work — `examples/reagent/long_running_work/`
 
-Until these ship, the pattern leaves themselves are the authoritative shape — `patterns/websocket.md`, `patterns/long-running-work.md`.
+The canonical Pattern-LongRunningWork worked example — a `:work/flow` parent coordinator spawns N `:work/processor` worker children via `:spawn-all` and joins on `:all`; each child processes its shard in chunks, yielding between chunks via `:after` so the browser stays responsive, and dispatches a `:progress` event back to the parent on every chunk (the parent's internal self-transition updates `:data :progress`, which the `:work/progress-fraction` sub recomputes). Cooperative cancellation is uniform: every exit path (user `:cancel`, `:on-all-complete`, frame destroy, `:after`) fires one `:rf.machine/destroy` whose cascade tears down every in-flight child timer/request. Point at this example when authoring a CPU-bound batch job, a parent/child fan-out-and-join via `:spawn-all`, progress reporting through `:data`, or the destroy-cascade cancellation contract. Source: `worker.cljs` (the `:work/flow` + `:work/processor` machines), `core.cljs`, `schema.cljs`, `views.cljs`. Exercises Pattern-LongRunningWork and 005 StateMachines. The worked-source companion to `patterns/long-running-work.md`.
+
+## ssr_streaming — `examples/reagent/ssr_streaming/`
+
+The streaming-SSR worked example for [Spec 011 §Streaming](../../spec/011-SSR.md#streaming-ssr) — a dashboard with three slow cards where the page shell + header render immediately on the server, then each card streams its content as its own data fetch resolves. Demonstrates the `:rf/suspense-boundary` hiccup marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Point at this example when authoring streaming server-rendered views, suspense boundaries, or per-subtree hydration. Lives in a single `core.cljc` (cross-platform JVM/browser). Exercises 011 SSR §Streaming and 004 Views. The streaming complement to the minimal `ssr/` walkthrough.
+
+## notebook — `examples/reagent/notebook/`
+
+The design-led Reagent example — a three-pane editorial layout (documents tree · markdown editor · live preview) that proves the substrate drives a substantive multi-pane UI. The design-led counterpart to `examples/uix/dashboard_uix/` and `examples/helix/process_monitor_helix/`; all three share the "Editorial Warm" identity from `examples/_shared/css/style.css`. A tiny pure-CLJS markdown parser keeps the bundle small. Point at this example when authoring a multi-pane layout, a master-detail editor shape, or when verifying the shared design-system identity across substrates. Single `core.cljs`. Exercises 002 Frames and 004 Views. Not a pattern-teaching example — read it for layout/identity shape, not for a primitive.
 
 ## Adapter smoke-pairs
 
@@ -91,4 +98,4 @@ Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md
 
 ---
 
-*Derived from `examples/reagent/**` and `examples/README.md` @ main `89bd9c3`. Re-verify whenever a new worked example lands or an in-flight example merges (e.g. `boot/`, `websocket/`, `long_running_work/`).*
+*Derived from `examples/reagent/**` and `examples/README.md` @ main `89bd9c3`. Re-verify whenever a new worked example lands.*

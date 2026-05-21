@@ -70,8 +70,8 @@ Every state node is a map. Recognised slots (see `implementation/machines/src/re
 - `:entry` / `:exit` — singular action references or fns, fired on entering / leaving the node.
 - `:always` — eventless microstep table (`:always [{:guard ... :target ...} ...]`).
 - `:after` — delayed transition table, `:after {<ms-or-sub-vec-or-fn> <transition-spec>}`.
-- `:spawn` — declarative child spawn (see `invoke.md`).
-- `:spawn-all` — spawn-and-join sugar (see `invoke.md`).
+- `:spawn` — declarative child spawn (see `spawn.md`).
+- `:spawn-all` — spawn-and-join sugar (see `spawn.md`).
 - `:tags` — a set of keywords describing this state's per-axis intent (see `tags.md`).
 - `:states` + `:initial` — nested compound state (deepest-wins resolution).
 

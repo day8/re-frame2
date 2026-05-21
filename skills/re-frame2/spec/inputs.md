@@ -32,8 +32,10 @@ The worked example for each pattern. Used both as a source of truth for canonica
 - `examples/reagent/boot/` — Boot pattern.
 - `examples/reagent/nine_states/` — NineStates pattern.
 - `examples/reagent/managed_http_counter/` — ManagedHTTP pattern.
-- `examples/reagent/long_running_work/` (pending) — LongRunningWork pattern.
-- `examples/reagent/websocket/` (pending) — WebSocket pattern.
+- `examples/reagent/long_running_work/` — LongRunningWork pattern.
+- `examples/reagent/websocket/` — WebSocket pattern.
+- `examples/reagent/ssr_streaming/` — streaming SSR (Spec 011 §Streaming).
+- `examples/reagent/notebook/` — design-led multi-pane layout.
 
 When an example doesn't yet exist, the relevant pattern leaf inlines a mini-declaration and flags "example app pending".
 

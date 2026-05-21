@@ -111,11 +111,11 @@ If the example contradicts the leaf, **the example wins** — re-frame2's cardin
 | RemoteData | [`patterns/remote-data.md`](../patterns/remote-data.md) | (inline mini-example) |
 | Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/reagent/login/` |
 | Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/reagent/boot/` |
-| WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | (pending) |
+| WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | `examples/reagent/websocket/` |
 | ManagedHTTP | [`patterns/managed-http.md`](../patterns/managed-http.md) | `examples/reagent/managed_http_counter/` |
 | NineStates | [`patterns/nine-states.md`](../patterns/nine-states.md) | `examples/reagent/nine_states/` |
 | AsyncEffect | [`patterns/async-effect.md`](../patterns/async-effect.md) | (inline mini-example) |
-| LongRunningWork | [`patterns/long-running-work.md`](../patterns/long-running-work.md) | (pending) |
+| LongRunningWork | [`patterns/long-running-work.md`](../patterns/long-running-work.md) | `examples/reagent/long_running_work/` |
 | StaleDetection | [`patterns/stale-detection.md`](../patterns/stale-detection.md) | (inline mini-example) |
 
 Load at most two pattern leaves at a time. If three or more seem necessary, the request probably spans features and should be broken up — author each pattern's leaf in its own pass.

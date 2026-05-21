@@ -126,6 +126,55 @@ When the test is exercising the live cache (e.g. layer-2 sub on top of a real di
 
 `subscribe-once` materialises the reaction, reads `@`, and unsubscribes — one line, no leaked subscription. Prefer it over `@(rf/subscribe ...)` in tests.
 
+## Asserting the view: `re-frame.test-helpers` (the view-tree axis)
+
+`re-frame.test-support` covers the **runtime-state** axis (events / fx / subs / machines). The sibling namespace `re-frame.test-helpers` covers the **view-tree** axis — call the view-fn, walk the returned hiccup by `:data-testid`, assert on rendered content. Reach for it when "does the screen show the right thing?" or "does the button dispatch the right event?" is the question. A test doing both `:require`s both.
+
+```clojure
+(:require [re-frame.core         :as rf]
+          [re-frame.test-helpers :as h])
+```
+
+### The single-frame e2e trio: `with-app-fixture` / `expect-text` / `wait-until`
+
+This is the dominant shape for an app-developer e2e view test — it compresses the `make-frame` / `with-frame` / `destroy-frame!` bracket to one macro. `with-app-fixture` creates a fresh single frame, runs an `:install` thunk inside its dynamic extent, stashes the root view so `expect-text` / `wait-until` find it without a tree argument, and tears the frame down in a `finally`.
+
+```clojure
+(deftest counter-e2e
+  (h/with-app-fixture
+    {:install   (fn []
+                  (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
+                  (rf/reg-sub      :counter/n   (fn [db _] (:n db)))
+                  (rf/reg-view     :counter/view
+                    (fn [] [:span (h/testid "n") @(rf/subscribe [:counter/n])])))
+     :root-view (fn [] [:counter/view])}
+    (rf/dispatch-sync [:counter/inc])
+    (h/expect-text :n "1")))          ;; uses the stashed root view
+```
+
+`with-app-fixture` opts (all optional): `:install` (zero-arg fn run inside the bound frame — register events/subs/views here; pair with a `make-reset-runtime-fixture` `:each` fixture to roll the registrations back), `:root-view` (hiccup-returning view fn stashed for `expect-text`/`wait-until`), `:root-view-args` (args vector applied to `:root-view`, default `[]` — use when the view takes a props map), `:frame-config` (map merged into `make-frame`/`reg-frame` — `:on-create`, `:fx-overrides`, `:interceptors`, …). Two call shapes: `(with-app-fixture opts body+)` gets an anonymous gensym'd frame id; `(with-app-fixture opts frame-id body+)` names it.
+
+`expect-text` asserts the `:data-testid` node's text equals `expected`, reporting via `clojure.test/is`:
+
+```clojure
+(h/expect-text :n "1")              ;; uses the fixture-stashed root view
+(h/expect-text tree :n "1")         ;; 3-arity — walk an explicit tree, no fixture
+```
+
+`testid` may be a string (`"n"`) or keyword (`:n`). Returns a boolean, but the `is` report has already fired.
+
+`wait-until` is the bounded-deadline poll for async cascades (HTTP, scheduled events, machine `:after` transitions) whose post-condition is observable in the view — the view-test counterpart to `test-support`'s `poll-until`. Two call shapes plus opts:
+
+```clojure
+(h/wait-until #(= "done" (-> (some-tree) (h/find-by-testid "status") h/text-content)))
+(h/wait-until :status "done")                          ;; testid form — polls the stashed root view
+(h/wait-until :status "done" {:timeout-ms 5000 :interval-ms 10 :label "status ready"})
+```
+
+`opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape** (matching `poll-until`): on **JVM** it is synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/wait-until-timeout`) on timeout. On **CLJS** it returns a `js/Promise` — resolves with the truthy value, rejects on timeout; compose with `cljs.test/async`. For sync cascades, `expect-text` after `dispatch-sync` is enough — only reach for `wait-until` when the cascade is genuinely async. It is not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
+
+The lower-level walk helpers (`find-by-testid`, `find-all-by-testid`, `text-content`, `invoke-handler`, and the `testid` attrs-authoring helper) are documented in SKILL.md §Testing your views — use them directly when you need the `:on-click`-fires-the-right-event assertion or a tree that no fixture stashed.
+
 ## Machine snapshots and tag queries
 
 A machine's snapshot lives at `(get-in app-db [:rf/machines machine-id])` — a map of `{:state ... :data ... :tags ...}` (`:tags` is absent when the active state-configuration's tag union is empty).
@@ -211,4 +260,4 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 
 ---
 
-*Derived from `implementation/core/src/re_frame/test_support.cljc` (public test-support surface) and `implementation/core/src/re_frame/substrate/plain_atom.cljc` (JVM adapter) @ main `89bd9c3`. Re-verify after test-support surface changes.*
+*Derived from `implementation/core/src/re_frame/test_support.cljc` (public test-support surface), `implementation/core/src/re_frame/test_helpers.cljc` (view-tree assertion surface — `with-app-fixture` / `expect-text` / `wait-until`), and `implementation/core/src/re_frame/substrate/plain_atom.cljc` (JVM adapter) @ main `89bd9c3`. Re-verify after test-support / test-helpers surface changes.*
