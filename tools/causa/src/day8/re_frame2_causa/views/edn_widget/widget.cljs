@@ -67,72 +67,116 @@
              :as cdt]
             [zprint.core :as zprint]))
 
+;; `inspect` / `inspect-inline` (the panel-facing current-state facade)
+;; delegate to `browse` / `mini`, which are defined further down — forward
+;; declare so the facade can sit at the top of the file where callers look.
+(declare browse mini)
+
 ;; ---- panel-facing facade — inspect / inspect-inline ----------------------
 ;;
 ;; Per Mike-direction rf2-9wsdy ("one widget, many call sites") every
 ;; panel-side EDN render flows through this namespace — panels MUST
 ;; NOT reach for `theme.data-inspector` directly. The `inspect` +
-;; `inspect-inline` wrappers below delegate to the sentinel-aware
-;; renderer (`theme.data-inspector`) so panels get redacted / large
-;; chip rendering for free; the indirection keeps the widget as the
-;; single facade the rf2-8q4f4 grep contract checks.
+;; `inspect-inline` wrappers are the canonical CURRENT-STATE renderers
+;; (App-DB · Trace payloads · Event :fx / coeffects · machine snapshots
+;; · Issues ex-data). Per Mike-direction 2026-05-21 (rf2-dmso5)
+;; current-state rendering is the re-frame-10x cljs-devtools look:
+;; collections AND scalars route through cljs-devtools (`browse`).
+;;
+;; The data-classification sentinels (`:rf/redacted` / `:rf/large` per
+;; spec/015) have no cljs-devtools vocabulary, so `inspect` keeps the
+;; bespoke chip chrome from `theme.data-inspector` for those —
+;; cljs-devtools renders everything else.
 
 (defn inspect
-  "Sentinel-aware expandable rendering for one value — the canonical
-  L4 detail-panel renderer. Delegates to `theme.data-inspector/inspect`
-  so `:rf/redacted` / `:rf/large` sentinels paint their bespoke chrome
-  per spec/015. Returns hiccup.
+  "Sentinel-aware current-state rendering for one value — the canonical
+  L4 detail-panel renderer. Routes the value through cljs-devtools
+  (the re-frame-10x look · type-coloured · expandable nested) via the
+  `browse` path, EXCEPT for the spec/015 data-classification sentinels
+  (`:rf/redacted` / `:rf/large`), which keep their bespoke chip chrome
+  from `theme.data-inspector` (cljs-devtools has no sentinel
+  vocabulary). Returns hiccup.
 
   Single-arg form picks the default node-key (`\"root\"`); two-arg
-  form lets the caller supply a stable per-mount node-key so adjacent
-  inspect calls in the same panel keep independent expand state."
-  ([v] (inspector/inspect v))
-  ([v node-key] (inspector/inspect v node-key)))
+  form lets the caller supply a stable per-mount `node-key` — used as
+  the cljs-devtools `render-id` so adjacent inspects in a panel keep
+  independent testids.
+
+  Diff rendering (Event panel `:db` before→after smallest-diff) is a
+  DIFFERENT contract — call `diff`, which stays on the home-grown
+  `data-display/render-tree` engine."
+  ([v] (inspect v "root"))
+  ([v node-key]
+   (cond
+     ;; spec/015 sentinels keep their bespoke chip chrome — cljs-devtools
+     ;; has no diff/redaction vocabulary.
+     (inspector/redacted-sentinel? v)
+     (inspector/inspect v node-key)
+
+     (some? (inspector/redacted+size-meta v))
+     (inspector/inspect v node-key)
+
+     (some? (inspector/large-meta v))
+     (inspector/inspect v node-key)
+
+     ;; Everything else — collections + scalars — render through
+     ;; cljs-devtools (current-state browse).
+     :else
+     (browse {:value     v
+              :panel-id  :inspect
+              :render-id (str node-key)}))))
 
 (defn inspect-inline
-  "Compact one-line sentinel-aware rendering — same delegation as
-  `inspect` but uses `theme.data-inspector/inspect-inline` so hover
-  tooltips / list cells get the collapsed `{N entries}` / `[N items]`
-  / sentinel-chip shape without an expand affordance."
+  "Compact one-line current-state rendering for hover tooltips / list
+  cells. Sentinels keep their chip shape (via `theme.data-inspector`);
+  everything else renders as a one-line cljs-devtools header summary
+  (`mini`)."
   [v]
-  (inspector/inspect-inline v))
+  (cond
+    (inspector/redacted-sentinel? v)
+    (inspector/inspect-inline v)
+
+    (some? (inspector/redacted+size-meta v))
+    (inspector/inspect-inline v)
+
+    (some? (inspector/large-meta v))
+    (inspector/inspect-inline v)
+
+    :else
+    (mini v)))
 
 ;; ---- variant: browse -----------------------------------------------------
 
-(defn- collection-value?
-  "True when `v` is a collection — anything `data-display/render-tree`'s
-  tree walker treats as a node with children (map / vector / list / set).
-  Non-collections route through cljs-devtools' single-value formatter."
-  [v]
-  (or (map? v) (vector? v) (set? v) (sequential? v)))
-
 (defn browse
-  "Render `:value` as a path-aware expand/collapse tree (collections)
-  or as a single cljs-devtools-formatted hiccup span (non-collection
-  leaves). Browse mode — no diff semantics. Returns hiccup.
+  "Render `:value` as a current-state tree via cljs-devtools — the
+  re-frame-10x look: type-coloured leaves, native collection
+  delimiters, records keeping their type tag, nested structure
+  expanded + indented. Browse mode is current-state · no diff
+  semantics; cljs-devtools owns the WHOLE value (collections AND
+  scalars), per Mike-direction 2026-05-21 (rf2-dmso5).
+
+  Diff semantics (Event panel `:db` before→after smallest-diff) stay
+  on the home-grown `data-display/render-tree` engine via `diff`.
 
   Required: `:value :panel-id :render-id`.
-  Optional: `:default-depth` (defaults to 2 per §10.4)."
-  [{:keys [value panel-id render-id default-depth]
-    :or   {default-depth 2}}]
-  (if (collection-value? value)
-    (data-display/render-tree
-      {:value         value
-       :diff?         false
-       :panel-id      panel-id
-       :render-id     render-id
-       :default-depth default-depth})
-    ;; Non-collection — record / scalar / function / etc. cljs-devtools
-    ;; owns the leaf shape (type tag, metadata, IRecord chrome).
-    [:div {:data-testid (str "rf-causa-edn-widget-browse-"
-                             (name (or panel-id :unknown))
-                             "-"
-                             (str (or render-id "")))
-           :style {:font-family mono-stack
-                   :font-size   "12px"
-                   :color       (:text-primary tokens)
-                   :line-height 1.4}}
-     (cdt/value->hiccup value)]))
+  Optional: `:max-depth` (recursion cap for cljs-devtools' surrogate
+            expansion · defaults to `cdt/default-max-depth`)."
+  [{:keys [value panel-id render-id max-depth]}]
+  ;; Every browse value — map / vector / set / record / scalar —
+  ;; routes through cljs-devtools. Collections expand into the nested
+  ;; tree; scalars render as a single coloured span. The home-grown
+  ;; render-tree is now diff-only.
+  [:div {:data-testid (str "rf-causa-edn-widget-browse-"
+                           (name (or panel-id :unknown))
+                           "-"
+                           (str (or render-id "")))
+         :style {:font-family mono-stack
+                 :font-size   "12px"
+                 :color       (:text-primary tokens)
+                 :line-height 1.4}}
+   (if (some? max-depth)
+     (cdt/value->tree-hiccup value max-depth)
+     (cdt/value->tree-hiccup value))])
 
 ;; ---- variant: diff -------------------------------------------------------
 

@@ -47,61 +47,143 @@
        first))
 
 ;; ---- variant: browse -----------------------------------------------------
+;;
+;; Per Mike-direction 2026-05-21 (rf2-dmso5) browse mode is the
+;; re-frame-10x current-state look: collections AND scalars route
+;; through cljs-devtools. The home-grown `data-display` engine is now
+;; diff-only. So `browse` of either a map or a scalar produces the
+;; `rf-causa-edn-widget-browse-<panel>-<render-id>` container with
+;; cljs-devtools markup inside (never a `rf-causa-data-display-*` node).
 
-(deftest browse-of-collection-routes-through-data-display
+(defn- contains-text?
+  "True when some string/number descendant of `tree` contains `s`.
+  cljs-devtools renders numeric leaves as JS numbers, so scan both."
+  [tree s]
+  (let [hit (atom false)
+        re  (re-pattern s)]
+    (letfn [(scan [n]
+              (cond
+                (string? n)  (when (re-find re n) (reset! hit true))
+                (number? n)  (when (re-find re (str n)) (reset! hit true))
+                (boolean? n) (when (re-find re (str n)) (reset! hit true))
+                (vector? n)  (doseq [c (rest n)] (scan c))
+                (seq? n)     (doseq [c n] (scan c))))]
+      (scan tree))
+    @hit))
+
+(deftest browse-of-collection-routes-through-cljs-devtools
   (let [out (w/browse {:value     {:a 1 :b 2}
                        :panel-id  :test
                        :render-id "browse-1"})]
-    (testing "browse of a map returns a [:div ...] root with the panel-keyed data-testid"
+    (testing "browse of a map returns the cljs-devtools browse container"
       (is (vector? out))
       (is (= :div (first out)))
-      ;; The underlying render-tree stamps the panel-keyed root testid.
-      (is (some? (find-by-testid out "rf-causa-data-display-test-browse-1"))))))
+      ;; The widget's cljs-devtools browse path stamps this testid;
+      ;; the home-grown data-display root testid must NOT appear.
+      (is (some? (find-by-testid out "rf-causa-edn-widget-browse-test-browse-1")))
+      (let [ids (->> (walk-hiccup out)
+                     (keep #(some-> (second %) :data-testid))
+                     (filter string?))]
+        (is (not-any? #(.startsWith % "rf-causa-data-display-") ids)
+            "browse no longer routes collections through the home-grown engine")))))
 
-(defn- find-testid-prefix
-  "Return the first hiccup node whose :data-testid attr starts with
-  `prefix`. The engine's leaf-testid is dynamic
-  (`rf-causa-data-display-leaf-<path>`) so callers asserting that a
-  leaf rendered cannot match exactly."
-  [tree prefix]
-  (->> (walk-hiccup tree)
-       (filter (fn [n]
-                 (and (vector? n)
-                      (map? (second n))
-                      (let [id (get (second n) :data-testid)]
-                        (and (string? id)
-                             (.startsWith id prefix))))))
-       first))
+(deftest browse-of-collection-renders-keys-and-values
+  (let [out (w/browse {:value     {:k :foo/bar}
+                       :panel-id  :test
+                       :render-id "kw-1"})]
+    (testing "the expanded cljs-devtools tree surfaces the key and value"
+      (is (contains-text? out ":k"))
+      (is (contains-text? out ":foo/bar")))))
 
-(deftest browse-of-collection-still-routes-keyword-leaf-to-engine
-  (let [out  (w/browse {:value     {:k :foo/bar}
-                        :panel-id  :test
-                        :render-id "kw-1"})
-        leaf (find-testid-prefix out "rf-causa-data-display-leaf-")]
-    (testing "map containing a keyword routes through the engine's leaf renderer"
-      (is (some? leaf)))))
+(deftest browse-of-nested-collection-expands-recursively
+  (let [out (w/browse {:value     {:outer {:inner 99}}
+                       :panel-id  :test
+                       :render-id "nested-1"})]
+    (testing "a nested map's inner key + value render (full expansion)"
+      (is (contains-text? out ":outer"))
+      (is (contains-text? out ":inner"))
+      (is (contains-text? out "99")))))
 
 (deftest browse-of-non-collection-routes-through-cljs-devtools
   (let [out (w/browse {:value     :foo/bar
                        :panel-id  :test
                        :render-id "scalar-1"})]
-    (testing "non-collection browse returns a [:div ...] container"
+    (testing "non-collection browse returns the cljs-devtools container"
       (is (vector? out))
       (is (= :div (first out)))
       (is (some? (find-by-testid out
-                                 "rf-causa-edn-widget-browse-test-scalar-1"))))))
+                                 "rf-causa-edn-widget-browse-test-scalar-1")))
+      (is (contains-text? out ":foo/bar")))))
 
 ;; ---- variant: diff -------------------------------------------------------
+;;
+;; Diff mode (Event panel `:db` before→after smallest-diff) STAYS on
+;; the home-grown `data-display/render-tree` engine — cljs-devtools has
+;; no diff vocabulary. rf2-dmso5 must not disturb this.
 
 (deftest diff-emits-diff-tree
   (let [out (w/diff {:before    {:a 1}
                      :after     {:a 2}
                      :panel-id  :test
                      :render-id "diff-1"})]
-    (testing "diff returns the diff-mode tree"
+    (testing "diff returns the home-grown data-display diff-mode tree"
       (is (vector? out))
       (is (= :div (first out)))
       (is (some? (find-by-testid out "rf-causa-data-display-test-diff-1"))))))
+
+;; ---- facade: inspect / inspect-inline (current-state, rf2-dmso5) ---------
+;;
+;; The panel-facing `inspect` facade is the current-state renderer. Per
+;; rf2-dmso5 it routes the value through cljs-devtools (browse) EXCEPT
+;; for the spec/015 data-classification sentinels, which keep their
+;; bespoke chip chrome from `theme.data-inspector`.
+
+(deftest inspect-collection-routes-through-cljs-devtools
+  (let [out (w/inspect {:a 1 :b 2} "node-1")]
+    (testing "a plain map inspects through the cljs-devtools browse path"
+      (is (= :div (first out)))
+      (is (some? (find-by-testid out "rf-causa-edn-widget-browse-inspect-node-1")))
+      (is (contains-text? out ":a"))
+      (is (contains-text? out ":b"))
+      ;; NOT the home-grown data-inspector chrome.
+      (let [ids (->> (walk-hiccup out)
+                     (keep #(some-> (second %) :data-testid))
+                     (filter string?))]
+        (is (not-any? #(.startsWith % "rf-causa-data-inspector") ids))))))
+
+(deftest inspect-scalar-routes-through-cljs-devtools
+  (let [out (w/inspect :hello/world "node-2")]
+    (testing "a scalar inspects through cljs-devtools too"
+      (is (= :div (first out)))
+      (is (contains-text? out ":hello/world")))))
+
+(deftest inspect-redacted-sentinel-keeps-chip
+  (let [out (w/inspect :rf/redacted "node-3")]
+    (testing "a :rf/redacted sentinel keeps the bespoke redacted chip"
+      (is (some? (find-by-testid out "rf-causa-data-inspector-redacted"))))))
+
+(deftest inspect-large-sentinel-keeps-chip
+  (let [out (w/inspect {:rf/large {:bytes 1024 :head "preview"}} "node-4")]
+    (testing "a :rf/large sentinel keeps the bespoke large chip"
+      (is (some? (find-by-testid out "rf-causa-data-inspector-large"))))))
+
+(deftest inspect-default-node-key-renders
+  (testing "single-arg inspect renders (default node-key)"
+    (let [out (w/inspect {:x 1})]
+      (is (= :div (first out)))
+      (is (some? (find-by-testid out "rf-causa-edn-widget-browse-inspect-root"))))))
+
+(deftest inspect-inline-collection-routes-through-mini
+  (let [out (w/inspect-inline {:a 1})]
+    (testing "inline current-state renders the one-line cljs-devtools mini"
+      (is (= :span (first out)))
+      (is (= "rf-causa-edn-widget-mini" (-> out second :data-testid))))))
+
+(deftest inspect-inline-redacted-sentinel-keeps-chip
+  (let [out (w/inspect-inline :rf/redacted)]
+    (testing "inline redacted sentinel keeps the chip"
+      (is (= "rf-causa-data-inspector-redacted"
+             (-> out second :data-testid))))))
 
 ;; ---- variant: mini -------------------------------------------------------
 
