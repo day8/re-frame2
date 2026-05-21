@@ -71,6 +71,47 @@
                                            :cljs (.-message ex))
                               :recovery :no-recovery}))))))
 
+;; ---- post-settle render back-fill (rf2-qs6dl) -----------------------------
+
+(defn- render-row
+  "Project a `:view/render` trace event into its structured `:renders`
+  row, mirroring `capture/project-all`'s `:view/render` arm. Returns nil
+  for non-`:view/render` render ops (`:rf.view/rendered` /
+  `:rf.view/rendered-cap-reached`) — those ride only the `:trace-events`
+  slot, exactly as `project-all` already treats them (it projects no
+  `:renders` row for them)."
+  [event]
+  (when (= :view/render (:operation event))
+    (let [t (:tags event)]
+      {:render-key   (or (:render-key t) [:rf.view/anonymous nil])
+       :triggered-by (:triggered-by t)
+       :elapsed-ms   (:elapsed-ms t)})))
+
+(defn record-render!
+  "Attribute a post-settle render emit to the cascade that CAUSED it
+  (rf2-qs6dl). A `:view/render` / `:rf.view/rendered` trace fires at
+  React commit time — AFTER the causing cascade settled — so it cannot
+  ride the in-flight cascade buffer (there is none). This back-fills the
+  render into the frame's most-recently-settled epoch record and re-fans
+  the updated record out to epoch listeners so snapshot consumers (Causa
+  Views / Reactive panel, which cache `epoch-history` at settle time)
+  re-sync to the corrected `:renders`.
+
+  No-op when the frame has no settled epoch yet (a render before the
+  first cascade) or when the target epoch has been evicted from the ring
+  — `back-fill-render!` returns nil and we skip the re-notify."
+  [frame-id event]
+  (when interop/debug-enabled?
+    (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
+      (when-let [updated (state/back-fill-render! frame-id epoch-id
+                                                  event (render-row event))]
+        ;; Re-fan the corrected record so snapshot consumers re-read the
+        ;; ring. The fan-out is failure-isolated per listener (same
+        ;; contract as the settle-time fan-out); a render-driven Causa
+        ;; pump (`:rf.causa/epoch-recorded`) is `:rf.trace/no-emit?` so
+        ;; it commits no new epoch and cannot loop back into this path.
+        (notify-listeners! updated)))))
+
 (defn on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
   and rf2-v0jwt §Outcomes (`:halted-destroy`):
@@ -161,4 +202,9 @@
     ;; explicitly clear here so the next cascade against a same-keyed
     ;; frame starts from an empty buffer. Symmetric to the ring-buffer
     ;; drop above.
-    (state/drop-frame-buffer! frame-id)))
+    (state/drop-frame-buffer! frame-id)
+    ;; Per rf2-qs6dl: forget the last-settled epoch-id so a post-destroy
+    ;; render emit (a torn-down component's final flush) can't back-fill
+    ;; into a record belonging to the destroyed frame's history — which
+    ;; was just dropped above anyway.
+    (state/drop-last-settled-epoch! frame-id)))

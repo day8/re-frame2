@@ -2662,3 +2662,164 @@
             :trace-events-keep 5; the older absent-default behaviour
             (unbounded) is gone (pre-alpha — no back-compat)"
     (is (= 5 (:trace-events-keep (epoch/current-config))))))
+
+;; ---- rf2-qs6dl: post-settle render attributed to the CAUSING cascade -----
+;;
+;; THE BUG (P1, confirmed live on parallel-frames): a `:view/render` /
+;; `:rf.view/rendered` trace fires at React COMMIT time, which lands
+;; AFTER the causing cascade's run-to-completion has settled (Reagent
+;; batches re-renders onto a later tick — `re-frame.interop/after-render`).
+;; By commit time `settle!` has already harvested the cascade buffer and
+;; committed the record, so the render emit landed in a now-empty buffer
+;; and was harvested by the NEXT cascade's settle — mis-attributing every
+;; render to cascade N+1 (a one-epoch lag). Causa's Views/Reactive panel
+;; therefore showed the wrong cascade's re-renders: e.g. a `counter-inc`
+;; epoch reported `title-view` rendered, which is IMPOSSIBLE (title-view
+;; reads no counter sub) — it was the previous title cascade's lagged
+;; render.
+;;
+;; WHY THE PRIOR SUITE MISSED IT: every existing render-projection test
+;; (`record-shape-canonical`, the depth/keep tests, the projection
+;; tests) drives renders the JVM way — implicitly, INSIDE the synchronous
+;; `dispatch-sync` cascade — and only asserts the SHAPE of `:renders`
+;; (`vector?`, slot present). None modelled the real browser timing where
+;; the render emit fires AFTER the cascade settled, and none asserted
+;; cross-cascade attribution (cascade B carries B's renders and NOT A's).
+;; The lag is invisible to any test that emits the render inside the
+;; cascade or never checks WHICH epoch a render lands in.
+;;
+;; The two tests below model the React-commit timing explicitly: a
+;; `:view/render` is emitted OUTSIDE any cascade (no `*handler-scope*`,
+;; empty in-flight buffer) — exactly what `capture-event!` sees when
+;; Reagent flushes a batched re-render after the drain. Pre-fix the
+;; render leaks into the next cascade; post-fix it is back-filled into
+;; the cascade that caused it.
+
+(defn- emit-post-settle-render!
+  "Emit a `:view/render` trace the way the substrate does at React commit
+  time: op-type `:view`, tags carrying `:render-key` + `:frame`, fired
+  OUTSIDE any cascade (no in-flight buffer). Mirrors
+  `re-frame.views/emit-render-trace!`'s `:view/render` emit."
+  [frame-id view-id]
+  (trace/emit! :view :view/render
+               {:render-key [view-id 0]
+                :frame      frame-id}))
+
+(defn- rendered-view-ids
+  "The view-ids present in an epoch record's `:renders` projection."
+  [record]
+  (->> (:renders record)
+       (map (comp first :render-key))
+       set))
+
+(deftest post-settle-render-attributed-to-causing-cascade
+  (testing "rf2-qs6dl — a render that fires AFTER its cascade settled
+            (React-commit timing) is attributed to the cascade that
+            CAUSED it, not the next in-flight cascade. Two cascades that
+            re-render DIFFERENT views must each carry their OWN render."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed         (fn [_ _] {:title "a" :counter 0}))
+    (rf/reg-event-db :title-loaded (fn [db _] (assoc db :title "loaded")))
+    (rf/reg-event-db :counter-inc  (fn [db _] (update db :counter inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    ;; Cascade A — a title refresh. It settles, THEN (next tick, React
+    ;; commit) title-view re-renders. Model the post-settle render.
+    (rf/dispatch-sync [:title-loaded] {:frame :test/main})
+    (let [epoch-a (last (rf/epoch-history :test/main))]
+      (emit-post-settle-render! :test/main :title-view)
+
+      ;; Cascade B — a counter bump. It settles, THEN counter-view (and
+      ;; ONLY counter-view — counter-inc cannot make title-view re-render)
+      ;; re-renders post-settle.
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+      (let [epoch-b (last (rf/epoch-history :test/main))]
+        (emit-post-settle-render! :test/main :counter-view)
+
+        ;; Re-read the ring — both records were back-filled in place.
+        (let [history (rf/epoch-history :test/main)
+              a       (some #(when (= (:epoch-id epoch-a) (:epoch-id %)) %) history)
+              b       (some #(when (= (:epoch-id epoch-b) (:epoch-id %)) %) history)]
+          (is (= :title-loaded (:event-id a)))
+          (is (= :counter-inc  (:event-id b)))
+
+          ;; The smoking gun, pinned: cascade A carries title-view and
+          ;; NOT counter-view; cascade B carries counter-view and NOT
+          ;; title-view. Pre-fix, A's title-view render leaked into B's
+          ;; epoch (the one-epoch lag), so B would (wrongly) report
+          ;; title-view and A would report nothing.
+          (is (contains? (rendered-view-ids a) :title-view)
+              "cascade A's epoch carries its OWN title-view render")
+          (is (not (contains? (rendered-view-ids a) :counter-view))
+              "cascade A's epoch does NOT carry cascade B's counter-view render")
+          (is (contains? (rendered-view-ids b) :counter-view)
+              "cascade B's epoch carries its OWN counter-view render")
+          (is (not (contains? (rendered-view-ids b) :title-view))
+              "cascade B's epoch does NOT carry cascade A's lagged
+               title-view render — THE LAG IS GONE (a counter-inc cannot
+               make title-view re-render)"))))))
+
+(deftest post-settle-render-back-fill-renotifies-listeners
+  (testing "rf2-qs6dl — back-filling a post-settle render re-fans the
+            corrected record out to epoch listeners so snapshot consumers
+            (Causa Views/Reactive panel, which cache epoch-history at
+            settle time) re-sync to the corrected :renders"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      (let [settle-fanouts (count @seen)]
+        ;; A post-settle render for the :inc epoch fires (React commit).
+        (emit-post-settle-render! :test/main :counter-view)
+        (is (= (inc settle-fanouts) (count @seen))
+            "the back-fill triggered exactly one additional listener fan-out")
+        (let [renotified (last @seen)]
+          (is (= :inc (:event-id renotified))
+              "the re-fanned record is the :inc cascade's (the causing epoch)")
+          (is (contains? (rendered-view-ids renotified) :counter-view)
+              "the re-fanned record carries the back-filled render"))))))
+
+(deftest in-flight-render-still-rides-current-cascade
+  (testing "rf2-qs6dl — a render that fires WITH a cascade in flight
+            (synchronous flush — SSR / a render inside the cascade)
+            belongs to that cascade and is buffered normally, NOT
+            back-filled. Renders emitted during dispatch-sync land in
+            their own epoch."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    ;; A handler that emits a :view/render WHILE the cascade is draining
+    ;; (an in-flight render — the buffer already holds :event/run-start).
+    (rf/reg-event-db :render-during
+      (fn [db _]
+        (trace/emit! :view :view/render
+                     {:render-key [:inline-view 0] :frame :test/main})
+        (update db :n inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:render-during] {:frame :test/main})
+
+    (let [epoch (last (rf/epoch-history :test/main))]
+      (is (= :render-during (:event-id epoch)))
+      (is (contains? (rendered-view-ids epoch) :inline-view)
+          "an in-flight render rides its own cascade's epoch (buffered,
+           not back-filled to a prior settled epoch)"))))
+
+(deftest post-settle-render-before-any-cascade-is-noop
+  (testing "rf2-qs6dl — a render that fires before any cascade has
+            settled (no last-settled epoch for the frame) is a silent
+            no-op: no record exists to back-fill, no listener fan-out,
+            no throw."
+    (rf/reg-frame :test/main {})
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      ;; No cascade has run — last-settled-epoch is empty for the frame.
+      (emit-post-settle-render! :test/main :orphan-view)
+      (is (= [] (rf/epoch-history :test/main))
+          "no record materialised from an orphan render")
+      (is (= [] @seen)
+          "no listener fan-out for a render with no causing cascade"))))

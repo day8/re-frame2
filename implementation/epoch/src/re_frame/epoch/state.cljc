@@ -196,6 +196,99 @@
   (swap! histories dissoc frame-id)
   nil)
 
+;; ---- post-settle render back-fill (rf2-qs6dl) -----------------------------
+;;
+;; A `:view/render` / `:rf.view/rendered` trace fires at React COMMIT
+;; time, which lands AFTER the causing cascade's run-to-completion has
+;; settled (Reagent batches re-renders onto a later tick — see
+;; `re-frame.interop/after-render`). By commit time `settle!` has already
+;; harvested the cascade buffer and committed the record, so the render
+;; emit lands in a now-empty buffer and — pre-rf2-qs6dl — was harvested
+;; by the NEXT cascade's settle, mis-attributing every render to cascade
+;; N+1 (the one-epoch lag the bead documents).
+;;
+;; The fix attributes the render to the cascade that CAUSED it: when a
+;; render fires with no in-flight cascade for the frame, it is back-filled
+;; into that frame's most-recently-settled epoch record (the cascade that
+;; dirtied the view's inputs and scheduled the re-render). `last-settled-
+;; epoch` tracks frame-id → epoch-id so the back-fill targets the right
+;; record without re-walking the whole ring.
+
+(defonce ^:private last-settled-epoch
+  ;; frame-id → epoch-id of the most-recently-committed :ok-shaped epoch.
+  (atom {}))
+
+(defn set-last-settled-epoch!
+  "Record `epoch-id` as the most-recently-settled epoch for `frame-id`.
+  Called from `settle!` after the record lands in the ring so post-settle
+  render emits can be attributed back to this cascade (rf2-qs6dl)."
+  [frame-id epoch-id]
+  (when (and frame-id epoch-id)
+    (swap! last-settled-epoch assoc frame-id epoch-id))
+  nil)
+
+(defn last-settled-epoch-id
+  "Return the most-recently-settled epoch-id for `frame-id`, or nil."
+  [frame-id]
+  (get @last-settled-epoch frame-id))
+
+(defn drop-last-settled-epoch!
+  "Forget the most-recently-settled epoch for `frame-id` (frame teardown
+  / fixture reset)."
+  [frame-id]
+  (swap! last-settled-epoch dissoc frame-id)
+  nil)
+
+(defn reset-last-settled-epochs!
+  "Wipe the last-settled-epoch map across all frames. Test fixtures call
+  this in lockstep with `reset-histories!` / `reset-capture-buffers!`."
+  []
+  (reset! last-settled-epoch {})
+  nil)
+
+(defn back-fill-render!
+  "Append `render-event` and its projected `:renders` row into the
+  already-committed epoch record identified by `frame-id` + `epoch-id`
+  (rf2-qs6dl). Returns the updated record (so the caller can re-notify
+  listeners), or nil when the target epoch is no longer in the ring
+  (evicted, or the render fired before any cascade settled).
+
+  `render-row` is the structured `:renders` entry (or nil — a non-
+  `:view/render` render op such as `:rf.view/rendered` rides only the
+  `:trace-events` slot). The mutation rewrites the matching record in
+  the frame's history vector under a single `swap!`; the record stays at
+  its original ring position so epoch ordering is preserved."
+  [frame-id epoch-id render-event render-row]
+  (let [updated (atom nil)]
+    (swap! histories update frame-id
+           (fn [history]
+             (let [history (or history [])
+                   idx     (some (fn [i]
+                                   (when (= epoch-id (:epoch-id (nth history i)))
+                                     i))
+                                 (range (count history)))]
+               (if (nil? idx)
+                 history
+                 (let [r  (nth history idx)
+                       r' (cond-> r
+                            ;; Only records that retained their raw
+                            ;; trace stream (within :trace-events-keep)
+                            ;; carry the slot; back-fill it when present
+                            ;; so the Reactive panel's flow tally and any
+                            ;; raw-trace consumer see the post-settle
+                            ;; render in the right cascade.
+                            (contains? r :trace-events)
+                            (update :trace-events (fnil conj []) render-event)
+                            ;; The structured :renders projection is the
+                            ;; primary consumer surface (Causa Views /
+                            ;; Reactive panel). Always present on a built
+                            ;; record; append the projected row.
+                            (some? render-row)
+                            (update :renders (fnil conj []) render-row))]
+                   (reset! updated r')
+                   (assoc history idx r'))))))
+    @updated))
+
 ;; ---- per-cascade capture buffer -------------------------------------------
 ;;
 ;; Per Tool-Pair §Per-cascade capture: the drain runs traces through
@@ -253,9 +346,12 @@
   nil)
 
 (defn reset-histories!
-  "Wipe every frame's recorded epochs."
+  "Wipe every frame's recorded epochs. Also clears the last-settled-epoch
+  map (rf2-qs6dl) so a fixture's first cascade can't back-fill a render
+  into a previous fixture's record."
   []
   (reset! histories {})
+  (reset-last-settled-epochs!)
   nil)
 
 ;; ---- listener registry ----------------------------------------------------
