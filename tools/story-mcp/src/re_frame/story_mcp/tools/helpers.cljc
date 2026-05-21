@@ -67,6 +67,16 @@
   [sym]
   (try (resolve sym) (catch Throwable _ nil)))
 
+#?(:clj
+   ;; `story/registered-substrates` is CLJS-only — resolved once at ns-load
+   ;; (mirrors `tools.dev/registered-substrates-var`, the documented
+   ;; pattern). The substrate set is stable across the process lifetime, so
+   ;; `read-run-opts` (preview/run/snapshot hot path) derefs this cached var
+   ;; rather than re-resolving per call. JVM-standalone deploy reads nil and
+   ;; yields an empty set; the nREPL-attached CLJS deploy reads the var.
+   (defonce ^:private registered-substrates-var
+     (resolve-cljs-var 'story/registered-substrates)))
+
 (defn text-result
   "Build a success result with a single text content item. `structured`
   (optional) lands on the `structuredContent` slot per the spec/2025-06-18
@@ -183,8 +193,8 @@
   CLJS-only (the JVM-standalone deploy reads `nil`); the modes set
   is the registered-mode id set."
   [arguments]
-  (let [substrate-set #?(:clj  (if-let [v (resolve-cljs-var 'story/registered-substrates)]
-                                 (try (set (v)) (catch Throwable _ #{}))
+  (let [substrate-set #?(:clj  (if registered-substrates-var
+                                 (try (set (registered-substrates-var)) (catch Throwable _ #{}))
                                  #{})
                          :cljs (try (set (story/registered-substrates))
                                     (catch :default _ #{})))
