@@ -501,18 +501,17 @@
               elapsed-ms (long (max 0 (- end-ms start-ms)))
               msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
               ;; Per rf2-je5p8: `evaluate-flow!`'s catch wraps the user
-              ;; throw in an ex-info carrying `:rf.flow/failed-id` and
-              ;; `:rf.flow/failed-frame`. Extract them onto the
-              ;; substrate record's `:tags` so the always-on error-emit
-              ;; substrate (the only signal in CLJS prod where
-              ;; `:rf.flow/failed` DCEs) can attribute the
+              ;; throw in an ex-info carrying `:rf.flow/failed-id`.
+              ;; Extract it onto the substrate record's `:tags` so the
+              ;; always-on error-emit substrate (the only signal in CLJS
+              ;; prod where `:rf.flow/failed` DCEs) can attribute the
               ;; `:rf.error/flow-eval-exception` to a specific flow.
-              ;; Absent slots leave `:flow-id` nil — preserves the prior
+              ;; Absent slot leaves `:flow-id` nil — preserves the prior
               ;; contract for non-wrapped throws (e.g. a hypothetical
-              ;; throw from outside `evaluate-flow!`).
-              flow-data  (when-let [d (ex-data e)]
-                           {:flow-id (:rf.flow/failed-id    d)
-                            :flow    (:rf.flow/failed-frame d)})
+              ;; throw from outside `evaluate-flow!`). There is no real
+              ;; flow value to carry, so attribution is `:flow-id`-only
+              ;; per Spec 013 §Failure semantics.
+              flow-id    (some-> (ex-data e) :rf.flow/failed-id)
               tags       (cond-> {:event-id          event-id
                                   :event             event
                                   :frame             frame
@@ -522,7 +521,7 @@
                                   :exception-message msg
                                   :reason            "Flow evaluation threw."
                                   :recovery          :no-recovery}
-                           (:flow-id flow-data) (assoc :flow-id (:flow-id flow-data)))]
+                           flow-id (assoc :flow-id flow-id))]
           ;; Always-on per rf2-bacs4 / rf2-hqbeh — fires in CLJS
           ;; production builds where `trace/emit-error!` below is
           ;; compile-time elided. The two fan-out paths (corpus-wide

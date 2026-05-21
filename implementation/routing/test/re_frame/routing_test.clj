@@ -2199,8 +2199,8 @@
   (testing ":rf.route/on-match-id and :rf.route/on-match-frame are
             stamped on the structured error map dispatched into the
             slice's :error slot (Spec 012 §Per-route error handling
-            and rf2-m78lu). Mirrors the flow-attribution slots
-            `:rf.flow/failed-id` / `:rf.flow/failed-frame` (rf2-je5p8).
+            and rf2-m78lu). Same pattern as the flow-attribution slot
+            `:rf.flow/failed-id` (rf2-je5p8).
             Tools reading the error from `(:error (:rf/route db))` —
             outside the routing listener's discrimination context —
             can identify the throw as :on-match-attributed without

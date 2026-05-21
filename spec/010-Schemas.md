@@ -400,7 +400,7 @@ The digest must be **cross-runtime reproducible** — a CLJS server and a CLJS c
 
 **Procedure.**
 
-1. **Serialise each schema value to a stable byte sequence.** The serialisation fn (`schema-print`) is supplied alongside the validator fn (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)) and must be deterministic — the same schema value always produces the same bytes. The CLJS reference's default uses `pr-str` over the Malli EDN form with map-key ordering normalised (keys sorted by `(compare a b)` after coercing to a comparable representation; printed without metadata). UTF-8 encoded.
+1. **Serialise each schema value to a stable byte sequence.** The serialisation fn (`schema-print`) is supplied alongside the validator fn (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)) and must be deterministic — the same schema value always produces the same bytes. The CLJS reference's default uses `pr-str` over the Malli EDN form with map-key ordering normalised (keys sorted by `(compare (pr-str a) (pr-str b))` — comparing the `pr-str` projection of each key, which is a total order over EDN values and produces identical bytes on every host; printed without metadata). UTF-8 encoded.
 2. **Hash each schema independently.** Compute `SHA-256(schema-print(schema-value))` for every entry, producing a 32-byte digest per schema.
 3. **Build the per-entry record.** For each `(path, schema-value)`, emit the line `<path-string> <hex-of-sha256-bytes>\n` where:
    - `path-string` is the path printed as `pr-str` of the path vector (e.g. `[:user]`, `[:auth :credentials]`, `[]` for the root). Empty path renders as `[]`.
