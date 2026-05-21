@@ -676,8 +676,8 @@
 
   ;; rf2-t7t6f — UIx design-led example. Analytics-dashboard layout
   ;; (status tiles + filter chips + sparkline cards) proving UIx builds
-  ;; substantive UIs. Pairs with the UIx 'Swiss Modern' visual identity
-  ;; (rf2-nfg15) from examples/_shared/css/uix.css.
+  ;; substantive UIs. Pairs with the shared 'Editorial Warm' visual
+  ;; identity (rf2-v4fpe Option 2) from examples/_shared/css/style.css.
   :examples/dashboard-uix
   {:target     :browser
    :output-dir "out/examples/dashboard-uix"
