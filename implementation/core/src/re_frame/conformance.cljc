@@ -70,13 +70,34 @@
                  ;; "cannot count a string" — we honour that intent by
                  ;; refusing strings AND Characters (a string element
                  ;; landed as a char during seq iteration).
+                 ;; The :count builtin's MESSAGE is deliberately surfaced
+                 ;; downstream as the sub-exception trace's
+                 ;; :exception-message (the conformance corpus pins it),
+                 ;; so — like the :throw DSL op — the message string stays
+                 ;; the human prose rather than the discriminator kw. The
+                 ;; canonical :rf.error/id rides on ex-data for structured
+                 ;; branching.
                  (cond
-                   (string? x)    (throw (ex-info "cannot count a string" {}))
-                   (char? x)      (throw (ex-info "cannot count a string" {}))
-                   (nil? x)       (throw (ex-info "cannot count nil" {}))
+                   (string? x)    (throw (ex-info "cannot count a string"
+                                                   {:rf.error/id :rf.error/conformance-cannot-count-string
+                                                    :where    'rf/conformance-eval
+                                                    :recovery :no-recovery}))
+                   (char? x)      (throw (ex-info "cannot count a string"
+                                                   {:rf.error/id :rf.error/conformance-cannot-count-string
+                                                    :where    'rf/conformance-eval
+                                                    :recovery :no-recovery}))
+                   (nil? x)       (throw (ex-info "cannot count nil"
+                                                   {:rf.error/id :rf.error/conformance-cannot-count-nil
+                                                    :where    'rf/conformance-eval
+                                                    :recovery :no-recovery}))
                    :else          (count x)))
     :item-amount (fn [item] (* (:qty item) (:price item)))
-    (throw (ex-info "unknown :fn builtin" {:builtin k}))))
+    (throw (ex-info ":rf.error/conformance-unknown-fn-builtin"
+                    {:rf.error/id :rf.error/conformance-unknown-fn-builtin
+                     :where    'rf/conformance-eval
+                     :recovery :no-recovery
+                     :reason   (str "unknown :fn builtin " k)
+                     :builtin  k}))))
 
 ;; ---- value resolver -------------------------------------------------------
 
@@ -264,9 +285,14 @@
 
               :noop acc
 
-              (throw (ex-info "unknown :before DSL op"
-                              {:op step :allowed #{:assoc-in-request
-                                                   :dispatch :noop}})))))
+              (throw (ex-info ":rf.error/conformance-unknown-before-op"
+                              {:rf.error/id :rf.error/conformance-unknown-before-op
+                               :where    'rf/conformance-eval
+                               :recovery :no-recovery
+                               :reason   "unknown :before DSL op"
+                               :op       step
+                               :allowed  #{:assoc-in-request
+                                           :dispatch :noop}})))))
         chain-ctx
         steps))))
 
@@ -352,8 +378,16 @@
     :dispatch-sync (let [ev (resolve-value (second step) ctx)]
                      (assoc ctx :fx (conj (or fx []) [:dispatch-sync ev])))
 
+    ;; The :throw DSL op exists to surface a FIXTURE-SUPPLIED message
+    ;; downstream (the runtime re-emits it as :exception-message), so —
+    ;; uniquely among conformance throws — the message string stays the
+    ;; fixture's text rather than the discriminator kw. The canonical
+    ;; :rf.error/id slot still rides on ex-data for structured branching.
     :throw     (throw (ex-info (str (second step))
-                               {:from-fixture? true}))
+                               {:rf.error/id   :rf.error/conformance-throw-step
+                                :where         'rf/conformance-eval
+                                :recovery      :no-recovery
+                                :from-fixture? true}))
 
     ;; :get and :reduce-input are sub-body ops; the realise-sub-handler
     ;; reads them separately. Treated as no-op here.
@@ -361,7 +395,12 @@
     :reduce-input ctx
     :db-get    ctx
 
-    (throw (ex-info "unknown DSL op" {:op step}))))
+    (throw (ex-info ":rf.error/conformance-unknown-dsl-op"
+                    {:rf.error/id :rf.error/conformance-unknown-dsl-op
+                     :where    'rf/conformance-eval
+                     :recovery :no-recovery
+                     :reason   "unknown DSL op"
+                     :op       step}))))
 
 (defn realise-event-db-handler
   "DSL → an event-db handler fn (db, event) → new-db.

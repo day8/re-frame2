@@ -222,14 +222,14 @@
 #?(:clj
    (deftest wait-until-pred-throws-on-timeout
      (testing "JVM: pred that never goes truthy throws ex-info with
-               :rf.test-helpers/wait-timeout true"
+               :rf.error/id :rf.error/wait-until-timeout"
        (let [e (try (th/wait-until (constantly false)
                                    {:timeout-ms 30 :interval-ms 5
                                     :label "never"})
                     nil
                     (catch clojure.lang.ExceptionInfo e e))]
          (is (some? e) "timeout threw")
-         (is (true? (:rf.test-helpers/wait-timeout (ex-data e))))
+         (is (= :rf.error/wait-until-timeout (:rf.error/id (ex-data e))))
          (is (= "never" (:label (ex-data e))))))))
 
 #?(:clj
@@ -259,8 +259,8 @@
 
 #?(:cljs
    (deftest wait-until-pred-rejects-on-timeout
-     (testing "CLJS: wait-until rejects with :rf.test-helpers/wait-timeout
-               on deadline elapse"
+     (testing "CLJS: wait-until rejects with :rf.error/id
+               :rf.error/wait-until-timeout on deadline elapse"
        (async done
          (-> (th/wait-until (constantly false)
                             {:timeout-ms 20 :interval-ms 5
@@ -270,6 +270,6 @@
                       (done)))
              (.catch (fn [e]
                        (let [data (ex-data e)]
-                         (is (true? (:rf.test-helpers/wait-timeout data)))
+                         (is (= :rf.error/wait-until-timeout (:rf.error/id data)))
                          (is (= "never" (:label data))))
                        (done))))))))
