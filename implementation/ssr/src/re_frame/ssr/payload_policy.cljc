@@ -121,15 +121,20 @@
     ;; missing-policy bucket.
     (some? payload-policy)
     (throw (ex-info ":rf.error/ssr-unknown-payload-policy"
-                    {:reason         (str "ssr-handler :payload-policy must be "
+                    {:rf.error/id    :rf.error/ssr-unknown-payload-policy
+                     :where          'rf.ssr/payload-policy
+                     :reason         (str "ssr-handler :payload-policy must be "
                                           (pr-str whole-app-db-policy)
                                           " (or omit it and pass :payload-keys instead)")
                      :got            payload-policy
-                     :recognised     #{whole-app-db-policy}}))
+                     :recognised     #{whole-app-db-policy}
+                     :recovery       :declare-payload-policy}))
 
     :else
     (throw (ex-info ":rf.error/ssr-missing-payload-policy"
-                    {:reason   (str "ssr-handler requires an explicit hydration-"
+                    {:rf.error/id :rf.error/ssr-missing-payload-policy
+                     :where    'rf.ssr/payload-policy
+                     :reason   (str "ssr-handler requires an explicit hydration-"
                                     "payload policy: pass :payload-keys "
                                     "[<top-level-app-db-keys>] (allowlist, "
                                     "preferred) OR :payload-policy "

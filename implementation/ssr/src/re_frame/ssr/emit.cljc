@@ -90,7 +90,9 @@
   (when-not (and (string? tag-name)
                  (re-matches tag-name-re tag-name))
     (throw (ex-info ":rf.error/invalid-tag-name"
-                    {:reason   (str "tag-name " (pr-str tag-name)
+                    {:rf.error/id :rf.error/invalid-tag-name
+                     :where    'rf.ssr/emit
+                     :reason   (str "tag-name " (pr-str tag-name)
                                     " (from hiccup head " (pr-str source-kw) ")"
                                     " does not match the HTML5/SVG/MathML"
                                     " element-name grammar"

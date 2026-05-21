@@ -66,7 +66,9 @@
   (let [s (str v)]
     (when (re-find header-injection-chars-re s)
       (throw (ex-info ":rf.error/cookie-invalid-attribute"
-                      {:reason    (str "cookie attribute " attr-key
+                      {:rf.error/id :rf.error/cookie-invalid-attribute
+                       :where     'rf.ssr/cookie->set-cookie-header
+                       :reason    (str "cookie attribute " attr-key
                                        " contains CR/LF/NUL — forbidden by"
                                        " RFC 7230 §3.2.4 (header-splitting"
                                        " injection)")
@@ -90,7 +92,9 @@
     (if (re-matches cookie-name-token-grammar s)
       s
       (throw (ex-info ":rf.error/cookie-invalid-name"
-                      {:reason   (str "cookie :name violates RFC 6265 §4.1.1"
+                      {:rf.error/id :rf.error/cookie-invalid-name
+                       :where    'rf.ssr/cookie->set-cookie-header
+                       :reason   (str "cookie :name violates RFC 6265 §4.1.1"
                                       " token grammar (no CTLs, whitespace,"
                                       " or separators ()<>@,;:\\\"/[]?={}); got "
                                       (pr-str s))
@@ -131,8 +135,11 @@
     :as cookie}]
   (when (nil? name)
     (throw (ex-info ":rf.error/cookie-missing-name"
-                    {:reason "cookie map must carry :name"
-                     :cookie cookie})))
+                    {:rf.error/id :rf.error/cookie-missing-name
+                     :where    'rf.ssr/cookie->set-cookie-header
+                     :reason   "cookie map must carry :name"
+                     :cookie   cookie
+                     :recovery :no-recovery})))
   ;; rf2-rpedl §P2.4 — RFC 6265 §4.1.1 cookie-name token grammar.
   (validate-cookie-name! name)
   ;; Per audit rf2-asmj1 R7 / cluster rf2-sljs1: `Instant/ofEpochMilli`
@@ -143,7 +150,9 @@
   ;; surfaces with the cookie's actual shape attached.
   (when (and (some? expires) (not (integer? expires)))
     (throw (ex-info ":rf.error/cookie-invalid-expires"
-                    {:reason   (str ":expires must be an epoch-millis long; got " (.getName (class expires)))
+                    {:rf.error/id :rf.error/cookie-invalid-expires
+                     :where    'rf.ssr/cookie->set-cookie-header
+                     :reason   (str ":expires must be an epoch-millis long; got " (.getName (class expires)))
                      :expires  expires
                      :cookie   cookie
                      :recovery :no-recovery})))

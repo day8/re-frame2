@@ -100,7 +100,9 @@
   (let [s (str v)]
     (when (re-find header-injection-chars-re s)
       (throw (ex-info ":rf.error/header-invalid-value"
-                      {:reason   (str "header " (pr-str header-name)
+                      {:rf.error/id :rf.error/header-invalid-value
+                       :where    'rf.ssr/response
+                       :reason   (str "header " (pr-str header-name)
                                       " value contains CR/LF/NUL — forbidden"
                                       " by RFC 7230 §3.2.4 (header-splitting"
                                       " injection)")
@@ -119,7 +121,9 @@
   (let [s (str loc)]
     (when (re-find header-injection-chars-re s)
       (throw (ex-info ":rf.error/redirect-invalid-location"
-                      {:reason   (str "redirect :location contains CR/LF/NUL"
+                      {:rf.error/id :rf.error/redirect-invalid-location
+                       :where    'rf.ssr/response
+                       :reason   (str "redirect :location contains CR/LF/NUL"
                                       " — forbidden by RFC 7230 §3.2.4"
                                       " (header-splitting injection)")
                        :location loc
@@ -155,7 +159,9 @@
   (let [s (str n)]
     (when-not (re-matches token-grammar-re s)
       (throw (ex-info ":rf.error/header-invalid-name"
-                      {:reason   (str "header :name " (pr-str s)
+                      {:rf.error/id :rf.error/header-invalid-name
+                       :where    'rf.ssr/response
+                       :reason   (str "header :name " (pr-str s)
                                       " violates RFC 7230 §3.2.6 token grammar"
                                       " (no CTLs, whitespace, or separators"
                                       " ()<>@,;:\\\"/[]?={})")
@@ -171,13 +177,17 @@
   [n]
   (when (nil? n)
     (throw (ex-info ":rf.error/cookie-invalid-name"
-                    {:reason   "cookie :name is required"
+                    {:rf.error/id :rf.error/cookie-invalid-name
+                     :where    'rf.ssr/response
+                     :reason   "cookie :name is required"
                      :name     n
                      :recovery :no-recovery})))
   (let [s (#?(:clj clojure.core/name :cljs cljs.core/name) n)]
     (when-not (re-matches token-grammar-re s)
       (throw (ex-info ":rf.error/cookie-invalid-name"
-                      {:reason   (str "cookie :name " (pr-str s)
+                      {:rf.error/id :rf.error/cookie-invalid-name
+                       :where    'rf.ssr/response
+                       :reason   (str "cookie :name " (pr-str s)
                                       " violates RFC 6265 §4.1.1 token grammar"
                                       " (no CTLs, whitespace, or separators"
                                       " ()<>@,;:\\\"/[]?={})")
@@ -193,14 +203,17 @@
   [field-key v]
   (let [s (str v)]
     (when (re-find header-injection-chars-re s)
-      (throw (ex-info (str ":rf.error/cookie-invalid-" (name field-key))
-                      {:reason   (str "cookie " field-key " " (pr-str s)
-                                      " contains CR/LF/NUL — forbidden by"
-                                      " RFC 7230 §3.2.4 (header-splitting"
-                                      " injection)")
-                       :field    field-key
-                       :value    v
-                       :recovery :no-recovery})))
+      (let [error-kw (keyword "rf.error" (str "cookie-invalid-" (name field-key)))]
+        (throw (ex-info (str error-kw)
+                        {:rf.error/id error-kw
+                         :where    'rf.ssr/response
+                         :reason   (str "cookie " field-key " " (pr-str s)
+                                        " contains CR/LF/NUL — forbidden by"
+                                        " RFC 7230 §3.2.4 (header-splitting"
+                                        " injection)")
+                         :field    field-key
+                         :value    v
+                         :recovery :no-recovery}))))
     s))
 
 (defn- validate-cookie!

@@ -134,7 +134,9 @@
         meta  (registrar/lookup :head head-id)]
     (when-not meta
       (throw (ex-info ":rf.error/no-such-head"
-                      {:head-id  head-id
+                      {:rf.error/id :rf.error/no-such-head
+                       :where    'rf/active-head
+                       :head-id  head-id
                        :reason   (str "No head registered under " head-id ".")
                        :recovery :no-recovery})))
     (let [head-fn (:handler-fn meta)
