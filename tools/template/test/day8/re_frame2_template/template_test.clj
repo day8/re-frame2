@@ -357,8 +357,6 @@
             ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
             (is (some? (get-in deps [:deps 'day8/re-frame2-story :mvn/version]))
                 "story coord carries an :mvn/version pin")
-            (is (.contains pkg-txt "\"story\":")
-                "package.json declares a `story` npm script")
             (is (.contains pkg-txt "\"qrcode-generator\"")
                 "package.json declares the qrcode-generator npm dep
                  (Story's only direct npm dependency — re-frame.story.qr

@@ -196,9 +196,9 @@ clojure -Tnew create :template io.github.day8/re-frame2-template \
 
 Adds `day8/re-frame2-story` to `deps.edn` (lockstep with the core
 coord version), emits `stories.cljs` next to `events.cljs` /
-`subs.cljs` / `views.cljs`, swaps `core.cljs` for the hash-routing
-variant, and wires `npm run story` as an alias for `shadow-cljs
-watch app` — visit `#/stories` for the playground, `#/` for the
+`subs.cljs` / `views.cljs`, and swaps `core.cljs` for the hash-routing
+variant. Story serves off the same `:app` build, so `npm run watch`
+covers both — visit `#/stories` for the playground, `#/` for the
 live app.
 
 This is the branching-flag exception called out in
