@@ -27,16 +27,16 @@
  [;; Step 1: Enter :loading via :fetch. Timer schedules with epoch 1.
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch 0}
+                  :data    {}
                   :states
                   {:idle    {:on {:fetch :loading}}
                    :loading {:after {5000 :timeout}
                              :on    {:loaded :ready}}
                    :timeout {}
                    :ready   {}}}
-   :snapshot     {:state :idle :data {:rf/after-epoch 0}}
+   :snapshot     {:state :idle :data {}}
    :event        [:fetch]
-   :expect-next-snapshot {:state :loading :data {:rf/after-epoch 1}}
+   :expect-next-snapshot {:state :loading :data {:rf/after-epoch {[:loading] 1}}}
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
                       :rf/spawn-id [:loading]
@@ -53,16 +53,16 @@
   ;; in-flight timer is now stale (it carries epoch 1).
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch 1}
+                  :data    {:rf/after-epoch {[:loading] 1}}
                   :states
                   {:idle    {:on {:fetch :loading}}
                    :loading {:after {5000 :timeout}
                              :on    {:loaded :ready}}
                    :timeout {}
                    :ready   {}}}
-   :snapshot     {:state :loading :data {:rf/after-epoch 1}}
+   :snapshot     {:state :loading :data {:rf/after-epoch {[:loading] 1}}}
    :event        [:loaded]
-   :expect-next-snapshot {:state :ready :data {:rf/after-epoch 2}}
+   :expect-next-snapshot {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
                       :rf/spawn-id [:loading]}]]
@@ -75,16 +75,16 @@
   ;; Snapshot is unchanged. :rf.machine.timer/stale-after emits.
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch 2}
+                  :data    {:rf/after-epoch {[:loading] 2}}
                   :states
                   {:idle    {:on {:fetch :loading}}
                    :loading {:after {5000 :timeout}
                              :on    {:loaded :ready}}
                    :timeout {}
                    :ready   {}}}
-   :snapshot     {:state :ready :data {:rf/after-epoch 2}}
-   :event        [::after-elapsed 5000 1]
-   :expect-next-snapshot {:state :ready :data {:rf/after-epoch 2}}
+   :snapshot     {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
+   :event        [::after-elapsed 5000 1 [:loading]]
+   :expect-next-snapshot {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
    :expect-effects       []
    :expect-trace
    [{:operation :rf.machine.timer/stale-after

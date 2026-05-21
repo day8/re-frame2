@@ -273,7 +273,7 @@
   it advances the epoch; an in-flight timer captured at the prior entry now
   carries a stale epoch that won't match the live one."
   (let [machine {:initial :idle
-                 :data    {:rf/after-epoch 0}
+                 :data    {}
                  :states  {:idle    {:on    {:fetch :loading
                                              :reset :idle}}
                            :loading {:after {5000 :timeout}
@@ -281,31 +281,32 @@
                                              :cancel :idle}}
                            :timeout {}}}]
     (testing "match → commit (timer fires with the carried epoch)"
-      (let [s0 {:state :idle :data {:rf/after-epoch 0}}
+      (let [s0 {:state :idle :data {}}
             s1 (::result/snap (machines/machine-transition machine s0 [:fetch]))
-            captured-epoch (get-in s1 [:data :rf/after-epoch])]
+            ;; Per Spec 005 §Hierarchy interaction the epoch is per-decl-path.
+            captured-epoch (get-in s1 [:data :rf/after-epoch [:loading]])]
         (is (= :loading (:state s1)))
         (is (= 1 captured-epoch) "epoch advances on entry to :after-bearing state")
         (let [s2 (::result/snap (machines/machine-transition
                           machine s1
-                          [:rf.machine.timer/after-elapsed 5000 captured-epoch]))]
+                          [:rf.machine.timer/after-elapsed 5000 captured-epoch [:loading]]))]
           (is (= :timeout (:state s2)) "matching epoch → transition commits"))))
     (testing "mismatch → suppress + :rf.machine.timer/stale-after trace"
       ;; Enter :loading (epoch 1, captured by the in-flight timer); leave
       ;; via :cancel (epoch advances to 2); re-enter via :fetch (epoch 3).
       ;; The original timer fires carrying epoch 1 against current epoch 3.
       (let [traces (atom [])
-            s0 {:state :idle :data {:rf/after-epoch 0}}
-            s1 (::result/snap (machines/machine-transition machine s0 [:fetch]))      ;; epoch 1
+            s0 {:state :idle :data {}}
+            s1 (::result/snap (machines/machine-transition machine s0 [:fetch]))      ;; [:loading] epoch 1
             captured 1
-            s2 (::result/snap (machines/machine-transition machine s1 [:cancel]))     ;; epoch 2
-            s3 (::result/snap (machines/machine-transition machine s2 [:fetch]))]     ;; epoch 3
+            s2 (::result/snap (machines/machine-transition machine s1 [:cancel]))     ;; [:loading] epoch 2
+            s3 (::result/snap (machines/machine-transition machine s2 [:fetch]))]     ;; [:loading] epoch 3
         (is (= :loading (:state s3)))
-        (is (= 3 (get-in s3 [:data :rf/after-epoch])))
+        (is (= 3 (get-in s3 [:data :rf/after-epoch [:loading]])))
         (rf/register-listener! ::stale (fn [ev] (swap! traces conj ev)))
         (let [s4 (::result/snap (machines/machine-transition
                           machine s3
-                          [:rf.machine.timer/after-elapsed 5000 captured]))]
+                          [:rf.machine.timer/after-elapsed 5000 captured [:loading]]))]
           (rf/unregister-listener! ::stale)
           (is (= s3 s4) "stale timer firing leaves snapshot unchanged")
           (is (some (fn [ev]
@@ -362,15 +363,15 @@
       (is (= [1 4] (get-in s1 [:data :result])))
       ;; :after 0 is the yield mechanism — driven by the synthetic
       ;; timer-elapsed event re-entering :processing.
-      (let [epoch (get-in s1 [:data :rf/after-epoch])
-            s2    (step s1 [:rf.machine.timer/after-elapsed 0 epoch])]
+      (let [epoch (get-in s1 [:data :rf/after-epoch [:yielding]])
+            s2    (step s1 [:rf.machine.timer/after-elapsed 0 epoch [:yielding]])]
         (is (= :yielding (:state s2)) "second yield-tick lands back in :yielding")
         (is (= 4 (get-in s2 [:data :processed])))
         (is (= [1 4 9 16] (get-in s2 [:data :result])))
-        (let [epoch2 (get-in s2 [:data :rf/after-epoch])
+        (let [epoch2 (get-in s2 [:data :rf/after-epoch [:yielding]])
               ;; Final chunk processes the last item; :done? guard wins;
               ;; :checking-done → :complete (terminal).
-              s3 (step s2 [:rf.machine.timer/after-elapsed 0 epoch2])]
+              s3 (step s2 [:rf.machine.timer/after-elapsed 0 epoch2 [:yielding]])]
           (is (= :complete (:state s3)) "terminal state reached after final chunk")
           (is (= 5 (get-in s3 [:data :processed])))
           (is (= [1 4 9 16 25] (get-in s3 [:data :result]))))))))

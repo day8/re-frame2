@@ -374,7 +374,7 @@
         ;; machines_cljs_test.cljs §machine-after-cljs).
         (rf/reg-machine :sup/timed
           {:initial :idle
-           :data    {:rf/after-epoch 0}
+           :data    {}
            :states
            {:idle    {:on {:start :working}}
             :working {:spawn {:machine-id :worker/slow
@@ -383,14 +383,14 @@
             :timeout {}}})
         (rf/dispatch-sync [:sup/timed [:start]])
         (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
-        ;; Synthetically fire the :after timer with matching epoch (1
-        ;; after the entry to :working). This drives the parent's
-        ;; transition out of :working — the standard exit cascade
-        ;; destroys the spawned :worker/slow#1 and the rf2-wvkn hook
-        ;; aborts its in-flight HTTP.
+        ;; Synthetically fire the :after timer with matching epoch (the
+        ;; :working node's per-path epoch, 1 after entry) + decl-path. This
+        ;; drives the parent's transition out of :working — the standard
+        ;; exit cascade destroys the spawned :worker/slow#1 and the
+        ;; rf2-wvkn hook aborts its in-flight HTTP.
         (let [snap  (get-in (rf/get-frame-db :rf/default) [:rf/machines :sup/timed])
-              epoch (get-in snap [:data :rf/after-epoch])]
-          (rf/dispatch-sync [:sup/timed [:rf.machine.timer/after-elapsed 5000 epoch]]))
+              epoch (get-in snap [:data :rf/after-epoch [:working]])]
+          (rf/dispatch-sync [:sup/timed [:rf.machine.timer/after-elapsed 5000 epoch [:working]]]))
         (await-condition! #(seq @replies))
         (is (= :failure (:kind (first @replies))))
         (is (= :actor-destroyed (get-in (first @replies) [:failure :reason]))

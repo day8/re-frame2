@@ -162,7 +162,7 @@
                   :states  {:running {:on {:never-fires :done}}
                             :done    {}}}
           parent {:initial :idle
-                  :data    {:rf/after-epoch 0}
+                  :data    {}
                   :on-spawn-actions
                   {:record (fn [{data :data id :id}] (assoc data :pending id))}
                   :states
@@ -189,12 +189,12 @@
           "expected :rf.machine.timer/scheduled with :delay-source :literal")
       (let [child-id (get-in (rf/get-frame-db :rf/default)
                              [:rf/spawned :sup/auth-after [:authenticating]])
-            epoch    (get-in (snapshot :sup/auth-after) [:data :rf/after-epoch])]
+            epoch    (get-in (snapshot :sup/auth-after) [:data :rf/after-epoch [:authenticating]])]
         (is (some? child-id) "spawn slot bound to the spawned child id")
         (reset! traces [])
         ;; Synthetically dispatch the :after-elapsed timer event with the
-        ;; current epoch — mirrors the wall-clock setTimeout firing.
-        (rf/dispatch-sync [:sup/auth-after [:rf.machine.timer/after-elapsed 30000 epoch]])
+        ;; current epoch + decl-path — mirrors the wall-clock setTimeout firing.
+        (rf/dispatch-sync [:sup/auth-after [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]])
         (is (= :timed-out (:state (snapshot :sup/auth-after)))
             "parent transitioned :authenticating → :timed-out via :after firing")
         (is (nil? (get-in (rf/get-frame-db :rf/default)

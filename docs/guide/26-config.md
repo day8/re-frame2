@@ -690,7 +690,7 @@ A `:always` targeting its own state with the same `:guard` is a registration-tim
 
 Rationale: the loop either fires repeatedly to depth-exceeded (if the guard stays true) or is a no-op (if the guard flips on first hit). In both cases the author intended something else. Catch the typo at registration.
 
-A self-targeting `:always` with a *different* guard — used as a re-entry on a changed condition — is permitted. Only the same-guard same-target case is rejected.
+Any `:always` entry whose `:target` resolves to its own declaring state is rejected (the rejection is decidable from the `:target` alone). To re-enter on a changed condition, target a *distinct* intermediate state — or use `:after` for a re-arming timer.
 
 For the full normative grammar see [005 §Eventless `:always` transitions](../../spec/005-StateMachines.md).
 
@@ -950,8 +950,8 @@ A few `:rf/*` keys appear inside a machine's `:data` slot. These are runtime-own
 
 | Key | Meaning |
 |---|---|
-| `:rf/after-epoch` | Per-machine epoch counter for `:after`-timer stale detection (flat / compound) |
-| `:rf/after-epoch-by-region` | Per-region counter for `:after`-timer stale detection (parallel regions) |
+| `:rf/after-epoch` | Per-scheduling-node epoch map (`{<decl-path> <int>}`) for `:after`-timer stale detection (flat / compound) |
+| `:rf/after-epoch-by-region` | Per-region per-decl-path epoch map for `:after`-timer stale detection (parallel regions) |
 | `:rf/self-id` | The machine's own gensym'd id (set by spawn-fx for spawned actors) |
 | `:rf/parent-id` | The parent machine's id (set on `:spawn` / `:spawn-all` children) |
 | `:rf/spawn-id` | The `:spawn`-bearing state's prefix-path (used to address the spawn-registry slot) |

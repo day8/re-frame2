@@ -74,7 +74,7 @@
 (deftest after-single-delay
   (testing ":after schedules with current epoch on entry; fires on synthetic timer event"
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states
              {:idle    {:on {:fetch :loading}}
               :loading {:after {5000 :timeout}
@@ -87,13 +87,14 @@
       (rf/dispatch-sync [:a/single [:fetch]])
       (let [s (snapshot :a/single)]
         (is (= :loading (:state s)))
-        (is (= 1 (get-in s [:data :rf/after-epoch]))))
+        ;; Per Spec 005 §Hierarchy interaction the epoch is per-decl-path.
+        (is (= 1 (get-in s [:data :rf/after-epoch [:loading]]))))
       (is (some #(and (= :rf.machine.timer/scheduled (:operation %))
                        (= 5000     (:delay (:tags %)))
                        (= :literal (:delay-source (:tags %))))
                  @traces)
           ":scheduled trace with :delay-source :literal")
-      (rf/dispatch-sync [:a/single [:rf.machine.timer/after-elapsed 5000 1]])
+      (rf/dispatch-sync [:a/single [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (is (= :timeout (:state (snapshot :a/single)))
           "matching-epoch firing transitions :loading → :timeout")
       (rf/unregister-listener! ::s))))
@@ -103,7 +104,7 @@
 (deftest after-multi-stage
   (testing "multiple :after entries run independently from entry-time"
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states
              {:idle    {:on {:fetch :loading}}
               :loading {:after {5000  :warn
@@ -116,16 +117,16 @@
       (rf/reg-machine :a/multi m)
       (rf/dispatch-sync [:a/multi [:fetch]])
       (is (= :loading (:state (snapshot :a/multi))))
-      (let [epoch (get-in (snapshot :a/multi) [:data :rf/after-epoch])]
+      (let [epoch (get-in (snapshot :a/multi) [:data :rf/after-epoch [:loading]])]
         ;; The 5000ms timer fires first.
-        (rf/dispatch-sync [:a/multi [:rf.machine.timer/after-elapsed 5000 epoch]])
+        (rf/dispatch-sync [:a/multi [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
         (is (= :warn (:state (snapshot :a/multi)))
             "5s timer fires; transition to :warn")
         ;; The original 30000ms timer (epoch 1) is now stale, but at this
         ;; point the snapshot has moved to :warn (which has no :after);
-        ;; pick-after-transition's "no :after table found" + epoch-mismatch
-        ;; surfaces stale-after.
-        (rf/dispatch-sync [:a/multi [:rf.machine.timer/after-elapsed 30000 epoch]])
+        ;; the [:loading] node is no longer on the active path —
+        ;; pick-after-transition surfaces stale-after.
+        (rf/dispatch-sync [:a/multi [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
         (is (= :warn (:state (snapshot :a/multi)))
             "stale 30s firing does not transition")))))
 
@@ -134,8 +135,7 @@
 (deftest after-guard-suppresses-one-siblings-continue
   (testing "guard returning false suppresses the transition without exiting; sibling timers continue"
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0
-                       :slow?          false}
+             :data    {:slow? false}
              :guards  {:slow? (fn [{:keys [data]}] (:slow? data))}
              :states
              {:idle    {:on {:fetch :loading}}
@@ -149,12 +149,12 @@
       (rf/reg-machine :a/guard m)
       (rf/register-listener! ::g (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/guard [:fetch]])
-      (let [epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch])]
+      (let [epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch [:loading]])]
         ;; 5s fires; guard :slow? returns false → suppressed.
-        (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 5000 epoch]])
+        (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
         (is (= :loading (:state (snapshot :a/guard)))
             "guard-suppressed :after must not transition")
-        (is (= epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch]))
+        (is (= epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch [:loading]]))
             "guard-suppressed :after must not advance epoch")
         (is (some #(and (= :rf.machine.timer/fired (:operation %))
                          (false? (:fired? (:tags %)))
@@ -162,7 +162,7 @@
                    @traces)
             ":fired? false trace emitted on guard suppression")
         ;; The 30000ms sibling timer is still live (same epoch) — fire it.
-        (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 30000 epoch]])
+        (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
         (is (= :timeout (:state (snapshot :a/guard)))
             "sibling :after timer continues and transitions on its own"))
       (rf/unregister-listener! ::g))))
@@ -172,7 +172,7 @@
 (deftest after-no-invoke-splash
   (testing "a state with :after but no :spawn is a pure timed-transition state"
     (let [m {:initial :splash
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states
              {:splash {:after {3000 :main}
                        :on    {:skip :main}}
@@ -181,17 +181,100 @@
       ;; First dispatch synthesises the snapshot at :splash.
       (rf/dispatch-sync [:a/splash [:noop]])
       (is (= :splash (:state (snapshot :a/splash))))
-      (let [epoch (get-in (snapshot :a/splash) [:data :rf/after-epoch])]
-        (rf/dispatch-sync [:a/splash [:rf.machine.timer/after-elapsed 3000 epoch]])
+      (let [epoch (get-in (snapshot :a/splash) [:data :rf/after-epoch [:splash]])]
+        (rf/dispatch-sync [:a/splash [:rf.machine.timer/after-elapsed 3000 epoch [:splash]]])
         (is (= :main (:state (snapshot :a/splash)))
             ":after fired transition with no :spawn spawn")))))
+
+;; ---- hierarchy: parent :after survives a child-only transition -----------
+;;
+;; Per Spec 005 §Hierarchy interaction (the normative external contract at
+;; 005:1638): "leaf-only sibling transitions inside the same parent MUST
+;; NOT cause that parent's pending :after timer to fire as stale on its
+;; next match." A single per-machine epoch could not satisfy this — a
+;; child sibling transition that itself bumps the shared counter staled the
+;; still-active parent's in-flight timer. The per-decl-path epoch model
+;; bumps ONLY the exited/entered nodes, leaving the live parent untouched.
+
+(deftest after-parent-survives-child-sibling-transition
+  (testing "a parent's :after stays live across a child-only sibling
+            transition where the child ALSO declares :after (rf2-j9hnu)"
+    (let [m {:initial :p
+             :data    {}
+             :states
+             {:p {:initial :a
+                  :after   {30000 :timed-out}     ;; parent hard-timeout
+                  :states  {:a {:after {5000 :a-warn}   ;; child progress timer
+                               :on    {:next :b}}
+                            :b {:after {7000 :b-warn}}}
+                  :on {:reset :p}}
+              :timed-out {}
+              :a-warn    {}
+              :b-warn    {}}}]
+      (rf/reg-machine :a/hier m)
+      ;; Bootstrap → [:p :a]: both the parent's and child :a's :after
+      ;; schedule, each at its own per-path epoch.
+      (rf/dispatch-sync [:a/hier [:noop]])
+      (is (= [:p :a] (:state (snapshot :a/hier))))
+      (let [parent-epoch (get-in (snapshot :a/hier) [:data :rf/after-epoch [:p]])
+            a-epoch      (get-in (snapshot :a/hier) [:data :rf/after-epoch [:p :a]])]
+        (is (= 1 parent-epoch) "parent :after scheduled at its own epoch")
+        (is (= 1 a-epoch) "child :a :after scheduled at its own epoch")
+
+        ;; Child sibling transition :a → :b. The parent is NOT exited; only
+        ;; the child levels are. The parent's per-path epoch MUST be
+        ;; untouched; the child :a's MUST be bumped.
+        (rf/dispatch-sync [:a/hier [:next]])
+        (is (= [:p :b] (:state (snapshot :a/hier))))
+        (is (= parent-epoch
+               (get-in (snapshot :a/hier) [:data :rf/after-epoch [:p]]))
+            "parent's per-path epoch is UNCHANGED by the child-only transition")
+        (is (not= a-epoch
+                  (get-in (snapshot :a/hier) [:data :rf/after-epoch [:p :a]]))
+            "child :a's per-path epoch advanced on its exit")
+
+        ;; The parent's in-flight timer (scheduled at parent-epoch, decl-path
+        ;; [:p]) now fires. It MUST be live — the parent is still active —
+        ;; and drive the transition to :timed-out.
+        (rf/dispatch-sync [:a/hier [:rf.machine.timer/after-elapsed
+                                    30000 parent-epoch [:p]]])
+        (is (= :timed-out (:state (snapshot :a/hier)))
+            "parent :after fires (NOT stale) after a child-only transition — rf2-j9hnu")))))
+
+(deftest after-stale-child-timer-after-sibling-transition
+  (testing "the OLD child :after timer goes stale after a sibling transition"
+    (let [m {:initial :p
+             :data    {}
+             :states
+             {:p {:initial :a
+                  :after   {30000 :timed-out}
+                  :states  {:a {:after {5000 :a-warn} :on {:next :b}}
+                            :b {}}
+                  :on {:reset :p}}
+              :timed-out {}
+              :a-warn    {}}}
+          traces (atom [])]
+      (rf/reg-machine :a/hier2 m)
+      (rf/dispatch-sync [:a/hier2 [:noop]])
+      (let [a-epoch (get-in (snapshot :a/hier2) [:data :rf/after-epoch [:p :a]])]
+        (rf/dispatch-sync [:a/hier2 [:next]])
+        (is (= [:p :b] (:state (snapshot :a/hier2))))
+        (rf/register-listener! ::h2 (fn [ev] (swap! traces conj ev)))
+        ;; Fire :a's old timer (carried at its pre-exit epoch + decl-path).
+        (rf/dispatch-sync [:a/hier2 [:rf.machine.timer/after-elapsed
+                                     5000 a-epoch [:p :a]]])
+        (is (= [:p :b] (:state (snapshot :a/hier2)))
+            "stale child :a timer does NOT transition after the sibling move")
+        (is (some #(= :rf.machine.timer/stale-after (:operation %)) @traces)
+            ":stale-after trace emitted for the exited child's timer")
+        (rf/unregister-listener! ::h2)))))
 
 ;; ---- race: real event beats timer; stale firing must not transition ------
 
 (deftest after-race-real-event-wins
   (testing "real event arrives before timer; in-flight timer fires stale and is suppressed"
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states
              {:idle    {:on {:fetch :loading}}
               :loading {:after {5000 :timeout}
@@ -205,7 +288,7 @@
       (is (= :ready (:state (snapshot :a/race))))
       (rf/register-listener! ::r (fn [ev] (swap! traces conj ev)))
       ;; Stale firing from epoch 1 (the :loading visit).
-      (rf/dispatch-sync [:a/race [:rf.machine.timer/after-elapsed 5000 1]])
+      (rf/dispatch-sync [:a/race [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (is (= :ready (:state (snapshot :a/race)))
           "stale firing must not transition")
       (is (some #(and (= :rf.machine.timer/stale-after (:operation %))
@@ -224,7 +307,7 @@
           ;; receives a single context-map arg `{:snapshot ...}`.
           delay-fn (fn [_ctx] 7000)
           m {:initial :idle
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states
              {:idle    {:on {:go :loading}}
               :loading {:after {delay-fn :timeout}}
@@ -232,9 +315,9 @@
       (rf/reg-machine :a/fn m)
       (rf/dispatch-sync [:a/fn [:go]])
       (is (= :loading (:state (snapshot :a/fn))))
-      (let [epoch (get-in (snapshot :a/fn) [:data :rf/after-epoch])]
+      (let [epoch (get-in (snapshot :a/fn) [:data :rf/after-epoch [:loading]])]
         ;; Synthetic event carries the fn as the delay-key.
-        (rf/dispatch-sync [:a/fn [:rf.machine.timer/after-elapsed delay-fn epoch]])
+        (rf/dispatch-sync [:a/fn [:rf.machine.timer/after-elapsed delay-fn epoch [:loading]]])
         (is (= :timeout (:state (snapshot :a/fn)))
             "fn-keyed :after entry resolves and fires")))))
 
@@ -246,7 +329,7 @@
                  :states  {:running {:on {:never-fires :done}}
                            :done    {}}}
           parent {:initial :idle
-                  :data    {:rf/after-epoch 0}
+                  :data    {}
                   :on-spawn-actions
                   {:rec (fn [{:keys [data id]}] (assoc data :pending id))}
                   :states
@@ -262,11 +345,11 @@
       (rf/reg-machine :sup/atimeout parent)
       (rf/dispatch-sync [:sup/atimeout [:go]])
       (let [child-id (get-in (frame-db) [:rf/spawned :sup/atimeout [:authenticating]])
-            epoch    (get-in (snapshot :sup/atimeout) [:data :rf/after-epoch])]
+            epoch    (get-in (snapshot :sup/atimeout) [:data :rf/after-epoch [:authenticating]])]
         (is (some? child-id) "spawn slot bound")
         (is (some? (get-in (frame-db) [:rf/machines child-id]))
             "child snapshot exists")
-        (rf/dispatch-sync [:sup/atimeout [:rf.machine.timer/after-elapsed 30000 epoch]])
+        (rf/dispatch-sync [:sup/atimeout [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]])
         (is (= :timed-out (:state (snapshot :sup/atimeout)))
             "parent transitioned via :after firing")
         (is (nil? (get-in (frame-db) [:rf/machines child-id]))
@@ -287,7 +370,7 @@
       (try
         (rf/reg-machine :a/throws
                         {:initial :idle
-                         :data    {:rf/after-epoch 0}
+                         :data    {}
                          :states  {:idle    {:on    {:go :running}}
                                    :running {:after {delay-fn :timeout}}
                                    :timeout {}}})
@@ -333,7 +416,7 @@
       (rf/reg-sub :a/timeout-config-0 (fn [db _] (:timeout-config db)))
       (rf/dispatch-sync [:a/seed-bad])
       (let [m {:initial :idle
-               :data    {:rf/after-epoch 0}
+               :data    {}
                :states
                {:idle    {:on {:go :running}}
                 :running {:after {[:a/timeout-config-0] :timeout}}
@@ -357,7 +440,7 @@
       (subs-cache/configure! {:grace-period-ms 0})
       (rf/reg-sub :a/timeout-config-nil (fn [_db _] nil))
       (let [m {:initial :idle
-               :data    {:rf/after-epoch 0}
+               :data    {}
                :states
                {:idle    {:on {:go :running}}
                 :running {:after {[:a/timeout-config-nil] :timeout}}
@@ -373,7 +456,7 @@
       (subs-cache/configure! {:grace-period-ms 0})
       (rf/reg-sub :a/timeout-config-neg (fn [_db _] -1))
       (let [m {:initial :idle
-               :data    {:rf/after-epoch 0}
+               :data    {}
                :states
                {:idle    {:on {:go :running :reset :idle}}
                 :running {:after {[:a/timeout-config-neg] :timeout}
@@ -444,7 +527,7 @@
         (rf/reg-machine
           :s/throws-machine
           {:initial :idle
-           :data    {:rf/after-epoch 0}
+           :data    {}
            :states  {:idle    {:on    {:go :running}}
                      :running {:after {[:s/well-formed] :timeout}}
                      :timeout {}}})
@@ -510,7 +593,7 @@
         (rf/reg-machine
           :w/throws-machine
           {:initial :idle
-           :data    {:rf/after-epoch 0}
+           :data    {}
            :states  {:idle    {:on    {:go :running}}
                      :running {:after {[:s/well-behaved] :timeout}}
                      :timeout {}}})

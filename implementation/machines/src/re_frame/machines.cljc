@@ -7,10 +7,13 @@
       with deepest-wins resolution and LCA exit/entry cascade.
     - :always microsteps with bounded depth and atomic rollback on
       depth-exceeded.
-    - :after delayed transitions with per-machine :rf/after-epoch
-      tracking; the synthetic :rf.machine.timer/after-elapsed event
-      fires the transition only when the carried epoch matches. `:after`
-      delays admit three forms — pos-int? literal, subscription vector
+    - :after delayed transitions with per-scheduling-node :rf/after-epoch
+      tracking (a {<decl-path> <int>} map, so a parent's :after survives a
+      child-only sibling transition per Spec 005 §Hierarchy interaction);
+      the synthetic :rf.machine.timer/after-elapsed event carries the
+      node's epoch + decl-path and fires the transition only when the
+      scheduling node is still active and the carried epoch matches.
+      `:after` delays admit three forms — pos-int? literal, subscription vector
       ([:sub-id & args]; re-resolves on sub change), and
       (fn [snapshot] ms) computed once at state entry.
     - Declarative :spawn that desugars into [:rf.machine/spawn args]

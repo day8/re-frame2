@@ -63,7 +63,7 @@
             cleared by the :machines/on-frame-destroyed! hook"
     (rf/reg-frame :corner.timer/scoped {:doc "scoped"})
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states  {:idle    {:on {:fetch :loading}}
                        :loading {:after {5000 :timeout}
                                  :on    {:loaded :ready}}
@@ -109,7 +109,7 @@
             same-system-id replacement actor; A's handler is gone +
             traces :rf.error/no-such-handler; B's snapshot is intact"
     (let [child  {:initial :running
-                  :data    {:rf/after-epoch 0}
+                  :data    {}
                   :states  {:running {:after {5000 :timeout}}
                             :timeout {}}}
           parent {:initial :idle
@@ -250,7 +250,7 @@
             table; a stale synthetic :after-elapsed traces
             :rf.machine.timer/stale-after and does NOT transition"
     (let [m {:initial :idle
-             :data    {:rf/after-epoch 0}
+             :data    {}
              :states
              {:idle    {:on {:fetch :loading}}
               :loading {:after {5000 :timeout}
@@ -266,8 +266,8 @@
       ;; Capture the entry's epoch BEFORE we exit :loading.
       (let [snap-before  (get-in (rf/get-frame-db :rf/default)
                                  [:rf/machines :corner.dyn/m])
-            epoch-loading (get-in snap-before [:data :rf/after-epoch])]
-        (is (pos? epoch-loading) ":loading entry advanced the epoch")
+            epoch-loading (get-in snap-before [:data :rf/after-epoch [:loading]])]
+        (is (pos? epoch-loading) ":loading entry advanced the per-path epoch")
 
         ;; Exit :loading via :loaded → :ready. after-cancel-fx
         ;; releases the timer entry.
@@ -316,7 +316,7 @@
 
     ;; --- (a) :after timer --------------------------------------------------
     (let [timer-m {:initial :idle
-                   :data    {:rf/after-epoch 0}
+                   :data    {}
                    :states  {:idle    {:on {:fetch :loading}}
                              :loading {:after {600000 :timeout}}
                              :timeout {}}}]

@@ -2,17 +2,21 @@
 ;;
 ;; A parent compound state declares :after; its children transition between
 ;; themselves without exiting the parent. The parent's :after timer remains
-;; live across the sibling-leaf transition (epoch is per-machine, but the
-;; parent-level entry doesn't re-schedule when only the leaf changes; the
-;; parent-level timer continues to count down). Eventually a transition
-;; exits the parent compound; the parent-level timer is now stale.
+;; live across the sibling-leaf transition: the `:rf/after-epoch` slot is a
+;; per-decl-path map, so a child-only transition leaves the parent's
+;; `[:authenticated]` entry untouched and the parent-level timer continues
+;; to count down. Eventually a transition exits the parent compound; the
+;; parent-level entry is bumped and the parent-level timer is now stale.
 ;;
 ;; Verifies:
-;;   1. Entering the parent schedules its :after timer.
-;;   2. Sibling-leaf transitions inside the parent do NOT cancel the parent's
-;;      :after — the parent's :after is still scheduled with its original epoch.
-;;   3. Exiting the parent advances the epoch and the parent-level timer's
-;;      eventual firing is stale (:rf.machine.timer/stale-after).
+;;   1. Entering the parent schedules its :after timer at the parent's
+;;      per-path epoch.
+;;   2. Sibling-leaf transitions inside the parent do NOT bump the parent's
+;;      per-path epoch — the parent's :after is still live at its original
+;;      epoch.
+;;   3. Exiting the parent bumps the parent's per-path epoch and the
+;;      parent-level timer's eventual firing is stale
+;;      (:rf.machine.timer/stale-after).
 ;;
 ;; Per [005 §Delayed :after transitions §Hierarchy interaction]
 ;; (../../005-StateMachines.md#hierarchy-interaction).
@@ -33,7 +37,7 @@
   ;; :dashboard. The parent's :after timer schedules with epoch 1.
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch 0}
+                  :data    {}
                   :states
                   {:idle {:on {:login :authenticated}}
                    :authenticated
@@ -44,10 +48,10 @@
                      :settings  {:on {:close :dashboard}}}
                     :on {:logout :idle}}
                    :session-timeout {}}}
-   :snapshot     {:state :idle :data {:rf/after-epoch 0}}
+   :snapshot     {:state :idle :data {}}
    :event        [:login]
    :expect-next-snapshot {:state [:authenticated :dashboard]
-                          :data  {:rf/after-epoch 1}}
+                          :data  {:rf/after-epoch {[:authenticated] 1}}}
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
                       :rf/spawn-id [:authenticated]
@@ -73,7 +77,7 @@
   ;; :rf.machine.timer/scheduled trace for the parent.
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch 1}
+                  :data    {:rf/after-epoch {[:authenticated] 1}}
                   :states
                   {:idle {:on {:login :authenticated}}
                    :authenticated
@@ -84,10 +88,11 @@
                      :settings  {:on {:close :dashboard}}}
                     :on {:logout :idle}}
                    :session-timeout {}}}
-   :snapshot     {:state [:authenticated :dashboard] :data {:rf/after-epoch 1}}
+   :snapshot     {:state [:authenticated :dashboard] :data {:rf/after-epoch {[:authenticated] 1}}}
    :event        [:open-settings]
    :expect-next-snapshot {:state [:authenticated :settings]
-                          :data  {:rf/after-epoch 1}}        ;; epoch unchanged — parent stays entered
+                          ;; parent's per-path epoch unchanged — parent stays entered
+                          :data  {:rf/after-epoch {[:authenticated] 1}}}
    :expect-effects       []
    :expect-trace
    ;; Critically: NO :rf.machine.timer/scheduled trace re-emits for the parent.
@@ -100,7 +105,7 @@
   ;; epoch advances to 2; the parent's in-flight timer (epoch 1) is now stale.
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch 1}
+                  :data    {:rf/after-epoch {[:authenticated] 1}}
                   :states
                   {:idle {:on {:login :authenticated}}
                    :authenticated
@@ -111,9 +116,9 @@
                      :settings  {:on {:close :dashboard}}}
                     :on {:logout :idle}}
                    :session-timeout {}}}
-   :snapshot     {:state [:authenticated :settings] :data {:rf/after-epoch 1}}
+   :snapshot     {:state [:authenticated :settings] :data {:rf/after-epoch {[:authenticated] 1}}}
    :event        [:logout]
-   :expect-next-snapshot {:state :idle :data {:rf/after-epoch 2}}
+   :expect-next-snapshot {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
                       :rf/spawn-id [:authenticated]}]]
@@ -126,7 +131,7 @@
   ;; the firing and emits :rf.machine.timer/stale-after. Snapshot stays at :idle.
   {:call         :machine-transition
    :definition   {:initial :idle
-                  :data    {:rf/after-epoch 2}
+                  :data    {:rf/after-epoch {[:authenticated] 2}}
                   :states
                   {:idle {:on {:login :authenticated}}
                    :authenticated
@@ -137,9 +142,11 @@
                      :settings  {:on {:close :dashboard}}}
                     :on {:logout :idle}}
                    :session-timeout {}}}
-   :snapshot     {:state :idle :data {:rf/after-epoch 2}}
-   :event        [::after-elapsed 30000 1]
-   :expect-next-snapshot {:state :idle :data {:rf/after-epoch 2}}
+   :snapshot     {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
+   ;; The synthetic timer-elapsed event carries (delay, epoch, decl-path):
+   ;; the parent-level timer scheduled at epoch 1 for [:authenticated].
+   :event        [::after-elapsed 30000 1 [:authenticated]]
+   :expect-next-snapshot {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
    :expect-effects       []
    :expect-trace
    [{:operation :rf.machine.timer/stale-after

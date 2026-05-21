@@ -141,7 +141,7 @@
     (rf/reg-machine
       :ko8jb/fire
       {:initial :idle
-       :data    {:rf/after-epoch 0}
+       :data    {}
        :states  {:idle    {:on {:go :loading}}
                  :loading {:after {5000 :done}
                            :on    {:bail :idle}}
@@ -151,10 +151,10 @@
             (fn []
               (rf/dispatch-sync [:ko8jb/fire [:go]])
               (let [epoch (get-in (rf/get-frame-db :rf/default)
-                                  [:rf/machines :ko8jb/fire :data :rf/after-epoch])]
+                                  [:rf/machines :ko8jb/fire :data :rf/after-epoch [:loading]])]
                 (rf/dispatch-sync
                   [:ko8jb/fire
-                   [:rf.machine.timer/after-elapsed 5000 epoch]]))))
+                   [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]]))))
           ev (first (filter #(true? (:fired? (:tags %)))
                             (of-op traces :rf.machine.timer/fired)))]
       (is (some? ev) ":rf.machine.timer/fired (fired? true) emitted")
@@ -170,7 +170,7 @@
     (rf/reg-machine
       :ko8jb/stale
       {:initial :loading
-       :data    {:rf/after-epoch 0}
+       :data    {}
        :states  {:loading {:after {5000 :timeout}
                            :on    {:cancel :idle}}
                  :idle    {}
