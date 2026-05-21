@@ -259,7 +259,13 @@
                 ;; doesn't pin a non-trivial chunk of heap per request.
                 (let [pipe-in  (PipedInputStream. (* 16 1024))
                       pipe-out (PipedOutputStream. pipe-in)]
-                  (.start
+                  ;; Daemon thread (rf2-ekwda): a writer blocked on
+                  ;; `.write` to the bounded 16 KiB pipe of a slow-loris
+                  ;; client must NOT keep the JVM alive at shutdown. The
+                  ;; ns + handler docstrings and both test namespaces
+                  ;; assert daemon semantics; this is what makes that
+                  ;; contract real.
+                  (doto
                     (Thread.
                       ^Runnable
                       (fn writer-thread []
@@ -271,7 +277,9 @@
                             ;; it does NOT block the response close on
                             ;; the slower destroy path.
                             (lifecycle/destroy-frame-quietly! frame-id))))
-                      ^String (str "rf2-ssr-streaming-" (name frame-id))))
+                      ^String (str "rf2-ssr-streaming-" (name frame-id)))
+                    (.setDaemon true)
+                    (.start))
                   ;; Build the Ring response off the response
                   ;; accumulator's status/headers/cookies — no body
                   ;; default-stamp (we pass our own InputStream).

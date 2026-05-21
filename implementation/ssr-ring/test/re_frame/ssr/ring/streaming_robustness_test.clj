@@ -465,6 +465,14 @@
               (str "every captured thread name starts with the
                    `rf2-ssr-streaming-` prefix — captured names: "
                    (vec names))))
+        ;; rf2-ekwda: the writer is genuinely a daemon thread, not just
+        ;; named one — a writer blocked on `.write` to a slow-loris
+        ;; client's bounded pipe must NOT pin the JVM open at shutdown.
+        ;; Captured live, this is the only place the daemon flag is
+        ;; observable; assert it for real so a future regression that
+        ;; drops `(.setDaemon true)` fails here.
+        (is (every? (fn [^Thread t] (.isDaemon t)) @observed)
+            "every live streaming writer thread is a daemon thread")
         ;; And of course: the daemon terminates after the request
         ;; completes.
         (let [leaked (await-no-streaming-threads! 5000)]
