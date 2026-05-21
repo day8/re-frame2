@@ -90,8 +90,8 @@
 
   The helper is `.cljc` so the same code runs in CLJS (Causa's
   primary target) and JVM tests. The walk has no platform-specific
-  branches — pure registrar data."
-  (:require [re-frame.registrar :as registrar]))
+  branches — pure registry data."
+  (:require [re-frame.core :as rf]))
 
 ;; ---- registry projection -------------------------------------------------
 
@@ -105,7 +105,7 @@
 (defn sub-meta-map
   "Snapshot of every registered sub's static metadata as a flat map
   `{sub-id {:input-signal-ids [...] :layer-1? bool}}`. Pure data over
-  `registrar/registrations` — no app-db, no reactive runtime.
+  `rf/registrations` — no app-db, no reactive runtime.
 
   Layer-1 subs (which read app-db directly) report
   `:input-signal-ids []` + `:layer-1? true`. Layer-2+ subs report
@@ -121,7 +121,7 @@
                {:input-signal-ids signals
                 :layer-1?         (empty? signals)})))
     {}
-    (registrar/registrations :sub)))
+    (rf/registrations :sub)))
 
 ;; ---- the walk -----------------------------------------------------------
 

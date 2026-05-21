@@ -54,7 +54,6 @@
   in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
@@ -462,10 +461,10 @@
            (try (read-app-schemas-by-frame)
                 (catch :default _ {}))
            :events
-           (try (registrar/registrations :event)
+           (try (rf/registrations :event)
                 (catch :default _ {}))
            :subs
-           (try (registrar/registrations :sub)
+           (try (rf/registrations :sub)
                 (catch :default _ {}))})))
 
   ;; ---- view-facing composite -------------------------------------------
