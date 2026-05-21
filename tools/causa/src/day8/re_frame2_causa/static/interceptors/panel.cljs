@@ -160,7 +160,11 @@
         row-id  (if (and (> (count id-text) 0) (= \: (first id-text)))
                   (subs id-text 1)
                   id-text)]
+    ;; rf2-mq8wk — list semantics. Interceptor rows are non-interactive
+    ;; catalogue entries (no row-level dispatch), so `role=listitem` is
+    ;; the right shape rather than `role=button`.
     [:li {:data-testid (str "rf-causa-static-interceptors-row-" row-id)
+          :role        "listitem"
           :style       {:display       "block"
                         :padding       "6px 12px"
                         :font-family   mono-stack
@@ -273,6 +277,7 @@
         (if (empty? interceptors)
           (empty-filtered query)
           (into [:ul {:data-testid "rf-causa-static-interceptors-list"
+                      :role        "list"
                       :style       {:list-style     "none"
                                     :margin         "8px 0 0 0"
                                     :padding        "0 8px"

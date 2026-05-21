@@ -112,6 +112,7 @@
    {:keys [expanded? sim-open? routes-map on-toggle]}]
   [:li {:data-testid (str "rf-causa-static-routes-row-"
                           (subs (pr-str route-id) 1))
+        :role        "listitem"
         :style       {:display       "block"
                       :padding       "0"
                       :font-family   mono-stack
@@ -123,14 +124,33 @@
                                        "2px solid transparent")
                       :border-radius "2px"
                       :line-height   "20px"}}
-   [:div {:style    {:display     "flex"
+   ;; rf2-mq8wk — keyboard a11y. The route row's clickable body toggles
+   ;; the inline expand surface, so it carries the L2 event-row recipe
+   ;; (shell.cljs:1068 `role=button` + `tab-index=0` + `aria-label` +
+   ;; Enter/Space activation). `aria-expanded` mirrors the open state so
+   ;; assistive tech announces the toggle's disclosure semantics.
+   [:div {:role         "button"
+          :tab-index    "0"
+          :aria-expanded (if expanded? "true" "false")
+          :aria-label   (str "Route " (str route-id)
+                             (when path (str " (" path ")"))
+                             (if expanded? " — collapse" " — expand"))
+          :style    {:display     "flex"
                      :align-items "center"
                      :gap         "8px"
                      :padding     "3px 8px"
                      :cursor      "pointer"
                      :white-space "nowrap"
                      :overflow    "hidden"}
-          :on-click on-toggle}
+          :on-click on-toggle
+          :on-key-down (fn [^js e]
+                         ;; Enter / Space fire the same row toggle the
+                         ;; pointer-click path uses, so keyboard-only
+                         ;; users can open/close the expand surface.
+                         (let [k (.-key e)]
+                           (when (or (= k "Enter") (= k " "))
+                             (.preventDefault e)
+                             (on-toggle e))))}
     [:span {:data-testid (str "rf-causa-static-routes-chevron-"
                               (subs (pr-str route-id) 1))
             :style       {:color       (:text-tertiary tokens)
@@ -208,6 +228,7 @@
      (if (empty? routes)
        (empty-filtered query)
        (into [:ul {:data-testid "rf-causa-static-routes-list"
+                   :role        "list"
                    :style       {:list-style     "none"
                                  :margin         "8px 0 0 0"
                                  :padding        "0 8px"
