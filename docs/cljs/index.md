@@ -1279,28 +1279,24 @@ Three paths forward, depending on what you want next:
   (intentionally not site-wide; the non-minified plugin is ~7 MB).
   Vendored locally in docs/klipse/ rather than CDN-loaded so the chapter
   works even if the upstream Klipse project (dormant since 2022) goes
-  away. Relative paths below resolve from the built /guide/00-.../ URL
-  back up to /klipse/ at the site root.
+  away.
 
-  Why the non-minified klipse_plugin.js and not klipse_plugin.min.js?
-  Both versions of Klipse 7.11.4 throw "Failed to execute 'querySelectorAll'
-  on 'Document': The provided selector is empty." at startup when the
-  user-supplied klipse_settings doesn't list a selector for every one of
-  Klipse's 40+ registered language modes. The non-minified build is the
-  only variant the upstream maintainer tests against, and it does NOT
-  exhibit that bug for ClojureScript cells when only `selector` is
-  configured.
+  The actual loading (CodeMirror CSS + klipse_settings + plugin) lives in
+  docs/klipse/klipse-bootstrap.js, wired via `extra_javascript` in
+  mkdocs.yml. That indirection is required because `navigation.instant` is
+  enabled site-wide: Material does NOT re-execute inline <script> tags in
+  page content on an instant page swap, so a reader reaching this page via
+  an in-site link would get dead cells. `extra_javascript` modules ARE
+  re-run by Material on every instant navigation, so the bootstrap fires
+  reliably and mounts the cells. The bootstrap is guarded — it does nothing
+  on pages without ```klipse cells, keeping the heavy plugin off every
+  other page. See that file's header for the full rationale, including the
+  reasons for the non-minified klipse_plugin.js and the `selector` setting.
 
-  Why `selector` (no suffix) and not `selector_eval_clojure`?
-  ClojureScript is Klipse's default mode; `selector` is the documented
-  setting key (every clojure-demo.html in the upstream repo uses it).
-  `selector_eval_clojure` is NOT a real Klipse setting — Klipse's
-  registered-mode table contains only OTHER languages (eval-javascript,
-  eval-ocaml, eval-python, …). ClojureScript is the language Klipse uses
-  for its own internals, so it has no separate mode-registration.
+  The <style> block below is plain CSS and stays inline: browsers apply
+  page-content <style> as the DOM is inserted (no script execution needed),
+  so it survives instant navigation.
 -->
-
-<link rel="stylesheet" type="text/css" href="../../klipse/codemirror.css">
 
 <style>
   /* Match Material theme: keep cells visually distinct from the static
@@ -1322,24 +1318,3 @@ Three paths forward, depending on what you want next:
     white-space: pre-wrap;
   }
 </style>
-
-<script>
-  // Material/pymdownx-superfences renders ```klipse fences as
-  // <pre class="language-klipse"><code>...</code></pre>
-  // (via the custom_fences entry in mkdocs.yml). Klipse's `selector`
-  // setting walks down from <pre> to find the <code> child, replaces
-  // it with a CodeMirror editor, and evaluates the cell contents as
-  // ClojureScript.
-  window.klipse_settings = {
-    selector: '.language-klipse',
-    codemirror_options_in: {
-      lineWrapping: true,
-      autoCloseBrackets: true,
-      matchBrackets: true
-    },
-    codemirror_options_out: {
-      lineWrapping: true
-    }
-  };
-</script>
-<script src="../../klipse/klipse_plugin.js"></script>
