@@ -28,7 +28,11 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
+const {
+  runWithWatchdog,
+  assertJsonRpcErrorCodes,
+  assertDescriptorShape,
+} = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
@@ -93,71 +97,16 @@ runWithWatchdog(
     }
     console.log('OK   tools/list -> ' + names.length + ' tools advertised');
 
-    // Tighten the inputSchema spot-check past "is an object" (rf2-i3ffz
-    // F-GAP-2). See `end-to-end-re-frame2-pair.cjs` for the cross-MCP rationale:
-    //   - `type === 'object'` — every tool's input shape is a map.
-    //   - `properties['max-tokens']` — TOKEN-BUDGETS.md MUST.
-    for (const t of listed.tools) {
-      if (!t.inputSchema || typeof t.inputSchema !== 'object') {
-        throw new Error('tool ' + t.name + ' has no inputSchema');
-      }
-      if (t.inputSchema.type !== 'object') {
-        throw new Error(
-          'tool ' + t.name + " inputSchema.type MUST be 'object' (cross-MCP " +
-            "convention; NAMING.md catalogue surface); got: " +
-            JSON.stringify(t.inputSchema.type),
-        );
-      }
-      const props = t.inputSchema.properties || {};
-      if (!('max-tokens' in props)) {
-        throw new Error(
-          'tool ' + t.name + " inputSchema.properties MUST expose 'max-tokens' " +
-            '(TOKEN-BUDGETS.md §"Per-call override slot": every tool surfaces ' +
-            'the cap-override slot so clients discover it automatically).',
-        );
-      }
-    }
+    // Descriptor-shape conformance — inputSchema type=object +
+    // max-tokens (rf2-i3ffz F-GAP-2 / TOKEN-BUDGETS.md), :outputSchema
+    // (rf2-3l3be), and an :annotations classification hint (rf2-94p8q).
+    // Shared `assertDescriptorShape` helper (rf2-80y2h dedup). story-mcp
+    // is closed-world (reads + fixture writes), so openWorldHint does
+    // NOT count as a classifier — `allowOpenWorld` omitted (defaults
+    // false).
+    assertDescriptorShape(listed.tools, { allowOpenWorld: false });
     console.log(
-      'OK   every tool descriptor carries inputSchema with type=object + max-tokens',
-    );
-
-    // 2c. Output-schema conformance (rf2-3l3be). Every descriptor MUST
-    // declare an :outputSchema describing the structuredContent payload
-    // shape. mcp-builder canonical pattern: "Define outputSchema
-    // wherever possible for structured responses."
-    for (const t of listed.tools) {
-      if (!t.outputSchema || typeof t.outputSchema !== 'object') {
-        throw new Error(
-          'tool ' + t.name + " MUST declare :outputSchema (rf2-3l3be); got: " +
-            JSON.stringify(t.outputSchema),
-        );
-      }
-    }
-    console.log(
-      'OK   every tool descriptor carries outputSchema (rf2-3l3be)',
-    );
-
-    // 2d. Tool annotations conformance (rf2-94p8q). Every descriptor
-    // MUST declare an :annotations map advertising the MCP hint slots
-    // (readOnlyHint / destructiveHint / idempotentHint / openWorldHint)
-    // so agent hosts can auto-approve reads + gate destructive ops.
-    for (const t of listed.tools) {
-      if (!t.annotations || typeof t.annotations !== 'object') {
-        throw new Error(
-          'tool ' + t.name + " MUST declare :annotations (rf2-94p8q); got: " +
-            JSON.stringify(t.annotations),
-        );
-      }
-      const a = t.annotations;
-      if (a.readOnlyHint !== true && a.destructiveHint !== true) {
-        throw new Error(
-          'tool ' + t.name + " annotations MUST set at least one of " +
-            "readOnlyHint / destructiveHint; got: " + JSON.stringify(a),
-        );
-      }
-    }
-    console.log(
-      'OK   every tool descriptor carries annotations with a classification hint (rf2-94p8q)',
+      'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
     );
 
     // 3. register-variant — body as an EDN string so JSON's lack of

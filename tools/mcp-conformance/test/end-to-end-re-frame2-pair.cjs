@@ -29,7 +29,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
+const {
+  runWithWatchdog,
+  assertJsonRpcErrorCodes,
+  assertDescriptorShape,
+} = require('./_runner.cjs');
 
 const RE_FRAME2_PAIR_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
 const SERVER = path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js');
@@ -82,87 +86,16 @@ runWithWatchdog(
     }
     console.log('OK   tools/list -> ' + names.length + ' tools advertised:', names.join(', '));
 
-    // 2b. Tighten the inputSchema spot-check past "is an object"
-    // (rf2-i3ffz F-GAP-2). The SDK's ListToolsResultSchema already
-    // gates structural JSON-Schema-validity at the SDK layer; this
-    // step pins two cross-MCP-convention invariants the SDK doesn't
-    // model:
-    //
-    //   1. `type === 'object'` — every tool's input shape is a map
-    //      (per NAMING.md §"The verb table"; the catalogue carries
-    //      no scalar-input tools today).
-    //   2. `properties['max-tokens']` is present on every descriptor
-    //      — TOKEN-BUDGETS.md §"Per-call override slot" pins the
-    //      MUST: "The slot surfaces in tools/list on every tool
-    //      descriptor so clients discover it automatically." A
-    //      regression that drops `max-tokens` from a descriptor's
-    //      properties would silently break agent-host budget
-    //      negotiation; that bug now trips here.
-    for (const t of listed.tools) {
-      if (!t.inputSchema || typeof t.inputSchema !== 'object') {
-        throw new Error('tool ' + t.name + ' has no inputSchema');
-      }
-      if (t.inputSchema.type !== 'object') {
-        throw new Error(
-          'tool ' + t.name + " inputSchema.type MUST be 'object' (cross-MCP " +
-            "convention; NAMING.md catalogue surface); got: " +
-            JSON.stringify(t.inputSchema.type),
-        );
-      }
-      const props = t.inputSchema.properties || {};
-      if (!('max-tokens' in props)) {
-        throw new Error(
-          'tool ' + t.name + " inputSchema.properties MUST expose 'max-tokens' " +
-            '(TOKEN-BUDGETS.md §"Per-call override slot": every tool surfaces ' +
-            'the cap-override slot so clients discover it automatically).',
-        );
-      }
-    }
+    // 2b-2d. Descriptor-shape conformance — inputSchema type=object +
+    // max-tokens (rf2-i3ffz F-GAP-2 / TOKEN-BUDGETS.md), :outputSchema
+    // (rf2-3l3be), and an :annotations classification hint (rf2-94p8q).
+    // The shared `assertDescriptorShape` helper pins all three; pair-mcp
+    // permits `openWorldHint` as a classifier (its eval-cljs / dispatch
+    // tools touch an open world), so `allowOpenWorld: true`. See
+    // _runner.cjs for the per-invariant rationale (rf2-80y2h dedup).
+    assertDescriptorShape(listed.tools, { allowOpenWorld: true });
     console.log(
-      'OK   every tool descriptor carries inputSchema with type=object + max-tokens',
-    );
-
-    // 2c. Output-schema conformance (rf2-3l3be). Every descriptor MUST
-    // declare an :outputSchema describing the structuredContent payload
-    // shape. mcp-builder canonical pattern: "Define outputSchema
-    // wherever possible for structured responses."
-    for (const t of listed.tools) {
-      if (!t.outputSchema || typeof t.outputSchema !== 'object') {
-        throw new Error(
-          'tool ' + t.name + " MUST declare :outputSchema (rf2-3l3be); got: " +
-            JSON.stringify(t.outputSchema),
-        );
-      }
-    }
-    console.log(
-      'OK   every tool descriptor carries outputSchema (rf2-3l3be)',
-    );
-
-    // 2d. Tool annotations conformance (rf2-94p8q). Every descriptor
-    // MUST declare an :annotations map advertising the MCP hint slots
-    // (readOnlyHint / destructiveHint / idempotentHint / openWorldHint)
-    // so agent hosts can auto-approve reads + gate destructive ops.
-    for (const t of listed.tools) {
-      if (!t.annotations || typeof t.annotations !== 'object') {
-        throw new Error(
-          'tool ' + t.name + " MUST declare :annotations (rf2-94p8q); got: " +
-            JSON.stringify(t.annotations),
-        );
-      }
-      // At least one of readOnlyHint / destructiveHint / openWorldHint
-      // must be set — that's the load-bearing classification. Other
-      // slots are optional refinements.
-      const a = t.annotations;
-      if (a.readOnlyHint !== true && a.destructiveHint !== true && a.openWorldHint !== true) {
-        throw new Error(
-          'tool ' + t.name + " annotations MUST set at least one of " +
-            "readOnlyHint / destructiveHint / openWorldHint; got: " +
-            JSON.stringify(a),
-        );
-      }
-    }
-    console.log(
-      'OK   every tool descriptor carries annotations with a classification hint (rf2-94p8q)',
+      'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
     );
 
     // 3. Canonical workflow (degraded, since no nREPL is available):

@@ -1383,6 +1383,14 @@ jobs:
         with:
           cli: latest
 
+      # rf2-80y2h: mcp-base now carries a CLJS test target (shadow-cljs
+      # :node-test build) covering the `.cljc` `:cljs` reader-conditional
+      # branches the JVM suite cannot reach. Node is required to run it.
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
@@ -1406,6 +1414,20 @@ jobs:
       # consumer.
       - name: Run JVM tests (tools/mcp-base artefact)
         run: clojure -M:test
+
+      # rf2-80y2h: the CLJS test target exercises the three `.cljc`
+      # `:cljs`-only branches the JVM suite (Malli always present) can
+      # never reach — the `goog-define` `validate-patches?` default, the
+      # `:cljs` arm of `resolve-malli-validate`, and the
+      # soft-pass-when-Malli-absent no-op in the validation gates. The
+      # :cljs-test alias deliberately omits Malli so the soft-pass branch
+      # actually runs. Both MCP servers consume mcp-base in CLJS; nothing
+      # pinned these paths before.
+      - name: Install Node deps (shadow-cljs for the CLJS test build)
+        run: npm install
+
+      - name: Run CLJS tests (tools/mcp-base artefact)
+        run: npm run test:cljs
 
   jvm-tools-template:
     name: JVM tools/template (clojure -M:test)

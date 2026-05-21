@@ -45,5 +45,15 @@
                        day8/re-frame2-test-quiet
                        {:local/root "../../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                       ;; rf2-80y2h — the canonical `:rf.mcp/diff-from`
+                       ;; encoder so the wire-vocab gate can assert LIVE
+                       ;; emission (the real encoder actually producing
+                       ;; the marker), not only fixture+grep coverage.
+                       ;; The grep pin only checks the literal exists in
+                       ;; `mcp-base/vocab.cljc`; without a live-emission
+                       ;; gate a tool that stopped diff-encoding
+                       ;; `:db-after` would pass every conformance check.
+                       day8/re-frame2-mcp-base
+                       {:local/root "../../mcp-base"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

@@ -172,6 +172,64 @@
   8)
 
 ;; ---------------------------------------------------------------------------
+;; Over-budget decision — extracted from `apply-cap`'s inline `let` so the
+;; two-stage gate is unit-trippable in isolation.
+;;
+;; ## Why the secondary char gate is structurally dominated today
+;;
+;; `apply-cap` derives BOTH sums from the SAME `content-texts` seq:
+;; `tokens = Σ (token-estimate s)`, `chars = Σ (count s)`. With the live
+;; rule `token-estimate = (quot count 4)`, the two sums are not
+;; independent — for a single string of length L, `chars = L` and
+;; `tokens = (quot L 4)`. If `chars > cap*8` (i.e. L > 8·cap), then
+;; `tokens = (quot L 4) > (quot (8·cap) 4) = 2·cap > cap` for any cap ≥ 1.
+;; So whenever the char gate would trip, the primary token gate has
+;; ALREADY tripped — the `(> chars byte-cap)` disjunct can never be the
+;; SOLE reason `over?` is true while `tokens`/`chars` ride the same seq.
+;;
+;; The gate is therefore NOT dead code by accident: it is intentional
+;; defence-in-depth against a FUTURE refinement of `token-estimate` (e.g.
+;; one that recognises base64 / CJK with a much lower per-char token
+;; cost). Under such a rule `chars` and `tokens` decouple and the char
+;; gate becomes load-bearing. To keep the branch from being a silently-
+;; dead inline arm, the decision is extracted here as a pure predicate
+;; over already-summed `tokens`/`chars` — so both disjuncts (and the
+;; `reported` selector) are directly exercised in `cap_test.clj` by
+;; feeding decoupled sums the live `apply-cap` path cannot itself
+;; produce. See `over-cap?` / `reported-count` tests.
+;; ---------------------------------------------------------------------------
+
+(defn over-cap?
+  "Two-stage over-budget predicate (rf2-ih7g4). True when EITHER the
+  token sum exceeds `cap` OR the char sum exceeds `cap *
+  byte-cap-multiplier` (the secondary byte gate).
+
+  Pure over already-summed `tokens` / `chars` so the secondary char
+  gate is trippable in isolation — under the live `token-estimate`
+  rule the char disjunct is structurally dominated (see the ns-level
+  comment above), but the gate guards against a future token-rule
+  refinement that decouples chars from tokens."
+  [tokens chars cap]
+  (or (> tokens cap)
+      (> chars (* cap byte-cap-multiplier))))
+
+(defn reported-count
+  "The `:token-count` reported in the overflow marker. When the
+  secondary char gate is the one that tripped (`chars > cap *
+  byte-cap-multiplier`), report the char count so the agent's overflow
+  handler sees an actionable number reflecting the payload that
+  escaped the token heuristic; otherwise report the token sum.
+
+  Pure over already-summed `tokens` / `chars` (companion to
+  `over-cap?`) — exercised directly in `cap_test.clj` so the char-gate
+  reporting arm is covered even though the live `apply-cap` path cannot
+  reach it under the current `token-estimate` rule."
+  [tokens chars cap]
+  (if (> chars (* cap byte-cap-multiplier))
+    chars
+    tokens))
+
+;; ---------------------------------------------------------------------------
 ;; apply-cap — the wire-boundary enforcement entry point.
 ;; ---------------------------------------------------------------------------
 
@@ -228,15 +286,12 @@
                          {:tokens (+ tokens (overflow/token-estimate s))
                           :chars  (+ chars (count s))}))
                      {:tokens 0 :chars 0}
-                     (content-texts io result))
-          byte-cap (* cap byte-cap-multiplier)
-          over?    (or (> tokens cap) (> chars byte-cap))]
-      (if-not over?
+                     (content-texts io result))]
+      (if-not (over-cap? tokens chars cap)
         result
-        (let [reported (if (> chars byte-cap) chars tokens)
-              marker   (overflow/overflow-payload
-                         {:tool        tool
-                          :token-count reported
-                          :cap         cap
-                          :hint        hint})]
+        (let [marker (overflow/overflow-payload
+                       {:tool        tool
+                        :token-count (reported-count tokens chars cap)
+                        :cap         cap
+                        :hint        hint})]
           (build-overflow-result io marker result))))))

@@ -186,13 +186,7 @@
 (deftest byte-cap-multiplier-and-char-sum-are-pinned
   ;; Defence-in-depth shape pin (rf2-ih7g4 / rf2-8cpsg / F18). The
   ;; secondary byte cap is `cap * byte-cap-multiplier` and reads from
-  ;; the same `content-texts` seq the token sum does. Under the
-  ;; current `(quot c 4)` token rule the secondary gate is
-  ;; mathematically un-trippable in isolation (token sum ≈ chars/4,
-  ;; so chars > cap*8 ⇒ tokens > cap*2 > cap); the gate is kept
-  ;; wired so a future token-rule refinement (e.g. one that
-  ;; recognises base64 with a much lower per-char cost) cannot
-  ;; silently widen the wire envelope.
+  ;; the same `content-texts` seq the token sum does.
   ;;
   ;; Pin the two shape invariants — `byte-cap-multiplier = 8` and
   ;; `sum-text-chars` and `sum-text-tokens` read the same content-
@@ -201,6 +195,77 @@
   (let [r {:content [{:type "text" :text (big-string 100)}]}]
     (is (= 100 (cap/sum-text-chars map-io r)))
     (is (= 25 (cap/sum-text-tokens map-io r)))))
+
+;; ---------------------------------------------------------------------------
+;; Two-stage gate, unit-trippable in isolation (rf2-80y2h).
+;;
+;; The previous test set documented (in a docstring) that the secondary
+;; char gate was un-trippable under the live `(quot c 4)` token rule and
+;; then never executed it — the `(> chars byte-cap)` disjunct and the
+;; `reported = chars` selector inside `apply-cap` had ZERO executing
+;; coverage. A regression that inverted either comparison shipped
+;; unobserved.
+;;
+;; The decision was NOT genuinely reachable through `apply-cap` + a
+;; custom `ResultIO`: `apply-cap` derives BOTH sums from the same
+;; `content-texts` strings inline, so an IO cannot return chars
+;; without proportional tokens — the two are computed by `apply-cap`
+;; itself, not by the IO. The fix extracts the gate into the pure
+;; `over-cap?` / `reported-count` predicates over already-summed
+;; tokens/chars, which ARE trippable in isolation by feeding the
+;; decoupled sums a future `token-estimate` refinement could produce.
+;; ---------------------------------------------------------------------------
+
+(deftest over-cap?-primary-token-gate-trips
+  ;; The common path: token sum exceeds cap, chars well under byte-cap.
+  (is (true?  (cap/over-cap? 5001 6000 5000)) "tokens > cap trips")
+  (is (false? (cap/over-cap? 5000 6000 5000)) "tokens = cap does NOT trip (inclusive-low)")
+  (is (false? (cap/over-cap? 4999 6000 5000)) "tokens < cap does NOT trip"))
+
+(deftest over-cap?-secondary-char-gate-trips-in-isolation
+  ;; The branch the live `apply-cap` path cannot reach: tokens UNDER
+  ;; cap but chars OVER `cap * byte-cap-multiplier`. Reachable only when
+  ;; a future token rule decouples chars from tokens (e.g. base64 / CJK
+  ;; recognised at a lower per-char token cost). `over-cap?` MUST still
+  ;; trip — that is the whole point of the defence-in-depth gate.
+  (let [cap-tokens 100
+        byte-cap   (* cap-tokens cap/byte-cap-multiplier)] ;; 800
+    (is (true? (cap/over-cap? 50 (inc byte-cap) cap-tokens))
+        "tokens under cap but chars > cap*8 ⇒ secondary gate trips")
+    (is (false? (cap/over-cap? 50 byte-cap cap-tokens))
+        "chars = cap*8 does NOT trip (strict >)")
+    (is (false? (cap/over-cap? 50 (dec byte-cap) cap-tokens))
+        "chars < cap*8 and tokens under cap ⇒ no trip")))
+
+(deftest reported-count-selects-chars-when-char-gate-tripped
+  ;; The `reported = (if (> chars byte-cap) chars tokens)` selector. The
+  ;; chars arm is the one the live path never reaches; pin both arms.
+  (let [cap-tokens 100
+        byte-cap   (* cap-tokens cap/byte-cap-multiplier)] ;; 800
+    (is (= 999 (cap/reported-count 50 999 cap-tokens))
+        "char gate tripped (999 > 800) ⇒ report the char count")
+    (is (= 50 (cap/reported-count 50 800 cap-tokens))
+        "char gate NOT tripped (800 = byte-cap, not >) ⇒ report tokens")
+    (is (= 150 (cap/reported-count 150 700 cap-tokens))
+        "only the token gate tripped ⇒ report tokens")))
+
+(deftest over-cap?-and-reported-count-agree-with-apply-cap
+  ;; Consistency pin: the extracted predicates are exactly what
+  ;; `apply-cap` uses. A token-gated over-budget response reports the
+  ;; token count via `reported-count`, and `apply-cap`'s marker carries
+  ;; the same number. (The char-gate arm has no live `apply-cap`
+  ;; counterpart by construction — that asymmetry is the documented
+  ;; structural domination, covered in isolation above.)
+  (let [big (big-string 4000)        ;; 4000 chars ⇒ 1000 tokens
+        r   (ok-text-result {:huge big})
+        cap-tokens 500
+        toks (cap/sum-text-tokens map-io r)
+        chrs (cap/sum-text-chars map-io r)
+        out  (cap/apply-cap map-io r {:tool "snapshot" :cap cap-tokens})
+        body (get-in out [:structuredContent vocab/overflow-key])]
+    (is (true? (cap/over-cap? toks chrs cap-tokens)))
+    (is (= (cap/reported-count toks chrs cap-tokens) (:token-count body))
+        "apply-cap's reported :token-count matches reported-count over the same sums")))
 
 ;; ---------------------------------------------------------------------------
 ;; structuredContent counted toward the budget (rf2-ih7g4) — story-mcp
