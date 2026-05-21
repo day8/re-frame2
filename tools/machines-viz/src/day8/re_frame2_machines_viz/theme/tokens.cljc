@@ -43,11 +43,11 @@
   fire) interpolates its `animation-duration` through the same
   `--rf-causa-motion-scale` CSS custom property Causa publishes at
   `:root`. The chart's host (Causa today) ensures the variable is
-  set; when machines-viz ships standalone the chart's own SVG
+  set; when machines-viz ships standalone the chart's own inline
   `<style>` block declares the variable + the
   `prefers-reduced-motion` override so the chart honours the user's
-  setting without a host-side install. See `chart/svg`
-  `inline-stylesheet`. The heartbeat-pulse animation was retired
+  setting without a host-side install. See `chart`
+  `chart-stylesheet`. The heartbeat-pulse animation was retired
   2026-05-20 (rf2-2sez0) — only `:glow-duration-ms` remains in the
   motion catalogue.
 

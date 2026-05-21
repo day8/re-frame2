@@ -79,7 +79,7 @@ first-region-only projection. Each region surfaces a synthetic
 `:region?` compound container node — `chart.layout/parse-definition`
 mints a `region__<region-id>` node-id for it, tags each region state
 with `:region` + `:parent-id`, and flags the result `:parallel? true`.
-`chart.chart/xyflow-graph` projects the container as a
+`chart.projection/xyflow-graph` projects the container as a
 `type: "parallel-region"` xyflow node (rendered by
 `chart.nodes.parallel-region-node` with a distinct dashed boundary +
 header label whose colour rotates per region index) and assigns each
