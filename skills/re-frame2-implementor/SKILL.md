@@ -1,10 +1,10 @@
 ---
 name: re-frame2-implementor
 description: >
-  Guides an engineer building a NEW re-frame2 implementation in a different
-  host language or substrate — TypeScript, F# (Fable), Kotlin/JS, Squint,
-  Scala.js, PureScript, ReScript, Python, Rust, native UI, terminal, or any
-  host where re-frame2's pattern can be realised. Drives a two-phase
+  Guides an engineer building a NEW re-frame2 implementation in one of the
+  eight in-scope JS-cross-compile-to-React+VDOM host languages —
+  ClojureScript (the reference), TypeScript, Melange/ReScript/Reason,
+  F# (Fable), Squint, Scala.js, PureScript, Kotlin/JS. Drives a two-phase
   workflow (Phase 1: lock decisions; Phase 2: walk the spec corpus in
   dependency order with the conformance corpus as the acceptance test).
   Trigger on phrasing like "port re-frame2", "implement re-frame2 in

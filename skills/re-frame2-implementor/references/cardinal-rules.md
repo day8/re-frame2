@@ -24,7 +24,7 @@ The reference impl is a CLJS+Reagent realisation — keywords as ids, hiccup as 
 
 ## 5. No core.async equivalents
 
-The CLJS reference does not use core.async, and ports inherit this directive. Async effects schedule via host primitives (Promise / setTimeout / setImmediate / asyncio / tokio); cross-frame work is serialised per frame via the run-to-completion drain. If your host's idiomatic concurrency model is channel-shaped, you may use channels *internally* — but the public dispatch contract is still the run-to-completion drain.
+The CLJS reference does not use core.async, and ports inherit this directive. Every in-scope host cross-compiles to JS, so async effects schedule via the JS event loop's primitives (Promise / setTimeout / setImmediate / queueMicrotask); cross-frame work is serialised per frame via the run-to-completion drain. If your host's idiomatic concurrency model is channel-shaped, you may use channels *internally* — but the public dispatch contract is still the run-to-completion drain.
 
 ## 6. JVM-runnability for the testing surface
 

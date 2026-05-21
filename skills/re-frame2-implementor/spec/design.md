@@ -91,13 +91,12 @@ Reverse cross-links (this skill → the application-side skills) live in SKILL.m
 
 ### In scope
 
-- Engineers porting re-frame2 to a JS-cross-compile host (TS, Fable F#, Kotlin/JS, Squint, Scala.js, PureScript, ReScript / Reason / Melange).
-- Engineers porting to non-JS hosts (Python, Rust, Kotlin/native, Swift, Java).
-- Engineers building re-frame2 against a non-React substrate (native UI, raw DOM, terminal, server-only).
+- Engineers porting re-frame2 to one of the eight in-scope **JS-cross-compile-to-React+VDOM** hosts: ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS. These are the *only* implementation targets the spec commits to (per `spec/000-Vision.md` §scope footnote).
 - Engineers consuming `spec/Implementor-Checklist.md` and `spec/conformance/`.
 
 ### Out of scope
 
+- **Non-cross-compile-to-JS hosts** (Python, Ruby, native Rust, Go, server-side Kotlin / Java / Swift) and **non-React substrates** (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit, native UI, terminal, server-only). These are out of scope by deliberate spec choice — not an oversight (`spec/000-Vision.md` Goal 8; `spec/Implementor-Checklist.md` §Scope). The skill surfaces the scope footnote and stops; it does not sequence an implementation track for them.
 - Writing application code on the CLJS reference — that's `skills/re-frame2/`.
 - Bootstrapping a greenfield app on the reference — that's `skills/re-frame2-setup/`.
 - Migrating a v1 codebase to the reference — that's `skills/re-frame-migration/`.

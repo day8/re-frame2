@@ -8,7 +8,7 @@ Every decision in Phase 1 propagates through every line of Phase 2 code. Spendin
 
 - Spec pin (load-bearing preamble — record before D1)
 - D1. Target host language
-- D2. Substrate / view layer
+- D2. Substrate / React binding
 - D3. Scope — which EPs ship now
 - D4. Always-required realisation decisions (the checklist's Part 2 always-required blocks: Foundation F1–F6, State storage S1–S3, Subscriptions Sub1–Sub2, Views V1–V3, Tracing T1–T3, Errors E1–E2)
 - D5. Schema mechanism
@@ -53,7 +53,7 @@ Record the pinned SHA, the verification date, and both confirmations in the `Spe
 
 **What's at stake.** Every Phase 1 sub-decision (identity primitive, persistent data structures, concurrency model, render-tree shape) is constrained by what the host provides. The choice of host fixes the "shape of the space" the port operates in.
 
-**Options.** [`spec/000-Vision.md`](https://day8.github.io/re-frame2/spec/000-Vision/) names eight first-class **JS-cross-compile + React+VDOM** hosts:
+**Options.** [`spec/000-Vision.md`](https://day8.github.io/re-frame2/spec/000-Vision/) §scope footnote locks the host set to exactly eight **JS-cross-compile-to-React+VDOM** languages — these are the *only* in-scope implementation targets:
 
 - ClojureScript (the reference)
 - TypeScript / JavaScript
@@ -64,34 +64,38 @@ Record the pinned SHA, the verification date, and both confirmations in the `Spe
 - PureScript
 - Kotlin/JS
 
-The [Implementor-Checklist](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) covers more (Python, Rust, Kotlin/native, Swift, Java), but ports outside the eight above will not target React+VDOM by default — D2 picks an alternative substrate.
+Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-cross-compile-to-JS hosts (Python, Ruby, native Rust, Go, server-side Kotlin / Java / Swift) are **out of scope** — a deliberate scope choice, not an oversight. Where the [Implementor-Checklist](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) mentions a non-target host (e.g. `pytest`, `tokio`), treat it as **non-normative background** — illustrative shape, never an implementation track this skill sequences.
 
-**How to choose.** Usually pre-decided by why the engineer started the port. Capture the host and the runtime (e.g. "TypeScript targeting browser + Node 20", "Fable F# targeting .NET 9 and browser", "Rust targeting tokio").
+**How to choose.** Usually pre-decided by why the engineer started the port. Capture the host and the runtime (e.g. "TypeScript targeting browser + Node 20", "Fable F# compiling to JS for the browser", "Squint targeting browser"). If the engineer's target is outside the eight, the answer isn't "implement re-frame2 there anyway" — it's "the spec does not commit to that host." Surface the scope footnote and stop.
 
 **Where the spec speaks.** [`spec/000-Vision.md`](https://day8.github.io/re-frame2/spec/000-Vision/) §"The pattern (JS-cross-compile-language-agnostic)" and the host-profile matrix. [`spec/Implementor-Checklist.md`](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) Part 2 enumerates options per host for every foundation decision.
 
 ---
 
-## D2. Substrate / view layer
+## D2. Substrate / React binding
 
-**The question.** What renders the view? What is the reactive container that holds `app-db`?
+**The question.** Which React binding renders the view, and what is the reactive container that holds `app-db`?
 
 **What's at stake.** The reactive substrate decision propagates into EP 006 (the adapter contract), EP 004 (the render-tree shape), and the view-rerender trigger.
 
-**Options.** The default for the eight in-scope hosts is **React + VDOM** (per [`spec/000-Vision.md`](https://day8.github.io/re-frame2/spec/000-Vision/) §scope footnote). Other substrates a port may target:
+**The substrate is fixed: React + VDOM.** re-frame2 commits to React + VDOM at the render side (per [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/) and the [`spec/000-Vision.md`](https://day8.github.io/re-frame2/spec/000-Vision/) §scope footnote). Every in-scope host cross-compiles to JS and binds against React; non-React substrates are out of scope. So D2 is *not* "which substrate" — it is "which React binding does your host use, and what is the reactive container."
 
-- React + VDOM (the spec's default; the CLJS reference uses Reagent atop React)
-- A native UI toolkit (SwiftUI, Compose, Qt, GTK)
-- Raw DOM (no virtual-DOM library)
-- Terminal UI (TUI)
-- Server-render only (no client view layer)
-- No UI at all (a re-frame2 runtime used as a state-management substrate for a non-UI process)
+**Options (the host's React binding).**
 
-**How to choose.** Driven by the engineer's deployment target. If targeting one of the eight JS-cross-compile hosts and the deployment is browser/React-Native, React+VDOM is the default. Otherwise pick the substrate that fits the target.
+- ClojureScript — Reagent atop React (the reference); UIx or Helix as alternative React bindings.
+- TypeScript / JavaScript — React directly, or a `useSyncExternalStore`-backed store.
+- Fable (F#) — Feliz / Fable.React over React.
+- Squint — a thin React binding (Squint preserves the CLJS shape).
+- Scala.js — Slinky / a `scalajs-react` binding.
+- PureScript — `purescript-react-basic` / Halogen-over-React.
+- Kotlin/JS — `kotlin-wrappers` React.
+- Melange / ReScript / Reason — ReasonReact / `rescript-react`.
 
-**Trade-offs.** Substrates without auto-tracked reactivity (raw DOM, terminal) require an explicit subscription-binding mechanism that's outside the CLJS reference's shape — the engineer writes more of the wiring by hand. The contract is still six required + two optional + one lifecycle function from EP 006.
+**How to choose.** Pick the host's idiomatic React binding. The reactive container is usually the same library that supplies the binding's reactivity (a ratom, a `useSyncExternalStore`-backed atom-shaped store, a signal cell, a `MutableStateFlow`-shaped cell).
 
-**Where the spec speaks.** [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/) — the adapter contract. [Implementor-Checklist §F3 Reactive substrate](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f3-reactive-substrate) — options per host.
+**Trade-offs.** Bindings differ on how subscriptions auto-track (Reagent's deref-during-render vs UIx / Helix `use-subscribe` over `useSyncExternalStore`), but every in-scope binding plugs into the same six required + two optional + one lifecycle function contract from EP 006. The render trigger is uniformly "React re-renders on subscribed-value change."
+
+**Where the spec speaks.** [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/) — the adapter contract + the React+VDOM commitment. [Implementor-Checklist §F3 Reactive substrate](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f3-reactive-substrate) — options per host. [Host-profile matrix in 000](https://day8.github.io/re-frame2/spec/000-Vision/#host-profile-matrix) — the reactive-tracking row names each host's React binding.
 
 ---
 
@@ -135,9 +139,9 @@ From [Implementor-Checklist §Foundation](https://day8.github.io/re-frame2/spec/
 
 **Required properties.** Stable, namespaceable, value-equal, cheap, serialisable, human-readable, reflective. Per [`spec/000-Vision.md` §The identity primitive](https://day8.github.io/re-frame2/spec/000-Vision/#the-identity-primitive--required-properties).
 
-**Options.** CLJS keywords (the reference); TS branded strings with interning; Fable polymorphic variants or single-case DUs; Kotlin sealed-class hierarchies or value classes; PureScript newtypes; Scala.js sealed objects or value classes; Python wrapped strings; Rust newtype `Id(&'static str)`.
+**Options.** CLJS keywords (the reference); Squint keywords (Squint preserves the CLJS shape); TS branded strings with interning; Fable polymorphic variants or single-case DUs; Kotlin/JS sealed-class hierarchies or value classes; PureScript newtypes; Scala.js sealed objects or value classes; Melange / ReScript / Reason polymorphic variants or an opaque `Id.t`.
 
-**Rejected upfront.** UUIDs, integer ids, Java reference-equality classes — all violate one or more required properties.
+**Rejected upfront.** UUIDs, integer ids, reference-equality classes — all violate one or more required properties.
 
 **Where the spec speaks.** [`spec/000-Vision.md` §The identity primitive — required properties](https://day8.github.io/re-frame2/spec/000-Vision/#the-identity-primitive--required-properties) and the per-host realisation table.
 
@@ -147,7 +151,7 @@ From [Implementor-Checklist §Foundation](https://day8.github.io/re-frame2/spec/
 
 **What's at stake.** Frame state revertibility ([Goal 3 in 000](https://day8.github.io/re-frame2/spec/000-Vision/#frame-state-revertibility)) requires structural sharing. Without persistent structures, snapshot is deep-copy and revert is expensive.
 
-**Options.** Clojure persistent collections (CLJS, Squint); Immer / mori / Immutable.js (JS/TS); pyrsistent (Python); im (Rust); native persistent collections in Fable, PureScript, Scala.js; im.kt or kotlinx.collections.immutable (Kotlin); Swift's COW value types.
+**Options.** Clojure persistent collections (CLJS, Squint); Immer / mori / Immutable.js (JS/TS); native persistent collections in Fable, PureScript, Scala.js, Melange / ReScript / Reason; im.kt or kotlinx.collections.immutable (Kotlin/JS).
 
 **Where the spec speaks.** [Implementor-Checklist §F2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f2-persistent-data-structures).
 
@@ -171,7 +175,7 @@ Already locked in D2 (the substrate / view-layer choice). Recorded here for cros
 
 **Constraint.** **No core.async.** Per the standing directive — the CLJS reference does not use core.async, ports inherit the directive. Async fx schedule via host primitives. Cross-frame dispatch is serialised per frame.
 
-**Options.** Single-threaded JS event loop (CLJS / JS / TS); single-threaded `asyncio` loop (Python); single-threaded `tokio` executor (Rust); single coroutine context per frame (Kotlin). Multi-threaded ports must serialise dispatch per frame.
+**Options.** The single-threaded JS event loop — every in-scope host cross-compiles to JS, so this is the shared concurrency model (CLJS, Squint, TS / JS, Fable, Scala.js, PureScript, Kotlin/JS, Melange / ReScript / Reason). Async fx ride the host's Promise / microtask primitive; cross-frame dispatch is serialised per frame by the run-to-completion drain.
 
 **Where the spec speaks.** [`spec/002-Frames.md` §Run-to-completion dispatch drain semantics](https://day8.github.io/re-frame2/spec/002-Frames/). [Implementor-Checklist §F5](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f5-concurrency-model).
 
@@ -215,7 +219,7 @@ From [Implementor-Checklist §State storage](https://day8.github.io/re-frame2/sp
 
 **What's at stake.** Used by handlers, the `path` standard interceptor, registered subs that read paths, and `(rf/snapshot-of path)`. Path operations are hot — choose a fast implementation.
 
-**Options.** Native `assoc-in` / `update-in` / `get-in` (CLJS, Squint); Immer `produce` / `lodash.set`-immutably (TS); lens helpers over the host's immutable map (Belt / F# `Map` / Monocle / `purescript-profunctor-lenses` / Arrow Optics) per host.
+**Options.** Native `assoc-in` / `update-in` / `get-in` (CLJS, Squint); Immer `produce` / `lodash.set`-immutably (TS / JS); lens helpers over the host's immutable map (`Belt` for Melange / ReScript / Reason; F# `Map`; Monocle for Scala.js; `purescript-profunctor-lenses`; Arrow Optics for Kotlin/JS) per host.
 
 **Where the spec speaks.** [Implementor-Checklist §S3](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#s3-path-access-primitive).
 
@@ -325,8 +329,8 @@ From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Impl
 
 **Three answers, not two.**
 
-- **Yes-runtime-schema.** Use a host-native schema library — Malli (CLJS), Zod (JS/TS), Pydantic (Python), dry-rb (Ruby). Validation runs at boundaries in dev; elided in production.
-- **Yes-via-host-types.** Use the host's type system — TypeScript types, F# discriminated unions, Kotlin sealed classes, Rust enums + `serde`, Scala case classes. The compiler enforces shapes at build time; runtime validation is optional.
+- **Yes-runtime-schema.** Use a host-native schema library — Malli (CLJS), Zod (JS/TS, Squint). Validation runs at boundaries in dev; elided in production. This is the natural answer for the dynamically-typed in-scope hosts (CLJS, Squint).
+- **Yes-via-host-types.** Use the host's type system — TypeScript types, F# discriminated unions, Kotlin/JS sealed classes, Scala case classes, PureScript sum types, Melange / ReScript / Reason variants. The compiler enforces shapes at build time; runtime boundary validation (e.g. Zod for TS) is optional. The natural answer for the statically-typed in-scope hosts.
 - **No.** Skip schemas entirely. Permitted by the spec but rarely the right call — the schema layer is what AI agents read to learn the runtime's shapes.
 
 **Constraint.** **Open shapes** are non-negotiable. Consumers tolerate unknown keys; producers grow shapes additively. Closed records/structs at the runtime-data layer are out per [Goal 5 — Clojure ethos](https://day8.github.io/re-frame2/spec/000-Vision/#goals).
@@ -342,8 +346,8 @@ From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Impl
 **Options.**
 
 - **Standalone library.** Drop-in for an existing app; the consumer wires the runtime, the substrate adapter, and any per-feature artefacts.
-- **Framework integration.** The port plugs into an existing framework's lifecycle — e.g. React Native, a Phoenix LiveView-like server, a Compose Multiplatform app, a SwiftUI app. The framework's render cycle is the trigger for `re-frame2`'s view recompute.
-- **Embedded.** The runtime is embedded inside a larger non-UI process (a worker, a server, a game loop). No view layer; the port consumes events + subs + fx + app-db as a state-management substrate.
+- **Framework integration.** The port plugs into an existing React-based framework's lifecycle — e.g. React Native, Next.js, Remix, or any host-specific React meta-framework. The framework's React render cycle is the trigger for `re-frame2`'s view recompute.
+- **Embedded.** The runtime is embedded inside a larger process that drives a React surface (a micro-frontend shell, an SSR server feeding the same React tree). The port consumes events + subs + fx + app-db as a state-management substrate beneath that React surface.
 
 **How to choose.** Driven by the engineer's downstream consumer. Standalone is the lowest-friction starting point.
 

@@ -97,7 +97,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 **Common spec-gap traps.**
 
 - **Revertibility constraint.** Easy to violate inadvertently by stashing per-component state in the adapter that the frame can't reproduce. Audit every adapter-internal cache during EP 006 against the constraint.
-- **Render-trigger semantics.** The trigger must be observably equivalent to "change in `app-db` → recompute affected subs → re-render dependent views". Substrates with their own reactivity model (Solid, Vue, SwiftUI) need to plug into this contract, not subvert it.
+- **Render-trigger semantics.** The trigger must be observably equivalent to "change in `app-db` → recompute affected subs → re-render dependent views". Your host's React binding must plug subscription reads into React's render cycle (Reagent's auto-tracking; UIx / Helix `use-subscribe` over `useSyncExternalStore`) — not subvert it.
 - **Sub lifecycle.** When a view stops reading a sub, the sub should eventually dispose. The mechanism is substrate-dependent (Reagent uses last-deref-disposes-after-a-delay); pick a policy and document it.
 
 ---
@@ -121,7 +121,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 **Common spec-gap traps.**
 
 - **Closed component trees.** A render-tree that includes raw substrate elements with closures (e.g. raw React elements with `useState`) is not serialisable, and breaks SSR + tooling. Keep the render-tree pure data; let the substrate adapter realise it.
-- **Frame propagation.** Views rendered under a non-default frame is a common need (test fixtures, story workspaces, embedded sub-apps). The propagation mechanism is substrate-specific — context for React, environment values for SwiftUI — but the contract is uniform.
+- **Frame propagation.** Views rendered under a non-default frame is a common need (test fixtures, story workspaces, embedded sub-apps). Every in-scope host targets React, so the propagation mechanism is React context (the host's React binding supplies the provider); explicit-frame-id remains the underlying contract.
 
 ---
 
@@ -135,7 +135,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 - **Listener registry.** `(register-listener! key callback)` / `(deregister-listener! key)`. Multiple listeners; each gets every event.
 - **Retain-N ring buffer.** Dev-only; tools that attach after events have fired can read recent history.
 - **Error contract.** Structured trace events for runtime failures — handler exceptions, schema validation, drain depth, no-such-handler. `:operation :rf.error/<category>`, `:op-type :error`.
-- **Production elision.** Every emit site, the listener registry, the trace buffer must elide in production builds. Mechanism is host-discretion (Closure DCE for CLJS; Vite `define` for JS/TS; Cargo features for Rust; `__debug__` for Python).
+- **Production elision.** Every emit site, the listener registry, the trace buffer must elide in production builds. Mechanism is host-discretion (Closure DCE for CLJS; Vite `define` + tree-shake for JS/TS and Squint; `#if !DEBUG` + tree-shake for Fable; link-time-`if` for Scala.js; release-variant module omission for Kotlin/JS).
 
 **What the CLJS reference did (example).** A single atom holds the listener registry; emit walks it inline. A separate ring-buffer atom holds the dev-only history. Production elision via `goog-define` + Closure DCE; a CI script verifies dev-only sentinel strings are absent from production bundles.
 
