@@ -151,11 +151,14 @@
 ;; ordering is preserved as registration metadata rather than a literal
 ;; vector in this ns.
 ;;
-;; Labels use spaces (`App DB` not `App-db`) so the rendered text
-;; carries no `-` glyphs — Playwright's `getByRole('button', {name:
-;; '-'})` accessible-name matching is substring-based and would
-;; otherwise lasso our tab buttons in any host whose app exposes
-;; `-`-named buttons (counter `+ / -`).
+;; Most labels use spaces so the rendered text carries no `-` glyphs.
+;; The app-db tab's label is the lowercase library term `app-db`
+;; (rf2-okvit) and DOES carry a `-`; the accessible-name collision the
+;; old all-spaces convention guarded against (Playwright's
+;; `getByRole('button', {name: '-'})` lassoing a host counter's `-`
+;; button) is now handled by `tab-button`'s wrapped `aria-label`
+;; (`Causa <label> tab`, rf2-plajx / rf2-vxpq1) — the accessible name
+;; is no longer the bare label, so a `-` query can't match it.
 ;;
 ;; Frame-switcher concerns (the internal-frames filter set, distinct-
 ;; frames helper, ribbon picker view) live in `frame_switcher.cljs` per
@@ -1431,10 +1434,13 @@
   strip rendering; `○` for inactive. The mnemonic letter is exposed
   via the `title` attribute.
 
-  `aria-label` doubles the visible label as `<tab-label> tab` so the
+  `aria-label` wraps the visible label as `Causa <tab-label> tab` so the
   button's accessible name never collides with host-app role queries
-  (Playwright's `getByRole('button', {name: '-'})` matched our
-  `App-db` tab when only `title` was set).
+  (Playwright's `getByRole('button', {name: '-'})` matched the old
+  `App-db` tab when only `title` was set). This wrapping is why the
+  app-db tab can safely carry the lowercase library label `app-db`
+  (rf2-okvit) despite the `-` glyph — the accessible name is
+  `Causa app-db tab`, not the bare `app-db`.
 
   Per rf2-lvf8t (rf2-q7who Thread B) each button carries `role='tab'`
   and `aria-selected={active?}` so the tab strip exposes the proper

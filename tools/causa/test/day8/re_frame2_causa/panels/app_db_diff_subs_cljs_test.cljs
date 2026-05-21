@@ -39,6 +39,8 @@
   ;; rf2-s8r6c — flow-writes projection sub for the origin-tag chip.
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-flow-writes)))
   (is (some? (registrar/handler :sub :rf.causa/app-db-diff)))
+  ;; rf2-okvit — the current-state inspector's section-model sub.
+  (is (some? (registrar/handler :sub :rf.causa/app-db-state)))
   ;; rf2-e9tb0 — pinned-slices subs are gone.
   (is (nil? (registrar/handler :sub :rf.causa/pinned-slices-store)))
   (is (nil? (registrar/handler :sub :rf.causa/pinned-slices))))

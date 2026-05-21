@@ -1,58 +1,65 @@
 (ns day8.re-frame2-causa.panels.app-db-diff
-  "App-DB Diff panel shell.
+  "app-db tab — current-state inspector (rf2-okvit).
 
-  The panel is sections-centric (rf2-gfxmk Phase 1): it renders the
-  structural-diff engine's section vector for the selected epoch,
-  pinned live slices, reserved runtime keys, or the 'Show me when this
-  changed' result for a focused path.
+  The app-db tab is a CURRENT-STATE inspector in the re-frame-10x style:
+  it renders the observed frame's LIVE `app-db` value, sectioned by
+  reserved `:rf/*` area. It is NOT a diff — the diff / value-changed /
+  'show me when this changed' affordances were dropped here (rf2-okvit).
+  Diff rendering still lives in the Event tab's `:db` + `:fx` section.
 
-  Prior to rf2-gfxmk the panel rendered one slice-mini-panel per
-  diff triple (stacked before/after cljs-devtools trees per slice).
-  The sections-per-cluster model replaces that: N path-headed sections,
-  each containing a local annotated subtree with in-place gutters,
-  smart-expand, and chip-collapsed `:same` siblings. See
-  `ai/findings/2026-05-18-difftastic-in-causa.md` §3.1 for the design.
+  ## Layout (rf2-okvit)
+
+  The section model `app-db-diff-helpers/current-state-sections`
+  produces drives the body:
+
+    - a TOP section — the app-db MINUS every reserved `:rf/*` key (the
+      user-domain app-db).
+    - one section per reserved `:rf/*` area (per spec/Conventions.md
+      §Reserved app-db keys: `:rf/machines`, `:rf/spawned`, `:rf/route`,
+      `:rf/system-ids`, `:rf/pending-navigation`, `:rf/elision`).
+      Map-of-instances areas (`:rf/machines`, `:rf/spawned`) FAN OUT to
+      one named sub-section per instance (section title = the instance
+      id, e.g. `:title/flow`). Singleton slices (`:rf/route` SINGULAR —
+      the current-route slice per spec/012 §The `:rf/route` slice — and
+      the rest) render as one section each. Absent / empty areas still
+      render, as an empty-state placeholder.
+
+  Values render through the canonical EDN widget's cljs-devtools
+  current-state path (`views.edn-widget.widget/inspect`), the same
+  engine re-frame-10x adopted.
 
   Canonical exemplar of the panel facade pattern documented in
   `tools/causa/spec/Conventions.md` — facade owns the public
   `reg-view`, leaves expose plain fns + `install!`, the facade's
   `install!` chains leaf installs and returns `nil`.
 
-  ## rf2-e9tb0 — pinned-watches dropped
+  ## Companion namespaces
 
-  The pinned-slices strip was removed when path-segment click-to-
-  inspect landed (Mike 2026-05-19 Q13). The diff already identifies
-  changes surgically; pinning paths up-front is redundant when any
-  prefix of any diff path can be opened in the segment inspector via
-  one click on its breadcrumb segment. The escape-hatch use case
-  ('let me see app-db in its entirety') is now served by clicking the
-  root segment of any breadcrumb."
+  - `app-db-diff-state` — the current-state section renderers (this
+    panel's body).
+  - `app-db-diff-subs` / `app-db-diff-events` — subs + events. The
+    composite diff sub (`:rf.causa/selected-epoch-diff` and friends)
+    survives there for the Event tab's diff surface + the MCP exporter;
+    this panel reads only `:rf.causa/app-db-state`.
+  - `app-db-diff-downstream` — the downstream-subs hover popover
+    (spec/021 §4.4). Its subs/events stay installed; the trigger is no
+    longer injected here now that there are no diff section breadcrumbs
+    to host it (a current-state re-wire is follow-on)."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.diff.render :as diff-render]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.app-db-diff-downstream
              :as downstream]
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]
-            [day8.re-frame2-causa.panels.app-db-diff-sections
-             :as sections]
+            [day8.re-frame2-causa.panels.app-db-diff-state :as state]
             [day8.re-frame2-causa.panels.app-db-diff-subs :as subs]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens sans-stack]]))
 
 (rf/reg-view Panel
-  "The App-DB Diff panel's root view."
+  "The app-db tab's root view — a current-state inspector sectioned by
+  reserved `:rf/*` area."
   []
-  (let [{:keys [target-frame
-                history-empty?
-                changed-sections
-                changed-reserved
-                focused-path
-                focused-hits
-                redacted-modified-count
-                flow-writes
-                diff-triples
-                selected-epoch-id]}
-        @(rf/subscribe [:rf.causa/app-db-diff])]
+  (let [section-model @(rf/subscribe [:rf.causa/app-db-state])]
     [:section {:data-testid "rf-causa-app-db-diff"
                :style       {:height         "100%"
                              :display        "flex"
@@ -61,68 +68,28 @@
                              :color          (:text-primary tokens)
                              :font-family    sans-stack
                              :font-size      "14px"}}
-     ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "App-db diff"
-     ;; heading is scrubbed; the L4 tab strip is the panel-name source-
-     ;; of-truth. Content starts immediately under the tab bar (or
-     ;; under panel-specific filter / toolbar rows where applicable).
+     ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
+     ;; content starts immediately under the tab bar.
      [:div {:style {:flex 1 :overflow "auto"}}
-      (cond
-        focused-path
-        (sections/focus-result-panel focused-path focused-hits)
-
-        history-empty?
-        [:div
-         (sections/empty-state target-frame)
-         (sections/reserved-group changed-reserved)]
-
-        :else
-        [:div
-         ;; rf2-bz1cl — redacted-paths-modified hint chip. nil when
-         ;; count is 0, so the chip surface is absent unless the
-         ;; cascade actually involved redacted slots in mutated
-         ;; subtrees.
-         (sections/redacted-modified-chip redacted-modified-count)
-         ;; rf2-s8r6c — per-section origin tag chip is computed here:
-         ;; the renderer takes the full per-leaf `diff-triples` + the
-         ;; per-epoch `flow-writes` and attributes each section's
-         ;; writer(s). When no flow fired, every section gets
-         ;; `[fx :db]`; when flows fired, sections covering a flow's
-         ;; `:write-path` get `[flow :flow-id]` (or mixed if
-         ;; coalesced).
-         ;; rf2-5kfxe.2 — pass `:epoch-id` so the renderer keys each
-         ;; section by epoch + path. A new cascade lands as a fresh
-         ;; React mount per section and the diff-flash keyframes
-         ;; auto-play (yellow wash decaying to transparent over 400ms,
-         ;; scaled by the `--rf-causa-motion-scale` seam).
-         ;; rf2-op9v2 — `:extra-affordance-fn` lets us inject the
-         ;; downstream-subs hover trigger into every section's
-         ;; breadcrumb. The trigger renders its own popover when
-         ;; hovered/focused; only one popover is open at a time per
-         ;; `:rf.causa.app-db/popover-slot`.
-         (diff-render/render-sections changed-sections "app-db-diff"
-                                       {:flow-writes  flow-writes
-                                        :diff-triples diff-triples
-                                        :epoch-id     selected-epoch-id
-                                        :extra-affordance-fn
-                                        (fn [section-path]
-                                          [downstream/hover-trigger
-                                           section-path])})
-         (sections/reserved-group changed-reserved)])]]))
+      (state/state-body section-model)]]))
 
 (defn install!
-  "Idempotent install for the App-DB Diff panel's Causa-side
-  registrations. Returns nil per the facade convention."
+  "Idempotent install for the app-db tab's Causa-side registrations.
+  Returns nil per the facade convention."
   []
   (subs/install!)
   (events/install!)
-  ;; rf2-op9v2 — downstream-subs overlay subs + events (the hover
-  ;; popover that lists subs/views downstream of each changed path).
+  ;; rf2-op9v2 — downstream-subs overlay subs + events. Kept installed
+  ;; so the spec/021 §4.4 feature + its tests stay live; the hover
+  ;; trigger is no longer injected from this panel (rf2-okvit dropped
+  ;; the diff section breadcrumbs that hosted it).
   (downstream/install!)
-  ;; rf2-2moh1 — register the Dynamic App DB tab with the internal L4
-  ;; tab registry.
+  ;; rf2-2moh1 — register the Dynamic app-db tab with the internal L4
+  ;; tab registry. rf2-okvit — label is lowercase "app-db" to match the
+  ;; library's app-db naming.
   (panel-registry/reg-l4-tab!
     {:id    :app-db
-     :label "App DB"
+     :label "app-db"
      :mnem  "a"
      :modes #{:dynamic}
      :order 1
