@@ -117,66 +117,94 @@ React element); thin per-substrate shells present an idiomatic surface:
 All three substrates render the SAME component through one bridge —
 there is no per-substrate fork of the chart.
 
-The four `:on-*` callback shapes are mirrored from
-[Causa 003 §Source-coord integration](../../causa/spec/003-Machine-Inspector.md#source-coord-integration);
-the `*-meta` argument carries the registered source-coord map for the
-clicked element.
+The chart's click surface is `:on-state-click`, invoked with the
+clicked node's `path`; the host resolves source coords for that path
+against `(rf/machine-meta machine-id)` and opens the editor (per
+[Causa 003 §Source-coord integration](../../causa/spec/003-Machine-Inspector.md#source-coord-integration)).
+The overlay callbacks (`:on-spawn-child-click`, `:on-after-ring-hover`,
+`:on-after-ring-leave`) fire with the relevant child-key / node-id.
 
 ### What renders
 
-For the selected machine, the chart shows:
+For the supplied `:definition`, the chart shows:
 
 - **A directional state-chart.** Nodes are states (compound states
-  nested visually). Edges are transitions, labelled with their
-  triggering event id.
-- **The current state pulses.** Compound states' active child is
-  highlighted recursively. The pulse is the only continuous
-  animation; backgrounded charts pause it.
-- **Tooltips.** Hover a state for its tags + entry/exit actions;
-  hover an edge for its guard + action functions.
-- **`:spawn` / `:spawn-all` spawned children.** Per
-  `:show-invoke-all?`, render as a horizontal row of mini-machines
-  with the join-condition label below. Per
-  [Causa 003 §`:spawn-all` viz](../../causa/spec/003-Machine-Inspector.md#spawn-all-viz).
-- **`:after` countdown rings.** A filling arc on the source state
-  while a timer is scheduled; updates at 60Hz when the chart is
-  visible (per [DESIGN-RATIONALE Lock #8](./DESIGN-RATIONALE.md)).
+  nested visually via xyflow sub-flows; `{:type :parallel}` machines
+  render every region as a distinct orthogonal zone — see
+  [§Parallel-region rendering](#parallel-region-rendering-rf2-lkwev-xyflow-phase-2)).
+  Edges are transitions, labelled with their triggering event id;
+  `:after` edges read `after(<delay>)` and `:always` edges read
+  `always` (per `chart.layout/edge-label`).
+- **The current state highlights.** When `:current-state` is set the
+  matching node carries a static active tint + bolder stroke; compound
+  states' active child is resolved recursively via
+  `chart.layout/highlight-id`. The highlight is a static affordance
+  (the heartbeat pulse was retired 2026-05-20 per rf2-2sez0); the only
+  continuous animation is the `:after` countdown rings overlay, which
+  pauses when the chart is backgrounded.
+- **Focused-event lens highlights.** `:from-highlight` / `:to-highlight`
+  tint the origin + landing nodes of a focused transition; `:sim?`
+  flips that palette to amber for the simulator path.
 - **`:final?` states.** Rendered with a doubled border + checkmark
-  glyph.
-- **State-tag badges.** Each state node carries a coloured ring
-  per active tag union member (per Spec 005 §State tags).
-- **Microstep flashes.** Per `:show-microsteps?`, intermediate
-  states in an `:always` cascade flash briefly before the cascade
-  resolves.
+  glyph (per `chart.nodes/state-node`).
+- **State-tag badges.** Each state node carries a tag pill per state
+  tag (per `chart.nodes/tag-pill`; Spec 005 §State tags).
+- **`:after` countdown rings (overlay, host-fed).** When the host
+  passes a non-empty `:after-ring-specs` vector the chart mounts the
+  `chart.overlays.after-rings` overlay as a sibling of the canvas; it
+  walks the rendered node DOM to position a filling arc on each source
+  state. The host owns the trace→spec projection and bumps
+  `:after-ring-tick` to repaint at up to 60Hz when the chart is visible
+  (per [DESIGN-RATIONALE Lock #8](./DESIGN-RATIONALE.md)). The chart
+  emits no `:spawn` / `:spawn-all` edge of its own.
+- **`:spawn-all` join inspector (overlay, host-fed).** When the host
+  passes a `:spawn-all-join` spec the chart mounts the
+  `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing
+  state, showing the spawned children + the join state. There is
+  deliberately no `spawn` topology edge — `:spawn` / `:spawn-all` are
+  state-entry actions, so spawned children surface through this overlay,
+  not as a row of nodes (per `chart.projection/choose-edge-type` and
+  [Causa 003 §`:spawn-all` viz](../../causa/spec/003-Machine-Inspector.md#spawn-all-viz)).
+- **Cancellation cascade (overlay, host-fed).** When the host passes a
+  `:cancellation-cascade` spec with non-empty `:steps` the chart mounts
+  the `chart.overlays.cancellation-cascade` waterfall beneath the parent
+  state.
 
-What does **not** render (the chart fires the callback and the
-host decides):
+What does **not** render (the chart is presentation-only — the host
+supplies the data and decides on the callbacks):
 
 - Transition history ribbon (Causa's chrome; lives in
   `tools/causa/`).
-- Source-coord chips with editor-URL handler wiring (the chart
-  fires `:on-*-click`; the host opens the file).
-- A machine picker dropdown (the host owns frame + machine
-  selection).
+- Source-coord chips with editor-URL handler wiring (the chart fires
+  `:on-state-click`; the host opens the file).
+- A machine picker dropdown (the host owns machine selection and pulls
+  `:definition` + `:current-state` itself).
+- Microstep flashes for an `:always` cascade — the shipped chart renders
+  `:always` transitions as plain `always`-labelled edges; per-microstep
+  flash animation is not part of the presentation-only component.
 
 ### Data sources
 
-The chart reads from the framework's public surfaces; it does not
-introduce new registries.
+The chart is **presentation-only**: it consumes nothing from the
+framework registry or the trace bus directly. The host (Causa, Story,
+the viewer page) reads the framework's public surfaces and projects
+them into the chart's props. The table below maps each framework
+surface to the prop the host derives from it.
 
-| Surface | Used for |
+| Framework surface (host reads) | Chart prop the host derives |
 |---|---|
-| `(rf/machine-meta machine-id)` | Resolves the registered definition (states, transitions, guards, actions, source coords). |
-| `[:rf/machines <id>]` slot in frame `app-db` | Live current-state + data snapshot; deref drives the pulse. |
-| `:rf.machine/transition` trace events | Edge glow on the matching transition. |
-| `:rf.machine.microstep/transition` events | Microstep flashes. |
-| `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | `:after` countdown ring scheduling. |
-| `:rf.machine.spawn-all/started` / `-all-completed` / `-some-completed` / `-any-failed` | `:spawn-all` row updates. |
-| `:rf.machine/spawned` / `-destroyed` | Spawn-tray contents on the parent. |
-| `:rf.machine/done` | `:final?` entry highlight before auto-destroy. |
-| `:rf.machine/system-id-bound` / `-released` | Aliased addressing in the spawn-tray (gensym shows `:gensym-42 (:auth/main)`). |
+| `(rf/machine-meta machine-id)` | `:definition` — the registered topology (states, transitions, guards, actions). |
+| `[:rf/machines <id>]` slot in frame `app-db` | `:current-state` — the live `:state` driving the active highlight. |
+| `:rf.machine/transition` trace events | `:from-highlight` / `:to-highlight` — the focused-event lens. |
+| `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | `:after-ring-specs` (+ `:after-ring-tick`) — the countdown-ring overlay. |
+| `:rf.machine.spawn-all/started` / `-all-completed` / `-some-completed` / `-any-failed` | `:spawn-all-join` (+ `:overlay-tick`) — the join inspector overlay. |
+| cancellation trace cluster (`:rf.machine` abort / destroy events) | `:cancellation-cascade` (+ `:overlay-tick`) — the cascade overlay. |
 
-Source: lifted from
+The host owns every trace→spec projection; the chart only positions and
+paints what it is handed. This keeps the chart testable in isolation and
+avoids coupling it to a framework registry.
+
+Source: the host-side surfaces are lifted from
 [Causa 003 §Data sources](../../causa/spec/003-Machine-Inspector.md#data-sources).
 
 ## Density
@@ -255,98 +283,100 @@ floor of three rungs rather than the only rung).
 This section is **load-bearing and conformance-level**, not guidance.
 The chart's runtime hot path is the single largest regression
 surface for Machines-Viz (per `ai/findings/perf-audit-machines-viz-2026-05-14.md`
-findings 1+2 — gitignored working note; audit-bead rf2-j3iwt). Once an implementation couples
-live snapshot / trace ticks to graph recompute, the coupling is hard
-to remove without rewriting the rendering pipeline. The MUSTs below
-exist so that coupling never lands.
+findings 1+2 — gitignored working note; audit-bead rf2-j3iwt). Once an
+implementation couples the live snapshot / decoration props to graph
+recompute, the coupling is hard to remove without rewriting the
+rendering pipeline. The MUSTs below exist so that coupling never lands.
+The shipped chart is presentation-only — the host projects the
+framework's registry + trace bus into props (per [§Data sources](#data-sources))
+— so these invariants govern how the component reacts to **prop
+changes**, not to direct registry / trace subscriptions.
 
-### Topology state and runtime-highlight state MUST be strictly separate
+### Topology props and runtime-highlight props MUST be strictly separate
 
-`MachineChart` maintains **two disjoint state planes**:
+`MachineChart` maintains **two disjoint planes**, fed by two disjoint
+prop groups:
 
-- **Topology / layout plane.** The node positions, edge routes,
-  compound-state nesting, and the chart's measured viewbox. Derived
-  from `(rf/machine-meta machine-id)` plus the user's expand/collapse
-  state. This plane is **structural**: changing it requires re-laying
-  out the graph.
+- **Topology / layout plane.** The node positions, edge routes, and
+  compound-state nesting. Derived solely from the structural props
+  `:definition`, `:direction`, and `:layout-options` (the host pulls
+  `:definition` from `(rf/machine-meta machine-id)`). This plane is
+  **structural**: changing it requires re-laying out the graph via
+  elkjs.
 - **Runtime-highlight plane.** The active-state affordance (static
-  tint + bolder stroke; pulse retired 2026-05-20 per rf2-2sez0),
-  transition edge glow, microstep flash, `:after` countdown ring
-  progress,
-  `:spawn-all` row state, spawn-tray contents, timer state, and
-  every other per-trace decoration. Derived from `[:rf/machines <id>]`
-  plus the `:rf.machine/*` trace bus. This plane is **decorative**:
-  changing it MUST NOT touch the topology plane.
+  tint + bolder stroke; pulse retired 2026-05-20 per rf2-2sez0), the
+  focused-event lens tint, the `:after` countdown-ring overlay, the
+  `:spawn-all` join inspector, the cancellation cascade, and every
+  other per-trace decoration. Derived solely from the decoration props
+  `:current-state`, `:from-highlight`, `:to-highlight`, `:sim?`,
+  `:after-ring-specs`, `:after-ring-tick`, `:spawn-all-join`,
+  `:cancellation-cascade`, and `:overlay-tick`. This plane is
+  **decorative**: changing it MUST NOT touch the topology plane.
 
-Implementations MUST hold these planes in disjoint reactive
-subscriptions. The runtime-highlight plane MUST NOT participate in
-any computation whose output reaches the layout plane. The two
-planes share no caches.
+The decoration props MUST NOT participate in any computation whose
+output reaches the layout plane. The two planes share no caches.
 
-### Transition / microstep / timer updates MUST change attrs/classes only
+### Highlight / overlay prop changes MUST change attrs/classes only
 
-Live updates triggered by `[:rf/machines <id>]` snapshot changes or
-by any `:rf.machine/*` trace event MUST mutate **only**:
+A render driven by a change to any decoration prop (a new
+`:current-state`, `:from-highlight` / `:to-highlight`, an
+`:after-ring-tick` bump, a new `:spawn-all-join` / `:cancellation-cascade`
+spec, an `:overlay-tick` bump) MUST mutate **only**:
 
 - DOM attributes (`class`, `style.opacity`, `style.transform` on
   decoration layers, SVG `stroke-dasharray` / `stroke-dashoffset`,
   ARIA labels).
-- CSS-driven animations (the transition glow, the microstep flash,
-  the `prefers-reduced-motion` step animation). The heartbeat pulse
+- CSS-driven animations (the transition glow, the
+  `prefers-reduced-motion` step animation). The heartbeat pulse
   was retired 2026-05-20 (rf2-2sez0).
 
-Live updates MUST NOT:
+Such a render MUST NOT:
 
-- Re-run layout (no `dagre`/`elk`/custom layout call).
-- Re-measure nodes (no `getBBox`, no `getBoundingClientRect` in any
-  code path reached by a trace tick or a snapshot deref).
+- Re-run layout (no `elk`/`dagre`/custom layout call).
+- Re-measure topology nodes (no `getBBox`, no `getBoundingClientRect`
+  in any code path reached by a decoration-prop change — overlay
+  re-measure of its own anchor DOM is permitted and is gated by the
+  host's tick props).
 - Insert or remove topology DOM nodes (state nodes, edge paths,
-  compound containers). Decoration overlays (rings, glows, badges)
-  MAY mount and unmount; topology MUST NOT.
-- Mutate any reactive value that the topology plane subscribes to.
+  compound containers). Decoration overlays (rings, the join
+  inspector, the cascade) MAY mount and unmount; topology MUST NOT.
+- Mutate any value the topology plane recomputes from.
 
-A trace event that arrives at 60Hz MUST cost less than one paint
-frame end-to-end on the chart's hot path.
+A decoration-prop update arriving at 60Hz (e.g. an `:after-ring-tick`
+bump) MUST cost less than one paint frame end-to-end on the chart's
+hot path.
 
 ### Layout-invalidation boundary is load-bearing
 
-The **only** triggers permitted to invalidate the topology / layout
-plane are:
+`MachineChart` keys its elkjs layout pass on the
+`[:definition :direction :layout-options]` tuple (per `chart.cljs`): a
+new layout runs **only** when that tuple changes, and the previous
+positions are kept in-flight to avoid an empty-chart flash. The **only**
+triggers permitted to invalidate the topology / layout plane are:
 
-1. **Machine (re-)registration.** `reg-machine` (or its hot-reload
-   re-invocation) for the bound `:machine-id` within the bound
-   `:frame-id`. Detected via the framework's registry-change signal
-   (per Spec 001) — not via `:rf.machine/*` trace events.
-2. **User-driven compound-state expand / collapse.** The chart's
-   own UI event, scoped to the chart instance.
-3. **A `:show-*` prop transition** that adds or removes topology
-   (e.g. `:show-invoke-all?` flipping false → true reveals the
-   row of mini-machines; that row is topology, not decoration).
-   Transitions of `:show-after-rings?` are decoration-only and MUST
-   NOT trigger layout.
-4. **Container resize** of the chart's bounding box (only when the
-   layout algorithm depends on available width / height).
+1. **A new `:definition`.** A changed definition map — including a
+   `reg-machine` hot-reload re-registration the host re-pulls via
+   `(rf/machine-meta machine-id)` and re-passes — re-runs layout.
+2. **A `:direction` change** (`:tb` ⇄ `:lr`).
+3. **A `:layout-options` change** — host-side elkjs `layoutOptions`
+   overrides.
+4. **Container resize** of the chart's bounding box (xyflow's own
+   fit/measure; the elk pass itself is keyed on the tuple above).
 
 No other code path may invalidate layout. In particular:
 
-- `:rf.machine/transition`, `:rf.machine.microstep/transition`,
-  `:rf.machine.timer/scheduled` / `-fired` / `-stale-after`,
-  `:rf.machine.spawn-all/*`, `:rf.machine/spawned` / `-destroyed`,
-  `:rf.machine/done`, `:rf.machine/system-id-bound` / `-released`
-  trace events MUST NOT reach the layout pipeline.
-- A `[:rf/machines <id>]` snapshot deref MUST NOT reach the layout
-  pipeline.
-- `:auto-pan?` MUST be implemented as a viewport translate (a CSS
-  transform on the chart's outer group), never as a re-layout. The
-  auto-pan code path MUST NOT call `getBBox` on topology nodes
-  inside a trace-event handler; the active-node bbox MUST be cached
-  during the last layout pass.
+- A `:current-state` / `:from-highlight` / `:to-highlight` change
+  MUST NOT reach the layout pipeline — it only re-tints existing nodes.
+- An `:after-ring-tick` / `:overlay-tick` bump or a new
+  `:after-ring-specs` / `:spawn-all-join` / `:cancellation-cascade`
+  spec MUST NOT reach the layout pipeline — these mount / repaint
+  decoration overlays only.
 
 Implementations MUST place an explicit comment marking the
 layout-invalidation boundary as load-bearing in the code that owns
-it (the function or watcher that decides "should layout re-run?").
-The comment MUST cite this section and DESIGN-RATIONALE Lock #9 and
-Lock #11.
+it (the function that decides "should layout re-run?" — the
+`this-key`/`layout-key` guard in `chart.cljs`). The comment MUST cite
+this section and DESIGN-RATIONALE Lock #9 and Lock #11.
 
 ### One chart-level, visibility-gated animation clock
 
@@ -407,18 +437,22 @@ https://acme.example.com/path/to/viewer.html#machine=<base64-edn>
 - Validation failure → a banner: "This share-URL is malformed or
   was produced by a newer Machines-Viz." No chart renders.
 - Validation success → the viewer mounts `MachineChart` with:
-  - `:machine-id` and `:frame-id` from the payload's
-    `:chart-state` (per [§Share-URL payload schema](#share-url-payload-schema)).
-  - `:read-only?` set to `true`.
-  - `:current-state-override` from the payload's snapshot.
-  - All `:show-*` flags default to `true`.
-  - `:auto-pan?` off.
+  - `:machine-id` from the payload's `:chart-state` (per
+    [§Share-URL payload schema](#share-url-payload-schema)).
+  - `:definition` from the payload's `:definition`.
+  - `:current-state` set to the payload snapshot's `:state` keyword
+    (the share schema carries the state name only; there is no
+    runtime `:data` to render).
+  - `:read-only?` set to `true`, which no-op's `:on-state-click`.
+  - The decoration-overlay props (`:after-ring-specs`,
+    `:spawn-all-join`, `:cancellation-cascade`, the tick props) left
+    unset — a static share has no live trace bus to project them from.
 - A single banner at the top of the page reads: **"This is a
   static machine chart, not a Causa session — interactions are
   disabled."**
-- A "show idle" toggle below the banner clears
-  `:current-state-override` so the chart renders the machine at
-  rest. Per [DESIGN-RATIONALE Lock #5](./DESIGN-RATIONALE.md).
+- A "show idle" toggle below the banner clears `:current-state` so the
+  chart renders the machine at rest. Per
+  [DESIGN-RATIONALE Lock #5](./DESIGN-RATIONALE.md).
 - The page is statically hostable. Per
   [DESIGN-RATIONALE Lock #7](./DESIGN-RATIONALE.md), the
   canonical hosted instance at `day8.github.io` is a convenience,
@@ -549,16 +583,19 @@ The `:snapshot` map is `{:closed true}` and carries `:state` only.
 Runtime `:data` is structurally absent from the share payload; the
 encoder neither reads nor serialises it. The decoder rejects any
 `:snapshot` carrying additional keys with `:invalid-chart-state`.
-The viewer page mounts `MachineChart` with `:current-state-override`
-set to `{:state <state-name>}` (and `:data` therefore `nil`); the
-chart pulses the state node without any data-driven affordance.
+The viewer page mounts `MachineChart` with `:current-state` set to the
+snapshot's `:state` keyword (there is no runtime `:data` to render);
+the chart highlights the state node without any data-driven affordance.
+(`:frame-id` is a payload provenance field — the registered machine's
+frame at share time — not a `MachineChart` prop: the viewer hands the
+chart the `:definition` directly rather than resolving a frame.)
 
 `:source-coords` is **not a top-level key** of `ChartState`. Source
 coords live only in the operator-side `(rf/machine-meta machine-id)`
 return value and never traverse the share pipeline. The viewer page
-renders with `:on-state-click` / `:on-transition-click` etc.
-no-op'd (per [§Read-only viewer](#read-only-viewer)), so the
-absence of source coords is observationally invisible.
+renders with `:read-only?` true so `:on-state-click` is no-op'd (per
+[§Read-only viewer](#read-only-viewer)), so the absence of source
+coords is observationally invisible.
 
 The `MachineDefinition` shape matches the `reg-machine` registered
 definition (per Spec 005 §Snapshot shape + §Transition table grammar)
