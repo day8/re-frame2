@@ -23,80 +23,13 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
-            [clojure.string :as string]
-            [org.corfield.new :as deps-new]))
+            [day8.re-frame2-template.test-support
+             :refer [tmp-dir delete-recursively run-template!]]))
 
 ;; --- Test helpers ----------------------------------------------------------
-
-(defn- tmp-dir
-  "Create a fresh temp directory and return its absolute path. Caller is
-  responsible for cleanup."
-  [prefix]
-  (let [f (java.nio.file.Files/createTempDirectory
-            prefix
-            (into-array java.nio.file.attribute.FileAttribute []))]
-    (.toAbsolutePath f)))
-
-(defn- delete-recursively
-  "Recursively delete a directory."
-  [^java.nio.file.Path path]
-  (when (java.nio.file.Files/exists path (into-array java.nio.file.LinkOption []))
-    (with-open [stream (java.nio.file.Files/walk
-                         path
-                         (into-array java.nio.file.FileVisitOption []))]
-      (->> stream
-           .iterator
-           iterator-seq
-           reverse
-           (run! #(try
-                    (java.nio.file.Files/deleteIfExists ^java.nio.file.Path %)
-                    (catch java.io.IOException _ nil)))))))
-
-(defn- template-resource-dir
-  "Absolute path of the deps-new template-source root
-  (`tools/template/resources/`). The deps-new resolver walks the
-  classpath; passing `:src-dirs [this]` makes it deterministic even when
-  the test JVM is launched from a non-standard cwd."
-  []
-  (let [cwd (io/file (System/getProperty "user.dir"))]
-    (loop [d cwd]
-      (cond
-        (nil? d)
-        (throw (ex-info "Couldn't locate tools/template/resources above cwd"
-                        {:cwd cwd}))
-
-        (.isDirectory (io/file d "tools/template/resources"))
-        (.getCanonicalPath (io/file d "tools/template/resources"))
-
-        (.isDirectory (io/file d "resources/day8/re_frame2_template"))
-        (.getCanonicalPath (io/file d "resources"))
-
-        :else
-        (recur (.getParentFile d))))))
-
-(defn- run-template!
-  "Drive `org.corfield.new/create` to scaffold an app inside `tmp`.
-  Returns the emitted project root as a `java.io.File`. Equivalent to
-  shelling out to `clojure -Tnew create :template … :name … …`, minus
-  the JVM start-up cost.
-
-  Mirrors the entry-fn shape the clj-new template's test suite used
-  (`test/clj/new/re_frame2_test.clj`, removed in rf2-40vmd / §2.5)."
-  ([tmp project-name substrate]
-   (run-template! tmp project-name substrate nil))
-  ([tmp project-name substrate include-story?]
-   (let [dir-str   (.toString ^java.nio.file.Path tmp)
-         proj-name (-> project-name name (string/replace #"^.*?/" ""))
-         proj-dir  (io/file dir-str proj-name)
-         opts      (cond-> {:template   'day8/re-frame2-template
-                            :name       (symbol project-name)
-                            :target-dir (.getCanonicalPath proj-dir)
-                            :src-dirs   [(template-resource-dir)]
-                            :overwrite  :delete}
-                     substrate              (assoc :substrate substrate)
-                     (some? include-story?) (assoc :include-story? include-story?))]
-     (deps-new/create opts)
-     proj-dir)))
+;;
+;; tmp-dir / delete-recursively / template-resource-dir / run-template!
+;; live in the shared `test-support` ns (rf2-5v619, D1).
 
 (defn- read-edn [^java.io.File f]
   (edn/read-string (slurp f)))
@@ -164,9 +97,12 @@
               "deps.edn references day8/re-frame2 core")
           (is (contains? (:deps deps) (substrate-coord substrate))
               (str "deps.edn references " (substrate-coord substrate)))
-          (let [version (get-in deps [:deps 'day8/re-frame2 :mvn/version])]
-            (is (= "0.0.1.alpha" version)
-                "core coord pinned to alpha-channel version")))
+          ;; The literal pin VALUE is owned by version_lockstep_test.clj
+          ;; (reads repo-root VERSION on disk); asserting a hard-coded
+          ;; "0.0.1.alpha" here would duplicate it and false-fail the
+          ;; moment VERSION bumps (rf2-5v619, D3). Present-check only.
+          (is (some? (get-in deps [:deps 'day8/re-frame2 :mvn/version]))
+              "core coord carries an :mvn/version pin"))
 
         ;; -- shadow-cljs.edn structure --
         (let [scs  (read-edn (io/file root "shadow-cljs.edn"))
@@ -190,9 +126,9 @@
         (let [deps (read-edn (io/file root "deps.edn"))]
           (is (contains? (:deps deps) 'day8/re-frame2-causa)
               "deps.edn references day8/re-frame2-causa")
-          (is (= "0.0.1.alpha"
-                 (get-in deps [:deps 'day8/re-frame2-causa :mvn/version]))
-              "Causa coord lockstep with core version"))
+          ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
+          (is (some? (get-in deps [:deps 'day8/re-frame2-causa :mvn/version]))
+              "Causa coord carries an :mvn/version pin"))
 
         ;; -- Schemas coord in deps.edn (rf2-48mij) --
         (let [deps (read-edn (io/file root "deps.edn"))]
@@ -200,9 +136,9 @@
               "deps.edn references day8/re-frame2-schemas (best-practice
                whole-app-db schema needs the artefact on the classpath
                for CLJS validation to fire)")
-          (is (= "0.0.1.alpha"
-                 (get-in deps [:deps 'day8/re-frame2-schemas :mvn/version]))
-              "schemas coord lockstep with core version"))
+          ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
+          (is (some? (get-in deps [:deps 'day8/re-frame2-schemas :mvn/version]))
+              "schemas coord carries an :mvn/version pin"))
 
         ;; -- Best-practice surface in events.cljs + schema.cljs (rf2-48mij) --
         (let [events-text (slurp (io/file root "src/acme/my_app/events.cljs"))
@@ -232,21 +168,6 @@
           (is (.contains schema-text "CounterDb")
               "schema.cljs ships the CounterDb Malli schema"))
 
-        ;; -- README best-practice + naming sections (rf2-48mij) --
-        (let [readme-text (slurp (io/file root "README.md"))]
-          (is (.contains readme-text "Best practices baked into the scaffold")
-              "README has a Best practices section")
-          (is (.contains readme-text "Errors are events too")
-              "README documents the errors-are-events-too posture")
-          (is (.contains readme-text "Typed app-db boundaries")
-              "README documents the typed-at-boundaries posture")
-          (is (.contains readme-text "closed failure-category set")
-              "README documents the closed :rf.http/* failure-category set")
-          (is (.contains readme-text "Naming conventions")
-              "README documents the naming-conventions rules")
-          (is (.contains readme-text "spec/Conventions.md")
-              "README links to spec/Conventions.md for the normative catalogue"))
-
         ;; -- package.json sanity --
         (let [pj-text (slurp (io/file root "package.json"))]
           (is (.contains pj-text "\"shadow-cljs\"")
@@ -264,62 +185,97 @@
             :helix   (is (.contains views-text "defnc")
                          "Helix views.cljs uses defnc")))
 
-        ;; -- README badges block (rf2-sufwn) --
+        ;; -- Per-substrate README badge (rf2-sufwn) --
+        ;;
+        ;; The badge LINE varies by substrate, so it stays in the
+        ;; per-substrate shape test. The substrate-INVARIANT README/CI/
+        ;; security text moved to `root-content-test` below — it comes
+        ;; from `root/` and was needlessly re-run 3× (rf2-5v619, L3).
         (let [readme-text (slurp (io/file root "README.md"))]
-          (is (.contains readme-text "img.shields.io/badge/built")
-              "README ships a 'built with re-frame2' badge")
           (is (.contains readme-text
                          (case substrate
                            :reagent "substrate-Reagent"
                            :uix     "substrate-UIx"
                            :helix   "substrate-Helix"))
-              "README ships the per-substrate badge")
-          (is (.contains readme-text "License-MIT")
-              "README ships a License badge"))
-
-        ;; -- Baseline CI workflow (rf2-k2z79) --
-        (let [ci-text (slurp (io/file root ".github/workflows/ci.yml"))]
-          (is (.contains ci-text "name: ci")
-              ".github/workflows/ci.yml declares the ci workflow")
-          (is (.contains ci-text "node-version: '22'")
-              "ci.yml pins Node 22 LTS")
-          (is (.contains ci-text "java-version: '21'")
-              "ci.yml pins JDK 21 (matches re-frame2 reference build)")
-          (is (.contains ci-text "actions/checkout@")
-              "ci.yml uses actions/checkout with a SHA pin")
-          (is (.contains ci-text "actions/setup-java@")
-              "ci.yml uses actions/setup-java with a SHA pin")
-          (is (.contains ci-text "actions/setup-node@")
-              "ci.yml uses actions/setup-node with a SHA pin")
-          (is (.contains ci-text "DeLaGuardo/setup-clojure@")
-              "ci.yml uses DeLaGuardo/setup-clojure with a SHA pin")
-          (is (.contains ci-text "npm test")
-              "ci.yml runs `npm test` (delegates to shadow-cljs :node-test
-               per the emitted package.json)")
-          (is (.contains ci-text "# acme/my-app")
-              "ci.yml header substitutes {{name}}"))
-
-        ;; -- Security baseline (rf2-sh3l8) --
-        (let [index-text  (slurp (io/file root "resources/public/index.html"))
-              readme-text (slurp (io/file root "README.md"))]
-          (is (.contains index-text "Content-Security-Policy")
-              "index.html ships a CSP meta tag")
-          (is (.contains index-text "default-src 'self'")
-              "index.html CSP uses default-src 'self'")
-          (is (.contains index-text "frame-ancestors 'none'")
-              "index.html CSP forbids framing (anti-clickjacking)")
-          (is (.contains index-text "object-src 'none'")
-              "index.html CSP forbids plugin objects")
-          (is (.contains index-text "data-rf-causa-host")
-              "index.html provides Causa's default true-inline layout host")
-          (is (.contains readme-text "Production hardening")
-              "README documents Production hardening")
-          (is (.contains readme-text "X-Content-Type-Options")
-              "README covers nosniff header")
-          (is (.contains readme-text "Referrer-Policy")
-              "README covers Referrer-Policy header")))
+              "README ships the per-substrate badge")))
       (finally
         (delete-recursively tmp)))))
+
+(deftest root-content-test
+  (testing "substrate-invariant root/ content (README best-practice +
+            naming + badges, baseline CI workflow, security baseline) —
+            generated once. These files come from root/ and are
+            substrate-agnostic, so re-running them per substrate (the
+            old assert-shape! shape) was 3× redundant + mislayered
+            (rf2-5v619, L3)."
+    (let [tmp (tmp-dir "rf2-template-root-content-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent)]
+          ;; -- README best-practice + naming sections (rf2-48mij) --
+          (let [readme-text (slurp (io/file root "README.md"))]
+            (is (.contains readme-text "Best practices baked into the scaffold")
+                "README has a Best practices section")
+            (is (.contains readme-text "Errors are events too")
+                "README documents the errors-are-events-too posture")
+            (is (.contains readme-text "Typed app-db boundaries")
+                "README documents the typed-at-boundaries posture")
+            (is (.contains readme-text "closed failure-category set")
+                "README documents the closed :rf.http/* failure-category set")
+            (is (.contains readme-text "Naming conventions")
+                "README documents the naming-conventions rules")
+            (is (.contains readme-text "spec/Conventions.md")
+                "README links to spec/Conventions.md for the normative catalogue"))
+
+          ;; -- README substrate-invariant badges (rf2-sufwn) --
+          (let [readme-text (slurp (io/file root "README.md"))]
+            (is (.contains readme-text "img.shields.io/badge/built")
+                "README ships a 'built with re-frame2' badge")
+            (is (.contains readme-text "License-MIT")
+                "README ships a License badge"))
+
+          ;; -- Baseline CI workflow (rf2-k2z79) --
+          (let [ci-text (slurp (io/file root ".github/workflows/ci.yml"))]
+            (is (.contains ci-text "name: ci")
+                ".github/workflows/ci.yml declares the ci workflow")
+            (is (.contains ci-text "node-version: '22'")
+                "ci.yml pins Node 22 LTS")
+            (is (.contains ci-text "java-version: '21'")
+                "ci.yml pins JDK 21 (matches re-frame2 reference build)")
+            (is (.contains ci-text "actions/checkout@")
+                "ci.yml uses actions/checkout with a SHA pin")
+            (is (.contains ci-text "actions/setup-java@")
+                "ci.yml uses actions/setup-java with a SHA pin")
+            (is (.contains ci-text "actions/setup-node@")
+                "ci.yml uses actions/setup-node with a SHA pin")
+            (is (.contains ci-text "DeLaGuardo/setup-clojure@")
+                "ci.yml uses DeLaGuardo/setup-clojure with a SHA pin")
+            (is (.contains ci-text "npm test")
+                "ci.yml runs `npm test` (delegates to shadow-cljs :node-test
+                 per the emitted package.json)")
+            (is (.contains ci-text "# acme/my-app")
+                "ci.yml header substitutes {{name}}"))
+
+          ;; -- Security baseline (rf2-sh3l8) --
+          (let [index-text  (slurp (io/file root "resources/public/index.html"))
+                readme-text (slurp (io/file root "README.md"))]
+            (is (.contains index-text "Content-Security-Policy")
+                "index.html ships a CSP meta tag")
+            (is (.contains index-text "default-src 'self'")
+                "index.html CSP uses default-src 'self'")
+            (is (.contains index-text "frame-ancestors 'none'")
+                "index.html CSP forbids framing (anti-clickjacking)")
+            (is (.contains index-text "object-src 'none'")
+                "index.html CSP forbids plugin objects")
+            (is (.contains index-text "data-rf-causa-host")
+                "index.html provides Causa's default true-inline layout host")
+            (is (.contains readme-text "Production hardening")
+                "README documents Production hardening")
+            (is (.contains readme-text "X-Content-Type-Options")
+                "README covers nosniff header")
+            (is (.contains readme-text "Referrer-Policy")
+                "README covers Referrer-Policy header")))
+        (finally
+          (delete-recursively tmp))))))
 
 (deftest reagent-default-substrate-test
   (testing "default (no :substrate arg) produces Reagent variant"
@@ -398,9 +354,9 @@
                 pkg-txt (slurp (io/file root "package.json"))]
             (is (contains? (:deps deps) 'day8/re-frame2-story)
                 "deps.edn references day8/re-frame2-story")
-            (is (= "0.0.1.alpha"
-                   (get-in deps [:deps 'day8/re-frame2-story :mvn/version]))
-                "story coord lockstep with the core version")
+            ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
+            (is (some? (get-in deps [:deps 'day8/re-frame2-story :mvn/version]))
+                "story coord carries an :mvn/version pin")
             (is (.contains pkg-txt "\"story\":")
                 "package.json declares a `story` npm script")
             (is (.contains pkg-txt "\"qrcode-generator\"")

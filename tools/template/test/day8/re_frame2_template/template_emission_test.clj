@@ -36,88 +36,15 @@
             [clojure.walk :as walk]
             [clojure.tools.reader :as tr]
             [clojure.tools.reader.reader-types :as rt]
-            [org.corfield.new :as deps-new]))
+            [day8.re-frame2-template.test-support
+             :refer [tmp-dir delete-recursively run-template! repo-root]]))
 
-;; --- Helpers (mirror template_test.clj — kept local so the two test
-;; ns-es don't accidentally share state via top-level defs) -----------------
-
-(defn- tmp-dir [prefix]
-  (let [f (java.nio.file.Files/createTempDirectory
-            prefix
-            (into-array java.nio.file.attribute.FileAttribute []))]
-    (.toAbsolutePath f)))
-
-(defn- delete-recursively [^java.nio.file.Path path]
-  (when (java.nio.file.Files/exists path (into-array java.nio.file.LinkOption []))
-    (with-open [stream (java.nio.file.Files/walk
-                         path
-                         (into-array java.nio.file.FileVisitOption []))]
-      (->> stream
-           .iterator
-           iterator-seq
-           reverse
-           (run! #(try
-                    (java.nio.file.Files/deleteIfExists ^java.nio.file.Path %)
-                    (catch java.io.IOException _ nil)))))))
-
-(defn- template-resource-dir []
-  (let [cwd (io/file (System/getProperty "user.dir"))]
-    (loop [d cwd]
-      (cond
-        (nil? d)
-        (throw (ex-info "Couldn't locate tools/template/resources above cwd"
-                        {:cwd cwd}))
-
-        (.isDirectory (io/file d "tools/template/resources"))
-        (.getCanonicalPath (io/file d "tools/template/resources"))
-
-        (.isDirectory (io/file d "resources/day8/re_frame2_template"))
-        (.getCanonicalPath (io/file d "resources"))
-
-        :else
-        (recur (.getParentFile d))))))
-
-(defn- run-template!
-  ([tmp project-name substrate]
-   (run-template! tmp project-name substrate nil))
-  ([tmp project-name substrate include-story?]
-   (let [dir-str   (.toString ^java.nio.file.Path tmp)
-         proj-name (-> project-name name (string/replace #"^.*?/" ""))
-         proj-dir  (io/file dir-str proj-name)
-         opts      (cond-> {:template   'day8/re-frame2-template
-                            :name       (symbol project-name)
-                            :target-dir (.getCanonicalPath proj-dir)
-                            :src-dirs   [(template-resource-dir)]
-                            :overwrite  :delete}
-                     substrate              (assoc :substrate substrate)
-                     (some? include-story?) (assoc :include-story? include-story?))]
-     (deps-new/create opts)
-     proj-dir)))
+;; --- Helpers ---------------------------------------------------------------
+;;
+;; tmp-dir / delete-recursively / template-resource-dir / run-template! /
+;; repo-root live in the shared `test-support` ns (rf2-5v619, D1).
 
 ;; --- Static-parse machinery ----------------------------------------------
-
-(defn- repo-root
-  "Absolute path of the repo root, derived from the JVM's `user.dir`. The
-  template test JVM is launched from `tools/template/`, so the framework
-  source tree we read for ground-truth lives at `../../implementation/`."
-  []
-  (let [cwd (io/file (System/getProperty "user.dir"))]
-    ;; Walk up until we find a sibling `implementation/core/src/re_frame/`
-    ;; directory. This makes the test robust to either:
-    ;;   a) test JVM launched from tools/template/ (the clein default)
-    ;;   b) test JVM launched from the repo root (manual `clojure
-    ;;      -X:test` invocation)
-    (loop [d cwd]
-      (cond
-        (nil? d)
-        (throw (ex-info "Couldn't locate repo root (no implementation/core/src/re_frame above cwd)"
-                        {:cwd cwd}))
-
-        (.isDirectory (io/file d "implementation/core/src/re_frame"))
-        d
-
-        :else
-        (recur (.getParentFile d))))))
 
 (defn- read-cljs-forms
   "Read every top-level form from a .cljs file. Each form is returned in

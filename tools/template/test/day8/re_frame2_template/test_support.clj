@@ -1,0 +1,109 @@
+(ns day8.re-frame2-template.test-support
+  "Shared harness for the tools/template JVM test suite (rf2-5v619, D1).
+
+   The four sibling test files
+   (`template_test.clj` / `template_emission_test.clj` /
+   `emitted_test_run_test.clj` / `version_lockstep_test.clj`) each used
+   to carry their own copies of `tmp-dir` / `delete-recursively` /
+   `template-resource-dir` / `run-template!` / `repo-root` — ~250 lines
+   of duplicated, stateless harness with three slightly-different
+   `repo-root` impls that drifted independently. These are pure
+   functions with no top-level mutable state, so the earlier
+   'kept-independent-to-avoid-state-sharing' rationale didn't hold;
+   they belong in one place.
+
+   `repo-root` is unified to a single walk-up that anchors on
+   `implementation/core/src/re_frame` (the strongest, deepest marker
+   the old impls used). The version-lockstep test previously anchored
+   on `implementation/package.json`; both files live under the same
+   repo root, so the deeper marker subsumes it."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as string]
+            [org.corfield.new :as deps-new])
+  (:import [java.nio.file Files LinkOption Path FileVisitOption]
+           [java.nio.file.attribute FileAttribute]))
+
+;; --- tmp dirs --------------------------------------------------------------
+
+(defn tmp-dir
+  "Create a fresh temp directory and return its absolute `java.nio.file.Path`.
+  Caller is responsible for cleanup (see `delete-recursively`)."
+  [prefix]
+  (.toAbsolutePath
+    (Files/createTempDirectory prefix (into-array FileAttribute []))))
+
+(defn delete-recursively
+  "Recursively delete a directory tree (depth-first, deepest entries
+  first). Swallows per-entry IO failures so a partially-removed tree on
+  a locked OS file (Windows) doesn't fail the enclosing `finally`."
+  [^Path path]
+  (when (Files/exists path (into-array LinkOption []))
+    (with-open [stream (Files/walk path (into-array FileVisitOption []))]
+      (->> stream
+           .iterator
+           iterator-seq
+           reverse
+           (run! #(try
+                    (Files/deleteIfExists ^Path %)
+                    (catch java.io.IOException _ nil)))))))
+
+;; --- repo-root + template-resource-dir -------------------------------------
+
+(defn repo-root
+  "Absolute repo-root `java.io.File`, derived from the JVM's `user.dir`.
+
+  The template test JVM is launched from `tools/template/` (the clein
+  default working dir for the `:test` alias), but a manual repo-root
+  `clojure -X:test` invocation must also work — so we walk up from
+  `user.dir` until we find a directory with a
+  `implementation/core/src/re_frame` child (the deepest, most
+  unambiguous repo marker the old per-file impls used)."
+  []
+  (loop [d (io/file (System/getProperty "user.dir"))]
+    (cond
+      (nil? d)
+      (throw (ex-info (str "Couldn't locate repo root "
+                           "(no implementation/core/src/re_frame above cwd)")
+                      {:cwd (System/getProperty "user.dir")}))
+
+      (.isDirectory (io/file d "implementation/core/src/re_frame"))
+      d
+
+      :else
+      (recur (.getParentFile d)))))
+
+(defn template-resource-dir
+  "Absolute path of the deps-new template-source root
+  (`tools/template/resources/`). The deps-new resolver walks the
+  classpath; passing `:src-dirs [this]` makes it deterministic even when
+  the test JVM is launched from a non-standard cwd."
+  []
+  (.getCanonicalPath (io/file (repo-root) "tools/template/resources")))
+
+;; --- run-template! ---------------------------------------------------------
+
+(defn run-template!
+  "Drive `org.corfield.new/create` to scaffold an app inside `tmp`.
+  Returns the emitted project root as a `java.io.File`. Equivalent to
+  shelling out to `clojure -Tnew create :template … :name … …`, minus
+  the JVM start-up cost.
+
+  `substrate` may be nil (exercises the default-substrate path).
+  `include-story?` is optional; when supplied (non-nil) it is passed
+  through as the `:include-story?` deps-new arg — `true` selects the
+  with-story scaffold, `false` forces the default path explicitly."
+  ([tmp project-name substrate]
+   (run-template! tmp project-name substrate nil))
+  ([tmp project-name substrate include-story?]
+   (let [dir-str   (.toString ^Path tmp)
+         proj-name (-> project-name name (string/replace #"^.*?/" ""))
+         proj-dir  (io/file dir-str proj-name)
+         opts      (cond-> {:template   'day8/re-frame2-template
+                            :name       (symbol project-name)
+                            :target-dir (.getCanonicalPath proj-dir)
+                            :src-dirs   [(template-resource-dir)]
+                            :overwrite  :delete}
+                     substrate              (assoc :substrate substrate)
+                     (some? include-story?) (assoc :include-story? include-story?))]
+     (deps-new/create opts)
+     proj-dir)))

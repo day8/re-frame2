@@ -52,77 +52,20 @@
             [clojure.edn :as edn]
             [clojure.pprint :as pprint]
             [clojure.string :as string]
-            [org.corfield.new :as deps-new])
-  (:import [java.nio.file Files LinkOption Path FileVisitOption]
+            [day8.re-frame2-template.test-support
+             :refer [tmp-dir delete-recursively run-template! repo-root]])
+  ;; java.nio types used directly by `link-node-modules!` below. The
+  ;; tmp-dir / delete-recursively helpers that needed Path / LinkOption /
+  ;; FileVisitOption moved to the shared test-support ns (rf2-5v619).
+  (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
-;; --- Helpers (local copies, kept independent of the sibling test ns to
-;; avoid accidental state sharing via top-level defs) -----------------------
-
-(defn- tmp-dir [prefix]
-  (Files/createTempDirectory
-    prefix
-    (into-array FileAttribute [])))
-
-(defn- delete-recursively [^Path path]
-  (when (Files/exists path (into-array LinkOption []))
-    (with-open [stream (Files/walk path (into-array FileVisitOption []))]
-      (->> stream
-           .iterator
-           iterator-seq
-           reverse
-           (run! #(try
-                    (Files/deleteIfExists ^Path %)
-                    (catch java.io.IOException _ nil)))))))
-
-(defn- template-resource-dir []
-  (let [cwd (io/file (System/getProperty "user.dir"))]
-    (loop [d cwd]
-      (cond
-        (nil? d)
-        (throw (ex-info "Couldn't locate tools/template/resources above cwd"
-                        {:cwd cwd}))
-
-        (.isDirectory (io/file d "tools/template/resources"))
-        (.getCanonicalPath (io/file d "tools/template/resources"))
-
-        (.isDirectory (io/file d "resources/day8/re_frame2_template"))
-        (.getCanonicalPath (io/file d "resources"))
-
-        :else
-        (recur (.getParentFile d))))))
-
-(defn- run-template! [tmp project-name substrate]
-  (let [dir-str  (.toString ^Path tmp)
-        proj-name (-> project-name name (string/replace #"^.*?/" ""))
-        proj-dir (io/file dir-str proj-name)
-        opts     (cond-> {:template   'day8/re-frame2-template
-                          :name       (symbol project-name)
-                          :target-dir (.getCanonicalPath proj-dir)
-                          :src-dirs   [(template-resource-dir)]
-                          :overwrite  :delete}
-                   substrate (assoc :substrate substrate))]
-    (deps-new/create opts)
-    proj-dir))
-
-(defn- repo-root
-  "Walk up from `user.dir` until we find a sibling
-  `implementation/core/src/re_frame/` directory. The template test JVM
-  is launched from `tools/template/` (the `:test` alias's working dir),
-  but the same lookup keeps working under a manual repo-root
-  invocation. Mirrors the shape in `template_emission_test.clj`."
-  []
-  (loop [d (io/file (System/getProperty "user.dir"))]
-    (cond
-      (nil? d)
-      (throw (ex-info "Couldn't locate repo root (no implementation/core/src/re_frame above cwd)"
-                      {:cwd (System/getProperty "user.dir")}))
-
-      (.isDirectory (io/file d "implementation/core/src/re_frame"))
-      d
-
-      :else
-      (recur (.getParentFile d)))))
+;; --- Helpers ---------------------------------------------------------------
+;;
+;; tmp-dir / delete-recursively / template-resource-dir / run-template! /
+;; repo-root live in the shared `test-support` ns (rf2-5v619, D1). The
+;; shared `run-template!` takes an optional 4th `include-story?` arg, so
+;; the with-story behavioural tier below reuses it directly.
 
 ;; --- Gating ----------------------------------------------------------------
 
@@ -147,15 +90,22 @@
                        (string/replace "\\" "/")))
         adapter-coord (symbol "day8" (str "re-frame2-" (name substrate)))
         rewritten
-        (-> deps
-            (assoc-in [:deps 'day8/re-frame2]
-                      {:local/root (rel-of "implementation/core")})
-            (assoc-in [:deps adapter-coord]
-                      {:local/root (rel-of (str "implementation/adapters/" (name substrate)))})
-            (assoc-in [:deps 'day8/re-frame2-causa]
-                      {:local/root (rel-of "tools/causa")})
-            (assoc-in [:deps 'day8/re-frame2-schemas]
-                      {:local/root (rel-of "implementation/schemas")}))]
+        (cond-> (-> deps
+                    (assoc-in [:deps 'day8/re-frame2]
+                              {:local/root (rel-of "implementation/core")})
+                    (assoc-in [:deps adapter-coord]
+                              {:local/root (rel-of (str "implementation/adapters/" (name substrate)))})
+                    (assoc-in [:deps 'day8/re-frame2-causa]
+                              {:local/root (rel-of "tools/causa")})
+                    (assoc-in [:deps 'day8/re-frame2-schemas]
+                              {:local/root (rel-of "implementation/schemas")}))
+          ;; The with-story scaffold adds day8/re-frame2-story
+          ;; (re-frame.story + re-frame.story.* live under tools/story/).
+          ;; Rewrite it the same way so the with-story behavioural tier
+          ;; resolves + compiles against the in-repo Story source.
+          (contains? (:deps deps) 'day8/re-frame2-story)
+          (assoc-in [:deps 'day8/re-frame2-story]
+                    {:local/root (rel-of "tools/story")}))]
     (spit deps-file (with-out-str (pprint/pprint rewritten)))))
 
 ;; --- node_modules symlink --------------------------------------------------
@@ -231,71 +181,103 @@
 
 ;; --- The orchestration -----------------------------------------------------
 
+(defn- variant-label
+  "A short human label distinguishing the default scaffold from the
+  with-story scaffold, for tmp-dir prefixes + assertion messages."
+  [substrate include-story?]
+  (str (name substrate) (when include-story? "-with-story")))
+
 (defn- compile-and-run-emitted-test!
-  "For one substrate: generate tmp app, rewrite deps.edn → :local/root,
-  link node_modules, run `clojure -M:shadow compile test`, then
+  "For one substrate (optionally with-story): generate a tmp app,
+  rewrite deps.edn → :local/root, link node_modules, run
+  `clojure -M:shadow compile <targets>` (the with-story variant adds
+  the `:app` build to the default `:test` build), then
   `node out/node-test.js`. Asserts both processes exit 0 and the
   expected cljs.test summary line is present.
 
+  When `include-story?` is true the generated project is the with-story
+  scaffold (`core_with_stories.cljs`, `deps_with_story.edn` with the
+  extra day8/re-frame2-story coord, `stories.cljs`). The with-story
+  variant additionally compiles the `:app` build — the only tier that
+  actually shadow-compiles the with-story branch's distinctive code.
+  `events_test.cljs` requires only events + subs, so the `:test` build
+  alone never pulls `core_with_stories.cljs` / `stories.cljs` /
+  re-frame.story onto the compile classpath; the `:app` build's
+  `:init-fn` is `core/init`, which transitively requires all three.
+  A broken with-story compile (re-frame.story API drift, a malformed
+  deps_with_story.edn, a stories.cljs that won't load) therefore fails
+  here rather than shipping green from string-presence / static-parse
+  alone (rf2-5v619, G1; this also closes the `:app`-build half of L1).
+
   Caller is responsible for the env-var gate — this fn always runs."
-  [substrate]
-  (let [root (repo-root)
-        tmp  (tmp-dir (str "rf2-template-run-" (name substrate) "-"))]
-    (try
-      (let [proj (run-template! tmp "acme/my-app" substrate)]
-        (rewrite-deps-for-local-run! root proj substrate)
-        (let [linked? (link-node-modules! root proj)
-              ;; Node's module-resolution walks parent dirs for
-              ;; node_modules, so an unlinked emitted project can still
-              ;; resolve React if implementation/node_modules sits on a
-              ;; parent path. Belt-and-braces: set NODE_PATH so the
-              ;; lookup is unambiguous either way.
-              node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
-              env-over  {"NODE_PATH" node-path}]
-          (is (or linked? (.isDirectory (io/file node-path)))
-              (str "implementation/node_modules must exist for `node` to "
-                   "resolve React (run `npm install` in implementation/ first)"))
+  ([substrate] (compile-and-run-emitted-test! substrate false))
+  ([substrate include-story?]
+   (let [root  (repo-root)
+         label (variant-label substrate include-story?)
+         ;; Default path: compile only the node-test build (fast). The
+         ;; with-story variant also compiles `:app`, the only build that
+         ;; transitively pulls the with-story core + stories + Story
+         ;; coord onto the classpath.
+         compile-targets (if include-story? ["app" "test"] ["test"])
+         tmp   (tmp-dir (str "rf2-template-run-" label "-"))]
+     (try
+       (let [proj (run-template! tmp "acme/my-app" substrate include-story?)]
+         (rewrite-deps-for-local-run! root proj substrate)
+         (let [linked? (link-node-modules! root proj)
+               ;; Node's module-resolution walks parent dirs for
+               ;; node_modules, so an unlinked emitted project can still
+               ;; resolve React if implementation/node_modules sits on a
+               ;; parent path. Belt-and-braces: set NODE_PATH so the
+               ;; lookup is unambiguous either way.
+               node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
+               env-over  {"NODE_PATH" node-path}]
+           (is (or linked? (.isDirectory (io/file node-path)))
+               (str "implementation/node_modules must exist for `node` to "
+                    "resolve React (run `npm install` in implementation/ first)"))
 
-          ;; --- compile -----------------------------------------------------
-          (testing (str substrate " — shadow-cljs compile test")
-            (let [{:keys [exit out]}
-                  (run-process! ["clojure" "-M:shadow" "compile" "test"]
-                                proj env-over)]
-              (is (zero? exit)
-                  (str "`clojure -M:shadow compile test` exited " exit
-                       " for substrate " substrate ". Output:\n" out))))
+           ;; --- compile -----------------------------------------------------
+           (testing (str label " — shadow-cljs compile "
+                         (string/join " " compile-targets))
+             (let [{:keys [exit out]}
+                   (run-process! (into ["clojure" "-M:shadow" "compile"]
+                                       compile-targets)
+                                 proj env-over)]
+               (is (zero? exit)
+                   (str "`clojure -M:shadow compile "
+                        (string/join " " compile-targets) "` exited " exit
+                        " for " label ". Output:\n" out))))
 
-          ;; --- run ---------------------------------------------------------
-          (testing (str substrate " — node out/node-test.js")
-            (let [bundle (io/file proj "out/node-test.js")]
-              (is (.isFile bundle)
-                  (str "Compile step produced out/node-test.js for " substrate))
-              (when (.isFile bundle)
-                (let [{:keys [exit out]}
-                      (run-process! ["node" "out/node-test.js"] proj env-over)]
-                  (is (zero? exit)
-                      (str "`node out/node-test.js` exited " exit
-                           " for substrate " substrate ". Output:\n" out))
-                  ;; cljs.test's default reporter prints
-                  ;;   "Ran N tests containing M assertions."
-                  ;;   "0 failures, 0 errors."
-                  ;; on a green run. Pin both lines so a silent zero-exit
-                  ;; (no tests discovered) doesn't false-green.
-                  (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
-                      (str "expected 'Ran N tests' summary line in output. Got:\n" out))
-                  (is (re-find #"0 failures, 0 errors" out)
-                      (str "expected '0 failures, 0 errors' line in output. Got:\n" out))))))))
-      (finally
-        (delete-recursively tmp)))))
+           ;; --- run ---------------------------------------------------------
+           (testing (str label " — node out/node-test.js")
+             (let [bundle (io/file proj "out/node-test.js")]
+               (is (.isFile bundle)
+                   (str "Compile step produced out/node-test.js for " label))
+               (when (.isFile bundle)
+                 (let [{:keys [exit out]}
+                       (run-process! ["node" "out/node-test.js"] proj env-over)]
+                   (is (zero? exit)
+                       (str "`node out/node-test.js` exited " exit
+                            " for " label ". Output:\n" out))
+                   ;; cljs.test's default reporter prints
+                   ;;   "Ran N tests containing M assertions."
+                   ;;   "0 failures, 0 errors."
+                   ;; on a green run. Pin both lines so a silent zero-exit
+                   ;; (no tests discovered) doesn't false-green.
+                   (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
+                       (str "expected 'Ran N tests' summary line in output. Got:\n" out))
+                   (is (re-find #"0 failures, 0 errors" out)
+                       (str "expected '0 failures, 0 errors' line in output. Got:\n" out))))))))
+       (finally
+         (delete-recursively tmp))))))
 
 (defn- skip-if-disabled!
   "When the gate is off, record a passing assertion that documents the
   skip — so the green-run line count is stable across enabled/disabled
   modes and CI's grep doesn't have to special-case the gated path."
-  [substrate]
+  [label]
   (is true
       (str "RF2_TEMPLATE_RUN_EMITTED_TESTS unset — skipping behavioural "
-           "compile+run for " substrate
+           "compile+run for " label
            ". Static-parse coverage still applies "
            "(template_emission_test.clj).")))
 
@@ -333,3 +315,23 @@
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :helix))))))
+
+(deftest reagent-with-story-emitted-tests-run-test
+  ;; G1 (rf2-5v619) — the only tier that actually shadow-compiles +
+  ;; node-runs the `:include-story? true` scaffold. Reagent-only because
+  ;; with-story is Reagent-only in v1 (hooks.clj data-fn guard). Same
+  ;; events_test.cljs as the default path runs; the value here is that
+  ;; the with-story core (`core_with_stories.cljs` requiring
+  ;; re-frame.story + the stories ns), `deps_with_story.edn`, and
+  ;; `stories.cljs` are all on the compile classpath — a broken
+  ;; with-story compile fails the build before `node` ever runs.
+  (testing "the emitted with-story Reagent app compiles (story scaffold
+            on the classpath) + events_test.cljs runs green"
+    (if-not @enabled?
+      (skip-if-disabled! "reagent-with-story")
+      (do (is @clojure-cli-available?
+              "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+          (is @node-available?
+              "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+          (when (and @clojure-cli-available? @node-available?)
+            (compile-and-run-emitted-test! :reagent true))))))

@@ -22,31 +22,16 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
+            [day8.re-frame2-template.test-support
+             :refer [tmp-dir delete-recursively repo-root template-resource-dir]]
             [org.corfield.new :as deps-new]))
 
-;; --- Repo-root discovery (same pattern as template_emission_test) -------
-
-(defn- repo-root
-  "Absolute path of the repo root. The template test JVM is launched
-  from `tools/template/` (clein default), but a manual `clojure -X:test`
-  may launch from the repo root — walk up from `user.dir` until we find
-  a sibling `implementation/package.json`."
-  []
-  (let [cwd (io/file (System/getProperty "user.dir"))]
-    (loop [d cwd]
-      (cond
-        (nil? d)
-        (throw (ex-info "Couldn't locate repo root (no implementation/package.json above cwd)"
-                        {:cwd cwd}))
-
-        (.isFile (io/file d "implementation/package.json"))
-        d
-
-        :else
-        (recur (.getParentFile d))))))
-
-(defn- template-resource-dir []
-  (.getCanonicalPath (io/file (repo-root) "tools/template/resources")))
+;; --- Helpers ---------------------------------------------------------------
+;;
+;; repo-root / template-resource-dir / tmp-dir / delete-recursively live
+;; in the shared `test-support` ns (rf2-5v619, D1). repo-root anchors on
+;; `implementation/core/src/re_frame` — the same repo root that holds
+;; VERSION + implementation/package.json read below.
 
 ;; --- Source-of-truth readers --------------------------------------------
 
@@ -97,25 +82,6 @@
 ;; package.json + deps.edn. This tests the literals as actually-consumed
 ;; (the same value that flows into a generated app), not the source
 ;; string parsed out of the .clj.
-
-(defn- tmp-dir [prefix]
-  (let [f (java.nio.file.Files/createTempDirectory
-            prefix
-            (into-array java.nio.file.attribute.FileAttribute []))]
-    (.toAbsolutePath f)))
-
-(defn- delete-recursively [^java.nio.file.Path path]
-  (when (java.nio.file.Files/exists path (into-array java.nio.file.LinkOption []))
-    (with-open [stream (java.nio.file.Files/walk
-                         path
-                         (into-array java.nio.file.FileVisitOption []))]
-      (->> stream
-           .iterator
-           iterator-seq
-           reverse
-           (run! #(try
-                    (java.nio.file.Files/deleteIfExists ^java.nio.file.Path %)
-                    (catch java.io.IOException _ nil)))))))
 
 (defn- emit-reagent! [tmp]
   (let [dir-str  (.toString ^java.nio.file.Path tmp)

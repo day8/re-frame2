@@ -1492,26 +1492,28 @@ jobs:
       # static parse, AND behavioural compile+run. This is the only
       # PR-time CI surface for this artefact.
       #
-      # The template's `template_test.clj` opportunistically invokes
-      # `clojure -P` against generated deps.edn if `clojure` is on PATH
-      # to confirm the deps parse — the setup-clojure step above ensures
-      # that probe runs. The probe is gated behind
-      # RF2_TEMPLATE_DEPS_RESOLVE=1 (default off for local fast loop,
-      # on for CI) so contributors aren't paying ~2s × 3 substrates on
-      # every local test run for a smoke that's a known-skip until the
-      # alpha artefacts land on Clojars.
-      #
       # `emitted_test_run_test.clj` compiles + runs the emitted
-      # `events_test.cljs` per substrate against the in-repo source
-      # tree (closes rf2-owbpr / rf2-ir6a0). Gated behind
+      # `events_test.cljs` per substrate (and the `:include-story? true`
+      # with-story scaffold's `:app` build) against the in-repo source
+      # tree, with deps rewritten to :local/root (closes rf2-owbpr /
+      # rf2-ir6a0; with-story tier rf2-5v619). Gated behind
       # RF2_TEMPLATE_RUN_EMITTED_TESTS=1 — opt-in because the local
       # fast loop may lack Node and the smoke costs ~30–60 s per
       # substrate cold-cache. The `npm ci` step above primes
       # implementation/node_modules so the emitted bundle's React
       # imports resolve at run time.
+      #
+      # NB: there is deliberately no `clojure -P` deps-resolve probe.
+      # The generated deps.edn pins the alpha-channel :mvn/version coords
+      # (0.0.1.alpha) which are not published anywhere — re-frame2
+      # distributes via git-coord, not Clojars (rf2-dolpf §2.5/§3) — so a
+      # `-P` against the published coords cannot resolve and would always
+      # red. The behavioural tier transitively resolves + compiles the
+      # full deps tree under the :local/root rewrite, which is the
+      # strongest resolve signal achievable pre-publish. A published-coord
+      # resolve probe is a forward concern for the §3 release pipeline.
       - name: Run JVM tests (tools/template artefact)
         env:
-          RF2_TEMPLATE_DEPS_RESOLVE: "1"
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
         run: clojure -M:test
 
