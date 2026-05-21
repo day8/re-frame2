@@ -226,26 +226,33 @@
         (is (nil? (find-by-testid tree "rf-causa-event-list"))
             "no L2 event list (Static is event-INDEPENDENT)")))))
 
-(deftest static-ribbon-mounts-mode-pill-and-right-icons
-  (testing "Static ribbon carries the mode pill at left + right icons
-            cluster (Settings · Close). Dynamic's nav / frame /
-            filter clusters are hidden (Static has no spine)."
+(deftest static-ribbon-mounts-mode-pill-frame-picker-and-right-icons
+  (testing "Static ribbon carries the mode pill at left + the L1 frame
+            picker + right icons cluster (Settings · Close). The frame
+            picker is mode-INDEPENDENT — Static registrations are
+            frame-scoped, so the picker mounts in both modes. Dynamic's
+            spine-coupled nav / filter clusters remain hidden (Static
+            has no spine)."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (static-shell/surface)]
         (is (some? (find-by-testid tree "rf-causa-mode-pill"))
             "mode pill present at ribbon-left")
+        ;; L1 frame picker mounts in Static (the picker collapses to a
+        ;; flat label when only one frame is available — match either
+        ;; the `<select>` or the label fallback).
+        (is (or (some? (find-by-testid tree "rf-causa-ribbon-frame-picker"))
+                (some? (find-by-testid tree "rf-causa-ribbon-frame")))
+            "L1 frame picker present (picker `<select>` or label fallback)")
         (is (some? (find-by-testid tree "rf-causa-static-ribbon-icons"))
             "right icons cluster present")
         (is (some? (find-by-testid tree "rf-causa-static-icon-settings"))
             "settings icon present")
         (is (some? (find-by-testid tree "rf-causa-static-icon-close"))
             "close icon present")
-        ;; Dynamic ribbon clusters MUST NOT mount in Static surface
+        ;; Spine-coupled clusters MUST NOT mount in Static surface
         (is (nil? (find-by-testid tree "rf-causa-ribbon-nav"))
             "no nav cluster")
-        (is (nil? (find-by-testid tree "rf-causa-ribbon-frame-picker"))
-            "no frame picker")
         (is (nil? (find-by-testid tree "rf-causa-ribbon-filters"))
             "no filter pills")))))
 
@@ -463,6 +470,43 @@
       (let [tree (shell/ribbon)]
         (is (some? (find-by-testid tree "rf-causa-mode-pill"))
             "mode pill mounts in the Dynamic ribbon unconditionally")))))
+
+;; -------------------------------------------------------------------------
+;; (8a) L1 frame picker is mode-independent — mounts in BOTH modes
+;; -------------------------------------------------------------------------
+;;
+;; Static is also frame-scoped: registrations (events · subs · machines
+;; · routes · schemas · flows · interceptors) live in a particular frame,
+;; so the user must be able to pick which frame they are browsing in
+;; both Dynamic (event-coupled spine) AND Static (event-independent
+;; registry browse) lenses. The composer renders the L1 ribbon for each
+;; mode and the ribbon mounts `frame-switcher/frame-switcher-view` in
+;; both.
+
+(deftest l1-frame-picker-mounts-in-dynamic-mode
+  (testing "Dynamic surface mounts the L1 frame picker (picker `<select>`
+            or single-frame label fallback per the frame-switcher
+            contract)"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/set-mode :dynamic])
+    (rf/with-frame :rf/causa
+      (let [tree (shell/surface-composer)]
+        (is (or (some? (find-by-testid tree "rf-causa-ribbon-frame-picker"))
+                (some? (find-by-testid tree "rf-causa-ribbon-frame")))
+            "L1 frame picker (or single-frame label) present in Dynamic")))))
+
+(deftest l1-frame-picker-mounts-in-static-mode
+  (testing "Static surface mounts the L1 frame picker — Static is also
+            frame-scoped (registrations live in a particular frame),
+            so the picker is mode-INDEPENDENT and persists across mode
+            toggles"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/set-mode :static])
+    (rf/with-frame :rf/causa
+      (let [tree (shell/surface-composer)]
+        (is (or (some? (find-by-testid tree "rf-causa-ribbon-frame-picker"))
+                (some? (find-by-testid tree "rf-causa-ribbon-frame")))
+            "L1 frame picker (or single-frame label) present in Static")))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) Static tab inventory — pure-data shape
