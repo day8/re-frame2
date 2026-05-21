@@ -355,10 +355,16 @@
                      :font-family   sans-stack
                      :font-size     (:body type-scale)
                      :line-height   (:line-height-tight type-scale)}}
-   [:h2 {:style {:font-size     (:display type-scale)
-                 :margin        "0 0 8px 0"
-                 :padding-left  "10px"
-                 :border-left   (str "3px solid " (:cyan tokens))}}
+   ;; Per rf2-rb6js / rf2-6xezz — placeholder label renders at body
+   ;; type-scale (not `:display`) so the placeholder card matches the
+   ;; surrounding body typography. Was `[:h2]` at `:display`; now a
+   ;; non-heading `[:div]` at `:body` so it sits cleanly under the
+   ;; host's existing heading hierarchy.
+   [:div {:style {:font-size     (:body type-scale)
+                  :font-weight   600
+                  :margin        "0 0 8px 0"
+                  :padding-left  "10px"
+                  :border-left   (str "3px solid " (:cyan tokens))}}
     label]
    [:p {:style {:color  (:text-secondary tokens)
                 :margin "0 0 12px 0"}}

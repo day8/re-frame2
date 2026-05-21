@@ -60,10 +60,42 @@
   it out of production bundles per the contract in `tools/README.md`."
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.data-display.render :as data-display]
+            [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack]]
             [day8.re-frame2-causa.views.edn-widget.cljs-devtools-render
-             :as cdt]))
+             :as cdt]
+            [zprint.core :as zprint]))
+
+;; ---- panel-facing facade — inspect / inspect-inline ----------------------
+;;
+;; Per Mike-direction rf2-9wsdy ("one widget, many call sites") every
+;; panel-side EDN render flows through this namespace — panels MUST
+;; NOT reach for `theme.data-inspector` directly. The `inspect` +
+;; `inspect-inline` wrappers below delegate to the sentinel-aware
+;; renderer (`theme.data-inspector`) so panels get redacted / large
+;; chip rendering for free; the indirection keeps the widget as the
+;; single facade the rf2-8q4f4 grep contract checks.
+
+(defn inspect
+  "Sentinel-aware expandable rendering for one value — the canonical
+  L4 detail-panel renderer. Delegates to `theme.data-inspector/inspect`
+  so `:rf/redacted` / `:rf/large` sentinels paint their bespoke chrome
+  per spec/015. Returns hiccup.
+
+  Single-arg form picks the default node-key (`\"root\"`); two-arg
+  form lets the caller supply a stable per-mount node-key so adjacent
+  inspect calls in the same panel keep independent expand state."
+  ([v] (inspector/inspect v))
+  ([v node-key] (inspector/inspect v node-key)))
+
+(defn inspect-inline
+  "Compact one-line sentinel-aware rendering — same delegation as
+  `inspect` but uses `theme.data-inspector/inspect-inline` so hover
+  tooltips / list cells get the collapsed `{N entries}` / `[N items]`
+  / sentinel-chip shape without an expand affordance."
+  [v]
+  (inspector/inspect-inline v))
 
 ;; ---- variant: browse -----------------------------------------------------
 
@@ -167,9 +199,47 @@
 ;;
 ;; `code-block` renders Clojure SOURCE TEXT, not a CLJS value, so the
 ;; cljs-devtools formatters API doesn't apply (it operates on live
-;; values, not strings). We keep a small in-bundle Clojure tokenizer
-;; for source rendering — ~30 LoC, zero deps, sufficient for the
-;; handler-source snippets the Event panel renders.
+;; values, not strings).
+;;
+;; The pipeline is two-stage:
+;;
+;;   1. **zprint pre-format** — `format-source` runs the source string
+;;      through `zprint/zprint-file-str` so a poorly-formatted
+;;      registration (everything on one line, weird indentation,
+;;      mid-expression breaks) becomes canonical-looking before
+;;      rendering. zprint is dev-only — bundle-isolated from production
+;;      via the `:devtools/preloads` gate (rf2-6snc8). On a zprint
+;;      failure (parse error / unsupported reader macro) `format-source`
+;;      falls through to the original source string so a bad input
+;;      never strands the widget.
+;;
+;;   2. **In-bundle Clojure-mode tokenizer** — `tokenize-clojure` is a
+;;      lightweight ~140-LoC source-text lexer that emits per-token
+;;      colour classifications mapped onto the theme tokens (keywords
+;;      violet, strings green, numbers cyan, builtins violet). The
+;;      bracketed phrase in the rf2-6snc8 acceptance ("highlight.js …
+;;      or an embeddable Clojure-mode subset") explicitly authorises
+;;      this subset — and keeping the highlighter in-bundle avoids the
+;;      cost of a JS-side highlight.js dep on the dev classpath.
+
+(defn format-source
+  "Pre-format a Clojure source string via zprint so the rendered
+  code-block reads canonically regardless of how the registration was
+  laid out. On parse failure (unsupported reader macro, mid-form
+  splice, etc.) returns the original source unchanged so a bad input
+  never strands the widget. Pure fn; testable.
+
+  `zprint-file-str` is used (rather than `zprint-str` on a value) so
+  the input string is treated as raw source — comments, blank lines,
+  and multiple top-level forms survive the round-trip. The width is
+  capped at 72 columns so the rendered block fits inside the Event
+  panel's narrow handler-source slot without horizontal scroll."
+  [src]
+  (if-not (and (string? src) (seq src))
+    src
+    (try
+      (zprint/zprint-file-str src "rf-causa-handler-source" {:width 72})
+      (catch :default _ src))))
 
 (defn highlight-clojure-token
   "Per-token colour resolution for the in-bundle Clojure syntax
@@ -271,6 +341,11 @@
   operates on live CLJS values, not source text, so it doesn't apply
   here).
 
+  When `:lang` is `:clojure` (the default) the source is pre-formatted
+  via zprint (`format-source`) before the in-bundle tokenizer runs, so
+  a poorly-formatted registration still renders cleanly. Other
+  languages render as mono text (unformatted).
+
   Required: `:source`.
   Optional: `:lang` (defaults to `:clojure` — only `:clojure` highlights
             today · others render mono-text), `:testid`."
@@ -284,11 +359,14 @@
                    :color       (:text-tertiary tokens)
                    :font-style  "italic"}}
      "(source unavailable)"]
-    (let [tokens-seq (if (= :clojure lang)
-                       (tokenize-clojure source)
-                       [[:symbol source]])]
+    (let [formatted  (if (= :clojure lang) (format-source source) source)
+          tokens-seq (if (= :clojure lang)
+                       (tokenize-clojure formatted)
+                       [[:symbol formatted]])]
       [:pre {:data-testid testid
              :data-lang   (name lang)
+             :data-formatted (str (and (= :clojure lang)
+                                       (not= formatted source)))
              :style {:font-family mono-stack
                      :font-size   "11px"
                      :line-height 1.5

@@ -494,7 +494,7 @@ as the developer scans.
 ┌─ Event lens · :cart/add-item                              ✓ ok · 11ms · #347 · SSR✓ ┐
 │                                                                                      │
 │ ▼ DISPATCH SITE                                                                      │
-│   src/cart/views.cljs:127       [open ↗]                                             │
+│   src/cart/views.cljs:127       [code]                                             │
 │   via :ui · origin :app                                                              │
 │                                                                                      │
 │ ▼ EVENT                                                                              │
@@ -505,10 +505,10 @@ as the developer scans.
 │   :local-storage  {:user/last-cart-id "cart-42"}                                     │
 │                                                                                      │
 │ ▼ INTERCEPTORS  (1)                                                                  │
-│   :auth/require-login          src/auth/interceptors.cljs:42   [open ↗]              │
+│   :auth/require-login          src/auth/interceptors.cljs:42   [code]              │
 │                                                                                      │
 │ ▼ HANDLER                                                                            │
-│   reg-event-fx · src/cart/events.cljs:88                       [open ↗]              │
+│   reg-event-fx · src/cart/events.cljs:88                       [code]              │
 │                                                                                      │
 │ ▼ EFFECTS RETURNED                                                                   │
 │   :db    <… changed; see App-db tab …>                                               │
@@ -568,7 +568,7 @@ as the developer scans.
    carrying `:rf/default? true` (rf2-twt7m Change 3) plus the known
    auto-wrapper ids (`:rf/db-handler` / `:rf/fx-handler` /
    `:rf/ctx-handler`) as a belt-and-braces fallback.
-5. **HANDLER** — `reg-event-<kind> · src/file.cljs:N [open ↗]`. Per
+5. **HANDLER** — `reg-event-<kind> · src/file.cljs:N [code]`. Per
    Q2: does NOT duplicate the event-id (already shown in §2). Reads
    `(rf/handler-meta :event id)`.
 6. **EFFECTS RETURNED** — silent-by-default when neither `:db` nor `:fx`

@@ -47,7 +47,7 @@
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-causa.theme.section :as section]
-            [day8.re-frame2-causa.theme.data-inspector :as inspector]))
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 ;; Section rhythm hoisted to `theme/section.cljc` per rf2-pie8q —
 ;; identical visual contract is shared with `panels/event_detail`.
@@ -219,7 +219,7 @@
     [:span {:style {:color (:text-tertiary tokens)}} "(no request payload)"]
 
     :else
-    [inspector/inspect req (str "managed-fx/" (h/format-fx-id fx-id) "/req")]))
+    [edn/inspect req (str "managed-fx/" (h/format-fx-id fx-id) "/req")]))
 
 (defn- wire-section
   "Wire timing section. When the surface emits per-phase wire data we
@@ -245,7 +245,7 @@
                     :font-weight 600
                     :margin-bottom "4px"}}
       (str "✗ " (or (some-> failure :kind name) "FAILURE"))]
-     [inspector/inspect (or (:tags failure) failure)
+     [edn/inspect (or (:tags failure) failure)
       (str "managed-fx/" (h/format-fx-id fx-id) "/failure")]]
 
     (and (nil? res) (= surface :flow))
@@ -257,7 +257,7 @@
      "(no response payload yet)"]
 
     :else
-    [inspector/inspect res (str "managed-fx/" (h/format-fx-id fx-id) "/res")]))
+    [edn/inspect res (str "managed-fx/" (h/format-fx-id fx-id) "/res")]))
 
 (defn- handler-section
   "Renders the dispatched handler event vector + a click-to-focus
@@ -270,7 +270,7 @@
                    :gap "12px"
                    :flex-wrap "wrap"}}
      [:div {:style {:flex 1 :min-width 0}}
-      [inspector/inspect handler "managed-fx/handler"]]
+      [edn/inspect handler "managed-fx/handler"]]
      [:button {:data-testid "rf-causa-managed-fx-focus-handler"
                :on-click    #(rf/dispatch [:rf.causa/focus-event dispatch-id frame]
                                           {:frame :rf/causa})
@@ -328,7 +328,7 @@
 (defn record-panel
   "Render one managed-fx record as a hiccup panel. Pure function over
   the record; CLJS-only (consumes Reagent re-frame subs via
-  `inspector/inspect`).
+  `edn/inspect`).
 
   Section default-expanded state per the bead's contract:
 

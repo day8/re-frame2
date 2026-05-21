@@ -63,14 +63,18 @@
                     :border-bottom (str "1px solid " (:border-subtle tokens))
                     :font-family   sans-stack
                     :font-size     (:body type-scale)}}
-   [:h2 {:data-testid "rf-causa-static-machines-detail-title"
-         :style (merge {:margin    0
-                        :font-size (:display type-scale)
-                        :font-family display-stack
-                        :font-weight 600
-                        :letter-spacing "-0.01em"
-                        :color (:text-primary tokens)}
-                       (try (t/accent-stripe-style :machines) (catch :default _ {})))}
+   ;; Per rf2-rb6js / rf2-6xezz — definition-detail title renders at
+   ;; body type-scale (not `:display`) so the focused machine-id chip
+   ;; reads as in-panel chrome rather than a top-level heading. The
+   ;; testid is preserved so existing tests still locate the element.
+   [:div {:data-testid "rf-causa-static-machines-detail-title"
+          :style (merge {:margin    0
+                         :font-size (:body type-scale)
+                         :font-family display-stack
+                         :font-weight 600
+                         :letter-spacing "-0.01em"
+                         :color (:text-primary tokens)}
+                        (try (t/accent-stripe-style :machines) (catch :default _ {})))}
     [:span {:style {:font-family mono-stack
                     :color (:accent-violet tokens)}}
      (str machine-id)]]

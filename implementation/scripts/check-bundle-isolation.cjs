@@ -456,6 +456,34 @@ const ARTEFACTS = [
     consumerAllowList: null,
     expectedAllowListHits: 0,
   },
+
+  // zprint — the canonical pretty-printer Causa's EDN widget
+  // `code-block` uses to pre-format handler-source strings before the
+  // in-bundle tokenizer renders them
+  // (tools/causa/src/.../views/edn_widget/widget.cljs). Same posture
+  // as cljs-devtools: dev-only, consumed only by tools/ (Causa), gated
+  // behind the Causa `:devtools/preloads`. Production bundles MUST
+  // NOT pull zprint — the formatter body + its rewrite-clj dep weigh
+  // hundreds of kilobytes and give consumers no runtime benefit.
+  //
+  // Sentinels are distinctive identifiers from zprint's source body —
+  // the `zprint.core` namespace string appears in zprint's
+  // goog.provide-equivalent + namespace registrations. A non-zero hit
+  // means zprint's body got pulled into the bundle (most likely a
+  // `:require` slipped from tools/causa/* into implementation/*, or
+  // the EDN widget got referenced outside the Causa preload-gated
+  // tree).
+  {
+    name: 'zprint',
+    internalSentinels: [
+      // zprint's core namespace name as a literal string — appears in
+      // zprint's goog.provide-equivalent and internal references.
+      { source: 'zprint pretty-printer core namespace (zprint.core)',
+        sentinel: 'zprint.core' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
 ];
 
 // ----- helpers ---------------------------------------------------------------

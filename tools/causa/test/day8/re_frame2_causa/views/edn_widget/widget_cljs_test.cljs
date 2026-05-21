@@ -233,6 +233,57 @@
                        spans)]
     (is (some? str-span))))
 
+;; ---- zprint pre-format ---------------------------------------------------
+
+(deftest format-source-nil-input-returns-input
+  (testing "nil source survives — format-source never throws"
+    (is (nil? (w/format-source nil)))))
+
+(deftest format-source-empty-input-returns-input
+  (testing "empty / blank source survives unchanged"
+    (is (= "" (w/format-source "")))))
+
+(deftest format-source-pretty-prints-clojure
+  (let [src       "(reg-event-db :counter/inc (fn [db _] (update db :n inc)))"
+        formatted (w/format-source src)]
+    (testing "zprint reformats the input (canonical line-breaks)"
+      ;; A well-formed registration on one line gets canonicalised —
+      ;; either the same string back (zprint thinks it's already ideal)
+      ;; or one with newlines introduced. The output MUST still be a
+      ;; valid string.
+      (is (string? formatted)))
+    (testing "the round-trip text contains the same form contents"
+      ;; zprint never drops form contents — every token in the input
+      ;; appears in the output (possibly across more lines).
+      (is (re-find #"reg-event-db" formatted))
+      (is (re-find #":counter/inc" formatted))
+      (is (re-find #"update" formatted)))))
+
+(deftest format-source-malformed-input-falls-through
+  (testing "zprint parse failure returns the original input unchanged"
+    ;; Unmatched paren — zprint's parser refuses; format-source's
+    ;; try/catch falls through.
+    (let [bad "(reg-event-db :foo "]
+      (is (= bad (w/format-source bad))))))
+
+(deftest code-block-pre-formats-via-zprint
+  (let [out  (w/code-block {:source "(reg-event-db :counter/inc (fn [db _] (update db :n inc)))"})
+        pre  (some #(when (and (vector? %) (= :pre (first %))) %)
+                   (walk-hiccup out))
+        attrs (when pre (second pre))]
+    (testing "code-block emits the :pre root with a :data-formatted attr"
+      (is (some? attrs))
+      (is (contains? attrs :data-formatted)))))
+
+(deftest code-block-non-clojure-lang-skips-format
+  (let [out  (w/code-block {:source "function f(){}" :lang :javascript})
+        pre  (some #(when (and (vector? %) (= :pre (first %))) %)
+                   (walk-hiccup out))
+        attrs (when pre (second pre))]
+    (testing "non-clojure lang skips the zprint pre-format stage"
+      (is (= "false" (:data-formatted attrs))
+          ":data-formatted = false when zprint did not run"))))
+
 ;; ---- highlight-clojure-token mapping -------------------------------------
 
 (deftest highlight-clojure-token-mapping

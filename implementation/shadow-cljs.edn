@@ -155,7 +155,13 @@
                 ;; verifies `devtools.formatters` does not reach production
                 ;; bundles. See tools/causa/deps.edn for the artefact-side
                 ;; rationale.
-                [binaryage/devtools "1.0.7"]]
+                [binaryage/devtools "1.0.7"]
+                ;; zprint — Causa's EDN widget `code-block` pre-formatter
+                ;; (rf2-6snc8). Dev-only; the bundle-isolation gate
+                ;; verifies `zprint.core` does not reach production
+                ;; bundles. See tools/causa/deps.edn for the artefact-side
+                ;; rationale.
+                [zprint "1.3.0"]]
 
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades

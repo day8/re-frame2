@@ -75,8 +75,7 @@
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-causa.theme.section :as section]
-            [day8.re-frame2-causa.theme.perf-tier :as perf-tier]
-            [day8.re-frame2-causa.theme.data-inspector :as inspector]))
+            [day8.re-frame2-causa.theme.perf-tier :as perf-tier]))
 
 ;; ---- selection plumbing (survives from v1) -----------------------------
 
@@ -455,7 +454,7 @@
      :testid "rf-causa-event-detail-section-event"}
     [:div {:data-testid "rf-causa-event-detail-event-vector"
            :style {:font-weight 600}}
-     (inspector/inspect event-vec "event-detail/event")]))
+     (edn/inspect event-vec "event-detail/event")]))
 
 ;; ---- §1 DISPATCH SITE --------------------------------------------------
 
@@ -481,7 +480,7 @@
                             :cursor      "pointer"
                             :font-family mono-stack
                             :font-size   "10px"}}
-     "open ↗"]))
+     "[code]"]))
 
 (defn- dispatch-site-section
   [cascade]
@@ -562,7 +561,7 @@
                      :min-width 0
                      :flex 1
                      :word-break "break-word"}}
-      (inspector/inspect value (str "event-detail/coeffect/" suffix))]]))
+      (edn/inspect value (str "event-detail/coeffect/" suffix))]]))
 
 (defn- coeffects-section
   "§3. Silent-by-default — section is ABSENT entirely when zero user
@@ -768,13 +767,13 @@
         fx-row     (when (seq fx)
                      (effects-returned-row
                        ":fx"
-                       (inspector/inspect (vec fx) "event-detail/effects-returned/fx")
+                       (edn/inspect (vec fx) "event-detail/effects-returned/fx")
                        "rf-causa-event-detail-effects-returned-row-fx"
                        nil))
         hyd-row    (when hydration
                      (effects-returned-row
                        ":rf.ssr/hydration-outcome"
-                       (inspector/inspect hydration
+                       (edn/inspect hydration
                                           "event-detail/effects-returned/hydration")
                        "rf-causa-event-detail-effects-returned-row-hydration"
                        nil))
@@ -1054,7 +1053,7 @@
       [:span {:style {:color    (:text-primary tokens)
                       :min-width 0
                       :flex     1}}
-       (inspector/inspect result
+       (edn/inspect result
                           (str "event-detail/flow/"
                                (or trace-id "x")
                                "/result"))]]

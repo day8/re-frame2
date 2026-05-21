@@ -84,7 +84,6 @@
   `trace_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.data-display.render :as data-display]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.cancellation-cascade-helpers :as cch]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
@@ -96,7 +95,8 @@
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens mono-stack sans-stack display-stack]]
-            [day8.re-frame2-causa.trace-bus :as trace-bus]))
+            [day8.re-frame2-causa.trace-bus :as trace-bus]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 ;; ---- axis labelling -----------------------------------------------------
 
@@ -356,7 +356,7 @@
          :style       {:padding "8px 16px 12px 110px"
                        :background (:bg-1 tokens)
                        :border-bottom (str "1px solid " (:border-subtle tokens))}}
-   (data-display/render-tree
+   (edn/browse
      {:value        raw
       :panel-id     :trace
       :render-id    (str "trace-row-" id)
