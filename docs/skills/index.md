@@ -23,7 +23,7 @@ The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKI
 | [**re-frame2-implementor**](re-frame2-implementor.md) | Build a new re-frame2 implementation in a different host language or substrate. Two-phase workflow — Phase 1 locks the decisions; Phase 2 walks the spec corpus with conformance as the acceptance test. |
 | [**re-frame2-causa**](re-frame2-causa.md) | Read-only tour of the **Causa** devtools panel — how to launch it and which tab, across its Dynamic event-spine and Static registry-browse modes, shows X. |
 | [**re-frame2-pair**](re-frame2-pair.md) | Pair-program with a live, running re-frame2 app. Dispatch events, inspect `app-db`, walk epochs, hot-swap handlers — all via Tool-Pair contract. |
-| [**re-frame2-pair-retro**](re-frame2-pair-retro.md) | Retrospect a `re-frame2-pair` session. Surfaces friction; proposes targeted improvements; routes upstream beads to re-frame2 when the cause is framework-shaped. |
+| [**re-frame2-pair-retro**](re-frame2-pair-retro.md) | Retrospect a `re-frame2-pair` session. Surfaces friction; proposes targeted improvements; routes upstream GitHub issues to re-frame2 when the cause is framework-shaped. |
 
 ## Picking the right one
 

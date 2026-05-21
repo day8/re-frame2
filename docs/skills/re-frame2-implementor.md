@@ -34,7 +34,7 @@ A paste-ready kickoff prompt ships with the skill at [`skills/re-frame2-implemen
 
 Excerpted shape (full text in the kickoff file):
 
-> *I'm implementing a new port of re-frame2 in this repo. Walk the implementation workflow end-to-end per the `re-frame2-implementor` skill. The spec corpus is at `<path-to-re-frame2>/spec/`. Phase 1 — walk me through the decision blocks, capture each choice in `DECISIONS.md`. Phase 2 — walk the EP corpus in dependency order (001 → 002 → 006 → 004 → 009 → optional). The spec is the contract; the CLJS reference is one worked example, not normative. No core.async. JVM-runnability for the test surface. Spec gaps file `bd create` beads; never silent extrapolation. Begin with Phase 1.*
+> *I'm implementing a new port of re-frame2 in this repo. Walk the implementation workflow end-to-end per the `re-frame2-implementor` skill. The spec corpus is at `<path-to-re-frame2>/spec/`. Phase 1 — walk me through the decision blocks, capture each choice in `DECISIONS.md`. Phase 2 — walk the EP corpus in dependency order (001 → 002 → 006 → 004 → 009 → optional). The spec is the contract; the CLJS reference is one worked example, not normative. No core.async. JVM-runnability for the test surface. Spec gaps file GitHub issues against `day8/re-frame2` (ask me before filing); never silent extrapolation. Begin with Phase 1.*
 
 Two common amendments — *"minimum viable port"* (declare every optional capability `no` and ship the core only) and *"reference impl tour first"* (read the CLJS tour before locking decisions, treating the tour as descriptive).
 
