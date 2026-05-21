@@ -15,8 +15,14 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-story id metadata)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a story (a cluster of variants under one heading). `metadata` is an EDN map with `:doc`, `:component`, `:args`, `:tags`, `:decorators`, and optional `:variants` (Form B desugaring).
+- **Example**:
+  ```clojure
+  (story/reg-story :story.counter
+    {:doc       "The app counter."
+     :component :app.ui/counter
+     :args      {:label "Count"}})
+  ```
 
 ### `reg-variant`
 
@@ -25,8 +31,13 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-variant id metadata)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register one variant — view, args, setup events, decorators, `:play-script`. The single most-called macro in a typical stories namespace.
+- **Example**:
+  ```clojure
+  (story/reg-variant :story.counter/at-five
+    {:component :app.ui/counter
+     :events    [[:counter/initialise 5]]})
+  ```
 
 ### `reg-workspace`
 
@@ -35,7 +46,6 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-workspace id metadata)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a workspace — a curated grid of variants for side-by-side review. `metadata` carries `:doc`, `:cells` (an ordered vector of variant ids), and optional `:layout`.
 
 ### `reg-decorator`
@@ -45,7 +55,6 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-decorator id metadata)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a decorator — a fn that wraps a variant's render (locale provider, theme provider, mock-API context). Three kinds: `:hiccup` (wraps the rendered tree), `:frame-setup` (runs at frame creation), `:fx-override` (registers fx stubs).
 
 ### `reg-story-panel`
@@ -55,7 +64,6 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-story-panel id metadata)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a custom panel in the Story chrome — the inspection / control panes that sit beside the rendered variant. Late-bind via `:render` as a `:view` id. Five placement slots: `:right` / `:left` / `:bottom` / `:top` / `:modal`.
 
 ### `reg-tag`
@@ -65,7 +73,6 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-tag id metadata)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a tag (free-form classification — `#{:auth-required :empty-state :error}`). Tags filter the variant catalogue. The seven canonical tags (`:dev`, `:docs`, `:test`, `:screenshot`, `:experimental`, `:internal`, `:agent`) auto-install on first registration.
 
 ### `reg-mode`
@@ -75,7 +82,6 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-mode id metadata)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a mode — a saved tuple of args the chrome toggles into (light/dark theme, en/fr locale, desktop/mobile viewport). Layer 3 of the five-layer args precedence chain.
 
 The macros expand to their `*`-suffix runtime fns — `reg-story` expands to `(reg-story* id body)` — so the canonical-vocabulary auto-install (see below) fires from the macro form, programmatic-form, or fixture-load form alike.
@@ -106,7 +112,6 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```clojure
   (reg-story* id body)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Programmatic story registration.
 
 ### `reg-variant*`
@@ -116,7 +121,6 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```clojure
   (reg-variant* id body)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Programmatic variant registration.
 
 ### `reg-workspace*`
@@ -126,7 +130,6 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```clojure
   (reg-workspace* id body)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Programmatic workspace registration.
 
 ### `reg-mode*`
@@ -136,7 +139,6 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```clojure
   (reg-mode* id body)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Programmatic mode registration.
 
 ### `reg-story-panel*`
@@ -146,7 +148,6 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```clojure
   (reg-story-panel* id body)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Programmatic panel registration.
 
 ### `reg-decorator*`
@@ -156,7 +157,6 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```clojure
   (reg-decorator* id body)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Programmatic decorator registration.
 
 ### `reg-tag*`
@@ -166,7 +166,6 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```clojure
   (reg-tag* id body)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Programmatic tag registration.
 
 Reach for the `*` forms when authoring inside a higher-order fn, a fixture loader, an MCP write tool, or a hot-reload pipeline that synthesises registrations from another data source. Authoring-site registrations use the macros above; both paths land on the same registrar side-table and fire the same auto-install gate.
@@ -179,7 +178,6 @@ Reach for the `*` forms when authoring inside a higher-order fn, a fixture loade
   ```clojure
   (unregister! kind id) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Remove a single id under `kind`. Kinds: `:story` / `:variant` / `:workspace` / `:story-panel` / `:tag` / `:mode` / `:decorator`.
 
 ### `clear-kind!`
@@ -188,7 +186,6 @@ Reach for the `*` forms when authoring inside a higher-order fn, a fixture loade
   ```clojure
   (clear-kind! kind) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Remove every registration of `kind`. Used by test fixtures and hot-reload.
 
 ### `clear-all!`
@@ -197,7 +194,6 @@ Reach for the `*` forms when authoring inside a higher-order fn, a fixture loade
   ```clojure
   (clear-all!) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Reset every Story registration. Wipes the registrar's side-table AND clears the global-decorators vector AND resets the auto-install gate so the next `reg-*` re-installs the canonical vocabulary.
 
 `clear-all!` is the test-isolation primitive. Tests that want a known starting state call `clear-all!` in a fixture; the next `reg-*` in the test body auto-installs the canonical vocabulary (the seven canonical tags, the `:rf.assert/*` handlers, `force-fx-stub`, the layout-debug decorator trio, the lifecycle machine, the v1.0 panel set) before the test's own registrations land.
@@ -214,7 +210,6 @@ The seven `reg-*` macros expand to their `*`-fn helpers, and the first call to A
   ```clojure
   (install-canonical-vocabulary!) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Idempotent explicit boot. New code should rely on the auto-install path — the explicit call is retained only as a literal-boot affordance for hosts that want one and as a JVM-test diagnostic that asserts a known starting state without a body-of-test `reg-*` call.
 
 The auto-install gate flips true *before* the installer chain runs, so the registrar writes triggered by the chain itself hit the early-return branch and don't recurse. Subsequent `reg-*` calls (after the gate has flipped) are a single `deref` + `nil` check — negligible on the hot path.
@@ -231,7 +226,6 @@ Layer 1 of the five-layer args precedence chain (global → story → mode → v
   ```clojure
   (configure! opts) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Top-level Story configuration. See [Runtime §configure!](runtime.md#configure) for the full key surface. The two relevant keys here are `:rf.story/global-args` (replace the global args map) and `:rf.story/global-decorators` (replace the global-decorator ref vector).
 
 ### `reg-global-decorator`
@@ -241,7 +235,6 @@ Layer 1 of the five-layer args precedence chain (global → story → mode → v
   (reg-global-decorator id body) → id
   (reg-global-decorator id body ref-args) → id
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a decorator AND opt it into the global stack in one call. Symmetric to the host calling `reg-decorator` + `configure! {:rf.story/global-decorators [...]}` in sequence; preferred when the decorator is exclusively a global-stack member. Earliest-registered-first; re-registering the same id REPLACES the entry in place (same position in the global vector) so hot-reload doesn't reshuffle the stack order.
 
 ### `unreg-global-decorator!`
@@ -250,7 +243,6 @@ Layer 1 of the five-layer args precedence chain (global → story → mode → v
   ```clojure
   (unreg-global-decorator! id) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Remove `id` from the global-decorators vector. The decorator's registration body is NOT unregistered — call `unregister!` for that. Idempotent.
 
 ### `global-decorators`
@@ -259,7 +251,6 @@ Layer 1 of the five-layer args precedence chain (global → story → mode → v
   ```clojure
   (global-decorators) → vec
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Return the current ordered vector of global-decorator references (`[[decorator-id & args] ...]`). Earliest-registered first; this is the prefix applied to every variant's resolved decorator stack.
 
 The five-layer precedence diagram (later wins):
@@ -283,25 +274,21 @@ Three built-in decorators ship with Story's canonical vocabulary. Each has a pub
 ### `force-fx-stub-id`
 
 - **Kind**: Var
-- **Status**: v1 (dev-only)
 - **Description**: The registered decorator id for the built-in `force-fx-stub` decorator — Story's universal effect-mocking primitive. One decorator covers HTTP, websockets, analytics, storage, navigation, geolocation, and anything else registered with `reg-fx`.
 
 ### `layout-debug-measure-id`
 
 - **Kind**: Var
-- **Status**: v1 (dev-only)
 - **Description**: The Storybook-style layout measure overlay decorator id. Surfaces margin / padding / size annotations on every descendant element.
 
 ### `layout-debug-outline-id`
 
 - **Kind**: Var
-- **Status**: v1 (dev-only)
 - **Description**: The Pesticide-style coloured outlines decorator id. Surfaces every descendant element's box with a per-element-type colour.
 
 ### `layout-debug-pseudo-id`
 
 - **Kind**: Var
-- **Status**: v1 (dev-only)
 - **Description**: The pseudo-state forcing decorator id. Ref-args is a set from `#{:hover :focus :active :visited}`; default is `#{:hover}`.
 
 Worked example:
@@ -329,7 +316,6 @@ Story authors declare per-frame path-marks against `app-db` using the framework'
   ```clojure
   (add-marks variant-id marks-map) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Merge marks additively into the variant frame's mark-set. Re-export of `re-frame.core/add-marks`.
 
 ### `set-marks`
@@ -338,7 +324,6 @@ Story authors declare per-frame path-marks against `app-db` using the framework'
   ```clojure
   (set-marks variant-id marks-map) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Replace the variant frame's mark-set wholesale. Re-export of `re-frame.core/set-marks`.
 
 A `marks-map` is `{path mark, ...}` where `path` is a `get-in`-shaped vector and `mark` is one of `:sensitive` / `:large`. Variant-body usage scopes marks to that variant's frame; the framework's `elide-wire-value` walker substitutes `:rf/redacted` / `:rf/large` at every wire-egress observation point.

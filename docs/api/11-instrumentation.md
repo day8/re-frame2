@@ -19,7 +19,6 @@ Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:even
   ```clojure
   (register-event-listener! id listener-fn)
   ```
-- **Status**: v1
 - **Description**: Receive one event-record per processed event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
 
 ### `unregister-event-listener!`
@@ -29,7 +28,6 @@ Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:even
   ```clojure
   (unregister-event-listener! id) → nil
   ```
-- **Status**: v1
 - **Description**: The inverse.
 
 ## Error-emit (always-on, production-survivable)
@@ -45,7 +43,6 @@ Record shape: `{:error :event :event-id :frame :time :exception :elapsed-ms}`. T
   ```clojure
   (register-error-listener! id listener-fn)
   ```
-- **Status**: v1
 - **Description**: Receive one error-record per `:rf.error/*` event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
 
 ### `unregister-error-listener!`
@@ -55,7 +52,6 @@ Record shape: `{:error :event :event-id :frame :time :exception :elapsed-ms}`. T
   ```clojure
   (unregister-error-listener! id) → nil
   ```
-- **Status**: v1
 - **Description**: The inverse.
 
 ## Tracing (dev-only)
@@ -69,7 +65,6 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```clojure
   (register-listener! key callback-fn)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: "Receive every trace event the runtime emits." Synchronous delivery; the callback returns before the next trace event is processed.
 
 ### `unregister-listener!`
@@ -79,7 +74,6 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```clojure
   (unregister-listener! key) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The inverse.
 
 ### `emit-trace-event!`
@@ -89,19 +83,16 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```clojure
   (emit-trace-event! op-type operation tags) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: "Emit a custom trace event." Use sparingly — the framework emits the load-bearing events; custom emission is for app-specific cross-cutting concerns the framework can't know about.
 
 ### `re-frame.interop/debug-enabled?`
 
 - **Kind**: Var (`^boolean`)
-- **Status**: v1
 - **Description**: **CLJS:** alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM:** a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly.
 
 ### `re-frame.performance/enabled?`
 
 - **Kind**: Var (`^boolean`)
-- **Status**: v1
 - **Description**: `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op.
 
 ### `trace-buffer`
@@ -112,7 +103,6 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   (trace-buffer) → vector of trace events, oldest-first
   (trace-buffer opts) → vector of trace events, oldest-first
   ```
-- **Status**: v1 (dev-only)
 - **Description**: "What's in the ring right now?" Reads the buffer non-destructively. Pair tools and Causa use this for post-mortem inspection.
 
 ### `clear-trace-buffer!`
@@ -122,7 +112,6 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```clojure
   (clear-trace-buffer!) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Empty the ring.
 
 ### `(rf/configure :trace-buffer …)`
@@ -132,7 +121,6 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```clojure
   (rf/configure :trace-buffer {:depth N})
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Buffer depth knob. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
 ### `group-cascades`
@@ -142,7 +130,6 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```clojure
   (group-cascades events) → vector of cascade records
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Pure data projection of a list of trace events into per-cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. JVM-runnable. Re-exported from `re-frame.trace.projection`.
 
 ### `domino-bucket`
@@ -152,7 +139,6 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```clojure
   (domino-bucket trace-event) → #{:event :handler :fx :effect :sub :render :other}
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Classify a raw trace event into the six-domino slot used by `group-cascades`. Pure.
 
 ### Trace-emission opt-out
@@ -176,7 +162,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (epoch-history frame-id) → vector of epoch records
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Returns `[]` for an unknown / destroyed frame.
 
 ### `restore-epoch`
@@ -186,7 +171,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (restore-epoch frame-id epoch-id) → boolean
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Restore the frame's `app-db` to the named epoch. Returns `true` on success; `false` for an unknown / destroyed frame (and emits `:rf.error/no-such-handler` of kind `:frame`).
 
 ### `reset-frame-db!`
@@ -196,7 +180,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (reset-frame-db! frame-id new-db) → boolean
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the cascade. Returns `true` on success.
 
 ### `register-epoch-listener!`
@@ -206,7 +189,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (register-epoch-listener! key callback-fn)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Process-global assembled-epoch listener. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
 
 ### `unregister-epoch-listener!`
@@ -216,7 +198,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (unregister-epoch-listener! key)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The inverse.
 
 ### `(rf/configure :epoch-history …)`
@@ -226,7 +207,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Buffer-depth and redactor knobs. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
 ### Trace events emitted by epoch-history machinery
@@ -257,7 +237,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
-- **Status**: v1
 - **Description**: Walk `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots.
 
 ### `elision-declarations`
@@ -268,7 +247,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   (elision-declarations)
   (elision-declarations frame-id)
   ```
-- **Status**: v1
 - **Description**: Read the current `[:rf/elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader.
 
 ### `populate-elision-from-schemas!`
@@ -279,7 +257,6 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   (populate-elision-from-schemas!) → vector of paths populated
   (populate-elision-from-schemas! frame-id) → vector of paths populated
   ```
-- **Status**: v1
 - **Description**: Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent.
 
 Composition rule: when both predicates match (sensitive AND large for the same path), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` from a sensitive slot.
@@ -295,7 +272,6 @@ See [08 — Schemas](08-schemas.md) for the registration side (`add-marks`, `set
   ```clojure
   (sensitive? trace-event) → boolean
   ```
-- **Status**: v1
 - **Description**: True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check.
 
 ### `redact-interceptor`
@@ -305,7 +281,6 @@ See [08 — Schemas](08-schemas.md) for the registration side (`add-marks`, `set
   ```clojure
   (redact-interceptor paths) → interceptor
   ```
-- **Status**: post-v1 (planned)
 - **Description**: Positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only.
 
 ## DOM source-coord annotations

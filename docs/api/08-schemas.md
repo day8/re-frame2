@@ -16,8 +16,13 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
   (reg-app-schema path schema)
   (reg-app-schema path schema opts)
   ```
-- **Status**: v1
 - **Description**: "Attach this Malli schema to this `app-db` path." **Path is the registration id** — the `:app-schema` registry kind is path-keyed because schemas-at-paths matches the dataflow grain. `(app-schema-at [:user])` looks up by the same path vector.
+- **Example**:
+  ```clojure
+  (rf/reg-app-schema [:cells]
+    [:map [:cells/grid [:map-of :keyword :string]]])
+  ```
+- **In the wild**: [7Guis](https://github.com/day8/re-frame2/tree/main/examples/reagent/7Guis)
 
 ### `reg-app-schemas`
 
@@ -26,8 +31,14 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
   ```clojure
   (reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})
   ```
-- **Status**: v1
 - **Description**: Bulk plural form. Feature-modular apps registering 5–20 paths against the same prefix reach for this. Each entry routes through the singular form and is stamped with this call's source coords. Returns the vector of paths registered.
+- **Example**:
+  ```clojure
+  (rf/reg-app-schemas
+    {[:auth]     AuthState
+     [:articles] ArticlesState})
+  ```
+- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
 
 The path-keyed-not-id-keyed asymmetry is principled. Paths are first-class in `get-in` / `assoc-in` / `update-in`; schemas-at-paths matches the dataflow grain; the lookup site (`app-schema-at [:user]`) reads the same way the write site (`(assoc-in db [:user] ...)`) reads. Spelling it as `(reg-app-schema :user/schema schema)` would have shifted the registration's id away from the dataflow grain.
 
@@ -45,7 +56,6 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schemas)
   (app-schemas {:frame frame-id})
   ```
-- **Status**: v1
 - **Description**: "Hand me every registered schema-at-path for this frame." Returns `{path schema}`. Tools and agents walk this to enumerate the app's schema surface.
 
 ### `app-schema-at`
@@ -56,7 +66,6 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schema-at path)
   (app-schema-at path {:frame frame-id})
   ```
-- **Status**: v1
 - **Description**: "Schema for this exact path." Returns the schema value or `nil`.
 
 ### `app-schema-meta-at`
@@ -67,7 +76,6 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schema-meta-at path)
   (app-schema-meta-at path opts-or-frame-id)
   ```
-- **Status**: v1
 - **Description**: "Full registration-metadata map for this path." Returns `:path`, `:schema`, `:frame`, plus source-coords (`:ns` / `:line` / `:file`) and the rest of `:rf/registration-metadata`. Pair tools and 10x reach for this when they need the registration anchor for click-back-to-code. The lighter `app-schema-at` is the right call when only the schema value is needed.
 
 ### `app-schemas-digest`
@@ -78,7 +86,6 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schemas-digest) → string
   (app-schemas-digest {:frame frame-id}) → string
   ```
-- **Status**: v1
 - **Description**: "Single hash over the frame's whole schema surface." Used by SSR hydration compatibility checks and by tools that want to know "has the schema corpus changed?" without diffing schema-by-schema.
 
 ### Validator-extension seams
@@ -93,7 +100,6 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
   (set-schema-validator! validate-fn)
   (set-schema-validator! {:validate validate-fn :explain explain-fn})
   ```
-- **Status**: v1
 - **Description**: "Install the validator the framework uses at every dev-time schema-validation site." `nil` disables validation entirely. The default ships Malli's pair; this seam is for apps that want to swap to a different validator without forking the framework.
 
 #### `set-schema-explainer!`
@@ -103,7 +109,6 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
   ```clojure
   (set-schema-explainer! explain-fn)
   ```
-- **Status**: v1
 - **Description**: "Install the explainer the framework uses to enrich `:rf.error/schema-validation-failure` traces' `:explain` key." Companion to `set-schema-validator!`.
 
 #### `set-schema-printer!`
@@ -113,7 +118,6 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
   ```clojure
   (set-schema-printer! print-fn)
   ```
-- **Status**: v1
 - **Description**: "Install the schema-print companion the digest pipeline hashes." `(fn [schema-value] canonical-string)`. Must be pure and deterministic across runtimes. `nil` falls back to the default EDN canonicaliser, so the digest is never undefined. Parallel to the validator / explainer setters: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract.
 
 The three setters answer three different questions: validation correctness (`validator`), human-readable failure messages (`explainer`), and stable canonical printing for digest (`printer`). Most apps use the defaults; ports and apps swap them selectively.
@@ -127,7 +131,6 @@ The three setters answer three different questions: validation correctness (`val
   ```clojure
   validate-at-boundary-interceptor
   ```
-- **Status**: v1
 - **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
 
 ```clojure
@@ -151,7 +154,6 @@ The same schemas that drive validation also drive **redaction** and **size-elisi
   ```clojure
   (add-marks frame-id {path mark, ...})
   ```
-- **Status**: v1
 - **Description**: Frame-scoped path-marks. **Additively merges** into the frame's existing mark-set — paths not mentioned keep their prior state. Schema-attached marks per `reg-app-schema` `:sensitive?` / `:large?` are preserved and union at lookup time. Pure declaration — does not mutate `app-db`. Returns `frame-id`.
 
 #### `set-marks`
@@ -161,7 +163,6 @@ The same schemas that drive validation also drive **redaction** and **size-elisi
   ```clojure
   (set-marks frame-id {path mark, ...})
   ```
-- **Status**: v1
 - **Description**: Frame-scoped path-marks. **Wholesale replaces** the frame's prior mark-set — paths not mentioned are CLEARED. Schema-attached marks are preserved. Pure declaration. Returns `frame-id`.
 
 The two-verb shape (`add` vs `set`) follows the [Conventions §Tear-down verb axis](../../spec/Conventions.md) — `add-` merges; `set-` replaces. Most apps reach for `add-marks` because path classifications accumulate (an audit reveals a new sensitive path; you `add-marks` the path without affecting the rest of the corpus). Reach for `set-marks` when you're declaring the entire authoritative classification at once (a server-pushed policy update; a feature-flag toggle that swaps the whole privacy posture).
@@ -177,7 +178,6 @@ This is the framework primitive that walks tree-shaped values at the wire bounda
   ```clojure
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
-- **Status**: v1
 - **Description**: Walk `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. `opts` map: `{:rf.size/include-large? :rf.size/include-sensitive? :rf.size/include-digests? :rf.size/threshold-bytes :path :frame}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`.
 
 #### `elision-declarations`
@@ -188,7 +188,6 @@ This is the framework primitive that walks tree-shaped values at the wire bounda
   (elision-declarations)
   (elision-declarations frame-id)
   ```
-- **Status**: v1
 - **Description**: "What paths has the frame nominated for elision?" Returns the current `[:rf/elision :declarations]` map for the frame (or `{}`). Pair-tool and introspection reader.
 
 #### `populate-elision-from-schemas!`
@@ -199,7 +198,6 @@ This is the framework primitive that walks tree-shaped values at the wire bounda
   (populate-elision-from-schemas!) → vector of paths populated
   (populate-elision-from-schemas! frame-id) → vector of paths populated
   ```
-- **Status**: v1
 - **Description**: Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent. No-op when the schemas artefact isn't on the classpath.
 
 ### Composition rule
@@ -223,7 +221,6 @@ The trace runtime stamps `:sensitive? true` at the top level of every trace even
   ```clojure
   (sensitive? trace-event) → boolean
   ```
-- **Status**: v1
 - **Description**: The framework-published predicate every consumer composes against. Replaces per-consumer reimplementations of the same five-token check.
 
 ### `redact-interceptor`
@@ -233,7 +230,6 @@ The trace runtime stamps `:sensitive? true` at the top level of every trace even
   ```clojure
   (redact-interceptor paths) → interceptor
   ```
-- **Status**: post-v1 (planned)
 - **Description**: Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel **before the handler chain runs**. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map.
 
 The composition pattern: schema-derived `:sensitive?` marks drive `elide-wire-value` at egress, and `redact-interceptor` scrubs in-place where the trace surface needs to see only a partial view. The two surfaces stack — the interceptor scrubs the trace; the walker enforces redaction at the wire boundary.

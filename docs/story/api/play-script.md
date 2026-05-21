@@ -113,7 +113,6 @@ Story's canvas recorder captures dispatched events and DOM-level interactions in
   ```clojure
   (start-recording! variant-id) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Begin recording dispatched events against `variant-id`'s frame. The recorder filters on dispatch-provenance `:rf.story/source :user` — setup-phase events (`:variant-events`) are excluded.
 
 ### `stop-recording!`
@@ -122,7 +121,6 @@ Story's canvas recorder captures dispatched events and DOM-level interactions in
   ```clojure
   (stop-recording!) → events-vec
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Stop the in-flight recording; return the captured events vector.
 
 ### `clear-recording!`
@@ -131,7 +129,6 @@ Story's canvas recorder captures dispatched events and DOM-level interactions in
   ```clojure
   (clear-recording!) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Drop the buffer + return the recorder to idle.
 
 ### `recording?`
@@ -140,7 +137,6 @@ Story's canvas recorder captures dispatched events and DOM-level interactions in
   ```clojure
   (recording?) → bool
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Predicate — is a recording in flight?
 
 ### `recorder-state`
@@ -149,7 +145,6 @@ Story's canvas recorder captures dispatched events and DOM-level interactions in
   ```clojure
   (recorder-state) → map
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Read-only view of the current recorder state map.
 
 ### `gen-play-snippet`
@@ -158,7 +153,6 @@ Story's canvas recorder captures dispatched events and DOM-level interactions in
   ```clojure
   (gen-play-snippet events opts) → string
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Pure codegen: render a captured `events` vector as a `(reg-variant <id> {... :play-script {:script [...]}})` EDN snippet. Each captured event vector is wrapped as `[:dispatch-sync <event-vec>]`.
 
 The facade's `gen-play-snippet` is the simpler event-vector → `:dispatch-sync` step projection. A typical recorder modal calls `start-recording!` on the *record* chip click, hooks the user's canvas interaction, then on *stop* calls `stop-recording!` + `gen-play-snippet` to render the modal's EDN body.
@@ -173,7 +167,6 @@ The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` ste
   ```clojure
   (recording->play-script entries opts) → map
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Translate captured `:entries` into a normalised `:play-script` body map. Derives `[:click selector]`, `[:type selector text]`, `[:wait ms]` steps from the entries stream.
 
 ### `render-play-script`
@@ -182,7 +175,6 @@ The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` ste
   ```clojure
   (render-play-script body) → string
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Render the `:play-script` map to EDN.
 
 ### `render-variant-form`
@@ -191,7 +183,6 @@ The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` ste
   ```clojure
   (render-variant-form variant-id metadata) → string
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Render a full `(reg-variant <id> {...})` form to EDN.
 
 Lives in `re-frame.story.recorder.play-export`. Two `:require`s — `[re-frame.story :as story]` for the facade plus `[re-frame.story.recorder.play-export :as play-export]` for the rich translator.

@@ -16,7 +16,6 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
   (registrations kind) → {id metadata-map}
   (registrations kind pred-fn) → {id metadata-map}
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: **Use when you want metadata.** Walk the registrar with the full metadata map per id — source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, the doc string. Optional `pred-fn` filters by the metadata map.
 
 ### `handler-ids`
@@ -26,7 +25,6 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
   ```clojure
   (handler-ids kind) → id set
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: **Use when you only need to enumerate.** Canonical alias for `(-> (registrations kind) keys set)`. Saves both the metadata-map allocations and the `keys` walk — meaningful at scale (completion lists, existence checks, set-shaped intersections).
 
 ### `handler-meta`
@@ -36,7 +34,6 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
   ```clojure
   (handler-meta kind id) → registration-metadata map
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: "What did `reg-*` stamp at this id?" View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta`; pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup.
 
 `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:flow`, `:route`, `:head`, `:error-projector`, `:app-schema`. The full list lives in [001-Vision §Registry model](../../spec/000-Vision.md).
@@ -52,7 +49,6 @@ These are derived views over the event registrar — a machine is registered as 
   ```clojure
   (machines) → seq of machine-ids
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: Enumerate registered machines.
 
 ### `machine-meta`
@@ -62,7 +58,6 @@ These are derived views over the event registrar — a machine is registered as 
   ```clojure
   (machine-meta machine-id) → registration-metadata map
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: Transition table, doc, schemas. Equivalent to `(handler-meta :event machine-id)`.
 
 See [04 — Machines](04-machines.md) for the rest of the machine surface (subscription helpers, system-id reverse lookup, etc).
@@ -77,7 +72,6 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   (frame-ids)
   (frame-ids ns-prefix)
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: "What frames exist?" The optional prefix filters by namespace — `(rf/frame-ids :rf.story/)` for tool-owned frames.
 
 ### `frame-meta`
@@ -87,7 +81,6 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   ```clojure
   (frame-meta frame-id)
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: "What did `reg-frame` / `make-frame` stamp at this frame?" Returns the metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings.
 
 ### `get-frame-db`
@@ -97,7 +90,6 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   ```clojure
   (get-frame-db frame-id) → app-db value (plain map)
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: "What's the current `app-db` for this frame?" Returns `nil` for an unknown / destroyed frame.
 
 ### `snapshot-of`
@@ -108,7 +100,6 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   (snapshot-of path)
   (snapshot-of path opts)
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: "What's at this path in `app-db` right now?" Convenience over `get-frame-db` + `get-in`.
 
 ## Sub graph
@@ -120,7 +111,6 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   ```clojure
   (sub-topology) → {sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: Static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1 subs); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them.
 
 ### `sub-cache`
@@ -130,7 +120,6 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   ```clojure
   (sub-cache frame-id) → live cache state
   ```
-- **Status**: v1 · CLJS-only
 - **Description**: The runtime cache. CLJS-only because it holds live `Reaction` objects; on JVM there are no reactions to hold. Tools that walk the cache for tab labels / counts in Causa go through this.
 
 The split — `sub-topology` JVM-runnable, `sub-cache` CLJS-only — is principled. Topology is a static property of the registration; the cache is a runtime property of the sub graph. Tools that want the design-time picture (linter, doc generator, conformance harness) reach for `sub-topology`; tools that want the runtime picture (Causa's sub-cache tab) reach for `sub-cache`.
@@ -155,7 +144,6 @@ The schema-introspection surfaces are rowed in [08 — Schemas](08-schemas.md). 
   ```clojure
   (compute-sub query-v db)
   ```
-- **Status**: v1 · JVM-runnable
 - **Description**: Pure sub computation against an `app-db` value. Use in tests; use in agent tooling that wants to evaluate subs against an artificial state.
 
 (Cross-rowed in [10 — Testing](10-testing.md).)

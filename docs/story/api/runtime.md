@@ -44,7 +44,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   (run-variant variant-id) → result-map
   (run-variant variant-id opts) → result-map
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Materialise the variant — allocate the frame, run the four-phase lifecycle, return the result map. One-shot; no live updates. The result carries `:frame` / `:app-db` / `:assertions` / `:rendered-hiccup` / `:elapsed-ms` / `:snapshot` / `:decorators`.
 
 ### `reset-variant`
@@ -53,7 +52,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```clojure
   (reset-variant variant-id) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Reset the variant's frame to its post-events baseline. The Story shell calls this when the user clicks "reset" on a variant.
 
 ### `watch-variant`
@@ -63,7 +61,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   (watch-variant variant-id) → live-result-map
   (watch-variant variant-id callback)
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Like `run-variant` but the result map updates live as `app-db` changes. Use for live shells; use `run-variant` for one-shot screenshots.
 
 ### `unwatch-variant`
@@ -72,7 +69,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```clojure
   (unwatch-variant variant-id) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Stop the live update channel for `variant-id`. Idempotent.
 
 ### `destroy-variant!`
@@ -81,7 +77,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```clojure
   (destroy-variant! variant-id) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Tear down the variant's frame. Any spawned state-machines receive their `:rf.machine/destroy` event. Idempotent.
 
 ### `execute-play!`
@@ -90,7 +85,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```clojure
   (execute-play! variant-id) → assertions-vec
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Re-run only phase 4 (the `:play-script`) against the variant's current `app-db`. Use for the play-stepper UI's "re-run from here" affordance.
 
 ### `lifecycle-state`
@@ -99,7 +93,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```clojure
   (lifecycle-state variant-id) → keyword
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The current state of the variant's lifecycle machine — one of `:idle` / `:loading` / `:events` / `:rendering` / `:playing` / `:done` / `:error`.
 
 The `opts` map for `run-variant` accepts:
@@ -133,7 +126,6 @@ The result map shape:
   (resolve-args variant-id) → map
   (resolve-args variant-id opts) → map
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Materialise the effective args map for a variant given the active modes + cell overrides. The five-layer precedence chain (global → story → mode → variant → cell-override), deep-merged for maps, vector-replaced for vectors.
 
 ### `resolve-decorators`
@@ -143,7 +135,6 @@ The result map shape:
   (resolve-decorators variant-id) → map
   (resolve-decorators variant-id opts) → map
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Return the variant's resolved decorator stack classified by kind: `{:hiccup [...] :frame-setup [...] :fx-override [...] :errors [...]}`. Composition order: `(concat globals story variant)`.
 
 ### `variant-frames`
@@ -152,7 +143,6 @@ The result map shape:
   ```clojure
   (variant-frames) → set
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The set of variant-ids currently allocated as frames.
 
 ### `variant-frame?`
@@ -161,7 +151,6 @@ The result map shape:
   ```clojure
   (variant-frame? variant-id) → bool
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Predicate.
 
 ## Snapshot identity + share
@@ -173,7 +162,6 @@ The result map shape:
   (snapshot-identity variant-id) → map
   (snapshot-identity variant-id opts) → map
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The variant's snapshot identity — the variant id plus a content-hash over its setup (args, events, modes, substrate). Returns `{:variant-id ... :content-hash "..."}`. Used by QR-share and the Story recorder to identify what the user is looking at without leaking the variant's args. The hash computes over real values (pre-substitution); downstream emission goes through `elide-wire-value`.
 
 ### `variant-share-url`
@@ -183,7 +171,6 @@ The result map shape:
   (variant-share-url variant-id) → string
   (variant-share-url variant-id base-url opts) → string
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Build a sharable URL for `variant-id` against `base-url`. Encodes active modes + cell-overrides + substrate so a scan-and-share session reproduces the cell. Pure data → data; JVM + CLJS portable.
 
 ## Assertion-side accessors
@@ -194,7 +181,6 @@ The result map shape:
   ```clojure
   (read-assertions variant-id) → assertions-vec
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The current `:rf.story/assertions` vector for `variant-id`. Each entry is a `:rf.assert/*` record.
 
 ### `assertions-passing?`
@@ -203,7 +189,6 @@ The result map shape:
   ```clojure
   (assertions-passing? result) → bool
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Project over a `run-variant` result map (or a raw assertions vector) — true iff every record is `:passed? true`. The single primitive a `cljs.test`-style adapter calls.
 
 ### `canonical-assertion-ids`
@@ -212,7 +197,6 @@ The result map shape:
   ```clojure
   (canonical-assertion-ids) → set
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The seven canonical `:rf.assert/*` event-ids as a set, for tooling that enumerates the assertion vocabulary.
 
 ## Registry queries
@@ -377,7 +361,6 @@ The boot-time entry point for project-wide defaults. The host calls it once befo
   ```clojure
   (configure! opts) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Set Story's global config. Every key lives under `:rf.story/*` (Story-specific) or `:rf.privacy/*` (cross-tool). Unknown keys are silently ignored for forward-compat.
 
 The full v1 key surface:
@@ -416,7 +399,6 @@ Two key behaviours are worth pinning:
   ```clojure
   (register-substrate! substrate-id render-fn) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Register a substrate render fn under `substrate-id`. The host calls this once at boot for each substrate it wants Story to render against (`:uix`, `:helix`, etc.). The `:reagent` substrate is registered automatically by the canonical-vocabulary auto-install.
 
 ### `registered-substrates` (substrate registration)
@@ -425,7 +407,6 @@ Two key behaviours are worth pinning:
   ```clojure
   (registered-substrates) → set
   ```
-- **Status**: v1 (dev-only)
 - **Description**: The set of registered substrate ids. Used by tooling that enumerates available substrates for a variant's `:substrates` opt-in.
 
 ## Shell lifecycle (CLJS-only)
@@ -438,7 +419,6 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
   ```clojure
   (mount-shell! mount-point opts) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Mount the Story shell at `mount-point` (a DOM node). The opts map carries `:initial-variant`, `:initial-mode`, `:theme`, etc. Production builds (`re-frame.story.config/enabled?` false) short-circuit before any DOM call.
 
 ### `unmount-shell!`
@@ -447,7 +427,6 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
   ```clojure
   (unmount-shell!) → nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Unmount the shell. Idempotent.
 
 ### `active-shell`
@@ -456,7 +435,6 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
   ```clojure
   (active-shell) → map / nil
   ```
-- **Status**: v1 (dev-only)
 - **Description**: Inspectable handle on the active shell — returns nil when no shell is mounted.
 
 ## Static-mode probe
@@ -467,7 +445,6 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
   ```clojure
   (static-mode?) → bool
   ```
-- **Status**: v1 (dev-only)
 - **Description**: True iff Story is running in static-export mode (the bundle was built with `:closure-defines {re-frame.story.config/static-mode? true}`). The shell itself flips its dev-time affordances (hot-reload poll, first-visit help overlay auto-open) off when the flag is true. Surfaced here for tooling / examples that want to render a "this is a published static site" badge.
 
 ## Stage marker

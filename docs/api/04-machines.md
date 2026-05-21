@@ -17,8 +17,8 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
   ```clojure
   (reg-machine machine-id machine-spec)
   ```
-- **Status**: v1
 - **Description**: The canonical macro. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` — Causa uses these to navigate from a snapshot back to the state-node definition. Top-level call-site coords land on `handler-meta`.
+- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) · [websocket](https://github.com/day8/re-frame2/tree/main/examples/reagent/websocket)
 
 ### `reg-machine*`
 
@@ -27,7 +27,6 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
   ```clojure
   (reg-machine* machine-id machine-spec)
   ```
-- **Status**: v1
 - **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data.
 
 ### `make-machine-handler`
@@ -37,7 +36,6 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
   ```clojure
   (make-machine-handler spec) → event-handler fn
   ```
-- **Status**: v1
 - **Description**: Compiles a transition table into the event-handler fn that `reg-machine` would register. Useful when you want to inspect the compiled fn or compose it manually.
 
 ### `machine-transition`
@@ -47,7 +45,6 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
   ```clojure
   (machine-transition definition snapshot event) → [next-snapshot effects]
   ```
-- **Status**: v1
 - **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns the next snapshot and the effect map. JVM-runnable; the conformance harness uses this as its primary test surface for machine behaviour.
 
 ### A minimal machine
@@ -80,8 +77,13 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
   ```clojure
   (sub-machine machine-id) → reaction over snapshot
   ```
-- **Status**: v1
 - **Description**: Sugar over `(subscribe [:rf/machine machine-id])`. Use inside views — gives you a reaction over `{:state :data}`.
+- **Example**:
+  ```clojure
+  (let [{:keys [state data]} @(rf/sub-machine :auth.login/flow)]
+    [:div "State: " (name state)])
+  ```
+- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
 
 ### `machines`
 
@@ -90,7 +92,6 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
   ```clojure
   (machines) → seq of machine-ids
   ```
-- **Status**: v1
 - **Description**: "What machines have been registered?" Derived view over `(registrations :event)` filtered by `:rf/machine? true`.
 
 ### `machine-meta`
@@ -100,7 +101,6 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
   ```clojure
   (machine-meta machine-id) → registration-metadata map
   ```
-- **Status**: v1
 - **Description**: "What did `reg-machine` stamp at this machine's id?" Returns the transition table, doc, schemas, and the per-element source-coords. Equivalent to `(handler-meta :event machine-id)`.
 
 ### `machine-by-system-id`
@@ -111,7 +111,6 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
   (machine-by-system-id system-id)
   (machine-by-system-id system-id frame-id)
   ```
-- **Status**: v1
 - **Description**: Reverse-lookup: given a `system-id`, what's the spawned machine bound to it? Returns the spawned-machine id or `nil`.
 
 ### `machine-has-tag?`
@@ -121,7 +120,6 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
   ```clojure
   (machine-has-tag? machine-id tag) → reaction
   ```
-- **Status**: v1
 - **Description**: Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Reactive predicate over the machine's snapshot's `:tags` set. Use in views to render conditionally on state-tag membership.
 
 ### Standard registered subs (machines)
@@ -142,7 +140,6 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
   (dispatch-to-system system-id event)
   (dispatch-to-system system-id event frame-id)
   ```
-- **Status**: v1
 - **Description**: Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`. No-op when the `system-id` is unbound. The third-arity targets a non-default frame.
 
 When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`. `dispatch-to-system` lets the parent name the child by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. The per-frame `[:rf/system-ids]` reverse index resolves the name. See [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
@@ -197,7 +194,6 @@ See [005 §Final states](../../spec/005-StateMachines.md#final-states-final--on-
   ```clojure
   (machine->xstate-json definition) → JSON string
   ```
-- **Status**: post-v1 lib
 - **Description**: Export a machine definition to XState JSON. The XState visualiser consumes it; useful for design review and documentation.
 
 ### `machine->mermaid`
@@ -207,13 +203,11 @@ See [005 §Final states](../../spec/005-StateMachines.md#final-states-final--on-
   ```clojure
   (machine->mermaid definition) → string
   ```
-- **Status**: post-v1 lib
 - **Description**: Export to Mermaid state-diagram syntax. Drops cleanly into Markdown docs that render Mermaid (this site does).
 
 ### `:child-machine`
 
 - **Kind**: transition-table key (declarative)
-- **Status**: post-v1 lib
 - **Description**: Declarative state-scoped child-machine binding. A state node can declare a child machine that lives only while the parent is in that state. Symmetric with the imperative `:spawn` / `:destroy` cycle.
 
 The post-v1 surfaces live in `day8/re-frame2-machines` (the scaffolding library). The v1 foundation in `re-frame.core` covers the machine-as-event-handler primitive; the scaffolding library layers the higher-level features on top.
