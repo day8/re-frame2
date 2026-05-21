@@ -411,15 +411,20 @@
     :producer-ns 're-frame.views
     :design-bead "rf2-vh1k3"
     :description "Return the render-key of the view whose render is currently deref-ing a subscription (nil outside a view render). The reactive :sub/run emit stamps it onto its tag so the epoch back-fill can tell a view's genuine re-render (its own input changed) from a mount-burst tail that re-derefs unchanged subs."}
+   {:key         :views/record-view-deref!
+    :producer-ns 're-frame.views
+    :design-bead "rf2-9hoos"
+    :description "Record a view→sub edge: push the deref'd query-v into the in-flight render's deref sink so :rf.view/rendered carries the view's OWN read-set (:deref-subs), the precise per-view reactive reason (vs the cascade-wide :cause-subs, which over-reports). Called by re-frame.subs/subscribe under interop/debug-enabled?; no-op outside a view render."}
 
    ;; ---- :adapter/* — chained / routed across every CLJS adapter (rf2-0d35) --
    {:key         :adapter/clear-warn-once-caches!
     :producer-ns '[re-frame.views.warn-once
+                   re-frame.views
                    re-frame.adapter.helix
                    re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-4edk"
-    :description "Chained reset of every adapter's warn-once defonce caches."}
+    :description "Chained reset of every adapter's warn-once defonce caches. re-frame.views also chains its rf2-9hoos seen-render-keys reset (the :mount? discriminator's per-process set) so the standard runtime-reset fixture wipes it without new call-site wiring."}
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
