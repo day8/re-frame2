@@ -14,6 +14,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [cljs.reader :as edn]
             [applied-science.js-interop :as j]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.cache :as cache]))
 
 ;; ---------------------------------------------------------------------------
@@ -36,21 +37,10 @@
   (cond-> #js {:content #js [#js {:type "text" :text text}]}
     error? (j/assoc! :isError true)))
 
-(defn- args-js
-  "Construct a JS args object from a CLJS map (helps the
-  `j/get`-by-name paths in `args->fingerprint`)."
-  [m]
-  (let [o #js {}]
-    (doseq [[k v] m]
-      (j/assoc! o (name k) v))
-    o))
-
-(defn- extract-text
-  "Pull the first text slot off an MCP result."
-  [result]
-  (let [content (j/get result :content)
-        item    (when (array? content) (aget content 0))]
-    (when item (j/get item :text))))
+;; `args-js` + `extract-text` are the shared wire-envelope extractors
+;; (rf2-wnrpi) — one definition in `test-utils`, aliased here.
+(def ^:private args-js tu/args->js)
+(def ^:private extract-text tu/extract-text)
 
 (defn- cache-hit-result?
   "True iff `result` is a `:rf.mcp/cache-hit` marker."

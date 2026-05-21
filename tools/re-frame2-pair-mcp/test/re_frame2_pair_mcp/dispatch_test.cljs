@@ -16,7 +16,7 @@
                               the security gate (rf2-vflrg)"
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
-            [applied-science.js-interop :as j]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]))
 
@@ -49,17 +49,10 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
 
-(defn- read-result-text
-  "Extract the EDN text from a `wire/ok-text` / `wire/err-text` JS
-  envelope and read it back as CLJS data."
-  [result-js]
-  (let [content (j/get result-js :content)
-        item    (when (array? content) (aget content 0))
-        text    (when item (j/get item :text))]
-    (cljs.reader/read-string text)))
-
-(defn- err? [result-js]
-  (true? (j/get result-js :isError)))
+;; `read-result-text` (EDN read of the wire envelope) and `err?` are the
+;; shared extractors (rf2-wnrpi) — aliased from `test-utils`.
+(def ^:private read-result-text tu/extract-edn)
+(def ^:private err? tu/error?)
 
 ;; ---------------------------------------------------------------------------
 ;; Rejection arms — the security gate.

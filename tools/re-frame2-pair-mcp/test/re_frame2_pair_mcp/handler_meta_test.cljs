@@ -18,32 +18,22 @@
        kinds; `machine-meta` for `:machine`).
     4. Error envelopes — missing / invalid kind / id arguments surface
        structured `:reason` slots an agent can read."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [applied-science.js-interop :as j]
-            [cljs.reader :as edn]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.handler-meta :as hm]))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers.
+;;
+;; The wire-envelope extractors live in `test-utils` (shared across
+;; suites, rf2-wnrpi). `args-js` is aliased to the shared `args->js`.
 ;; ---------------------------------------------------------------------------
 
-(defn- args-js [m]
-  (let [o #js {}]
-    (doseq [[k v] m]
-      (j/assoc! o (name k) v))
-    o))
-
-(defn- extract-text [result]
-  (let [content (j/get result :content)
-        item    (when (array? content) (aget content 0))]
-    (when item (j/get item :text))))
-
-(defn- extract-edn [result]
-  (some-> (extract-text result) edn/read-string))
-
-(defn- is-error? [result]
-  (true? (j/get result :isError)))
+(def ^:private args-js tu/args->js)
+(def ^:private extract-edn tu/extract-edn)
+(def ^:private is-error? tu/error?)
 
 (defn- find-descriptor [name]
   (some #(when (= name (:name %)) %) tools/tool-descriptors))
@@ -106,42 +96,59 @@
 ;;
 ;; The tool short-circuits on bad args BEFORE reaching `probe/ensure-runtime!`.
 ;; A nil conn never gets touched on these paths.
+;;
+;; rf2-wnrpi: these six tests used to call `(.then p (fn [r] (is ...)))`
+;; from a SYNCHRONOUS deftest body — the deftest returned before the
+;; Promise resolved, so cljs.test recorded each as passed with ZERO
+;; assertions. The error-envelope contract for both tools was therefore
+;; effectively untested (a flipped `:invalid-kind` reason or an NPE on
+;; the nil conn would have passed green). Each now wraps the `.then` in
+;; `(async done ...)` so the assertions actually run before the test
+;; completes — mirroring `dispatch_test` / `probe_test`.
 ;; ---------------------------------------------------------------------------
 
 (deftest handler-meta-rejects-missing-kind
   (testing "handler-meta with no :kind surfaces :invalid-kind"
-    (let [p (hm/handler-meta-tool nil (args-js {:id ":user/login"}))]
-      (.then p (fn [result]
-                 (is (is-error? result))
-                 (let [edn (extract-edn result)]
-                   (is (= :invalid-kind (:reason edn)))))))))
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:id ":user/login"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :invalid-kind (:reason edn))))
+                   (done)))))))
 
 (deftest handler-meta-rejects-unknown-kind
   (testing "handler-meta with an out-of-vocab :kind surfaces :invalid-kind"
-    (let [p (hm/handler-meta-tool nil (args-js {:kind "not-a-kind"
-                                                 :id   ":user/login"}))]
-      (.then p (fn [result]
-                 (is (is-error? result))
-                 (let [edn (extract-edn result)]
-                   (is (= :invalid-kind (:reason edn)))
-                   (is (= "not-a-kind" (:kind edn)))))))))
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:kind "not-a-kind"
+                                              :id   ":user/login"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :invalid-kind (:reason edn)))
+                     (is (= "not-a-kind" (:kind edn))))
+                   (done)))))))
 
 (deftest handler-meta-rejects-missing-id
   (testing "handler-meta with kind but no :id surfaces :missing-id"
-    (let [p (hm/handler-meta-tool nil (args-js {:kind "event"}))]
-      (.then p (fn [result]
-                 (is (is-error? result))
-                 (let [edn (extract-edn result)]
-                   (is (= :missing-id (:reason edn)))))))))
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:kind "event"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :missing-id (:reason edn))))
+                   (done)))))))
 
 (deftest handler-meta-rejects-invalid-id-edn
   (testing "handler-meta with unreadable :id surfaces :invalid-id-edn"
-    (let [p (hm/handler-meta-tool nil (args-js {:kind "event"
-                                                 :id   "{:unclosed"}))]
-      (.then p (fn [result]
-                 (is (is-error? result))
-                 (let [edn (extract-edn result)]
-                   (is (= :invalid-id-edn (:reason edn)))))))))
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:kind "event"
+                                              :id   "{:unclosed"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :invalid-id-edn (:reason edn))))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; list-handlers-tool — error envelopes.
@@ -149,19 +156,23 @@
 
 (deftest list-handlers-rejects-missing-kind
   (testing "list-handlers with no :kind surfaces :invalid-kind"
-    (let [p (hm/list-handlers-tool nil (args-js {}))]
-      (.then p (fn [result]
-                 (is (is-error? result))
-                 (let [edn (extract-edn result)]
-                   (is (= :invalid-kind (:reason edn)))))))))
+    (async done
+      (-> (hm/list-handlers-tool nil (args-js {}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :invalid-kind (:reason edn))))
+                   (done)))))))
 
 (deftest list-handlers-rejects-unknown-kind
   (testing "list-handlers with an out-of-vocab :kind surfaces :invalid-kind"
-    (let [p (hm/list-handlers-tool nil (args-js {:kind "ghost"}))]
-      (.then p (fn [result]
-                 (is (is-error? result))
-                 (let [edn (extract-edn result)]
-                   (is (= :invalid-kind (:reason edn)))))))))
+    (async done
+      (-> (hm/list-handlers-tool nil (args-js {:kind "ghost"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :invalid-kind (:reason edn))))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Name + descriptor kind-vocab consistency.
