@@ -501,13 +501,3 @@
                [overlay-cascade/CancellationCascadeOverlay
                 {:cascade-spec cancellation-cascade
                  :tick         overlay-tick}])]))))))
-
-;; ---- empty-graph convenience for callers --------------------------------
-
-(defn render-from-definition
-  "Legacy entry-point — renders the chart from a definition map. Kept
-  for callers still using the pre-migration `render-from-definition`
-  surface; prefer the `MachineChart` component directly."
-  ([definition] (render-from-definition definition {}))
-  ([definition opts]
-   [MachineChart (assoc opts :definition definition)]))
