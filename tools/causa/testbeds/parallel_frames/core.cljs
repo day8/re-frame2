@@ -27,19 +27,10 @@
 
   ## The app
 
-  Each frame mounts the same panel exercising four feature surfaces:
+  Each frame mounts the same panel exercising three feature surfaces:
 
     Counter        — `+ / −` buttons. Demonstrates events, app-db
                      evolution, simple sub recomputation.
-    Clock          — per-frame Tick button increments the local
-                     `:ticks` counter once per click. Demonstrates
-                     event-driven sub recomputation cleanly on demand,
-                     and (because each frame's `:ticks` slot is
-                     independent) the parallel-frame isolation: ticking
-                     :above does not move :below's counter and vice
-                     versa. The auto-tick dispatch chain that used to
-                     drive this was retired in rf2-gxgmt — spine
-                     pollution outweighed teaching value.
     Title (HTTP)   — Refresh button dispatches an event that, via the
                      `:title/flow` state machine, fires an in-process
                      mock-HTTP effect. The mock resolves ~600ms after
@@ -58,7 +49,7 @@
   - Frame picker: switching between `:above` and `:below` re-scopes
     every L2 (Events) and L4 (App-db, Views, Machines, HTTP, Issues,
     Trace) panel to the active frame.
-  - Each frame's counter / clock / machine state evolves on its own
+  - Each frame's counter / machine state evolves on its own
     independent of the other frame.
   - Slow-fetch surfaces an Issue per request, distinct per frame.
 
@@ -91,13 +82,6 @@
 ;; CONSTANTS
 ;; ============================================================================
 
-(def CLOCK-TICK-MS
-  "Clock tick period — referenced only by the parked `::clock-start`
-  handler (currently unused; see rf2-gxgmt). Kept so any future
-  opt-in auto-tick toggle can re-enable the self-perpetuating chain
-  without re-introducing the magic number."
-  1000)
-
 (def HTTP-MOCK-DELAY-MS
   "Mock-HTTP delay. The 600ms figure is the load-bearing decision:
   long enough to exceed Spec 009's slow-effect threshold (so Causa's
@@ -126,30 +110,11 @@
   ;; synthesises the initial snapshot on first dispatch (Spec 005
   ;; §Initial-state cascading), which is exactly the side-effect we
   ;; want.
-  ;;
-  ;; rf2-gxgmt — the clock-tick chain is no longer started here. The
-  ;; per-frame Tick button dispatches `::clock-tick` on demand
-  ;; instead, demonstrating parallel-frame isolation without
-  ;; continuous spine pollution.
   (fn [_ctx _ev]
     {:db {:counter   0
-          ;; rf2-gxgmt — `:clock {:tick-gen 0 :ticks 0}` still seeded
-          ;; here so the per-frame Tick button (which dispatches
-          ;; `[::clock-tick 0]`) finds both slots present on first
-          ;; click. `:tick-gen` stays at 0 in on-demand mode; it's
-          ;; the parking spot for a future Reset/Pause toggle.
-          :clock     {:tick-gen 0
-                      :ticks    0}
           :title     {:value    "Parallel-Frames (untouched)"
                       :error    nil
                       :requests 0}}
-     ;; Clock-tick chain disabled (rf2-gxgmt — annoying + low value;
-     ;; spine pollution from recursive ::clock-tick dispatch). The
-     ;; per-frame Tick buttons drive `::clock-tick` on demand instead —
-     ;; isolation visible without continuous spine noise.
-     ;; ::clock-start / ::clock-tick / ::clock-ticks remain registered
-     ;; below; ::clock-start is now unused (kept for a future opt-in
-     ;; "auto-tick" toggle if it ever becomes useful again).
      :fx [[:dispatch [:title/flow [:rf/init]]]]}))
 
 ;; ============================================================================
@@ -163,47 +128,6 @@
   (fn [db _ev] (update db :counter (fnil dec 0))))
 
 (rf/reg-sub ::counter (fn [db _] (:counter db)))
-
-;; ============================================================================
-;; CLOCK — on-demand tick via per-frame "Tick" button
-;; ============================================================================
-;;
-;; rf2-gxgmt — the auto-ticking dispatch chain was removed. Each frame
-;; now exposes a "Tick" button that dispatches `::clock-tick` once
-;; against the surrounding frame. Clicking Tick on :above increments
-;; only :above's tick counter; clicking Tick on :below increments only
-;; :below's. The isolation is visible on demand without continuous
-;; spine pollution.
-;;
-;; ::clock-start is no longer wired (`:on-create` doesn't dispatch it
-;; any more) but stays registered as a parking spot for any future
-;; opt-in auto-tick toggle. The `:tick-gen` generation guard in
-;; ::clock-tick stays idiomatic — costs nothing and pairs with a
-;; future Reset/Pause affordance if one materialises.
-
-(rf/reg-event-fx ::clock-start
-  ;; Currently unused — the testbed runs in on-demand mode (rf2-gxgmt).
-  ;; Left registered so a future auto-tick toggle can re-enable the
-  ;; self-perpetuating chain without touching the registration graph.
-  (fn [{:keys [db]} _ev]
-    (let [gen (get-in db [:clock :tick-gen])]
-      {:fx [[:dispatch-later {:ms    CLOCK-TICK-MS
-                              :event [::clock-tick gen]}]]})))
-
-(rf/reg-event-fx ::clock-tick
-  ;; On-demand single-tick handler (rf2-gxgmt). The per-frame "Tick"
-  ;; button dispatches `[::clock-tick gen]` with the current
-  ;; `:tick-gen`; the handler increments `:ticks` and stops. The
-  ;; generation guard stays idiomatic — `:tick-gen` lets a future
-  ;; Reset bump the generation so any stale in-flight ticks no-op.
-  (fn [{:keys [db]} [_ gen]]
-    (if (not= gen (get-in db [:clock :tick-gen]))
-      ;; Stale tick from a retired generation. Drop it silently.
-      {}
-      {:db (update-in db [:clock :ticks] (fnil inc 0))})))
-
-(rf/reg-sub ::clock-ticks
-  (fn [db _] (get-in db [:clock :ticks])))
 
 ;; ============================================================================
 ;; TITLE (HTTP) — :title/flow state machine + mock-HTTP fx
@@ -340,18 +264,83 @@
 ;; context to the surrounding `frame-provider`'s frame id (per
 ;; Spec 002 §View ergonomics). Same view source, two independent
 ;; reactive contexts.
+;;
+;; The panel is composed from two logical `reg-view`s — `counter-view`
+;; and `title-view` — wrapped by `frame-panel`. Each child is its own
+;; `reg-view` so its injected `dispatch` / `subscribe` resolve against
+;; the SAME surrounding `frame-provider` context that `frame-panel`
+;; renders under. The split is purely structural — the rendered DOM is
+;; identical to the single monolithic panel it replaced.
+
+(reg-view counter-view [frame-label]
+  (let [counter @(subscribe [::counter])]
+    [:div {:style {:margin "0.75em 0 0.5em 0"
+                   :display "flex" :gap "8px" :align-items "center"}}
+     [:strong "Counter:"]
+     [:button {:data-testid (str frame-label "-counter-dec")
+               :on-click    #(dispatch [::counter-dec])}
+      "−"]
+     [:span {:data-testid (str frame-label "-counter-value")
+             :style       {:min-width "2em"
+                           :text-align "center"
+                           :font-family "monospace"
+                           :font-weight "bold"}}
+      counter]
+     [:button {:data-testid (str frame-label "-counter-inc")
+               :on-click    #(dispatch [::counter-inc])}
+      "+"]]))
+
+(reg-view title-view [frame-label]
+  (let [state    @(subscribe [::title-state])
+        data     @(subscribe [::title-data])
+        requests @(subscribe [::title-requests])
+        loading? (= state :loading)]
+    [:div {:style {:margin "0.5em 0 0 0"
+                   :padding "0.5em 0"
+                   :border-top "1px solid #ddd"}}
+     [:div {:style {:display "flex" :gap "8px" :align-items "center"
+                    :margin-bottom "0.25em"}}
+      [:strong "Title:"]
+      [:span {:data-testid (str frame-label "-title-state")
+              :style {:font-family "monospace"
+                      :color (case state
+                               :loading "#249"
+                               :loaded  "#1a5"
+                               :error   "#a40"
+                               "#444")}}
+       (str state)]
+      [:span {:style {:font-size "11px" :color "#888"}}
+       "(" requests " request" (when (not= 1 requests) "s") ")"]]
+     [:div {:data-testid (str frame-label "-title-value")
+            :style {:font-family "monospace"
+                    :font-size "12px"
+                    :color "#333"
+                    :background "#fff"
+                    :border "1px solid #eee"
+                    :border-radius "3px"
+                    :padding "4px 8px"
+                    :margin "0.25em 0"
+                    :overflow "auto"}}
+      (cond
+        (:error data) (str "ERROR: " (:error data))
+        (:value data) (:value data)
+        :else         "(no value yet — click Refresh)")]
+     [:div {:style {:display "flex" :gap "6px" :margin-top "0.25em"}}
+      [:button {:data-testid (str frame-label "-title-refresh")
+                :disabled    loading?
+                :on-click    #(dispatch [::title-refresh {}])}
+       (if loading? "Loading…" "Refresh (HTTP)")]
+      [:button {:data-testid (str frame-label "-title-force-error")
+                :disabled    loading?
+                :on-click    #(dispatch [::title-refresh
+                                         {:force-error? true}])}
+       "Force error"]]]))
 
 (reg-view frame-panel [frame-label]
-  (let [counter   @(subscribe [::counter])
-        ticks     @(subscribe [::clock-ticks])
-        state     @(subscribe [::title-state])
-        data      @(subscribe [::title-data])
-        requests  @(subscribe [::title-requests])
-        loading?  (= state :loading)
-        accent    (case frame-label
-                    "above" "#2b7"
-                    "below" "#36c"
-                    "#444")]
+  (let [accent (case frame-label
+                 "above" "#2b7"
+                 "below" "#36c"
+                 "#444")]
     [:section {:data-testid (str frame-label "-panel")
                :style {:border        (str "1px solid " accent)
                        :border-radius "6px"
@@ -370,82 +359,8 @@
         "(" frame-label ")"]]
       [:span {:style {:font-size "11px" :color "#888"}}
        "isolated reactive context"]]
-
-     ;; --- Counter -------------------------------------------------------
-     [:div {:style {:margin "0.75em 0 0.5em 0"
-                    :display "flex" :gap "8px" :align-items "center"}}
-      [:strong "Counter:"]
-      [:button {:data-testid (str frame-label "-counter-dec")
-                :on-click    #(dispatch [::counter-dec])}
-       "−"]
-      [:span {:data-testid (str frame-label "-counter-value")
-              :style       {:min-width "2em"
-                            :text-align "center"
-                            :font-family "monospace"
-                            :font-weight "bold"}}
-       counter]
-      [:button {:data-testid (str frame-label "-counter-inc")
-                :on-click    #(dispatch [::counter-inc])}
-       "+"]]
-
-     ;; --- Clock ---------------------------------------------------------
-     ;; rf2-gxgmt — on-demand tick (auto-tick chain retired). Clicking
-     ;; the per-frame Tick button increments only this frame's :ticks
-     ;; slot; the other frame stays put. Parallel-frame isolation
-     ;; visible without continuous spine noise.
-     [:div {:style {:margin "0.5em 0"
-                    :display "flex" :gap "8px" :align-items "center"}}
-      [:strong "Clock:"]
-      [:button {:data-testid (str frame-label "-clock-tick")
-                :on-click    #(dispatch [::clock-tick 0])}
-       "Tick"]
-      [:span {:data-testid (str frame-label "-clock-ticks")
-              :style       {:font-family "monospace"}}
-       (str ticks " tick" (when (not= 1 ticks) "s"))]
-      [:span {:style {:font-size "11px" :color "#888"}}
-       "on-demand"]]
-
-     ;; --- Title (HTTP) --------------------------------------------------
-     [:div {:style {:margin "0.5em 0 0 0"
-                    :padding "0.5em 0"
-                    :border-top "1px solid #ddd"}}
-      [:div {:style {:display "flex" :gap "8px" :align-items "center"
-                     :margin-bottom "0.25em"}}
-       [:strong "Title:"]
-       [:span {:data-testid (str frame-label "-title-state")
-               :style {:font-family "monospace"
-                       :color (case state
-                                :loading "#249"
-                                :loaded  "#1a5"
-                                :error   "#a40"
-                                "#444")}}
-        (str state)]
-       [:span {:style {:font-size "11px" :color "#888"}}
-        "(" requests " request" (when (not= 1 requests) "s") ")"]]
-      [:div {:data-testid (str frame-label "-title-value")
-             :style {:font-family "monospace"
-                     :font-size "12px"
-                     :color "#333"
-                     :background "#fff"
-                     :border "1px solid #eee"
-                     :border-radius "3px"
-                     :padding "4px 8px"
-                     :margin "0.25em 0"
-                     :overflow "auto"}}
-       (cond
-         (:error data) (str "ERROR: " (:error data))
-         (:value data) (:value data)
-         :else         "(no value yet — click Refresh)")]
-      [:div {:style {:display "flex" :gap "6px" :margin-top "0.25em"}}
-       [:button {:data-testid (str frame-label "-title-refresh")
-                 :disabled    loading?
-                 :on-click    #(dispatch [::title-refresh {}])}
-        (if loading? "Loading…" "Refresh (HTTP)")]
-       [:button {:data-testid (str frame-label "-title-force-error")
-                 :disabled    loading?
-                 :on-click    #(dispatch [::title-refresh
-                                          {:force-error? true}])}
-        "Force error"]]]]))
+     [counter-view frame-label]
+     [title-view frame-label]]))
 
 (reg-view root []
   [:div {:data-testid "parallel-frames-root"
@@ -499,9 +414,7 @@
   (causa-config/configure! {:rf.causa/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Register the two frames. Each `:on-create` seeds its own app-db
-  ;; synchronously (rf2-gxgmt — the clock-tick chain is no longer
-  ;; auto-started; the per-frame Tick button drives `::clock-tick` on
-  ;; demand instead). The `::initialise` handler is registered once
+  ;; synchronously. The `::initialise` handler is registered once
   ;; globally and resolves against whichever frame the dispatch
   ;; envelope targets — per-frame state evolution is automatic.
   (rf/reg-frame frame-above {:on-create [::initialise]})
