@@ -496,10 +496,11 @@
             "L1 frame picker (or single-frame label) present in Dynamic")))))
 
 (deftest l1-frame-picker-mounts-in-static-mode
-  (testing "Static surface mounts the L1 frame picker — Static is also
-            frame-scoped (registrations live in a particular frame),
-            so the picker is mode-INDEPENDENT and persists across mode
-            toggles"
+  (testing "Static surface mounts the L1 frame picker — four of the five
+            Static tabs project a per-frame surface (machines snapshots,
+            current-route slice, app-db schemas, flows), so the picker
+            is mode-INDEPENDENT and persists across mode toggles even
+            though the registrar itself is process-global"
     (causa-setup!)
     (frame-dispatch [:rf.causa/set-mode :static])
     (rf/with-frame :rf/causa

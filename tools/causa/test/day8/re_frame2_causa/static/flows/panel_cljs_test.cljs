@@ -121,14 +121,43 @@
       (is (= 0 (count (panel/filter-rows rows "no-such-thing")))))))
 
 (deftest project-data-shape
-  (let [data (panel/project-data sample-flows nil)]
+  ;; nil frame-id = list every frame's flows (see scope-to-frame).
+  (let [data (panel/project-data sample-flows nil nil)]
     (testing "silent flag"
       (is (false? (:silent? data)))
-      (is (true? (:silent? (panel/project-data {} nil)))))
+      (is (true? (:silent? (panel/project-data {} nil nil)))))
     (testing "totals + filter flags"
       (is (= 2 (:total data)))
       (is (false? (:filtered? data)))
-      (is (true? (:filtered? (panel/project-data sample-flows "cart")))))))
+      (is (true? (:filtered? (panel/project-data sample-flows nil "cart")))))))
+
+(deftest scope-to-frame-narrows-to-one-frame
+  (let [multi {:rf/default {:a {:id :a}}
+               :rf/cart    {:b {:id :b}}}]
+    (testing "nil frame-id passes the snapshot through verbatim"
+      (is (= multi (panel/scope-to-frame multi nil))))
+    (testing "a frame-id keeps only that frame's entry"
+      (is (= {:rf/default {:a {:id :a}}}
+             (panel/scope-to-frame multi :rf/default)))
+      (is (= {:rf/cart {:b {:id :b}}}
+             (panel/scope-to-frame multi :rf/cart))))
+    (testing "an absent frame-id yields an empty registry"
+      (is (= {} (panel/scope-to-frame multi :rf/nope))))))
+
+(deftest project-data-scopes-to-frame
+  (let [multi {:rf/default {:a {:id :a :inputs [] :path [:a]}}
+               :rf/cart    {:b {:id :b :inputs [] :path [:b]}
+                            :c {:id :c :inputs [] :path [:c]}}}]
+    (testing "frame A surfaces only frame A's flows, not the flattened global set"
+      (let [data (panel/project-data multi :rf/default nil)]
+        (is (= 1 (:total data)))
+        (is (= [:a] (mapv :flow-id (:flows data))))))
+    (testing "frame B surfaces only frame B's flows"
+      (let [data (panel/project-data multi :rf/cart nil)]
+        (is (= 2 (:total data)))
+        (is (= [:b :c] (mapv :flow-id (:flows data))))))
+    (testing "nil frame-id still lists every frame's flows"
+      (is (= 3 (:total (panel/project-data multi nil nil)))))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) registry wiring
@@ -161,6 +190,45 @@
       (is (false? (:silent? data))))
     (rf/dispatch-sync
       [:rf.causa.static.flows/set-registered-flows-override-for-test nil])))
+
+(def two-frame-flows
+  "Two frames each carrying distinct flows — fixture for the picker-
+  scoping regression."
+  {:rf/default
+   {:user/full-name {:id     :user/full-name
+                     :inputs [[:user :first]]
+                     :path   [:derived :full-name]}}
+   :rf/cart-frame
+   {:cart/total {:id     :cart/total
+                 :inputs [[:cart :items]]
+                 :path   [:cart :total]}
+    :cart/count {:id     :cart/count
+                 :inputs [[:cart :items]]
+                 :path   [:cart :count]}}})
+
+(deftest tab-data-scopes-to-picker-frame
+  (testing "the L1 frame picker scopes the Flows catalogue — switching
+            the picker frame changes which frame's flows the tab lists,
+            rather than the flattened all-frames set"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.flows/set-registered-flows-override-for-test
+         two-frame-flows])
+      (testing "picker on :rf/default → only that frame's one flow"
+        (rf/dispatch-sync [:rf.causa/select-frame :rf/default])
+        (let [data @(rf/subscribe [:rf.causa.static.flows/tab-data])]
+          (is (= 1 (:total data)) "frame :rf/default has one flow")
+          (is (= [:user/full-name] (mapv :flow-id (:flows data)))
+              "only :rf/default's flow surfaces")))
+      (testing "picker on :rf/cart-frame → only that frame's two flows"
+        (rf/dispatch-sync [:rf.causa/select-frame :rf/cart-frame])
+        (let [data @(rf/subscribe [:rf.causa.static.flows/tab-data])]
+          (is (= 2 (:total data)) "frame :rf/cart-frame has two flows")
+          (is (= [:cart/count :cart/total] (mapv :flow-id (:flows data)))
+              "only :rf/cart-frame's flows surface — NOT the global set of 3")))
+      (rf/dispatch-sync
+        [:rf.causa.static.flows/set-registered-flows-override-for-test nil]))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) view rendering

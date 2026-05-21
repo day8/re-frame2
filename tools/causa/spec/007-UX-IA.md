@@ -1509,15 +1509,28 @@ surface is event-independent — and renders 3 layers:
 L2's absence is also a functional signal — see §Mode-signal mechanism
 below.
 
-The L1 frame picker is **mode-independent**. Static is also
-frame-scoped — registered events, subs, machines, routes, schemas,
-flows, and interceptors all live in a particular frame, so the user
-must be able to pick which frame they are browsing whether the lens is
-event-coupled (Dynamic) or event-independent (Static). Both shells
-mount the same `frame_switcher/frame-switcher-view` (the canonical L1
-contract); the selection persists across mode toggles. Dynamic's
-spine-coupled clusters (nav `[◀ ▶ ⏭]`, filter pills) remain hidden in
-Static — those have no meaning without a spine.
+The L1 frame picker is **mode-independent**. Per [Spec 001](../../../spec/001-Registration.md)
+the registrar is **process-global** — frames isolate *state*, not
+*registrations* — so event / sub / route / interceptor /
+machine-definition catalogues are shared across every frame and read
+the same regardless of the picker. What the picker scopes is the
+genuinely per-frame surface each Static panel projects:
+
+| Tab | Frame-scoped (picker changes it) | Process-global (cross-frame) |
+|---|---|---|
+| **Machines** | live machine snapshots (`:rf/machines` in the target-frame db) | the machine-definition catalogue |
+| **Routes** | the current-route slice (`:rf/route`) | the route-definition catalogue |
+| **Schemas** | the app-db-schema side-table (`schemas-by-frame`) | event-spec + sub-spec rows |
+| **Flows** | the flows registry (`{frame-id {flow-id …}}`, [Spec 013](../../../spec/013-Flows.md)) | — (fully per-frame) |
+| **Interceptors** | — | interceptor chains (live on globally registered events) |
+
+So switching the picker changes the per-frame projections above; the
+global catalogues are deliberately cross-frame. The picker stays in
+Static because four of the five tabs DO carry a per-frame surface.
+Both shells mount the same `frame_switcher/frame-switcher-view` (the
+canonical L1 contract); the selection persists across mode toggles.
+Dynamic's spine-coupled clusters (nav `[◀ ▶ ⏭]`, filter pills) remain
+hidden in Static — those have no meaning without a spine.
 
 ### Sub-tab inventory (Static L3)
 
