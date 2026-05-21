@@ -82,7 +82,7 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 **What's CLJS-specific.**
 
-- Reagent's auto-tracked deref-during-render dependency capture. Your substrate may need explicit subscriptions (Solid: `createMemo`, Vue: `computed`, hand-rolled: explicit `subscribe`/`unsubscribe`).
+- Reagent's auto-tracked deref-during-render dependency capture. Your host's React binding supplies the equivalent over its `useSyncExternalStore` (UIx / Helix: a `use-subscribe` hook; TS-React / Fable.React / Feliz / ReasonReact / Halogen-React / Kotlin-React: the same pattern).
 - The component-lifecycle integration uses Reagent's lifecycle methods. Other substrates plug into their own.
 
 **What's pattern-required.** The six required functions + two optional + one lifecycle. Single-adapter-per-process. Adapter-internal state derivable from the frame value (revertibility constraint).
@@ -105,9 +105,9 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 **What's CLJS-specific.**
 
-- Closure DCE for production elision. JS/TS use Vite's `define` constants and tree-shaking; Rust uses `#[cfg(feature = "trace")]`; Python uses `if __debug__:` and the `-O` flag.
+- Closure DCE for production elision. JS / TS and Squint use Vite's `define` constants and tree-shaking; Fable uses `#if !DEBUG` + tree-shake; Scala.js uses link-time-`if`; Kotlin/JS uses release-variant module omission.
 - The sentinel-string CI verifier is portable — copy the pattern, adapt to your bundler.
-- Chrome Performance API bridge (`performance.mark` / `performance.measure`) is browser-only; alternative profilers per host (clj-async-profiler on JVM, cProfile in Python, `tracing` spans in Rust).
+- Chrome Performance API bridge (`performance.mark` / `performance.measure`). Every in-scope host targets the browser, so the same Performance API is uniformly available; the bridge itself is optional (the trace surface is the contract).
 
 **What's pattern-required.** Trace event stream synchronous + in-order + per-emit. Listener registry. Retain-N ring buffer (dev). Production elision (host's mechanism). Structured error contract with `:operation :rf.error/<category>`.
 
@@ -135,7 +135,7 @@ EP 012 implementation. Hand-rolled URL matcher with a six-rule precedence cascad
 
 ### `schemas/`
 
-EP 010 implementation. Malli is the wire layer; `reg-app-schema` and `:spec` metadata are the public API. Replace Malli with Zod / Pydantic / dry-rb per D5.
+EP 010 implementation. Malli is the wire layer; `reg-app-schema` and `:spec` metadata are the public API. Replace Malli with the host's mechanism per D5 — Zod for the dynamically-typed in-scope hosts (TS / Squint), or the host's own type system for the statically-typed ones.
 
 ### `ssr/`
 

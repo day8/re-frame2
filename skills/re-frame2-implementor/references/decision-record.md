@@ -30,11 +30,12 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 - **Runtime targets:** <e.g. "browser (Chrome 100+), Node 20+">
 - **Build tool:** <e.g. "Vite + tsc">
 
-## D2. Substrate / view layer
+## D2. Substrate / React binding
 
-- **Substrate:** <e.g. "React 19 + VDOM" / "SwiftUI" / "raw DOM" / "terminal (textual)" / "none — server-only">
-- **Reactive container library:** <e.g. "Solid signals" / "MobX" / "Vue refs" / "hand-rolled signals">
-- **Render-tree shape:** <e.g. "JSX-as-data" / "hiccup-equivalent tuples" / "SwiftUI ViewBuilder" / "ANSI escape vnodes">
+- **Substrate:** React + VDOM (fixed — every in-scope host binds against React).
+- **React binding:** <e.g. "Reagent atop React" / "UIx" / "Helix" / "Feliz / Fable.React" / "kotlin-wrappers React" / "rescript-react" / "scalajs-react / Slinky" / "purescript-react-basic">
+- **Reactive container library:** <e.g. "Reagent ratom" / "useSyncExternalStore-backed atom store" / "signal cell" / "MutableStateFlow-shaped cell">
+- **Render-tree shape:** <e.g. "hiccup" / "JSX-as-data / snabbdom vnodes" / "Feliz Html.div DSL" / "R.div [...]" — must serialise for SSR + tooling>
 
 ## D3. Scope — which EPs ship in v1
 
@@ -105,7 +106,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 #### Sub1 Signal graph + caching
 
-- **Graph backing:** <e.g. "Reagent reactions" / "Solid createMemo" / "hand-rolled signal DAG">
+- **Graph backing:** <e.g. "Reagent reactions" / "useSyncExternalStore-driven memo" / "hand-rolled signal DAG over the React binding">
 - **Cache key:** <confirm `=`-by-value equality for invalidation; identity-only equality is out>
 
 #### Sub2 Lifecycle (when to dispose)
@@ -156,7 +157,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 ## D5. Schema mechanism
 
 - **Answer:** <yes-runtime-schema / yes-via-host-types / no>
-- **Library (if runtime-schema):** <e.g. "Zod" / "Pydantic" / "dry-rb">
+- **Library (if runtime-schema):** <e.g. "Malli (CLJS)" / "Zod (TS / Squint)">
 - **Validation timing:** <e.g. "boundary-only, dev-build only, elided by Vite define" / "boundary-only, JIT-compiled to no-op in release">
 - **Open-shape verification:** <how the port enforces open shapes — additive growth, unknown-key tolerance>
 
@@ -164,7 +165,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 - **Model:** <standalone library / framework integration / embedded>
 - **Downstream consumer:** <name the framework / app / process the port plugs into>
-- **Wiring boundary:** <where the consumer's app code meets the port — e.g. "React provider component" / "asyncio loop integration in main.py" / "library API only">
+- **Wiring boundary:** <where the consumer's app code meets the port — e.g. "React provider component" / "React Native root component" / "library API only">
 
 ## D7. Conformance capability tag set
 
