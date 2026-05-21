@@ -30,13 +30,13 @@ Each recipe leads with the **MCP-tool form** (preferred — ~14× faster, single
 ## "What's in `app-db`?" / "What did the last event do?"
 
 - Snapshot or get: `app-db/snapshot`, `app-db/get`, or for a diff between an epoch's `:db-before` and `:db-after`: `trace/last-epoch` and compute the diff with `clojure.data/diff`. The runtime helper `(re-frame2-pair.runtime/epoch-diff <epoch>)` returns a pre-computed `{:only-before :only-after :common}` map.
-- From the MCP transport, `snapshot`'s `:app-db` slice now defaults to **`:summary` mode** (top-level keys + count + size marker, not the full value — rf2-tygdv); drill in with `mcp__re-frame2-pair__get-path {path: "[:that :key]"}` or with a follow-up `snapshot {path: "[:that :key]"}`. Root path `path: "[]"` opts back into the full `:app-db` slice when you really want it. See [`mcp-transport.md` §:app-db slice modes](mcp-transport.md#when-to-use-snapshot-vs-the-per-op-reads).
+- From the MCP transport, `snapshot`'s `:app-db` slice now defaults to **`:summary` mode** (top-level keys + count + size marker, not the full value); drill in with `mcp__re-frame2-pair__get-path {path: "[:that :key]"}` or with a follow-up `snapshot {path: "[:that :key]"}`. Root path `path: "[]"` opts back into the full `:app-db` slice when you really want it. See [`mcp-transport.md` §:app-db slice modes](mcp-transport.md#when-to-use-snapshot-vs-the-per-op-reads).
 
 ## "Why didn't my view update?"
 
 1. Identify the sub the view reads (ask the user if it's not in the view file).
 2. `trace/last-epoch` (or `trace/last-pair-epoch`) — find the recent dispatch that should have updated it.
-3. Walk the epoch's `:sub-runs` projection. **A sub that re-ran appears in the vector; a sub that cache-hit does not** (Spec-Schemas §`:rf/epoch-record` — the rf2-719e value-equal recompute suppression is enforced by the runtime, so cache-hit subs do not emit `:sub/run`).
+3. Walk the epoch's `:sub-runs` projection. **A sub that re-ran appears in the vector; a sub that cache-hit does not** (Spec-Schemas §`:rf/epoch-record` — value-equal recompute suppression is enforced by the runtime, so cache-hit subs do not emit `:sub/run`).
 4. If the sub the view depends on isn't in `:sub-runs` for the cascade, the equality gate held; report the upstream sub whose return value was `=` to its previous value.
 5. If the sub did re-run but the view didn't re-render, check `:renders` — the projection lists every render in the cascade with its `:render-key` and `:triggered-by`.
 
@@ -173,7 +173,7 @@ See [streaming-subscriptions.md](streaming-subscriptions.md) for topic / filter 
 
 ## "Alert me on slow events"
 
-Prefer `mcp__re-frame2-pair__subscribe {topic: "epoch", filter: {":timing-ms": ">100"}}` — the `:timing-ms` predicate (rf2-r3azh) rides server-side so only slow cascades cross the wire. Accepts a number (sugar for `>= N`) or a comparison string (`">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"`); see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape. On each `notifications/progress` tick, narrate matches and pull per-interceptor timings from the raw trace if needed. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
+Prefer `mcp__re-frame2-pair__subscribe {topic: "epoch", filter: {":timing-ms": ">100"}}` — the `:timing-ms` predicate rides server-side so only slow cascades cross the wire. Accepts a number (sugar for `>= N`) or a comparison string (`">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"`); see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape. On each `notifications/progress` tick, narrate matches and pull per-interceptor timings from the raw trace if needed. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
 
 Fallback (pull-mode, no host progress notifications): `mcp__re-frame2-pair__watch-epochs {pred: {"timing-ms": ">100"}}`.
 
@@ -238,7 +238,7 @@ Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, o
    mcp__re-frame2-pair__snapshot {frame: ":story.counter/empty"}
    mcp__re-frame2-pair__snapshot {frame: ":story.counter/loaded"}
    ```
-   With the MCP `:summary` default (rf2-tygdv), each result returns top-level keys + counts — drill into divergent keys with `get-path`.
+   With the MCP `:summary` default, each result returns top-level keys + counts — drill into divergent keys with `get-path`.
 2. Compute the diff. If both are small, return them inline and let the model narrate. If they're large, drive `clojure.data/diff` directly:
    ```
    mcp__re-frame2-pair__eval-cljs {

@@ -99,14 +99,14 @@ The framework commits to the attribute format and the index shape — both are p
 
 Causa ships its own pick-mode helper, its own coord-to-editor handler, its own batch "highlight every node from this view" toggle. `re-frame2-pair` ships its own helpers over the same attribute. They could diverge in implementation; they can't diverge in contract — the attribute is the wire.
 
-## Two recent landmarks
+## Two contracts to know
 
-Click-to-source has been on the spec roadmap since before re-frame2 was named. Two recent shipments matter:
+Click-to-source rests on two locked contracts:
 
-- **PR #1106 (rf2-g5q8d)** — open-in-editor wired through the panel's allowlist. The shipped tool *opens a file in your editor when you click* without prompting you for confirmation on every click. The allowlist is a security gate, not a UX gate; once configured, the gesture is friction-free.
-- **The `data-rf2-source-coord` contract was rolled into the spec proper** — `<ns>:<sym>:<line>:<col>` is locked. Future tools that grew up after Causa can rely on it.
+- **Open-in-editor through an allowlist.** The panel's open-in-editor handler is gated by a host-configured allowlist of editor commands. The shipped tool *opens a file in your editor when you click* without prompting you for confirmation on every click. The allowlist is a security gate, not a UX gate; once configured, the gesture is friction-free.
+- **`data-rf2-source-coord` is part of the spec.** `<ns>:<sym>:<line>:<col>` is locked. Future tools can rely on it.
 
-Causa's click-to-source is what closed the loop between "the framework knows where every line came from" and "the developer's first gesture in a debugging session is a *click*, not a grep."
+Click-to-source is what closes the loop between "the framework knows where every line came from" and "the developer's first gesture in a debugging session is a *click*, not a grep."
 
 ## Walking click-to-source on the parallel-frames testbed
 

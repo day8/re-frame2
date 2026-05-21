@@ -13,7 +13,7 @@
 
 | Phase | Invocation |
 |---|---|
-| **Old** (clj-new + Clojars; retired at rf2-dolpf §2.5 on 2026-05-20) | `clojure -X:project/new :template re-frame2 :name acme/my-app` |
+| **Old** (clj-new + Clojars; retired 2026-05-20) | `clojure -X:project/new :template re-frame2 :name acme/my-app` |
 | **New** (deps-new + git-coord) | `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app` |
 
 No action is required on **existing** scaffolded apps — the
@@ -82,8 +82,8 @@ deps-new rebuild, the **locked v1 set is exactly three flags**:
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
 | `:include-story?` | boolean | `false` | When `true`, scaffolds the Story playground alongside the live app (Reagent only in v1). |
-| `:css` | keyword (`:plain` / `:tailwind`) | `:plain` | When `:tailwind`, scaffolds Tailwind v4 in place of the default plain-CSS `app.css`. Gated on rf2-gthro. |
-| `:include-ssr?` | boolean | `false` | When `true`, scaffolds the SSR build (Spec 011). Gated on rf2-0m5ea. |
+| `:css` | keyword (`:plain` / `:tailwind`) | `:plain` | When `:tailwind`, scaffolds Tailwind v4 in place of the default plain-CSS `app.css`. |
+| `:include-ssr?` | boolean | `false` | When `true`, scaffolds the SSR build (Spec 011). |
 
 Plus the substrate selector:
 
@@ -179,7 +179,7 @@ for the full install reference.
 - [tools/template/spec/API.md](../../tools/template/spec/API.md)
   — the consolidated public invocation surface.
 - [tools/template/spec/003-DepsNew-Rebuild-Plan.md](../../tools/template/spec/003-DepsNew-Rebuild-Plan.md)
-  — the normative migration plan (rf2-dolpf).
+  — the normative migration plan.
 - [tools/template/spec/005-Repo-Split.md](../../tools/template/spec/005-Repo-Split.md)
   — the monorepo → external repo migration procedure.
 - [tools/template/spec/DESIGN-RATIONALE.md](../../tools/template/spec/DESIGN-RATIONALE.md)

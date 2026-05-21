@@ -10,7 +10,7 @@ Wiring a production observability shipper, writing a `register-event-listener!` 
 
 ## `register-event-listener!` — one record per dispatched event
 
-Per rf2-rirbq. Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per `:event/db-changed`. Registration is idempotent (re-registering the same id replaces); listener exceptions are caught (cascade continues).
+Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per `:event/db-changed`. Registration is idempotent (re-registering the same id replaces); listener exceptions are caught (cascade continues).
 
 ```clojure
 (rf/register-event-listener!
@@ -34,11 +34,11 @@ Per rf2-rirbq. Fires once per event the runtime processes — NOT per sub, NOT p
 
 No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!` (`event_emit.cljc:167-230`); record shape per the ns docstring §Record shape.
 
-**Handler-meta `:sensitive?` honoured BEFORE elision** (per rf2-6hklf): if the event's registered handler-meta carries `:sensitive? true`, `dispatch-on-event!` drops the record entirely — listeners are NOT invoked, regardless of which paths in the payload happen to match `[:rf/elision]` declarations. Sensitive at the handler boundary is the headline privacy filter.
+**Handler-meta `:sensitive?` honoured BEFORE elision:** if the event's registered handler-meta carries `:sensitive? true`, `dispatch-on-event!` drops the record entirely — listeners are NOT invoked, regardless of which paths in the payload happen to match `[:rf/elision]` declarations. Sensitive at the handler boundary is the headline privacy filter.
 
 ## `register-error-listener!` — one record per runtime error
 
-Per rf2-bacs4. Fires once per `:rf.error/*` event the runtime emits through the error-emit substrate (handler exceptions today; the substrate is the normative seam for future `:rf.error/*` records). Independent of the per-frame `:on-error` policy fn (per rf2-hqbeh) — both fan out from the same emission site; one bad listener cannot affect the policy fn, and vice versa.
+Fires once per `:rf.error/*` event the runtime emits through the error-emit substrate (handler exceptions today; the substrate is the normative seam for future `:rf.error/*` records). Independent of the per-frame `:on-error` policy fn — both fan out from the same emission site; one bad listener cannot affect the policy fn, and vice versa.
 
 ```clojure
 (rf/register-error-listener!
@@ -66,7 +66,7 @@ Per rf2-bacs4. Fires once per `:rf.error/*` event the runtime emits through the 
 
 Verified: `re-frame.error-emit/dispatch-on-error!` (`error_emit.cljc:171-230`); record shape per the ns docstring §Record shape.
 
-**Composition with per-frame `:on-error` policy** (rf2-hqbeh): the error-emit substrate runs the per-frame `:on-error` policy AND the corpus-wide listener registry from one emission site. Use `:on-error` for **in-app recovery** (retry, mark, navigate); use `register-error-listener!` for **off-box observability**. They are independent — register both when you need both.
+**Composition with per-frame `:on-error` policy:** the error-emit substrate runs the per-frame `:on-error` policy AND the corpus-wide listener registry from one emission site. Use `:on-error` for **in-app recovery** (retry, mark, navigate); use `register-error-listener!` for **off-box observability**. They are independent — register both when you need both.
 
 ### `:on-error` shape and wiring (the in-app recovery slot)
 
@@ -102,7 +102,7 @@ Verified: `re-frame.error-emit/dispatch-on-error!` (`error_emit.cljc:171-230`); 
  :notes       <string>}   ;; OPTIONAL — free-form; surfaced under :tags :notes on the augmented trace
 ```
 
-**Production survival (rf2-hqbeh).** Unlike the rest of the trace surface, `:on-error` is NOT gated by `re-frame.interop/debug-enabled?` — it rides the same always-on error-emit substrate as `register-error-listener!`. Registered policy fns fire on production handler exceptions; the substrate covers `:rf.error/handler-exception` today (the primary production-monitoring case). Each frame has at most one `:on-error` handler; re-registering the frame replaces the policy.
+**Production survival.** Unlike the rest of the trace surface, `:on-error` is NOT gated by `re-frame.interop/debug-enabled?` — it rides the same always-on error-emit substrate as `register-error-listener!`. Registered policy fns fire on production handler exceptions; the substrate covers `:rf.error/handler-exception` today (the primary production-monitoring case). Each frame has at most one `:on-error` handler; re-registering the frame replaces the policy.
 
 **Composition rubric** — pick one, both, or neither:
 
@@ -181,4 +181,4 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 ---
 
-*Derived from `re-frame.event-emit` (rf2-rirbq) and `re-frame.error-emit` (rf2-bacs4) @ main. Verified surfaces: `register-event-listener!` (event_emit.cljc:139), `register-error-listener!` (error_emit.cljc:139); record shapes per each ns docstring §Record shape.*
+*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: `register-event-listener!` (event_emit.cljc:139), `register-error-listener!` (error_emit.cljc:139); record shapes per each ns docstring §Record shape.*

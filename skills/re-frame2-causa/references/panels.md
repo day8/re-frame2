@@ -16,9 +16,9 @@ Causa's chrome is two zones, one purpose each (per §021 §1):
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  L1 ribbon · L2 epoch timeline                ← MOVING BETWEEN epochs│
+│ L1 ribbon · L2 epoch timeline ← MOVING BETWEEN epochs│
 ├──────────────────────────────────────────────────────────────────────┤
-│  L4 panels (8 lenses on the focused epoch)    ← DEPTH INTO one epoch │
+│ L4 panels (8 lenses on the focused epoch) ← DEPTH INTO one epoch │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,11 +31,11 @@ each answering "what happened in this epoch?" through its own lens.
 The L2 timeline above the panels carries:
 
 - **Dispatch-origin prefix glyph** per row — one of
-  `:user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal`
-  (per Spec 002; §021 §1.5 is the universal classifier).
+ `:user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal`
+ (per Spec 002; §021 §1.5 is the universal classifier).
 - **Activity badge cluster** per row: `⚠` issue · `◆` machine
-  transition · `🌐` route nav · `⚡` HTTP lifecycle · `⏲` timer-triggered.
-  Glyphs from §021 §17.1.5; HCM remap is automatic (colour is never alone).
+ transition · `🌐` route nav · `⚡` HTTP lifecycle · `⏲` timer-triggered.
+ Glyphs from §021 §17.1.5; HCM remap is automatic (colour is never alone).
 
 Implementation lives at
 [`panels/l2_timeline.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/l2_timeline.cljc).
@@ -95,10 +95,10 @@ Question: **What does state LOOK LIKE — and what just changed?**
 Two-zone layout (§021 §4.2):
 
 - **DIFF zone** — changed paths for the focused epoch (`← changed`,
-  `← changed from <prior>`, `← added`). Narrow, dense, scannable.
+ `← changed from <prior>`, `← added`). Narrow, dense, scannable.
 - **STATE zone** — the full db at end of epoch, rendered via the
-  shared lazy-tree data-display (depth-3-collapsed default per §021
-  §10.4) with diff annotations inline.
+ shared lazy-tree data-display (depth-3-collapsed default per §021
+ §10.4) with diff annotations inline.
 
 **Downstream-subs hover popover** (§021 §4.4) — hover any changed path
 to surface the subs depending on it + the views rendered + an inline
@@ -133,11 +133,11 @@ The reactive cascade (Spec 009 ops 7-8) rendered as a depth-first DAG
 with explicit indentation showing sub-of-sub layering:
 
 - **Step 7 — SUBS RECOMPUTED** — each sub with input-path → output-value
-  change inline (`:idle → :submitting`, `+1 entry`), with skipped subs
-  collapsed under a footer `[Show N unchanged subs ▾]` (§021 §3.4).
+ change inline (`:idle → :submitting`, `+1 entry`), with skipped subs
+ collapsed under a footer `[Show N unchanged subs ▾]` (§021 §3.4).
 - **Step 8 — VIEWS RE-RENDERED** — each view with file:line
-  (open-in-editor) + `caused-by ← sub ← path` causation chain on every
-  leaf (no expand-to-see, §021 §3.2).
+ (open-in-editor) + `caused-by ← sub ← path` causation chain on every
+ leaf (no expand-to-see, §021 §3.2).
 
 Flows are NOT in the reactive cascade — they're handling-side (Event
 step 6) per §021 §3.2. The cascade nodes are exactly: db-paths (seed)
@@ -162,7 +162,7 @@ Question: **What raw trace events fired during this epoch?**
 
 The underlying stream that Event + Reactive summarise. **Focused-epoch
 scoped** (per §021 §1.2 — no aggregate-across-epochs view) — each row
-is a single mono line `#id  +Xms   op-kw   inline-summary`, filterable
+is a single mono line `#id +Xms op-kw inline-summary`, filterable
 by `[op-type ▾] [tag ▾]` chips (panel-local; do not affect L1 ribbon).
 
 Per-row click expands the payload inline via the shared
@@ -233,13 +233,13 @@ box-drawing is denser AND simpler than xyflow — per §021 §7.1).
 Two blocks:
 
 - **Active route tree** (always visible) — each node with one of three
-  markers per current state and per-epoch activity:
-  - `◉` active this epoch, on the resolved match
-  - `◇` registered, traversed (`:can-leave` / `:can-enter`) this epoch
-  - `●` current active node (no activity this epoch)
+ markers per current state and per-epoch activity:
+ - `◉` active this epoch, on the resolved match
+ - `◇` registered, traversed (`:can-leave` / `:can-enter`) this epoch
+ - `●` current active node (no activity this epoch)
 - **This epoch** — short dense block: `Phase`, `From`, `To`, `Match`,
-  `Events`. Empty state ("No route activity in this epoch.") keeps
-  the tree visible above.
+ `Events`. Empty state ("No route activity in this epoch.") keeps
+ the tree visible above.
 
 Reads `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`,
 `:rf.route/fragment-changed` filtered by `:dispatch-id`.
@@ -279,14 +279,8 @@ Spec: [`021-Dynamic-Panel-Designs.md` §8](../../../tools/causa/spec/021-Dynamic
 + [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md);
 implementation at
 [`panels/issues_ribbon.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon.cljs)
-+ [`panels/issues_ribbon_helpers.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon_helpers.cljc).
-
-(rf2-4v67l — the Chrome A11y dogfood panel was removed. A11y
-dogfooding is properly Story's domain, where it already ships as
-`re-frame.story.ui.chrome-a11y` (rf2-18t6p ·
-[`tools/story/src/re_frame/story/ui/chrome_a11y.cljs`](../../../tools/story/src/re_frame/story/ui/chrome_a11y.cljs))
-— a sibling to the variant a11y scanner `re-frame.story.ui.a11y`
-(rf2-qgms1). A duplicate Causa panel was noise that flagged the
++ [`panels/issues_ribbon_helpers.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon_helpers.cljc).)
+— a sibling to the variant a11y scanner `re-frame.story.ui.a11y`. A duplicate Causa panel was noise that flagged the
 Causa events-list as a problem.)
 
 ## Shared components
@@ -329,7 +323,7 @@ Keyboard `←` / `→` global binding. Disabled state at spine ends.
 
 Per-panel stretch filters (e.g. "next epoch with ⚠" for Issues, "next
 route activity" for Routing, "next epoch that touched THIS machine"
-for Machines per rf2-y9xmf) slot into the header's filter slot.
+for Machines per) slot into the header's filter slot.
 
 ### `focus_resolver` + `find-epoch-record`
 
@@ -376,22 +370,22 @@ inline state transition (`:text-primary`, mono).
 Per §021 §15:
 
 - **No 4th L4 panel.** The 8-panel set is the contract; sub-layer
-  surfaces inline in Reactive + the App-db hover popover (no peer Subs
-  panel).
+ surfaces inline in Reactive + the App-db hover popover (no peer Subs
+ panel).
 - **No cross-epoch L4 views.** Aggregate signals live on L2 badges only.
 - **No pattern-view (4th lens).** Deferred.
 - **No master-detail Event-vs-Reactive coupling.** Peers, bridged by
-  App-db.
+ App-db.
 - **No simultaneous multi-frame display.** Single-frame focus (§021
-  §1.6); switch focus via the L1 frame picker.
+ §1.6); switch focus via the L1 frame picker.
 - **No legacy panels.** Subscriptions, Effects, Flows, Performance,
-  Schemas, Hydration are NOT separate L4 panels. Their content is
-  surfaced through the 8 above:
-  - Subscriptions → Reactive (cascade tree) + App-db (hover popover)
-  - Effects → Event step 4 (returned) + step 5 (applied) + Trace (raw `:rf.fx/*` ops)
-  - Flows → Event step 6
-  - Performance → L2 row stripe colours + per-step `:time` in Trace
-  - Schemas / Hydration / a11y → Issues (unified feed)
+ Schemas, Hydration are NOT separate L4 panels. Their content is
+ surfaced through the 8 above:
+ - Subscriptions → Reactive (cascade tree) + App-db (hover popover)
+ - Effects → Event step 4 (returned) + step 5 (applied) + Trace (raw `:rf.fx/*` ops)
+ - Flows → Event step 6
+ - Performance → L2 row stripe colours + per-step `:time` in Trace
+ - Schemas / Hydration / a11y → Issues (unified feed)
 
 For the user-question → panel routing table, see
 [`SKILL.md` §The 13 panels — what each surfaces](../SKILL.md#the-13-panels--what-each-surfaces)

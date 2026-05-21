@@ -61,7 +61,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
 (defn register-all! []
   ;; No explicit boot step — the first `reg-*` below auto-installs the
   ;; canonical vocabulary (seven tags, lifecycle machine, :rf.assert/*
-  ;; handlers, force-fx-stub decorator, v1 panel set) per rf2-p1ydc.
+  ;; handlers, force-fx-stub decorator, v1 panel set).
 
   (story/reg-story :story.counter
     {:doc        "The counter."
@@ -101,7 +101,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
 ## Common gotchas — re-frame2-specific
 
 - **No fn slots in variant bodies.** `:events`, `:play-script`, `:decorators`, `:loaders` carry **event-vectors / tagged steps and ids** — never anonymous functions. The `:rf/variant` schema (in `spec/Spec-Schemas.md`) enforces this; macro-time validation rejects with `:rf.error/variant-shape`. The single legal closure site is a `:hiccup`-kind decorator's `:wrap` slot at the decorator's registration site (not the variant body).
-- **`:events` vs `:play-script`.** `:events` (phase 2) runs before render; the trace-bus accumulator is NOT yet installed, so `:rf.assert/dispatched?` will not see those events. Put events you want to assert against in `:play-script` (phase 4). Per rf2-0wrud (2026-05-20), `:play-script` is the canonical AND ONLY phase-4 surface — the legacy `:play` event-vector slot was removed (no transitional dual-acceptance). Steps are tagged: `[:dispatch ev]` / `[:dispatch-sync ev]` / `[:wait ms]` / `[:click sel]` / `[:type sel txt]` / `[:assert-db path val]` / `[:assert-dom sel mode]`. Bare event vectors at the script level lift to `[:dispatch ev]`; assertion events ride `[:dispatch-sync [:rf.assert/* ...]]`. See `tools/story/spec/001-Authoring.md` §`:play-script`.
+- **`:events` vs `:play-script`.** `:events` (phase 2) runs before render; the trace-bus accumulator is NOT yet installed, so `:rf.assert/dispatched?` will not see those events. Put events you want to assert against in `:play-script` (phase 4). `:play-script` is the canonical AND ONLY phase-4 surface. Steps are tagged: `[:dispatch ev]` / `[:dispatch-sync ev]` / `[:wait ms]` / `[:click sel]` / `[:type sel txt]` / `[:assert-db path val]` / `[:assert-dom sel mode]`. Bare event vectors at the script level lift to `[:dispatch ev]`; assertion events ride `[:dispatch-sync [:rf.assert/* ...]]`. See `tools/story/spec/001-Authoring.md` §`:play-script`.
 - **Component is an id, not a fn.** `:component :app.views/counter-card` — the keyword id of a `reg-view`. Story consults the view's registered Malli schema (Spec 010) to auto-derive `:argtypes` for the controls panel — see Schema-derivation pipeline below; supplying `:argtypes` overrides per-key.
 - **Reference events / views / decorators by id; require their namespaces only to trigger registration.** The stories namespace does not `:refer` view fns — it `:require`s `[app.events] [app.views]` for side-effect loading and uses the keyword ids.
 - **`:rf.assert/*` events record, they do not throw.** The seven canonical assertions append a record to `:assertions` rather than aborting the play sequence. Use `(story/read-assertions variant-id)` and `(story/assertions-passing? result)` from a test runner. See `tools/story/spec/004-Assertions.md`.
@@ -119,7 +119,7 @@ The controls panel auto-derives a widget per arg-key by walking the component's 
 2. **Explicit `:rf/schema` slot** (Spec 010 canonical key; the legacy `:schema` alias is still read for backward compat) on the variant body, then the parent story, then the registered view's `:spec`. First match wins — no merge. A variant-side `:rf/schema` is the all-or-nothing override when one variant exercises a narrower / stricter / experimental shape than the component-wide schema; the args editor inputs and the schema-validation panel both auto-derive from this one declaration.
 3. **Value-shape fallback** — infer the widget from the live CLJS value when no schema is available.
 
-Walker output for the common Malli forms (rf2-agshe):
+Walker output for the common Malli forms:
 
 | Schema | Widget |
 |---|---|

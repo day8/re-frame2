@@ -24,8 +24,8 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
   schemas, stories, routing, and the canonical patterns (RemoteData, Forms,
   Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork,
   StaleDetection). Scaffolding, leaf content under `reference/`,
-  `patterns/`, and `decision-trees/`, and the integration pass all landed
-  via rf2-qumf and its follow-on beads — the skill is alpha-ready.
+  `patterns/`, and `decision-trees/`, and the integration pass have all
+  landed — the skill is alpha-ready.
 
 - **[`re-frame2-setup/`](./re-frame2-setup/)** — scaffold a fresh
   re-frame2 ClojureScript project by hand. Walks the author from an empty
@@ -71,8 +71,8 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
   dominoes, walk the per-frame epoch history, time-travel via
   `restore-epoch`. Consumes only re-frame2's own Tool-Pair surfaces —
   no re-frame-10x dependency. The runtime helper namespace ships into
-  consumer apps via shadow-cljs `:devtools :preloads` (per rf2-7dvg);
-  there is no per-session cljs-eval inject step.
+  consumer apps via shadow-cljs `:devtools :preloads`; there is no
+  per-session cljs-eval inject step.
 
 - **[`re-frame2-pair-retro/`](./re-frame2-pair-retro/)** — meta-skill
   for `re-frame2-pair`. Retrospects on a pair-programming session,
@@ -173,10 +173,9 @@ Corpus stats supporting these numbers: `ai/findings/skill-leaf-size-audit-202605
 
 ### Published-skill `allowed-tools` baseline (security policy)
 
-Per the closed decision under rf2-hpkkx — a pragmatic least-privilege
-stance, not a paranoid one. The skills here are dev productivity tools;
-trust the explicit invoker, gate accidents rather than theoretical
-attacks.
+A pragmatic least-privilege stance, not a paranoid one. The skills here
+are dev productivity tools; trust the explicit invoker, gate accidents
+rather than theoretical attacks.
 
 - **Wildcards on routine commands are fine.** `Bash(npm *)`,
   `Bash(npx *)`, `Bash(clojure *)`, `Bash(shadow-cljs *)`,
@@ -245,15 +244,14 @@ plus orchestrator review against the bead corpus. Adding a `tests/`
 directory to a pure-doc skill would test prose, not behaviour.
 
 **Why `shared/` is the second exception.** `shared/retro-protocol.md`
-is a **security boundary**, not just a doc leaf. The rf2-g6auh audit
-found four issues there; three landed prose-only fixes via
-PR #1116 + #1127. The audit's Finding 4 explicitly called for a
-regression suite so a future silent weakening of the prose doesn't
+is a **security boundary**, not just a doc leaf. A prior audit found
+four issues there; the prose-only fixes landed, and a regression suite
+backstops them so a future silent weakening of the prose doesn't
 re-open the boundary. The structural test
 ([`shared/tests/retro_protocol_test.clj`](./shared/tests/retro_protocol_test.clj))
 pins load-bearing phrasings; the document-runnable fixtures
 ([`shared/tests/fixtures/`](./shared/tests/fixtures/)) cover the
-behavioural axis. Filed under rf2-y1tqa.
+behavioural axis.
 
 **Rule of thumb.** A skill warrants a `tests/` dir iff (a) it ships an
 executable surface (scripts, MCP server, runtime helpers, structured

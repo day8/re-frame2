@@ -15,8 +15,8 @@ the mayor checkout instead of the assigned worktree. "Use your worktree" is
 not a strong enough prompt. Workers must verify before each edit and check
 both checkouts after the first one.
 
-**The path-resolution leak failure mode.** Observed twice (audit worker
-rf2-zszmu; PowerShell-tool incidents in rf2-causa-spec-cleanup): the worker
+**The path-resolution leak failure mode.** Observed repeatedly in audit
+and PowerShell-tool dispatches: the worker
 correctly ran the worktree guard and got the right `WORKTREE_ROOT`, then a
 file `Write` (especially of a new `ai/findings/<name>.md` file) landed in the
 mayor checkout because the edit tool resolved a repo-relative path against
@@ -48,7 +48,7 @@ Never edit the mayor checkout.
 
 Shell workdir is not enough protection. apply_patch and Write tools have no
 workdir, so relative patch / write paths can land in the mayor checkout.
-This is the path-resolution leak failure mode (rf2-zszmu, rf2-ku5f1) — the
+This is the path-resolution leak failure mode — the
 worktree guard at session start does NOT catch it, because the leak happens
 mid-session in a single tool call.
 
@@ -75,7 +75,7 @@ git -C <MAYOR_CHECKOUT> status --short --branch
 Continue only if the worker worktree is dirty and the mayor checkout did
 not receive code edits.
 
-NEW-FILE EXTRA CHECK (path-resolution leak — rf2-ku5f1).  When you Write
+NEW-FILE EXTRA CHECK (path-resolution leak).  When you Write
 a brand-new file (most-common offender: ai/findings/<name>.md from an
 audit), the path-resolution leak silently routes the write into the mayor
 checkout because the file did not previously exist in either tree. The
@@ -104,7 +104,7 @@ or gitignored), interrupt the worker, preserve the edits into the worker
 worktree, then restore the mayor checkout — only specific known files; never
 broad destructive resets.
 
-**TODO (rf2-ku5f1 escalation).** If this strengthened reminder proves
+**TODO (leak-mitigation escalation).** If this strengthened reminder proves
 insufficient and the leak continues to happen, escalate to one of:
 
 - **Canary protocol (option A):** `scripts/assert-worker-worktree.ps1`
@@ -131,7 +131,7 @@ skills/*, migration/*, README.md). The /ai/ tree is gitignored; mkdocs strict's
 link-validator catches it at CI time and blocks unrelated PRs in cascade.
 If you need to cite a finding, inline a 1-sentence summary in the committed
 prose. The pre-PR lint `python scripts/check_doc_slugs.py` flags violations
-under defect category AI_FINDINGS_LINK (rf2-l7yj8).
+under defect category AI_FINDINGS_LINK.
 ```
 
 ## Worktree path convention
@@ -220,7 +220,7 @@ log shows — test the hypothesis before applying the fix.
 - Workers leaking edits into the mayor checkout → worktree-boundary block.
 - Path-resolution leak on new-file Write (especially `ai/findings/*` from
   an audit) routes the file into the mayor checkout silently → new-file
-  Test-Path double-check in the worktree-boundary block (rf2-ku5f1).
+  Test-Path double-check in the worktree-boundary block.
 - Stalled agents losing analysis → findings-first protocol; one-bead-at-a-time bd creates.
 - Clusters splitting when they should be one PR → cluster reviewer pre-validates shape.
 - Hot-zone merge conflicts → explicit hot-zone list in every prompt.

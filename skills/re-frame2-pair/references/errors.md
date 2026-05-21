@@ -20,7 +20,7 @@ Every `:rf.error/*` trace event carries `:rf.trace/trigger-handler` — `{:kind 
 - `:connection :lost` → reconnect by calling `mcp__re-frame2-pair__discover-app` (legacy: `scripts/discover-app.sh`) again.
 - Restore failures (`:rf.epoch/restore-*`) → see the time-travel failure table in [ops.md](ops.md#time-travel-epoch-restore).
 
-## `:on-error` policy violations (rf2-ciy)
+## `:on-error` policy violations
 
 Two error categories surface when a frame's `:on-error` policy violates its return-map contract. Both ride the trace stream like any other `:rf.error/*` event — pull them with `(rf/trace-buffer {:op-type :error})` and surface to the user verbatim. For the full contract (closed return shape, the `:recovery` enum, why `:retry-count` is gone), see [on-error.md](on-error.md).
 

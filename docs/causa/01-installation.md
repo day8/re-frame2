@@ -29,7 +29,7 @@ second — flex flow puts the aside to the right of the app column:
 ```
 
 ```css
-:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) — host stylesheets read var(--rf-causa-accent) to tint dev chrome */
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var — host stylesheets read var(--rf-causa-accent) to tint dev chrome */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 560px);
@@ -43,7 +43,7 @@ second — flex flow puts the aside to the right of the app column:
 
 That's the whole consumer surface — no `resize: horizontal`, no
 `overflow: auto`. Causa auto-injects a polished drag handle on the
-panel's outer edge as soon as the shell mounts (per rf2-70u8q +
+panel's outer edge as soon as the shell mounts (see
 `spec/007-UX-IA.md` §Resize affordance); the handle covers mouse,
 touch, and pen via pointer events and is keyboard-navigable.
 

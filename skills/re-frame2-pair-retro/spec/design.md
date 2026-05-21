@@ -29,7 +29,7 @@ Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not de
 
 The skill drafts issue text on request; it does not file issues autonomously. After presenting the retrospective, the skill offers to file *only if asked*. Filing is opt-in, not opt-out. This is a cardinal guard-rail.
 
-**Tracker boundary (rf2-80grk / rf2-hpkkx).** Filings target the **target repo's GitHub issues** (`day8/re-frame2-pair` for tool-side friction; `day8/re-frame2` for upstream framework friction). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. Bodies pass via stdin / here-doc — `gh issue create --body "$(cat /tmp/issue-body.md)"` — never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
+**Tracker boundary.** Filings target the **target repo's GitHub issues** (`day8/re-frame2-pair` for tool-side friction; `day8/re-frame2` for upstream framework friction). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. Bodies pass via stdin / here-doc — `gh issue create --body "$(cat /tmp/issue-body.md)"` — never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
 
 ### L3 — Route the fix to the right repo
 
@@ -113,21 +113,21 @@ Bead drafts redact secrets, tokens, internal URLs, and unnecessary local file pa
 
 ```
 skills/re-frame2-pair-retro/
-├── SKILL.md                            (~170 lines; the conversation guide + workflow)
-├── README.md                           (human-facing intro)
-├── LICENSE                             (MIT)
-├── package.json                        (npm metadata)
-├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
+├── SKILL.md (~170 lines; the conversation guide + workflow)
+├── README.md (human-facing intro)
+├── LICENSE (MIT)
+├── package.json (npm metadata)
+├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── agents/
-│   └── openai.yaml                     (alt-host config — kept for cross-LLM operation)
+│ └── openai.yaml (alt-host config — kept for cross-LLM operation)
 ├── references/
-│   ├── analysis-lenses.md              (~140 lines; ten root-cause lenses + improvement shapes)
-│   ├── known-frictions.md              (~120 lines; recurring re-frame2-pair pain patterns)
-│   └── issue-template.md               (~90 lines; bead-body template, redaction rules)
+│ ├── analysis-lenses.md (~140 lines; ten root-cause lenses + improvement shapes)
+│ ├── known-frictions.md (~120 lines; recurring re-frame2-pair pain patterns)
+│ └── issue-template.md (~90 lines; bead-body template, redaction rules)
 └── spec/
-    ├── design.md                       (this file)
-    ├── inputs.md                       (canonical inputs)
-    └── authoring-prompt.md             (one-shot reauthor prompt)
+ ├── design.md (this file)
+ ├── inputs.md (canonical inputs)
+ └── authoring-prompt.md (one-shot reauthor prompt)
 ```
 
 SKILL.md (~170) + 3 references (~350) + spec (~300) ≈ ~820 LoC. Typical session reads SKILL.md (~170) + at most one or two references (`analysis-lenses.md` when classification is hard, `known-frictions.md` when the session smells recurring) = ~310-450 LoC.
@@ -157,7 +157,7 @@ The pillars in §2 govern *what* the skill delivers; the rules below govern *how
 - **Positive gaps too.** What almost worked? What required too much expert knowledge? What capability existed but was undiscoverable? What should have been the default? Negative-space evidence is as load-bearing as failure evidence.
 - **Be creatively ambitious after diagnosis.** Start with grounded fixes; then ask what would make this workflow feel nearly automatic or hard to misuse. Include 1-2 higher-upside ideas when warranted, even if they reshape the workflow rather than patching a local symptom. Operationalises pillar 4 + L6.
 
-SKILL.md cross-links here rather than reciting these rules inline — keeps the orchestrator lean per rf2-zkca8's leaf-size ceiling.
+SKILL.md cross-links here rather than reciting these rules inline — keeps the orchestrator lean per 's leaf-size ceiling.
 
 ## 9. Why this design diverges from `re-frame2-pair`
 

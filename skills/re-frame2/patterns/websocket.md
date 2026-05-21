@@ -4,7 +4,7 @@ Long-lived bidirectional connection lifecycle (WebSocket / SSE / WebRTC peer) mo
 
 `:rf.ws/*` is one instance of the **managed external effect** umbrella — alongside `:rf.http/managed`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. The connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under `:rf.ws/*`, trace-bus observability, wire-value elision) is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the eight-property shared contract; the rest of this leaf is WebSocket-specific.
 
-> **Status of the worked example:** `examples/reagent/websocket/` is in flight via rf2-yf97. Until it lands, the canonical declaration below is the source of truth.
+> **Status of the worked example:** `examples/reagent/websocket/` is in flight. Until it lands, the canonical declaration below is the source of truth.
 
 ## When to use this pattern
 
@@ -160,7 +160,7 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 
 ## Worked example
 
-`examples/reagent/websocket/` (pending — in flight via rf2-yf97). Until merged, treat the canonical declaration above as the source of truth.
+`examples/reagent/websocket/` (pending — in flight). Until merged, treat the canonical declaration above as the source of truth.
 
 ## Pointers
 
@@ -171,4 +171,4 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 
 ---
 
-*Derived from Pattern-WebSocket @ main `89bd9c3`. The worked example `examples/reagent/websocket/` is in flight via rf2-yf97; re-verify and link once it merges.*
+*Derived from Pattern-WebSocket @ main `89bd9c3`. The worked example `examples/reagent/websocket/` is in flight; re-verify and link once it merges.*

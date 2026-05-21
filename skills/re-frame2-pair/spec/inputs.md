@@ -66,6 +66,6 @@ When the Tool-Pair contract changes:
 2. **`:rf/epoch-record`'s projection set changes** (`:sub-runs` / `:renders` / `:effects` field additions) → update the recipes that walk those projections; L8 may need re-statement.
 3. **`restore-epoch`'s failure modes expand** → update `references/errors.md` and the time-travel recipe in `references/recipes.md`.
 4. **A new structured op ships in the MCP server** → add to `allowed-tools` in SKILL.md frontmatter; add a row to `references/ops.md`; add the 1:1 bash-shim mapping to `references/mcp-transport.md`.
-5. **A bash shim is removed** → update `references/mcp-transport.md`'s mapping table. (rf2-7dvg removed `inject-runtime.sh` along with the MCP `inject-runtime` tool — the runtime ships via shadow-cljs `:preloads` now.)
+5. **A bash shim is removed** → update `references/mcp-transport.md`'s mapping table. (`inject-runtime.sh` was removed along with the MCP `inject-runtime` tool — the runtime ships via shadow-cljs `:preloads` now.)
 6. **A new failure mode appears in `discover-app`** → add to `references/errors.md`.
 7. **`re-frame2` adds a new `reg-*` kind** (e.g. a future `reg-X`) → check whether the new kind needs a structured op (probably yes if it's user-facing); update `references/ops.md`.

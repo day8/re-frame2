@@ -21,21 +21,21 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 >
 > ```
 > skills/re-frame2-pair-retro/
-> ├── SKILL.md                            (~170 lines; conversation guide + 6-step workflow)
-> ├── README.md                           (human-facing intro)
-> ├── LICENSE                             (MIT)
-> ├── package.json                        (npm metadata)
-> ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
+> ├── SKILL.md (~170 lines; conversation guide + 6-step workflow)
+> ├── README.md (human-facing intro)
+> ├── LICENSE (MIT)
+> ├── package.json (npm metadata)
+> ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 > ├── agents/
-> │   └── openai.yaml                     (alt-host config for non-Claude operation)
+> │ └── openai.yaml (alt-host config for non-Claude operation)
 > ├── references/
-> │   ├── analysis-lenses.md              (~140 lines; ten root-cause lenses)
-> │   ├── known-frictions.md              (~120 lines; recurring pain patterns)
-> │   └── issue-template.md               (~90 lines; bead-body template + redaction)
+> │ ├── analysis-lenses.md (~140 lines; ten root-cause lenses)
+> │ ├── known-frictions.md (~120 lines; recurring pain patterns)
+> │ └── issue-template.md (~90 lines; bead-body template + redaction)
 > └── spec/
->     ├── design.md
->     ├── inputs.md
->     └── authoring-prompt.md
+> ├── design.md
+> ├── inputs.md
+> └── authoring-prompt.md
 > ```
 >
 > *Every reference is ≤250 lines (target ~120). SKILL.md is ~170 lines (well under Anthropic's 500-line ceiling).*
@@ -72,7 +72,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 >
 > *- **L1 — No re-frame-10x routing.** Cardinal anti-pattern.*
 > *- **L2 — Never file a GitHub issue without explicit user approval.** Cardinal guard-rail.*
-> *- **L3 — Route the fix to the right repo.** `re-frame2-pair` for tool changes; `re-frame2` for upstream contract changes. Skills file GitHub issues against the target repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill (rf2-hpkkx baseline; rf2-80grk decision).*
+> *- **L3 — Route the fix to the right repo.** `re-frame2-pair` for tool changes; `re-frame2` for upstream contract changes. Skills file GitHub issues against the target repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
 > *- **L10 — No bead-ids in user-facing skill content.***
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. Bodies pass via stdin/here-doc (`gh issue create --body "$(cat /tmp/file)"`), never inline interpolation of transcript-derived text.*

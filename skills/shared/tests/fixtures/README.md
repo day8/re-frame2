@@ -9,8 +9,7 @@ behaviour section.
 The structural counterpart — `../retro_protocol_test.clj` — pins the
 load-bearing phrasings in `skills/shared/retro-protocol.md` so silent
 prose-weakening is caught by `bb`. Together they close audit
-Finding 4 from `ai/findings/skills-shared-audit-verification-2026-05-15.md`
-(filed as rf2-y1tqa).
+Finding 4 from `ai/findings/skills-shared-audit-verification-2026-05-15.md`.
 
 ## Why document-runnable, not CI-runnable
 
@@ -86,6 +85,3 @@ anti-expectation fires; same for 02 and 03's two sub-scenarios.
 - Structural test: [`../retro_protocol_test.clj`](../retro_protocol_test.clj)
 - Tested protocol: [`../../retro-protocol.md`](../../retro-protocol.md)
 - Audit verification: `ai/findings/skills-shared-audit-verification-2026-05-15.md` (local-only)
-- Original audit bead: rf2-g6auh
-- Hardening PRs: #1116 (rf2-k4a2u — protocol hardening), #1127 (rf2-wy48o + rf2-k99pt — improver adoption)
-- This regression suite: rf2-y1tqa

@@ -35,7 +35,7 @@ skills/re-frame2/
 └── decision-trees/                   pick-a-pattern, slice-or-machine.
 ```
 
-The scaffolding was seeded by rf2-eipb. The leaves were authored by follow-on beads off the parent rf2-qumf (rf2-9tuz fundamentals, rf2-a04c state-machines, rf2-4yc1 tooling, rf2-0tkn cross-cutting, rf2-w5tc project-structure, rf2-p6ut / rf2-60kv / rf2-e57j pattern batches, rf2-g6fh decision-trees). The integration pass (rf2-l086) reconciles the loading map and adds derived-from-implementation footers.
+The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the nine canonical patterns, and the two decision trees. An integration pass reconciles the loading map and adds derived-from-implementation footers.
 
 ## Install
 
@@ -80,7 +80,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The integration pass (rf2-l086) reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example (rf2-dsm2) is linked; evals harness (rf2-p3qg) and `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight but are not blockers for skill use.
+**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The integration pass reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example is linked; the evals harness and the `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight but are not blockers for skill use.
 
 ## License
 

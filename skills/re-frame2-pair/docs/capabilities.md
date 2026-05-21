@@ -42,7 +42,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Show effects fired for one epoch | *partial* | `:effects` projection captures warning/error outcomes; successful-fx attribution requires walking `:trace-events` |
 | Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation; `trace/cascade` walks the tree |
 | Show components that re-rendered | *done* | `:renders` projection per epoch |
-| Attach source location to renders | *done* | Source coords flow from registrar metadata; `:render-key` is opaque pending rf2-t5tx |
+| Attach source location to renders | *done* | Source coords flow from registrar metadata; `:render-key` is opaque pending spec finalisation |
 | List registered machines, see their state | *done* | `machines/list`, `machines/describe`, `machines/state` over `rf/machines` / `rf/machine-meta` / `rf/snapshot-of` |
 | List registered app-schemas | *done* | `schemas` over `rf/app-schemas` |
 | Frame enumeration / metadata | *done* | `frames/list`, `frames/meta` over `rf/frame-ids` / `rf/frame-meta` |
@@ -55,7 +55,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 |---|---|---|
 | Wrong write path in `app-db` | *done* | `epoch-diff` shows the exact path(s) mutated; compare to what the sub reads |
 | Event fired but no visible UI change | *done* | "Why didn't my view update?" recipe walks `:sub-runs` and identifies the equality gate |
-| View didn't update because sub result stayed `=` | *done* | Same recipe — the sub's *absence* from `:sub-runs` is the equality-gate evidence (rf2-719e suppression) |
+| View didn't update because sub result stayed `=` | *done* | Same recipe — the sub's *absence* from `:sub-runs` is the equality-gate evidence (value-equal recompute suppression) |
 | View re-rendered too broadly | *done* | `:renders` per epoch + `:sub-runs` shows which over-broad sub recomputed |
 | Async effects make the app look "wrong for a moment" | *partial* | `:effects` flags non-pure outcomes; for successful-fx attribution, walk `:trace-events` directly |
 | Interceptor order changes behaviour | *done* | `registrar/describe` lists ordered interceptor ids; `:event/run` traces carry per-step timing |
@@ -83,7 +83,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 | Guardrail | Status | Notes |
 |---|---|---|
-| `app-db/reset` is logged via `tap>` | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes, rf2-zq55) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. |
+| `app-db/reset` is logged via `tap>` | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. |
 | `repl/eval` treated as full-authority | *guardrail* | SKILL.md instructs Claude to prefer structured ops; the escape hatch is acknowledged |
 | Mutating ops refuse on `:ambiguous-frame` | *done* | Reads proceed against `:rf/default` after warning |
 | Watches and background processes always stop cleanly | *done* | Auto-terminate on disconnect, idle (default 30s), hard-cap (default 5min), or count cap (default 5) |
@@ -98,7 +98,7 @@ All in SKILL.md's Recipes section.
 
 | Recipe | Status |
 |---|---|
-| "Why didn't this view update?" | *done* — walks `:sub-runs`, names the equality gate (rf2-719e) |
+| "Why didn't this view update?" | *done* — walks `:sub-runs`, names the equality gate |
 | "Why did this view re-render?" | *done* — reverses from `:renders` to `:sub-runs` to `:trigger-event` |
 | "What changed in app-db after this event?" | *done* — `epoch-diff` |
 | "What effects fired?" | *partial* — successful-fx attribution requires `:trace-events` walk |

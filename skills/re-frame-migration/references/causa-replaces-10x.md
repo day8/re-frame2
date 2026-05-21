@@ -59,7 +59,7 @@ The preload registers Causa's listeners under `register-listener!` and `register
 
 ## The layout host (true-inline default)
 
-Causa's default launch is **true inline** (per spec `rf2-eehov`): it mounts into a host element the app provides, sharing the layout. No overlay, no body-padding dock, no popup. The app reserves space; Causa fills it.
+Causa's default launch is **true inline**: it mounts into a host element the app provides, sharing the layout. No overlay, no body-padding dock, no popup. The app reserves space; Causa fills it.
 
 Add a right-side host to the app's HTML and CSS (DOM order: `<main>` first, `<aside>` second — flex flow puts the aside on the right):
 
@@ -71,7 +71,7 @@ Add a right-side host to the app's HTML and CSS (DOM order: `<main>` first, `<as
 ```
 
 ```css
-:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) — host stylesheets read var(--rf-causa-accent) to tint dev chrome */
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var — host stylesheets read var(--rf-causa-accent) to tint dev chrome */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 560px);
@@ -95,7 +95,7 @@ Explicit opens still use the normal host contract.
 
 ## Resizing the inline host (`--rf-causa-inline-width`)
 
-Per `rf2-um813`, the recommended host CSS reads its `flex-basis` from a single CSS custom property — `--rf-causa-inline-width` — so the panel can be resized without forking the host rule or falling back to overlay modes.
+The recommended host CSS reads its `flex-basis` from a single CSS custom property — `--rf-causa-inline-width` — so the panel can be resized without forking the host rule or falling back to overlay modes.
 
 ```css
 /* Global default — every page in the app */

@@ -54,7 +54,7 @@ When you `setTimeout` or hand a callback to a promise, the dynamic var binding i
   (.then promise #(d [:result-arrived %])))
 ```
 
-The verb-form names imply capture-at-call-time semantics; the earlier `bound-dispatcher` / `bound-subscriber` aliases were cut as redundant under rf2-knz3l.
+The verb-form names imply capture-at-call-time semantics; earlier `bound-dispatcher` / `bound-subscriber` aliases were cut as redundant.
 
 ## Canonical mini-example
 
@@ -117,4 +117,4 @@ Frame presets in detail, machine-instance teardown contract, the React-context c
 
 ---
 
-*Derived from `implementation/core/src/re_frame/frame.cljc`, `implementation/core/src/re_frame/core.cljc`, and `implementation/reagent/src/re_frame/adapter/reagent.cljs` @ main `89bd9c3`. Re-verify line numbers after frame-resolution or adapter-late-bind changes (e.g. rf2-s36l).*
+*Derived from `implementation/core/src/re_frame/frame.cljc`, `implementation/core/src/re_frame/core.cljc`, and `implementation/reagent/src/re_frame/adapter/reagent.cljs` @ main `89bd9c3`. Re-verify line numbers after frame-resolution or adapter-late-bind changes.*

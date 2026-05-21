@@ -56,7 +56,7 @@ docs/images/story/*.png
   `[data-testid="rf-causa-shell"]`.
 - The counter testbed seeds `:count` to a fixed value at boot.
 
-### Annotations (data-driven, rf2-we013)
+### Annotations (data-driven)
 
 Annotations live in a sibling JSON file —
 [`tutorial-annotation-spec.json`](tutorial-annotation-spec.json) — keyed

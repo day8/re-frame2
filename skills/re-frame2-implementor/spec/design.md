@@ -59,7 +59,7 @@ The skill frames `spec/conformance/` consistently as the **objective measure of 
 
 When implementing surfaces a spec gap — a missing surface, an inconsistency, an undocumented decision — the agent files a GitHub issue against `day8/re-frame2`. Does not silently invent an answer; does not extrapolate from the reference.
 
-**Tracker boundary (rf2-s6k4i / rf2-80grk / rf2-hpkkx, decisions on 2026-05-14)**: `bd` (beads) is the re-frame2 monorepo's internal tracker. Published skills run in *consumer* repos (an engineer's port repo, in this skill's case) and must never invoke `bd` — cross-repo side effects target the *target* repo's GitHub issues. The published skill announces the cross-repo filing before it lands (cardinal rule 9), and passes the body via stdin / here-doc, never inline interpolation (shell-safety baseline in `skills/README.md`).
+**Tracker boundary**: `bd` (beads) is the re-frame2 monorepo's internal tracker. Published skills run in *consumer* repos (an engineer's port repo, in this skill's case) and must never invoke `bd` — cross-repo side effects target the *target* repo's GitHub issues. The published skill announces the cross-repo filing before it lands (cardinal rule 9), and passes the body via stdin / here-doc, never inline interpolation (shell-safety baseline in `skills/README.md`).
 
 **Why**: spec gaps are findings. The reference's prior solution to a spec gap was *one engineer's call at one moment*. Treating it as the contract retroactively conflates worked-example and contract — undercutting L1.
 
@@ -109,23 +109,23 @@ Reverse cross-links (this skill → the application-side skills) live in SKILL.m
 
 ```
 skills/re-frame2-implementor/
-├── SKILL.md                       (router; ~250 lines)
-├── README.md                      (human-facing intro)
-├── LICENSE                        (MIT)
-├── package.json                   (npm metadata)
-├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
+├── SKILL.md (router; ~250 lines)
+├── README.md (human-facing intro)
+├── LICENSE (MIT)
+├── package.json (npm metadata)
+├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── references/
-│   ├── kickoff-prompt.md          (paste-ready prompt; ~80 lines)
-│   ├── phase-1-decisions.md       (Phase 1 walkthrough; ~200 lines)
-│   ├── decision-record.md         (fill-in template; ~120 lines)
-│   ├── phase-2-impl-order.md      (EP-by-EP order; ~250 lines)
-│   ├── reference-impl-tour.md     (CLJS tour, descriptive; ~150 lines)
-│   ├── conformance.md             (harness shape, diagnosis; ~140 lines)
-│   └── output-format.md           (agent-output shape; ~120 lines)
+│ ├── kickoff-prompt.md (paste-ready prompt; ~80 lines)
+│ ├── phase-1-decisions.md (Phase 1 walkthrough; ~200 lines)
+│ ├── decision-record.md (fill-in template; ~120 lines)
+│ ├── phase-2-impl-order.md (EP-by-EP order; ~250 lines)
+│ ├── reference-impl-tour.md (CLJS tour, descriptive; ~150 lines)
+│ ├── conformance.md (harness shape, diagnosis; ~140 lines)
+│ └── output-format.md (agent-output shape; ~120 lines)
 └── spec/
-    ├── design.md                  (this file)
-    ├── inputs.md                  (canonical inputs)
-    └── authoring-prompt.md        (one-shot reauthor prompt)
+ ├── design.md (this file)
+ ├── inputs.md (canonical inputs)
+ └── authoring-prompt.md (one-shot reauthor prompt)
 ```
 
 ## 6. Why this leaf split

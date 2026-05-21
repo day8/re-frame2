@@ -52,7 +52,7 @@ A good critique produces:
 
 ## Status
 
-Pre-alpha. References catalogue currently has 6 leaves at launch (per rf2-bquci); expected to grow as more anti-patterns surface from real-world re-frame2 sessions.
+Pre-alpha. References catalogue currently has 6 leaves at launch; expected to grow as more anti-patterns surface from real-world re-frame2 sessions.
 
 ## Install
 

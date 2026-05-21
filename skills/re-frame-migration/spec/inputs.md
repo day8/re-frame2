@@ -19,7 +19,7 @@ When MIGRATION.md adds a new rule, the skill's `breaking-changes.md` index needs
 
 ## 2. Secondary input — `docs/guide/08-from-re-frame-v1.md`
 
-(Or whatever the current numbering is post-rf2-aqys renumber — at authoring time this was chapter 08; will become chapter 12 after the renumber.)
+(Or whatever the current numbering is in `docs/guide/` — at authoring time this was chapter 08; the chapter may have been renumbered since.)
 
 This is the **human-facing** v1→v2 chapter in the narrative guide. It's not normative for the skill — it's pedagogy aimed at humans reading the guide. Useful as a sanity check that the skill's framing matches the guide's framing. Useful as a place to link to from the kickoff prompt ("if you want the human-readable overview before kicking off the agent, read this chapter first").
 

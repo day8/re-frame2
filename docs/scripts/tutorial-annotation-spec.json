@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "Data-driven annotation spec for the tutorial screenshot pipeline (rf2-we013).",
+    "Data-driven annotation spec for the tutorial screenshot pipeline.",
     "Each entry maps a scene-id to a list of regions overlaid on its screenshot.",
     "",
     "Region fields:",

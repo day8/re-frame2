@@ -16,7 +16,7 @@
 ;;;;     listener (`:re-frame2-pair-epoch`) are registered. Multi-tool
 ;;;;     coexistence is the expected default; per Spec 009 §Listener
 ;;;;     ordering, listener ordering is not contract.
-;;;;   - Streaming subscriptions (rf2-hq49) ride those same single
+;;;;   - Streaming subscriptions ride those same single
 ;;;;     listener slots — the listener fans matching events into per-
 ;;;;     subscription queues. `subscribe!` / `drain-subscription!` /
 ;;;;     `unsubscribe!` are the public surface the MCP server's
@@ -28,12 +28,12 @@
 ;;;;     compile. A full page refresh wipes both — `discover-app`
 ;;;;     reports the missing preload with a structured setup hint.
 ;;;;
-;;;; Naming surfaces — MCP vs runtime (rf2-41ce8, audit Finding #8).
+;;;; Naming surfaces — MCP vs runtime.
 ;;;;
 ;;;;   re-frame2-pair-mcp deliberately carries TWO vocabularies for the
 ;;;;   same logical surface: the MCP tool catalogue (operator-facing,
 ;;;;   disciplined to the cross-MCP NAMING.md `list-<things>` verb
-;;;;   shape per rf2-4y595) and the runtime fn surface in THIS ns +
+;;;;   shape) and the runtime fn surface in THIS ns +
 ;;;;   `re-frame.core` (historical names, kept as-is). Rename pairs:
 ;;;;
 ;;;;     | MCP tool name           | Runtime fn name             |
@@ -43,8 +43,8 @@
 ;;;;
 ;;;;   An agent generating an eval form via `eval-cljs` uses the
 ;;;;   right-hand column; the same agent calling the MCP tool surface
-;;;;   uses the left-hand column. The split was deliberate (rf2-4y595
-;;;;   stopped the rename at the MCP boundary — the runtime's audience
+;;;;   uses the left-hand column. The split is deliberate (the rename
+;;;;   stops at the MCP boundary — the runtime's audience
 ;;;;   is smaller than the MCP surface, and a runtime rename ripples
 ;;;;   into every eval-form caller). This paragraph documents the
 ;;;;   asymmetry so it's discoverable rather than inherited-from-
@@ -53,12 +53,12 @@
 
 (ns re-frame2-pair.runtime
   (:require [re-frame.core :as rf]
-            ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling
+            ;; sub-cache-snapshot lives in re-frame.subs.tooling
             ;; (production-DCE split). re-frame2-pair is dev-tier — loading the
             ;; tooling sibling here is bundle-isolation-safe (the
             ;; preload is dev-only).
             [re-frame.subs.tooling :as subs-tooling]
-            ;; rf2-qwm0a: register-listener! / trace-buffer (and the rest of
+            ;; register-listener! / trace-buffer (and the rest of
             ;; the listener + ring-buffer surface) live in
             ;; re-frame.trace.tooling, not re-frame.trace. CLJS deliberately
             ;; omits `rf/<name>` aliases for these so production counter
@@ -183,12 +183,12 @@
    (rf/snapshot-of path {:frame frame-id})))
 
 ;; ---------------------------------------------------------------------------
-;; Raw-state posture (rf2-c2dtu)
+;; Raw-state posture
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The MCP server (`tools/re-frame2-pair-mcp/`) carries a
 ;; `--allow-sensitive-reads` boot gate (default OFF; CLI flag name
-;; aligned cross-MCP per rf2-2x3ql). The internal Clojure keyword
+;; aligned across MCP servers). The internal Clojure keyword
 ;; `:allow-raw-state?` below is the implementation-side identifier and
 ;; retains the legacy name. When OFF, the runtime MUST default-elide
 ;; any verbatim app-db value before emitting it through `tap>` —
@@ -263,14 +263,14 @@
    `tap>` so the human sees what the agent changed.
 
    Delegates to the canonical Tool-Pair write surface
-   `(rf/reset-frame-db! frame-id v)` (Tool-Pair §Pair-tool writes,
-   rf2-zq55). That surface bypasses the dispatch loop (no event, no
+   `(rf/reset-frame-db! frame-id v)` (Tool-Pair §Pair-tool writes).
+   That surface bypasses the dispatch loop (no event, no
    cascade) but DOES record a synthetic `:rf/epoch-record` with
    `:event-id :rf.epoch/db-replaced` so that `restore-epoch` can
    rewind past the injection. Use sparingly — prefer `dispatch` for
    any change you want the data loop to see.
 
-   Per rf2-c2dtu: the `tap>` emission default-elides both `:previous`
+   The `tap>` emission default-elides both `:previous`
    and `:next` slots when the raw-state gate is OFF (the published-
    build default for re-frame2-pair-mcp). The wire walker's normal large- and
    sensitive- predicates apply; large slots collapse to
@@ -440,9 +440,9 @@
   ;; last-pair-epoch). Populated by the dispatch helpers below.
   (atom #{}))
 
-;; ---- O(1) per-frame app-db hash cache (rf2-9pe31) ------------------------
+;; ---- O(1) per-frame app-db hash cache ------------------------------------
 ;;
-;; The re-frame2-pair-mcp precheck (rf2-36xod) issues `(hash app-db)` to decide a
+;; The re-frame2-pair-mcp precheck issues `(hash app-db)` to decide a
 ;; cache hit before running the tool eval. `(hash <persistent-map>)` is
 ;; cached on the map node itself in CLJS — the first call walks; every
 ;; subsequent call returns the cached integer in O(1) (per
@@ -489,9 +489,9 @@
 
    Returns an integer hash, or `nil` if the frame doesn't exist.
 
-   Per rf2-9pe31 (follow-on to rf2-36xod). The re-frame2-pair-mcp precheck form
-   threads through this accessor so the cache-hit decision is a single
-   integer compare rather than a full app-db walk."
+   The re-frame2-pair-mcp precheck form threads through this accessor
+   so the cache-hit decision is a single integer compare rather than a
+   full app-db walk."
   ([] (app-db-hash (current-frame)))
   ([frame-id]
    (when frame-id
@@ -503,8 +503,8 @@
 
 ;; The per-frame `observed-epochs` stash and the streaming dispatch both
 ;; ride the same `register-epoch-listener!` slot — combined into
-;; `on-epoch-streaming` below to keep listener ordering deterministic
-;; (rf2-hq49). The legacy single-purpose `on-epoch` was inlined into the
+;; `on-epoch-streaming` below to keep listener ordering deterministic.
+;; The legacy single-purpose `on-epoch` was inlined into the
 ;; streaming listener.
 
 (declare on-epoch-streaming)
@@ -513,7 +513,7 @@
   "Register the assembled-epoch listener if it isn't already. Idempotent —
    passing the same id twice replaces (per `register-epoch-listener!` contract).
 
-   Installs the streaming-aware listener (rf2-hq49). The streaming
+   Installs the streaming-aware listener. The streaming
    dispatch is a no-op when no subscriptions are active, so this is
    safe to install unconditionally."
   []
@@ -637,7 +637,7 @@
 
 ;; The legacy `last-trace-id` cursor and the streaming dispatch both
 ;; ride the same `register-listener!` slot — combined into
-;; `on-trace-streaming` below (rf2-hq49). The legacy `on-trace` was
+;; `on-trace-streaming` below. The legacy `on-trace` was
 ;; inlined into the streaming listener.
 
 (declare on-trace-streaming)
@@ -645,7 +645,7 @@
 (defn- ensure-trace-listener!
   "Register the raw-trace listener if it isn't already.
 
-   Installs the streaming-aware listener (rf2-hq49). The streaming
+   Installs the streaming-aware listener. The streaming
    dispatch is a no-op when no subscriptions are active, so this is
    safe to install unconditionally — `last-trace-event-id` keeps
    working through it."
@@ -659,7 +659,7 @@
   @last-trace-id)
 
 ;; ---------------------------------------------------------------------------
-;; Streaming subscriptions (rf2-hq49)
+;; Streaming subscriptions
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A subscription is a server-side filtered tap on the trace bus or the
@@ -694,7 +694,7 @@
 ;;    :max-buffered-events <integer> ;; queue cap in events; default 500
 ;;    :max-buffered-bytes  <integer>} ;; queue cap in bytes; default 5_000_000 (~5 MB)
 ;;
-;; Overflow policy (drop-oldest, byte+event budget — rf2-ho4ve):
+;; Overflow policy (drop-oldest, byte+event budget):
 ;;   On enqueue, we first append the new event, then evict from the
 ;;   FRONT until BOTH budgets hold. Event-count overflow trips
 ;;   `:overflow-reason :max-buffered-events`; byte overflow trips
@@ -709,7 +709,7 @@
 ;; Topic semantics:
 ;;   :trace  — every event in the raw trace stream matching `:filter`
 ;;             (filter map mirrors `(rf/trace-buffer)` filter vocab —
-;;             see rf2-97ah0). One event per delivered trace event.
+;;             see the trace-buffer surface). One event per delivered trace event.
 ;;   :epoch  — every assembled `:rf/epoch-record` matching `:filter`
 ;;             (filter map mirrors `epoch-matches?` — see watch-epochs).
 ;;             One event per committed epoch.
@@ -740,7 +740,7 @@
   5000000)
 
 ;; ---------------------------------------------------------------------------
-;; Privacy posture for the streaming surface (rf2-3cted)
+;; Privacy posture for the streaming surface
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Per Spec 009 §Privacy / sensitive data: framework-published listener
@@ -821,7 +821,7 @@
 
 (defn- trace-matches?
   "Test a raw trace event against a filter map. Mirrors the filter
-   vocabulary of `(rf/trace-buffer opts)` (rf2-97ah0) — composes
+   vocabulary of `(rf/trace-buffer opts)` — composes
    AND-wise, absent key means no constraint on that axis."
   [filter-map ev]
   (let [{:keys [operation op-type frame severity
@@ -904,7 +904,7 @@
 
 (defn- enqueue!
   "Append an event to a subscription's queue, honouring the byte+event
-   buffer budget (rf2-ho4ve). Drop-oldest semantics: we always admit
+   buffer budget. Drop-oldest semantics: we always admit
    the new event first, then evict from the FRONT until both budgets
    hold. A single fat newcomer can therefore evict an arbitrary
    number of small predecessors — that's correct: the byte budget is
@@ -955,7 +955,7 @@
   "Replacement raw-trace listener that drives both the last-trace-id
    cursor (legacy) and the streaming subs dispatch.
 
-   Privacy filter (rf2-3cted): trace events stamped `:sensitive? true`
+   Privacy filter: trace events stamped `:sensitive? true`
    at the top level are dropped from the streaming dispatch by default,
    per Spec 009 §Privacy. The `last-trace-id` cursor still advances so
    the legacy `since`-based ring-buffer reads remain monotonic — only
@@ -969,7 +969,7 @@
 
 (defn- on-epoch-streaming
   "Replacement assembled-epoch listener that drives the observed stash
-   (legacy), the per-frame app-db-hash cache (rf2-9pe31), and the
+   (legacy), the per-frame app-db-hash cache, and the
    streaming subs dispatch."
   [record]
   (let [frame-id (:frame record)]
@@ -1251,7 +1251,7 @@
 ;; Two attribute sources, in priority order:
 ;;   1. data-rf2-source-coord (re-frame2's own annotation when
 ;;      :annotate-dom? is on — Tool-Pair §Source-mapping;
-;;      Spec 006 §Source-coord annotation, rf2-z7f7)
+;;      Spec 006 §Source-coord annotation)
 ;;   2. data-rc-src (re-com's debug attribute, fallback)
 ;;
 ;; The two attributes resolve to different schemas — re-frame2's
@@ -1262,7 +1262,7 @@
 (defn- parse-rf2-coord
   "Parse re-frame2's `data-rf2-source-coord` attribute.
 
-   Per Spec 006 §Source-coord annotation (rf2-z7f7) and Tool-Pair
+   Per Spec 006 §Source-coord annotation and Tool-Pair
    §Source-mapping the attribute value is a four-segment colon-
    separated string:
 
@@ -1528,7 +1528,7 @@
    :render (matches :render-key as a string), :origin (matches
    :origin in :event/dispatched trace events), :frame, :timing-ms.
 
-   `:timing-ms` (rf2-r3azh) — server-side timing filter. Accepts a
+   `:timing-ms` — server-side timing filter. Accepts a
    number (sugar for `>= N`) or a comparison string (`\">100\"`,
    `\"<=50\"`, `\">=100\"`, `\"<200\"`, `\"=42\"`). Compares against
    the epoch's wall-clock elapsed-ms derived from the cascade's
@@ -1600,7 +1600,7 @@
 ;; Each slice delegates to the existing per-slice reader — no parallel
 ;; reimplementation. The composer just routes by `:include` keys.
 ;;
-;; Wire-boundary wrapping (rf2-tygdv). `snapshot-state` here returns the
+;; Wire-boundary wrapping. `snapshot-state` here returns the
 ;; full slice values; the MCP server's `snapshot` tool then wraps the
 ;; `:app-db` slice with path-slicing + lazy-summary before crossing the
 ;; wire. The default mode at the wire is `:summary` — the slice value
@@ -1670,7 +1670,7 @@
 
    Note: this runtime-side form returns the *full* `:app-db` slice for
    every frame. The MCP `snapshot` tool wraps this output with
-   path-slicing + lazy-summary at the wire boundary (rf2-tygdv) — see
+   path-slicing + lazy-summary at the wire boundary — see
    the section header above for the modes. The wrapping is wire-side
    only; direct callers of this CLJS form see slices verbatim."
   ([] (snapshot-state {}))

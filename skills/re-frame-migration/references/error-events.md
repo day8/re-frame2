@@ -75,7 +75,7 @@ Every recovery in the catalogue applies in **dev only** — trace emission is pr
 
 ## Stale advice the migration agent will encounter
 
-When auditing a v1 codebase, **assume any error-category name not present in the spec catalogue is stale**. Old prose, blog posts, Stack Overflow answers naming specific v1 categories may have invented names or used pre-rf2-wfbn3 spellings. The catalogue at Spec 009 wins; do not infer categories from project comments.
+When auditing a v1 codebase, **assume any error-category name not present in the spec catalogue is stale**. Old prose, blog posts, Stack Overflow answers naming specific v1 categories may have invented names or used pre-rename spellings. The catalogue at Spec 009 wins; do not infer categories from project comments.
 
 Specific drift to watch:
 

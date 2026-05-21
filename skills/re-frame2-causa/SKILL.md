@@ -1,25 +1,25 @@
 ---
 name: re-frame2-causa
 description: >
-  Read-only tour of **Causa** — the re-frame2 devtools panel. Use when the
-  user wants to know how to *launch* Causa (in-app inline panel, pop-out
-  window, programmatic mount, or the wired hotkeys), which of its 8
-  panels surfaces the data they're looking for, or what each panel is
-  *for*. Trigger phrases: "open Causa", "where is X in Causa",
-  "which Causa panel shows…", "Ctrl+Shift+C", "Causa hotkey",
-  "Causa popout", "Causa machine inspector", "Causa issues feed",
-  and similar. **Do not use** for: driving Causa programmatically
-  from a live REPL (that's `re-frame2-pair`), authoring the host app
-  (`re-frame2`), bootstrapping a new project (`re-frame2-setup`), or
-  implementing Causa itself (no skill yet — the `causa-implementor`
-  sibling is deferred to post-alpha). This skill cites
-  `tools/causa/spec/*` as the source of truth; where a spec doc has
-  an open question, hedge with "see spec/0NN" rather than freezing
-  prose.
+ Read-only tour of **Causa** — the re-frame2 devtools panel. Use when the
+ user wants to know how to *launch* Causa (in-app inline panel, pop-out
+ window, programmatic mount, or the wired hotkeys), which of its 8
+ panels surfaces the data they're looking for, or what each panel is
+ *for*. Trigger phrases: "open Causa", "where is X in Causa",
+ "which Causa panel shows…", "Ctrl+Shift+C", "Causa hotkey",
+ "Causa popout", "Causa machine inspector", "Causa issues feed",
+ and similar. **Do not use** for: driving Causa programmatically
+ from a live REPL (that's `re-frame2-pair`), authoring the host app
+ (`re-frame2`), bootstrapping a new project (`re-frame2-setup`), or
+ implementing Causa itself (no skill yet — the `causa-implementor`
+ sibling is deferred to post-alpha). This skill cites
+ `tools/causa/spec/*` as the source of truth; where a spec doc has
+ an open question, hedge with "see spec/0NN" rather than freezing
+ prose.
 allowed-tools:
-  - Read
-  - Grep
-  - Glob
+ - Read
+ - Grep
+ - Glob
 ---
 
 # re-frame2-causa
@@ -34,9 +34,9 @@ schema violation surfaces as an issue you cannot miss.
 This skill answers two questions, and only two:
 
 1. **How do I launch Causa?** — the inline panel, the pop-out, the
-   programmatic entry points, the wired hotkeys.
+ programmatic entry points, the wired hotkeys.
 2. **Which panel shows X?** — a one-line purpose for each of the 8
-   L4 panels Causa ships (per spec/021 §11.4).
+ L4 panels Causa ships (per spec/021 §11.4).
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source,
 redaction-indicator semantics) are **out of scope** in this iteration —
@@ -72,7 +72,7 @@ situation.
 | User wants to … | Use | How |
 |---|---|---|
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-causa-host]` column in the app layout. Causa auto-opens on page load. |
-| Put Causa on a second monitor with the app full-screen | **Pop-out window** | `(causa/popout!)` from CLJS, or `window.day8.re_frame2_causa.popout_BANG_()` from devtools. |
+| Put Causa on a second monitor with the app full-screen | **Pop-out window** | `(causa/popout!)` from CLJS, or `window.day8.re_frame2_causa.popout_BANG_` from devtools. |
 | Mount Causa from code (no preload, or alternative wiring) | **Programmatic `init!`** | Call `(causa/init! opts)` after `rf/init!`. Idempotent. |
 | Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/). |
 | Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
@@ -95,7 +95,7 @@ one has a global keydown listener installed today:
 The remaining keys catalogued in the spec (`?`, `,`, panel-jump
 mnemonics, scrubber controls, event-action shortcuts) require focus
 inside Causa and are not global; some are explicit follow-on work. The
-command-palette `Ctrl+K` was never wired and was struck under rf2-27zh2
+command-palette `Ctrl+K` was never wired and was struck under 
 (Cluster C cleanup) — do not suggest it as a launch path. The pop-out
 has no hotkey; use `(causa/popout!)` or the future right-click affordance
 on the launcher pill.
@@ -156,42 +156,42 @@ the answer — point them at the spec doc or pair-tool surface and stop
 short of improvising.
 
 - **Workflow recipes** (find-wrong-sub, scrub-bad-epoch,
-  redaction-indicator semantics, click-to-source / "open in editor"
-  details, pop-out lifecycle gotchas). Source of truth:
-  [`tools/causa/spec/007-UX-IA.md`](../../tools/causa/spec/007-UX-IA.md)
-  and the per-panel specs (`tools/causa/spec/00N-*.md`). A future
-  iteration may codify these as recipes; today the spec is the answer.
+ redaction-indicator semantics, click-to-source / "open in editor"
+ details, pop-out lifecycle gotchas). Source of truth:
+ [`tools/causa/spec/007-UX-IA.md`](../../tools/causa/spec/007-UX-IA.md)
+ and the per-panel specs (`tools/causa/spec/00N-*.md`). A future
+ iteration may codify these as recipes; today the spec is the answer.
 - **Driving Causa programmatically** (hot-swap a sub via REPL, time-
-  travel from CLJS, dispatch into the runtime from a tool). Route to
-  the [`re-frame2-pair`](../re-frame2-pair/SKILL.md) skill — Causa
-  owns the *seeing*; re-frame2-pair owns the *driving*.
+ travel from CLJS, dispatch into the runtime from a tool). Route to
+ the [`re-frame2-pair`](../re-frame2-pair/SKILL.md) skill — Causa
+ owns the *seeing*; re-frame2-pair owns the *driving*.
 - **Implementing Causa** (panel-facade/leaf split, mount lifecycle
-  internals, frame-provider isolation, the epoch pump's contract).
-  Source of truth:
-  [`tools/causa/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/causa/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)
-  and the per-panel implementation specs. A `causa-implementor` sibling
-  skill is **deferred to post-alpha** until the Causa surface stabilises.
+ internals, frame-provider isolation, the epoch pump's contract).
+ Source of truth:
+ [`tools/causa/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/causa/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)
+ and the per-panel implementation specs. A `causa-implementor` sibling
+ skill is **deferred to post-alpha** until the Causa surface stabilises.
 ---
 
 ## Style guidance
 
 - **Cite the spec, don't paraphrase it.** When a user asks for normative
-  detail (the mount contract, the epoch pump's ordering guarantees, the
-  redaction marker's grammar), link to the relevant
-  `tools/causa/spec/*.md` and quote sparingly.
+ detail (the mount contract, the epoch pump's ordering guarantees, the
+ redaction marker's grammar), link to the relevant
+ `tools/causa/spec/*.md` and quote sparingly.
 - **Pre-alpha hedge.** Some surfaces are partial (Machines depends on
-  `tools/machines-viz/` xyflow styling that's still landing; Issues
-  only populates the schema / hydration rows when the host has those
-  features wired). When a user asks about an in-progress surface, say
-  so and point at the spec.
+ `tools/machines-viz/` xyflow styling that's still landing; Issues
+ only populates the schema / hydration rows when the host has those
+ features wired). When a user asks about an in-progress surface, say
+ so and point at the spec.
 - **Don't invent hotkeys.** Only `Ctrl+Shift+C` and `Ctrl+Shift+/` are
-  globally wired today. Everything else in
-  [`spec/007-UX-IA.md` §Keyboard](../../tools/causa/spec/007-UX-IA.md#keyboard)
-  is normative for the future, not for "what works in your build right
-  now."
+ globally wired today. Everything else in
+ [`spec/007-UX-IA.md` §Keyboard](../../tools/causa/spec/007-UX-IA.md#keyboard)
+ is normative for the future, not for "what works in your build right
+ now."
 - **Route, don't blur.** If the user wants to drive Causa, point at
-  `re-frame2-pair`; if they want to implement it, point at the spec
-  and note that no implementor skill exists yet. This skill is a tour.
+ `re-frame2-pair`; if they want to implement it, point at the spec
+ and note that no implementor skill exists yet. This skill is a tour.
 
 ---
 

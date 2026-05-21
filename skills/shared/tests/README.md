@@ -5,9 +5,9 @@ the shared retro protocol consumed by `re-frame2-improver` and
 `re-frame2-pair-retro`.
 
 Closes audit Finding 4 from
-`ai/findings/skills-shared-audit-verification-2026-05-15.md` (filed as
-rf2-y1tqa). Findings 1, 2, 3 of that audit landed via PR #1116 and
-#1127 as prose-only locks; this suite is the regression backstop.
+`ai/findings/skills-shared-audit-verification-2026-05-15.md`. Findings
+1, 2, 3 of that audit landed as prose-only locks; this suite is the
+regression backstop.
 
 ## Two surfaces
 
@@ -28,10 +28,10 @@ discipline." `re-frame2-pair/` is the exception because it drives a
 live runtime (nREPL attach, app-db mutation, epoch reads).
 
 `skills/shared/retro-protocol.md` warrants the second exception for a
-different reason: it is a **security boundary**. The rf2-g6auh audit
-found four issues there; three landed prose-only fixes. The audit's
-Finding 4 explicitly called for a regression suite so a future drift
-of the prose doesn't silently re-open the boundary.
+different reason: it is a **security boundary**. A prior audit found
+four issues there; three landed prose-only fixes. The audit's Finding
+4 explicitly called for a regression suite so a future drift of the
+prose doesn't silently re-open the boundary.
 
 The structural test is the cheap class of drift detector (would catch
 "someone deleted §Untrusted-evidence boundary"); the document
@@ -75,6 +75,3 @@ coverage.
 - `skills/re-frame2-pair/tests/prompts/prompt_regression_test.clj` —
   the corpus's other prose-regression suite (recipe-shape drift
   detector); this suite mirrors its substrate.
-- rf2-g6auh — original `skills/shared/` security audit.
-- rf2-y1tqa — this regression suite.
-- PR #1116, #1127 — the prose locks this suite backstops.

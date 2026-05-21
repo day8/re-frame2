@@ -142,7 +142,7 @@ For the machine-form wrapper in production, see the auth-flow in `patterns/boot.
 
 ## Pointers
 
-- Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-managed-request-stubs`, ships in `re-frame.http-test-support` per rf2-lwmgw) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
+- Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-managed-request-stubs`, ships in `re-frame.http-test-support`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
 - Schema-driven decode → SKILL-REDIRECT.md → *EP — Schemas (010)*.
 - Retry-ownership worked example → `patterns/boot.md`.
 - `:spawn` substrate → SKILL-REDIRECT.md → *EP — State machines (005)*.

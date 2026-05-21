@@ -28,7 +28,7 @@ Do **not** load this leaf to learn what Causa is — load `tools/causa/README.md
 ```
 
 ```css
-:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) */
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 560px);
@@ -72,13 +72,13 @@ The recommended host snippet reads one CSS custom property — `--rf-causa-inlin
 
 Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`, …). The recommended `min-width: 320px` floor prevents the panel from collapsing past readability; remove it if you want unbounded shrink.
 
-The variable is published as `day8.re-frame2-causa.config/default-layout-host-css-var` and the 560px default as `default-layout-host-width` (bumped 420 → 560 under `rf2-9ovfb`) so tooling can refer to them without forking the string. **Causa MUST NOT introduce a CLJS setter for this property** — the host's stylesheet is the single source of truth.
+The variable is published as `day8.re-frame2-causa.config/default-layout-host-css-var` and the 560px default as `default-layout-host-width`, so tooling can refer to them without forking the string. **Causa MUST NOT introduce a CLJS setter for this property** — the host's stylesheet is the single source of truth.
 
-Causa also auto-injects a drag handle on the panel's outer edge (rf2-70u8q; see `tools/causa/spec/007-UX-IA.md` §Resize affordance). The variable seeds the initial width; a user drag overrides it (persisted across reloads via `configure! :settings :general :panel-width-px`, clamped to `[320px, 90vw]`, double-click to reset). Both mechanisms write the same `flex-basis` slot — no parallel sizing channel. Consumers that prefer the browser-native handle opt out by setting `resize: horizontal` on the host; Causa detects that via `getComputedStyle` and yields (no double-handle).
+Causa also auto-injects a drag handle on the panel's outer edge (see `tools/causa/spec/007-UX-IA.md` §Resize affordance). The variable seeds the initial width; a user drag overrides it (persisted across reloads via `configure! :settings :general :panel-width-px`, clamped to `[320px, 90vw]`, double-click to reset). Both mechanisms write the same `flex-basis` slot — no parallel sizing channel. Consumers that prefer the browser-native handle opt out by setting `resize: horizontal` on the host; Causa detects that via `getComputedStyle` and yields (no double-handle).
 
 ## Brand-accent CSS variable (`--rf-causa-accent`)
 
-Per `rf2-9ovfb`, the same recommended snippet publishes a second CSS custom property — `--rf-causa-accent` — on `:root` carrying Causa's brand violet (`#7C5CFF`, matching `theme/tokens.cljc`'s `:accent-violet`). Host stylesheets can read `var(--rf-causa-accent)` anywhere to colour their own dev chrome (resize handles, dock separators, story chips) so it harmonises with Causa without forking the hex. Override on `:root` for a tinted brand variant. Published as `default-accent-css-var` + `default-accent` on the same `config` ns. Same single-source-of-truth rule applies — Causa never sets it from CLJS.
+The recommended snippet also publishes a second CSS custom property — `--rf-causa-accent` — on `:root` carrying Causa's brand violet (`#7C5CFF`, matching `theme/tokens.cljc`'s `:accent-violet`). Host stylesheets can read `var(--rf-causa-accent)` anywhere to colour their own dev chrome (resize handles, dock separators, story chips) so it harmonises with Causa without forking the hex. Override on `:root` for a tinted brand variant. Published as `default-accent-css-var` + `default-accent` on the same `config` ns. Same single-source-of-truth rule applies — Causa never sets it from CLJS.
 
 ## Mount lifecycle (defonce, single-shell, hot-reload-safe)
 

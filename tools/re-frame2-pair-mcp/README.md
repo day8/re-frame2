@@ -74,7 +74,7 @@ The server auto-discovers the nREPL port from (in order):
 3. `.shadow-cljs/nrepl.port`
 4. `.nrepl-port`
 
-### Path-drift probe (rf2-vsxgz)
+### Path-drift probe
 
 After repo-side renames of this tool (e.g. PR #1504 `tools/pair2-mcp/`
 → `tools/re-frame2-pair-mcp/`) your `~/.claude.json` keeps pointing at

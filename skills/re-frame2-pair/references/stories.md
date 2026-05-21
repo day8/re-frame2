@@ -12,7 +12,7 @@ Do **not** load this leaf to author variants from scratch (no live runtime in th
 
 ## The five tools — live-session palette
 
-The `re-frame2-pair` skill's `allowed-tools` (per the SKILL.md frontmatter, landed by rf2-day7u) pulls in exactly these five from the story-mcp surface. The authoring side (`register-variant`, `get-variant`, `preview-variant`, `list-stories`, …) is allow-listed by `re-frame2` instead — load `recipes.md §Refine a variant interactively` when you need to call those across the skill boundary.
+The `re-frame2-pair` skill's `allowed-tools` (per the SKILL.md frontmatter) pulls in exactly these five from the story-mcp surface. The authoring side (`register-variant`, `get-variant`, `preview-variant`, `list-stories`, …) is allow-listed by `re-frame2` instead — load `recipes.md §Refine a variant interactively` when you need to call those across the skill boundary.
 
 | Tool | What it does | Returns |
 |---|---|---|
@@ -96,12 +96,12 @@ When the loop terminates, optionally call `record-as-variant` to capture the now
 - **`read-failures` does not re-run.** It reads the *last* `run-variant`'s `:rf.story/assertions` accumulator. After a manual re-frame2-pair dispatch, the accumulator is stale — re-run before reading.
 - **`run-a11y` needs the in-browser panel.** JVM-standalone story hosts return an empty list + a documented hint that axe-core requires the browser. If your session is browser-attached this works; if it's JVM-only, expect the no-op.
 - **`record-as-variant`'s filter layers are not free-form.** Filtering is inherited verbatim from `re-frame.story.recorder/recordable-event?` — op-type `:event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`). You can't widen the filter via tool input.
-- **Write-back gate is per-server, not per-call.** `record-as-variant` with `:write-back true` needs `--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true` set on the story-mcp server start. The read-only path (snippet returned, no registration) needs no gate. Wire-key `:write-back` (no `?`) per rf2-pmwgn.
+- **Write-back gate is per-server, not per-call.** `record-as-variant` with `:write-back true` needs `--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true` set on the story-mcp server start. The read-only path (snippet returned, no registration) needs no gate. Wire-key is `:write-back` (no `?`).
 
 ## Cross-references
 
-- The identity that makes all this work — [`variant-as-frame.md`](variant-as-frame.md) (rf2-pxrhh).
-- The bare four-step loop — [`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md) (rf2-7iks3).
+- The identity that makes all this work — [`variant-as-frame.md`](variant-as-frame.md).
+- The bare four-step loop — [`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md).
 - The three variant recipes that compose these tools end-to-end — [`recipes.md` §Drive a Story variant from a re-frame2-pair session](recipes.md#drive-a-story-variant-from-a-re-frame2-pair-session), [§Diff two variants of the same component](recipes.md#diff-two-variants-of-the-same-component), [§Refine a variant interactively](recipes.md#refine-a-variant-interactively).
 - Full tool registry + I/O schemas — [`tools/story-mcp/spec/002-Tool-Registry.md`](../../../tools/story-mcp/spec/002-Tool-Registry.md).
 - Authoring-side variant body shape — [`skills/re-frame2/references/tooling/stories.md`](../../re-frame2/references/tooling/stories.md).

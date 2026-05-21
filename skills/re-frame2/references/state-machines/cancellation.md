@@ -103,4 +103,4 @@ For the full cancellation contract — trace events, the late-bind hook surface,
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (destroy fx + abort hook seam) and `implementation/core/src/re_frame/frame.cljc` (frame-destroy walk) @ main `89bd9c3`. Re-verify after cancellation-cascade or `:rf.http/managed` abort-hook changes (e.g. rf2-wvkn invoke-cancellation-contract).*
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (destroy fx + abort hook seam) and `implementation/core/src/re_frame/frame.cljc` (frame-destroy walk) @ main `89bd9c3`. Re-verify after cancellation-cascade or `:rf.http/managed` abort-hook changes.*

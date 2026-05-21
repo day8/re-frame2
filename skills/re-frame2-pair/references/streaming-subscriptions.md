@@ -78,7 +78,7 @@ Mirrors the `watch-epochs` pull-mode pred map. Recognised keys:
 - `:render` — render-key (stringified) appearing in `:renders`
 - `:origin` — `:origin` tag on the trigger event's `:event/dispatched` trace
 - `:frame` — frame id
-- `:timing-ms` — server-side wall-clock filter on the cascade's elapsed-ms (rf2-r3azh). Number `N` is sugar for `>= N`; strings `">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"` set the comparator. Derived from the `:event/run-start` / `:event/run-end` trace pair on `:time` — spans first run-start to last run-end so synchronously-dispatched same-cascade chains roll up. Use this for "alert me on slow events"; the filter rides server-side so non-matching epochs never cross the wire.
+- `:timing-ms` — server-side wall-clock filter on the cascade's elapsed-ms. Number `N` is sugar for `>= N`; strings `">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"` set the comparator. Derived from the `:event/run-start` / `:event/run-end` trace pair on `:time` — spans first run-start to last run-end so synchronously-dispatched same-cascade chains roll up. Use this for "alert me on slow events"; the filter rides server-side so non-matching epochs never cross the wire.
 
 ## Progress-notification correlation
 
@@ -131,7 +131,7 @@ The final summary the call resolves with:
  :dropped-sensitive <count>}
 ```
 
-The byte+event buffer budget (rf2-ho4ve): the runtime queue is bounded by an OR-combined pair — `max-buffered-events` (default 500) and `max-buffered-bytes` (default 5_000_000, ~5 MB pr-str char count). On overflow the OLDEST queued events are evicted (drop-oldest FIFO) and the count/bytes/reason surface on the next `notifications/progress` tick and the final summary. The byte budget is the load-bearing bound; the event budget is a coarse backstop for chatty-filter overruns. Tune `max-buffered-bytes` when `:overflow-reason :max-buffered-bytes` keeps tripping — that's a large-payload storm.
+The byte+event buffer budget: the runtime queue is bounded by an OR-combined pair — `max-buffered-events` (default 500) and `max-buffered-bytes` (default 5_000_000, ~5 MB pr-str char count). On overflow the OLDEST queued events are evicted (drop-oldest FIFO) and the count/bytes/reason surface on the next `notifications/progress` tick and the final summary. The byte budget is the load-bearing bound; the event budget is a coarse backstop for chatty-filter overruns. Tune `max-buffered-bytes` when `:overflow-reason :max-buffered-bytes` keeps tripping — that's a large-payload storm.
 
 ## Privacy posture
 
