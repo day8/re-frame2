@@ -469,7 +469,13 @@
           ;; ONLY per-flow attribution that survives CLJS prod
           ;; elision — `:rf.flow/failed` trace is DCE'd.
           (is (= :boom (:flow-id tags))
-              ":flow-id is propagated from evaluate-flow!'s ex-info wrap (rf2-je5p8)"))))))
+              ":flow-id is propagated from evaluate-flow!'s ex-info wrap (rf2-je5p8)")
+          ;; Attribution is `:flow-id`-only. There is no real flow VALUE
+          ;; to carry, so the cascade-level error MUST NOT claim a
+          ;; `:flow` slot — the contract is the id alone (Spec 013
+          ;; §Failure semantics / §Resolved decisions).
+          (is (not (contains? tags :flow))
+              ":flow is NOT stamped — no real flow value exists"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5c. :rf.fx/reg-flow cycle detection routes through error-emit (rf2-eb4lp)

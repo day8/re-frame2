@@ -205,22 +205,25 @@
                                          new-inputs)
                           :frame   frame-id}))
           ;; Per rf2-je5p8: wrap the throw in an ex-info carrying the
-          ;; flow-attribution slots `:rf.flow/failed-id` /
-          ;; `:rf.flow/failed-frame`. The router's `run-flows!` catch
-          ;; reads these and stamps `:flow-id` / `:flow` into the
-          ;; substrate record's `:tags` so ops in CLJS production
-          ;; (where `:rf.flow/failed` DCEs) can attribute the cascade-
-          ;; level `:rf.error/flow-eval-exception` to a specific flow.
-          ;; The original exception remains the `:cause` for stack-
-          ;; trace introspection. Symmetric with Spec 013 §Failure
-          ;; semantics rule 4: the per-flow trace fires first with
-          ;; flow attribution; the cascade-level error preserves the
+          ;; flow-attribution slot `:rf.flow/failed-id`.
+          ;; The router's `run-flows!` catch reads it and stamps
+          ;; `:flow-id` into the substrate record's `:tags` so ops in
+          ;; CLJS production (where `:rf.flow/failed` DCEs) can attribute
+          ;; the cascade-level `:rf.error/flow-eval-exception` to a
+          ;; specific flow. Attribution is `:flow-id`-only: there is no
+          ;; real flow VALUE to carry, so the contract carries the id and
+          ;; nothing more (per Spec 013 §Failure semantics / §Resolved
+          ;; decisions). The failing frame is already in scope at the
+          ;; router boundary (it is the frame being drained), so it is not
+          ;; duplicated here. The original exception remains the `:cause`
+          ;; for stack-trace introspection. Symmetric with Spec 013
+          ;; §Failure semantics rule 4: the per-flow trace fires first
+          ;; with flow attribution; the cascade-level error preserves the
           ;; same attribution at the substrate boundary.
           (throw (ex-info (or #?(:clj (.getMessage ^Throwable e)
                                  :cljs (.-message e))
                               ":rf.error/flow-eval-exception")
-                          {:rf.flow/failed-id    flow-id
-                           :rf.flow/failed-frame frame-id}
+                          {:rf.flow/failed-id flow-id}
                           e)))))))
 
 (defn run-flows!

@@ -1012,9 +1012,9 @@
         ;; exception` outside this listener's discrimination context
         ;; (Causa's event lens, an off-box Sentry shipper, an SSR error
         ;; projection) can identify the throw as :on-match-attributed
-        ;; without re-running the discrimination logic. Mirrors the flow-
-        ;; attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-
-        ;; frame` (rf2-je5p8 / Spec 013 §Failure semantics).
+        ;; without re-running the discrimination logic. Same pattern as
+        ;; the flow-attribution slot `:rf.flow/failed-id` (rf2-je5p8 /
+        ;; Spec 013 §Failure semantics).
         (let [error-map {:operation             :rf.error/handler-exception
                          :failing-id            event-id
                          :event-id              event-id
