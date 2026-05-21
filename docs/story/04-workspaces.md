@@ -8,9 +8,9 @@ So you've got a fistful of variants now. The sidebar's getting long. You realise
 
 This is the gesture component playgrounds have been working towards since Bret Victor's *Ladder of Abstraction*, and Storybook's `variants-grid` add-on figured out the rough UX years ago. A workspace is a layout that arranges variants on one page. We ship five layouts; two of them carry most of the workload.
 
-> 📸 **Screenshot needed**: a 2×2 workspace mounting four variant states (e.g. `:empty`, `:loaded`, `:clicked-three-times`, `:save-stubbed`). Annotate (1) the workspace title bar with the layout selector, (2) each cell labelled with its variant id, (3) the per-cell args-override hint (small chip near the cell), (4) the *share this layout* button.
->
-> Save as: `/docs/images/story/04-workspace-grid.png`
+![A 2×2 workspace mounting four counter variants.](../images/story/04-workspace-grid.png)
+
+*The `:Workspace.counter/all-states` workspace renders four canonical variants — `:story.counter/empty` (1), `:story.counter/loaded` (2), `:story.counter/clicked-three-times` (3), `:story.counter/save-stubbed` (4) — each in its own isolated frame.*
 
 ## The two shapes you'll use 90% of the time
 

@@ -14,9 +14,9 @@ re-frame2's foundation is different. Frames *exist*. They're a first-class alloc
 
 If you've used Storybook, the gestures will feel deeply familiar. We mean for them to. Most of what's in here is "Storybook patterns, but the substrate happens to be honest about state isolation."
 
-> 📸 **Screenshot needed**: the Story shell with sidebar, canvas, and right-hand inspector visible. Annotate (1) the sidebar tree showing parent stories and their variants, (2) the canvas with a variant rendering, (3) the right-pane Causa embed, (4) the mode-tab strip above the canvas, (5) the controls panel with arg editors.
->
-> Save as: `/docs/images/story/01-shell-overview.png`
+![The Story shell with sidebar, canvas, and right-hand inspector visible.](../images/story/01-shell-overview.png)
+
+*(1) The sidebar tree showing parent stories and their variants. (2) The canvas with a variant rendering. (3) The right-pane Causa embed. (4) The mode-tab strip above the canvas. (5) The controls panel — Causa's chip row carries the args-editor, trace, and machines surfaces.*
 
 ## A scenario, to fix the picture
 

@@ -29,9 +29,9 @@ re-frame2 ships with four view-substrate adapters: **Reagent**, **Reagent-slim**
 
 Now every variant under `:story.counter` mounts under all three substrates, side-by-side, in a tri-cell layout. Pick whatever subset you need; the runtime picks the layout dimensions based on the cardinality.
 
-> 📸 **Screenshot needed**: the same variant rendered side-by-side under Reagent, UIx, and Helix. Annotate (1) each substrate's column header (the substrate name as a chip), (2) the visually-identical rendered component in each cell, (3) the per-cell selection indicator if visible. Bonus: pick a counter variant where the three substrates render byte-identically — that's the gestural payoff.
->
-> Save as: `/docs/images/story/07-multi-substrate.png`
+![The same variant rendered side-by-side under Reagent and UIx.](../images/story/07-multi-substrate.png)
+
+*The `:story.counter-matrix/multi-substrate` variant declares `:substrates #{:reagent :uix}`. (1) The Reagent cell renders the counter card. (2) The UIx cell projects an "unsupported substrate" notice — this testbed only registers the Reagent renderer with the substrate registry, so unsupported substrates fail loudly rather than silently. (3) The whole multi-substrate render group, framed by the canvas.*
 
 ## What you see
 

@@ -34,9 +34,9 @@ Here is the smallest interesting `stories.cljs` you can write. (We're going to u
 
 Save. Reload the dev build. Open `#/stories`. You're in.
 
-> 📸 **Screenshot needed**: the Story shell immediately after the variant loads. Annotate (1) `:story.counter` in the sidebar tree, (2) the `/empty` child variant selected (highlighted), (3) the counter rendered in the canvas, (4) the *Canvas / Docs / Tests* mode-tab strip across the top of the main pane.
->
-> Save as: `/docs/images/story/01-variant-loaded.png`
+![The Story shell immediately after the variant loads.](../images/story/01-variant-loaded.png)
+
+*(1) `:story.counter` in the sidebar tree. (2) The `/empty` child variant selected (highlighted). (3) The counter rendered in the canvas. (4) The Canvas / Docs / Tests mode-tab strip across the top of the main pane.*
 
 **You should now see:** a sidebar entry called `story.counter` with an `empty` variant under it; clicking that variant renders a counter (whatever your `counter-card` view paints) inside the main pane; the controls panel on the right has one row labelled "label" showing the string "Count".
 
