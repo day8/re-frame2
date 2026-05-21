@@ -2161,3 +2161,72 @@
                 "post-unmount cache entry dropped or ref-count at zero")
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
+
+;; ---- view-unmount parity (rf2-te71r — React-hook twin of rf2-9hoos) -------
+;;
+;; Phase-A (rf2-9hoos) emits :rf.view/unmounted on the Reagent family via
+;; a per-render-instance reaction-dispose hook; the React-hook substrates
+;; (UIx / Helix) had no tracked render reaction to ride, so the views-side
+;; arm no-oped there. rf2-te71r adds a React.useEffect empty-deps cleanup
+;; in the shared spine's wrap-view that fires the emit on unmount. Real
+;; mount/unmount needs a DOM (jsdom is NOT in the node runner), so this is
+;; a browser-DOM assertion — the neighbour of refcount-cleanup-on-unmount.
+;;
+;; A registered view's wrapper (`(rf/view id)`) is rendered through
+;; `React/createElement` as a function component so the spine wrap-view's
+;; useEffect belongs to a real React instance whose teardown fires the
+;; cleanup. The probe is built in the suite (raw `React/createElement`, no
+;; substrate `defui`/`$` needed) so both UIx and Helix forward it
+;; unchanged — a gap on one is a gap on both.
+
+(defn assert-view-unmount-emits-on-react-hook-teardown
+  "rf2-te71r: mounting then unmounting a registered view under a
+  React-hook substrate (UIx / Helix) emits exactly one :rf.view/unmounted
+  carrying the required :view-id + :frame tags (plus the :render-key
+  instance tuple). The emit rides the spine wrap-view's React.useEffect
+  empty-deps cleanup — the React-hook parity for the phase-A Reagent
+  reaction-dispose unmount hook.
+
+  cfg keys:
+    :substrate-kw  keyword fragment used to mint a per-substrate view-id"
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — :rf.view/unmounted fires on React-hook view teardown (rf2-te71r)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [view-id   (mint-kw substrate-kw "unmount-parity-probe")
+            recorded  (atom [])]
+        (trace-tooling/register-listener! ::view-unmounted-recorder
+          (fn [ev]
+            (when (= :rf.view/unmounted (:operation ev))
+              (swap! recorded conj ev))))
+        ;; Register a trivial DOM-rooted view. Its wrapper carries the
+        ;; spine wrap-view's unmount-sentinel child (which holds the
+        ;; useEffect arm). `(rf/view id)` returns a CLJS `MetaFn` (the
+        ;; `:contextType` meta makes it an object, not a raw JS function),
+        ;; so React cannot use it as a component type directly — mount it
+        ;; via a plain JS-function host component that INVOKES the
+        ;; registered view. The spine sentinel element rides in the
+        ;; returned tree and React renders it as a real instance whose
+        ;; teardown fires the cleanup.
+        (rf/reg-view* view-id (fn [] (React/createElement "div" #js {} "probe")))
+        (let [render-fn  (rf/view view-id)
+              host       (fn host-cmp [_props] (render-fn))
+              mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)]
+          (try
+            (act-fn (fn [] (.render root (React/createElement host #js {}))))
+            (is (empty? @recorded)
+                "no :rf.view/unmounted before teardown")
+            (act-fn (fn [] (.unmount root)))
+            (is (= 1 (count @recorded))
+                "exactly one :rf.view/unmounted fired on instance teardown")
+            (when-let [ev (first @recorded)]
+              (let [t (:tags ev)]
+                (is (= view-id (:view-id t)) ":view-id tag matches the registered view")
+                (is (some? (:frame t)) ":frame tag present")
+                (is (vector? (:render-key t)) ":render-key is a tuple")
+                (is (= view-id (first (:render-key t)))
+                    ":render-key's head is the view-id")))
+            (finally
+              (trace-tooling/unregister-listener! ::view-unmounted-recorder)
+              (try (.unmount root) (catch :default _ nil))))))))))

@@ -793,6 +793,148 @@
         (warn-fn id (some-> out .-type)))
       out)))
 
+;; ---- view-unmount parity (rf2-te71r; follow-on from rf2-9hoos) ------------
+;;
+;; Phase-A (rf2-9hoos) added `:rf.view/unmounted`, fired via a per-render-
+;; instance reaction-dispose hook armed in `re-frame.views`. That path
+;; rides the Reagent family's tracked render reaction
+;; (`componentWillUnmount` disposes the instance's tracked deps). The
+;; React-hook substrates (UIx / Helix) run the same `views.cljs`
+;; frame-aware-view wrapper inside a function component with NO tracked
+;; render reaction (they intentionally don't publish
+;; `:adapter/make-reaction`, so `interop/make-reaction` returns nil and
+;; the views-side arm no-ops). This spine seam restores parity: the
+;; React-hook wrap-view arms a `React.useEffect` empty-deps cleanup that
+;; emits `:rf.view/unmounted` on instance teardown.
+;;
+;; Render-key threading. On the Reagent family the instance-token is
+;; cached on the component object so the render-key
+;; (`[view-id instance-token]`) is stable across re-renders. The React-
+;; hook spine has no such per-instance object the views-side token-mint
+;; can latch onto (`provider/reagent-component-token` mints a FRESH token
+;; every render under UIx/Helix because no `:adapter/current-component` is
+;; published), so this seam mints its OWN stable per-instance token into a
+;; `useRef` — `[view-id <stable-token>]` is a well-formed render-key tuple
+;; whose token survives re-renders and matches the render whose teardown
+;; it marks. The required `:rf.view/unmounted` tags (`:view-id`, `:frame`)
+;; carry the values resolved in-render; `:render-key` carries the stable
+;; per-instance tuple.
+;;
+;; Production elision. The whole arm sits inside `interop/debug-enabled?`
+;; — under :advanced + goog.DEBUG=false the wrap collapses to the bare
+;; `user-fn` (no hooks, no emit), so the `rf.view/unmounted` sentinel
+;; (already present from phase-A) stays absent in prod bundles.
+
+(def ^:private unmount-instance-counter
+  "Process-wide monotonic counter for stable per-instance render-key
+  tokens minted by the React-hook wrap-view's unmount sentinel
+  (rf2-te71r). Dev-only — the only call site sits inside the sentinel
+  component, which only runs when React renders it under
+  `interop/debug-enabled?`, so this and its `swap!` DCE in production
+  builds. Distinct from the views-side `provider/instance-counter` (the
+  spine carries no spine→views dependency edge); both are in-run
+  discriminators with no cross-run correlation guarantee."
+  (atom 0))
+
+(defn- emit-view-unmounted-via-hook!
+  "Fire `:rf.view/unmounted` for `render-key` in `frame-id` through the
+  `:views/emit-view-unmounted!` late-bind hook (published by
+  `re-frame.views`, rf2-te71r). Reaching the emit through late-bind keeps
+  the spine (core/substrate) free of a static require on the CLJS-only
+  views ns. No-op when the hook is unresolved (views not on the
+  classpath) or when `interop/debug-enabled?` is false. The views-side
+  impl is itself gated on `interop/debug-enabled?`."
+  [view-id render-key frame-id]
+  (when interop/debug-enabled?
+    (when-let [emit! (late-bind/get-fn-cached :views/emit-view-unmounted!)]
+      (emit! view-id render-key frame-id))))
+
+(defn make-unmount-sentinel
+  "Build the per-view unmount-sentinel React function component
+  (rf2-te71r). The sentinel renders no DOM (returns nil) and arms a
+  `React.useEffect` empty-deps cleanup that emits `:rf.view/unmounted` on
+  its instance teardown — the React-hook parity for the Reagent family's
+  phase-A (rf2-9hoos) reaction-dispose unmount hook.
+
+  Why a sibling SENTINEL rather than hooks inline in wrap-view's wrapped
+  fn. A registered view's wrapper (`(rf/view id)`) is also INVOKED
+  DIRECTLY (headless, no React render) — the suite's render-trace tests do
+  `((rf/view id))`. Calling `React.useRef` / `useEffect` there throws
+  ('hooks can only be called inside a function component'). Routing the
+  hooks through a sentinel that wrap-view emits as a sibling ELEMENT means
+  a direct invocation merely builds an element object (no hook execution),
+  while a real React mount renders the sentinel and runs its hooks — the
+  same safety the after-render sentinel relies on.
+
+  Props (passed by wrap-view via `React/createElement`):
+    :view-id  the registered view id (the `:view-id` tag + render-key head)
+    :frame    the frame resolved at wrap-view render time (the `:frame`
+              tag; captured in a ref so the cleanup, which runs outside
+              React render, reports the frame the instance rendered under)
+
+  Stable per-instance token: minted once into a `useRef` so the
+  `:render-key` tuple `[view-id <token>]` survives re-renders and matches
+  the render whose teardown it marks. Empty-deps `#js []` → the effect's
+  cleanup runs exactly once on unmount (one-shot, matching the Reagent
+  path's reaction-dispose semantics)."
+  []
+  (fn unmount-sentinel [^js props]
+    (let [view-id    (.-viewId props)
+          frame-id   (.-frame props)
+          token-ref  (React/useRef nil)
+          token      (or (.-current token-ref)
+                         (let [t (swap! unmount-instance-counter inc)]
+                           (set! (.-current token-ref) t)
+                           t))
+          render-key [view-id token]
+          ;; Capture the frame in a ref so a frame change across re-renders
+          ;; (rare for a mounted instance) still has the cleanup report the
+          ;; last-rendered frame rather than a stale closure value.
+          frame-ref  (React/useRef nil)]
+      (set! (.-current frame-ref) frame-id)
+      (React/useEffect
+        (fn unmount-arm-effect []
+          (fn cleanup []
+            (emit-view-unmounted-via-hook! view-id render-key
+                                           (.-current frame-ref))))
+        #js [])
+      nil)))
+
+(defn- append-unmount-sentinel
+  "Append an unmount-sentinel child element to `annotated` (the source-
+  coord / view-id-annotated user output) so the view instance fires
+  `:rf.view/unmounted` on teardown (rf2-te71r). `cloneElement` with a
+  trailing extra child preserves the root's `type`, `key`, and existing
+  props/children — the source-coord + view-id contract is untouched (the
+  inspected output is still the user's annotated root element, NOT a
+  Fragment wrapper), and the sentinel renders no DOM, so the committed
+  tree gains nothing visible. On a headless direct invocation of the
+  wrapped fn (the suite's render-trace tests call `((rf/view id))`) this
+  merely builds an element object whose sentinel child's hooks never run;
+  only a real React mount renders the sentinel and arms its useEffect
+  cleanup.
+
+  Non-element / nil output (a view returning a string or nil) cannot
+  carry a child — pass it through unchanged (no unmount arm; consistent
+  with such a view having no mountable instance to tear down)."
+  [unmount-sentinel id frame-id annotated]
+  (if (and (some? annotated) (some? (.-type ^js annotated)))
+    (let [sentinel-el (React/createElement unmount-sentinel
+                                           #js {:viewId id :frame frame-id})
+          existing    (some-> ^js annotated .-props .-children)
+          ;; cloneElement's variadic children REPLACE the original
+          ;; `props.children`, so the original children must be carried
+          ;; forward explicitly. `existing` is nil (no children), a single
+          ;; child, or a JS array — normalise to a flat arg list with the
+          ;; sentinel appended last.
+          children    (cond
+                        (nil? existing)   #js [sentinel-el]
+                        (array? existing) (.concat existing #js [sentinel-el])
+                        :else             #js [existing sentinel-el])]
+      (.apply React/cloneElement nil
+              (.concat #js [annotated nil] children)))
+    annotated))
+
 (defn make-wrap-view
   "Return a `wrap-view` fn parameterised on the substrate's per-adapter
   `warn-fn` (typically built via `make-warn-non-dom-root-fn`). The
@@ -800,18 +942,40 @@
   wrapped-user-fn` and produces a function component that injects
   both `data-rf2-source-coord` (Spec 006 §Source-coord annotation) and
   `data-rf-view` (Spec 006 §View tagging contract) on the rendered
-  root DOM element when `interop/debug-enabled?` is true. Production
-  builds elide via `interop/debug-enabled?` per Spec 009 §Production
-  builds."
+  root DOM element, AND appends a no-DOM unmount-sentinel child so the
+  view instance fires `:rf.view/unmounted` on teardown (rf2-te71r —
+  React-hook parity for the phase-A reaction-dispose unmount hook), all
+  when `interop/debug-enabled?` is true. Production builds elide via
+  `interop/debug-enabled?` per Spec 009 §Production builds.
+
+  The sentinel is appended as a CHILD (via `cloneElement`) rather than
+  hooks called inline in the wrapped fn: the wrapped fn is also INVOKED
+  HEADLESS (`((rf/view id))` in the render-trace tests), where calling
+  React hooks throws. Building the sentinel as an element defers its hook
+  execution to a real React render — the same safety the after-render
+  sentinel relies on. Appending preserves the root's `type` / `key` /
+  props, so the source-coord + view-id annotation contract is unchanged."
   [warn-fn]
-  (fn wrap-view [id metadata user-fn]
-    (if interop/debug-enabled?
-      (let [coord-attr (format-source-coord id metadata)
-            view-attr  (format-view-id id)]
-        (fn wrapped-user-fn [& args]
-          (let [out (apply user-fn args)]
-            (inject-source-coord-attr warn-fn id coord-attr view-attr out))))
-      user-fn)))
+  (let [unmount-sentinel (make-unmount-sentinel)]
+    (fn wrap-view [id metadata user-fn]
+      (if interop/debug-enabled?
+        (let [coord-attr (format-source-coord id metadata)
+              view-attr  (format-view-id id)]
+          (fn wrapped-user-fn [& args]
+            ;; rf2-te71r: resolve the frame in-render (the substrate-
+            ;; portable React-context read works inside this wrapped fn's
+            ;; render). The sentinel's cleanup runs OUTSIDE render where
+            ;; the read would be wrong, so the frame is threaded as a prop
+            ;; and the sentinel stashes it in a ref. On a headless direct
+            ;; invocation this read falls through the dynamic-var /
+            ;; :rf/default chain — harmless; the sentinel ELEMENT is built
+            ;; but its hooks only run if React actually renders it.
+            (let [frame-id  (adapter-context/function-component-current-frame)
+                  out       (apply user-fn args)
+                  annotated (inject-source-coord-attr warn-fn id coord-attr
+                                                      view-attr out)]
+              (append-unmount-sentinel unmount-sentinel id frame-id annotated))))
+        user-fn))))
 
 (defn install-clear-warn-once-step!
   "Wire `clear-fn` into the chained `:adapter/clear-warn-once-caches!`
