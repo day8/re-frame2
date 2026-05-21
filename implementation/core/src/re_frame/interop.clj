@@ -141,7 +141,7 @@
 ;; This is the SSR-mode production switch. Local dev / tests leave it
 ;; alone (the default is `true`).
 
-(defn- ^:private read-debug-flag
+(defn- read-debug-flag
   "Read the JVM debug gate. System property `re-frame.debug` wins; falls
   back to env var `RE_FRAME_DEBUG`. A nil / absent reading returns
   `true` (dev default). A reading from the conventional false-y
