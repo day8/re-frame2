@@ -160,7 +160,7 @@ The dev shell's Test pane and recorder ship ergonomic affordances that consume w
 - Args precedence + four-phase lifecycle full detail → `tools/story/spec/002-Runtime.md` §Args resolution precedence, §Four-phase lifecycle.
 - Worked example, every macro at least once → `tools/story/testbeds/counter_with_stories/`.
 - The seven `:rf.assert/*` events, semantics + source-stamping → `SKILL-REDIRECT.md` → *EP — Stories (007)* §Assertions.
-- Render shell, panel placement, multi-substrate pane → `SKILL-REDIRECT.md` → *Guide — Stories*.
+- Render shell, panel placement, multi-substrate pane → `tools/story/spec/003-Render-Shell.md` §UI shell substrate, §Workspace layouts, §Multi-substrate side-by-side rendering.
 - Test Codegen (record canvas interactions as `:play-script`) → `story-recorder.md` (sibling leaf).
 - Agent self-healing loop over MCP (variant authoring → run → assert → refine) → `story-mcp-loop.md` (sibling leaf).
 - MCP write surface (programmatic registration via `reg-*` helpers) → `SKILL-REDIRECT.md` → *EP — Stories (007)* §MCP Surface.
