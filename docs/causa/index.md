@@ -2,11 +2,16 @@
 
 **The cascade you can see.**
 
-Causa is the in-app devtools panel for re-frame2. It auto-opens in a right-side `[data-rf-causa-host]` layout column in your dev build, toggles with `Ctrl+Shift+C`, and renders fourteen panels over a single observation surface — the framework's own trace bus and epoch buffer. No bespoke recorder, no shadow runtime, no second substrate. The runtime knows what happened; Causa is what knows knows.
+Causa is the in-app devtools panel for re-frame2. It auto-opens in a right-side `[data-rf-causa-host]` layout column in your dev build, toggles with `Ctrl+Shift+C`, and renders one of two chromes over a single observation surface — the framework's own trace bus and epoch buffer. No bespoke recorder, no shadow runtime, no second substrate. The runtime knows what happened; Causa is what knows it.
 
-Where the v1-era [`re-frame-10x`](https://github.com/day8/re-frame-10x) was a sidecar with its own recorder, Causa is a *renderer* of an already-structured surface. Same panels — events, subs, renders, fxs, app-db diff, time-travel — different substrate. The framework moved the observation contract into the runtime; Causa moved with it.
+Where the v1-era [`re-frame-10x`](https://github.com/day8/re-frame-10x) was a sidecar with its own recorder, Causa is a *renderer* of an already-structured surface. Same diagnostics — events, subs, renders, fxs, app-db diff, machines, routes — different substrate. The framework moved the observation contract into the runtime; Causa moved with it.
 
-This is the welcome page. The chapters that follow are a walkthrough — install, panel tour, the hero scenarios — designed to read top-to-bottom. If you want a single sentence to take away first: **the runtime emits trace events, Causa renders them; everything else is composition.**
+The chrome is two modes, one toggle (`Cmd-Shift-M`):
+
+- **Dynamic** — the event-coupled spine. Four stacked layers: an L1 ribbon of scope controls, the L2 event list (the timeline), an L3 strip of eight tabs, and the L4 detail panel. You pick one event in L2; every tab rebinds to that one focal point. This is where you live when you're chasing *what just happened*.
+- **Static** — the registry browser. Three layers (no L2 spine, because Static is event-independent): the same L1 ribbon, an L3 strip of five tabs, and the L4 detail panel. This is where you browse *what is registered* — machines, routes, schemas, flows, interceptors — without a running cascade.
+
+The §[Dynamic vs Static](#dynamic-vs-static-two-chromes-one-surface) section below unpacks the split. If you want a single sentence to take away first: **the runtime emits trace events, Causa renders them; everything else is composition.**
 
 ---
 
@@ -23,7 +28,7 @@ The Causa loop is different. You haven't opened Causa yet. You're just looking a
    <span data-rf2-source-coord="parallel-frames.core:title-view:198:4">No title yet…</span>
    ```
 2. The `data-rf2-source-coord` attribute is on **every** rendered DOM element in dev mode. Four segments, colon-separated: `<ns>:<sym>:<line>:<col>`. You're already at the line in your editor.
-3. You read the function. It subscribes to `::title-status` and `::title-text`. You open the running app, press `Ctrl+Shift+C`, click the L1 frame picker, switch from `:above` to `:below`. The Views panel now scopes every sub-recompute to the `:below` frame.
+3. You read the function. It subscribes to `::title-status` and `::title-text`. You open the running app, press `Ctrl+Shift+C`, click the L1 frame picker, switch from `:above` to `:below`. The View tab now scopes every sub-recompute to the `:below` frame.
 4. You click *Refresh* in `:above` only. The frame picker is still on `:below`. The Trace tab is empty for `:below` — no `:title/flow` transition, no HTTP-shaped row, no sub recompute. Flip the picker back to `:above`: a single `:title/flow` machine-transition row, one in-flight HTTP row, and the title-status sub recomputing on a single frame. Frames are isolated. The design holds.
 5. The Machines tab confirms it from the other direction: `[:rf/machines :title/flow]` reads `:loading` under `:above` and `:idle` under `:below`. Two machines, two app-dbs, one source.
 
@@ -36,14 +41,40 @@ This is the loop the rest of the tutorial unpacks. Source coords on the wire. Fr
 The chapters:
 
 - [1. Installation](01-installation.md) — get Causa running against your app in five minutes.
-- [2. Panel tour](02-panel-tour.md) — the fourteen panels, what each is for, when you'd open it.
-- [3. Time-travel scrubbing](03-time-travel.md) — walk the epoch buffer; rewind; replay.
-- [4. Trace stream](04-trace-stream.md) — every fx, every sub, every render, filtered.
-- [5. Click-to-source](05-click-to-source.md) — the hero feature: any DOM element back to its line.
-- [6. Schema-violation timeline](06-schema-timeline.md) — Malli failures over time.
+- [2. Panel tour](02-panel-tour.md) — the two chromes, the thirteen tabs, what each is for, when you'd reach for it.
+- [3. Time-travel scrubbing](03-time-travel.md) — walk the spine into RETRO; rewind; replay.
+- [4. Trace stream](04-trace-stream.md) — the Trace tab: every fx, every sub, every render, filtered.
+- [5. Click-to-source](05-click-to-source.md) — the hero gesture: any DOM element back to its line.
+- [6. Schema-violation timeline](06-schema-timeline.md) — Malli failures, surfaced on the Issues tab.
 - [7. Hydration debugger](07-hydration.md) — server vs client render diff.
-- [8. Machine inspector](08-machine-inspector.md) — Stately-grade state-chart per machine.
-- [9. App-DB diff](09-app-db-diff.md) — slice-centric diff per epoch.
+- [8. Machine inspector](08-machine-inspector.md) — the Machines tab + the spine-independent Machines Canvas.
+- [9. App-DB diff](09-app-db-diff.md) — the App DB tab: slice-centric diff per epoch.
+
+---
+
+## Dynamic vs Static: two chromes, one surface
+
+Causa is one tool with two reading postures. The same trace bus and the same registries feed both; what changes is whether the surface is **coupled to a cascade** or **browsing the registry cold**. Flip between them with `Cmd-Shift-M`; the mode pill at ribbon-left shows which you're in, and the chrome silhouette tells you at a glance even if you don't look at the pill — Dynamic has the L2 event list, Static does not.
+
+| | **Dynamic** | **Static** |
+|---|---|---|
+| Question | "What just happened?" | "What is registered?" |
+| Coupled to | one focused event (the spine sub `:rf.causa/focus`) | nothing — event-independent |
+| Layers | 4 (L1 ribbon · L2 event list · L3 tabs · L4 detail) | 3 (L1 ribbon · L3 tabs · L4 detail — no spine) |
+| Tabs | 8: Event · App DB · View · Trace · Machines · Machines Canvas · Routing · Issues | 5: Machines · Routes · Schemas · Flows · Interceptors |
+| Edge stripe | violet | cyan |
+| Motion | LIVE pulse + tab fade | dampened — pulses off, instant tab swaps |
+
+**Dynamic is the load-bearing mode.** Four layers stack top-to-bottom:
+
+- **L1 — ribbon.** Scope controls: the nav cluster (`◀ ▶ ⏭` — back / forward / snap-to-head), the frame picker, the IN/OUT filter pills, and the right-icons (settings `⚙`, close `✕`).
+- **L2 — event list.** The spine. Single-line rows, latest-on-bottom, eight visible by default and user-resizable. This *is* the timeline — clicking a row focuses it (flips to RETRO) and rebinds every tab below; pressing `⏭` snaps focus back to the live head. Time-travel is reached here, not on a bottom rail (see [chapter 3](03-time-travel.md)).
+- **L3 — tab bar.** Eight tabs, each a lens on the one focused event. Mnemonic letters: Event `e` · App DB `a` · View `v` · Trace `t` · Machines `m` · Machines Canvas `c` · Routing `r` · Issues `i`. Count badges (`View 8`, `Trace 47`) update as focus moves.
+- **L4 — detail panel.** The active tab's projection of the focused event, filling the remaining canvas.
+
+**Static is Causa-in-a-quieter-key.** It drops the L2 spine — there is no "focused event" to couple to — and renders the same ribbon and tab-bar over five registry-browse tabs: Machines (default), Routes, Schemas, Flows, Interceptors. Use it to answer "what machines exist and what do they look like?", "which routes are registered and how do they rank?", "what schemas guard which slots?" — questions about the *shape* of the app, not a particular cascade.
+
+The two modes keep separate tab selections, so flipping back and forth never clobbers where you were.
 
 ---
 
@@ -57,7 +88,7 @@ This is what *first-class tooling* means in re-frame2: not "we shipped a devtool
 
 The integration is *deep*, not bolt-on. The trace events aren't a sidecar log file — they're emitted inline from the pipeline that the runtime is already walking. The epoch records aren't a recording made by a plugin — they're the same records the runtime uses internally to drive `restore-epoch`. There's no second substrate, no shadow runtime, no "make sure devtools is installed first." When the framework knows something happened, the trace bus knows. When the trace bus knows, every attached tool knows.
 
-Causa is just the most *complete* listener — fourteen panels deep, lazily mounted. Pair tools and the Story playground consume the same surfaces with different presentations. Your project's bespoke debug panel can too, in fifteen lines (we'll show it in [chapter 4](04-trace-stream.md)).
+Causa is just the most *complete* listener — two chromes and thirteen tabs deep, lazily mounted. Pair tools and the Story playground consume the same surfaces with different presentations. Your project's bespoke debug panel can too, in fifteen lines (we'll show it in [chapter 4](04-trace-stream.md)).
 
 ## What you get for free
 
@@ -119,7 +150,7 @@ Subscriptions chain — `:count-doubled` depends on `:count`. The framework know
 ;;    :edges #{[:count-doubled :count] ...}}
 ```
 
-This is **static** — no runtime, no live cache, no Reagent. It reads off the registry. Use it to render a graph of "everything derived," find the leaves (subs nothing else depends on), find the roots (subs that read `app-db` directly), and spot dead subs (registered but no consumers). Causa's Subscriptions panel uses this directly.
+This is **static** — no runtime, no live cache, no Reagent. It reads off the registry. Use it to render a graph of "everything derived," find the leaves (subs nothing else depends on), find the roots (subs that read `app-db` directly), and spot dead subs (registered but no consumers). Causa's View tab (Dynamic) reads it to explain why a view re-rendered, and the Schemas tab (Static) browses the registry the same way.
 
 ## What re-frame2 does not ship
 

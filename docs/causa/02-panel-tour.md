@@ -1,111 +1,144 @@
 # 2. Panel tour
 
-Fourteen panels. You'll use four of them daily, six of them weekly, and the rest the occasional Tuesday afternoon when something exotic breaks.
+Two chromes, thirteen tabs. You'll live in three or four of them daily, reach for the rest the occasional Tuesday afternoon when something exotic breaks.
 
-This chapter is the map. Each panel gets a one-paragraph "when you'd open this" answer; the chapters that follow take the four hero panels — Event detail, Time travel, Trace, Click-to-source — and unpack them depth-first.
+This chapter is the map. First the two chromes — **Dynamic** (the event-coupled spine) and **Static** (the registry browser) — then a one-paragraph "when you'd open this" answer for each tab. The chapters that follow take the hero surfaces — Event detail, time-travel, Trace, Click-to-source, App-DB, Machines — and unpack them depth-first.
 
+![The Causa shell, opened over the live app — the four-layer Dynamic chrome](../images/causa/02-shell-opened.png)
 
-![Causa sidebar — fourteen panels, two bands](../images/causa/02-sidebar-panels.png)
+## The two chromes
 
-The sidebar groups panels into two bands:
+Causa is one tool with two reading postures, toggled with `Cmd-Shift-M`. The mode pill at ribbon-left says which you're in; the chrome silhouette tells you at a glance even if you don't look at the pill.
 
-- **Always-active** (top) — Event detail, Time travel, App-DB, Subscriptions, Effects, Trace, Machines. These render whether you've configured anything or not.
-- **Conditional-with-activity** (bottom) — Flows, Routes, Performance, Issues, Schemas, Hydration. These light up only when the app is using the relevant subsystem (the *Hydration* panel only appears when SSR hydration actually runs, etc.).
+**Dynamic** — four stacked layers:
 
-## Event detail — the landing panel
+```
+┌───────────────────────────────────────────────────────┐
+│ L1  Top ribbon (56px)                                 │  scope controls
+├───────────────────────────────────────────────────────┤
+│ L2  Event list (8 rows default; resizable; min 2)     │  the spine / timeline
+├───────────────────────────────────────────────────────┤
+│ L3  Tab bar (40px) — 8 tabs                           │  projection selector
+├───────────────────────────────────────────────────────┤
+│ L4  Detail panel (fills remaining canvas)             │  per-tab content
+└───────────────────────────────────────────────────────┘
+```
 
-![Event detail showing the most recent epoch](../images/causa/02-event-detail.png)
+Every Dynamic surface orients around **one focused event** — the spine sub `:rf.causa/focus`. You pick an event in the L2 list; every tab below rebinds atomically. The tabs are *lenses on that one event*.
 
-Lands on every open. Renders the *most recent* epoch — the event vector, the `app-db` diff, the inline mini-graph of what cascaded, the subs that recomputed, the views that re-rendered, the fxs that fired, and the duration. If you're answering "what did the user just do?", this is the panel.
+**Static** — three layers (no L2 spine, because Static is event-independent):
 
-Five questions every event answers, all on first paint:
+```
+┌───────────────────────────────────────────────────────┐
+│ L1  Top ribbon — mode pill · frame picker · icons     │
+├───────────────────────────────────────────────────────┤
+│ L3  Tab bar (40px) — 5 tabs                           │
+├───────────────────────────────────────────────────────┤
+│ L4  Detail panel (fills remaining canvas)             │
+└───────────────────────────────────────────────────────┘
+```
 
-1. **What was dispatched?** Event vector, top of the panel.
-2. **What changed?** App-db diff, expanded.
-3. **What rendered?** Render list, keyed by view-id.
-4. **What fxs fired?** Effects list, with `:outcome ∈ {:ok :error :skipped-on-platform}`.
-5. **How long?** Total cascade duration.
+Static reuses Dynamic's full design language — same fonts, same palette, same 56px ribbon and 40px tab-bar. The differences are deliberate signals: a cyan left-edge stripe (violet in Dynamic), a dampened motion profile (continuous pulses dropped, tab swaps instant), and the missing L2 itself. Same surface, quieter key.
 
-That's the daily answer set. Anything deeper, you click through to a peer panel.
+---
 
-## Time travel — the bottom rail
+## Dynamic mode — the eight tabs
 
-The scrubber is always visible at the bottom of the shell — even when you're on a different panel. Drag it backwards to *passively* re-render against a prior epoch's `:db-after`; click *restore* to make it sticky (the runtime calls `restore-epoch` and the live app rewinds).
+### L1 — the ribbon
 
-See the dedicated [chapter 3](03-time-travel.md).
+The scope band, fixed at the top in both modes. Four clusters, left to right:
 
-## App-DB — slice-centric
+- **Nav** (`◀ ▶ ⏭`) — step focus back / forward through the spine, or `⏭` to snap to the live head.
+- **Frame picker** — single-select over the distinct frames in the cascade list. Every tab scopes to the picked frame; the `:rf/causa` frame is excluded by default.
+- **Filter pills** — IN (green, `+`) and OUT (magenta, `×`) pills over the event list, plus a trailing `[+]` to add one. Click any pill to edit it.
+- **Right icons** — settings `⚙` and close `✕`. (Pop-out is a programmatic API, `(causa/popout!)` — no ribbon affordance yet.)
 
-Not a full `app-db` tree dump. **The slices that changed in the current epoch**, plus any slices you've pinned with a *watch* gesture. Read-only — Causa never writes to `app-db` for you (use `re-frame2-pair` for that, or dispatch a real event).
+### L2 — the event list (the spine)
 
-See [chapter 9](09-app-db-diff.md).
+Single-line rows, latest-on-bottom, eight visible by default and vertically resizable (drag the L2/L3 boundary; min two rows). Each row carries a gutter glyph (`● ◉ x ▥`), the event-id, a right-aligned badge cluster (`⚠` exception · `🌐` managed-HTTP · `🤖` machine activity), and a trailing redaction marker when sensitive data was suppressed.
 
-## Subscriptions
+This *is* the timeline. Click a row → focus it (the spine flips to RETRO) and every tab rebinds in one frame. This is also where time-travel lives — there is no bottom rail; you scrub by walking the spine. See [chapter 3](03-time-travel.md).
 
-Every registered sub: id, layer (extractor / derivation), current value, hit-rate badge (TanStack-style — stale / fresh / inflight), and the recompute count this session. Click an edge to walk to a parent sub. Click an id to jump to its `reg-sub`.
+### L3 / L4 — the eight tabs
 
-The TanStack-style badge is unusual for a re-frame tool — it's there because sub recomputation cost is one of the four canonical performance hot-spots, and the panel surfaces it where you'd reach for it anyway.
+Selection lives on `:rf.causa/selected-tab` and drives the L4 detail panel. Mnemonic letters in brackets.
 
-## Effects
+#### Event (`e`) — the landing tab
 
-Every fx the app has issued in the current session, keyed by `fx-id`, with `:outcome` chips and full `:tags` payload. Errors get red rows; aborts get yellow. Click a row to see the full trace event.
+![Event tab showing the focused event's full six-domino story](../images/causa/02-event-detail.png)
 
-## Trace — the raw stream
+Lands on every open and on every focus change. The whole story of one event: the event vector + arg-map + dispatch site, the coefficients and interceptor chain, the handler return, the `:db` writes, the `:fx` vector, and the fx-handlers that actually ran (with their results). If you're answering "what did this event *do*?", this is the tab. Effects are folded in here — the "effects handlers ran" block covers what a standalone Effects panel used to.
 
-Every emitted trace event, in order. Filterable by `:op-type`, by tag, by free-text. The Trace panel is what you'd write yourself with `register-listener!` if Causa didn't exist — it's the bus's most direct rendering.
+#### App DB (`a`) — slice-centric diff
 
-See [chapter 4](04-trace-stream.md).
+Not a full `app-db` tree dump. **The diff of `:db-before` vs `:db-after`** for the focused event — slice-first, with clickable path segments, path-origin chips, and a full-tree disclosure when you want the whole picture. Read-only; Causa never writes to `app-db` for you (use `re-frame2-pair` for that, or dispatch a real event). See [chapter 9](09-app-db-diff.md).
 
-## Machines — Stately-grade state-charts
+#### View (`v`) — why these views rendered
 
-For every registered machine, the panel renders a Stately-quality state-diagram: nodes for states, edges for transitions, guards on edges, actions on entry/exit, parallel regions as side-by-side boxes, hierarchical states nested. The current state is highlighted live; transitions paint as they fire. (Screenshot in [chapter 8](08-machine-inspector.md).)
+Per-view rows — mounted / re-rendered / unmounted — each listing the subs it used and those subs' return values, isolation-scoped to the selected frame. Subscriptions are folded in here: they nest under each view row rather than living in a separate tab, because the question you actually have is "why did *this view* re-render?", and the answer is the sub-invalidation chain underneath it.
 
-Embedded under the hood is [`tools/machines-viz/`](https://github.com/day8/re-frame2/tree/main/tools/machines-viz) — a separate visualiser library that Causa composes in.
+#### Trace (`t`) — the raw stream
 
-See [chapter 8](08-machine-inspector.md).
+The raw multi-axis trace stream, filtered to the focused cascade (`:dispatch-id = <focus>`). A trace-type toggle row sits at the top with IN/OUT pills and sensible defaults. This tab is what you'd write yourself with `register-listener!` if Causa didn't exist — the bus's most direct rendering. See [chapter 4](04-trace-stream.md).
 
-## Flows
+#### Machines (`m`) — event-driven state-charts
 
-Registered [flows](../guide/20-migration.md#flows--the-replacement-for-on-changes) — re-frame2's reactive-derivation primitive. Per-flow status, last value, the inputs it watches, the last few recomputes. Only lights up if your app registers any.
+The event-driven machine lens. **Blank when the focused event touched no machine.** When it did, one section per affected machine: topology with the transition highlighted, the guards and actions that ran, the cancellation cascade, and `:after` rings. This is the "what did *this event* do to my machines?" view — for browsing a machine's full shape cold, use Machines Canvas (next) or Static mode. See [chapter 8](08-machine-inspector.md).
 
-## Routes
+#### Machines Canvas (`c`) — the topology browser
 
-Static route table, plus the current route, plus the per-frame route history. Useful when "the URL changed and the page didn't" or vice versa.
+A **spine-independent** canvas browser — it does *not* couple to the focused event. Master-detail: a picker on the left (one row per registered machine), an interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). The canvas always shows the picked machine's full topology, regardless of where the spine is. It earned its own tab — sibling to the event-driven Machines inspector — under the cohesive-sub-domain rule.
 
-## Performance
+#### Routing (`r`) — the focused-event route lens
 
-The `rf:`-prefixed User Timing entries (event / sub / fx / render) plotted on a millisecond scale. Off by default — it's the channel covered in [Guide 16 — Performance](../guide/17-performance.md). Turn it on when you're looking at a specific slow render.
+A flat focused-event lens: the currently matched route with its params / query / fragment, plus a **Simulate-URL** input that ranks every registered route via the six-rule `:rf.route/rank` tuple with the rank explainer inline. Per-event glyphs (`◆ HERE` / `◆ FROM` / `◆ TO`) mark the route's role in the focused cascade. Silent when no routes are registered.
 
-## Issues
+#### Issues (`i`) — the unified feed
 
-The unified feed: errors, warnings, schema violations, hydration mismatches. One row per issue, with severity chip, source coord, and the underlying trace event one click away. This is where you check first when "something looks off."
+The catch-all health feed: JS exceptions, schema violations, sensitive-data warnings, hydration mismatches, perf-budget overruns, and app console errors/warns. One row per issue, with a severity gutter (`⚠`), source coord, and the underlying trace event one click away. This is where you check first when "something looks off" — and where the [schema timeline](06-schema-timeline.md) and [hydration debugger](07-hydration.md) surface their findings.
 
-## Schemas
+**Three diagnostics folded away, not dropped.** Effects fold into Event, Subscriptions fold into View, and Performance is delegated to Chrome DevTools' Timings track — the framework emits `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*` User-Timing entries that DevTools renders natively. No separate Causa tab competes with the browser's own profiler.
 
-The schema-violation timeline. One row per registered schema (`app-db` slot, sub return, event payload, cofx). Coloured dots per failure with recovery mode. Lit up only if you've registered any Malli schemas — see [Guide 04a — Schemas](../guide/05-schemas.md).
+---
 
-See [chapter 6](06-schema-timeline.md).
+## Static mode — the five tabs
 
-## Hydration
+Flip to Static (`Cmd-Shift-M`) to browse the registry cold. No spine, no focused event — these tabs answer questions about the *shape* of the app, not a particular cascade.
 
-The server-vs-client hydration debugger. Only visible when SSR hydration actually runs in the page. Side-by-side render trees with the diff highlighted.
+#### Machines (`m`, default)
 
-See [chapter 7](07-hydration.md).
+The registered-machine browser plus topology and a sub-strip of browse modes. Lands here by default — it's the densest Static surface.
+
+#### Routes (`r`)
+
+The full registered-route table plus the Simulate-URL ranker. The cold counterpart to Dynamic's Routing tab: there you see the route a cascade matched; here you browse every route and test how an arbitrary URL would rank.
+
+#### Schemas (`c`)
+
+Every registered Malli schema — `app-db` slot, sub return, event payload, cofx — with sample data and jump-to-source. Lit up only if your app registers schemas; see [Guide 04a — Schemas](../guide/05-schemas.md).
+
+#### Flows (`l`)
+
+The registered [flows](../guide/20-migration.md#flows--the-replacement-for-on-changes) catalogue — re-frame2's reactive-derivation primitive. Each flow's inputs, its derivation, its current value. Only populated if your app registers any.
+
+#### Interceptors (`i`)
+
+A pure-browse lens over the registered interceptor chains — useful when "an interceptor is mutating something I didn't expect" and you want to read the chain cold.
 
 ---
 
 ## Resizing Causa
 
-Drag the left edge of the Causa panel to resize horizontally. Width persists across reloads (per-Causa-instance, stored in localStorage). Double-click the handle to reset to default width.
+Drag the left edge of the Causa panel to resize horizontally. Width persists across reloads (per-Causa-instance, stored in localStorage). Within Dynamic, drag the L2/L3 boundary handle to grow or shrink the event list; the detail panel takes the remainder.
 
 For full-screen inspection, change `Settings → General → Panel position` to `fullscreen`. For an out-of-window view, change it to `popout` — the browser's window controls then govern size.
 
-## How the panels share state
+## How the tabs share state
 
-Every panel reads the same store. Selecting an event in *Event detail* highlights the corresponding row in *Trace* and pins the *App-DB* diff to that epoch. Dragging the time-travel scrubber retargets every panel at the historical epoch. Clicking a sub in *Subscriptions* opens its source in your editor (next chapter), pins it in *App-DB*, and highlights its incoming edge in the static sub-graph.
+In Dynamic, every tab reads the same spine. Selecting an event in L2 pins the App DB diff to that epoch, filters Trace to that cascade, scopes View to that frame's renders, and lights up Machines / Routing / Issues with that event's activity — all in one frame. The two modes keep separate tab selections, so flipping to Static and back never clobbers where you were.
 
-The state is **one big sub-graph rooted at Causa's app-db** — a separate frame from your app's. That separation is what lets Causa survive `restore-epoch` on the host frame: the historical view is a projection over the rewound host, not a rewound Causa.
+The state is **one big sub-graph rooted at Causa's app-db** — a separate frame (`:rf/causa`) from your app's. That separation is what lets Causa survive `restore-epoch` on the host frame: the historical view is a projection over the rewound host, not a rewound Causa.
 
-You don't have to know any of this to use the tool. But it's how the panel composition is so cheap to extend — adding a fifteenth panel is "register one slot, render one view"; the substrate is already there.
+You don't have to know any of this to use the tool. But it's how the tab composition is so cheap to extend — adding a tab is "register one slot with `reg-l4-tab!`, render one view"; the substrate is already there.
 
-Next: [time-travel scrubbing](03-time-travel.md) — the rail at the bottom of every panel.
+Next: [time-travel scrubbing](03-time-travel.md) — walking the spine into RETRO.

@@ -315,7 +315,7 @@
 
     ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
 
-    ;; L3 tab bar — flip the active tab. Six valid ids per spec/018 §5:
+    ;; L3 tab bar — flip the active tab. Eight valid ids per spec/018 §5:
     ;; :event :app-db :views :trace :machines :machines-canvas :routing :issues
     ;; (rf2-2moh1 registry-driven; new tab requires only a reg-l4-tab! call).
     (rf/reg-event-db :rf.causa/select-tab
