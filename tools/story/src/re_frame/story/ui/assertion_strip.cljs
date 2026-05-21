@@ -474,5 +474,12 @@
                 (let [row   (row-for rec)
                       rkey  (:row-key row)
                       open? (contains? @expanded rkey)]
+                  ;; The key MUST land on a vector literal (a Reagent
+                  ;; component element) — `^{:key ...}` on a function-CALL
+                  ;; form is dropped at read time (the meta does not
+                  ;; transfer to render-row's return value), so React's
+                  ;; row seq would have no key and warn 194×/run. Rendering
+                  ;; `[render-row ...]` as a component vector lands the key
+                  ;; on the element Reagent hands to React.
                   ^{:key (str gi "/" ri "/" rkey)}
-                  (render-row row open? toggle)))])])))))
+                  [render-row row open? toggle]))])])))))

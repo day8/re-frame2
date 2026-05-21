@@ -214,10 +214,41 @@
 ;; standing up a React mount.
 
 (defn- render-strip
-  "Invoke the assertion-strip component and return its rendered hiccup."
+  "Invoke the assertion-strip component and return its rendered hiccup.
+
+  The strip renders each row as a Reagent component vector
+  `[strip/render-row row open? toggle]` (the key MUST sit on a vector
+  literal — rf2-5lw9w), so the raw hiccup carries un-expanded row
+  elements. Tests that assert per-row `:key` meta read this raw form;
+  tests that walk the row's inner shape use `render-strip-expanded`."
   [assertions]
   (let [inner (strip/assertion-strip assertions)]
     (inner assertions)))
+
+(defn- expand-row-elements
+  "Walk `hiccup` and replace each `[strip/render-row row open? toggle]`
+  component vector with the hiccup that `render-row` produces — i.e. what
+  Reagent expands the element into at mount time. Lets the shape-walking
+  tests below assert the row's inner `data-test` tree even though the
+  strip now emits component vectors (so React keys land on the element).
+  Preserves all other nodes verbatim."
+  [hiccup]
+  (letfn [(render-row-element? [x]
+            (and (vector? x)
+                 (= strip/render-row (first x))))
+          (expand [node]
+            (cond
+              (render-row-element? node) (apply strip/render-row (rest node))
+              (vector? node)             (mapv expand node)
+              (seq? node)                (map expand node)
+              :else                      node))]
+    (expand hiccup)))
+
+(defn- render-strip-expanded
+  "Render the strip and expand its row component-vectors into their inner
+  hiccup so shape-walking tests see the rendered row tree."
+  [assertions]
+  (expand-row-elements (render-strip assertions)))
 
 (deftest assertion-strip-empty-renders-nil
   (testing "empty / nil assertions → no inline strip"
@@ -243,7 +274,7 @@
                        :reason "values differ"}
                       {:assertion :rf.assert/skipped
                        :passed? false :reason "feature gated"}]
-          hiccup     (render-strip assertions)
+          hiccup     (render-strip-expanded assertions)
           rows       (atom [])]
       (letfn [(walk [node]
                 (cond
@@ -264,7 +295,7 @@
                       {:assertion :rf.assert/path-equals
                        :passed? false :payload [[:c] 2]
                        :expected 2 :actual 0 :reason "values differ"}]
-          hiccup     (render-strip assertions)]
+          hiccup     (render-strip-expanded assertions)]
       (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
           "the failing row's detail panel is open on first render"))))
 
@@ -275,7 +306,7 @@
                        :passed? true :payload [[:c] 1] :expected 1 :actual 1}
                       {:assertion :rf.assert/path-equals
                        :passed? true :payload [[:c] 2] :expected 2 :actual 2}]
-          hiccup     (render-strip assertions)]
+          hiccup     (render-strip-expanded assertions)]
       (is (nil? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
           "all-passing strip renders zero detail panels — the user sees
            just the row band"))))
@@ -310,6 +341,82 @@
         (walk hiccup))
       (is (= 2 (count @heads))
           "one head per dispatching event"))))
+
+;; ---- :key meta on the row seq --------------------------------------------
+;;
+;; Regression net for rf2-5lw9w. The inner row `for` previously attached
+;; `^{:key ...}` to the function-CALL form `(render-row ...)`; in CLJS the
+;; metadata is dropped at read time (it never transfers to render-row's
+;; return value), so React saw an unkeyed row seq and warned 194×/run —
+;; failing the Story/Causa feature-load browser gate all session. The fix
+;; renders each row as a component vector `[render-row ...]` so the key
+;; lands on the element. The pre-existing suite checked row SHAPE but never
+;; the seq-key contract, which is why this slipped past node-test. These
+;; tests pin `(meta element) :key` on every rendered row element.
+
+(defn- collect-row-seq-elements
+  "Walk `hiccup` and collect the elements of the inner row sequence — the
+  Reagent component vectors a `for` produces, one per assertion record.
+  Each such element is a vector whose head is the `render-row` fn (the
+  component-position fn Reagent invokes). Returns them in encounter order
+  so callers can assert per-element `:key` meta."
+  [hiccup]
+  (let [found (atom [])
+        row-element? (fn [x]
+                       (and (vector? x)
+                            (fn? (first x))
+                            (= strip/render-row (first x))))]
+    (letfn [(walk [node]
+              (cond
+                (row-element? node) (swap! found conj node)
+                (vector? node)      (run! walk node)
+                (seq? node)         (run! walk node)
+                :else               nil))]
+      (walk hiccup))
+    @found))
+
+(deftest assertion-strip-row-seq-elements-carry-key-meta
+  (testing "every rendered row element carries a unique :key in its
+            metadata so React's row seq is keyed — the meta MUST sit on a
+            vector literal, NOT a function-call form (rf2-5lw9w)"
+    (let [assertions [{:assertion :rf.assert/path-equals
+                       :passed? true :payload [[:c] 1] :expected 1 :actual 1}
+                      {:assertion :rf.assert/path-equals
+                       :passed? false :payload [[:c] 2] :expected 2 :actual 0
+                       :reason "values differ"}
+                      {:assertion :rf.assert/skipped
+                       :passed? false :reason "feature gated"}]
+          hiccup     (render-strip assertions)
+          rows       (collect-row-seq-elements hiccup)]
+      (is (= 3 (count rows))
+          "one row element per assertion record")
+      (is (every? vector? rows)
+          "rows are component vectors — `[render-row ...]`, not call forms")
+      (is (every? #(some? (:key (meta %))) rows)
+          "every row element carries a :key in its metadata so React's
+           row seq is keyed (no missing-key warning)")
+      (is (= (count rows)
+             (count (into #{} (map #(:key (meta %)) rows))))
+          ":key values are unique across the row seq"))))
+
+(deftest assertion-strip-row-key-meta-survives-multi-group
+  (testing "the :key meta lands on row elements across multiple groups —
+            the group/row index path keeps keys unique strip-wide"
+    (let [assertions [{:assertion :rf.assert/path-equals :passed? true
+                       :event [:click] :payload [[:c] 1]}
+                      {:assertion :rf.assert/path-equals :passed? false
+                       :event [:click] :payload [[:c] 2] :reason "differ"}
+                      {:assertion :rf.assert/path-equals :passed? true
+                       :event [:submit] :payload [[:c] 3]}]
+          hiccup     (render-strip assertions)
+          rows       (collect-row-seq-elements hiccup)
+          keys       (map #(:key (meta %)) rows)]
+      (is (= 3 (count rows))
+          "one row element per record across both groups")
+      (is (every? some? keys)
+          "every cross-group row element is keyed")
+      (is (= 3 (count (into #{} keys)))
+          "keys are unique strip-wide even across groups"))))
 
 ;; ---- pure: value-display -------------------------------------------------
 
