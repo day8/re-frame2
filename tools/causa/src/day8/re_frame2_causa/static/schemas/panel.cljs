@@ -56,7 +56,8 @@
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
              :as t
-             :refer [tokens type-scale mono-stack sans-stack]]))
+             :refer [tokens type-scale mono-stack sans-stack]]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -241,7 +242,12 @@
   [{:keys [kind id frame schema doc source-coord] :as _row}]
   (let [id-text (pr-str id)
         row-id  (str (name kind) "-" id-text)]
+    ;; rf2-mq8wk — list semantics. Schema rows are non-interactive
+    ;; catalogue entries (the only row-level affordance is the
+    ;; `open-chip` jump-to-source, which is itself focusable), so
+    ;; `role=listitem` is the correct shape rather than `role=button`.
     [:li {:data-testid (str "rf-causa-static-schemas-row-" row-id)
+          :role        "listitem"
           :style       {:display       "block"
                         :padding       "6px 12px"
                         :font-family   mono-stack
@@ -266,13 +272,21 @@
          (pr-str frame)])
       (when (and source-coord (:file source-coord))
         [open-in-editor/open-chip source-coord])]
-     [:div {:style {:margin-left "20px"
+     ;; rf2-2kwhw — the Malli schema EDN renders through the shared
+     ;; cljs-devtools EDN widget (spec 007:119 — "all values rendered
+     ;; via the cljs-devtools-shaped renderer") rather than raw
+     ;; `pr-str` + `[:code]`, so it gains expand/collapse, syntax-
+     ;; colouring parity, and the per-node copy host (rf2-f026h). The
+     ;; `node-key` is stable per (kind,id) so expand state survives
+     ;; reloads and doesn't collide across rows.
+     [:div {:data-testid (str "rf-causa-static-schemas-schema-" row-id)
+            :style {:margin-left "20px"
                     :margin-top  "2px"
                     :color       (:text-secondary tokens)
                     :font-size   "11px"
                     :white-space "pre-wrap"
                     :word-break  "break-word"}}
-      [:code (pr-str schema)]]
+      (edn/inspect schema (str "static-schemas/" row-id))]
      (when doc
        [:div {:style {:margin-left "20px"
                       :margin-top  "2px"
@@ -334,6 +348,7 @@
         (if (empty? schemas)
           (empty-filtered query)
           (into [:ul {:data-testid "rf-causa-static-schemas-list"
+                      :role        "list"
                       :style       {:list-style     "none"
                                     :margin         "8px 0 0 0"
                                     :padding        "0 8px"

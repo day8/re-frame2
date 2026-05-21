@@ -18,9 +18,21 @@
      attributes are set; long pr-str gets truncated in `:data-pr`.
 
   Pure-data scope — no DOM mount; hiccup-shape assertions only."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [day8.re-frame2-causa.panels.app-db-diff-events :as diff-events]
             [day8.re-frame2-causa.views.edn-widget.widget :as w]
             [day8.re-frame2-causa.theme.tokens :refer [tokens]]))
+
+;; A plain-atom runtime fixture so the copy-affordance dispatch test
+;; (rf2-f026h) can fire the registered `:rf.causa/copy-value-to-
+;; clipboard` event end-to-end. The pure-data tests below don't need
+;; it but are unaffected by its presence.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -114,6 +126,84 @@
       (is (some? (find-by-testid out
                                  "rf-causa-edn-widget-browse-test-scalar-1")))
       (is (contains-text? out ":foo/bar")))))
+
+;; ---- universal copy-to-clipboard affordance (rf2-f026h) ------------------
+;;
+;; Every `browse` (and therefore `inspect`) render carries a `⎘` copy
+;; button on its `position:relative` root so the copy gesture rides to
+;; Trace, the segment-inspector, the Event lens, and the Static panels
+;; at once. The button's testid is the render container id + "-copy",
+;; its aria-label is set, and its on-click dispatches
+;; `:rf.causa/copy-value-to-clipboard` with the rendered value.
+
+(deftest browse-exposes-copy-affordance
+  (let [out (w/browse {:value     {:a 1}
+                       :panel-id  :test
+                       :render-id "copy-1"})]
+    (testing "the copy button rides on the browse root"
+      (let [btn (find-by-testid
+                  out "rf-causa-edn-widget-browse-test-copy-1-copy")]
+        (is (some? btn) "copy affordance present")
+        (is (= :button (first btn)))
+        (is (= "Copy value to clipboard" (:aria-label (second btn)))
+            "aria-label set for screen readers")
+        (is (fn? (:on-click (second btn)))
+            "on-click is wired")))
+    (testing "the browse root is position:relative so the button anchors"
+      (let [root (find-by-testid out "rf-causa-edn-widget-browse-test-copy-1")]
+        (is (= "relative" (-> root second :style :position)))))))
+
+(deftest inspect-exposes-copy-affordance
+  (let [out (w/inspect {:a 1} "node-copy")]
+    (testing "inspect (the panel-facing facade) also carries the copy button"
+      (is (some? (find-by-testid
+                   out "rf-causa-edn-widget-browse-inspect-node-copy-copy"))))))
+
+(deftest copy-affordance-helper-dispatches-copy-value
+  ;; `copy-affordance` is public; assert its shape directly. The
+  ;; on-click stops propagation (so a row-toggle click underneath
+  ;; doesn't fire) and dispatches the value-copy event — the same
+  ;; event the App-DB diff panel's Copy-value button uses.
+  (let [btn (w/copy-affordance {:k :v} "some-testid")]
+    (is (= :button (first btn)))
+    (is (= "some-testid" (:data-testid (second btn))))
+    (is (= "rf-causa-edn-widget-copy" (:class (second btn)))
+        "carries the hover-reveal class the global stylesheet targets")))
+
+(deftest copy-affordance-onclick-dispatches-copy-event
+  ;; End-to-end: install the diff-events leaf (which registers
+  ;; `:rf.causa/copy-value-to-clipboard` + `:rf.causa.fx/copy-to-
+  ;; clipboard`), stub the clipboard fx to capture the payload, then
+  ;; invoke the copy button's on-click with a stub event. The captured
+  ;; text must be the pr-str of the rendered value — proving the
+  ;; widget's copy gesture is wired to the shared copy machinery.
+  (diff-events/install!)
+  (frame/reg-frame :rf/causa {})
+  (let [captured (atom nil)]
+    (rf/reg-fx :rf.causa.fx/copy-to-clipboard
+      (fn [_ {:keys [text]}] (reset! captured text)))
+    (let [btn      (w/copy-affordance {:k :v} "t")
+          on-click (:on-click (second btn))
+          stop?    (atom false)
+          stub-ev  #js {:stopPropagation (fn [] (reset! stop? true))}]
+      (rf/with-frame :rf/causa
+        (on-click stub-ev))
+      ;; flush the queued dispatch
+      (rf/dispatch-sync [:rf.causa/copy-value-to-clipboard {:k :v}])
+      (is (true? @stop?) "on-click stops propagation so a row-toggle won't fire")
+      (is (= (pr-str {:k :v}) @captured)
+          "clipboard fx received the pr-str of the value"))))
+
+(deftest redacted-sentinel-has-no-copy-affordance
+  ;; Security posture: `:rf/redacted` keeps the bespoke chip chrome and
+  ;; never routes through `browse`, so it gets NO copy gesture — a
+  ;; redacted value must never be copyable. (spec/015 + 007 §Sentinel)
+  (let [out (w/inspect :rf/redacted "node-redacted")]
+    (testing "no copy button on a redacted sentinel"
+      (let [ids (->> (walk-hiccup out)
+                     (keep #(some-> (second %) :data-testid))
+                     (filter string?))]
+        (is (not-any? #(.endsWith % "-copy") ids))))))
 
 ;; ---- variant: diff -------------------------------------------------------
 ;;

@@ -265,3 +265,68 @@
     (let [tree (panel/Panel)]
       (is (some? (find-by-testid tree "rf-causa-static-flows-empty-filtered"))
           "empty-filtered surface mounts when query removes every row"))))
+
+;; -------------------------------------------------------------------------
+;; (4) a11y list semantics (rf2-mq8wk)
+;; -------------------------------------------------------------------------
+
+(defn- find-by-role [tree role]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= role (:role (second node))))
+            node))
+        (hiccup-seq tree)))
+
+(deftest panel-list-carries-list-semantics
+  (testing "rf2-mq8wk — the flows <ul> is role=list, rows are role=listitem"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.flows/set-registered-flows-override-for-test
+         sample-flows])
+      (let [tree (panel/Panel)
+            list-node (find-by-testid tree "rf-causa-static-flows-list")
+            rows      (find-all-by-testid-prefix
+                        tree "rf-causa-static-flows-row-")]
+        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
+        (is (seq rows) "rows rendered")
+        (is (every? #(= "listitem" (:role (second %))) rows)
+            "every row carries role=listitem")))))
+
+;; -------------------------------------------------------------------------
+;; (5) EDN values render through the shared widget (rf2-2kwhw + rf2-f026h)
+;; -------------------------------------------------------------------------
+
+(deftest input-output-render-through-edn-widget
+  (testing "rf2-2kwhw — input + output paths render via the shared EDN
+            widget (cljs-devtools browse container), not raw pr-str"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.flows/set-registered-flows-override-for-test
+         sample-flows])
+      (let [tree (panel/Panel)
+            widget-nodes (find-all-by-testid-prefix
+                           tree "rf-causa-edn-widget-browse-inspect-")]
+        (is (seq widget-nodes)
+            "at least one cljs-devtools browse container present")))))
+
+(deftest edn-widget-values-carry-copy-affordance
+  (testing "rf2-f026h — the universal copy button rides on the Static
+            flows EDN renders"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.flows/set-registered-flows-override-for-test
+         sample-flows])
+      (let [tree (panel/Panel)
+            copy-buttons (filterv
+                           (fn [node]
+                             (and (vector? node)
+                                  (map? (second node))
+                                  (= "rf-causa-edn-widget-copy"
+                                     (:class (second node)))))
+                           (hiccup-seq tree))]
+        (is (seq copy-buttons)
+            "copy affordance present on the widget-rendered values")))))

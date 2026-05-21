@@ -176,3 +176,23 @@
     (rf/dispatch-sync [:rf.causa.static.interceptors/set-query "no-such-id"])
     (let [tree (panel/Panel)]
       (is (some? (find-by-testid tree "rf-causa-static-interceptors-empty-filtered"))))))
+
+;; -------------------------------------------------------------------------
+;; (4) a11y list semantics (rf2-mq8wk)
+;; -------------------------------------------------------------------------
+
+(deftest panel-list-carries-list-semantics
+  (testing "rf2-mq8wk — the interceptors <ul> is role=list, rows role=listitem"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.interceptors/set-registry-override-for-test
+         sample-events-with-chains])
+      (let [tree (panel/Panel)
+            list-node (find-by-testid tree "rf-causa-static-interceptors-list")
+            rows (find-all-by-testid-prefix
+                   tree "rf-causa-static-interceptors-row-")]
+        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
+        (is (seq rows) "rows rendered")
+        (is (every? #(= "listitem" (:role (second %))) rows)
+            "every row carries role=listitem")))))

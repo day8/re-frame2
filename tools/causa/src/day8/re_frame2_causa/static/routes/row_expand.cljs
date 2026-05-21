@@ -33,7 +33,8 @@
             [day8.re-frame2-causa.static.routes.simulate-nav :as sim-nav]
             [day8.re-frame2-causa.theme.tokens
              :as t
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 (defn- section-label
   [label]
@@ -45,10 +46,16 @@
                  :margin         "8px 0 2px 0"}}
    label])
 
-(defn- code-block
-  "Render a mono block with `pr-str` text."
-  [testid value]
-  [:pre {:data-testid testid
+(defn- value-block
+  "Render an EDN value through the shared cljs-devtools EDN widget
+  (rf2-2kwhw — spec 007:119 'all values rendered via the cljs-devtools-
+  shaped renderer'). Replaces the prior raw-`pr-str` `[:pre]` block so
+  the schema / meta values gain expand/collapse, syntax-colouring
+  parity, and the per-node copy host (rf2-f026h). The `testid` wrapper
+  is preserved so existing per-block selectors still resolve; the
+  `node-key` is stable per block so expand state survives reloads."
+  [testid node-key value]
+  [:div {:data-testid testid
          :style       {:margin        "0"
                        :padding       "6px 8px"
                        :background    (:bg-1 tokens)
@@ -56,11 +63,10 @@
                        :color         (:text-primary tokens)
                        :font-family   mono-stack
                        :font-size     "11px"
-                       :white-space   "pre-wrap"
                        :max-height    "200px"
                        :overflow-y    "auto"
                        :overflow-x    "auto"}}
-   (with-out-str (binding [*print-length* nil] (println (pr-str value))))])
+   (edn/inspect value node-key)])
 
 (defn- chip
   [text colour]
@@ -199,29 +205,34 @@
                                 (subs (pr-str route-id) 1))
               :style       {:margin "4px 0"}}
         (section-label "Matched keys")
+        ;; rf2-2kwhw — matched-keys vector through the shared widget's
+        ;; inline current-state renderer (cljs-devtools one-liner).
         [:div {:style {:font-family mono-stack
                        :font-size   "11px"
                        :color       (:text-secondary tokens)}}
-         (pr-str (vec keys))]])
+         (edn/inspect-inline (vec keys))]])
      (when params
        [:div {:data-testid (str "rf-causa-static-routes-params-schema-"
                                 (subs (pr-str route-id) 1))
               :style       {:margin "4px 0"}}
         (section-label ":params schema")
-        (code-block (str "rf-causa-static-routes-params-schema-block-"
-                         (subs (pr-str route-id) 1))
-                    params)])
+        (value-block (str "rf-causa-static-routes-params-schema-block-"
+                          (subs (pr-str route-id) 1))
+                     (str "static-routes/" (subs (pr-str route-id) 1) "/params")
+                     params)])
      (when query
        [:div {:data-testid (str "rf-causa-static-routes-query-schema-"
                                 (subs (pr-str route-id) 1))
               :style       {:margin "4px 0"}}
         (section-label ":query schema")
-        (code-block (str "rf-causa-static-routes-query-schema-block-"
-                         (subs (pr-str route-id) 1))
-                    query)])
+        (value-block (str "rf-causa-static-routes-query-schema-block-"
+                          (subs (pr-str route-id) 1))
+                     (str "static-routes/" (subs (pr-str route-id) 1) "/query")
+                     query)])
      (section-label "Registrar meta")
-     (code-block (str "rf-causa-static-routes-meta-"
-                      (subs (pr-str route-id) 1))
-                 meta)
+     (value-block (str "rf-causa-static-routes-meta-"
+                       (subs (pr-str route-id) 1))
+                  (str "static-routes/" (subs (pr-str route-id) 1) "/meta")
+                  meta)
      (when sim-open?
        [sim-nav/preview routes-map route-id nil])]))

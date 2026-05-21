@@ -711,6 +711,22 @@
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-shell\"] a,\n"
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-static-shell\"] a {\n"
     "  color: LinkText !important;\n"
+    "}\n"
+    ;; rf2-f026h — universal EDN-widget copy affordance hover-reveal. The
+    ;; `⎘` copy button (widget/copy-affordance) rides on every browse /
+    ;; inspect render's `position:relative` root. It paints recessed
+    ;; (low opacity) at rest so it doesn't clutter the dense value tree,
+    ;; and lifts to full opacity when the operator hovers the value
+    ;; container or tabs into the button (`:focus-within` covers the
+    ;; keyboard path). Like re-frame-10x, the copy gesture is present on
+    ;; every value but stays out of the way until reached for.
+    "[data-testid^=\"rf-causa-edn-widget-browse-\"] .rf-causa-edn-widget-copy {\n"
+    "  opacity: 0.18;\n"
+    "  transition: opacity 120ms ease-out;\n"
+    "}\n"
+    "[data-testid^=\"rf-causa-edn-widget-browse-\"]:hover .rf-causa-edn-widget-copy,\n"
+    "[data-testid^=\"rf-causa-edn-widget-browse-\"]:focus-within .rf-causa-edn-widget-copy {\n"
+    "  opacity: 1;\n"
     "}\n"))
 
 (defn- inject-motion-style!

@@ -59,6 +59,7 @@
   cljs-devtools dep is Causa-only; the `:devtools/preloads` gate keeps
   it out of production bundles per the contract in `tools/README.md`."
   (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [day8.re-frame2-causa.data-display.render :as data-display]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
@@ -71,6 +72,64 @@
 ;; delegate to `browse` / `mini`, which are defined further down — forward
 ;; declare so the facade can sit at the top of the file where callers look.
 (declare browse mini)
+
+;; ---- universal copy-to-clipboard affordance (rf2-f026h) ------------------
+;;
+;; re-frame-10x makes every value copyable. Pre-f026h the only copy
+;; gesture in Causa lived on the App-DB diff panel's section headers
+;; (`diff/render.cljs` → `:rf.causa/copy-{path,value}-to-clipboard`);
+;; the Event lens, Trace, segment-inspector, and the Static panels —
+;; 7 of 8 EDN surfaces — had none. Rather than thread a copy button
+;; into each panel, the affordance rides on the WIDGET ROOT so it
+;; lands on every `browse` (and therefore `inspect`) call — Trace's
+;; `edn/browse`, the segment-inspector + Event lens + Static panels'
+;; `edn/inspect`, all at once.
+;;
+;; The `:rf.causa/copy-value-to-clipboard` event + the
+;; `:rf.causa.fx/copy-to-clipboard` fx are registered process-globally
+;; by `app-db-diff-events/install!` (always called from
+;; `registry.cljs`), so the dispatch resolves on every surface. The
+;; dispatch carries `{:frame :rf/causa}` for the same reason the
+;; segment-inspector's affordances do: `:on-click` fires after React
+;; pops the frame context, so without the explicit envelope the
+;; dispatch would land on `:rf/default`.
+
+(defn copy-affordance
+  "A hover-revealed `⎘` copy button that copies `value` to the
+  clipboard via `:rf.causa/copy-value-to-clipboard`. Pure hiccup —
+  positioned `absolute` top-right of a `position:relative` parent. The
+  `testid` is derived from the widget's render container id so tests can
+  target the per-render affordance. The `⎘` glyph is the same
+  click-to-copy mark spec 007:668 uses for the namespace-fade keyword
+  copy."
+  [value testid]
+  [:button {:data-testid testid
+            :aria-label  "Copy value to clipboard"
+            :title       "Copy value"
+            :on-click    (fn [^js e]
+                           (.stopPropagation e)
+                           (rf/dispatch [:rf.causa/copy-value-to-clipboard value]
+                                        {:frame :rf/causa}))
+            :class       "rf-causa-edn-widget-copy"
+            :style       {:position      "absolute"
+                          :top           "2px"
+                          :right         "2px"
+                          :z-index       1
+                          :background    (:bg-3 tokens)
+                          :color         (:text-secondary tokens)
+                          :border        (str "1px solid " (:border-subtle tokens))
+                          :border-radius "3px"
+                          :cursor        "pointer"
+                          :font-family   mono-stack
+                          :font-size     "11px"
+                          :line-height   1
+                          :padding       "2px 5px"
+                          ;; Recede until the parent is hovered. The
+                          ;; in-bundle stylesheet (theme/css) reveals it
+                          ;; on `:hover` / `:focus-within`; tests assert
+                          ;; on presence + dispatch, not the CSS reveal.
+                          :opacity       0.55}}
+   "⎘"])
 
 ;; ---- panel-facing facade — inspect / inspect-inline ----------------------
 ;;
@@ -166,17 +225,28 @@
   ;; routes through cljs-devtools. Collections expand into the nested
   ;; tree; scalars render as a single coloured span. The home-grown
   ;; render-tree is now diff-only.
-  [:div {:data-testid (str "rf-causa-edn-widget-browse-"
-                           (name (or panel-id :unknown))
-                           "-"
-                           (str (or render-id "")))
-         :style {:font-family mono-stack
-                 :font-size   "12px"
-                 :color       (:text-primary tokens)
-                 :line-height 1.4}}
-   (if (some? max-depth)
-     (cdt/value->tree-hiccup value max-depth)
-     (cdt/value->tree-hiccup value))])
+  ;;
+  ;; rf2-f026h — the universal copy affordance rides on this root, so
+  ;; every browse/inspect surface (Trace, segment-inspector, Event
+  ;; lens, Static panels) gets a copy-to-clipboard gesture. The
+  ;; container is `position:relative` to anchor the absolutely-
+  ;; positioned `⎘` button at its top-right; padding-right reserves
+  ;; the gutter so the button never overlaps a wide value's first line.
+  (let [container-id (str "rf-causa-edn-widget-browse-"
+                          (name (or panel-id :unknown))
+                          "-"
+                          (str (or render-id "")))]
+    [:div {:data-testid container-id
+           :style {:position    "relative"
+                   :font-family mono-stack
+                   :font-size   "12px"
+                   :color       (:text-primary tokens)
+                   :line-height 1.4
+                   :padding-right "26px"}}
+     (copy-affordance value (str container-id "-copy"))
+     (if (some? max-depth)
+       (cdt/value->tree-hiccup value max-depth)
+       (cdt/value->tree-hiccup value))]))
 
 ;; ---- variant: diff -------------------------------------------------------
 
