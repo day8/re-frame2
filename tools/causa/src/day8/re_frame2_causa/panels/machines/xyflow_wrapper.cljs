@@ -55,9 +55,19 @@
     - `nodes-draggable=false` · `nodes-connectable=false` ·
       `elements-selectable=false` · `pan-on-drag=true` ·
       `zoom-on-scroll=true` · `min-zoom=0.25` · `max-zoom=2`
-    - `fitView=true` · `fit-view-options={padding: 0.05}`"
-  (:require [reagent.core :as reagent]
-            ["@xyflow/react" :as xyflow]))
+    - `fitView=true` · `fit-view-options={padding: 0.05}`
+
+  ## Substrate
+
+  Causa targets `day8/reagent-slim` (deps.edn — zero direct `reagent.*`
+  requires under `tools/causa/src/`; the slim-isolation rationale is
+  rf2-wl5pa). The slim surface (`reagent2.core`) deliberately drops
+  `adapt-react-class` (audit-confirmed zero usage), so this wrapper
+  renders the npm React components through the slim `:>` interop head —
+  `[:> Component props & children]` — which the slim template handles
+  for any React component (function or class). No `reagent.*` /
+  `reagent2.core/adapt-react-class` dependency is needed."
+  (:require ["@xyflow/react" :as xyflow]))
 
 ;; ---- CSS note -----------------------------------------------------------
 
@@ -72,26 +82,31 @@
 ;; is applied via the `:style` props on the node/edge maps Causa
 ;; emits (see `xyflow-style.cljs`).
 
-;; ---- React-class adaptation ---------------------------------------------
+;; ---- React component handles --------------------------------------------
+;;
+;; Raw npm React components, rendered via the slim `:>` interop head
+;; (`[:> ReactFlow props]`) — no `adapt-react-class` wrapping (the slim
+;; surface drops it; see the ns docstring §Substrate).
 
 (def ReactFlow
-  "Reagent-adapted xyflow `ReactFlow` React component. Use via the
-  `xyflow-canvas` Reagent fn below — direct use is fine when callers
-  want full prop control."
-  (reagent/adapt-react-class (.-ReactFlow xyflow)))
+  "The xyflow `ReactFlow` React component. Render via the slim `:>`
+  interop head — `[:> ReactFlow props & children]`. Used through the
+  `xyflow-canvas` fn below; direct use is fine when callers want full
+  prop control."
+  (.-ReactFlow xyflow))
 
 (def Controls
-  "Reagent-adapted xyflow `Controls` React component. Renders the
-  zoom-in / zoom-out / fit-to-view chrome inside the ReactFlow
-  container. Re-styled via CSS variables — see
-  `theme/global_styles motion-css` for the Causa overrides."
-  (reagent/adapt-react-class (.-Controls xyflow)))
+  "The xyflow `Controls` React component (zoom-in / zoom-out /
+  fit-to-view chrome inside the ReactFlow container). Re-styled via CSS
+  variables — see `theme/global_styles motion-css` for the Causa
+  overrides. Render via `[:> Controls props]`."
+  (.-Controls xyflow))
 
 (def Background
-  "Reagent-adapted xyflow `Background` React component. Optional dot
-  pattern in the canvas background — Causa enables only when the
-  caller sets `:show-background?` true."
-  (reagent/adapt-react-class (.-Background xyflow)))
+  "The xyflow `Background` React component — optional dot pattern in the
+  canvas background, enabled only when the caller sets
+  `:show-background?` true. Render via `[:> Background]`."
+  (.-Background xyflow))
 
 ;; ---- clj → JS coercion --------------------------------------------------
 
@@ -178,10 +193,10 @@
            :data-node-count (str (count nodes))
            :data-edge-count (str (count edges))
            :style wrapper-style}
-     (into [ReactFlow flow-props]
+     (into [:> ReactFlow flow-props]
            (cond-> []
-             show-background? (conj [Background])
-             show-controls?   (conj [Controls
+             show-background? (conj [:> Background])
+             show-controls?   (conj [:> Controls
                                      {:showZoom true
                                       :showFitView true
                                       :showInteractive false}])))]))
