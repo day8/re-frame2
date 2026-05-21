@@ -337,6 +337,4 @@ function safeUnlinkInside(candidatePath, allowedRoot) {
 module.exports = {
   resolveTrustedExe,
   safeUnlinkInside,
-  // Exposed for tests; not part of the public contract.
-  _internals: { isPathInside, pathExtensionsFor },
 };
