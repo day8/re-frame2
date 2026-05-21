@@ -549,7 +549,7 @@ module.exports = {
        *     `:counter/sync-to-server` fx running
        *
        * Source-side follow-on (filed separately): a dedicated
-       * `:story.counter-matrix/fx-stub-miss` variant that asserts
+       * `:story.counter-matrix/failing-fx-stub-miss` variant that asserts
        * `:rf.assert/effect-emitted :never-stubbed` so the failing
        * row's reason text ("fx :never-stubbed was not emitted during
        * play") is directly visible. The current testbed has no such

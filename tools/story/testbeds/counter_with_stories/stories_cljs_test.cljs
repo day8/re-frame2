@@ -139,20 +139,20 @@
                    :story.counter-matrix/recorder-redaction
                    :story.counter-matrix/a11y-known-good
                    :story.counter-matrix/a11y-known-bad
-                   ;; rf2-0uo4e — fx-stub-miss testbed (parent story
+                   ;; rf2-0uo4e — failing-fx-stub-miss testbed (parent story
                    ;; :story.counter-matrix).
-                   :story.counter-matrix/fx-stub-miss]]
+                   :story.counter-matrix/failing-fx-stub-miss]]
         (is (contains? vs vid) (str vid " registered")))
       (is (= 14 (count vs))))))
 
-(deftest fx-stub-miss-variant-fails-with-canonical-reason
-  (testing "rf2-0uo4e testbed — :story.counter-matrix/fx-stub-miss runs
+(deftest failing-fx-stub-miss-variant-fails-with-canonical-reason
+  (testing "rf2-0uo4e testbed — :story.counter-matrix/failing-fx-stub-miss runs
             and its :rf.assert/effect-emitted assertion FAILS with the
             canonical reason text 'fx :never-stubbed was not emitted
             during play'. This is the source-side fixture the test pane
             renders in its failing-row reason-text surface."
     (async done
-      (-> (story/run-variant :story.counter-matrix/fx-stub-miss)
+      (-> (story/run-variant :story.counter-matrix/failing-fx-stub-miss)
           (async-lib/then
             (fn [result]
               (let [assertions (:assertions result)
@@ -171,7 +171,7 @@
                 (is (= "fx :never-stubbed was not emitted during play"
                        (:reason miss))
                     "the canonical reason text the test pane surfaces"))
-              (story/destroy-variant! :story.counter-matrix/fx-stub-miss)
+              (story/destroy-variant! :story.counter-matrix/failing-fx-stub-miss)
               (done)))))))
 
 (deftest example-workspaces-registered
