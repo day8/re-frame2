@@ -210,6 +210,38 @@
 (deftest redact-failure-tolerates-nil
   (is (nil? (privacy/redact-failure nil true))))
 
+;; rf2-eusm1 — an interceptor-failure trace carries the interceptor's
+;; thrown message at :cause; it is author-controlled free text and can
+;; echo a secret the interceptor was handling. It must ride the same
+;; sensitive redaction as the response-side slots.
+(deftest redact-failure-redacts-string-cause-when-sensitive
+  (testing "free-text :cause (interceptor throw message) redacted when sensitive"
+    (let [f {:kind :rf.error/http-interceptor-failed
+             :interceptor-id :auth/check
+             :cause "token validation failed for Bearer sk-live-abc123"}
+          r (privacy/redact-failure f true)]
+      (is (= :rf/redacted (:cause r))
+          "the interceptor's thrown message must not ride the trace surface verbatim"))))
+
+(deftest redact-failure-preserves-string-cause-when-not-sensitive
+  (testing "free-text :cause preserved when the request is not sensitive"
+    (let [f {:kind :rf.error/http-interceptor-failed
+             :interceptor-id :auth/check
+             :cause "interceptor :auth/check :before threw"}
+          r (privacy/redact-failure f false)]
+      (is (= "interceptor :auth/check :before threw" (:cause r))))))
+
+(deftest redact-failure-preserves-keyword-cause-discriminator
+  (testing "a keyword :cause (e.g. decode-failure's :too-many-keys) is a
+            security-relevant signal, NOT secret payload — preserved even
+            when sensitive"
+    (let [f {:kind :rf.http/decode-failure :cause :too-many-keys :body-text "raw"}
+          r (privacy/redact-failure f true)]
+      (is (= :too-many-keys (:cause r))
+          "the keyword discriminator must survive — it is the signal, not the secret")
+      (is (= :rf/redacted (:body-text r))
+          "the response body still redacts when sensitive"))))
+
 ;; ---- 6. stamp-sensitive --------------------------------------------------
 
 (deftest stamp-sensitive-adds-flag-when-true
@@ -536,3 +568,22 @@
           r (privacy/prepare-emit-failure f true)]
       (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted" (:url r)))
       (is (true? (:sensitive? r))))))
+
+;; rf2-eusm1 — end-to-end: a sensitive request whose interceptor throws.
+;; The composed failure trace (the shape `run-interceptor-chain!` hands to
+;; `prepare-emit-failure`) must surface :cause redacted, not verbatim.
+(deftest prepare-emit-failure-redacts-interceptor-cause-when-sensitive
+  (testing "interceptor-failure :cause is redacted on a sensitive request"
+    (let [failure {:where          'run-http-interceptor-chain!
+                   :recovery       :no-recovery
+                   :frame          :app
+                   :interceptor-id :auth/check
+                   :url            "https://api.example.com/login"
+                   :cause          "validation failed: token sk-live-abc123 rejected"}
+          r       (privacy/prepare-emit-failure failure true)]
+      (is (= :rf/redacted (:cause r))
+          "the interceptor's thrown message rides redacted, not verbatim")
+      (is (true? (:sensitive? r)))
+      ;; non-secret locators are still useful for debugging — kept.
+      (is (= :auth/check (:interceptor-id r)))
+      (is (= :app (:frame r))))))

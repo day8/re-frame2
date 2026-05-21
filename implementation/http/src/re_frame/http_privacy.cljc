@@ -143,7 +143,20 @@
                      ;; Accept-failure carries the user's domain failure-map at :detail
                      ;; — opaque to us; redact wholesale when sensitive.
                      (and sensitive? (contains? failure :detail))
-                     (assoc :detail redacted-sentinel))]
+                     (assoc :detail redacted-sentinel)
+
+                     ;; rf2-eusm1 — a string `:cause` is the free-text throw
+                     ;; message from the interceptor/transport path. It is
+                     ;; author-controlled and can echo a secret the
+                     ;; interceptor was handling (e.g. a token-validation
+                     ;; message embedding the token), so it rides the same
+                     ;; sensitive redaction as the response-side slots. The
+                     ;; `string?` guard preserves keyword `:cause`
+                     ;; discriminators (e.g. decode-failure's
+                     ;; `:cause :too-many-keys`) — those are security-relevant
+                     ;; signals, not secret payload (http-decode §too-many-keys).
+                     (and sensitive? (string? (:cause failure)))
+                     (assoc :cause redacted-sentinel))]
       [failure' url-hit?])))
 
 (defn redact-failure

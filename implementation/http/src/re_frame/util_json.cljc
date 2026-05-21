@@ -86,7 +86,14 @@
                                                     :limit       max-keys}))))
                                (keyword k))]
                   (cheshire/parse-string s key-fn)))
-        :cljs (let [parsed (js/JSON.parse s)
+        :cljs (when (string? s)
+                ;; rf2-x1uhu — mirror the JVM Cheshire branch's
+                ;; `(when (string? s) ...)` guard so both hosts return nil
+                ;; (rather than CLJS throwing inside `js/JSON.parse`) on a
+                ;; non-string input. `util-json` is documented as a
+                ;; shared/promotable helper; the two readers must behave
+                ;; identically.
+                (let [parsed (js/JSON.parse s)
                     ;; rf2-wu1n5 — CLJS path: walk the parsed JS object
                     ;; tree counting unique object-keys BEFORE
                     ;; `js->clj :keywordize-keys true` interns them.
@@ -116,4 +123,4 @@
                                                                 :limit       max-keys})))))
                                          (doseq [k ks] (walk (aget v k))))))]
                              (walk parsed))]
-                (js->clj parsed :keywordize-keys true))))))
+                  (js->clj parsed :keywordize-keys true)))))))

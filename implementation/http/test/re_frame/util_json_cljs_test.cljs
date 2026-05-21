@@ -10,17 +10,22 @@
 
   - `js/JSON.parse('')` throws SyntaxError — does NOT return nil like
     Cheshire does. Empty input is malformed under V8/SpiderMonkey/
-    JavaScriptCore. The `:rf.http/managed` decode site catches.
+    JavaScriptCore. The `:rf.http/managed` decode site catches. NOTE:
+    `\"\"` IS a string, so the `(string? s)` guard added per rf2-x1uhu
+    does NOT short-circuit it — the empty-string throw is preserved.
   - `js/JSON.parse('{not-json')` throws SyntaxError.
-  - `js/JSON.parse(nil)` is `JSON.parse('null')` (JS coercion) →
-    returns `null` (JS) → `(js->clj nil :keywordize-keys true)` is nil.
-    Counter-intuitive but consistent with the JS spec.
+  - non-string input (nil, keyword, number, map, vector) returns nil per
+    rf2-x1uhu: the CLJS branch now opens with the same `(when (string? s)
+    ...)` guard as the JVM Cheshire branch, so a non-string short-circuits
+    to nil on both hosts. Earlier the CLJS path called `js/JSON.parse`
+    directly — nil coerced to `\"null\"` → nil, but a keyword/number/map
+    THREW where the JVM returned nil. That host asymmetry is the bug
+    rf2-x1uhu closed.
 
   These per-platform differences matter for the `:rf.http/managed`
   cascade: the CLJS decode site MUST classify the SyntaxError throws
   as `:rf.http/decode-failure`. Pin the branch's behaviour directly
-  so a future runtime upgrade (or a refactor that adds a string-guard
-  wrapper around the CLJS branch) doesn't silently change the contract.
+  so a future runtime upgrade doesn't silently change the contract.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -56,17 +61,26 @@
           (str "empty-string input must throw on CLJS — got "
                (pr-str thrown))))))
 
-(deftest cljs-json-parse-nil-input-returns-nil
-  (testing "rf2-mih7n — `(util-json/json-parse nil)` returns nil on
-            CLJS. The JS engine coerces `nil` → `\"null\"` →
-            `js/JSON.parse` returns `null` → `js->clj` produces nil.
-            Counter-intuitive but spec-consistent. The JVM branch
-            short-circuits via `(when (string? s) ...)` and also
-            returns nil — the two branches produce the SAME observable
-            result for a nil input despite taking very different
-            paths."
+(deftest cljs-json-parse-non-string-input-returns-nil
+  (testing "rf2-x1uhu — non-string inputs return nil (not a throw) on
+            CLJS, mirroring the JVM Cheshire branch. The CLJS branch now
+            opens with the SAME `(when (string? s) ...)` guard as JVM, so
+            both hosts produce nil for nil / keyword / number / map /
+            vector input. Earlier the CLJS path called `js/JSON.parse`
+            directly: nil coerced to nil, but a keyword/number/map/vector
+            THREW where the JVM returned nil — the host asymmetry this
+            bead closed."
     (is (nil? (util-json/json-parse nil))
-        "nil input → nil (cross-platform consistent for this slot)")))
+        "nil input → nil (string? guard short-circuits, cross-host)")
+    (is (nil? (util-json/json-parse :keyword))
+        "keyword input → nil (was a throw before rf2-x1uhu)")
+    (is (nil? (util-json/json-parse 42))
+        "number input → nil (was a throw before rf2-x1uhu)")
+    (is (nil? (util-json/json-parse {:already :clojure}))
+        "map input → nil — caller passed an already-parsed value by
+         mistake (was a throw before rf2-x1uhu)")
+    (is (nil? (util-json/json-parse [1 2 3]))
+        "vector input → nil (was a throw before rf2-x1uhu)")))
 
 (deftest cljs-json-stringify-happy-path
   (testing "rf2-mih7n — sanity-check `json-stringify` on CLJS uses
