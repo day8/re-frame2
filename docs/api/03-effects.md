@@ -42,14 +42,61 @@ The interceptor chain wraps the handler. Every interceptor has a `:before` (runs
 
 The v2 standard-interceptor surface is **three specific helpers** plus the `->interceptor` primitive. The principle is: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` with no other logic. Five v1 interceptors are removed (`debug`, `trim-v`, `on-changes`, `enrich`, `after`); see [16 — Removed](16-removed.md).
 
-| API | M/Fn | Signature | Purpose |
-|---|---|---|---|
-| `inject-cofx` | M | `(inject-cofx id)` / `(inject-cofx id value)` | Inject a registered cofx into the handler's coeffect map. Macro: captures the call-site for `:rf.trace/call-site` on errors emitted from the cofx body. Does specific work — `:cofx` registry lookup — not subsumable by `->interceptor`. |
-| `inject-cofx*` | Fn | `(inject-cofx* id)` / `(inject-cofx* id value)` | Fn form for HoF / programmatic interceptor construction — no call-site stamping. |
-| `path` | Fn | `(path & path)` | Focus the handler on an `app-db` sub-slice. `:before` rewrites the `:db` cofx to `(get-in db path)`; `:after` splices the result back into the parent. The handler sees and returns a sub-tree, not the full db. |
-| `unwrap` | (val) | `unwrap` | Assert `[id payload-map]` event shape; replace the `:event` coeffect with just the payload map; restore on `:after`. Sugar over the canonical map-payload form (per [MIGRATION §M-19](../../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). |
-| `->interceptor` | Fn | `(->interceptor & {:keys [id before after]})` | The primitive. Build a custom interceptor with `:before` and / or `:after`. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. |
-| `validate-at-boundary-interceptor` | Var (value) | `validate-at-boundary-interceptor` | A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary schema validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`. |
+### `inject-cofx`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (inject-cofx id)
+  (inject-cofx id value)
+  ```
+- **Description**: Inject a registered cofx into the handler's coeffect map. Macro: captures the call-site for `:rf.trace/call-site` on errors emitted from the cofx body. Does specific work — `:cofx` registry lookup — not subsumable by `->interceptor`.
+
+### `inject-cofx*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (inject-cofx* id)
+  (inject-cofx* id value)
+  ```
+- **Description**: Fn form for HoF / programmatic interceptor construction — no call-site stamping.
+
+### `path`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (path & path)
+  ```
+- **Description**: Focus the handler on an `app-db` sub-slice. `:before` rewrites the `:db` cofx to `(get-in db path)`; `:after` splices the result back into the parent. The handler sees and returns a sub-tree, not the full db.
+
+### `unwrap`
+
+- **Kind**: Var (interceptor value)
+- **Signature**:
+  ```clojure
+  unwrap
+  ```
+- **Description**: Assert `[id payload-map]` event shape; replace the `:event` coeffect with just the payload map; restore on `:after`. Sugar over the canonical map-payload form (per [MIGRATION §M-19](../../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)).
+
+### `->interceptor`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (->interceptor & {:keys [id before after]})
+  ```
+- **Description**: The primitive. Build a custom interceptor with `:before` and / or `:after`. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact.
+
+### `validate-at-boundary-interceptor`
+
+- **Kind**: Var (interceptor value)
+- **Signature**:
+  ```clojure
+  validate-at-boundary-interceptor
+  ```
+- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary schema validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
 
 ### The `path` interceptor: focus on a slice
 
@@ -94,12 +141,49 @@ The map-of-keyword-args API is deliberate — `{:id :before :after}` is the enti
 
 The interceptor context — the ctx — is the value threaded through the chain. It carries `:coeffects` (everything available to the handler before it runs), `:effects` (everything the handler produced), and the queue / stack of remaining interceptors. Most app code never reaches into ctx directly; the four accessors below are for the rare interceptor body that does.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `get-coeffect` | Fn | `(get-coeffect ctx)` <br> `(get-coeffect ctx key)` <br> `(get-coeffect ctx key not-found)` | v1 (preserved) | "Read the coeffect map (or one slot of it)." |
-| `assoc-coeffect` | Fn | `(assoc-coeffect ctx key value)` | v1 (preserved) | "Write a coeffect slot in the ctx." |
-| `get-effect` | Fn | `(get-effect ctx)` <br> `(get-effect ctx key)` <br> `(get-effect ctx key not-found)` | v1 (preserved) | "Read the effect map (or one slot)." |
-| `assoc-effect` | Fn | `(assoc-effect ctx key value)` | v1 (preserved) | "Write an effect slot in the ctx." |
+### `get-coeffect`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (get-coeffect ctx)
+  (get-coeffect ctx key)
+  (get-coeffect ctx key not-found)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Read the coeffect map (or one slot of it)."
+
+### `assoc-coeffect`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (assoc-coeffect ctx key value)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Write a coeffect slot in the ctx."
+
+### `get-effect`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (get-effect ctx)
+  (get-effect ctx key)
+  (get-effect ctx key not-found)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Read the effect map (or one slot)."
+
+### `assoc-effect`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (assoc-effect ctx key value)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Write an effect slot in the ctx."
 
 These are stable surfaces preserved from v1. If you're writing an interceptor that needs to read or modify what the handler will see / what the handler emitted, this is the surface.
 
@@ -107,9 +191,15 @@ These are stable surfaces preserved from v1. If you're writing an interceptor th
 
 The runtime supports three ways to swap fx behaviour without touching the handler. They differ in scope: per-frame (lexical to the frame), lexical (around a body of code), and per-call (on a single dispatch).
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | "For the duration of this body, every `dispatch` / `dispatch-sync` merges this fx-overrides map into its envelope." Lexical scope; composes with `with-frame`. Renamed from v1's `with-overrides` per [MIGRATION §M-50](../../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides). |
+### `with-fx-overrides`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-fx-overrides {fx-id -> override, …} body+)
+  ```
+- **Status**: v1
+- **Description**: "For the duration of this body, every `dispatch` / `dispatch-sync` merges this fx-overrides map into its envelope." Lexical scope; composes with `with-frame`. Renamed from v1's `with-overrides` per [MIGRATION §M-50](../../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
 
 The three scopes compose with a clear precedence:
 

@@ -8,9 +8,15 @@ This chapter covers the registration shape, the dispatch / sub / fx surface, and
 
 ## Registration
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `reg-route` | M | `(reg-route id metadata)` | v1 | Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the metadata carries the URL shape, the match events, and the guards. |
+### `reg-route`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-route id metadata)
+  ```
+- **Status**: v1
+- **Description**: Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the metadata carries the URL shape, the match events, and the guards.
 
 ### A minimal route
 
@@ -43,11 +49,36 @@ Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata sc
 
 ## URL helpers
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :validation-failed?}` or `nil` | v1 | "What route does this URL match?" Pure — JVM-runnable; useful for server-side rendering and tests. |
-| `route-url` | Fn | `(route-url route-id path-params)` <br> `(route-url route-id path-params query-params)` → URL string | v1 | "Render this route to a URL." The inverse of `match-url`. Pure; JVM-runnable. |
-| `route-link` | Fn (registered view) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..."} & children]` | v1 | A registered view at `:route/link`. Renders an `<a>` with the right `href` and intercepts plain primary-button clicks to dispatch `:rf/url-requested` instead of navigating natively. |
+### `match-url`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (match-url url) → {:route-id :params :query :validation-failed?} or nil
+  ```
+- **Status**: v1
+- **Description**: "What route does this URL match?" Pure — JVM-runnable; useful for server-side rendering and tests.
+
+### `route-url`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (route-url route-id path-params) → URL string
+  (route-url route-id path-params query-params) → URL string
+  ```
+- **Status**: v1
+- **Description**: "Render this route to a URL." The inverse of `match-url`. Pure; JVM-runnable.
+
+### `route-link`
+
+- **Kind**: registered view (function)
+- **Signature**:
+  ```clojure
+  [rf/route-link {:to :route-id :params {...} :query {...} :fragment "..."} & children]
+  ```
+- **Status**: v1
+- **Description**: A registered view at `:route/link`. Renders an `<a>` with the right `href` and intercepts plain primary-button clicks to dispatch `:rf/url-requested` instead of navigating natively.
 
 ### `route-link` click semantics
 

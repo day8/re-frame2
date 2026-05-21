@@ -107,14 +107,59 @@ A passing assertion proves the observation surface saw a sentinel, not the secre
 
 Story's canvas recorder captures dispatched events and DOM-level interactions into a paste-ready `:play-script` body. The facade exposes six entries on `re-frame.story`.
 
-| Fn | Signature | Status | Intuition |
-|---|---|---|---|
-| `start-recording!` | `(start-recording! variant-id)` → nil | v1 (dev-only) | Begin recording dispatched events against `variant-id`'s frame. The recorder filters on dispatch-provenance `:rf.story/source :user` — setup-phase events (`:variant-events`) are excluded. |
-| `stop-recording!` | `(stop-recording!)` → events-vec | v1 (dev-only) | Stop the in-flight recording; return the captured events vector. |
-| `clear-recording!` | `(clear-recording!)` → nil | v1 (dev-only) | Drop the buffer + return the recorder to idle. |
-| `recording?` | `(recording?)` → bool | v1 (dev-only) | Predicate — is a recording in flight? |
-| `recorder-state` | `(recorder-state)` → map | v1 (dev-only) | Read-only view of the current recorder state map. |
-| `gen-play-snippet` | `(gen-play-snippet events opts)` → string | v1 (dev-only) | Pure codegen: render a captured `events` vector as a `(reg-variant <id> {... :play-script {:script [...]}})` EDN snippet. Each captured event vector is wrapped as `[:dispatch-sync <event-vec>]`. |
+### `start-recording!`
+
+- **Signature**:
+  ```clojure
+  (start-recording! variant-id) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Begin recording dispatched events against `variant-id`'s frame. The recorder filters on dispatch-provenance `:rf.story/source :user` — setup-phase events (`:variant-events`) are excluded.
+
+### `stop-recording!`
+
+- **Signature**:
+  ```clojure
+  (stop-recording!) → events-vec
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Stop the in-flight recording; return the captured events vector.
+
+### `clear-recording!`
+
+- **Signature**:
+  ```clojure
+  (clear-recording!) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Drop the buffer + return the recorder to idle.
+
+### `recording?`
+
+- **Signature**:
+  ```clojure
+  (recording?) → bool
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Predicate — is a recording in flight?
+
+### `recorder-state`
+
+- **Signature**:
+  ```clojure
+  (recorder-state) → map
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Read-only view of the current recorder state map.
+
+### `gen-play-snippet`
+
+- **Signature**:
+  ```clojure
+  (gen-play-snippet events opts) → string
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Pure codegen: render a captured `events` vector as a `(reg-variant <id> {... :play-script {:script [...]}})` EDN snippet. Each captured event vector is wrapped as `[:dispatch-sync <event-vec>]`.
 
 The facade's `gen-play-snippet` is the simpler event-vector → `:dispatch-sync` step projection. A typical recorder modal calls `start-recording!` on the *record* chip click, hooks the user's canvas interaction, then on *stop* calls `stop-recording!` + `gen-play-snippet` to render the modal's EDN body.
 
@@ -122,11 +167,32 @@ The facade's `gen-play-snippet` is the simpler event-vector → `:dispatch-sync`
 
 The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` steps derived from the recorder's `:entries` capture stream) is exported by `re-frame.story.recorder.play-export` — a sub-namespace, not re-exported through `re-frame.story`. The facade exposes only `gen-play-snippet`; consumers wanting the rich DOM-derived DSL `:require` the sub-namespace directly.
 
-| Fn | Signature | Status | Intuition |
-|---|---|---|---|
-| `recording->play-script` | `(recording->play-script entries opts)` → map | v1 (dev-only) | Translate captured `:entries` into a normalised `:play-script` body map. Derives `[:click selector]`, `[:type selector text]`, `[:wait ms]` steps from the entries stream. |
-| `render-play-script` | `(render-play-script body)` → string | v1 (dev-only) | Render the `:play-script` map to EDN. |
-| `render-variant-form` | `(render-variant-form variant-id metadata)` → string | v1 (dev-only) | Render a full `(reg-variant <id> {...})` form to EDN. |
+### `recording->play-script`
+
+- **Signature**:
+  ```clojure
+  (recording->play-script entries opts) → map
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Translate captured `:entries` into a normalised `:play-script` body map. Derives `[:click selector]`, `[:type selector text]`, `[:wait ms]` steps from the entries stream.
+
+### `render-play-script`
+
+- **Signature**:
+  ```clojure
+  (render-play-script body) → string
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Render the `:play-script` map to EDN.
+
+### `render-variant-form`
+
+- **Signature**:
+  ```clojure
+  (render-variant-form variant-id metadata) → string
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Render a full `(reg-variant <id> {...})` form to EDN.
 
 Lives in `re-frame.story.recorder.play-export`. Two `:require`s — `[re-frame.story :as story]` for the facade plus `[re-frame.story.recorder.play-export :as play-export]` for the rich translator.
 

@@ -8,11 +8,36 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
 
 ## Handlers
 
-| API | M/Fn | Signature | Status | JVM-runnable? | Intuition |
-|---|---|---|---|---|---|
-| `registrations` | Fn | `(registrations kind)` <br> `(registrations kind pred-fn)` → `{id metadata-map}` | v1 | ✓ | **Use when you want metadata.** Walk the registrar with the full metadata map per id — source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, the doc string. Optional `pred-fn` filters by the metadata map. |
-| `handler-ids` | Fn | `(handler-ids kind)` → id set | v1 | ✓ | **Use when you only need to enumerate.** Canonical alias for `(-> (registrations kind) keys set)`. Saves both the metadata-map allocations and the `keys` walk — meaningful at scale (completion lists, existence checks, set-shaped intersections). |
-| `handler-meta` | Fn | `(handler-meta kind id)` → registration-metadata map | v1 | ✓ | "What did `reg-*` stamp at this id?" View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta`; pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup. |
+### `registrations`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (registrations kind) → {id metadata-map}
+  (registrations kind pred-fn) → {id metadata-map}
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: **Use when you want metadata.** Walk the registrar with the full metadata map per id — source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, the doc string. Optional `pred-fn` filters by the metadata map.
+
+### `handler-ids`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (handler-ids kind) → id set
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: **Use when you only need to enumerate.** Canonical alias for `(-> (registrations kind) keys set)`. Saves both the metadata-map allocations and the `keys` walk — meaningful at scale (completion lists, existence checks, set-shaped intersections).
+
+### `handler-meta`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (handler-meta kind id) → registration-metadata map
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: "What did `reg-*` stamp at this id?" View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta`; pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup.
 
 `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:flow`, `:route`, `:head`, `:error-projector`, `:app-schema`. The full list lives in [001-Vision §Registry model](../../spec/000-Vision.md).
 
@@ -20,28 +45,93 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
 
 These are derived views over the event registrar — a machine is registered as an event handler with `:rf/machine? true`, so `(machines)` is just `(registrations :event)` filtered by that flag. They're rowed here separately because tools reach for them often enough that the convenience is worth it.
 
-| API | M/Fn | Signature | Status | JVM-runnable? | Intuition |
-|---|---|---|---|---|---|
-| `machines` | Fn | `(machines)` → seq of machine-ids | v1 | ✓ | Enumerate registered machines. |
-| `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map | v1 | ✓ | Transition table, doc, schemas. Equivalent to `(handler-meta :event machine-id)`. |
+### `machines`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machines) → seq of machine-ids
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: Enumerate registered machines.
+
+### `machine-meta`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machine-meta machine-id) → registration-metadata map
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: Transition table, doc, schemas. Equivalent to `(handler-meta :event machine-id)`.
 
 See [04 — Machines](04-machines.md) for the rest of the machine surface (subscription helpers, system-id reverse lookup, etc).
 
 ## Frames
 
-| API | M/Fn | Signature | Status | JVM-runnable? | Intuition |
-|---|---|---|---|---|---|
-| `frame-ids` | Fn | `(frame-ids)` <br> `(frame-ids ns-prefix)` | v1 | ✓ | "What frames exist?" The optional prefix filters by namespace — `(rf/frame-ids :rf.story/)` for tool-owned frames. |
-| `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | ✓ | "What did `reg-frame` / `make-frame` stamp at this frame?" Returns the metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings. |
-| `get-frame-db` | Fn | `(get-frame-db frame-id)` → app-db value (plain map) | v1 | ✓ | "What's the current `app-db` for this frame?" Returns `nil` for an unknown / destroyed frame. |
-| `snapshot-of` | Fn | `(snapshot-of path)` <br> `(snapshot-of path opts)` | v1 | ✓ | "What's at this path in `app-db` right now?" Convenience over `get-frame-db` + `get-in`. |
+### `frame-ids`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (frame-ids)
+  (frame-ids ns-prefix)
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: "What frames exist?" The optional prefix filters by namespace — `(rf/frame-ids :rf.story/)` for tool-owned frames.
+
+### `frame-meta`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (frame-meta frame-id)
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: "What did `reg-frame` / `make-frame` stamp at this frame?" Returns the metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings.
+
+### `get-frame-db`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (get-frame-db frame-id) → app-db value (plain map)
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: "What's the current `app-db` for this frame?" Returns `nil` for an unknown / destroyed frame.
+
+### `snapshot-of`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (snapshot-of path)
+  (snapshot-of path opts)
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: "What's at this path in `app-db` right now?" Convenience over `get-frame-db` + `get-in`.
 
 ## Sub graph
 
-| API | M/Fn | Signature | Status | JVM-runnable? | Intuition |
-|---|---|---|---|---|---|
-| `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` | v1 | ✓ | Static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1 subs); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. |
-| `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | ✗ (CLJS-only) | The runtime cache. CLJS-only because it holds live `Reaction` objects; on JVM there are no reactions to hold. Tools that walk the cache for tab labels / counts in Causa go through this. |
+### `sub-topology`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sub-topology) → {sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: Static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1 subs); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them.
+
+### `sub-cache`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sub-cache frame-id) → live cache state
+  ```
+- **Status**: v1 · CLJS-only
+- **Description**: The runtime cache. CLJS-only because it holds live `Reaction` objects; on JVM there are no reactions to hold. Tools that walk the cache for tab labels / counts in Causa go through this.
 
 The split — `sub-topology` JVM-runnable, `sub-cache` CLJS-only — is principled. Topology is a static property of the registration; the cache is a runtime property of the sub graph. Tools that want the design-time picture (linter, doc generator, conformance harness) reach for `sub-topology`; tools that want the runtime picture (Causa's sub-cache tab) reach for `sub-cache`.
 
@@ -58,9 +148,15 @@ The schema-introspection surfaces are rowed in [08 — Schemas](08-schemas.md). 
 
 `compute-sub` is the test-friendly companion to `subscribe`. It runs the sub graph against a value of `app-db` — no cache, no reactivity, no frame — and returns the value.
 
-| API | M/Fn | Signature | Status | JVM-runnable? | Intuition |
-|---|---|---|---|---|---|
-| `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | ✓ | Pure sub computation against an `app-db` value. Use in tests; use in agent tooling that wants to evaluate subs against an artificial state. |
+### `compute-sub`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (compute-sub query-v db)
+  ```
+- **Status**: v1 · JVM-runnable
+- **Description**: Pure sub computation against an `app-db` value. Use in tests; use in agent tooling that wants to evaluate subs against an artificial state.
 
 (Cross-rowed in [10 — Testing](10-testing.md).)
 

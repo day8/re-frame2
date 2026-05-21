@@ -8,11 +8,38 @@ This chapter covers the registration surface (`reg-view`, `reg-view*`, `view`), 
 
 The view registry is what `[my-view "arg"]` resolves against. Every view you register lives in it; every view that emits hiccup ends up rendered through it. The registry is keyed by id (a keyword, conventionally `(keyword *ns* sym)` so the view's id matches its symbol).
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `reg-view` | M | `(reg-view sym [args] body+)` <br> `(reg-view sym docstring [args] body+)` <br> `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | The defn-shape view registration. Auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, auto-injects `dispatch` / `subscribe` as lexical bindings, and rejects non-defn-shape bodies at macroexpand. The 80% of registrations want this form. |
-| `reg-view*` | Fn | `(reg-view* id render-fn)` <br> `(reg-view* id metadata render-fn)` | v1 | The plain-fn surface beneath `reg-view`. No auto-def (the caller manages the Var or computed id), no auto-inject, no compile check. Reach for it when you need: computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. |
-| `view` | Fn | `(view view-id)` → render-fn | v1 | Runtime lookup handle. Returns the **registered render-fn**, not hiccup. Use in hiccup as `[(rf/view :id) args...]` when you need to late-bind a view by id (computed id, plugin-style dispatch, dynamic chrome). |
+### `reg-view`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-view sym [args] body+)
+  (reg-view sym docstring [args] body+)
+  (reg-view ^{:rf/id :explicit/id} sym [args] body+)
+  ```
+- **Status**: v1
+- **Description**: The defn-shape view registration. Auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, auto-injects `dispatch` / `subscribe` as lexical bindings, and rejects non-defn-shape bodies at macroexpand. The 80% of registrations want this form.
+
+### `reg-view*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-view* id render-fn)
+  (reg-view* id metadata render-fn)
+  ```
+- **Status**: v1
+- **Description**: The plain-fn surface beneath `reg-view`. No auto-def (the caller manages the Var or computed id), no auto-inject, no compile check. Reach for it when you need: computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var.
+
+### `view`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (view view-id) → render-fn
+  ```
+- **Status**: v1
+- **Description**: Runtime lookup handle. Returns the **registered render-fn**, not hiccup. Use in hiccup as `[(rf/view :id) args...]` when you need to late-bind a view by id (computed id, plugin-style dispatch, dynamic chrome).
 
 ### How `reg-view` reads
 
@@ -67,13 +94,56 @@ Bare keyword-tagged hiccup (`[:my-view "args"]`) is **removed in v2** — it was
 
 These five surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | "Children inside this provider see `:todo` as their current frame." Lexical scope for the implicit frame; nestable; pairs with `with-frame` for non-component code. |
-| `with-frame` | M | `(with-frame :keyword body)` *or* `(with-frame [sym expr] body)` | v1 | "Run this code as if the current frame were `:keyword`." Two shapes — bare keyword vs let-binding — documented in [002 §with-frame](../../spec/002-Frames.md#with-frame). |
-| `bound-fn` | M | `(bound-fn [args] body)` | v1 | "Capture the current dynamic-var bindings (frame, registrar, etc.) into a closure that will be invoked later, possibly after the calling stack has unwound." CLJS-only macro. Use for event-callback wiring where Promise / setTimeout / IntersectionObserver / WebSocket message handlers run outside the original render call. |
-| `dispatcher` | Fn | `(dispatcher)` → `(fn [event] ...)` | v1 | "Hand me a frame-bound dispatch function I can call later." Captures the current frame at call time and returns a closure that dispatches against that frame. Safe to call during render AND from async callbacks where the dynamic-var binding has unwound. |
-| `subscriber` | Fn | `(subscriber)` → `(fn [query-v] ...)` | v1 | "Hand me a frame-bound subscribe function I can call later." Companion to `dispatcher` for the subscribe side. |
+### `frame-provider`
+
+- **Kind**: Reagent component
+- **Signature**:
+  ```clojure
+  [rf/frame-provider {:frame :todo} & children]
+  ```
+- **Status**: v1
+- **Description**: "Children inside this provider see `:todo` as their current frame." Lexical scope for the implicit frame; nestable; pairs with `with-frame` for non-component code.
+
+### `with-frame`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-frame :keyword body)
+  (with-frame [sym expr] body)
+  ```
+- **Status**: v1
+- **Description**: "Run this code as if the current frame were `:keyword`." Two shapes — bare keyword vs let-binding — documented in [002 §with-frame](../../spec/002-Frames.md#with-frame).
+
+### `bound-fn`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (bound-fn [args] body)
+  ```
+- **Status**: v1
+- **Description**: "Capture the current dynamic-var bindings (frame, registrar, etc.) into a closure that will be invoked later, possibly after the calling stack has unwound." CLJS-only macro. Use for event-callback wiring where Promise / setTimeout / IntersectionObserver / WebSocket message handlers run outside the original render call.
+
+### `dispatcher`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (dispatcher) → (fn [event] ...)
+  ```
+- **Status**: v1
+- **Description**: "Hand me a frame-bound dispatch function I can call later." Captures the current frame at call time and returns a closure that dispatches against that frame. Safe to call during render AND from async callbacks where the dynamic-var binding has unwound.
+
+### `subscriber`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (subscriber) → (fn [query-v] ...)
+  ```
+- **Status**: v1
+- **Description**: "Hand me a frame-bound subscribe function I can call later." Companion to `dispatcher` for the subscribe side.
 
 ### When to use `dispatcher` / `subscriber` instead of `dispatch` / `subscribe`
 
@@ -134,15 +204,81 @@ The adapter spec map — the value `(rf/init!)` consumes — lives at `re-frame.
 
 UIx and Helix expose React's hooks model directly. The re-frame2 adapter for each ships in its own artefact (`day8/re-frame2-uix`, `day8/re-frame2-helix`) and exposes a small, parallel surface — the same shape across both, because the Helix decisions transfer the UIx decisions one-for-one.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `<adapter>/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | The adapter spec passed to `(rf/init! ...)`. |
-| `<adapter>/use-subscribe` | Fn (hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → value | v1 | The hook-shaped read. Matches the React/UIx/Helix idiom; there's no auto-injection — components call the hook and `(rf/dispatcher)` directly. |
-| `<adapter>/use-current-frame` | Fn (hook) | `(use-current-frame)` → frame-kw | v1 | "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks. |
-| `<adapter>/frame-provider` | Fn (component) | `($ frame-provider {:frame :session :children […]})` | v1 | The component-shaped equivalent of Reagent's `frame-provider`. The underlying React Context (`re-frame.adapter.context`) is **shared** across all three substrates, so a mixed-substrate app's frame-provider chain composes across substrate boundaries. |
-| `<adapter>/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn | v1 | Adapter-side source-coord annotation. Most UIx / Helix users register through `reg-view*` and let the adapter wrap; `wrap-view` is exposed for code-gen and library scaffolding. |
-| `<adapter>/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` | v1 | Wraps React's `act()` for tests. Drain queued state updates before assertions. |
-| `<adapter>/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` | v1 | Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR. |
+In the entries below, `<adapter>` stands for the adapter namespace alias the consumer chose at require — typically `uix-adapter` or `helix-adapter`.
+
+### `<adapter>/adapter`
+
+- **Kind**: Var (map)
+- **Signature**:
+  ```clojure
+  {:make-state-container …
+   :render …
+   :dispose-adapter! …}
+  ```
+- **Status**: v1
+- **Description**: The adapter spec passed to `(rf/init! ...)`.
+
+### `<adapter>/use-subscribe`
+
+- **Kind**: hook (function)
+- **Signature**:
+  ```clojure
+  (use-subscribe query-v) → value
+  (use-subscribe frame-kw query-v) → value
+  ```
+- **Status**: v1
+- **Description**: The hook-shaped read. Matches the React/UIx/Helix idiom; there's no auto-injection — components call the hook and `(rf/dispatcher)` directly.
+
+### `<adapter>/use-current-frame`
+
+- **Kind**: hook (function)
+- **Signature**:
+  ```clojure
+  (use-current-frame) → frame-kw
+  ```
+- **Status**: v1
+- **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
+
+### `<adapter>/frame-provider`
+
+- **Kind**: component (function)
+- **Signature**:
+  ```clojure
+  ($ frame-provider {:frame :session :children […]})
+  ```
+- **Status**: v1
+- **Description**: The component-shaped equivalent of Reagent's `frame-provider`. The underlying React Context (`re-frame.adapter.context`) is **shared** across all three substrates, so a mixed-substrate app's frame-provider chain composes across substrate boundaries.
+
+### `<adapter>/wrap-view`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (wrap-view id metadata user-fn) → wrapped fn
+  ```
+- **Status**: v1
+- **Description**: Adapter-side source-coord annotation. Most UIx / Helix users register through `reg-view*` and let the adapter wrap; `wrap-view` is exposed for code-gen and library scaffolding.
+
+### `<adapter>/flush-views!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (flush-views!)
+  (flush-views! f)
+  ```
+- **Status**: v1
+- **Description**: Wraps React's `act()` for tests. Drain queued state updates before assertions.
+
+### `<adapter>/set-hiccup-emitter!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (set-hiccup-emitter! f)
+  ```
+- **Status**: v1
+- **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
 
 The UIx / Helix adapters do **not** support `reg-view` (the macro is Reagent-specific in its `defn`-shape rewriting). UIx and Helix users register with `rf/reg-view*` when they need registry-keyed view addressing — most don't, because UIx and Helix components compose by Var reference like ordinary React components.
 

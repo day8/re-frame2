@@ -32,15 +32,79 @@ The slim variant is bundle-isolated — the `npm run test:reagent-slim:bundle-is
 
 UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-uix`). The hook is named `use-subscribe` (matching the React/UIx idiom); there is no auto-injection — UIx components call the hook and `(rf/dispatcher)` directly. The full decision set lives at [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij).
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `uix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | The adapter spec passed to `(rf/init! ...)`. |
-| `uix-adapter/use-subscribe` | Fn (UIx hook) | `(use-subscribe query-v)` <br> `(use-subscribe frame-kw query-v)` → current sub value | v1 | "Subscribe inside a UIx component." The hook-shaped equivalent of `subscribe` for UIx components. Re-renders when the sub value changes. |
-| `uix-adapter/use-current-frame` | Fn (UIx hook) | `(use-current-frame)` → frame-kw | v1 | "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks. |
-| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:frame :session :children […]})` | v1 | The UIx-shaped frame provider. |
-| `uix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn | v1 | Adapter-side source-coord injection. Most users register through `reg-view*`; `wrap-view` is for code-gen and library scaffolding. |
-| `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` | v1 | Wraps React's `act()` for tests. |
-| `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` | v1 | Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR. |
+### `uix-adapter/adapter`
+
+- **Kind**: Var (map)
+- **Signature**:
+  ```clojure
+  {:make-state-container …
+   :render …
+   :dispose-adapter! …}
+  ```
+- **Status**: v1
+- **Description**: The adapter spec passed to `(rf/init! ...)`.
+
+### `uix-adapter/use-subscribe`
+
+- **Kind**: UIx hook (function)
+- **Signature**:
+  ```clojure
+  (use-subscribe query-v) → current sub value
+  (use-subscribe frame-kw query-v) → current sub value
+  ```
+- **Status**: v1
+- **Description**: "Subscribe inside a UIx component." The hook-shaped equivalent of `subscribe` for UIx components. Re-renders when the sub value changes.
+
+### `uix-adapter/use-current-frame`
+
+- **Kind**: UIx hook (function)
+- **Signature**:
+  ```clojure
+  (use-current-frame) → frame-kw
+  ```
+- **Status**: v1
+- **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
+
+### `uix-adapter/frame-provider`
+
+- **Kind**: UIx component (function)
+- **Signature**:
+  ```clojure
+  ($ uix-adapter/frame-provider {:frame :session :children […]})
+  ```
+- **Status**: v1
+- **Description**: The UIx-shaped frame provider.
+
+### `uix-adapter/wrap-view`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (wrap-view id metadata user-fn) → wrapped fn
+  ```
+- **Status**: v1
+- **Description**: Adapter-side source-coord injection. Most users register through `reg-view*`; `wrap-view` is for code-gen and library scaffolding.
+
+### `uix-adapter/flush-views!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (flush-views!)
+  (flush-views! f)
+  ```
+- **Status**: v1
+- **Description**: Wraps React's `act()` for tests.
+
+### `uix-adapter/set-hiccup-emitter!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (set-hiccup-emitter! f)
+  ```
+- **Status**: v1
+- **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
 
 UIx users register their views by Var (the React-component idiom) or with `rf/reg-view*` if they want registry-keyed view addressing — `reg-view` (the Reagent macro) does **not** cover UIx. Full rationale: [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij).
 
@@ -60,17 +124,81 @@ UIx users register their views by Var (the React-component idiom) or with `rf/re
 
 ## The Helix adapter
 
-Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame2-helix`). The Helix adapter mirrors the UIx adapter exactly — the eight UIx decisions transfer one-for-one. The surface table below is identical in shape to the UIx table above.
+Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame2-helix`). The Helix adapter mirrors the UIx adapter exactly — the eight UIx decisions transfer one-for-one. The surface below is identical in shape to the UIx surface above.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `helix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | The adapter spec passed to `(rf/init! ...)`. |
-| `helix-adapter/use-subscribe` | Fn (Helix hook) | `(use-subscribe query-v)` <br> `(use-subscribe frame-kw query-v)` → current sub value | v1 | "Subscribe inside a Helix component." |
-| `helix-adapter/use-current-frame` | Fn (Helix hook) | `(use-current-frame)` → frame-kw | v1 | "What frame am I in?" |
-| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:frame :session :children […]})` | v1 | The Helix-shaped frame provider. |
-| `helix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn | v1 | Adapter-side source-coord injection. |
-| `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` | v1 | Wraps React's `act()` for tests. |
-| `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` | v1 | Install a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam. |
+### `helix-adapter/adapter`
+
+- **Kind**: Var (map)
+- **Signature**:
+  ```clojure
+  {:make-state-container …
+   :render …
+   :dispose-adapter! …}
+  ```
+- **Status**: v1
+- **Description**: The adapter spec passed to `(rf/init! ...)`.
+
+### `helix-adapter/use-subscribe`
+
+- **Kind**: Helix hook (function)
+- **Signature**:
+  ```clojure
+  (use-subscribe query-v) → current sub value
+  (use-subscribe frame-kw query-v) → current sub value
+  ```
+- **Status**: v1
+- **Description**: "Subscribe inside a Helix component."
+
+### `helix-adapter/use-current-frame`
+
+- **Kind**: Helix hook (function)
+- **Signature**:
+  ```clojure
+  (use-current-frame) → frame-kw
+  ```
+- **Status**: v1
+- **Description**: "What frame am I in?"
+
+### `helix-adapter/frame-provider`
+
+- **Kind**: Helix component (function)
+- **Signature**:
+  ```clojure
+  ($ helix-adapter/frame-provider {:frame :session :children […]})
+  ```
+- **Status**: v1
+- **Description**: The Helix-shaped frame provider.
+
+### `helix-adapter/wrap-view`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (wrap-view id metadata user-fn) → wrapped fn
+  ```
+- **Status**: v1
+- **Description**: Adapter-side source-coord injection.
+
+### `helix-adapter/flush-views!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (flush-views!)
+  (flush-views! f)
+  ```
+- **Status**: v1
+- **Description**: Wraps React's `act()` for tests.
+
+### `helix-adapter/set-hiccup-emitter!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (set-hiccup-emitter! f)
+  ```
+- **Status**: v1
+- **Description**: Install a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam.
 
 The duplication between UIx and Helix is intentional — both expose the same hooks-first idiom; both decisions sets transfer; both surfaces are structurally identical. The two adapters are separate artefacts because the *underlying React-substrate libraries* are separate, not because the re-frame2 contract differs between them.
 

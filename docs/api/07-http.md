@@ -8,10 +8,19 @@ This chapter covers the canonical fx, the verb helpers, the test stubs, the requ
 
 ## The canonical fx
 
-| API | Kind | Signature / shape | Status | Intuition |
-|---|---|---|---|---|
-| `[:rf.http/managed args-map]` | fx | args per [014 §The args map](../../spec/014-HTTPRequests.md#the-args-map) and `:rf.fx/managed-args` | v1 (optional capability) | The one fx-id. Args carry the request envelope, decode policy, accept fn, retry policy, timeout, success / failure target events, request-id (for abort), and optional abort-signal. |
-| `[:rf.http/managed-abort request-id]` | fx | request-id | v1 (optional capability) | Abort the in-flight request with the given `:request-id`. The aborted request's reply fires with `{:rf/reply {:kind :failure :failure {:kind :rf.http/aborted ...}}}`. |
+### `[:rf.http/managed args-map]`
+
+- **Kind**: fx
+- **Args**: per [014 §The args map](../../spec/014-HTTPRequests.md#the-args-map) and `:rf.fx/managed-args`
+- **Status**: v1 (optional capability)
+- **Description**: The one fx-id. Args carry the request envelope, decode policy, accept fn, retry policy, timeout, success / failure target events, request-id (for abort), and optional abort-signal.
+
+### `[:rf.http/managed-abort request-id]`
+
+- **Kind**: fx
+- **Args**: request-id
+- **Status**: v1 (optional capability)
+- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply fires with `{:rf/reply {:kind :failure :failure {:kind :rf.http/aborted ...}}}`.
 
 ### A minimal request
 
@@ -34,15 +43,75 @@ That's enough to issue a request, decode the JSON reply, and dispatch the result
 
 Call-site helpers for the common shapes. They're pure synthesis fns that produce the canonical `[:rf.http/managed args-map]` fx vector — no magic, no hidden state. The point is ergonomics: writing `(rf.http/get "/api/cart")` reads better at the call site than spelling out the full args map for a no-frills GET.
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `re-frame.http/get` | `(rf.http/get url)` / `(rf.http/get url args)` | v1 (optional) | "Synthesise a GET fx vector." Pure; no side effect — drop the result into `:fx`. |
-| `re-frame.http/post` | `(rf.http/post url)` / `(rf.http/post url args)` | v1 (optional) | POST. Pass `:body` in `args`. |
-| `re-frame.http/put` | `(rf.http/put url)` / `(rf.http/put url args)` | v1 (optional) | PUT. |
-| `re-frame.http/delete` | `(rf.http/delete url)` / `(rf.http/delete url args)` | v1 (optional) | DELETE. |
-| `re-frame.http/patch` | `(rf.http/patch url)` / `(rf.http/patch url args)` | v1 (optional) | PATCH. |
-| `re-frame.http/head` | `(rf.http/head url)` / `(rf.http/head url args)` | v1 (optional) | HEAD. |
-| `re-frame.http/options` | `(rf.http/options url)` / `(rf.http/options url args)` | v1 (optional) | OPTIONS. |
+### `re-frame.http/get`
+
+- **Signature**:
+  ```clojure
+  (rf.http/get url)
+  (rf.http/get url args)
+  ```
+- **Status**: v1 (optional)
+- **Description**: "Synthesise a GET fx vector." Pure; no side effect — drop the result into `:fx`.
+
+### `re-frame.http/post`
+
+- **Signature**:
+  ```clojure
+  (rf.http/post url)
+  (rf.http/post url args)
+  ```
+- **Status**: v1 (optional)
+- **Description**: POST. Pass `:body` in `args`.
+
+### `re-frame.http/put`
+
+- **Signature**:
+  ```clojure
+  (rf.http/put url)
+  (rf.http/put url args)
+  ```
+- **Status**: v1 (optional)
+- **Description**: PUT.
+
+### `re-frame.http/delete`
+
+- **Signature**:
+  ```clojure
+  (rf.http/delete url)
+  (rf.http/delete url args)
+  ```
+- **Status**: v1 (optional)
+- **Description**: DELETE.
+
+### `re-frame.http/patch`
+
+- **Signature**:
+  ```clojure
+  (rf.http/patch url)
+  (rf.http/patch url args)
+  ```
+- **Status**: v1 (optional)
+- **Description**: PATCH.
+
+### `re-frame.http/head`
+
+- **Signature**:
+  ```clojure
+  (rf.http/head url)
+  (rf.http/head url args)
+  ```
+- **Status**: v1 (optional)
+- **Description**: HEAD.
+
+### `re-frame.http/options`
+
+- **Signature**:
+  ```clojure
+  (rf.http/options url)
+  (rf.http/options url args)
+  ```
+- **Status**: v1 (optional)
+- **Description**: OPTIONS.
 
 The verb helpers live in `re-frame.http` — users `(:require [re-frame.http :as rf.http])` alongside `re-frame.core`. The namespace ships in `day8/re-frame2-http`, the same artefact as the fx itself, so loading the helpers and the fx is a single dep decision.
 
@@ -92,10 +161,27 @@ See [014 §Failure categories](../../spec/014-HTTPRequests.md#failure-categories
 
 Sometimes you want to inject behaviour into every request — adding an auth header, stamping a request ID, logging. Re-frame2's answer is a small middleware surface that mirrors the rest of the `reg-*` family.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `reg-http-interceptor` | Fn | `(reg-http-interceptor id before)` <br> `(reg-http-interceptor id opts before)` | v1 (optional) | Register a request-side interceptor on a frame's `:rf.http/managed` middleware chain. `before` is `(fn [ctx] ctx')` where ctx is `{:request :args :frame :event}`. `opts` carries `:frame` (default `:rf/default`) plus the standard `:rf/registration-metadata`. |
-| `clear-http-interceptor` | Fn | `(clear-http-interceptor id)` <br> `(clear-http-interceptor frame id)` | v1 (optional) | Unregister an interceptor by id. Single-arity targets `:rf/default`. |
+### `reg-http-interceptor`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-http-interceptor id before)
+  (reg-http-interceptor id opts before)
+  ```
+- **Status**: v1 (optional)
+- **Description**: Register a request-side interceptor on a frame's `:rf.http/managed` middleware chain. `before` is `(fn [ctx] ctx')` where ctx is `{:request :args :frame :event}`. `opts` carries `:frame` (default `:rf/default`) plus the standard `:rf/registration-metadata`.
+
+### `clear-http-interceptor`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (clear-http-interceptor id)
+  (clear-http-interceptor frame id)
+  ```
+- **Status**: v1 (optional)
+- **Description**: Unregister an interceptor by id. Single-arity targets `:rf/default`.
 
 ```clojure
 (rf/reg-http-interceptor :auth/inject
@@ -110,14 +196,57 @@ The interceptor runs *before* the request is dispatched to the platform's HTTP c
 
 Tests want to drive the cascade without hitting the network. The test-support surface provides canned-reply fx and a stubbing macro that reroutes requests at the routes you name.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `[:rf.http/managed-canned-success {:value v}]` | fx | — | v1 (optional, dev/test) | Synthesise the canonical success reply directly into `:fx`. Useful for "stub THIS request inline" patterns. Registered at load of `re-frame.http-test-support`. |
-| `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]` | fx | — | v1 (optional, dev/test) | Synthesise the canonical failure reply directly into `:fx`. |
-| `with-managed-request-stubs` | M | `(with-managed-request-stubs route-map body+)` | v1 (optional, dev/test) | Lexical-scope stubbing. `route-map` is `{[<method> <url>] {:reply <value-or-failure>}}`. Inside the body, requests matching a stubbed route bypass the real client. |
-| `with-managed-request-stubs*` | Fn | `(with-managed-request-stubs* route-map body-fn)` | v1 (optional, dev/test) | Plain-fn surface beneath the macro. Use for computed route-maps or non-literal bodies. |
-| `install-managed-request-stubs!` | Fn | `(install-managed-request-stubs! route-map)` | v1 (optional, dev/test) | Lower-level than `with-managed-request-stubs`: install stubs that persist until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s. |
-| `uninstall-managed-request-stubs!` | Fn | `(uninstall-managed-request-stubs!)` | v1 (optional, dev/test) | Drop installed stubs; restore real-request routing. Idempotent. |
+### `[:rf.http/managed-canned-success {:value v}]`
+
+- **Kind**: fx
+- **Status**: v1 (optional, dev/test)
+- **Description**: Synthesise the canonical success reply directly into `:fx`. Useful for "stub THIS request inline" patterns. Registered at load of `re-frame.http-test-support`.
+
+### `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]`
+
+- **Kind**: fx
+- **Status**: v1 (optional, dev/test)
+- **Description**: Synthesise the canonical failure reply directly into `:fx`.
+
+### `with-managed-request-stubs`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-managed-request-stubs route-map body+)
+  ```
+- **Status**: v1 (optional, dev/test)
+- **Description**: Lexical-scope stubbing. `route-map` is `{[<method> <url>] {:reply <value-or-failure>}}`. Inside the body, requests matching a stubbed route bypass the real client.
+
+### `with-managed-request-stubs*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (with-managed-request-stubs* route-map body-fn)
+  ```
+- **Status**: v1 (optional, dev/test)
+- **Description**: Plain-fn surface beneath the macro. Use for computed route-maps or non-literal bodies.
+
+### `install-managed-request-stubs!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (install-managed-request-stubs! route-map)
+  ```
+- **Status**: v1 (optional, dev/test)
+- **Description**: Lower-level than `with-managed-request-stubs`: install stubs that persist until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s.
+
+### `uninstall-managed-request-stubs!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (uninstall-managed-request-stubs!)
+  ```
+- **Status**: v1 (optional, dev/test)
+- **Description**: Drop installed stubs; restore real-request routing. Idempotent.
 
 All the test-support surfaces live in `re-frame.http-test-support` (the single home per audit of audits #15). One namespace; same artefact (`day8/re-frame2-http`) as the production code.
 

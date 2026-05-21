@@ -14,25 +14,97 @@ For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` 
 
 ## Runtime-state assertions (`re-frame.test-support`)
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `dispatch-sequence` | Fn | `(dispatch-sequence events)` <br> `(dispatch-sequence events opts)` | v1 | "Run this list of events end-to-end against the current frame." `opts`: `:after-each (fn [db ev] ...)` for between-event assertions, `:frame` for non-default targets. Returns the final `app-db`. |
-| `assert-path-equals` | Fn | `(assert-path-equals path expected-val)` <br> `(assert-path-equals path expected-val opts)` | v1 | "Assert `(get-in db path) == expected-val`." Mismatch fires a `clojure.test/is`-style failure via `do-report`. The fn-side counterpart to the `:rf.assert/path-equals` story event-family — same name root, different runner channel. |
-| `assert-db-equals` | Fn | `(assert-db-equals expected-db)` <br> `(assert-db-equals expected-db opts)` | v1 | Full-db sync assertion. Mismatch fires a `clojure.test/is`-style failure. Companion to `assert-path-equals`; reach for it when the whole-db identity matters. |
-| `poll-until` | Fn | `(poll-until pred)` <br> `(poll-until pred opts)` | v1 | Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` with `:rf.test/poll-timeout true` on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`. |
-| `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | (Rowed in [03 — Effects and interceptors](03-effects.md).) Lexical-scope fx override; the most common test surface for "stub THIS fx within THIS block." Lives in `re-frame.core` but is rowed here for discoverability. |
-| `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | Pure sub computation against an `app-db` *value*. No cache, no reactivity — just walk the sub graph and return the value. JVM-runnable. Use in tests where you want "what would this sub return given this db?" without setting up frames. |
+### `dispatch-sequence`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (dispatch-sequence events)
+  (dispatch-sequence events opts)
+  ```
+- **Status**: v1
+- **Description**: "Run this list of events end-to-end against the current frame." `opts`: `:after-each (fn [db ev] ...)` for between-event assertions, `:frame` for non-default targets. Returns the final `app-db`.
+
+### `assert-path-equals`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (assert-path-equals path expected-val)
+  (assert-path-equals path expected-val opts)
+  ```
+- **Status**: v1
+- **Description**: "Assert `(get-in db path) == expected-val`." Mismatch fires a `clojure.test/is`-style failure via `do-report`. The fn-side counterpart to the `:rf.assert/path-equals` story event-family — same name root, different runner channel.
+
+### `assert-db-equals`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (assert-db-equals expected-db)
+  (assert-db-equals expected-db opts)
+  ```
+- **Status**: v1
+- **Description**: Full-db sync assertion. Mismatch fires a `clojure.test/is`-style failure. Companion to `assert-path-equals`; reach for it when the whole-db identity matters.
+
+### `poll-until`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (poll-until pred)
+  (poll-until pred opts)
+  ```
+- **Status**: v1
+- **Description**: Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` with `:rf.test/poll-timeout true` on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
+
+### `with-fx-overrides`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-fx-overrides {fx-id -> override, …} body+)
+  ```
+- **Status**: v1
+- **Description**: Rowed in [03 — Effects and interceptors](03-effects.md). Lexical-scope fx override; the most common test surface for "stub THIS fx within THIS block." Lives in `re-frame.core` but is rowed here for discoverability.
+
+### `compute-sub`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (compute-sub query-v db)
+  ```
+- **Status**: v1
+- **Description**: Pure sub computation against an `app-db` *value*. No cache, no reactivity — just walk the sub graph and return the value. JVM-runnable. Use in tests where you want "what would this sub return given this db?" without setting up frames.
 
 ### Snapshot the registrar; restore after
 
 These are the fixture primitives. The pattern is "snapshot the registrar before the test mutates registrations; restore after, regardless of pass / fail."
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `snapshot-registrar` | per docstring | v1 | Capture the current registrar state. |
-| `restore-registrar!` | per docstring | v1 | Restore a previously captured registrar state. |
-| `with-fresh-registrar` | per docstring | v1 | The composed macro — snapshot + body + restore. Most tests reach for this rather than the lower-level primitives. |
-| `make-reset-runtime-fixture` | per docstring | v1 | Build a `clojure.test` fixture that resets the runtime between tests. Pair with `use-fixtures :each`. |
+#### `snapshot-registrar`
+
+- **Signature**: per docstring
+- **Status**: v1
+- **Description**: Capture the current registrar state.
+
+#### `restore-registrar!`
+
+- **Signature**: per docstring
+- **Status**: v1
+- **Description**: Restore a previously captured registrar state.
+
+#### `with-fresh-registrar`
+
+- **Signature**: per docstring
+- **Status**: v1
+- **Description**: The composed macro — snapshot + body + restore. Most tests reach for this rather than the lower-level primitives.
+
+#### `make-reset-runtime-fixture`
+
+- **Signature**: per docstring
+- **Status**: v1
+- **Description**: Build a `clojure.test` fixture that resets the runtime between tests. Pair with `use-fixtures :each`.
 
 ### A typical test
 
@@ -50,21 +122,136 @@ The pattern: fresh registrar, register the handler, dispatch synchronously, asse
 
 The view-assertion surface treats a view as what it is — a function that returns hiccup — and walks the returned hiccup data structure. **JVM-runnable. No JSDOM. No React. No `act()`.** Pairs with `render-to-string` (the HTML-string view-test path per [Spec 011](../../spec/011-SSR.md)): hiccup-walk for structure / handler assertions, `render-to-string` for HTML-markup assertions.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `expand-tree` | Fn | `(expand-tree tree)` → tree | v1 | Recursively expand fn-components and Form-3 class components inside a hiccup tree. After expansion every vector's first element is a keyword tag or a non-component value. Run this first when your view tree contains other registered views you want to assert through. |
-| `attrs` | Fn | `(attrs node)` → map | v1 | Return the attrs map of a hiccup node, or `nil`. |
-| `children` | Fn | `(children node)` → vector | v1 | Return everything after the tag (and optional attrs map). |
-| `text-content` | Fn | `(text-content node)` → string | v1 | Recursively collect string leaves under `node` and join. Numbers coerce to strings; nils are skipped. "What's the visible text?" |
-| `extract-handler` | Fn | `(extract-handler node event-key)` → fn | v1 | "Get the handler attached at this attribute on this node." Returns the value or `nil`. |
-| `find-by-attr` | Fn | `(find-by-attr tree attr val)` → node | v1 | First hiccup node whose attrs map carries `attr == val`, or `nil`. Generic over the attribute keyword — `:data-testid`, `:id`, `:data-test`, custom. |
-| `find-all-by-attr` | Fn | `(find-all-by-attr tree attr val)` → vector | v1 | Every matching node, in depth-first order. |
-| `find-by-attr-prefix` | Fn | `(find-by-attr-prefix tree attr prefix)` → vector | v1 | Every node whose `attr` value (a string) STARTS with `prefix`. Non-string attr values do not match. |
-| `find-by-testid` | Fn | `(find-by-testid tree test-id)` → node | v1 | Convenience over `find-by-attr` keyed on `:data-testid`. The common case. |
-| `find-all-by-testid` | Fn | `(find-all-by-testid tree test-id)` → vector | v1 | Convenience over `find-all-by-attr` keyed on `:data-testid`. |
-| `find-by-testid-prefix` | Fn | `(find-by-testid-prefix tree prefix)` → vector | v1 | Convenience over `find-by-attr-prefix` keyed on `:data-testid`. |
-| `invoke-handler` | Fn | `(invoke-handler node event-key & args)` → any | v1 | Find the handler under `event-key` on `node` and call it with `args`. Returns the handler's return value. **Throws** when the node has no attrs map or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug). |
-| `testid` | Fn | `(testid id)` / `(testid id extra)` → map | v1 | Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Authoring helper at the view call site — pair it with `find-by-testid` at the assertion site. |
+### `expand-tree`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (expand-tree tree) → tree
+  ```
+- **Status**: v1
+- **Description**: Recursively expand fn-components and Form-3 class components inside a hiccup tree. After expansion every vector's first element is a keyword tag or a non-component value. Run this first when your view tree contains other registered views you want to assert through.
+
+### `attrs`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (attrs node) → map
+  ```
+- **Status**: v1
+- **Description**: Return the attrs map of a hiccup node, or `nil`.
+
+### `children`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (children node) → vector
+  ```
+- **Status**: v1
+- **Description**: Return everything after the tag (and optional attrs map).
+
+### `text-content`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (text-content node) → string
+  ```
+- **Status**: v1
+- **Description**: Recursively collect string leaves under `node` and join. Numbers coerce to strings; nils are skipped. "What's the visible text?"
+
+### `extract-handler`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (extract-handler node event-key) → fn
+  ```
+- **Status**: v1
+- **Description**: "Get the handler attached at this attribute on this node." Returns the value or `nil`.
+
+### `find-by-attr`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (find-by-attr tree attr val) → node
+  ```
+- **Status**: v1
+- **Description**: First hiccup node whose attrs map carries `attr == val`, or `nil`. Generic over the attribute keyword — `:data-testid`, `:id`, `:data-test`, custom.
+
+### `find-all-by-attr`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (find-all-by-attr tree attr val) → vector
+  ```
+- **Status**: v1
+- **Description**: Every matching node, in depth-first order.
+
+### `find-by-attr-prefix`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (find-by-attr-prefix tree attr prefix) → vector
+  ```
+- **Status**: v1
+- **Description**: Every node whose `attr` value (a string) STARTS with `prefix`. Non-string attr values do not match.
+
+### `find-by-testid`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (find-by-testid tree test-id) → node
+  ```
+- **Status**: v1
+- **Description**: Convenience over `find-by-attr` keyed on `:data-testid`. The common case.
+
+### `find-all-by-testid`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (find-all-by-testid tree test-id) → vector
+  ```
+- **Status**: v1
+- **Description**: Convenience over `find-all-by-attr` keyed on `:data-testid`.
+
+### `find-by-testid-prefix`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (find-by-testid-prefix tree prefix) → vector
+  ```
+- **Status**: v1
+- **Description**: Convenience over `find-by-attr-prefix` keyed on `:data-testid`.
+
+### `invoke-handler`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (invoke-handler node event-key & args) → any
+  ```
+- **Status**: v1
+- **Description**: Find the handler under `event-key` on `node` and call it with `args`. Returns the handler's return value. **Throws** when the node has no attrs map or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug).
+
+### `testid`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (testid id) → map
+  (testid id extra) → map
+  ```
+- **Status**: v1
+- **Description**: Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Authoring helper at the view call site — pair it with `find-by-testid` at the assertion site.
 
 ### A view-assertion test
 

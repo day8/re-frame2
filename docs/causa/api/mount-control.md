@@ -6,21 +6,63 @@ There's also a small JS-side mirror — the same six verbs exposed on `window.da
 
 ## The three open verbs
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `open!` | `(causa/open!)` → mount-state map or missing-host diagnostic map | v1 (dev-only) | Mount + show the shell true-inline into the host's normal-flow layout host (`[data-rf-causa-host]` by default). The canonical default. On first call, creates `#rf-causa-root` inside the host and renders the shell. On subsequent calls (already mounted), flips the container to `display: block`. No-op (returns `nil`) when no substrate adapter is installed. |
-| `open-overlay!` | `(causa/open-overlay!)` | v1 (dev-only) | Debug / fallback path: mount Causa as a fixed overlay under `<body>`. Floats above the host layout without participating in it. Reach for this when the host's normal-flow layout cannot accommodate a right column — a full-screen canvas tool, a story-only tool page, a prototype with no layout host. |
-| `popout!` | `(causa/popout!)` | v1 (dev-only) | Open Causa in a same-origin second window. The shell mounts into its own document context — own React root, own theme cascade, own keybinding listener. The popped window uses `window.opener` to reach the host's runtime, so all observation surfaces (trace bus, epoch history, registrar) work unchanged. Useful when the panel is competing with the app for screen space. |
+### `open!`
+
+- **Signature**:
+  ```clojure
+  (causa/open!) → mount-state map or missing-host diagnostic map
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Mount + show the shell true-inline into the host's normal-flow layout host (`[data-rf-causa-host]` by default). The canonical default. On first call, creates `#rf-causa-root` inside the host and renders the shell. On subsequent calls (already mounted), flips the container to `display: block`. No-op (returns `nil`) when no substrate adapter is installed.
+
+### `open-overlay!`
+
+- **Signature**:
+  ```clojure
+  (causa/open-overlay!)
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Debug / fallback path: mount Causa as a fixed overlay under `<body>`. Floats above the host layout without participating in it. Reach for this when the host's normal-flow layout cannot accommodate a right column — a full-screen canvas tool, a story-only tool page, a prototype with no layout host.
+
+### `popout!`
+
+- **Signature**:
+  ```clojure
+  (causa/popout!)
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Open Causa in a same-origin second window. The shell mounts into its own document context — own React root, own theme cascade, own keybinding listener. The popped window uses `window.opener` to reach the host's runtime, so all observation surfaces (trace bus, epoch history, registrar) work unchanged. Useful when the panel is competing with the app for screen space.
 
 The three verbs are **deliberately not** a mode-symmetric triplet (no `open-inline!` alias). Inline-vs-overlay-vs-window is a kind-of-mount axis, not a mode axis. A reader who treats `open!` / `open-overlay!` as "default vs overlay" and `popout!` as "its own verb" is reading the contract correctly — bare `open!` *is* the canonical default, and the asymmetry telegraphs the rank.
 
 ## Visibility control
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `close!` | `(causa/close!)` | v1 (dev-only) | Hide the shell — flip the container to `display: none`. The DOM tree and substrate render tree stay in place so re-opening is a CSS-only toggle (sub-80ms first paint). Use when the host wants to programmatically dismiss the panel without unmounting it. |
-| `toggle!` | `(causa/toggle!)` | v1 (dev-only) | Flip visibility. First call mounts + shows; subsequent calls toggle between `display: block` and `display: none`. The `Ctrl+Shift+C` global keybinding is wired to this. |
-| `status` | `(causa/status)` → map | v1 (dev-only) | Inspectable shell state. Returns `{:mounted? :visible? :last-host-diagnostic ...}`. Reach for this from tests, from a debug-console one-liner, or when wiring a host's "is the panel up?" indicator. The browser-global mirror exposes the same value as `window.day8.re_frame2_causa.status()`. |
+### `close!`
+
+- **Signature**:
+  ```clojure
+  (causa/close!)
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Hide the shell — flip the container to `display: none`. The DOM tree and substrate render tree stay in place so re-opening is a CSS-only toggle (sub-80ms first paint). Use when the host wants to programmatically dismiss the panel without unmounting it.
+
+### `toggle!`
+
+- **Signature**:
+  ```clojure
+  (causa/toggle!)
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Flip visibility. First call mounts + shows; subsequent calls toggle between `display: block` and `display: none`. The `Ctrl+Shift+C` global keybinding is wired to this.
+
+### `status`
+
+- **Signature**:
+  ```clojure
+  (causa/status) → map
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Inspectable shell state. Returns `{:mounted? :visible? :last-host-diagnostic ...}`. Reach for this from tests, from a debug-console one-liner, or when wiring a host's "is the panel up?" indicator. The browser-global mirror exposes the same value as `window.day8.re_frame2_causa.status()`.
 
 ## Manual install — the alternative to `:preloads`
 
@@ -28,9 +70,15 @@ The canonical install path is wiring `day8.re-frame2-causa.preload` into shadow-
 
 For hosts that want to control the install timing — a custom boot pipeline with steps between adapter install and Causa attach, a test harness needing fine-grained sequencing, a host that ships its own preload bundle — `init!` is the alternative.
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `init!` | `(init!)` / `(init! opts)` → nil | v1 (dev-only) | Mount Causa manually. Idempotent: a second call is a no-op (each underlying side-effect is `defonce`-guarded). Bypasses the preload path. Use when the `:preloads` wiring isn't available — test harnesses, host-controlled boot pipelines, dev builds with a custom preload bundle. |
+### `init!`
+
+- **Signature**:
+  ```clojure
+  (init!) → nil
+  (init! opts) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Mount Causa manually. Idempotent: a second call is a no-op (each underlying side-effect is `defonce`-guarded). Bypasses the preload path. Use when the `:preloads` wiring isn't available — test harnesses, host-controlled boot pipelines, dev builds with a custom preload bundle.
 
 The `opts` map accepts these keys today (pre-alpha — additional keys land under follow-on work):
 
@@ -48,10 +96,23 @@ Pre-alpha posture wires the four foundation side-effects (registry, trace collec
 
 Most apps run one host frame (`:rf/default`) and Causa observes it implicitly. Multi-frame hosts — Story, parallel-frames testbeds, story-mode chrome wrapping a tool surface — need to tell Causa which frame the scrubber and panels are observing.
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `target-frame` | `(causa/target-frame)` → keyword | v1 (dev-only) | Read the currently-targeted host frame. Defaults to `:rf/default` until `set-target-frame!` flips it. One-shot read (does NOT register for reactive re-render). Reactive consumers subscribe to `:rf.causa/target-frame` directly via the framework's sub surface. |
-| `set-target-frame!` | `(causa/set-target-frame! frame-id)` → nil | v1 (dev-only) | Set the host frame Causa targets. Dispatches `:rf.causa/set-target-frame` into the `:rf/causa` frame so the sub and every dependent panel re-fire on the standard reactive path. `nil` resets to the default. |
+### `target-frame`
+
+- **Signature**:
+  ```clojure
+  (causa/target-frame) → keyword
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Read the currently-targeted host frame. Defaults to `:rf/default` until `set-target-frame!` flips it. One-shot read (does NOT register for reactive re-render). Reactive consumers subscribe to `:rf.causa/target-frame` directly via the framework's sub surface.
+
+### `set-target-frame!`
+
+- **Signature**:
+  ```clojure
+  (causa/set-target-frame! frame-id) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Set the host frame Causa targets. Dispatches `:rf.causa/set-target-frame` into the `:rf/causa` frame so the sub and every dependent panel re-fire on the standard reactive path. `nil` resets to the default.
 
 The L1 frame picker chip in the shell's top strip is wired to this — clicking flips `set-target-frame!`, and every panel in view (Trace, Views, Machines, App-DB Diff) rescopes to the new frame. Hosts can drive the same flip programmatically from a per-route effect, a Settings-popup wire-up, or a test harness assertion.
 
@@ -59,9 +120,14 @@ The L1 frame picker chip in the shell's top strip is wired to this — clicking 
 
 One surface declared by the spec ships as a stub that emits a `:rf.warning/*` trace and otherwise no-ops.
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `load-theme` | `(causa/load-theme css-string)` → nil | TBD-impl | Programmatically swap the Causa shell's CSS theme. The theme module exists (`day8.re-frame2-causa.theme/*`) but the runtime CSS-swap surface is not yet wired. Calling emits `:rf.warning/causa-load-theme-not-yet-implemented` so the gap is visible in the trace stream. Forward-compatible — host code may call with a CSS string today and expect the impl to land later. |
+### `load-theme`
+
+- **Signature**:
+  ```clojure
+  (causa/load-theme css-string) → nil
+  ```
+- **Status**: TBD-impl
+- **Description**: Programmatically swap the Causa shell's CSS theme. The theme module exists (`day8.re-frame2-causa.theme/*`) but the runtime CSS-swap surface is not yet wired. Calling emits `:rf.warning/causa-load-theme-not-yet-implemented` so the gap is visible in the trace stream. Forward-compatible — host code may call with a CSS string today and expect the impl to land later.
 
 ## The browser-global JS mirror
 
