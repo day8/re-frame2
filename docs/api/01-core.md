@@ -48,7 +48,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-sub id ?metadata signal-fn? computation-fn)
   ```
 - **Status**: v1 (preserved + extended)
-- **Description**: "Computed view over `app-db` and other subs." The `:<-` sugar form for declaring upstream subs is preserved from v1. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [16 — Removed](16-removed.md) for the replacement guidance).
+- **Description**: "Computed view over `app-db` and other subs." The `:<-` sugar form for declaring upstream subs is preserved from v1. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance).
 
 ### `reg-fx`
 

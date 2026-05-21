@@ -98,4 +98,4 @@ A useful rule: if you find yourself writing `(reg-sub ::derived-total (fn [...])
 - [01 — Core](01-core.md) — `reg-flow` and `clear-flow` rowed in registration / clearing.
 - [03 — Effects and interceptors](03-effects.md) — `[:rf.fx/reg-flow ...]` rowed in `:fx` entries.
 - [Spec 013 — Flows](../../spec/013-Flows.md) — the normative source.
-- [16 — Removed](16-removed.md) — `on-changes` (replaced by flows) and `enrich` (replaced by flows / schemas).
+- [15 — Removed](15-removed.md) — `on-changes` (replaced by flows) and `enrich` (replaced by flows / schemas).

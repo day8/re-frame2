@@ -1,4 +1,4 @@
-# 16 — Removed / not shipped
+# 15 — Removed / not shipped
 
 This chapter is the tombstone register. It exists so v1 migrators and readers cross-checking against blog posts can find out, in one place, **what's gone**, **what was proposed but not shipped**, and **what to use instead**.
 

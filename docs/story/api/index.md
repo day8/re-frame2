@@ -55,6 +55,5 @@ The normative spec docs (`001-Authoring.md`, `002-Runtime.md`, `004-Assertions.m
 
 - [Story tutorial — Your first story](../01-first-story.md) — the chapter-1 walkthrough. Read this first if you've not yet authored a `reg-variant`.
 - [Story tutorial — Recorder + Test Codegen](../03-recorder-codegen.md) — record a canvas interaction, get a `:play-script` body back.
-- [Framework API — Story / variants / workspaces](../../api/15-story.md) — the framework-side reference slice of Story. Pairs with this folder; the two share the same surface, organised for different audiences.
 - [Framework API — Instrumentation](../../api/11-instrumentation.md) — the trace bus the recorder reads, the source-coord stamping that drives Story's "open in editor" affordances.
 - [Causa API reference](../../causa/api/index.md) — the sibling tool's API. Story embeds Causa in its right-hand pane; the two cross-link extensively.

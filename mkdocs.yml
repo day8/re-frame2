@@ -151,8 +151,7 @@ nav:
     - "12 — Registrar": api/12-registrar.md
     - "13 — Lifecycle": api/13-lifecycle.md
     - "14 — Adapters": api/14-adapters.md
-    - "15 — Story": api/15-story.md
-    - "16 — Removed": api/16-removed.md
+    - "15 — Removed": api/15-removed.md
     - "Normative reference": spec/API.md
 
   - Migration:

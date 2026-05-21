@@ -40,7 +40,7 @@ SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.
 
 The interceptor chain wraps the handler. Every interceptor has a `:before` (runs before the handler) and / or `:after` (runs after the handler). The runtime threads a context map — the **ctx** — through the chain, and the chain composes deterministically. Interceptors are how you add cross-cutting behaviour (validation, cofx injection, focus-on-path) without writing it into every handler.
 
-The v2 standard-interceptor surface is **three specific helpers** plus the `->interceptor` primitive. The principle is: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` with no other logic. Five v1 interceptors are removed (`debug`, `trim-v`, `on-changes`, `enrich`, `after`); see [16 — Removed](16-removed.md).
+The v2 standard-interceptor surface is **three specific helpers** plus the `->interceptor` primitive. The principle is: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` with no other logic. Five v1 interceptors are removed (`debug`, `trim-v`, `on-changes`, `enrich`, `after`); see [15 — Removed](15-removed.md).
 
 ### `inject-cofx`
 
