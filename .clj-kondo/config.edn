@@ -1,38 +1,149 @@
 ;; clj-kondo config for re-frame2 — repo-root.
 ;;
 ;; Activates project-aware analysis so editor integrations (Calva,
-;; CIDER, Cursive) and CI lints share one source of truth. Minimal
-;; but useful — enable the high-signal linters and let the per-artefact
-;; classpaths (under implementation/, tools/, examples/) inherit.
+;; CIDER, Cursive) and CI lints share one source of truth.
 ;;
-;; The re-frame2 defining forms (`reg-event-db`, `reg-sub`, `reg-fx`,
-;; `reg-view`, …) are recognised by clj-kondo's built-in support for
-;; clojure.core-style defining forms — no hook lib required for the
-;; canonical shapes. Add :hooks here as the framework's macros grow
-;; surfaces clj-kondo's defaults can't infer.
+;; The re-frame2 reg-* macros emit a defmacro under `re-frame.core` (see
+;; `core_reg_macros.cljc` → `defreg-macro` / `defreg-event-macro`). Each
+;; user-facing reg-* macro takes the shape `(reg-foo :id ... body)` —
+;; structurally a `def`-like top-level form. `reg-view` is the outlier
+;; (`(reg-view sym [args] body)`) and lints-as `defn`.
+;;
+;; Story's authoring macros (`reg-story` / `reg-variant` / `reg-workspace`
+;; / `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`) and
+;; the Helix substrate's `defnc` (and the matching `defnc-` from
+;; `re-frame.adapter.helix`) follow the same shape and get lint-as'd
+;; here too.
 {:linters
  {:unresolved-symbol {:level :warning}
   :unused-binding    {:level :warning}
   :unused-referred-var {:level :warning}
   :unused-namespace  {:level :warning}
   :redefined-var     {:level :warning}
-  :inline-def        {:level :warning}}
+  ;; Disabled — re-frame2's reg-view hook (see
+  ;; `.clj-kondo/hooks/re_frame/core.clj`) rewrites `(reg-view sym [args]
+  ;; body)` to `(defn sym [args] ...)`. When that call sits inside a
+  ;; `(testing ...)` block (idiomatic for the per-test view-registration
+  ;; pattern in `reg_view_test.clj`, the adapter view-tests, and the SSR
+  ;; streaming tests) the rewritten `defn` reads as `inline-def`. The
+  ;; signal/noise on `inline-def` is dominated by the rewrite; turning
+  ;; the linter off avoids hand-decorating every test call site.
+  :inline-def        {:level :off}
+  ;; Disabled — the reg-* registration macros are `:lint-as
+  ;; clojure.core/do` so calls inside `(defn install! ...)` don't trip
+  ;; `inline-def` (see the rationale on the `:lint-as` block below).
+  ;; That choice yields `redundant do` false positives at every reg-*
+  ;; call site (a single-form `do`), so we silence it project-wide.
+  ;; There is no production-pattern in re-frame2 codebase where
+  ;; `redundant-do` is high signal — the warning's intended target is
+  ;; "(do (single-expr))" which is harmless either way.
+  :redundant-do      {:level :off}
+
+  ;; `:unresolved-var` exclusions — the framework's reg-* macros are
+  ;; defined under `#?(:clj (defmacro …))` using the `defreg-macro`
+  ;; meta-macro (see `core_reg_macros.cljc`). kondo can't statically
+  ;; trace the macro-defining-macro, so the resulting Vars look
+  ;; unresolved even though our `:lint-as` rewrites the call sites.
+  ;; Exclude them by qualified-symbol so editor integrations and CI
+  ;; agree.
+  :unresolved-var
+  {:level :warning
+   :exclude [re-frame.core/reg-event-db
+             re-frame.core/reg-event-fx
+             re-frame.core/reg-event-ctx
+             re-frame.core/reg-sub
+             re-frame.core/reg-sub-raw
+             re-frame.core/reg-fx
+             re-frame.core/reg-cofx
+             re-frame.core/reg-frame
+             re-frame.core/reg-flow
+             re-frame.core/reg-route
+             re-frame.core/reg-app-schema
+             re-frame.core/reg-app-schemas
+             re-frame.core/reg-error-projector
+             re-frame.core/reg-head
+             re-frame.core/reg-http-interceptor
+             re-frame.core/reg-machine
+             re-frame.core/reg-view
+             re-frame.story/reg-story
+             re-frame.story/reg-variant
+             re-frame.story/reg-workspace
+             re-frame.story/reg-mode
+             re-frame.story/reg-story-panel
+             re-frame.story/reg-decorator
+             re-frame.story/reg-tag]}}
 
  :lint-as
- {;; Common re-frame2 registration macros that share clojure.core/def
-  ;; arglist shape — clj-kondo lints the body as a fn definition.
-  re-frame.core/reg-event-db    clojure.core/def
-  re-frame.core/reg-event-fx    clojure.core/def
-  re-frame.core/reg-sub         clojure.core/def
-  re-frame.core/reg-fx          clojure.core/def
-  re-frame.core/reg-cofx        clojure.core/def}
+ {;; Core registration macros — `(reg-foo :id ... body)` is a
+  ;; *registration* call (handler installed in the registrar by side
+  ;; effect), NOT a `def` introducing a Var. `:lint-as clojure.core/do`
+  ;; tells clj-kondo to lint each argument as an expression — the
+  ;; nested fn-form body still gets full lexical-binding analysis, but
+  ;; the form is not treated as a top-level def, so calls inside
+  ;; `(defn install! ...)` (Causa's deferred-registration pattern)
+  ;; don't trip `inline-def`. The trade-off: the `:id` argument is not
+  ;; registered as a Var, but that's fine — re-frame2 callers reference
+  ;; registered handlers by keyword, not by symbol.
+  re-frame.core/reg-event-db        clojure.core/do
+  re-frame.core/reg-event-fx        clojure.core/do
+  re-frame.core/reg-event-ctx       clojure.core/do
+  re-frame.core/reg-sub             clojure.core/do
+  re-frame.core/reg-sub-raw         clojure.core/do
+  re-frame.core/reg-fx              clojure.core/do
+  re-frame.core/reg-cofx            clojure.core/do
+  re-frame.core/reg-frame           clojure.core/do
+  re-frame.core/reg-flow            clojure.core/do
+  re-frame.core/reg-route           clojure.core/do
+  re-frame.core/reg-app-schema      clojure.core/do
+  re-frame.core/reg-app-schemas     clojure.core/do
+  re-frame.core/reg-error-projector clojure.core/do
+  re-frame.core/reg-head            clojure.core/do
+  re-frame.core/reg-http-interceptor clojure.core/do
+  re-frame.core/reg-machine         clojure.core/do
 
- ;; rf2-4v147 — outputs filtered post-analysis. `tools/template/resources/`
- ;; ships deps-new template resources whose `.cljs` files contain
- ;; `{{placeholder}}` substitutions and are not valid Clojure (see
- ;; tools/deps.edn → "Why template is NOT in the base :deps map" for
- ;; the matching shadow-cljs exclusion). The CI workflow also avoids
- ;; passing that path to `--lint`; this filter is the belt-and-braces
- ;; for editor integrations and ad-hoc local runs that pass the broader
+  ;; `reg-view` is `(reg-view sym [args] body)` — defn-shape, but the
+  ;; macro auto-injects `dispatch` / `subscribe` into the body. Handled
+  ;; by the dedicated hook in `.clj-kondo/hooks/re_frame/core.clj` —
+  ;; lint-as wouldn't surface the injected bindings.
+
+  ;; `with-frame` has two shapes — `(with-frame :keyword body+)` and
+  ;; `(with-frame [sym expr] body+)`. The latter is `let`-shape; the
+  ;; former is `do`-shape with a leading keyword. Handled by the
+  ;; dedicated hook in `.clj-kondo/hooks/re_frame/core.clj` so both
+  ;; shapes parse cleanly and the binding-vector case surfaces the
+  ;; lexical `sym`.
+
+  ;; Story authoring macros — `(reg-foo :id metadata)` is a registration
+  ;; call, same shape as the core reg-* family. Same `do`-shape lint-as
+  ;; rationale.
+  re-frame.story/reg-story         clojure.core/do
+  re-frame.story/reg-variant       clojure.core/do
+  re-frame.story/reg-workspace     clojure.core/do
+  re-frame.story/reg-mode          clojure.core/do
+  re-frame.story/reg-story-panel   clojure.core/do
+  re-frame.story/reg-decorator     clojure.core/do
+  re-frame.story/reg-tag           clojure.core/do
+
+  ;; Helix authoring — `defnc` / `defnc-` are `defn`-shaped wrappers
+  ;; from `helix.core`. clj-kondo doesn't ship a built-in hook for
+  ;; them; lint-as gives us the basics (arity check, body lint, name
+  ;; resolution) without the prop-spec analysis a real hook would do.
+  helix.core/defnc                  clojure.core/defn
+  helix.core/defnc-                 clojure.core/defn-
+
+  ;; UIx authoring — `defui` from `uix.core` is also `defn`-shaped.
+  uix.core/defui                    clojure.core/defn}
+
+ :hooks
+ {:analyze-call
+  {re-frame.core/reg-view   hooks.re-frame.core/reg-view
+   re-frame.core/with-frame hooks.re-frame.core/with-frame}}
+
+ ;; `tools/template/resources/` ships deps-new template `.cljs` files
+ ;; whose `{{placeholder}}` substitutions are not valid Clojure (see
+ ;; `tools/deps.edn` → "Why template is NOT in the base :deps map" for
+ ;; the matching shadow-cljs exclusion). The CI workflow's `--lint`
+ ;; paths skip that directory; this filter is the belt-and-braces for
+ ;; editor integrations and ad-hoc local runs that pass the broader
  ;; `tools/` path.
  :output {:exclude-files ["tools/template/resources/"]}}

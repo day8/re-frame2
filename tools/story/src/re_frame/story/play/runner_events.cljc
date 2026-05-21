@@ -110,7 +110,7 @@
   [frame-id]
   (swap! run-state dissoc frame-id)
   (swap! runs-by-play (fn [m]
-                        (into {} (remove (fn [[[fid _]] _]
+                        (into {} (remove (fn [[[fid _]]]
                                            (= fid frame-id)) m))))
   (swap! active-play dissoc frame-id)
   nil)

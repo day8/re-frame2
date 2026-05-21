@@ -467,7 +467,7 @@
             removed; Static mode is unconditionally available)"
     (causa-setup!)
     (rf/with-frame :rf/causa
-      (let [tree (shell/ribbon)]
+      (let [tree (shell/ribbon nil)]
         (is (some? (find-by-testid tree "rf-causa-mode-pill"))
             "mode pill mounts in the Dynamic ribbon unconditionally")))))
 

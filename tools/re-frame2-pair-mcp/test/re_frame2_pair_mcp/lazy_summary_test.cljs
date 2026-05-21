@@ -249,7 +249,7 @@
                          (map #(hash-map :value % :ref-count %) (range 100)))
       :machines  {:ids   (mapv #(keyword (str "m" %)) (range 30))
                   :state (zipmap (map #(keyword (str "m" %)) (range 30))
-                                 (map #(hash-map :state :idle :context big-map) (range 30)))}
+                                 (map (fn [_] (hash-map :state :idle :context big-map)) (range 30)))}
       :epochs    (vec (for [i (range 10)]
                         {:event-id   (keyword (str "e" i))
                          :db-before  big-map

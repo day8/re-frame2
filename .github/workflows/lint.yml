@@ -1,27 +1,22 @@
 name: lint
 
-# Dual-linter CI gate (rf2-4v147 · Mike-confirmed 2026-05-21).
+# Dual-linter CI gate.
 #
 # Two complementary linters run as parallel jobs:
 #
 #   - clj-kondo: bug-class linter (unresolved symbols, arity mismatches,
 #     redefined vars, unused bindings). The `.clj-kondo/config.edn` at
 #     repo root is the shared source of truth — editor integrations
-#     (Calva, CIDER, Cursive) read the same file.
+#     (Calva, CIDER, Cursive) read the same file. The job runs with
+#     `--fail-level error`, so an introduced ERROR blocks the PR while
+#     warnings remain informational for triage.
 #
 #   - Splint (noahtheduke/splint): style-shape linter inspired by the
 #     Clojure Style Guide. Catches idiomatic-Clojure smells that
 #     kondo's lexical analysis is not designed to surface. Per-project
-#     config lives in `.splint.edn` at repo root.
-#
-# FIRST-ITERATION POSTURE: both jobs are REPORT-ONLY
-# (`continue-on-error: true`). The baseline at landing is ~4100 kondo
-# warnings + 25 errors and ~1660 Splint warnings + 4 errors — a mix of
-# pre-existing test-fixture quirks (slashed keywords like `:no/such/event`
-# in trace tests), kondo's "Unresolved var" noise on the framework's
-# dynamically-defined registration macros, and Splint's style suggestions
-# that need triaging before they earn their teeth. Follow-on bead tightens
-# both gates once the baseline is triaged.
+#     config lives in `.splint.edn` at repo root. The Splint job stays
+#     report-only at first iteration — fail-loud follows in a separate
+#     iteration once the warning baseline is triaged.
 #
 # Lint surface: implementation/, tools/ (minus template/resources/),
 # examples/, testbeds/. Generated trees (.shadow-cljs/, target/,
@@ -64,15 +59,11 @@ concurrency:
 
 jobs:
   clj-kondo:
-    name: clj-kondo (report-only, first iteration)
+    name: clj-kondo (fail on errors, warnings informational)
     runs-on: ubuntu-latest
-    # First-iteration posture: kondo is informational while we baseline
-    # the 25-ish pre-existing errors (a mix of test-fixture keywords
-    # like `:no/such/event`, internal-private references, and a couple
-    # of arity drifts in test code). Follow-on bead tightens this to
-    # fail-loud once those are triaged. See rf2-4v147 PR description for
-    # the baseline report.
-    continue-on-error: true
+    # The job runs with `--fail-level error` so an introduced ERROR
+    # blocks the PR. Warnings stay informational and surface in the
+    # job log for triage.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -110,14 +101,17 @@ jobs:
       # subdirs are listed explicitly to skip resources/ while keeping
       # tools/template/{src,test}.
       #
-      # `--parallel` fans out file analysis across cores. `|| true`
-      # caps the first-iteration report-only posture (belt-and-braces
-      # with continue-on-error so a non-zero exit from kondo doesn't
-      # bubble up either way).
+      # `--parallel` fans out file analysis across cores. `--fail-level
+      # error` makes kondo exit non-zero only when an ERROR-level
+      # finding is reported (warnings still print to the log for
+      # triage). The `continue-on-error` job-level flag was removed
+      # alongside the trailing `|| true` so a kondo error genuinely
+      # blocks the PR.
       - name: Run clj-kondo
         run: |
           clj-kondo \
             --parallel \
+            --fail-level error \
             --lint implementation \
             --lint examples \
             --lint testbeds \
@@ -129,8 +123,7 @@ jobs:
             --lint tools/story \
             --lint tools/story-mcp \
             --lint tools/template/src \
-            --lint tools/template/test \
-            || true
+            --lint tools/template/test
 
   splint:
     name: Splint (report-only, first iteration)

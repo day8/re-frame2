@@ -412,13 +412,13 @@
 (deftest restore-failure-unknown-frame
   (testing "restore-epoch on an unknown frame fires :rf.error/no-such-handler (kind :frame)"
     (let [recorded (record-trace!)
-          ok?      (rf/restore-epoch :no/such/frame :ignored)]
+          ok?      (rf/restore-epoch :no.such/frame :ignored)]
       (is (false? ok?))
       (let [events @recorded]
         (is (has-error-op? events :rf.error/no-such-handler))
         (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %) events)]
           (is (= :frame (:kind (:tags ev))))
-          (is (= :no/such/frame (:frame (:tags ev)))))))))
+          (is (= :no.such/frame (:frame (:tags ev)))))))))
 
 (deftest restore-failure-unknown-epoch
   (testing "restore-epoch with an epoch-id not in history fires :rf.epoch/restore-unknown-epoch"
@@ -1353,13 +1353,13 @@
   (testing "reset-frame-db! on an unknown frame returns false and emits
             :rf.error/no-such-handler (kind :frame); no-op on app-db"
     (let [recorded (record-trace!)
-          ok?      (rf/reset-frame-db! :no/such/frame {:any 'value})]
+          ok?      (rf/reset-frame-db! :no.such/frame {:any 'value})]
       (is (false? ok?))
       (is (has-error-op? @recorded :rf.error/no-such-handler))
       (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
                      @recorded)]
         (is (= :frame (:kind (:tags ev))))
-        (is (= :no/such/frame (:frame (:tags ev))))))))
+        (is (= :no.such/frame (:frame (:tags ev))))))))
 
 (deftest reset-frame-db!-failure-during-drain
   (testing "reset-frame-db! called from inside a drain returns false and
@@ -1653,7 +1653,7 @@
     (rf/destroy-frame! :test/short-lived)
     (is (= [] (rf/epoch-history :test/short-lived))
         "after destroy, epoch-history returns the empty vector")
-    (is (= [] (rf/epoch-history :no/such/frame))
+    (is (= [] (rf/epoch-history :no.such/frame))
         "for a never-registered frame, epoch-history returns the empty vector")))
 
 (deftest destroyed-frame-get-frame-db-returns-nil
@@ -1668,7 +1668,7 @@
     (rf/destroy-frame! :test/short-lived)
     (is (nil? (rf/get-frame-db :test/short-lived))
         "after destroy, get-frame-db returns nil")
-    (is (nil? (rf/get-frame-db :no/such/frame))
+    (is (nil? (rf/get-frame-db :no.such/frame))
         "for a never-registered frame, get-frame-db returns nil")))
 
 (deftest destroyed-frame-restore-epoch-raises-no-such-handler

@@ -174,7 +174,10 @@
 
 (defn view-mode-toggle
   "Two-button pill — Canvas | List — at the section header. Wires
-  click → `:set-view-mode`."
+  click → `:set-view-mode`. Public so the sibling `machine_inspector`
+  panel can mount the same toggle — cross-panel reuse was already
+  happening via the private symbol; promote to public rather than
+  re-publish via a wrapper."
   [{:keys [machine-id mode]}]
   (let [tab-style (fn [active?]
                     {:background    (if active?

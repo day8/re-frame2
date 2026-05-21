@@ -137,6 +137,13 @@
 
 (defn- pr-atom [a writer opts s v]
   (-write writer (str "#object[reagent2.ratom." s " "))
+  ;; `pr-writer` is marked private in cljs.core but is the documented
+  ;; entrypoint for nested `IPrintWithWriter` dispatch (every reagent2
+  ;; ratom's `-pr-writer` delegates to it for the value's recursive
+  ;; print). The "private" tag is a CLJS-packaging artefact, not an
+  ;; API contract — silence kondo's private-call check at the one
+  ;; call site rather than blanket-excluding the linter.
+  #_:clj-kondo/ignore
   (pr-writer (binding [*ratom-context* nil] v) writer opts)
   (-write writer "]"))
 
