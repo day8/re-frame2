@@ -415,6 +415,10 @@
     :producer-ns 're-frame.views
     :design-bead "rf2-9hoos"
     :description "Record a view→sub edge: push the deref'd query-v into the in-flight render's deref sink so :rf.view/rendered carries the view's OWN read-set (:deref-subs), the precise per-view reactive reason (vs the cascade-wide :cause-subs, which over-reports). Called by re-frame.subs/subscribe under interop/debug-enabled?; no-op outside a view render."}
+   {:key         :views/emit-view-unmounted!
+    :producer-ns 're-frame.views
+    :design-bead "rf2-te71r"
+    :description "Emit :rf.view/unmounted for a view instance's teardown. Consumed by the shared React-hook spine (make-wrap-view) so UIx/Helix views emit on unmount via a React.useEffect cleanup, restoring parity with the Reagent family's phase-A (rf2-9hoos) reaction-dispose unmount hook. Reaching the emit through late-bind keeps the spine free of a static require on the CLJS-only views ns; both sides gate on interop/debug-enabled?."}
 
    ;; ---- :adapter/* — chained / routed across every CLJS adapter (rf2-0d35) --
    {:key         :adapter/clear-warn-once-caches!

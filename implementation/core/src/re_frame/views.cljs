@@ -554,6 +554,24 @@
 
 (late-bind/set-fn! :views/record-view-deref! record-view-deref!)
 
+;; ---- late-bind publication (rf2-te71r) -----------------------------------
+;;
+;; React-hook substrates (UIx / Helix) run this ns's frame-aware-view
+;; wrapper inside a function component with no tracked render reaction, so
+;; the phase-A (rf2-9hoos) reaction-dispose unmount hook no-ops there
+;; (`interop/make-reaction` returns nil). The shared React-hook spine
+;; (`re-frame.substrate.spine/make-wrap-view`) arms a `React.useEffect`
+;; empty-deps cleanup that emits `:rf.view/unmounted` on instance
+;; teardown — restoring unmount parity. Reaching `emit-view-unmounted!`
+;; from the spine through late-bind keeps the spine (core/substrate) free
+;; of a static require on this CLJS-only views ns (the same edge-avoidance
+;; rationale as `:views/record-view-deref!` and `:views/reading-render-
+;; key`). Sticky-hook shape (rf2-f72pd): set once at views ns-load, never
+;; withdrawn. The spine-side call is gated on `interop/debug-enabled?` (as
+;; is `emit-view-unmounted!` itself) so production never resolves the hook.
+
+(late-bind/set-fn! :views/emit-view-unmounted! emit-view-unmounted!)
+
 ;; ---- chained fixture-reset step (rf2-9hoos) -------------------------------
 ;;
 ;; The `:mount?` discriminator (rf2-9hoos) keys off a per-process

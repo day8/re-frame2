@@ -149,3 +149,10 @@
 
 (deftest use-subscribe-stable-deps-key
   (suite/assert-use-subscribe-stable-deps-key cfg))
+
+;; rf2-te71r — :rf.view/unmounted parity for the React-hook spine. The
+;; probe view + element are built in the suite (raw React/createElement),
+;; so this forwards on :substrate-kw alone (no substrate `defui`/`$`).
+(deftest view-unmount-emits-on-react-hook-teardown
+  (suite/assert-view-unmount-emits-on-react-hook-teardown
+    {:substrate-kw :uix :name "UIx"}))
