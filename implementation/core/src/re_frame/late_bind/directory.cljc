@@ -407,6 +407,10 @@
    {:key         :views/clear-plain-fn-warned-pairs!
     :producer-ns 're-frame.views.warn-once
     :description "Clear the warned-pairs cache (test isolation)."}
+   {:key         :views/reading-render-key
+    :producer-ns 're-frame.views
+    :design-bead "rf2-vh1k3"
+    :description "Return the render-key of the view whose render is currently deref-ing a subscription (nil outside a view render). The reactive :sub/run emit stamps it onto its tag so the epoch back-fill can tell a view's genuine re-render (its own input changed) from a mount-burst tail that re-derefs unchanged subs."}
 
    ;; ---- :adapter/* — chained / routed across every CLJS adapter (rf2-0d35) --
    {:key         :adapter/clear-warn-once-caches!

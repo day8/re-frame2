@@ -89,28 +89,68 @@
 
 (defn record-render!
   "Attribute a post-settle render emit to the cascade that CAUSED it
-  (rf2-qs6dl). A `:view/render` / `:rf.view/rendered` trace fires at
-  React commit time — AFTER the causing cascade settled — so it cannot
-  ride the in-flight cascade buffer (there is none). This back-fills the
-  render into the frame's most-recently-settled epoch record and re-fans
-  the updated record out to epoch listeners so snapshot consumers (Causa
-  Views / Reactive panel, which cache `epoch-history` at settle time)
-  re-sync to the corrected `:renders`.
+  (rf2-qs6dl), refined for the mount-render case (rf2-vh1k3).
+
+  A `:view/render` / `:rf.view/rendered` trace fires at React commit
+  time — AFTER the causing cascade settled — so it cannot ride the
+  in-flight cascade buffer (there is none). rf2-qs6dl back-filled it into
+  the frame's most-recently-settled epoch; that is right for a genuine
+  reactive re-render but wrong for a MOUNT render whose commit lands late
+  (React batches a freshly-mounted component's render onto a later tick,
+  so it can commit AFTER the first user cascade settles). Attributed to
+  last-settled, a mount render leaks spuriously into the first post-mount
+  cascade's `:renders` (the rf2-vh1k3 defect: parallel-frames' title-view
+  appearing in the first counter-inc epoch though its subs never changed).
+
+  `state/resolve-render-epoch` picks the right anchor: the newest epoch
+  where the rendering view's OWN inputs changed (a real re-render rides
+  its causing cascade exactly as rf2-qs6dl intends), else the view's
+  MOUNT epoch (a mount / mount-burst tail anchors where the instance
+  first rendered), else the most-recently-settled epoch (a brand-new
+  instance whose first render commits post-settle — the settling cascade
+  becomes its mount). The chosen epoch is recorded as the render-key's
+  mount epoch on first sighting so subsequent late renders resolve
+  against it.
+
+  A render that resolves back to its mount epoch where it ALREADY landed
+  is de-duped (no second `:renders` row, no re-notify) — that is the
+  mount-burst tail being absorbed rather than re-filed.
+
+  Re-fans the corrected record out to epoch listeners so snapshot
+  consumers (Causa Views / Reactive panel, which cache `epoch-history`
+  at settle time) re-sync to the corrected `:renders`.
 
   No-op when the frame has no settled epoch yet (a render before the
   first cascade) or when the target epoch has been evicted from the ring
   — `back-fill-render!` returns nil and we skip the re-notify."
   [frame-id event]
   (when interop/debug-enabled?
-    (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
-      (when-let [updated (state/back-fill-render! frame-id epoch-id
-                                                  event (render-row event))]
-        ;; Re-fan the corrected record so snapshot consumers re-read the
-        ;; ring. The fan-out is failure-isolated per listener (same
-        ;; contract as the settle-time fan-out); a render-driven Causa
-        ;; pump (`:rf.causa/epoch-recorded`) is `:rf.trace/no-emit?` so
-        ;; it commits no new epoch and cannot loop back into this path.
-        (notify-listeners! updated)))))
+    (when-let [default-epoch (state/last-settled-epoch-id frame-id)]
+      (let [render-key (-> event :tags :render-key)
+            target     (state/resolve-render-epoch frame-id render-key
+                                                    default-epoch)]
+        ;; Record the mount anchor on first sighting; never overwrites.
+        (state/record-mount-epoch! frame-id render-key target)
+        ;; De-dup a mount-burst tail ONLY when it was REDIRECTED away from
+        ;; the settling cascade (`target` ≠ `default-epoch`) back to a
+        ;; mount epoch where the instance already rendered. A genuine
+        ;; re-render resolves to the settling cascade (`target` =
+        ;; `default-epoch`) and is never de-duped — so the paired
+        ;; `:view/render` + `:rf.view/rendered` of one real render both
+        ;; ride their cascade (only the late mount-burst tail is absorbed).
+        (when-not (and render-key
+                       (not= target default-epoch)
+                       (state/render-key-already-in-epoch?
+                         frame-id target render-key))
+          (when-let [updated (state/back-fill-render! frame-id target
+                                                      event (render-row event))]
+            ;; Re-fan the corrected record so snapshot consumers re-read
+            ;; the ring. The fan-out is failure-isolated per listener
+            ;; (same contract as the settle-time fan-out); a render-driven
+            ;; Causa pump (`:rf.causa/epoch-recorded`) is
+            ;; `:rf.trace/no-emit?` so it commits no new epoch and cannot
+            ;; loop back into this path.
+            (notify-listeners! updated)))))))
 
 ;; ---- post-settle sub-run back-fill (rf2-wi900) ----------------------------
 
@@ -253,4 +293,10 @@
     ;; render emit (a torn-down component's final flush) can't back-fill
     ;; into a record belonging to the destroyed frame's history — which
     ;; was just dropped above anyway.
-    (state/drop-last-settled-epoch! frame-id)))
+    (state/drop-last-settled-epoch! frame-id)
+    ;; Per rf2-vh1k3: forget every render-key's mount-epoch anchor AND
+    ;; read-set for the destroyed frame so a re-registration of a
+    ;; same-keyed frame (`reset-frame! :app/main`) re-mints both from
+    ;; scratch.
+    (state/drop-frame-mount-epochs! frame-id)
+    (state/drop-frame-render-deps! frame-id)))

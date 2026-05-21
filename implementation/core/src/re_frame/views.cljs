@@ -75,6 +75,24 @@
   []
   (or *render-key* [:rf.view/anonymous nil]))
 
+(defn reading-render-key
+  "Return the `:render-key` of the view whose render is currently
+  deref-ing a subscription, or nil when no view render is on the stack.
+
+  Distinct from `current-render-key` (which substitutes the anonymous
+  fallback): this returns the RAW `*render-key*` — nil when a sub is
+  computed OUTSIDE any view render (a handler that subscribes, an SSR
+  walk, a direct `compute-sub`). The reactive `:sub/run` emit
+  (`re-frame.subs.memo`) stamps this onto its tag (rf2-vh1k3) so the
+  epoch back-fill can attribute a post-settle render to the epoch in
+  which the rendering view's OWN inputs actually changed — not whatever
+  cascade happens to be settling when the late mount commit lands.
+
+  Published through late-bind under `:views/reading-render-key` so the
+  subs layer reads it without a static require on this CLJS-only ns."
+  []
+  *render-key*)
+
 ;; ---- re-exported public surface ------------------------------------------
 ;;
 ;; Plain `def` aliases (rather than `:refer`-imports) so
@@ -306,3 +324,17 @@
         wrapped    (build-frame-aware-view id render-fn view-scope coord-attr wrap-applied?)]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
+
+;; ---- late-bind publication (rf2-vh1k3) ------------------------------------
+;;
+;; The reactive `:sub/run` emit (`re-frame.subs.memo/validate-and-trace`)
+;; stamps the reading view's render-key onto its tag so the epoch
+;; back-fill can tell a view's GENUINE re-render (its own input changed)
+;; from a mount-burst tail that re-derefs unchanged subs. Reaching
+;; `reading-render-key` through late-bind keeps the subs layer free of a
+;; static require on this CLJS-only views ns (subs is .cljc + must not
+;; hard-couple to the substrate). Sticky-hook shape (rf2-f72pd): set once
+;; at views ns-load, never withdrawn. Whole stamp rides
+;; `interop/debug-enabled?` at the consumer so production DCEs it.
+
+(late-bind/set-fn! :views/reading-render-key reading-render-key)
