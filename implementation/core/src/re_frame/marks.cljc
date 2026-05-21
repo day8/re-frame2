@@ -632,14 +632,27 @@
 
 (defn- project-sub-tags
   "Walk `:sub/run` tag shape: `:sub-id` carries the sub query keyword
-  and `:value` carries the output. Marks come from the sub's
-  registration's per-output-path declarations, and the propagation
-  table sets a whole-output `:sensitive? true` stamp."
+  and `:value` carries the output. Per rf2-l1jz8 the reactive recompute
+  also stamps a `:prev-value` (the prior computed value) for value-change
+  attribution — it is the SAME sub's output as `:value`, one recompute
+  earlier, so it gets the IDENTICAL redaction treatment. Marks come from
+  the sub's registration's per-output-path declarations, and the
+  propagation table sets a whole-output `:sensitive? true` stamp.
+
+  Both value slots are redacted from process-scoped marks only — this
+  fn reads NO reactive container (it runs inside the sub's reaction
+  compute via `trace/build-event`; a container deref here would register
+  a spurious app-db dependency and break glitch-free layering)."
   [tags frame-id]
   (let [sub-id (:sub-id tags)
         marks  (sub-marks sub-id)
         prop-s? (sub-output-sensitive? frame-id sub-id)
-        prop-l? (sub-output-large? frame-id sub-id)]
+        prop-l? (sub-output-large? frame-id sub-id)
+        ;; Redact `:prev-value` with the same rule as `:value`, but ONLY
+        ;; when the slot is present (the pure compute-sub emit and the
+        ;; production base-shape emit omit it). `nil` prev-value (first
+        ;; recompute) passes through redaction harmlessly.
+        has-prev? (contains? tags :prev-value)]
     (cond
       ;; No marks AND no propagation — pass through unchanged.
       (and (nil? marks) (not prop-s?) (not prop-l?))
@@ -647,14 +660,16 @@
 
       ;; Whole-output propagation wins: stamp at root.
       (and prop-s? (not (false? (:sensitive? marks))))
-      (assoc tags :value privacy/redacted-sentinel :sensitive? true)
+      (cond-> (assoc tags :value privacy/redacted-sentinel :sensitive? true)
+        has-prev? (assoc :prev-value privacy/redacted-sentinel))
 
       :else
       (let [sens     (or (:sensitive marks) [])
             large    (or (:large marks) [])
             redacted (redact-with-paths (:value tags) sens large)]
         (cond-> (assoc tags :value redacted)
-          prop-l? (assoc :large? true))))))
+          has-prev? (assoc :prev-value (redact-with-paths (:prev-value tags) sens large))
+          prop-l?   (assoc :large? true))))))
 
 (defn- project-machine-tags
   "Walk machine-snapshot tag shapes (`:rf.machine/transition`,

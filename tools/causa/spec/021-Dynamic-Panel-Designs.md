@@ -1265,6 +1265,7 @@ prerequisites.
 |---|---|---|---|
 | **View re-render attribution** | `:rf.view/rendered` | `{:view-id :ns/Component :file ".../X.cljs" :line N :caused-by-sub :sub-id :caused-by-paths [...] :dispatch-id <id>}` | Reactive panel · Trace panel · §3.5 |
 | **Sub skip attribution** | `:rf.sub/skipped` | `{:sub-id :s/foo :reason :input-unchanged :dispatch-id <id>}` | Reactive panel "unchanged subs" disclosure · §3.4 |
+| **Sub value-change + cascade attribution** (rf2-l1jz8) | `:sub/run` | `{:sub-id :s/foo :query-v [...] :value-changed? <bool> :prev-value <v> :value <v> :cascade? <bool> :cause-sub [query-id args]-or-nil}` — value slots redacted at the marks chokepoint; threaded onto the epoch record's `:sub-runs` projection. **Landed** in the framework substrate (Spec 009 §`:sub/run`, Spec-Schemas §`:rf/epoch-record` `:sub-runs`). | Reactive panel "SUBS WHOSE VALUE CHANGED" (§3.1.1.2) + "SUBS THAT CASCADED" (§3.1.1.3) |
 | **Cascade aggregate** | `:rf.cascade/captured` | `{:dispatch-id <id> :subs-ran N :subs-skipped N :views-rendered N :flows-recomputed N}` | Optional — emitted at end-of-epoch for fast L2 badge / Reactive summary line |
 | **Dispatch-origin tag** | (on existing `:rf/event-dispatched`) | Add `:tags :origin <origin-kw>` per §1.5 taxonomy | Event panel step 1 · L2 row prefix · filter pills |
 | **Handler-source string** | (on existing handler registry) | Stamp `:source-string` metadata via macro (DEBUG-gated) | Event panel step 3 inline source · §2.2 |

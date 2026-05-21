@@ -232,9 +232,33 @@
                     (= :sub/run op)
                     (assoc! acc :s
                             (conj! (get acc :s)
-                                   {:sub-id      (:sub-id t)
-                                    :query-v     (:query-v t)
-                                    :recomputed? true}))
+                                   ;; Per rf2-l1jz8 — the reactive recompute
+                                   ;; path enriches the `:sub/run` tag with
+                                   ;; value-change + cascade attribution
+                                   ;; (`:value-changed?` / `:prev-value` /
+                                   ;; `:value` / `:cascade?` / `:cause-sub`).
+                                   ;; Thread them onto the structured
+                                   ;; projection so Causa's Reactive panel
+                                   ;; reads them off the epoch record (not
+                                   ;; the raw trace). `compute-sub`'s base-
+                                   ;; shape emit omits them — the slots are
+                                   ;; simply absent there, which the panel's
+                                   ;; `sub-changed?` / `sub-cascaded?`
+                                   ;; predicates tolerate (false / not-
+                                   ;; cascaded). The `:sensitive?` stamp on
+                                   ;; the trace event (rf2-isdwf) governs
+                                   ;; whether `:prev-value` / `:value`
+                                   ;; already carry the `:rf/redacted`
+                                   ;; sentinel — they ride elide-wire-value
+                                   ;; at the emit site.
+                                   {:sub-id         (:sub-id t)
+                                    :query-v        (:query-v t)
+                                    :recomputed?    true
+                                    :value-changed? (:value-changed? t)
+                                    :prev-value     (:prev-value t)
+                                    :value          (:value t)
+                                    :cascade?       (:cascade? t)
+                                    :cause-sub      (:cause-sub t)}))
 
                     (= :view/render op)
                     (assoc! acc :r

@@ -82,9 +82,25 @@
    ;; instruments with a :sub/run emit (Spec 009 §:sub/run trace event,
    ;; rf2-i7eb). The :op-type is :sub/run; trace-buffer's
    ;; `{:op-type :sub/run}` filter selects on that.
+   ;;
+   ;; Per rf2-l1jz8 the reactive recompute path enriches the :sub/run
+   ;; tag with value-change + cascade attribution (Spec 009 §:sub/run
+   ;; trace event). This is the FIRST recompute of `:count` (subscribe-
+   ;; once subscribes fresh), so `:value-changed?` is true (the
+   ;; no-prior-value sentinel reports a change) and `:value` is the
+   ;; freshly-computed `1`. `:count` is a layer-1 sub (reads app-db
+   ;; directly), so `:cascade?` is false and there is no upstream
+   ;; `:cause-sub`. The cross-recompute cases (value-unchanged,
+   ;; layer-2 cascade naming `:cause-sub`) need a held reactive
+   ;; subscription across two dispatches, which the corpus's
+   ;; subscribe-once-at-expect model can't express; they're pinned by
+   ;; the reference substrate trace tests instead.
    {:operation :sub/run
     :op-type   :sub/run
-    :tags      {:sub-id :count}}]
+    :tags      {:sub-id         :count
+                :value-changed? true
+                :value          1
+                :cascade?       false}}]
 
   :effects-routed
   [{:fx-id :log :args {:msg "incremented"}}]}}
