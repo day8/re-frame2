@@ -478,7 +478,7 @@ rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
 | Fx | Args | Behaviour |
 |---|---|---|
-| `:rf.causa.static/persist-mode` | `mode` keyword | Writes the bare string (`"runtime"` / `"static"`) to localStorage key `causa.mode`. No-ops on JVM / when localStorage is unavailable. |
+| `:rf.causa.static/persist-mode` | `mode` keyword | Writes the bare string (`"dynamic"` / `"static"`) to localStorage key `causa.mode`. No-ops on JVM / when localStorage is unavailable. |
 
 ## Command palette
 

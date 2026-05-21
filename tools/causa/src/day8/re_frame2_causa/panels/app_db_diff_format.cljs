@@ -23,9 +23,9 @@
   §5 — short labels stay one-line `pr-str` for scan-ability.
 
   L4 detail-tab VALUE displays go through
-  `day8.re-frame2-causa.theme.data-inspector/inspect` (rf2-x9fzk) for
-  the cljs-devtools-shaped renderer; only short labels / paths come
-  through here."
+  `day8.re-frame2-causa.views.edn-widget.widget/inspect` (rf2-8q4f4 —
+  one widget, many call sites) for the cljs-devtools-shaped renderer;
+  only short labels / paths come through here."
   [v]
   (try
     (pr-str v)

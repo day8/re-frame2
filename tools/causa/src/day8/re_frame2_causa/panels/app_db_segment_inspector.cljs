@@ -25,7 +25,7 @@
   centred dialog with a 15% dim backdrop, mirroring the causality
   popover's chrome (transient overlay, not a full-window modal). The
   body renders the value at the inspected path via
-  `theme/data-inspector/inspect` — the same primitive every L4 detail
+  `theme/data-edn/inspect` — the same primitive every L4 detail
   panel uses, so the renderer is uniform with the diff body.
 
   ## Three close affordances
@@ -50,9 +50,9 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
             [day8.re-frame2-causa.theme.a11y :as a11y]
-            [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens sans-stack mono-stack type-scale]]))
+             :refer [tokens sans-stack mono-stack type-scale]]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 ;; ---- subs ----------------------------------------------------------------
 
@@ -243,7 +243,7 @@
       ;; renders so toggle state survives shadow-cljs reloads.
       [:div {:data-testid "rf-causa-segment-inspector-body"
              :style       (body-style)}
-       (inspector/inspect (f/display-value value)
+       (edn/inspect (f/display-value value)
                           (str "segment-inspector/" (pr-str (vec path))))]]]))
 
 (rf/reg-view Popup

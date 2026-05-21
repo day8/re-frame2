@@ -212,20 +212,20 @@ Dense case (default — focused epoch is a normal event with effects):
 ┌─ EVENT · :checkout/submit · epoch #42 ─────────────── [◀ Prev] [Next ▶] ─┐
 │ Stripe: violet (:accent-violet)                                          │
 │                                                                          │
-│ [1] DISPATCH                                                              │
+│ DISPATCH                                                                  │
 │   Event       [:checkout/submit {:cart-id "c123"}]                        │
 │   Origin      :user                                                       │
 │   Call-site   views/checkout.cljs:142  ⎘ ⤴ open-in-editor                │
 │   At          14:32:01.231                                                │
 │       │                                                                   │
-│       ▼                                                                   │
-│ [2] COEFFECTS ASSEMBLED                                                   │
+│       ⋁                                                                   │
+│ COEFFECTS ASSEMBLED                                                       │
 │   :db         {…current slice…}            [▸ expand]                     │
 │   :now        2026-05-20T14:32:01.231Z                                    │
 │   :http-cache {3 entries}                  [▸ expand]                     │
 │       │                                                                   │
-│       ▼                                                                   │
-│ [3] HANDLER INVOKED                                                       │
+│       ⋁                                                                   │
+│ HANDLER INVOKED                                                           │
 │   :checkout/submit · reg-event-fx                                         │
 │   ↳ impl/events.cljs:88   ⤴ open-in-editor                               │
 │   ↳ source (DEBUG-gated, when available):                                │
@@ -234,18 +234,18 @@ Dense case (default — focused epoch is a normal event with effects):
 │           {:db (assoc-in db [:cart :state] :submitting)                   │
 │            :fx [[:http/managed {…}]]}))                                   │
 │       │                                                                   │
-│       ▼                                                                   │
-│ [4] EFFECTS RETURNED  (handler intent)                                    │
+│       ⋁                                                                   │
+│ EFFECTS RETURNED  (handler intent)                                        │
 │   :db   {…new slice…}                      [▸ diff inline]                │
 │   :fx   [[:http/managed {:method :post :url "/orders" …}]]                │
 │       │                                                                   │
-│       ▼                                                                   │
-│ [5] EFFECTS APPLIED  (what actually happened)                             │
+│       ⋁                                                                   │
+│ EFFECTS APPLIED  (what actually happened)                                 │
 │   :db          written  ✓                                                 │
 │   :http/managed  POST /orders   in-flight  ⏳   #h-142                   │
 │       │                                                                   │
-│       ▼                                                                   │
-│ [6] FLOWS RECOMPUTED                                                      │
+│       ⋁                                                                   │
+│ FLOWS RECOMPUTED                                                          │
 │   :cart/total           re-fired  (input [:cart :items] changed)          │
 │   :cart/eligibility     unchanged input — skipped (dim)                   │
 │                                                                          │
@@ -258,22 +258,22 @@ Sparse case (focused epoch is a noisy timer with no effects):
 ```
 ┌─ EVENT · :ping/tick · epoch #87 ─────────────────── [◀ Prev] [Next ▶] ─┐
 │                                                                        │
-│ [1] DISPATCH    [:ping/tick]    origin :timer                          │
+│ DISPATCH    [:ping/tick]    origin :timer                              │
 │       │                                                                │
-│       ▼                                                                │
-│ [2] COEFFECTS   :db (sliced)                                           │
+│       ⋁                                                                │
+│ COEFFECTS   :db (sliced)                                               │
 │       │                                                                │
-│       ▼                                                                │
-│ [3] HANDLER     :ping/tick · reg-event-db                              │
+│       ⋁                                                                │
+│ HANDLER     :ping/tick · reg-event-db                                  │
 │       │                                                                │
-│       ▼                                                                │
-│ [4] EFFECTS     :db only — no :fx returned                             │
+│       ⋁                                                                │
+│ EFFECTS     :db only — no :fx returned                                 │
 │       │                                                                │
-│       ▼                                                                │
-│ [5] APPLIED     :db written ✓     (no fx)                              │
+│       ⋁                                                                │
+│ APPLIED     :db written ✓     (no fx)                                  │
 │       │                                                                │
-│       ▼                                                                │
-│ [6] FLOWS       (no flow inputs changed)                               │
+│       ⋁                                                                │
+│ FLOWS       (no flow inputs changed)                                   │
 │                                                                        │
 │ ━━━ db committed ━━━                                                   │
 └────────────────────────────────────────────────────────────────────────┘
@@ -1517,7 +1517,7 @@ is **which size goes where**:
 | Surface | Size token | Px @ 13px default | Weight |
 |---|---|---|---|
 | Panel `<h1>` (e.g. `EVENT · :checkout/submit · epoch #42`) | `:display` | ~14px | 600 (semibold) |
-| Section headers (e.g. `[1] DISPATCH`, `[7] SUBS RECOMPUTED`) | `:body` | 13px | 600 |
+| Section headers (e.g. `DISPATCH`, `SUBS RECOMPUTED`) | `:body` | 13px | 600 |
 | Step sub-header keys (e.g. `Event`, `Origin`, `Call-site`) | `:body-tight` | 12px | 500 (medium) |
 | Step values (the actual data) | `:mono-body` | 12px | 400 |
 | Inline annotations (`← changed from :idle`, `(input unchanged · skipped)`) | `:caption` | ~11px | 400 |

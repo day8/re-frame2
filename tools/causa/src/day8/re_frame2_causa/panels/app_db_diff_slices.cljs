@@ -2,9 +2,9 @@
   "Changed-slice rows for the App-DB Diff panel."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
-            [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 (defn empty-state
   [target-frame]
@@ -53,7 +53,7 @@
     ;; spec/015 / spec/018 §12. Display-value still elides giant
     ;; strings to `:rf.size/large-elided` first; the inspector
     ;; renders that marker like any other map.
-    (inspector/inspect (f/display-value value)
+    (edn/inspect (f/display-value value)
                        (str "app-db-diff/" (pr-str path) "/" (name label)))]])
 
 (defn slice-row

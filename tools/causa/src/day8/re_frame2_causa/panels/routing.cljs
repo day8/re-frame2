@@ -301,24 +301,19 @@
    [:div
     ;; rf2-5kfxe.8 — domain-coloured accent stripe (:yellow for
     ;; Routing — side-channel attention tone, distinguished from
-    ;; app-db's main colour).
-    [:h2 {:style (merge {:margin         "0"
-                         :font-size      "13px"
-                         :font-weight    600
-                         :text-transform "uppercase"
-                         :letter-spacing "0.5px"
-                         :color          (:text-primary tokens)
-                         :display        "flex"
-                         :align-items    "center"
-                         :gap            "8px"}
-                        (t/accent-stripe-style :routing))}
+    ;; app-db's main colour). Per rf2-6xezz / rf2-rb6js the panel no
+    ;; longer renders a heading that names itself ("Routing") — the L4
+    ;; tab strip is the single source of panel identity. The icon +
+    ;; description paragraph stay as orientation chrome.
+    [:div {:style {:display     "flex"
+                   :align-items "center"
+                   :gap         "8px"}}
      ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. 🌐 in
      ;; :yellow (Routing's domain colour via panel-domain->token).
      [:span {:data-testid "rf-causa-routing-panel-icon"
              :aria-hidden "true"
              :style       (t/panel-icon-style :routing)}
-      (:routing t/panel-icon)]
-     "Routing"]
+      (:routing t/panel-icon)]]
     [:p {:style {:margin      "4px 0 0 0"
                  :color       (:text-tertiary tokens)
                  :font-size   "11px"

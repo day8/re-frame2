@@ -41,9 +41,9 @@
   (:require [day8.re-frame2-causa.diff.hiccup :as hd]
             [day8.re-frame2-causa.diff.hiccup-render :as hd-render]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
-            [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 ;; ---- node-key + small helpers ------------------------------------------
 
@@ -56,11 +56,11 @@
 
 (defn- inspect-value
   [v node-key]
-  (inspector/inspect (f/display-value v) node-key))
+  (edn/inspect (f/display-value v) node-key))
 
 (defn- inspect-inline
   [v]
-  (inspector/inspect-inline (f/display-value v)))
+  (edn/inspect-inline (f/display-value v)))
 
 ;; ---- absent / present chips --------------------------------------------
 

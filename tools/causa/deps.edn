@@ -148,7 +148,25 @@
          ;; (scripts/check-bundle-isolation.cjs) verifies the
          ;; `devtools.formatters` ns body does not appear in the counter
          ;; example's :advanced release bundle.
-         binaryage/devtools {:mvn/version "1.0.7"}}
+         binaryage/devtools {:mvn/version "1.0.7"}
+
+         ;; zprint — canonical pretty-printer for the EDN widget's
+         ;; `code-block` rendering of handler-source strings. The Event
+         ;; panel's HANDLER section reads `:rf.handler/source` off the
+         ;; registry meta and renders it under a syntax-highlighted
+         ;; `<pre>`; zprint pre-formats the source to canonical
+         ;; line-breaks + indentation before the in-bundle tokenizer
+         ;; runs, so a poorly-formatted source registration still reads
+         ;; cleanly in the panel. Used in `:parse {:interpose true}` mode
+         ;; via `zprint.core/zprint-file-str` so existing comments and
+         ;; blank lines survive the round-trip.
+         ;;
+         ;; Causa is dev-only (gated by `:devtools/preloads` in
+         ;; shadow-cljs) so zprint does NOT land in production bundles.
+         ;; The bundle-isolation gate verifies via the `zprint.core`
+         ;; sentinel that the formatter body is absent from the counter
+         ;; example's :advanced release bundle.
+         zprint/zprint {:mvn/version "1.3.0"}}
 
  :aliases
  {:test {:extra-paths ["test"]
