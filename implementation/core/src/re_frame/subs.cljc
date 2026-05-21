@@ -355,16 +355,41 @@
            ;; to zero), cancel it: a new subscriber arrived inside the
            ;; grace-period window, so the cached value is reused. Per
            ;; Spec 006 §Reference counting and disposal.
-           (let [pending (:pending-dispose entry)]
+           (let [pending  (:pending-dispose entry)
+                 reaction (:reaction entry)]
              (when pending
                (try (interop/clear-timeout! pending)
                     (catch #?(:clj Throwable :cljs :default) _ nil)))
-             (swap! cache update k
-                    (fn [e]
-                      (-> e
-                          (update :ref-count (fnil inc 0))
-                          (assoc :pending-dispose nil))))
-             (:reaction entry))
+             ;; Re-validate the slot AFTER cancelling the timer (rf2-7pqe7).
+             ;; The `clear-timeout!` is best-effort: on a concurrent host a
+             ;; grace timer can fire `dispose-entry-now!` on another thread
+             ;; between the `(get @cache k)` snapshot above and this point,
+             ;; dissoc-ing the slot and disposing `reaction`. A blind
+             ;; `(update k inc-ref-count)` would then resurrect a phantom
+             ;; entry with no `:reaction` AND hand back the now-disposed
+             ;; reaction. The pure-swap-fn only bumps when the slot is still
+             ;; present holding the SAME reaction; reading `[old new]` from
+             ;; the snapshot pair tells us whether the bump landed. If the
+             ;; slot was concurrently evicted (or rebuilt under a different
+             ;; reaction), fall through to a fresh build — the same
+             ;; CAS-after-snapshot discipline `re-frame.subs.cache` uses.
+             ;; On single-threaded CLJS the re-check always succeeds (the
+             ;; timer callback and `subscribe` cannot interleave), so the
+             ;; rebuild branch is concurrency-host-only.
+             (let [[_old new]
+                   (swap-vals! cache
+                               (fn [m]
+                                 (if (identical? reaction
+                                                 (get-in m [k :reaction]))
+                                   (update m k
+                                           (fn [e]
+                                             (-> e
+                                                 (update :ref-count (fnil inc 0))
+                                                 (assoc :pending-dispose nil))))
+                                   m)))]
+               (if (identical? reaction (get-in new [k :reaction]))
+                 reaction
+                 (compute-and-cache! frame-id query-v))))
            (compute-and-cache! frame-id query-v)))))))
 
 (defn subscribe-once
