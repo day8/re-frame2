@@ -135,7 +135,7 @@ Typical improvements:
 
 Signals:
 - the retrospective is unsure whether a tool the user "should have reached for" was actually exposed by the running re-frame2-pair-mcp build, or whether it was reasoning from stale docs
-- the session reasons about tool availability from `re-frame2-pair/references/ops.md` alone — that doc can drift from the live `tools.cljs` catalogue (see on the drift gate)
+- the session reasons about tool availability from `re-frame2-pair/references/ops.md` alone — that doc can drift from the live `tools.cljs` catalogue (the re-frame2-pair-mcp conformance corpus at `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/conformance_test.cljs` is the drift gate that pins each tool's wire shape, but it does not catch a recipe citing a tool that the running build never exposed)
 - a "why didn't they use tool X?" thread surfaces with no way to confirm X was actually callable in that session
 
 Typical improvements:
@@ -147,7 +147,7 @@ Typical improvements:
 
 Signals:
 - "where in the source did this come from?" returned nothing
-- `data--coord` annotation is off because it is opt-in
+- `data-rf2-source-coord` annotation is off because it is opt-in
 - the user expected DOM-to-source even though re-frame2 commits to the attribute, not the helpers
 
 Typical improvements:

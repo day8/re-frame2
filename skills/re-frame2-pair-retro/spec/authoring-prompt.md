@@ -12,7 +12,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 >
 > *1. `skills/re-frame2-pair-retro/spec/design.md` — the locked design decisions (L1 through L12). Pillars 1-4 in §2 are non-negotiable. L1 (no re-frame-10x routing) and L2 (no bead filing without approval) are cardinal.*
 > *2. `skills/re-frame2-pair-retro/spec/inputs.md` — the canonical inputs the skill leans on.*
-> *3. `skills/re-frame2-pair/SKILL.md` + `skills/re-frame2-pair/references/` — the sibling skill the user just exercised. The improver reads the parent's friction surface (ops, recipes, errors, hot-reload-protocol).*
+> *3. `skills/re-frame2-pair/SKILL.md` + `skills/re-frame2-pair/references/` — the sibling skill the user just exercised. The improver reads the parent's friction surface (ops, recipes, errors, and the hot-reload coordination protocol in `ops.md`).*
 > *4. `skills/re-frame2-pair/spec/design.md` — the sibling's locks. The improver respects these when proposing changes.*
 > *5. `skills/re-frame2/SKILL.md` + `skills/re-frame2/spec/design.md` — the application-authoring sibling (relevant for upstream-routing decisions).*
 > *6. `skills/re-frame-migration/SKILL.md` — the closest structural sibling with an existing `spec/` triad. Voice / shape mirror this.*
@@ -29,7 +29,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > ├── agents/
 > │ └── openai.yaml (alt-host config for non-Claude operation)
 > ├── references/
-> │ ├── analysis-lenses.md (~140 lines; ten root-cause lenses)
+> │ ├── analysis-lenses.md (~140 lines; nine root-cause lenses)
 > │ ├── known-frictions.md (~120 lines; recurring pain patterns)
 > │ └── issue-template.md (~90 lines; bead-body template + redaction)
 > └── spec/
@@ -45,7 +45,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *1. Reconstruct the session goal.*
 > *2. Build a short timeline of where progress stalled / restarted / detoured.*
 > *3. Extract friction (numbered list; present BEFORE root causes).*
-> *4. Classify the root cause using the ten lenses (briefly; don't force every finding through every lens).*
+> *4. Classify the root cause using the nine lenses (briefly; don't force every finding through every lens).*
 > *5. Generate improvements at the right layer (skill / script / runtime / tests / docs / upstream `re-frame2`).*
 > *6. Prioritise — return 2-5 grounded improvements + 0-2 bolder ideas.*
 >
@@ -94,7 +94,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
 > *- Don't include bead-ids in user-facing leaves.*
 >
-> *Open the PR with title `feat(skills): re-frame2-pair-retro — pair-session retrospective skill`. PR body lists: the skill structure, the file LoC table, the six-step workflow, the ten lenses, the output format, the relationship to the sibling skills (`re-frame2-pair` — its primary feedback loop; `re-frame2` — for upstream routing).*
+> *Open the PR with title `feat(skills): re-frame2-pair-retro — pair-session retrospective skill`. PR body lists: the skill structure, the file LoC table, the six-step workflow, the nine lenses, the output format, the relationship to the sibling skills (`re-frame2-pair` — its primary feedback loop; `re-frame2` — for upstream routing).*
 
 ## Notes on the reauthoring contract
 

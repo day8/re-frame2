@@ -140,7 +140,7 @@ Single-quoted here-doc delimiter (`<<'EOF'`) so `$`, `` ` ``, and `\` inside the
 
 ## Reference files
 
-- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Extracted by ; consumed by both this skill and `re-frame2-improver`.
+- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Extracted from this skill's locked design into a shared leaf; consumed by both this skill and `re-frame2-improver` so the two retro-style skills stay in lockstep.
 - [`references/analysis-lenses.md`](references/analysis-lenses.md) — friction signals (generic + re-frame2-specific), root-cause categories, improvement patterns, routing decisions, prioritization.
 - [`references/known-frictions.md`](references/known-frictions.md) — recurring classes of `re-frame2-pair` pain; sanity-check one-off vs pattern.
 - [`references/issue-template.md`](references/issue-template.md) — GitHub-issue body template (+ shell-safety pattern for transcript-derived bodies).

@@ -22,26 +22,25 @@ The sibling skill the user just exercised. The improver reads the parent skill's
 - **`SKILL.md`** — the parent's cardinal rules, primitives, style guidance. Friction often surfaces as "the cardinal rule was right but buried" or "the style guidance didn't fire when it should have".
 - **`references/ops.md` + `references/recipes.md`** — the catalogue the user navigated. Missing ops or missing recipes are first-class findings.
 - **`references/errors.md`** — the error-recovery catalogue. Misleading recovery suggestions are findings.
-- **`references/hot-reload-protocol.md`** — the strict source-edit protocol. Friction here is high-leverage (every source edit triggers it).
+- **`references/ops.md` §Hot-reload coordination** — the strict source-edit protocol (folded into the op catalogue, not a standalone leaf). Friction here is high-leverage (every source edit triggers it).
 - **`scripts/`** + **MCP server** — the transport surface. Brittleness here breaks every session.
 - **`spec/design.md`** (this skill's neighbour) — the locked decisions. The improver respects locks; doesn't propose changes that contradict them.
 
 ## 3. Tertiary input — `references/analysis-lenses.md`
 
-The ten root-cause lenses the skill walks during classification:
+The nine root-cause lenses the skill walks during classification — the canonical names live in `references/analysis-lenses.md §Root-cause categories`; this table mirrors them:
 
 | Lens | Question | Typical improvement |
 |------|----------|---------------------|
-| Skill structure | Was the right guidance present but buried? | Promote to guard rail, shorten, reorder, add examples |
-| Skill gap | Was key guidance missing entirely? | Add a recipe, anti-pattern, decision rule |
-| Misleading docs | Did docs suggest the wrong action or trust model? | Correct wording, add warnings, align contracts |
-| Missing structured op | Did the workflow need a first-class op? | Add a script/runtime op or structured field |
-| Unreliable op | Did an op behave ambiguously or brittlely? | Fix behavior, add warnings, strengthen validation |
-| Default or fallback | Was the default path wrong, silent, or unsafe? | Change defaults or automate the safer fallback |
-| Platform bug | Did the workflow break on a specific shell/OS/browser? | Add platform-aware handling or explicit detection |
-| Validation gap | Did this ship because the right fixture/test is missing? | Add test coverage or fixture support |
-| Upstream limitation | Is `re-frame2-pair` working around the wrong abstraction in `re-frame2`? | File a GitHub issue against `day8/re-frame2` |
-| Context-window issue | Did long context or low-salience guidance cause forgetfulness? | Make the guard rail shorter, earlier, stronger |
+| `docs/discoverability` | The feature or prerequisite existed, but could the user find or trust it? | Promote to guard rail, correct wording, add warnings, align contracts |
+| `workflow-gap` | Did the instructions / recipes guide the user through a common task? | Add a recipe, anti-pattern, decision rule |
+| `missing-op` | Did the workflow need a first-class operation that does not exist? | Add a script/runtime op or structured field |
+| `unreliable-op` | Was an existing operation too brittle or ambiguous? | Fix behavior, add warnings, strengthen validation |
+| `default/fallback` | Was the default behavior wrong, silent, or unsafe? | Change defaults or automate the safer fallback |
+| `platform-bug` | Did the workflow break on a specific OS / shell / browser? | Add platform-aware handling or explicit detection |
+| `validation-gap` | Did this ship because the repo lacks the right smoke test, fixture, or warning? | Add test coverage or fixture support |
+| `upstream-gap` | Does the best fix belong in `re-frame2` itself (Tool-Pair contract, instrumentation, schema reflection, epoch machinery, source-coord)? | File a GitHub issue against `day8/re-frame2` |
+| `out-of-scope` | Did the user want something `re-frame2-pair` should probably not own? | Route elsewhere; decline cleanly |
 
 This is the canonical taxonomy; the improver doesn't invent ad-hoc categories.
 
