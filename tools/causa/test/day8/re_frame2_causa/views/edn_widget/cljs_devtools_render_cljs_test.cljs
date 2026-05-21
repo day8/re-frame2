@@ -168,3 +168,100 @@
   (testing "function passes through without throwing"
     (let [out (cdt/value->hiccup (fn [_]))]
       (is (vector? out)))))
+
+;; ---- value->tree-hiccup (full current-state expansion, rf2-dmso5) --------
+;;
+;; `value->tree-hiccup` is the re-frame-10x current-state look: a
+;; collection expands into a nested, indented tree rather than the
+;; one-line `▸ {…}` summary `value->hiccup` produces. These assert the
+;; whole value renders — every key + value surfaces in the tree.
+
+(deftest tree-hiccup-scalar-matches-header
+  (testing "a scalar (no body) renders as hiccup carrying the value"
+    (let [out (cdt/value->tree-hiccup :foo/bar)]
+      (is (vector? out))
+      (is (contains-text? out ":foo/bar")))))
+
+(deftest tree-hiccup-map-expands-keys-and-values
+  (testing "a top-level map expands: every key + value renders"
+    (let [out (cdt/value->tree-hiccup {:alpha 1 :beta 2 :gamma 3})]
+      (is (vector? out))
+      (is (contains-text? out ":alpha"))
+      (is (contains-text? out ":beta"))
+      (is (contains-text? out ":gamma"))
+      (is (contains-text? out "1"))
+      (is (contains-text? out "2"))
+      (is (contains-text? out "3")))))
+
+(deftest tree-hiccup-large-map-expands-all-entries
+  (testing "a map with more than the cljs-devtools preview cap still
+            expands every entry (no collapsed-by-default)"
+    (let [m   (zipmap (map #(keyword (str "k" %)) (range 12)) (range 12))
+          out (cdt/value->tree-hiccup m)]
+      (is (contains-text? out ":k0"))
+      (is (contains-text? out ":k11")))))
+
+(deftest tree-hiccup-nested-map-expands-recursively
+  (testing "nested collections expand recursively — inner keys/values render"
+    (let [out (cdt/value->tree-hiccup {:outer {:inner {:deep 99}}})]
+      (is (contains-text? out ":outer"))
+      (is (contains-text? out ":inner"))
+      (is (contains-text? out ":deep"))
+      (is (contains-text? out "99")))))
+
+(deftest tree-hiccup-vector-of-maps-expands
+  (testing "a vector of maps expands each element"
+    (let [out (cdt/value->tree-hiccup [{:a 1} {:b 2}])]
+      (is (contains-text? out ":a"))
+      (is (contains-text? out ":b"))
+      (is (contains-text? out "1"))
+      (is (contains-text? out "2")))))
+
+(deftest tree-hiccup-deeply-nested-renders-without-blowing-up
+  (testing "a structure deeper than the inline print-level budget still
+            renders (the body-recursion depth cap is a stack guard, not
+            a crash) — the outermost keys surface and the deep tail
+            degrades to a ▸ summary somewhere"
+    ;; Build a 20-deep nest — past the inline print-level (10) so the
+    ;; deep tail must fall through to the body-recursion summary path.
+    (let [deep (reduce (fn [acc i] {(keyword (str "lvl" i)) acc})
+                       {:bottom 1}
+                       (range 20))
+          out  (cdt/value->tree-hiccup deep)]
+      (is (vector? out))
+      ;; The outermost key still renders.
+      (is (contains-text? out ":lvl19"))
+      ;; Somewhere down the tail, a collapsed ▸ summary appears (the
+      ;; structure exceeds the inline budget).
+      (is (contains-text? out "▸")))))
+
+(deftest tree-hiccup-body-recursion-cap-summarises
+  (testing "an explicit small max-depth caps the BODY recursion: a wide
+            map (forces a body, since >5 entries) whose values are
+            themselves wide maps collapses the nested level to ▸"
+    ;; A map of 8 entries forces a body (header caps at the preview
+    ;; size for the body path); each value is another 8-entry map. With
+    ;; max-depth 1 the body's nested maps hit the cap → ▸ summary.
+    (let [wide  (zipmap (map #(keyword (str "k" %)) (range 8))
+                        (range 8))
+          outer (zipmap (map #(keyword (str "g" %)) (range 8))
+                        (repeat wide))
+          out   (cdt/value->tree-hiccup outer 1)]
+      (is (vector? out))
+      (is (contains-text? out ":g0"))
+      (is (contains-text? out "▸")))))
+
+(deftest tree-hiccup-record-keeps-type-tag
+  (testing "a record value keeps its type tag / fields under expansion"
+    (let [pt  (->TestPoint 7 8)
+          out (cdt/value->tree-hiccup pt)
+          all (apply str (filter string? (mapcat rest (walk-hiccup out))))]
+      (is (vector? out))
+      (is (or (re-find #"TestPoint" all)
+              (re-find #":x" all)
+              (re-find #":y" all))))))
+
+(deftest tree-hiccup-never-throws-for-unusual-input
+  (testing "JS object / function degrade gracefully (no throw, hiccup out)"
+    (is (vector? (cdt/value->tree-hiccup #js {:foo 1})))
+    (is (vector? (cdt/value->tree-hiccup (fn [_]))))))

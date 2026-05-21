@@ -415,9 +415,10 @@
       (is (= #{} @(rf/subscribe [:rf.causa/trace-expanded-row-ids]))
           ":rf.causa/clear-trace-expand drops every expanded id"))))
 
-(deftest expanded-row-renders-data-display-payload
-  (testing "rf2-7dyi8 — when a row's :id is in the expanded set, the
-            shared rf2-jgip1 data-display renderer mounts below the row."
+(deftest expanded-row-renders-cljs-devtools-payload
+  (testing "rf2-7dyi8 + rf2-dmso5 — when a row's :id is in the expanded
+            set, the current-state cljs-devtools browse renderer mounts
+            below the row (Trace payloads are current-state)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 13 :op-type :event :operation :event/dispatched
@@ -431,14 +432,13 @@
       (let [tree    (trace/Panel)
             payload (find-by-testid tree "rf-causa-trace-row-13-payload")]
         (is (some? payload) "payload block renders when row is expanded")
-        ;; rf2-jgip1's render-tree always renders a wrapper div with
-        ;; data-testid `rf-causa-data-display-trace-<render-id>`; pin
-        ;; that the panel's render-id wiring lands in the canonical
-        ;; per-row slot so two adjacent expansions don't collide on
-        ;; sticky expansion state.
+        ;; Per rf2-dmso5 browse is current-state cljs-devtools — the
+        ;; widget stamps `rf-causa-edn-widget-browse-trace-<render-id>`;
+        ;; pin that the panel's per-row render-id wiring lands in the
+        ;; canonical per-row slot.
         (is (some? (find-by-testid tree
-                                   "rf-causa-data-display-trace-trace-row-13"))
-            "shared rf2-jgip1 renderer mounted with per-row render-id")))))
+                                   "rf-causa-edn-widget-browse-trace-trace-row-13"))
+            "cljs-devtools browse mounted with per-row render-id")))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord chip fires :rf.causa/open-in-editor;

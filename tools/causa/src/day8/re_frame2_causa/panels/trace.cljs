@@ -340,27 +340,26 @@
 
 ;; ---- payload renderer ---------------------------------------------------
 ;;
-;; Per spec/021 §5 the per-row "expand payload" surface uses the shared
-;; data-display renderer (`day8.re-frame2-causa.data-display.render/
-;; render-tree`, rf2-jgip1, merged in #1739). The Trace panel passes
-;; the raw trace event as `:value`, with `:default-depth 2` per
-;; spec/021 §5.1 ("depth-2-expanded default").
+;; Per spec/021 §5 the per-row "expand payload" surface shows the trace
+;; event's CURRENT state — so per Mike-direction 2026-05-21 (rf2-dmso5)
+;; it renders through the EDN widget's `browse` variant, which is the
+;; re-frame-10x cljs-devtools look (type-coloured · nested · expanded).
+;; The Trace panel passes the raw trace event as `:value`.
 
 (defn- render-payload
-  "Per-row payload renderer. Wires the shared rf2-jgip1 data-display
-  renderer to the row's raw trace event. Each row gets its own
-  `:render-id` (`trace-row-<id>`) so the renderer's sticky expansion
-  state never collides across rows."
+  "Per-row payload renderer. Wires the EDN widget's current-state
+  `browse` (cljs-devtools) to the row's raw trace event. Each row gets
+  its own `:render-id` (`trace-row-<id>`) so the rendered container's
+  testid is unique per row."
   [{:keys [id raw] :as _row}]
   [:div {:data-testid (str "rf-causa-trace-row-" id "-payload")
          :style       {:padding "8px 16px 12px 110px"
                        :background (:bg-1 tokens)
                        :border-bottom (str "1px solid " (:border-subtle tokens))}}
    (edn/browse
-     {:value        raw
-      :panel-id     :trace
-      :render-id    (str "trace-row-" id)
-      :default-depth 2})])
+     {:value     raw
+      :panel-id  :trace
+      :render-id (str "trace-row-" id)})])
 
 (defn- trace-row
   "One row in the trace ribbon.
