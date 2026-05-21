@@ -51,13 +51,37 @@
     - frame-context corrupted `_currentValue` emit + recover (G4)
     - warn-once fires EXACTLY once per id across renders, per-id, not
       global (G5)
-    - write-after-destroy nil-container guard"
+    - write-after-destroy nil-container guard
+
+  DOM/BROWSER TWINS (rf2-5or96 — the DOM-split remainder of rf2-p4736).
+  Two twin clusters defined substrate-specific component vars (UIx
+  `defui`/`$`/uix-hooks; Helix `defnc`/`$`/helix.dom/helix.hooks) that
+  the suite cannot mint at runtime. Approach A — the substrate-specific
+  components are built in each entry file and handed in via the cfg map
+  (`:render-element`, the probe vars, observation atoms, frame keywords),
+  while the orchestration + every assertion lives here as one source:
+
+    - after-render: ns-load smoke (node-safe) + mount/schedule/drain
+      act-driven behaviour (rf2-334d9)
+    - use-subscribe: useSyncExternalStore post-dispatch values
+      (rf2-518sp), frame-provider 1-arg resolution, 2-arg explicit-frame
+      pinning (rf2-rcgsc / rf2-y0db2), refcount cleanup on unmount
+      (rf2-7g959), stable-deps-key one-subscribe-across-N-renders spy
+      assertions (rf2-mwft2)
+
+  These DOM assertions self-gate on `(browser?)` — under :node-test
+  (which discovers the `-dom-cljs-test` entry files via `cljs-test$`)
+  they no-op cleanly; the real assertions run under :browser-test
+  (`-dom-cljs-test$`)."
   (:require ["react" :as React]
+            ["react-dom/client" :as react-dom-client]
             [cljs.test :refer-macros [is testing async]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.disposable :as rf-disposable]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.subs :as subs]
             [re-frame.late-bind :as late-bind]
             [re-frame.late-bind.directory :as directory]
             [re-frame.machines :as machines]
@@ -1766,3 +1790,374 @@
               (done))
             10))
         10))))
+
+;; ===========================================================================
+;; DOM / browser twins (rf2-5or96 — DOM-split remainder of rf2-p4736)
+;;
+;; UIx and Helix both define substrate-specific component vars via
+;; `defui`/`defnc` + `$` (and, for use-subscribe, the substrate's hooks).
+;; The suite cannot mint those at runtime, so each entry file builds the
+;; probe components + their observation atoms + a `:render-element` thunk
+;; (the substrate's `$`) and hands them in. The orchestration (reg-frame,
+;; dispatch, mount under act, assert) lives here as a single source — a
+;; gap on one substrate is a gap on both by construction.
+;;
+;; These functions self-gate on `(browser?)`; under :node-test they no-op
+;; cleanly (the entry files still load — the after-render ns-load smoke
+;; runs there). The real assertions run under :browser-test.
+;; ===========================================================================
+
+(defn- browser? []
+  (and (exists? js/document)
+       (some? (.-createElement js/document))))
+
+(defn- make-mount-node! []
+  (when (browser?)
+    (.createElement js/document "div")))
+
+(defn- get-act
+  "Return React's act() if available, else nil. React 18 ships act in
+  react-dom/test-utils; React 19 promotes it to the React namespace
+  proper."
+  []
+  (or (when (exists? (.-act React)) (.-act React))
+      (try
+        (let [test-utils (js/require "react-dom/test-utils")]
+          (.-act test-utils))
+        (catch :default _ nil))))
+
+(defn- enable-react-act-env!
+  "React's act() helper warns / behaves as a no-op unless the runner
+  opts in by setting the global `IS_REACT_ACT_ENVIRONMENT` flag. The
+  Playwright browser runner doesn't set this by default; set it inside
+  each test that needs act() so concurrent-renderer pending work commits
+  synchronously."
+  []
+  (when (browser?)
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
+
+(defn- with-browser-act
+  "Run the standard DOM-twin gate ladder: skip under :node-test (no DOM)
+  and skip if act() is unreachable from this runner; otherwise enable the
+  act env and call `(f act-fn)`. A plain HOF (not a macro) — this is a
+  .cljs file, so a same-file macro is not available at runtime."
+  [f]
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [act-fn (get-act)]
+      (if (nil? act-fn)
+        (is true "act() not reachable from this runner; skipping")
+        (do (enable-react-act-env!)
+            (f act-fn))))))
+
+;; ---- after-render hook (rf2-334d9) ----------------------------------------
+
+(defn assert-after-render-hook-wired
+  "rf2-334d9: `interop/after-render` no longer silent-no-ops under the
+  React adapter — the hook is wired at ns-load and returns nil (the
+  documented swallow shape) rather than falling through to nil because no
+  adapter published it. Node-safe (no DOM): runs under :node-test too."
+  [{:keys [name]}]
+  (testing (str name " — after-render hook wired at ns-load (rf2-334d9)")
+    (is (nil? (interop/after-render (fn [] :ok)))
+        "interop/after-render under the adapter returns nil — the
+         spine-built hook is wired through :adapter/after-render via
+         substrate-adapter/route-hook!")))
+
+(defn assert-after-render-runs-after-commit
+  "rf2-334d9: `(interop/after-render f)` schedules `f` to run after the
+  next mount/render cycle. The sentinel injected by the spine's
+  make-render uses React.useLayoutEffect to drain the queue post-commit.
+
+  cfg keys:
+    :probe-element  a thunk returning a fresh substrate probe ELEMENT
+                    (e.g. `#(uix/$ Probe)` / `#($ Probe)`). Built in the
+                    entry file because `$` is a substrate macro."
+  [{:keys [name probe-element]}]
+  (testing (str name " — after-render runs callback after next commit (rf2-334d9)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [fired      (atom 0)
+            callback   (fn after-render-cb [] (swap! fired inc))
+            mount-node (make-mount-node!)
+            unmount    (atom nil)]
+        (try
+          ;; Mount through the substrate adapter's render so the spine's
+          ;; make-render path injects the after-render sentinel. Direct
+          ;; createRoot + .render bypasses the spine wrap and would leave
+          ;; no sentinel in the tree — exactly what rf2-334d9 requires.
+          (act-fn (fn []
+                    (reset! unmount
+                            (substrate-adapter/render (probe-element) mount-node {}))))
+          (is (zero? @fired)
+              "no after-render fn enqueued yet ⇒ no fires")
+          ;; Enqueue under act so the set-tick bump → re-render →
+          ;; useLayoutEffect drain commits synchronously in the test env.
+          (act-fn (fn [] (interop/after-render callback)))
+          (is (= 1 @fired)
+              "after-render fn fired exactly once after the next commit")
+          ;; A second enqueue + drain — the sentinel survives the first
+          ;; drain (its useLayoutEffect runs every commit) so a
+          ;; subsequent after-render also fires.
+          (act-fn (fn [] (interop/after-render callback)))
+          (is (= 2 @fired)
+              "subsequent after-render fn also fires after its commit")
+          (finally
+            (when-let [u @unmount]
+              (try (u) (catch :default _ nil))))))))))
+
+;; ---- use-subscribe (rf2-518sp / rf2-7g959 / rf2-mwft2 / rf2-rcgsc) --------
+;;
+;; The probe components read the sub via `use-subscribe` and push the
+;; observed value into a side-channel atom owned by the entry file. After
+;; a dispatch we re-render under `act` and assert the side-channel
+;; reflects the new value. The 2-arg form pins the frame explicitly; the
+;; 1-arg form resolves through the surrounding `frame-provider`. All
+;; substrate-baked keywords (frame-ids, query-vs) are passed in cfg so
+;; they line up with what the entry file's probe vars closed over at
+;; compile time.
+
+(defn assert-use-subscribe-tracks-app-db-changes
+  "rf2-518sp: use-subscribe sees post-dispatch values via
+  useSyncExternalStore.
+
+  cfg keys:
+    :probe-element     thunk → the 2-arg-form Probe element
+    :probe-observed    atom the Probe pushes observed values into
+    :refcount-target   atom the Probe reads its target frame-id from
+    :us-frame          frame-id keyword the Probe's query resolves under
+    :us-query          query-v keyword the Probe subscribes to"
+  [{:keys [name probe-element probe-observed refcount-target us-frame us-query]}]
+  (testing (str name " — use-subscribe sees post-dispatch values (rf2-518sp)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! probe-observed [])
+      (reset! refcount-target us-frame)
+      (rf/reg-frame us-frame {:doc "use-subscribe probe frame"})
+      (rf/reg-event-db ::us-seed (fn [_ _] {:n 1}))
+      (rf/reg-event-db ::us-inc  (fn [db _] (update db :n inc)))
+      (rf/dispatch-sync [::us-seed] {:frame us-frame})
+      (rf/reg-sub us-query (fn [db _] (:n db)))
+      (let [mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (probe-element))))
+          (is (some #{1} @probe-observed)
+              "first render observed the seeded value n=1")
+          ;; Wrap dispatch in act so React commits the forceUpdate the
+          ;; spine's add-watch → on-change path schedules. Plain
+          ;; dispatch-sync outside act emits the "not wrapped in act"
+          ;; warning AND fails to flush the render in the test env.
+          (act-fn (fn [] (rf/dispatch-sync [::us-inc] {:frame us-frame})))
+          (is (some #{2} @probe-observed)
+              "post-dispatch re-render observed the incremented value n=2")
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
+
+(defn assert-use-subscribe-frame-provider-resolution
+  "rf2-518sp: use-subscribe 1-arg form resolves through the surrounding
+  frame-provider.
+
+  cfg keys:
+    :frame-provider     the adapter's frame-provider fn
+    :probe-fp-element    thunk → the 1-arg-form ProbeFp element
+    :probe-fp-observed   atom the ProbeFp pushes observed values into
+    :fp-frame            frame-id keyword for the wrapped frame
+    :fp-query            query-v keyword ProbeFp subscribes to"
+  [{:keys [name frame-provider probe-fp-element probe-fp-observed fp-frame fp-query]}]
+  (testing (str name " — use-subscribe 1-arg resolves via frame-provider (rf2-518sp)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! probe-fp-observed [])
+      (rf/reg-frame fp-frame {:doc "use-subscribe fp probe frame"})
+      (rf/reg-event-db ::us-fp-seed (fn [_ _] {:k :wrapped}))
+      (rf/dispatch-sync [::us-fp-seed] {:frame fp-frame})
+      (rf/reg-sub fp-query (fn [db _] (:k db)))
+      (let [mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn
+            (fn []
+              ;; frame-provider is a plain CLJS fn returning a React
+              ;; element (NOT a React-component head), so invoke it
+              ;; directly rather than via the substrate's `$`.
+              (.render root
+                (frame-provider
+                  {:frame fp-frame :children [(probe-fp-element)]}))))
+          (is (some #{:wrapped} @probe-fp-observed)
+              "use-subscribe 1-arg form read from the wrapped frame, not :rf/default")
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
+
+(defn assert-use-subscribe-2-arg-pins-explicit-frame
+  "rf2-rcgsc / rf2-y0db2: use-subscribe's 2-arg form
+  `(use-subscribe frame-kw query-v)` reads from the named frame's app-db,
+  bypassing the React-context tier. Two probes pinning two different
+  frames in the same render tree must see each frame's distinct seed
+  value.
+
+  cfg keys:
+    :probe-2arg-element  thunk → an element wrapping Probe2ArgA + Probe2ArgB
+    :probe-2arg-a-observed / :probe-2arg-b-observed   the probes' atoms
+    :tenant-a-frame / :tenant-b-frame   the two pinned frame-ids
+    :rcgsc-query         query-v keyword both probes subscribe to"
+  [{:keys [name probe-2arg-element probe-2arg-a-observed probe-2arg-b-observed
+           tenant-a-frame tenant-b-frame rcgsc-query]}]
+  (testing (str name " — use-subscribe 2-arg pins explicit frame (rf2-rcgsc)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! probe-2arg-a-observed [])
+      (reset! probe-2arg-b-observed [])
+      (rf/reg-frame tenant-a-frame {:doc "tenant-a"})
+      (rf/reg-frame tenant-b-frame {:doc "tenant-b"})
+      (rf/reg-event-db ::rcgsc-seed (fn [_ [_ n]] {:n n}))
+      (rf/dispatch-sync [::rcgsc-seed 10]  {:frame tenant-a-frame})
+      (rf/dispatch-sync [::rcgsc-seed 100] {:frame tenant-b-frame})
+      (rf/reg-sub rcgsc-query (fn [db _] (:n db)))
+      (let [mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (probe-2arg-element))))
+          (is (some #{10} @probe-2arg-a-observed)
+              "Probe2ArgA observed tenant-a's value (10) via explicit frame-pin")
+          (is (some #{100} @probe-2arg-b-observed)
+              "Probe2ArgB observed tenant-b's value (100) via explicit frame-pin")
+          (is (not (some #{100} @probe-2arg-a-observed))
+              "tenant-a probe did NOT leak tenant-b's value")
+          (is (not (some #{10} @probe-2arg-b-observed))
+              "tenant-b probe did NOT leak tenant-a's value")
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
+
+(defn assert-use-subscribe-cleanup-decrements-refcount
+  "rf2-7g959: use-subscribe pairs subscribe with subs/unsubscribe on
+  unmount so the sub-cache ref-count for the (frame, query) pair returns
+  to 0 (or the entry is dropped) after unmount.
+
+  cfg keys:
+    :probe-rc-element  thunk → the ProbeRc element (2-arg form, no observe)
+    :refcount-target   atom the ProbeRc reads its target frame-id from
+    :rc-frame          frame-id keyword for the refcount probe
+    :rc-query          query-v keyword ProbeRc subscribes to"
+  [{:keys [name probe-rc-element refcount-target rc-frame rc-query]}]
+  (testing (str name " — use-subscribe cleanup decrements sub-cache refcount (rf2-7g959)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! refcount-target rc-frame)
+      (rf/reg-frame rc-frame {:doc "refcount probe frame"})
+      (rf/reg-event-db ::rc-seed (fn [_ _] {:m 0}))
+      (rf/dispatch-sync [::rc-seed] {:frame rc-frame})
+      (rf/reg-sub rc-query (fn [db _] (:m db)))
+      (let [cache-key-v [rc-query]
+            cache       (:sub-cache (frame/frame rc-frame))
+            mount-node  (make-mount-node!)
+            root        (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (probe-rc-element))))
+          (is (pos? (or (get-in @cache [cache-key-v :ref-count]) 0))
+              "mounted probe pinned a cache entry with ref-count > 0")
+          (act-fn (fn [] (.unmount root)))
+          ;; After unmount the useEffect cleanup fires subs/unsubscribe;
+          ;; the entry's deferred-dispose either races a 0 ref-count or
+          ;; schedules grace-period teardown. Either way the ref-count is
+          ;; no longer pinned at >0 — the regression rf2-7g959 named.
+          (is (or (nil? (get @cache cache-key-v))
+                  (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+              "post-unmount ref-count is zero (or entry already dropped) — rf2-7g959 cleanup fired")
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
+
+(defn assert-use-subscribe-stable-deps-key
+  "rf2-mwft2: stable-literal query-v across N re-renders ⇒ exactly one
+  subs/subscribe call (the deps element is JS-ref-stable across renders),
+  and the useEffect cleanup (rf2-7g959) fires only on unmount.
+
+  cfg keys:
+    :probe-mwft2-element  thunk → the ProbeMwft2Parent element. The parent
+                          owns a tick state + stashes its set-tick fn into
+                          :mwft2-set-tick on mount; the child reads a
+                          fixed query-v via use-subscribe.
+    :mwft2-set-tick       atom the parent stashes its setter into
+    :mwft2-frame          frame-id keyword the child resolves under
+    :mwft2-query          query-v keyword the child subscribes to"
+  [{:keys [name probe-mwft2-element mwft2-set-tick mwft2-frame mwft2-query]}]
+  (testing (str name " — use-subscribe stable deps key: one subscribe across N renders (rf2-mwft2)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! mwft2-set-tick nil)
+      (rf/reg-frame mwft2-frame {:doc "rf2-mwft2 probe frame"})
+      (rf/reg-event-db ::mwft2-seed (fn [_ _] {:p 0}))
+      (rf/dispatch-sync [::mwft2-seed] {:frame mwft2-frame})
+      (rf/reg-sub mwft2-query (fn [db _] (:p db)))
+      (let [subscribe-calls   (atom 0)
+            unsubscribe-calls (atom 0)
+            real-subscribe    subs/subscribe
+            real-unsubscribe  subs/unsubscribe
+            cache-key-v       [mwft2-query]
+            cache             (:sub-cache (frame/frame mwft2-frame))
+            mount-node        (make-mount-node!)
+            root              (react-dom-client/createRoot mount-node)]
+        ;; Spies preserve the multi-arity shape of subs/subscribe
+        ;; (`[query-v]` and `[frame-id query-v]`) so spine call sites that
+        ;; bind the arity-2 invoke-slot resolve. A bare `[& args]`
+        ;; variadic spy compiles only the variadic slot and trips
+        ;; `…cljs$core$IFn$_invoke$arity$2 is not a function` at the
+        ;; spine's subs/subscribe call.
+        ;;
+        ;; unsubscribe's 1- and 2-arity bodies recur into the 3-arity
+        ;; through the Var — so without bypassing, a single logical
+        ;; unsubscribe would trip the spy twice (once on entry, once on
+        ;; the recursive 3-arity tail). Each spy arity therefore calls the
+        ;; 3-arity REAL directly, resolving the canonical default-arg
+        ;; shape itself instead of routing back through the Var.
+        (with-redefs [subs/subscribe
+                      (fn spy-subscribe
+                        ([query-v]
+                         (swap! subscribe-calls inc)
+                         (real-subscribe (frame/resolve-current-frame) query-v))
+                        ([frame-id query-v]
+                         (swap! subscribe-calls inc)
+                         (real-subscribe frame-id query-v)))
+                      subs/unsubscribe
+                      (fn spy-unsubscribe
+                        ([query-v]
+                         (swap! unsubscribe-calls inc)
+                         (real-unsubscribe (frame/resolve-current-frame) query-v nil))
+                        ([frame-id query-v]
+                         (swap! unsubscribe-calls inc)
+                         (real-unsubscribe frame-id query-v nil))
+                        ([frame-id query-v opts]
+                         (swap! unsubscribe-calls inc)
+                         (real-unsubscribe frame-id query-v opts)))]
+          (try
+            ;; Mount — one subs/subscribe for the useMemo factory.
+            (act-fn (fn [] (.render root (probe-mwft2-element))))
+            (let [mounted-subs @subscribe-calls]
+              (is (= 1 mounted-subs)
+                  "mount triggered exactly one subs/subscribe call")
+              (is (zero? @unsubscribe-calls)
+                  "no subs/unsubscribe fires during initial mount")
+              ;; Force five re-renders by bumping the parent's tick state.
+              ;; Each parent render also re-renders the child probe with a
+              ;; freshly-allocated CLJS vector for the query-v — without
+              ;; the fix the deps mismatch would re-run useMemo (extra
+              ;; subscribe) and useEffect (extra unsubscribe) each render.
+              (dotimes [_ 5]
+                (act-fn (fn [] (when-let [set-tick @mwft2-set-tick]
+                                 (set-tick inc)))))
+              (is (= 1 @subscribe-calls)
+                  "subs/subscribe still called only once after 5 re-renders (no per-render churn)")
+              (is (zero? @unsubscribe-calls)
+                  "subs/unsubscribe never fired across re-renders — useEffect cleanup is unmount-only")
+              (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                  "sub-cache ref-count remains pinned at 1 across re-renders"))
+            ;; Unmount must fire exactly one unsubscribe — the rf2-7g959
+            ;; cleanup pairing must survive the rf2-mwft2 rewrite.
+            (act-fn (fn [] (.unmount root)))
+            (is (= 1 @unsubscribe-calls)
+                "unmount fired exactly one subs/unsubscribe (rf2-7g959 cleanup survives the rf2-mwft2 rewrite)")
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                "post-unmount cache entry dropped or ref-count at zero")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
