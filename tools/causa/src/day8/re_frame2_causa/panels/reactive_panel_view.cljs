@@ -1,39 +1,58 @@
 (ns day8.re-frame2-causa.panels.reactive-panel-view
-  "Root view for the View panel (rf2-e33ad · Mike-direction 2026-05-21 ·
-  prior bead: rf2-wyvf2).
+  "Root view for the Views panel (rf2-e33ad / rf2-8ve8z · Mike-direction
+  2026-05-21 · prior beads: rf2-wyvf2, rf2-isun6).
 
-  Renders the canonical sub-cascade + view-re-render visualisation as
-  two bare-label pipeline sections, mirroring the rf2-n4ad0 Event
-  panel rhythm (thin left rail + downward chevrons):
+  Renders the reactive cascade flowing toward the UI as THREE STACKED
+  TABLES, top→bottom mirroring the cascade (rf2-8ve8z, phase-B of the
+  Views-tab redesign; phase-A landed the substrate captures in
+  rf2-9hoos):
 
-      Subs this cascade (count)   ONE table — one row per sub that RAN
-                                  this cascade. Columns:
-                                    sub-id | changed? | cascaded? | code
-                                  `changed?` ✓ via `sub-changed?`,
-                                  `cascaded?` ✓ via `sub-cascaded?`
-                                  (the upstream `:cause-sub` rides as
-                                  secondary text on the cascaded ✓).
-                                  Each sub appears EXACTLY once — the
-                                  changed/cascaded dimensions are
-                                  columns, not separate lists
-                                  (rf2-isun6 · replaces the prior three
-                                  overlapping SUBS RAN / SUBS WHOSE
-                                  VALUE CHANGED / SUBS THAT CASCADED
-                                  sections that repeated each sub).
-      Views re-rendered (count)   entries — named via reg-view :name
-                                  slot (fallback: var name) +
-                                  [code] chip + hover-highlight
+      Level 1 subs (observe app-db)   one row per Level 1 sub that ran
+                                      this cascade. Columns:
+                                        name | changed | code
+                                      `changed` is the accent flag from
+                                      the `:value-changed?` projection;
+                                      `code` is a jump-to-source [code]
+                                      chip from the static topology
+                                      coord.
+
+      Level 2+ subs                   one row per composed sub that ran.
+                                      Columns:
+                                        name | changed | inputs | code
+                                      `inputs` lists the input-sub names
+                                      ONE PER LINE (the static `:<-`
+                                      chain from `sub-topology`).
+
+      Views:                          one row per view render / unmount
+                                      this cascade. Columns:
+                                        name | action | reason
+                                      `name` is hoverable (reuses the
+                                      pink diagonal-stripe DOM highlight,
+                                      rf2-8l03l); `action` is mount /
+                                      rerender / unmount; `reason` is the
+                                      changed subs THIS view reads (a
+                                      reactive render) or the literal
+                                      `← parent re-render` (a structural
+                                      render — UNNAMED, permanent).
+
+  The Level 1 / Level 2+ split comes from
+  `re-frame.subs.tooling/sub-topology` (`:inputs []` = Level 1); the
+  view action + reason come from phase-A's `:mount?` / `:deref-subs`
+  fields on `:rf.view/rendered` + the new `:rf.view/unmounted` op. All
+  the data wiring lives in `reactive-panel-subs/project-record` — this
+  ns is pure presentation over the projected `:rf.causa/reactive-data`
+  shape.
 
   ## Hover-highlight (rf2-e33ad / rf2-8l03l)
 
-  Hovering a view row toggles the `.rf-causa-view-highlight` class
-  (rf2-8l03l) onto the rendered view's root DOM node (matched by
-  `data-rf-view` — the attribute the framework already stamps per
-  Spec 006 §View tagging contract). The class (theme/global-styles)
-  paints a translucent PINK DIAGONAL-STRIPE barber-pole via
-  `background-image` — pink-on-fainter-pink so it reads on both light
-  and dark app surfaces, translucent so the view's content shows
-  through. The highlight is background-only — NO border / outline /
+  Hovering a Views-table NAME cell toggles the
+  `.rf-causa-view-highlight` class (rf2-8l03l) onto the rendered view's
+  root DOM node (matched by `data-rf-view` — the attribute the framework
+  already stamps per Spec 006 §View tagging contract). The class
+  (theme/global-styles) paints a translucent PINK DIAGONAL-STRIPE
+  barber-pole via `background-image` — pink-on-fainter-pink so it reads
+  on both light and dark app surfaces, translucent so the view's content
+  shows through. The highlight is background-only — NO border / outline /
   shadow that would perturb layout. Cleared on mouseleave by removing
   the class (no residue).
 
@@ -44,15 +63,36 @@
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
             [day8.re-frame2-causa.theme.tokens
-             :as t
              :refer [tokens mono-stack sans-stack]]))
+
+;; ---- truncation budget (rf2-8ve8z · Spec 009 cascade-cap posture) -------
+;;
+;; A full-page cascade can run hundreds of subs / fire hundreds of view
+;; renders. The substrate already caps `:rf.view/rendered` emits at 100
+;; per cascade (re-frame.views/view-rendered-cap). The panel mirrors
+;; that ceiling for table rows and applies a tighter inline budget to
+;; the per-row list columns (inputs / reason subs) so a wide composed
+;; sub or a many-reason render stays a single legible row. Overflow is
+;; surfaced honestly with a muted `+N more` affordance, never silently
+;; dropped.
+
+(def ^:private max-table-rows
+  "Max rows rendered per table before a `+N more` overflow row. Mirrors
+  the substrate's per-cascade view-render cap (100)."
+  100)
+
+(def ^:private max-inline-list
+  "Max items rendered inline in a per-row list column (inputs / reason
+  changed-subs) before a `+N more` suffix. Keeps a wide sub row
+  legible — the full set is in the underlying data."
+  6)
 
 ;; ---- styling primitives -------------------------------------------------
 
 (def ^:private section-label-style
-  "Bare body-text label per Mike-direction 2026-05-21. NOT a large h1/
-  h2 heading; uppercase 11px sans-stack matches the rf2-n4ad0 Event
-  panel section labels."
+  "Bare body-text label preceding each table. NOT a large h1/h2 heading;
+  uppercase 11px sans-stack matches the rf2-n4ad0 Event panel section
+  labels."
   {:padding       "8px 12px 4px 12px"
    :font-family   sans-stack
    :font-size     "11px"
@@ -60,18 +100,6 @@
    :letter-spacing "0.6px"
    :text-transform "uppercase"
    :color         (:text-secondary tokens)})
-
-(def ^:private row-style
-  {:padding     "4px 12px 4px 24px"
-   :font-family mono-stack
-   :font-size   "12px"
-   :color       (:text-primary tokens)
-   :display     "flex"
-   :gap         "8px"
-   :align-items "center"})
-
-(def ^:private dim-row-style
-  (assoc row-style :color (:text-tertiary tokens)))
 
 (def ^:private empty-row-style
   {:padding     "2px 12px 6px 24px"
@@ -89,16 +117,17 @@
    :user-select  "none"
    :opacity      "0.6"})
 
-;; ---- single subs-table styling (rf2-isun6) ----------------------------
+;; ---- table styling (rf2-8ve8z) -----------------------------------------
 
-(def ^:private subs-table-style
+(def ^:private table-style
   {:width          "100%"
    :border-collapse "collapse"
    :margin         "2px 12px 4px 24px"
    :font-family    mono-stack
-   :font-size      "12px"})
+   :font-size      "12px"
+   :table-layout   "auto"})
 
-(def ^:private subs-th-style
+(def ^:private th-style
   "Column header cell. Muted sans label echoing the section-label
   primitive so the table reads as part of the pipeline rhythm."
   {:text-align     "left"
@@ -109,27 +138,68 @@
    :letter-spacing "0.4px"
    :text-transform "uppercase"
    :color          (:text-tertiary tokens)
-   :white-space    "nowrap"})
+   :white-space    "nowrap"
+   :vertical-align "bottom"})
 
-(def ^:private subs-td-style
-  {:padding     "3px 12px 3px 0"
-   :color       (:text-primary tokens)
+(def ^:private td-style
+  {:padding        "3px 12px 3px 0"
+   :color          (:text-primary tokens)
    :vertical-align "top"})
 
-(def ^:private flag-yes-style
-  "The ✓ cell when a dimension is set."
+(def ^:private name-cell-style
+  "The `name` column — the sub-id / view-id. Violet accent + semibold so
+  the identifier leads the row."
+  (assoc td-style :color (:accent-violet tokens) :font-weight 600
+                  :white-space "nowrap"))
+
+(def ^:private changed-yes-style
+  "The `changed` flag when the sub's value changed this cascade — a clear
+  accent so the eye lands on it."
   {:color (:cyan tokens) :font-weight 600})
 
-(def ^:private flag-no-style
-  "The · placeholder when a dimension is unset — dim so the eye skips it."
+(def ^:private changed-no-style
+  "The `changed` placeholder when unchanged — muted so the eye skips it."
   {:color (:text-tertiary tokens) :opacity "0.5"})
 
-(def ^:private cause-sub-style
-  "Secondary text rendered next to the cascaded ✓ — the upstream
-  `:cause-sub` that triggered the cascade. Dim so the ✓ stays primary."
-  {:color (:text-tertiary tokens)
-   :font-size "10px"
-   :margin-left "6px"})
+(def ^:private overflow-style
+  "Muted `+N more` affordance for honest truncation."
+  {:color       (:text-tertiary tokens)
+   :font-style  "italic"
+   :font-family sans-stack
+   :font-size   "10px"})
+
+;; ---- action / reason styling (rf2-8ve8z) -------------------------------
+
+(def ^:private action->token
+  "Map a view action to its accent token. mount = green (a new thing
+  appears), rerender = cyan (the standard change accent shared with the
+  sub `changed` flag), unmount = red (a thing goes away)."
+  {:mount    :green
+   :rerender :cyan
+   :unmount  :red})
+
+(defn- action-style
+  [action]
+  {:color       (get tokens (get action->token action :text-secondary))
+   :font-weight 600
+   :font-family sans-stack
+   :font-size   "10px"
+   :letter-spacing "0.3px"
+   :text-transform "uppercase"})
+
+(def ^:private structural-reason-style
+  "The literal `← parent re-render` text — muted so a structural render
+  reads as quieter than a reactive one (which carries named subs)."
+  {:color       (:text-tertiary tokens)
+   :font-style  "italic"})
+
+(def ^:private reactive-reason-sub-style
+  "A changed-sub name in a reactive view's reason cell."
+  {:color (:cyan tokens)})
+
+(def ^:private none-reason-style
+  "The em-dash placeholder for an unmount row's empty reason."
+  {:color (:text-tertiary tokens) :opacity "0.5"})
 
 ;; ---- pure formatters ---------------------------------------------------
 
@@ -157,11 +227,16 @@
       :else
       (pr-str view-id))))
 
+(defn- id-slug
+  "Stable testid suffix for a sub-id / view-id — kw/symbol punctuation
+  flattened to `_` so the row + chip testids are CSS-selector safe."
+  [id]
+  (when id (string/replace (str id) #"[^a-zA-Z0-9_]" "_")))
+
 ;; ---- pipeline chrome ---------------------------------------------------
 
 (defn- section-label
-  "Bare label that precedes each pipeline section's body — matches the
-  rf2-n4ad0 Event panel section-label primitive. testid:
+  "Bare label that precedes each table. testid:
   `rf-causa-reactive-section-<id>-label`."
   [id title]
   [:div {:data-testid (str "rf-causa-reactive-section-" id "-label")
@@ -169,8 +244,8 @@
    title])
 
 (defn- pipeline-chevron
-  "Small downward chevron `⋁` separating adjacent pipeline sections.
-  Muted (`:text-tertiary`) so the chevron is rhythm not foreground."
+  "Small downward chevron `⋁` separating adjacent tables. Muted
+  (`:text-tertiary`) so the chevron is rhythm not foreground."
   [from-id]
   [:div {:data-testid (str "rf-causa-reactive-chevron-" from-id)
          :aria-hidden "true"
@@ -178,9 +253,9 @@
    "⋁"])
 
 (defn- empty-row
-  "Render a muted placeholder for an empty section. Per Mike-direction
-  2026-05-21 empty states are ALWAYS visible so the pipeline rhythm
-  holds."
+  "Render a muted placeholder for an empty table. Empty states are
+  ALWAYS visible so the pipeline rhythm holds (Mike-direction
+  2026-05-21)."
   [testid label]
   [:div {:data-testid testid
          :style empty-row-style}
@@ -189,37 +264,37 @@
 ;; ---- [code] open-chip helpers -----------------------------------------
 
 (defn- code-chip
-  "Render an open-in-editor pill matching the Event panel's
-  `coord-chip` shape. Dispatches `:rf.causa/open-in-editor`. Returns
-  nil when there is no usable `:file`."
+  "Render an open-in-editor pill matching the Event panel's `coord-chip`
+  shape — a clickable `ns:line` jump-to-source affordance. Dispatches
+  `:rf.causa/open-in-editor`. Returns nil when there is no usable
+  `:file`."
   [coord testid]
   (when (and (map? coord) (seq (:file coord)))
-    [:button {:data-testid testid
-              :on-click    (fn [e]
-                             (.stopPropagation e)
-                             (rf/dispatch [:rf.causa/open-in-editor
-                                           {:source-coord coord}]
-                                          {:frame :rf/causa}))
-              :style       {:background  "transparent"
-                            :color       (:cyan tokens)
-                            :border      (str "1px solid " (:border-default tokens))
-                            :padding     "1px 6px"
-                            :border-radius "3px"
-                            :margin-left "8px"
-                            :cursor      "pointer"
-                            :font-family mono-stack
-                            :font-size   "10px"}}
-     "[code]"]))
-
-(defn- sub-coord
-  "Look up the source coord for a registered sub id via the registry
-  meta read. Returns the structured coord (`{:file :line ...}`) when
-  the registration carries it. Pure-ish — calls into the registry."
-  [sub-id]
-  (let [meta (rf/handler-meta :sub sub-id)
-        file (:file meta)]
-    (when (string? file)
-      {:file file :line (:line meta) :column (:column meta) :ns (:ns meta)})))
+    (let [ns-seg (some-> (:ns coord) str)
+          line   (:line coord)
+          label  (cond
+                   (and ns-seg line) (str ns-seg ":" line)
+                   ns-seg            ns-seg
+                   line              (str ":" line)
+                   :else             "[code]")]
+      [:button {:data-testid testid
+                :title       (str "Open " (:file coord)
+                                  (when line (str ":" line)))
+                :on-click    (fn [e]
+                               (.stopPropagation e)
+                               (rf/dispatch [:rf.causa/open-in-editor
+                                             {:source-coord coord}]
+                                            {:frame :rf/causa}))
+                :style       {:background  "transparent"
+                              :color       (:cyan tokens)
+                              :border      (str "1px solid " (:border-default tokens))
+                              :padding     "1px 6px"
+                              :border-radius "3px"
+                              :cursor      "pointer"
+                              :font-family mono-stack
+                              :font-size   "10px"
+                              :white-space "nowrap"}}
+       label])))
 
 (defn- view-coord
   "Look up the source coord for a registered view id via the registry
@@ -232,10 +307,10 @@
 
 ;; ---- hover-highlight (rf2-e33ad / rf2-8l03l) --------------------------
 ;;
-;; Hover a view-row → stamp a distinctive background-only highlight on
-;; the rendered view's root DOM node (matched via the `data-rf-view`
-;; attribute the framework already stamps per Spec 006). Cleared on
-;; mouseleave.
+;; Hover a Views-table NAME cell → stamp a distinctive background-only
+;; highlight on the rendered view's root DOM node (matched via the
+;; `data-rf-view` attribute the framework already stamps per Spec 006).
+;; Cleared on mouseleave.
 ;;
 ;; Mechanism (rf2-8l03l): toggle the Causa-namespaced
 ;; `.rf-causa-view-highlight` class. The class rule (in
@@ -255,9 +330,9 @@
 ;; paints inside the existing box with zero reflow.
 
 (def ^:private highlight-class
-  "Causa-namespaced class toggled onto the hovered view's
-  `data-rf-view` node. The matching CSS rule (theme/global-styles)
-  paints the pink diagonal-stripe `background-image`."
+  "Causa-namespaced class toggled onto the hovered view's `data-rf-view`
+  node. The matching CSS rule (theme/global-styles) paints the pink
+  diagonal-stripe `background-image`."
   "rf-causa-view-highlight")
 
 (defn- highlight-selector
@@ -291,9 +366,9 @@
 ;; ---- header (outcome line; no h1) --------------------------------------
 
 (defn- header-block
-  "Compact metadata strip — replaces the large h1 heading per
-  rf2-6xezz. Renders a single line with the frame + cascade counts so
-  the operator has the rhythm without the heading."
+  "Compact metadata strip — replaces the large h1 heading per rf2-6xezz.
+  Renders a single line with the frame + cascade counts so the operator
+  has the rhythm without the heading."
   [data]
   (when (:has-cascade? data)
     [:header {:data-testid "rf-causa-reactive-header-meta"
@@ -307,146 +382,216 @@
        (str "frame " (:frame data)
             " · " (or (:subs-ran counts) 0) " subs ran · "
             (or (:subs-skipped counts) 0) " skipped · "
-            (or (:views-rendered counts) 0) " views rendered"))]))
+            (or (:view-rows counts) (:views-rendered counts) 0) " view renders"))]))
 
-;; ---- subs-this-cascade dimension predicates ---------------------------
-;;
-;; rf2-isun6: a sub that ran may ALSO have changed value and/or cascaded.
-;; These two predicates no longer split the run-set into separate lists
-;; — they drive the `changed?` / `cascaded?` columns of the single
-;; subs table, so each sub appears exactly once.
+;; ---- shared cell renderers --------------------------------------------
 
-(defn- sub-changed?
-  "True when a `:rf.sub/computed` payload represents a value change
-  rather than the (already-equal) re-evaluation. The substrate sets
-  `:reason :input-changed` when the inputs differ; `:value-changed?`
-  may also ride on the payload depending on substrate version. Pure."
-  [payload]
-  (let [reason (:reason payload)]
-    (or (= :value-changed reason)
-        (true? (:value-changed? payload))
-        (and (contains? payload :prev-value)
-             (not= (:prev-value payload) (:value payload))))))
+(defn- changed-cell
+  "The `changed` column — a clear accent ✓ when the sub's value changed
+  this cascade; otherwise a muted · placeholder."
+  [changed?]
+  [:td {:style td-style}
+   (if changed?
+     [:span {:style changed-yes-style} "✓"]
+     [:span {:style changed-no-style} "·"])])
 
-(defn- sub-cascaded?
-  "True when a `:rf.sub/computed` payload represents a cascade (a sub
-  that was triggered by another sub's value change rather than by an
-  app-db write). The substrate stamps `:cause-sub` / `:cascade?` on
-  the payload depending on version. Pure."
-  [payload]
-  (or (true? (:cascade? payload))
-      (some? (:cause-sub payload))
-      (= :sub-cascade (:reason payload))))
+(defn- code-cell
+  "The `code` column — the jump-to-source chip, or a muted em-dash when
+  the topology carries no source coord (nil-safe degrade)."
+  [coord testid]
+  [:td {:style td-style}
+   (or (code-chip coord testid)
+       [:span {:style changed-no-style} "—"])])
 
-;; ---- single subs-this-cascade table (rf2-isun6) -----------------------
+(defn- overflow-line
+  "Render a `+N more` line when `total` exceeds `shown`. Returns nil
+  otherwise."
+  [shown total]
+  (when (> total shown)
+    [:div {:style overflow-style} (str "+" (- total shown) " more")]))
 
-(defn- sub-id-slug
-  "Stable testid suffix for a sub-id — kw/symbol punctuation flattened
-  to `_` so the row + code-chip testids are CSS-selector safe."
-  [sub-id]
-  (when sub-id (string/replace (str sub-id) #"[^a-zA-Z0-9_]" "_")))
+;; ---- table 1: Level 1 subs --------------------------------------------
 
-(defn- flag-cell
-  "A ✓ / · column cell. Renders the cyan ✓ when `on?`; otherwise a dim
-  placeholder. `secondary` (optional) rides as muted text after the ✓
-  (used to surface the upstream `:cause-sub` on the cascaded column)."
-  [on? secondary]
-  [:td {:style subs-td-style}
-   (if on?
-     [:span
-      [:span {:style flag-yes-style} "✓"]
-      (when (seq secondary)
-        [:span {:style cause-sub-style} secondary])]
-     [:span {:style flag-no-style} "·"])])
-
-(defn- subs-table-row
-  "One row per sub that ran this cascade. `changed?` / `cascaded?`
-  columns carry the dimensions; the sub appears exactly once.
+(defn- level-1-row
+  "One Level 1 sub row: name | changed | code.
 
   testids:
-    row       `rf-causa-reactive-sub-row-<slug>`
-    code chip `rf-causa-reactive-sub-code-<slug>`"
-  [payload]
-  (let [sub-id   (or (:sub-id payload) (:id payload))
-        slug     (sub-id-slug sub-id)
-        coord    (when sub-id (sub-coord sub-id))
-        changed? (sub-changed? payload)
-        cause    (when (sub-cascaded? payload)
-                   (let [c (:cause-sub payload)]
-                     (when c (str "← " (format-id c)))))]
-    [:tr {:data-testid (str "rf-causa-reactive-sub-row-" slug)
+    row       `rf-causa-reactive-l1-row-<slug>`
+    code chip `rf-causa-reactive-l1-code-<slug>`"
+  [{:keys [sub-id changed? coord]}]
+  (let [slug (id-slug sub-id)]
+    [:tr {:data-testid (str "rf-causa-reactive-l1-row-" slug)
           :style       {:border-top (str "1px solid " (:border-subtle tokens))}}
-     [:td {:style (assoc subs-td-style :color (:accent-violet tokens)
-                         :font-weight 600)}
-      (format-id sub-id)]
-     (flag-cell changed? nil)
-     (flag-cell (sub-cascaded? payload) cause)
-     [:td {:style subs-td-style}
-      (code-chip coord (str "rf-causa-reactive-sub-code-" slug))]]))
+     [:td {:style name-cell-style} (format-id sub-id)]
+     (changed-cell changed?)
+     (code-cell coord (str "rf-causa-reactive-l1-code-" slug))]))
 
-(defn- subs-table-section
-  "ONE 'SUBS THIS CASCADE' table replacing the prior three overlapping
-  SUBS RAN / SUBS WHOSE VALUE CHANGED / SUBS THAT CASCADED sections.
-  One row per sub that RAN (the union); `changed?` / `cascaded?` are
-  columns, so each sub appears exactly once (rf2-isun6)."
+(defn- level-1-section
   [data]
-  (let [subs-ran (:subs-ran data)
-        n        (count subs-ran)]
+  (let [rows (:level-1-subs data)
+        n    (count rows)]
     [:<>
-     (section-label "subs" (str "SUBS THIS CASCADE (" n ")"))
-     (if (seq subs-ran)
-       [:table {:data-testid "rf-causa-reactive-subs-table"
-                :style       subs-table-style}
+     (section-label "l1" (str "LEVEL 1 SUBS (OBSERVE APP-DB) (" n ")"))
+     (if (seq rows)
+       [:table {:data-testid "rf-causa-reactive-l1-table"
+                :style       table-style}
         [:thead
          [:tr
-          [:th {:style subs-th-style} "sub-id"]
-          [:th {:style subs-th-style} "changed?"]
-          [:th {:style subs-th-style} "cascaded?"]
-          [:th {:style subs-th-style} "code"]]]
+          [:th {:style th-style} "name"]
+          [:th {:style th-style} "changed"]
+          [:th {:style th-style} "code"]]]
         (into [:tbody]
-              (for [[i p] (map-indexed vector subs-ran)]
-                (with-meta (subs-table-row p) {:key i})))]
-       (empty-row "rf-causa-reactive-subs-empty" "(no subs ran)"))]))
+              (concat
+                (for [[i r] (map-indexed vector (take max-table-rows rows))]
+                  (with-meta (level-1-row r) {:key i}))
+                (when (> n max-table-rows)
+                  [[:tr {:data-testid "rf-causa-reactive-l1-overflow"}
+                    [:td {:colSpan 3 :style (assoc td-style :padding-left "0")}
+                     (overflow-line max-table-rows n)]]])))]
+       (empty-row "rf-causa-reactive-l1-empty" "(no Level 1 subs ran)"))]))
 
-;; ---- views re-rendered section ---------------------------------------
+;; ---- table 2: Level 2+ subs -------------------------------------------
 
-(defn- view-rendered-row
-  "Single view-rendered row. Hover triggers a subtle background-only
-  highlight on the rendered view's root DOM (matched via
-  `data-rf-view`). Click [code] opens the registered source. Per
-  Mike-direction 2026-05-21."
-  [payload]
-  (let [view-id    (or (:view-id payload) (:id payload))
-        meta       (when view-id (rf/handler-meta :view view-id))
-        coord      (when view-id (view-coord view-id))
-        disp-name  (view-display-name view-id meta)
-        on-enter   (fn [_e] (apply-highlight! view-id))
-        on-leave   (fn [_e] (clear-highlight! view-id))]
-    [:div {:data-testid (str "rf-causa-reactive-view-rendered")
-           :data-rf-causa-view-id (str view-id)
+(defn- inputs-cell
+  "The `inputs` column — input-sub names ONE PER LINE, honestly
+  truncated with `+N more`. Muted em-dash when there are no inputs
+  (defensive — a Level 2+ row always has at least one)."
+  [inputs]
+  (let [n     (count inputs)
+        shown (take max-inline-list inputs)]
+    [:td {:style td-style}
+     (if (seq inputs)
+       (into [:div {:style {:display "flex" :flex-direction "column"
+                            :gap "1px"}}]
+             (concat
+               (for [[i input] (map-indexed vector shown)]
+                 ^{:key i} [:span {:style {:color (:text-secondary tokens)}}
+                            (format-id input)])
+               [(overflow-line max-inline-list n)]))
+       [:span {:style changed-no-style} "—"])]))
+
+(defn- level-2-row
+  "One Level 2+ sub row: name | changed | inputs | code.
+
+  testids:
+    row       `rf-causa-reactive-l2-row-<slug>`
+    code chip `rf-causa-reactive-l2-code-<slug>`"
+  [{:keys [sub-id changed? inputs coord]}]
+  (let [slug (id-slug sub-id)]
+    [:tr {:data-testid (str "rf-causa-reactive-l2-row-" slug)
+          :style       {:border-top (str "1px solid " (:border-subtle tokens))}}
+     [:td {:style name-cell-style} (format-id sub-id)]
+     (changed-cell changed?)
+     (inputs-cell inputs)
+     (code-cell coord (str "rf-causa-reactive-l2-code-" slug))]))
+
+(defn- level-2-section
+  [data]
+  (let [rows (:level-2-subs data)
+        n    (count rows)]
+    [:<>
+     (section-label "l2" (str "LEVEL 2+ SUBS (" n ")"))
+     (if (seq rows)
+       [:table {:data-testid "rf-causa-reactive-l2-table"
+                :style       table-style}
+        [:thead
+         [:tr
+          [:th {:style th-style} "name"]
+          [:th {:style th-style} "changed"]
+          [:th {:style th-style} "inputs"]
+          [:th {:style th-style} "code"]]]
+        (into [:tbody]
+              (concat
+                (for [[i r] (map-indexed vector (take max-table-rows rows))]
+                  (with-meta (level-2-row r) {:key i}))
+                (when (> n max-table-rows)
+                  [[:tr {:data-testid "rf-causa-reactive-l2-overflow"}
+                    [:td {:colSpan 4 :style (assoc td-style :padding-left "0")}
+                     (overflow-line max-table-rows n)]]])))]
+       (empty-row "rf-causa-reactive-l2-empty" "(no Level 2+ subs ran)"))]))
+
+;; ---- table 3: Views ----------------------------------------------------
+
+(defn- reason-cell
+  "The `reason` column for a Views-table row.
+
+    :reactive   → the changed subs THIS view reads (cyan names, honestly
+                  truncated with `+N more`).
+    :structural → the literal `← parent re-render` — UNNAMED. We never
+                  name the parent (permanent, rf2-8ve8z).
+    :none       → unmount row → a muted em-dash."
+  [reason]
+  (let [kind (:kind reason)]
+    [:td {:style td-style}
+     (case kind
+       :reactive
+       (let [subs  (:subs reason)
+             n     (count subs)
+             shown (take max-inline-list subs)]
+         (into [:div {:style {:display "flex" :flex-direction "column"
+                              :gap "1px"}}]
+               (concat
+                 (for [[i s] (map-indexed vector shown)]
+                   ^{:key i} [:span {:style reactive-reason-sub-style}
+                              (format-id s)])
+                 [(overflow-line max-inline-list n)])))
+
+       :structural
+       [:span {:data-testid "rf-causa-reactive-view-reason-structural"
+               :style structural-reason-style}
+        "← parent re-render"]
+
+       ;; :none / unknown
+       [:span {:style none-reason-style} "—"])]))
+
+(defn- view-row
+  "One Views-table row: name | action | reason. Hover the NAME cell to
+  highlight the rendered view's DOM (rf2-8l03l). Each render/unmount of
+  a view yields one row.
+
+  testid: `rf-causa-reactive-view-row-<slug>` (index-suffixed so repeat
+  renders of the same view stay unique)."
+  [idx {:keys [view-id action reason]}]
+  (let [meta      (when view-id (rf/handler-meta :view view-id))
+        disp-name (view-display-name view-id meta)
+        slug      (id-slug view-id)
+        on-enter  (fn [_e] (apply-highlight! view-id))
+        on-leave  (fn [_e] (clear-highlight! view-id))]
+    [:tr {:data-testid (str "rf-causa-reactive-view-row-" slug "-" idx)
+          :data-rf-causa-view-id (str view-id)
+          :style       {:border-top (str "1px solid " (:border-subtle tokens))}}
+     [:td {:data-testid (str "rf-causa-reactive-view-name-" slug "-" idx)
            :on-mouse-enter on-enter
            :on-mouse-leave on-leave
-           :style (assoc row-style :cursor "default")}
-     [:span {:style {:color (:accent-violet tokens)
-                     :font-weight 600}}
+           :style (assoc name-cell-style :cursor "default")}
       disp-name]
-     (code-chip coord
-                (str "rf-causa-reactive-view-code-"
-                     (when view-id (string/replace (str view-id)
-                                                    #"[^a-zA-Z0-9_]"
-                                                    "_"))))]))
+     [:td {:style td-style}
+      [:span {:style (action-style action)} (name action)]]
+     (reason-cell reason)]))
 
-(defn- views-rendered-section
+(defn- views-section
   [data]
-  (let [views (:views-rendered data)
-        n     (count views)]
+  (let [rows (:view-rows data)
+        n    (count rows)]
     [:<>
-     (section-label "views-rendered" (str "VIEWS RE-RENDERED (" n ")"))
-     (if (seq views)
-       (into [:div]
-             (for [[i v] (map-indexed vector views)]
-               (with-meta (view-rendered-row v) {:key i})))
-       (empty-row "rf-causa-reactive-views-empty" "(none re-rendered)"))]))
+     (section-label "views" (str "VIEWS: (" n ")"))
+     (if (seq rows)
+       [:table {:data-testid "rf-causa-reactive-views-table"
+                :style       table-style}
+        [:thead
+         [:tr
+          [:th {:style th-style} "name"]
+          [:th {:style th-style} "action"]
+          [:th {:style th-style} "reason"]]]
+        (into [:tbody]
+              (concat
+                (for [[i r] (map-indexed vector (take max-table-rows rows))]
+                  (with-meta (view-row i r) {:key i}))
+                (when (> n max-table-rows)
+                  [[:tr {:data-testid "rf-causa-reactive-views-overflow"}
+                    [:td {:colSpan 3 :style (assoc td-style :padding-left "0")}
+                     (overflow-line max-table-rows n)]]])))]
+       (empty-row "rf-causa-reactive-views-empty" "(no views rendered)"))]))
 
 ;; ---- empty state ------------------------------------------------------
 
@@ -466,7 +611,10 @@
 (defn reactive-panel
   "Plain Reagent fn — invoked from `reactive-panel/Panel` (the public
   facade reg-view) via a function call so the React-context frame tier
-  resolves to `:rf/causa` inside the leaf's subscribes."
+  resolves to `:rf/causa` inside the leaf's subscribes.
+
+  Renders the three stacked tables (rf2-8ve8z) top→bottom mirroring the
+  reactive cascade: Level 1 subs → Level 2+ subs → Views."
   []
   (let [data @(rf/subscribe [:rf.causa/reactive-data])]
     [:section {:data-testid "rf-causa-reactive"
@@ -490,6 +638,8 @@
                        :padding-left  "12px"
                        :padding-top   "8px"
                        :padding-bottom "8px"}}
-         (subs-table-section data)
-         (pipeline-chevron "subs")
-         (views-rendered-section data)])]]))
+         (level-1-section data)
+         (pipeline-chevron "l1")
+         (level-2-section data)
+         (pipeline-chevron "l2")
+         (views-section data)])]]))
