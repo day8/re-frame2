@@ -499,6 +499,10 @@
     :producer-ns 're-frame.epoch
     :design-bead "rf2-25zo2"
     :description "Walk a frame's in-flight cascade buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution. Consumed by re-frame.views at view-render emit time so the Causa Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
+   {:key         :epoch/record-render!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-qs6dl"
+    :description "Attribute a post-settle render emit (a :view/render / :rf.view/rendered op firing at React commit time, after the causing cascade settled) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a render op arrives with no in-flight cascade; back-fills the render into the causing epoch record and re-fans it to epoch listeners so snapshot consumers re-sync. Fixes the one-epoch :renders lag."}
    {:key         :epoch/epoch-history
     :producer-ns 're-frame.epoch
     :description "Return the committed-epoch ring buffer (introspection)."}

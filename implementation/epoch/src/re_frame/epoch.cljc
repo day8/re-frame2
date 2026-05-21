@@ -313,6 +313,13 @@
                         (assembly/build-record frame-id db-before db-after
                                                events outcome halt-reason))]
            (state/record! record)
+           ;; Per rf2-qs6dl: mark this as the frame's most-recently-
+           ;; settled epoch so post-settle async render emits (which
+           ;; fire at React commit time, after this cascade settled) are
+           ;; attributed back to THIS cascade rather than buffered into
+           ;; the next one. Set after `record!` so the record is in the
+           ;; ring before any render can back-fill into it.
+           (state/set-last-settled-epoch! frame-id (:epoch-id record))
            ;; Per rf2-931pm — focused-event-only cascade-DAG capture.
            ;; Sticky hook (rf2-f72pd) published by `re-frame.trace.cascade`
            ;; at ns-load; when the trace.cascade ns has not been loaded
@@ -439,6 +446,10 @@
                           :event-id      :rf.epoch/db-replaced
                           :trigger-event [:rf.epoch/db-replaced]))]
       (state/record! record)
+      ;; Per rf2-qs6dl: a `reset-frame-db!` re-renders the views that read
+      ;; the replaced state; attribute those post-settle renders back to
+      ;; this synthetic epoch rather than the next real cascade.
+      (state/set-last-settled-epoch! frame-id (:epoch-id record))
       (trace/emit! :rf.epoch :rf.epoch/db-replaced
                    {:frame    frame-id
                     :epoch-id (:epoch-id record)})
@@ -542,6 +553,15 @@
 ;; consume this via `:epoch/cascade-cause` at render-emit time to stamp
 ;; :cause-event-id + :cause-subs onto the per-render trace.
 (late-bind/set-fn! :epoch/cascade-cause       capture/cascade-cause)
+;; rf2-qs6dl: post-settle render back-fill. `capture-event!` routes a
+;; view-render op that fires with no in-flight cascade (a React-commit-
+;; time async re-render) here so it is attributed to the cascade that
+;; CAUSED it (the frame's most-recently-settled epoch) rather than the
+;; next in-flight cascade. The orchestrator lives in
+;; `re-frame.epoch.listeners` (state back-fill + listener re-notify);
+;; publishing it through late-bind keeps `capture` free of a require on
+;; `listeners` (which would close the assembly→capture cycle).
+(late-bind/set-fn! :epoch/record-render!      listeners/record-render!)
 (late-bind/set-fn! :epoch/epoch-history       epoch-history)
 (late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
 (late-bind/set-fn! :epoch/reset-frame-db!     reset-frame-db!)

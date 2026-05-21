@@ -18,7 +18,8 @@
   + projection trio out of the facade keeps the cascade pipeline a
   single grep target."
   (:require [re-frame.epoch.state :as state]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---- skip-ops catalogue --------------------------------------------------
 ;;
@@ -66,6 +67,37 @@
     ;; for this frame.
     :rf.warning/epoch-redact-fn-exception})
 
+;; ---- render ops (rf2-qs6dl) -----------------------------------------------
+;;
+;; The three view-render ops that fire at React COMMIT time — AFTER the
+;; causing cascade settled (Reagent batches re-renders onto a later tick
+;; via `re-frame.interop/after-render`). When one of these arrives with
+;; no in-flight cascade for its frame, it must be attributed back to the
+;; cascade that CAUSED it (the most-recently-settled epoch) rather than
+;; buffered into the next cascade — see `re-frame.epoch.state/back-fill-
+;; render!` and `re-frame.epoch.listeners/record-render!`.
+(def ^:private render-ops
+  #{:view/render
+    :rf.view/rendered
+    :rf.view/rendered-cap-reached})
+
+(defn- in-flight-cascade?
+  "True when the frame's in-flight capture buffer already holds an
+  `:event/run-start` emit — the canonical signal that a cascade has
+  begun draining into this buffer (mirrors the gate
+  `re-frame.epoch.listeners/on-frame-destroyed!` uses for mid-drain
+  detection). A render that fires WITH a cascade in flight (synchronous
+  flush — SSR, a render triggered inside another render's reactive read)
+  genuinely belongs to that cascade and is buffered normally; a render
+  that fires with NO cascade in flight is a post-settle async re-render
+  and is back-filled to the cascade that caused it."
+  [frame-id]
+  (some (fn [ev]
+          (and (= :event (:op-type ev))
+               (= :event (:operation ev))
+               (= :run-start (-> ev :tags :phase))))
+        (state/buffer-for frame-id)))
+
 (defn capture-event!
   "Internal trace-capture entry point published through `re-frame.late-bind`
   under `:epoch/capture-event`. `re-frame.trace/emit!` and
@@ -83,7 +115,17 @@
   tied to a specific cascade. The `:rf.epoch/*` trace events this
   namespace emits OUTSIDE a cascade (catalogued in `skip-ops`) are
   also skipped, so a snapshotted/restored/db-replaced emit cannot leak
-  into the next cascade's harvested record."
+  into the next cascade's harvested record.
+
+  Per rf2-qs6dl: a view-render op (`:view/render` / `:rf.view/rendered`
+  / `:rf.view/rendered-cap-reached`) that arrives with no in-flight
+  cascade for its frame is a post-settle async re-render — it fired at
+  React commit time, AFTER the causing cascade settled. Routing it into
+  the now-empty buffer would mis-attribute it to the NEXT cascade (the
+  one-epoch lag the bead documents). Instead it is back-filled into the
+  cascade that caused it via the `:epoch/record-render!` hook. A render
+  that fires WITH a cascade in flight (synchronous flush) belongs to
+  that cascade and is buffered as before."
   [event]
   (when interop/debug-enabled?
     (let [op       (:operation event)
@@ -91,7 +133,20 @@
           frame-id (or (:frame tags)
                        (:frame event))]
       (when (and frame-id (not (contains? skip-ops op)))
-        (state/buffer-event! frame-id event)))))
+        (if (and (contains? render-ops op)
+                 (not (in-flight-cascade? frame-id)))
+          ;; Post-settle render — attribute to the causing cascade.
+          ;; The orchestrator (state back-fill + listener re-notify)
+          ;; lives in `re-frame.epoch.listeners`; reaching it through
+          ;; late-bind keeps `capture` free of a require on `listeners`
+          ;; (which requires `assembly` → `capture`, a cycle). The hook
+          ;; is published at `re-frame.epoch` ns-load; when absent (the
+          ;; degenerate load-order window before the facade installs it)
+          ;; the render falls through to the normal buffer path.
+          (if-let [record-render! (late-bind/get-fn-cached :epoch/record-render!)]
+            (record-render! frame-id event)
+            (state/buffer-event! frame-id event))
+          (state/buffer-event! frame-id event))))))
 
 ;; ---- cascade-cause (for :rf.view/rendered attribution, rf2-25zo2) --------
 ;;
