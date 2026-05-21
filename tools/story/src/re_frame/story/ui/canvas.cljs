@@ -26,6 +26,7 @@
             [re-frame.story.args :as args]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.runtime :as runtime]
+            [re-frame.story.ui.assertion-strip :as assertion-strip]
             [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.open-in-editor :as open-in-editor]
             [re-frame.story.ui.share :as share]
@@ -128,12 +129,6 @@
               :font-family mono-stack
               :font-size (:caption typography/type-scale)
               :border-radius "3px"}
-   :assertion {:padding "4px 8px"
-               :border-left "3px solid #be4040"
-               :margin "2px 0"
-               :font-family mono-stack
-               :font-size (:caption typography/type-scale)
-               :background (:danger-bg colors/tokens)}
    ;; rf2-0s4p1 — identity-bearing loading skeleton during the
    ;; four-phase loader lifecycle. Reads as "workshop loading" — amber-
    ;; shimmer pulse on a slate ground — not the generic Storybook
@@ -345,13 +340,15 @@
        ^{:key i}
        [:div (pr-str e)])]))
 
-(defn- render-assertions [assertions]
+(defn- render-assertions
+  "Render the variant frame's accumulated assertions in a structured
+  row treatment — status glyph + label + one-line summary with click-
+  to-expand detail. Sourced from the shared
+  `re-frame.story.ui.assertion-strip` component the workspace cell
+  also consumes (single source of truth for the inline strip shape)."
+  [assertions]
   (when (seq assertions)
-    [:div
-     (for [[i a] (map-indexed vector assertions)]
-       ^{:key i}
-       [:div {:style (:assertion styles)}
-        (pr-str a)])]))
+    [assertion-strip/assertion-strip assertions]))
 
 ;; ---- the canvas component ------------------------------------------------
 
