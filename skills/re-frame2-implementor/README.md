@@ -1,6 +1,6 @@
 # re-frame2-implementor
 
-> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+> ↑ [`skills/`](../) — index of all seven re-frame2 skills.
 
 A `Skill` that helps `Claude Code` (or any Anthropic-skill-compatible agent) guide an engineer **building a new re-frame2 implementation** — a port to a different host language or substrate, not an application built on the existing CLJS reference.
 
