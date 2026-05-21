@@ -81,6 +81,24 @@
     :rf.view/rendered
     :rf.view/rendered-cap-reached})
 
+;; ---- sub-run ops (rf2-wi900) ----------------------------------------------
+;;
+;; The subs sibling of render-ops. A `:sub/run` (reactive recompute) or
+;; `:sub/skip` (memo hit) fires when a reaction is derefed — and reactions
+;; deref LAZILY at React render time, which Reagent batches onto a later
+;; tick AFTER the causing cascade settled. So like a render, a sub-run
+;; arriving with no in-flight cascade for its frame is a post-settle async
+;; recompute and must be attributed back to the cascade that CAUSED it (the
+;; most-recently-settled epoch), not buffered into the next cascade — see
+;; `re-frame.epoch.state/back-fill-sub-run!` and
+;; `re-frame.epoch.listeners/record-sub-run!`. An in-flight (synchronous)
+;; sub-run — one that recomputes while a cascade is draining (an event
+;; handler that subscribes, an SSR render) — genuinely belongs to that
+;; cascade and is buffered normally.
+(def ^:private sub-run-ops
+  #{:sub/run
+    :rf.sub/skip})
+
 (defn- in-flight-cascade?
   "True when the frame's in-flight capture buffer already holds an
   `:event/run-start` emit — the canonical signal that a cascade has
@@ -125,7 +143,15 @@
   one-epoch lag the bead documents). Instead it is back-filled into the
   cascade that caused it via the `:epoch/record-render!` hook. A render
   that fires WITH a cascade in flight (synchronous flush) belongs to
-  that cascade and is buffered as before."
+  that cascade and is buffered as before.
+
+  Per rf2-wi900: the identical post-settle timing applies to reactive
+  sub-runs (`:sub/run` / `:rf.sub/skip`) — reactions recompute lazily at
+  React deref time, AFTER the causing cascade settled, so a sub-run with
+  no in-flight cascade is back-filled into the causing epoch via the
+  `:epoch/record-sub-run!` hook (sibling of `:epoch/record-render!`). An
+  in-flight sub-run (a handler that subscribes, an SSR render) belongs to
+  the in-flight cascade and is buffered as before."
   [event]
   (when interop/debug-enabled?
     (let [op       (:operation event)
@@ -133,8 +159,7 @@
           frame-id (or (:frame tags)
                        (:frame event))]
       (when (and frame-id (not (contains? skip-ops op)))
-        (if (and (contains? render-ops op)
-                 (not (in-flight-cascade? frame-id)))
+        (cond
           ;; Post-settle render — attribute to the causing cascade.
           ;; The orchestrator (state back-fill + listener re-notify)
           ;; lives in `re-frame.epoch.listeners`; reaching it through
@@ -143,9 +168,22 @@
           ;; is published at `re-frame.epoch` ns-load; when absent (the
           ;; degenerate load-order window before the facade installs it)
           ;; the render falls through to the normal buffer path.
+          (and (contains? render-ops op)
+               (not (in-flight-cascade? frame-id)))
           (if-let [record-render! (late-bind/get-fn-cached :epoch/record-render!)]
             (record-render! frame-id event)
             (state/buffer-event! frame-id event))
+
+          ;; Post-settle sub-run — the subs sibling (rf2-wi900). Same
+          ;; back-fill shape, distinct hook. Falls through to the normal
+          ;; buffer path during the pre-facade-install load-order window.
+          (and (contains? sub-run-ops op)
+               (not (in-flight-cascade? frame-id)))
+          (if-let [record-sub-run! (late-bind/get-fn-cached :epoch/record-sub-run!)]
+            (record-sub-run! frame-id event)
+            (state/buffer-event! frame-id event))
+
+          :else
           (state/buffer-event! frame-id event))))))
 
 ;; ---- cascade-cause (for :rf.view/rendered attribution, rf2-25zo2) --------
