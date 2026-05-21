@@ -24,13 +24,18 @@
                                   slot (fallback: var name) +
                                   [code] chip + hover-highlight
 
-  ## Hover-highlight (rf2-e33ad)
+  ## Hover-highlight (rf2-e33ad / rf2-8l03l)
 
-  Hovering a view row stamps a subtle `:bg-3`-tinted highlight on the
-  rendered view's root DOM node (matched by `data-rf-view` — the
-  attribute the framework already stamps per Spec 006 §View tagging
-  contract). The highlight is background-only — NO border / outline /
-  shadow that would perturb layout. Cleared on mouseleave.
+  Hovering a view row toggles the `.rf-causa-view-highlight` class
+  (rf2-8l03l) onto the rendered view's root DOM node (matched by
+  `data-rf-view` — the attribute the framework already stamps per
+  Spec 006 §View tagging contract). The class (theme/global-styles)
+  paints a translucent PINK DIAGONAL-STRIPE barber-pole via
+  `background-image` — pink-on-fainter-pink so it reads on both light
+  and dark app surfaces, translucent so the view's content shows
+  through. The highlight is background-only — NO border / outline /
+  shadow that would perturb layout. Cleared on mouseleave by removing
+  the class (no residue).
 
   Pure hiccup — frame isolation via the enclosing
   `[rf/frame-provider {:frame :rf/causa}]` in the shell. Subs read on
@@ -225,22 +230,35 @@
     (when (string? file)
       {:file file :line (:line meta) :column (:column meta) :ns (:ns meta)})))
 
-;; ---- hover-highlight (rf2-e33ad) ---------------------------------------
+;; ---- hover-highlight (rf2-e33ad / rf2-8l03l) --------------------------
 ;;
-;; Hover a view-row → stamp a subtle background-only highlight on the
-;; rendered view's root DOM node (matched via the `data-rf-view`
+;; Hover a view-row → stamp a distinctive background-only highlight on
+;; the rendered view's root DOM node (matched via the `data-rf-view`
 ;; attribute the framework already stamps per Spec 006). Cleared on
 ;; mouseleave.
 ;;
+;; Mechanism (rf2-8l03l): toggle the Causa-namespaced
+;; `.rf-causa-view-highlight` class. The class rule (in
+;; `theme/global-styles` `motion-css`) paints a TRANSLUCENT PINK
+;; DIAGONAL-STRIPE barber-pole via `background-image` over the view's
+;; own background — pink-on-fainter-pink so it reads on BOTH light and
+;; dark app surfaces, translucent so the view's content shows through.
+;; A class toggle is cleaner than the old inline stash/restore: the
+;; `background-image` gradient layers OVER the view's own
+;; `background-color` without destroying it, and `clear-highlight!`
+;; simply removes the class to fully restore the node — no
+;; `data-rf-causa-prior-bg` stash, no residue.
+;;
 ;; Why background-only: NO border / outline / shadow that would
-;; perturb layout. Per Mike-direction 2026-05-21 the hover signal must
-;; be subtle and must NOT shift surrounding pixels.
+;; perturb layout. Per Mike-direction 2026-05-21 (rf2-e33ad) the hover
+;; signal must NOT shift surrounding pixels — a `background-image`
+;; paints inside the existing box with zero reflow.
 
-(def ^:private highlight-bg-color
-  "The hover-highlight tint. `:bg-3` is the canonical subtle
-  surface-3 token; light + dark themes both resolve through the
-  CSS-variable layer (rf2-on4cm landed)."
-  (:bg-3 tokens))
+(def ^:private highlight-class
+  "Causa-namespaced class toggled onto the hovered view's
+  `data-rf-view` node. The matching CSS rule (theme/global-styles)
+  paints the pink diagonal-stripe `background-image`."
+  "rf-causa-view-highlight")
 
 (defn- highlight-selector
   "Build the DOM selector for a view-id. Per Spec 006 the attribute
@@ -249,33 +267,25 @@
   (str "[data-rf-view='" (str view-id) "']"))
 
 (defn- apply-highlight!
-  "Stamp the highlight onto every DOM node matching `view-id`. Stashes
-  the prior inline `background-color` in a custom data attribute so
-  `clear-highlight!` can restore the value. CLJS-only side effect."
-  [view-id]
-  (when (and (exists? js/document) view-id)
-    (let [nodes (.querySelectorAll js/document (highlight-selector view-id))]
-      (.forEach nodes
-                (fn [^js node]
-                  (when-not (.getAttribute node "data-rf-causa-prior-bg")
-                    (let [prior (or (.. node -style -backgroundColor) "")]
-                      (.setAttribute node "data-rf-causa-prior-bg" prior)
-                      (set! (.. node -style -backgroundColor)
-                            highlight-bg-color)))))
-      nil)))
-
-(defn- clear-highlight!
-  "Restore the prior inline `background-color` on every DOM node
+  "Toggle the pink diagonal-stripe highlight class onto every DOM node
   matching `view-id`. CLJS-only side effect."
   [view-id]
   (when (and (exists? js/document) view-id)
     (let [nodes (.querySelectorAll js/document (highlight-selector view-id))]
       (.forEach nodes
                 (fn [^js node]
-                  (let [prior (.getAttribute node "data-rf-causa-prior-bg")]
-                    (when prior
-                      (set! (.. node -style -backgroundColor) prior)
-                      (.removeAttribute node "data-rf-causa-prior-bg")))))
+                  (.add (.-classList node) highlight-class)))
+      nil)))
+
+(defn- clear-highlight!
+  "Remove the highlight class from every DOM node matching `view-id`,
+  fully restoring the node to its original look. CLJS-only side effect."
+  [view-id]
+  (when (and (exists? js/document) view-id)
+    (let [nodes (.querySelectorAll js/document (highlight-selector view-id))]
+      (.forEach nodes
+                (fn [^js node]
+                  (.remove (.-classList node) highlight-class)))
       nil)))
 
 ;; ---- header (outcome line; no h1) --------------------------------------
