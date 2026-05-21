@@ -144,7 +144,13 @@
                 ;; sources are bundle-isolated from the examples
                 ;; surface (no example :requires anything under
                 ;; testbeds/, and vice versa).
-                "../testbeds"]
+                "../testbeds"
+                ;; re-frame2-pair.runtime preload (skills/re-frame2-pair/preload).
+                ;; Added so dev builds can be attached to via the
+                ;; re-frame2-pair Tool-Pair transport for live debugging.
+                ;; Dev-only: lives under :devtools :preloads, never ships
+                ;; to release bundles.
+                "../skills/re-frame2-pair/preload"]
  :dependencies [[reagent           "2.0.1"]
                 [metosin/malli     "0.20.1"]
                 [com.pitch/uix.core "1.4.4"]
@@ -553,7 +559,8 @@
    :output-dir "out/examples/parallel-frames"
    :asset-path "."
    :modules    {:main {:init-fn parallel-frames.core/run}}
-   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-causa.preload]}}
 
   ;; Causa panel-gallery testbed (rf2-1o7mp) — visual gallery of Causa
   ;; panels under varying state magnitude. Sources live under
