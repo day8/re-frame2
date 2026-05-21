@@ -129,6 +129,14 @@
 
 (rf/reg-sub ::counter (fn [db _] (:counter db)))
 
+;; Layer-2 derived sub — cascades ← ::counter. Recomputes whenever the
+;; counter value changes (every +/- click), giving Causa's Views panel
+;; live `cascaded?` data: ::counter is L1 (app-db input, cascaded ✗);
+;; ::counter-parity is L2 (sub input, cascaded ✓ ← ::counter).
+(rf/reg-sub ::counter-parity
+  :<- [::counter]
+  (fn [counter _] (if (even? counter) "even" "odd")))
+
 ;; ============================================================================
 ;; TITLE (HTTP) — :title/flow state machine + mock-HTTP fx
 ;; ============================================================================
@@ -273,7 +281,13 @@
 ;; identical to the single monolithic panel it replaced.
 
 (reg-view counter-view [frame-label]
-  (let [counter @(subscribe [::counter])]
+  ;; Subscribing `::counter-parity` is what makes the L2 chain run — a
+  ;; sub only recomputes when a rendered view reads it. The pill below
+  ;; is therefore both a feature display AND the fixture that gives
+  ;; Causa's Views `cascaded?` column live data on every +/- click.
+  (let [counter @(subscribe [::counter])
+        parity  @(subscribe [::counter-parity])
+        even?    (= parity "even")]
     [:div {:style {:margin "0.75em 0 0.5em 0"
                    :display "flex" :gap "8px" :align-items "center"}}
      [:strong "Counter:"]
@@ -288,7 +302,18 @@
       counter]
      [:button {:data-testid (str frame-label "-counter-inc")
                :on-click    #(dispatch [::counter-inc])}
-      "+"]]))
+      "+"]
+     [:span {:data-testid (str frame-label "-counter-parity")
+             :style {:font-size "11px"
+                     :font-weight "bold"
+                     :text-transform "uppercase"
+                     :letter-spacing "0.04em"
+                     :padding "1px 8px"
+                     :border-radius "999px"
+                     :color      (if even? "#1a5" "#a40")
+                     :background  (if even? "#e6f7ee" "#fdece6")
+                     :border      (str "1px solid " (if even? "#bfe6cf" "#f3cab8"))}}
+      parity]]))
 
 (reg-view title-view [frame-label]
   (let [state    @(subscribe [::title-state])
