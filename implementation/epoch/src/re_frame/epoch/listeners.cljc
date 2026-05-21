@@ -112,6 +112,52 @@
         ;; it commits no new epoch and cannot loop back into this path.
         (notify-listeners! updated)))))
 
+;; ---- post-settle sub-run back-fill (rf2-wi900) ----------------------------
+
+(defn- sub-run-row
+  "Project a `:sub/run` trace event into its structured `:sub-runs` row,
+  mirroring `capture/project-all`'s `:sub/run` arm VERBATIM (same slot set
+  + same value-change/cascade attribution threading per rf2-l1jz8).
+  Returns nil for `:rf.sub/skip` — `project-all` projects no `:sub-runs`
+  row for a memo hit, so a skip rides only the `:trace-events` slot
+  (symmetric with `render-row` returning nil for `:rf.view/rendered`)."
+  [event]
+  (when (= :sub/run (:operation event))
+    (let [t (:tags event)]
+      {:sub-id         (:sub-id t)
+       :query-v        (:query-v t)
+       :recomputed?    true
+       :value-changed? (:value-changed? t)
+       :prev-value     (:prev-value t)
+       :value          (:value t)
+       :cascade?       (:cascade? t)
+       :cause-sub      (:cause-sub t)})))
+
+(defn record-sub-run!
+  "Attribute a post-settle sub-run emit to the cascade that CAUSED it
+  (rf2-wi900). The subs sibling of `record-render!`: a `:sub/run` /
+  `:rf.sub/skip` trace fires when a reaction recomputes, and reactions
+  recompute lazily at React deref time — AFTER the causing cascade settled
+  — so it cannot ride the in-flight cascade buffer (there is none). This
+  back-fills the sub-run into the frame's most-recently-settled epoch
+  record and re-fans the updated record out to epoch listeners so snapshot
+  consumers (Causa's per-cascade Views subs table, which caches
+  `epoch-history` at settle time) re-sync to the corrected `:sub-runs` +
+  `:value-changed?` attribution.
+
+  No-op when the frame has no settled epoch yet (a sub-run before the
+  first cascade) or when the target epoch has been evicted from the ring
+  — `back-fill-sub-run!` returns nil and we skip the re-notify."
+  [frame-id event]
+  (when interop/debug-enabled?
+    (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
+      (when-let [updated (state/back-fill-sub-run! frame-id epoch-id
+                                                   event (sub-run-row event))]
+        ;; Re-fan the corrected record so snapshot consumers re-read the
+        ;; ring. Same failure-isolated fan-out + no-loop contract as the
+        ;; render back-fill above.
+        (notify-listeners! updated)))))
+
 (defn on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
   and rf2-v0jwt §Outcomes (`:halted-destroy`):

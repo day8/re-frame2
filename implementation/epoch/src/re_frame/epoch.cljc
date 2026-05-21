@@ -562,6 +562,14 @@
 ;; publishing it through late-bind keeps `capture` free of a require on
 ;; `listeners` (which would close the assembly→capture cycle).
 (late-bind/set-fn! :epoch/record-render!      listeners/record-render!)
+;; rf2-wi900: post-settle sub-run back-fill — the subs sibling of
+;; `:epoch/record-render!`. `capture-event!` routes a `:sub/run` /
+;; `:rf.sub/skip` op that fires with no in-flight cascade (a React-deref-
+;; time async reactive recompute) here so it is attributed to the cascade
+;; that CAUSED it (the frame's most-recently-settled epoch) rather than the
+;; next in-flight cascade — fixing the one-epoch `:sub-runs` /
+;; `:value-changed?` lag visible in Causa's per-cascade Views subs table.
+(late-bind/set-fn! :epoch/record-sub-run!     listeners/record-sub-run!)
 (late-bind/set-fn! :epoch/epoch-history       epoch-history)
 (late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
 (late-bind/set-fn! :epoch/reset-frame-db!     reset-frame-db!)

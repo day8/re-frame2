@@ -289,6 +289,67 @@
                    (assoc history idx r'))))))
     @updated))
 
+;; ---- post-settle sub-run back-fill (rf2-wi900) ----------------------------
+;;
+;; The subs sibling of the render back-fill above. A `:sub/run` (or
+;; `:sub/skip`) trace fires when a reaction recomputes — and reactions
+;; recompute LAZILY at React render (deref) time, which Reagent batches
+;; onto a later tick AFTER the causing cascade settled. So a sub-run, like
+;; a render, lands in the now-empty buffer post-settle and — pre-rf2-wi900
+;; — was harvested by the NEXT cascade's settle, mis-attributing every
+;; reactive recompute (and its `:value-changed?` / `:prev-value` / `:value`
+;; attribution) to cascade N+1 (the one-epoch lag the bead documents,
+;; visibly wrong in Causa's per-cascade Views subs table).
+;;
+;; The fix mirrors the render path exactly: a sub-run that fires with no
+;; in-flight cascade for the frame is back-filled into that frame's
+;; most-recently-settled epoch record (the cascade that dirtied the
+;; reaction's inputs and scheduled the recompute), reusing the same
+;; `last-settled-epoch` map the render back-fill tracks.
+
+(defn back-fill-sub-run!
+  "Append `sub-event` and its projected `:sub-runs` row into the
+  already-committed epoch record identified by `frame-id` + `epoch-id`
+  (rf2-wi900). Returns the updated record (so the caller can re-notify
+  listeners), or nil when the target epoch is no longer in the ring
+  (evicted, or the sub-run fired before any cascade settled).
+
+  `sub-run-row` is the structured `:sub-runs` entry (or nil — a `:sub/skip`
+  op carries no `:sub-runs` row, exactly as `project-all` projects no
+  `:sub-runs` row for it; it rides only the `:trace-events` slot). The
+  mutation rewrites the matching record in the frame's history vector
+  under a single `swap!`; the record stays at its original ring position
+  so epoch ordering is preserved. Symmetric with `back-fill-render!`."
+  [frame-id epoch-id sub-event sub-run-row]
+  (let [updated (atom nil)]
+    (swap! histories update frame-id
+           (fn [history]
+             (let [history (or history [])
+                   idx     (some (fn [i]
+                                   (when (= epoch-id (:epoch-id (nth history i)))
+                                     i))
+                                 (range (count history)))]
+               (if (nil? idx)
+                 history
+                 (let [r  (nth history idx)
+                       r' (cond-> r
+                            ;; Only records that retained their raw trace
+                            ;; stream (within :trace-events-keep) carry the
+                            ;; slot; back-fill it when present so raw-trace
+                            ;; consumers see the post-settle sub-run in the
+                            ;; right cascade.
+                            (contains? r :trace-events)
+                            (update :trace-events (fnil conj []) sub-event)
+                            ;; The structured :sub-runs projection is the
+                            ;; primary consumer surface (Causa Views subs
+                            ;; table). Always present on a built record;
+                            ;; append the projected row.
+                            (some? sub-run-row)
+                            (update :sub-runs (fnil conj []) sub-run-row))]
+                   (reset! updated r')
+                   (assoc history idx r'))))))
+    @updated))
+
 ;; ---- per-cascade capture buffer -------------------------------------------
 ;;
 ;; Per Tool-Pair §Per-cascade capture: the drain runs traces through

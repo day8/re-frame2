@@ -2823,3 +2823,194 @@
           "no record materialised from an orphan render")
       (is (= [] @seen)
           "no listener fan-out for a render with no causing cascade"))))
+
+;; ---- rf2-wi900: post-settle :sub/run attributed to the CAUSING cascade ----
+;;
+;; THE BUG (P1, confirmed live on parallel-frames): the SUBS sibling of
+;; rf2-qs6dl. A `:sub/run` trace fires when a reaction recomputes — and
+;; reactions recompute LAZILY at React deref (render) time, which Reagent
+;; batches onto a later tick AFTER the causing cascade settled. By that
+;; point `settle!` has harvested the cascade buffer and committed the
+;; record, so the sub-run lands in a now-empty buffer and — pre-rf2-wi900
+;; — was harvested by the NEXT cascade's settle, mis-attributing every
+;; reactive recompute (and its `:value-changed?` / `:prev-value` / `:value`
+;; attribution) to cascade N+1 (a one-epoch lag). Causa's per-cascade
+;; Views subs table therefore showed the value-changed checkmark against
+;; the WRONG subs: e.g. a `counter-inc db 1→2` epoch reported the counter
+;; sub `:value 1` (the PRIOR cascade's result) — the tell.
+;;
+;; #1935 (rf2-qs6dl) fixed this for render ops ONLY. This is the IDENTICAL
+;; defect for `:sub/run`, fixed with the same post-settle back-fill.
+;;
+;; WHY THE PRIOR SUITE MISSED IT: the existing sub-run projection tests
+;; drive subs the JVM way — implicitly, INSIDE the synchronous cascade —
+;; and only assert the SHAPE of `:sub-runs`. None modelled the real
+;; browser timing where the sub recompute fires AFTER the cascade settled,
+;; and none asserted cross-cascade attribution (cascade B carries B's
+;; sub-runs and NOT A's). The render counterpart (qs6dl) had this exact
+;; test class; this is the missing subs sibling.
+
+(defn- emit-post-settle-sub-run!
+  "Emit a `:sub/run` trace the way a reaction does at React deref time:
+  op-type `:sub/run`, tags carrying `:sub-id` + `:query-v` + `:frame`
+  plus the rf2-l1jz8 value-change attribution, fired OUTSIDE any cascade
+  (no in-flight buffer). Mirrors `re-frame.subs.memo/validate-and-trace`'s
+  enriched `:sub/run` emit."
+  [frame-id sub-id prev-value value]
+  (trace/emit! :sub/run :sub/run
+               {:sub-id         sub-id
+                :query-v        [sub-id]
+                :frame          frame-id
+                :value-changed? (not= prev-value value)
+                :prev-value     prev-value
+                :value          value
+                :cascade?       false
+                :cause-sub      nil}))
+
+(defn- sub-run-ids
+  "The sub-ids present in an epoch record's `:sub-runs` projection."
+  [record]
+  (->> (:sub-runs record)
+       (map :sub-id)
+       set))
+
+(defn- sub-run-for
+  "The `:sub-runs` entry for `sub-id` in `record`, or nil."
+  [record sub-id]
+  (->> (:sub-runs record)
+       (filter #(= sub-id (:sub-id %)))
+       first))
+
+(deftest post-settle-sub-run-attributed-to-causing-cascade
+  (testing "rf2-wi900 — a sub-run that fires AFTER its cascade settled
+            (React-deref timing) is attributed to the cascade that CAUSED
+            it, not the next in-flight cascade. Two cascades that recompute
+            DIFFERENT subs must each carry their OWN sub-run, with the
+            value-change attribution landing on the right epoch."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed         (fn [_ _] {:title "a" :counter 0}))
+    (rf/reg-event-db :title-loaded (fn [db _] (assoc db :title "loaded")))
+    (rf/reg-event-db :counter-inc  (fn [db _] (update db :counter inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    ;; Cascade A — a title refresh. It settles, THEN (next tick, React
+    ;; deref) the :title sub recomputes "a" → "loaded".
+    (rf/dispatch-sync [:title-loaded] {:frame :test/main})
+    (let [epoch-a (last (rf/epoch-history :test/main))]
+      (emit-post-settle-sub-run! :test/main :title "a" "loaded")
+
+      ;; Cascade B — a counter bump. It settles, THEN (and ONLY) the
+      ;; :counter sub recomputes 0 → 1 post-settle — counter-inc cannot
+      ;; make the :title sub recompute.
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+      (let [epoch-b (last (rf/epoch-history :test/main))]
+        (emit-post-settle-sub-run! :test/main :counter 0 1)
+
+        ;; Re-read the ring — both records were back-filled in place.
+        (let [history (rf/epoch-history :test/main)
+              a       (some #(when (= (:epoch-id epoch-a) (:epoch-id %)) %) history)
+              b       (some #(when (= (:epoch-id epoch-b) (:epoch-id %)) %) history)]
+          (is (= :title-loaded (:event-id a)))
+          (is (= :counter-inc  (:event-id b)))
+
+          ;; The smoking gun, pinned: cascade A carries the :title sub-run
+          ;; and NOT the :counter sub-run; cascade B carries the :counter
+          ;; sub-run and NOT the :title sub-run. Pre-fix, A's :title
+          ;; sub-run leaked into B's epoch (the one-epoch lag), so B would
+          ;; (wrongly) report the :title sub and A would report nothing.
+          (is (contains? (sub-run-ids a) :title)
+              "cascade A's epoch carries its OWN :title sub-run")
+          (is (not (contains? (sub-run-ids a) :counter))
+              "cascade A's epoch does NOT carry cascade B's :counter sub-run")
+          (is (contains? (sub-run-ids b) :counter)
+              "cascade B's epoch carries its OWN :counter sub-run")
+          (is (not (contains? (sub-run-ids b) :title))
+              "cascade B's epoch does NOT carry cascade A's lagged :title
+               sub-run — THE LAG IS GONE")
+
+          ;; The value-change attribution lands on the RIGHT epoch: B's
+          ;; :counter sub-run shows 0 → 1 (the bump this cascade caused),
+          ;; NOT the prior cascade's lagged value. This is the exact
+          ;; defect Mike reproduced: a counter-inc epoch must show the
+          ;; counter's NEW value, not the previous cascade's result.
+          (let [b-counter (sub-run-for b :counter)]
+            (is (= true (:value-changed? b-counter))
+                "B's :counter sub-run is marked value-changed")
+            (is (= 0 (:prev-value b-counter))
+                "B's :counter sub-run's :prev-value is the pre-bump value")
+            (is (= 1 (:value b-counter))
+                "B's :counter sub-run's :value is THIS cascade's result
+                 (1), not the lagged prior value")))))))
+
+(deftest post-settle-sub-run-back-fill-renotifies-listeners
+  (testing "rf2-wi900 — back-filling a post-settle sub-run re-fans the
+            corrected record out to epoch listeners so snapshot consumers
+            (Causa's per-cascade Views subs table, which caches
+            epoch-history at settle time) re-sync to the corrected
+            :sub-runs + :value-changed? attribution"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      (let [settle-fanouts (count @seen)]
+        ;; A post-settle sub-run for the :inc epoch fires (React deref).
+        (emit-post-settle-sub-run! :test/main :n 0 1)
+        (is (= (inc settle-fanouts) (count @seen))
+            "the back-fill triggered exactly one additional listener fan-out")
+        (let [renotified (last @seen)]
+          (is (= :inc (:event-id renotified))
+              "the re-fanned record is the :inc cascade's (the causing epoch)")
+          (is (contains? (sub-run-ids renotified) :n)
+              "the re-fanned record carries the back-filled sub-run")
+          (is (= 1 (:value (sub-run-for renotified :n)))
+              "the re-fanned sub-run carries this cascade's value"))))))
+
+(deftest in-flight-sub-run-still-rides-current-cascade
+  (testing "rf2-wi900 — a sub-run that fires WITH a cascade in flight
+            (synchronous deref — a handler that subscribes, an SSR render)
+            belongs to that cascade and is buffered normally, NOT
+            back-filled."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    ;; A handler that emits a :sub/run WHILE the cascade is draining (an
+    ;; in-flight recompute — the buffer already holds :event/run-start).
+    (rf/reg-event-db :sub-during
+      (fn [db _]
+        (trace/emit! :sub/run :sub/run
+                     {:sub-id         :inline-sub
+                      :query-v        [:inline-sub]
+                      :frame          :test/main
+                      :value-changed? true
+                      :prev-value     nil
+                      :value          :computed
+                      :cascade?       false
+                      :cause-sub      nil})
+        (update db :n inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:sub-during] {:frame :test/main})
+
+    (let [epoch (last (rf/epoch-history :test/main))]
+      (is (= :sub-during (:event-id epoch)))
+      (is (contains? (sub-run-ids epoch) :inline-sub)
+          "an in-flight sub-run rides its own cascade's epoch (buffered,
+           not back-filled to a prior settled epoch)"))))
+
+(deftest post-settle-sub-run-before-any-cascade-is-noop
+  (testing "rf2-wi900 — a sub-run that fires before any cascade has settled
+            (no last-settled epoch for the frame) is a silent no-op: no
+            record exists to back-fill, no listener fan-out, no throw."
+    (rf/reg-frame :test/main {})
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      ;; No cascade has run — last-settled-epoch is empty for the frame.
+      (emit-post-settle-sub-run! :test/main :orphan-sub nil :computed)
+      (is (= [] (rf/epoch-history :test/main))
+          "no record materialised from an orphan sub-run")
+      (is (= [] @seen)
+          "no listener fan-out for a sub-run with no causing cascade"))))
