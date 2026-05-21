@@ -196,6 +196,18 @@
             "halted-destroy carries nil :db-after")))))
 
 ;; ---- 2. projected-record ---------------------------------------------------
+;;
+;; This section pins the projection emission-site contract from the
+;; privacy angle: per-leaf substitution (sensitive / large), bookkeeping
+;; pass-through, nil-input safety, and history-walk shape. It deliberately
+;; does NOT re-assert projection IDEMPOTENCY (re-projecting an already-
+;; projected record is a no-op at the substitution points) — that
+;; invariant has its authoritative pins in
+;; `epoch_mcp_egress_conformance_test`
+;; (`forwarder-projected-record-is-sensitive-idempotent` :255 +
+;; `forwarder-projected-record-is-large-idempotent` :305), with the
+;; redact×project composition cases in `epoch_redact_fn_projection_test`.
+;; Keep idempotency assertions there; do not duplicate them here (rf2-zymix).
 
 (deftest projected-record-redacts-sensitive-in-db-after
   (testing "schema-declared sensitive path in :db-after lands as
