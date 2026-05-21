@@ -2080,6 +2080,61 @@
           (is (= "fragments" (-> second-ev :tags :next-fragment))
               "second transition: next-fragment is the new value"))))))
 
+;; ---- rf2-8oxj6: popstate honours the fragment-only rule ----------------
+;;
+;; Spec 012 §Fragments rules 3-4: a fragment-only URL change MUST NOT
+;; allocate a new nav-token and MUST NOT re-fire :on-match. Back/Forward
+;; (popstate) is wired through :rf.route/handle-url-change. Before the
+;; fix the fragment-only short-circuit lived ONLY in
+;; :rf.route/transitioned, so popstate to a same-page #fragment took the
+;; full-rewrite path → fresh nav-token + :on-match re-fire (the exact
+;; data-refetch thrash the rule forbids). The branch now lives in the
+;; shared `url-change-fx`, so BOTH events honour it.
+
+(deftest popstate-fragment-only-change-no-token-no-on-match-refire
+  (testing "rf2-8oxj6: :rf.route/handle-url-change (popstate) to a URL
+            differing ONLY in its #fragment does NOT allocate a new
+            nav-token and does NOT re-fire :on-match (Spec 012 §Fragments
+            rules 3-4)"
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event-db :docs/load
+                       (fn [db _]
+                         (swap! on-match-calls inc)
+                         db))
+      (rf/reg-route :route/docs {:path     "/docs/:page"
+                                 :on-match [[:docs/load]]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      ;; Land on /docs/routing via popstate (handle-url-change). This is
+      ;; a full nav: allocates nav-1 and fires :on-match once.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing"])
+      (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+        (is (= :route/docs (:id slice)) "landed on /docs/routing")
+        (is (= "nav-1" (:nav-token slice)) "first nav allocated nav-1")
+        (is (= 1 @on-match-calls) ":on-match fired once on the full nav"))
+
+      (let [traces (atom [])]
+        (rf/register-listener! ::popstate-frag (fn [ev] (swap! traces conj ev)))
+        ;; Back/Forward to the SAME page, only the #fragment differs.
+        ;; This is the popstate path (handle-url-change), the regression
+        ;; site: must short-circuit, NOT full-rewrite.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#section-2"])
+        (rf/unregister-listener! ::popstate-frag)
+        (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+          (is (= "section-2" (:fragment slice))
+              "fragment-only change updates :fragment")
+          (is (= "nav-1" (:nav-token slice))
+              "rule 3: no NEW nav-token allocated on fragment-only popstate")
+          (is (= 1 @on-match-calls)
+              "rule 4: :on-match did NOT re-fire on fragment-only popstate"))
+        ;; The fragment-only branch emits :rf.route/fragment-changed and
+        ;; NEVER a :rf.route.nav-token/allocated on the same drain.
+        (is (some #(= :rf.route/fragment-changed (:operation %)) @traces)
+            "fragment-only popstate emits :rf.route/fragment-changed")
+        (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
+            "fragment-only popstate emits NO :rf.route.nav-token/allocated")))))
+
 ;; ---- T8: :fragment in slice after URL-driven nav -----------------------
 
 (deftest fragment-in-slice-after-url-driven-nav
@@ -2497,6 +2552,47 @@
           "empty splat tail → nil (regex requires non-empty capture)")
       (is (nil? (routing.match/match-against compiled "/files"))
           "missing splat tail → nil"))))
+
+;; ---- rf2-yjali: named splat out-ranks the bare catch-all ----------------
+;;
+;; Spec 012 §Route ranking algorithm rule 4: "Rest params beat
+;; catch-all/not-found." The catch-all is EXACTLY the bare `/*` pattern
+;; (`is-catch-all? (= pattern "/*")` in the spec pseudocode). A NAMED
+;; splat (`/*rest`) is a rest param, so it must out-rank `/*`. Before the
+;; fix `parse-pattern`'s classifier flagged ANY single-splat-only pattern
+;; as catch-all, so `/*rest` tied with `/*` at rank element 4 instead of
+;; beating it.
+
+(deftest parse-pattern-named-splat-outranks-bare-catch-all
+  (testing "rf2-yjali — only the bare `/*` is catch-all; a named splat
+            `/*rest` ranks above it at rank element 4 (Spec 012 rule 4)"
+    (let [catch-all (:rank (routing.match/parse-pattern "/*"))
+          rest-splat (:rank (routing.match/parse-pattern "/*rest"))]
+      ;; Rank element 3 (0-indexed) is the rule-4 catch-all discriminator:
+      ;; 0 = catch-all (less specific), 1 = not catch-all (more specific).
+      (is (= 0 (nth catch-all 3))
+          "bare `/*` is classified as the catch-all (rank elem 4 = 0)")
+      (is (= 1 (nth rest-splat 3))
+          "named `/*rest` is NOT the catch-all (rank elem 4 = 1)")
+      ;; The two patterns are identical on every other rank element
+      ;; (statics, length, splat, optional) — the catch-all discriminator
+      ;; is the ONLY difference, and it must make `/*rest` win.
+      (is (= (assoc catch-all 3 :x) (assoc rest-splat 3 :x))
+          "the two ranks differ ONLY at the rule-4 catch-all element")
+      (is (pos? (compare rest-splat catch-all))
+          "lexicographic compare: `/*rest` out-ranks `/*` (rule 4)"))))
+
+(deftest match-url-named-splat-wins-over-bare-catch-all
+  (testing "rf2-yjali — when both `/*rest` and `/*` are registered, a
+            multi-segment URL resolves to the named-splat route, not the
+            catch-all (Spec 012 §Route ranking rule 4)"
+    (rf/reg-route :route/catch-all {:path "/*"})
+    (rf/reg-route :route/rest      {:path "/*rest"})
+    (let [m (routing/match-url "/some/deep/path")]
+      (is (= :route/rest (:route-id m))
+          "named-splat route wins the rule-4 tiebreak against bare catch-all")
+      (is (= {:rest "some/deep/path"} (:params m))
+          "the named splat captures the whole tail under :rest"))))
 
 (deftest match-against-root-pattern-matches-root-path
   (testing "rf2-aleg9 — the special `/` pattern matches the root URL

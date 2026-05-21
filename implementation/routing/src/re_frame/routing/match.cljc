@@ -261,8 +261,17 @@
            counts  {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
       (if-not (< i n)
         (let [{:keys [static total splat optional named]} counts
+              ;; Spec 012 §Route ranking algorithm rule 4: the catch-all
+              ;; is EXACTLY the bare `/*` pattern — a single unnamed splat
+              ;; with no other segments. A NAMED splat (`/*rest`) is a rest
+              ;; param and out-ranks the catch-all, so it MUST NOT be
+              ;; classified here. The bare splat carries an empty capture
+              ;; name (validate-route-pattern! permits `/*` with empty nm);
+              ;; a named splat records its name, so require the lone
+              ;; captured name to be empty to qualify as catch-all.
               catch-all? (and (= 1 total) (= 1 splat)
-                              (zero? static) (zero? named) (zero? optional))]
+                              (zero? static) (zero? named) (zero? optional)
+                              (= [""] names))]
           {:regex   (re-pattern (apply str (conj parts "$")))
            :names   names
            ;; `:groups` maps each optional-group's opening '{' index to

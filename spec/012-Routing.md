@@ -87,7 +87,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Per rf2-dn26r.
 - `:rf.route.nav-token/allocated` — fresh nav-token cascade begins.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
-- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf.route/transitioned`, which fires on every URL transition. Renamed from `:rf.route/fragment-changed` per rf2-cj9fn so the trace op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event.
+- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf.route/transitioned`, which fires on every URL transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event (rf2-cj9fn).
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
 - `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract per rf2-5pyyl; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
@@ -795,7 +795,7 @@ Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url`
 When the new URL differs from the current URL **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime:
 
 1. Updates `:fragment` in the `:rf/route` slice.
-2. Emits a `:rf.route/fragment-changed` trace event (rf2-cj9fn; pre-rename `:rf.route/fragment-changed`) with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
+2. Emits a `:rf.route/fragment-changed` trace event (rf2-cj9fn) with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
 3. Does **NOT** allocate a new `:nav-token`.
 4. Does **NOT** re-fire `:on-match`.
 
