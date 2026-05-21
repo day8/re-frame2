@@ -112,6 +112,12 @@ nav:
     - "7. Hydration debugger": causa/07-hydration.md
     - "8. Machine inspector": causa/08-machine-inspector.md
     - "9. App-DB diff": causa/09-app-db-diff.md
+    - "API reference":
+      - "Overview": causa/api/index.md
+      - "Mount control": causa/api/mount-control.md
+      - "Configuration keys": causa/api/config-keys.md
+      - "Runtime seam": causa/api/runtime-seam.md
+      - "Reference": causa/api/reference.md
 
   - Skills:
     - Overview: skills/index.md
