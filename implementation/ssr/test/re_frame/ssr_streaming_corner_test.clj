@@ -80,9 +80,16 @@
           "fallback still materialised in the shell")
       ;; Drain the continuation — the subtree is nil per the n=0 branch;
       ;; emit-element returns "" for nil, so the resolved html is empty.
+      ;; rf2-usio0 — drain the shell-produced entry VERBATIM (no manual
+      ;; `(assoc … :fallback …)`). The entry must already carry its
+      ;; declared :fallback from `record-continuation!`; re-injecting it
+      ;; by hand re-introduces exactly the mask the rf2-405ld fix removed.
       (let [fid    (make-server-frame)
-            entry  (assoc (first continuations) :fallback [:p "loading"])
+            entry  (first continuations)
             result (streaming/render-continuation fid entry)]
+        (is (= [:p "loading"] (:fallback entry))
+            "record-continuation! stored the declared :fallback on the
+             zero-body entry (drained verbatim, not re-injected)")
         (is (not (:failed? result))
             "nil subtree is NOT a failure — render-to-string treats it
              as an empty render per the emit-element nil branch")
@@ -107,9 +114,14 @@
       (is (= 1 (count continuations))
           "multi-child body still registers ONE continuation — the
            fragment wraps all children")
+      ;; rf2-usio0 — drain the entry verbatim; the declared :fallback
+      ;; must ride from `record-continuation!`, not be re-injected here.
       (let [fid    (make-server-frame)
-            entry  (assoc (first continuations) :fallback [:p "loading"])
+            entry  (first continuations)
             result (streaming/render-continuation fid entry)]
+        (is (= [:p "loading"] (:fallback entry))
+            "record-continuation! stored the declared :fallback on the
+             multi-child entry")
         (is (not (:failed? result)))
         (is (= "<p>first</p><p>second</p><p>third</p>" (:html result))
             "all three children resolved — fragment splices them
@@ -159,11 +171,17 @@
       ;; non-streaming emitter, which surfaces an exception on the
       ;; unrecognised :rf/suspense-boundary head — caught as a
       ;; failure and inline-fallback'd. Pin THAT contract.
+      ;; rf2-usio0 — drain the outer entry verbatim; its declared
+      ;; :fallback rides from `record-continuation!`. Re-injecting it by
+      ;; hand masks an empty-fallback regression on the fail-soft path.
       (let [fid    (make-server-frame)
-            entry  (assoc (first continuations) :fallback [:p "outer loading"])
+            entry  (first continuations)
             captured (atom [])
             result (with-trace-capture captured
                      #(streaming/render-continuation fid entry))]
+        (is (= [:p "outer loading"] (:fallback entry))
+            "record-continuation! stored the outer boundary's declared
+             :fallback on the entry")
         ;; The pure render-continuation path (without the ring
         ;; adapter's per-chunk re-walker) DOES fail on the buried
         ;; suspense-boundary keyword — which exercises the
@@ -253,9 +271,15 @@
           "only one continuation survives dedup across three duplicates")
       ;; Drain it — the body should be the LAST registration's body
       ;; (third), confirming last-write-wins.
+      ;; rf2-usio0 — drain verbatim; last-write-wins means the surviving
+      ;; entry carries the THIRD boundary's declared :fallback, threaded
+      ;; through `record-continuation!` (not re-injected by hand).
       (let [fid    (make-server-frame)
-            entry  (assoc (first continuations) :fallback [:p "third fallback"])
+            entry  (first continuations)
             result (streaming/render-continuation fid entry)]
+        (is (= [:p "third fallback"] (:fallback entry))
+            "the surviving entry carries the LAST registration's declared
+             :fallback — last-write-wins applies to :fallback too")
         (is (str/includes? (:html result) "third body")
             "the resolved chunk carries the LAST-registered body — not
              the first or middle. Per Spec 011 §Boundary nesting and
@@ -367,7 +391,12 @@
                 {:id :after-destroy :fallback [:p "loading"]}
                 [:p "body"]]
           {:keys [continuations]} (streaming/render-shell tree)
-          entry (assoc (first continuations) :fallback [:p "loading"])]
+          ;; rf2-usio0 — drain the entry verbatim; the declared :fallback
+          ;; rides from `record-continuation!`. Re-injecting it masks an
+          ;; empty-fallback regression on the fail-soft path.
+          entry (first continuations)]
+      (is (= [:p "loading"] (:fallback entry))
+          "record-continuation! stored the declared :fallback on the entry")
       ;; Destroy the frame.
       (rf/destroy-frame! fid)
       ;; Now drive the continuation against the dead frame-id. The
