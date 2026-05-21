@@ -92,6 +92,11 @@
                            [:rf/spawned parent-id invoke-id])
         children   (when (map? join-state) (:children join-state))]
     (doseq [[child-id spawned-id] children]
+      ;; (rf2-iilco) `destroy-single-actor!` runs the child's `:exit`
+      ;; cascade before teardown; we fire `:rf.machine/destroyed` AFTER it
+      ;; so the trace lands after `:exit` — the same exit-then-destroyed
+      ;; ordering `destroy-single!` and `finalize-machine` use.
+      (destroy-single-actor! frame-id spawned-id)
       ;; rf2-gn80 D6 — `:reason :explicit` discriminates "the parent cascade
       ;; tore the child down" from `:rf.machine/finished` (the auto-destroy
       ;; on `:final?`). Per-child fires omit `:system-id` (the join-state's
@@ -100,8 +105,7 @@
                                :actor-id  spawned-id
                                :parent-id parent-id
                                :spawn-id invoke-id
-                               :child-id  child-id})
-      (destroy-single-actor! frame-id spawned-id))
+                               :child-id  child-id}))
     ;; Clear the join-state slot via the unified projection (slot-only).
     (frame/swap-frame-db! frame-id
                           (fn [db]
@@ -185,17 +189,16 @@
                            (and tracked? (some? slot-id))))]
     (when live?
       (let [released-sid (teardown/find-system-id-for-actor old-db actor-id)]
-        ;; rf2-gn80 D6 — `:reason :explicit` discriminates "an action / fx
-        ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
-        ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
-        ;; the destroyed-trace-shape contract for the `destroy-single!` site.
-        (traces/emit-destroyed! {:frame     frame-id
-                                 :actor-id  actor-id
-                                 :system-id released-sid
-                                 :parent-id parent-id
-                                 :spawn-id invoke-id})
         ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
-        ;; BEFORE the teardown projection clears the snapshot.
+        ;; BEFORE the teardown projection clears the snapshot — and
+        ;; BEFORE the `:rf.machine/destroyed` trace (rf2-iilco). Per Spec
+        ;; 005 §Declarative `:spawn` §Composition with explicit `:entry` /
+        ;; `:exit` (005:2138) the `:exit` action gets to read the actor's
+        ;; final snapshot before the auto-destroy clears it, so a consumer
+        ;; observing the db between `:exit` and `:rf.machine/destroyed`
+        ;; sees the live snapshot. This mirrors `finalize-machine`'s order
+        ;; (exit cascade → teardown → destroyed) so both destroy entry-
+        ;; points share one ordering convention.
         (exit-cascade/run-child-exit! frame-id actor-id)
         (finalize/abort-actor-in-flight-http! actor-id)
         (frame/swap-frame-db! frame-id
@@ -204,6 +207,17 @@
                                          db {:actor-id  actor-id
                                              :parent-id parent-id
                                              :spawn-id invoke-id}))))
+        ;; rf2-gn80 D6 — `:reason :explicit` discriminates "an action / fx
+        ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
+        ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
+        ;; the destroyed-trace-shape contract for the `destroy-single!` site.
+        ;; `released-sid` was resolved from `old-db` above, before teardown
+        ;; mutated the reverse index — symmetric with `finalize-machine`.
+        (traces/emit-destroyed! {:frame     frame-id
+                                 :actor-id  actor-id
+                                 :system-id released-sid
+                                 :parent-id parent-id
+                                 :spawn-id invoke-id})
         (traces/emit-system-id-released! frame-id released-sid actor-id)
         ;; Unregister the live handler. Last so any in-flight trace emit
         ;; against the actor still resolves before the slot disappears.
