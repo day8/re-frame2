@@ -51,14 +51,7 @@
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         ;; `-e :expected-fail` excludes deftests carrying the
-         ;; `^:expected-fail` metadata from the default test sweep. Such
-         ;; tests pin contracts whose backing fix has not yet landed
-         ;; (e.g. rf2-cdh9h pins the cycle-rollback-on-replacement
-         ;; contract; the sibling fix rf2-7csri is still open). Once the
-         ;; matching fix merges, drop the metadata from the test and the
-         ;; assertion flips back into the default sweep automatically.
-         :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":expected-fail"]}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this
