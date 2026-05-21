@@ -19,8 +19,7 @@
   Per Phase-1 finding (rf2-0wi86): no two atoms are ever held in a
   single critical section, so a tiny state ns owns all of them with
   zero locking/ordering subtleties — the cross-cutting coupling is
-  cosmetic, not structural."
-  (:require [re-frame.interop :as interop]))
+  cosmetic, not structural.")
 
 ;; ---- configuration --------------------------------------------------------
 

@@ -487,9 +487,9 @@
   `:rf.size/large-elided` markers per the §Composition rule. The
   record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
   `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
-  `:rf.epoch/sensitive?`) and the cheap structured projections
-  (`:sub-runs`, `:renders`, `:effects`) pass through unchanged —
-  they carry no app-db material.
+  `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`)
+  and the cheap structured projections (`:sub-runs`, `:renders`,
+  `:effects`) pass through unchanged — they carry no app-db material.
 
   Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
   single normative projection emission site for off-box egress. Tools
