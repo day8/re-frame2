@@ -43,7 +43,7 @@
   no Reagent / UIx / Helix references. Frame isolation comes from the
   enclosing `[rf/frame-provider {:frame :rf/causa}]` in `shell.cljs`."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.chart.layout :as chart-layout]
+            [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]

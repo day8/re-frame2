@@ -89,13 +89,14 @@
          day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
 
          ;; Per rf2-o9arp — the MachineChart implementation lives in
-         ;; day8/re-frame2-machines-viz. Causa's panel imports
-         ;; (`day8.re-frame2-causa.chart.{svg,layout,elk-layout}`)
-         ;; are now thin re-export shims pointing at the machines-viz
-         ;; canonical surface. This makes the chart embeddable in
-         ;; non-Causa hosts (Story, the read-only viewer page, direct
-         ;; user-app embeds) without dragging Causa's full panel
-         ;; chrome along.
+         ;; day8/re-frame2-machines-viz. Causa's panels require the
+         ;; canonical machines-viz chart surface directly
+         ;; (`day8.re-frame2-machines-viz.chart.layout`, the chart
+         ;; primitives, etc.); the old `day8.re-frame2-causa.chart.*`
+         ;; re-export shims were removed (rf2-blli8). This makes the
+         ;; chart embeddable in non-Causa hosts (Story, the read-only
+         ;; viewer page, direct user-app embeds) without dragging
+         ;; Causa's full panel chrome along.
          day8/re-frame2-machines-viz {:local/root "../machines-viz"}
 
          ;; Per rf2-wl5pa — Causa targets day8/reagent-slim (the rewrite)

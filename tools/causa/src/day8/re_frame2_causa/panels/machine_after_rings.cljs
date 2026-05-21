@@ -81,7 +81,7 @@
   enclosing `[rf/frame-provider {:frame :rf/causa}]` in `shell.cljs`."
   (:require [re-frame.core :as rf]
             [re-frame.interop :as interop]
-            [day8.re-frame2-causa.chart.layout :as chart-layout]
+            [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as mv-after-rings]
             [day8.re-frame2-causa.panels.machine-after-rings-helpers
