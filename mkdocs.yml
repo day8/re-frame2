@@ -114,15 +114,25 @@ plugins:
         background_color: "#1976d2"  # Material `blue` primary
         color: "#ffffff"
 
-# Klipse live-code bootstrap (rf2-zr5r5). Small, site-wide loader that does
-# NOTHING unless the page actually has ```klipse cells (only docs/cljs/index.md
-# does), at which point it injects the CodeMirror CSS + the vendored ~7 MB
-# Klipse plugin once and re-mounts cells on later instant navigations. Lives
-# here (re-run by Material on every instant page swap) rather than as an inline
-# <script> on the page (which `navigation.instant` does NOT re-execute). The
-# heavy plugin is still loaded ONLY on the cljs page — see the file's header.
+# Live-code bootstraps. Both are small, site-wide loaders that do NOTHING
+# unless the page actually has live cells, and both ride Material's instant-nav
+# (re-run on every page swap; subscribe once to document$).
+#
+#   - Klipse (rf2-zr5r5): the incumbent. Keys off ```klipse fences
+#     (.language-klipse); injects the vendored ~7 MB plugin only on the cljs page.
+#
+#   - Playground (rf2-y99zt, Phase 1): the roll-your-own successor — CM6 +
+#     @nextjournal/clojure-mode + Scittle (SCI). Keys off the NEW ```cljs fence
+#     (.language-cljs) so it coexists with Klipse during the transition; injects
+#     the ~183 KB-gz Scittle <script> only on pages with ```cljs cells. Built by
+#     tools/playground (esbuild). The cutover — flip the docs/cljs cells from
+#     ```klipse to ```cljs and delete Klipse — is Phase 1b (rf2-j06sy).
 extra_javascript:
   - klipse/klipse-bootstrap.js
+  - cljs/playground.js
+
+extra_css:
+  - cljs/playground.css
 
 extra:
   social:
@@ -264,6 +274,16 @@ markdown_extensions:
       custom_fences:
         - name: klipse
           class: language-klipse
+          format: !!python/name:pymdownx.superfences.fence_code_format
+        # Roll-your-own playground cells (rf2-y99zt, Phase 1). ```cljs fences
+        # emit <pre class="language-cljs">; tools/playground's bootstrap
+        # (cljs/playground.js) turns each into a CM6 editor evaluated by
+        # Scittle. NEW class (vs Klipse's .language-klipse) so the two coexist
+        # during the transition. The static (no-JS) fallback gets clojure-style
+        # syntax highlighting via the class pymdownx emits. Cutover to ```cljs +
+        # Klipse deletion is Phase 1b (rf2-j06sy).
+        - name: cljs
+          class: language-cljs
           format: !!python/name:pymdownx.superfences.fence_code_format
         # Mermaid diagrams (rf2-9ewbc). Material renders ```mermaid fences
         # natively (it ships Mermaid and wires the renderer when this fence

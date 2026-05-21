@@ -1,0 +1,23 @@
+{
+  "name": "rf2-docs-cljs-playground",
+  "version": "0.1.0",
+  "private": true,
+  "description": "re-frame2 docs/cljs live-CLJS-cell playground (Phase 1, rf2-y99zt): CM6 + @nextjournal/clojure-mode + Scittle. esbuild IIFE bundle -> docs/cljs/playground.js, instant-nav-safe extra_javascript bootstrap. Supersedes Klipse (cutover deferred to Phase 1b, rf2-j06sy).",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/playground.mjs --bundle --minify --format=iife --outfile=../../docs/cljs/playground.js && node scripts/copy-css.mjs",
+    "build:dev": "esbuild src/playground.mjs --bundle --format=iife --outfile=../../docs/cljs/playground.js && node scripts/copy-css.mjs",
+    "smoke": "node test/smoke.test.mjs",
+    "browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.43.0",
+    "@nextjournal/clojure-mode": "0.3.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "playwright": "^1.60.0"
+  }
+}

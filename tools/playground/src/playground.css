@@ -1,0 +1,55 @@
+/*
+ * re-frame2 docs/cljs playground styles (Phase 1, rf2-y99zt).
+ *
+ * Styles the live-CLJS cells produced by playground.js. Uses Material theme
+ * variables where possible so light/dark modes both look right. Built/copied
+ * to docs/cljs/playground.css and wired via mkdocs `extra_css`.
+ */
+
+.cljs-cell {
+  margin: 1rem 0;
+}
+
+.cljs-editor .cm-editor {
+  border-radius: 4px;
+}
+
+/* Focused editor: Material accent ring. */
+.cljs-editor .cm-editor.cm-focused {
+  outline: 2px solid var(--md-accent-fg-color, #526cfe);
+  outline-offset: 0;
+}
+
+.cljs-result {
+  margin-top: 4px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--md-code-bg-color, #f4f7f4);
+  font-family: var(--md-code-font, monospace);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1.4em;
+}
+
+.cljs-result--err {
+  background: var(--md-typeset-del-color, #fdecec);
+  color: #a40000;
+}
+
+[data-md-color-scheme="slate"] .cljs-result--err {
+  color: #ff8a8a;
+}
+
+.cljs-out {
+  color: var(--md-default-fg-color--light, #555);
+}
+
+.cljs-val {
+  font-weight: 600;
+  color: var(--md-typeset-ins-color, #1a5e1a);
+}
+
+[data-md-color-scheme="slate"] .cljs-val {
+  color: #6ee36e;
+}
