@@ -4,7 +4,7 @@
   `reg-app-schemas` when the registered schema is NOT a Malli vector
   form (rf2-jsokn / rf2-ycqtv finding #12).
 
-  Background — Spec 010 §The `:spec` value is opaque to re-frame: the
+  Background — Spec 010 §The `:schema` value is opaque to re-frame: the
   schemas-walker (`re-frame.schemas.walker`) is pure data and handles
   only vector-form Malli EDN. Compiled `m/schema` values and registry
   refs (`:my/user-schema`) are treated as opaque leaves; per-slot

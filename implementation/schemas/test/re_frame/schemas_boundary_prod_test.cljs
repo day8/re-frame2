@@ -61,7 +61,7 @@
   (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:advanced`
             + `goog.DEBUG=false` the boundary interceptor takes its
             production validation branch. A malformed event against the
-            handler's `:spec` causes `:rf/skip-handler?` to be set on
+            handler's `:schema` causes `:rf/skip-handler?` to be set on
             the context, and the handler is NOT invoked.
 
             Under the same gate, the router's step-1 `validate-event!`
@@ -80,7 +80,7 @@
 (deftest boundary-passes-valid-event-through-in-prod
   (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:advanced`
             + `goog.DEBUG=false` a valid event against the handler's
-            `:spec` flows through the boundary interceptor unchanged.
+            `:schema` flows through the boundary interceptor unchanged.
             The handler runs exactly once."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict

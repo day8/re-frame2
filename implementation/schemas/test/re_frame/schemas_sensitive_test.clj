@@ -317,7 +317,7 @@
             "structural :cofx-id survives")))))
 
 (deftest cofx-validation-redacts-when-schema-container-sensitive
-  (testing "A container-level :sensitive? on the cofx :spec also triggers
+  (testing "A container-level :sensitive? on the cofx :schema also triggers
             redaction even when the cofx-meta doesn't carry the flag"
     (rf/reg-cofx :secret-blob
       {:schema [:string {:sensitive? true}]}

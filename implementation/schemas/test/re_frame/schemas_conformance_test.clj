@@ -263,7 +263,7 @@
                           (assoc acc k (mapv first pairs)))
                         {}))]
     ;; ---- cofx ----------------------------------------------------------
-    ;; Per Spec 010 §step 2 (rf2-7leq): cofx registrations carry :spec
+    ;; Per Spec 010 §step 2 (rf2-7leq): cofx registrations carry :schema
     ;; metadata; the runtime calls `:schemas/validate-cofx!` after
     ;; injection. We register both bodies AND any registry-only entries.
     (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]
@@ -273,7 +273,7 @@
               handler (realise-cofx-handler cofx-id body)]
           (rf/reg-cofx cofx-id (assoc meta :handler-fn handler) handler))))
     ;; ---- events --------------------------------------------------------
-    ;; Per Spec 010 §step 1 (rf2-jwm4): event meta carries :spec; the
+    ;; Per Spec 010 §step 1 (rf2-jwm4): event meta carries :schema; the
     ;; runtime calls `:schemas/validate-event!` before the handler runs.
     ;; Per rf2-g25p: scan the body for [:cofx-key K]; for each K,
     ;; auto-wire (inject-cofx C) for every C whose namespace matches K.
@@ -298,7 +298,7 @@
                   (rf/reg-event-fx id interceptors handler)
                   (rf/reg-event-fx id handler))))))
     ;; ---- subs ----------------------------------------------------------
-    ;; Per Spec 010 §step 6 (rf2-wcam): sub meta carries :spec; the
+    ;; Per Spec 010 §step 6 (rf2-wcam): sub meta carries :schema; the
     ;; runtime calls `:schemas/validate-sub!` after each compute.
     (doseq [[id steps] (:sub hmap)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
