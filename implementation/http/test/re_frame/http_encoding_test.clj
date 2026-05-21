@@ -151,3 +151,80 @@
         (is (and (<= 1500 s) (<= s 2500))
             (str "post-clamp jittered sample " s " sits in ±25% window
                   around clamp (1500..2500)"))))))
+
+;; ---- build-reply-event — Spec 014 §Reply addressing -----------------------
+;;
+;; The four branches: explicit nil (silenced), explicit vector (append
+;; payload), default/omitted (back to originator with :rf/reply merged),
+;; and — per rf2-smqkq — an explicitly supplied non-vector non-nil value
+;; (malformed) which must throw rather than silently default-merge.
+
+(def ^:private reply-payload {:kind :success :value 42})
+
+(deftest build-reply-event-explicit-nil-is-silenced
+  (testing "explicit :on-success nil silences the reply"
+    (is (nil? (encoding/build-reply-event
+                {:origin-event  [:items/load {:page 1}]
+                 :explicit-on   {:supplied? true :value nil}
+                 :reply-payload reply-payload})))))
+
+(deftest build-reply-event-explicit-vector-appends-payload
+  (testing "explicit event vector gets the reply payload appended as last arg"
+    (is (= [:items/loaded reply-payload]
+           (encoding/build-reply-event
+             {:origin-event  [:items/load {:page 1}]
+              :explicit-on   {:supplied? true :value [:items/loaded]}
+              :reply-payload reply-payload})))
+    (testing "extra args on the supplied vector are preserved before the payload"
+      (is (= [:items/loaded 7 reply-payload]
+             (encoding/build-reply-event
+               {:origin-event  [:items/load]
+                :explicit-on   {:supplied? true :value [:items/loaded 7]}
+                :reply-payload reply-payload}))))))
+
+(deftest build-reply-event-default-merges-into-originator
+  (testing "omitted handler routes back to the originating event-id with
+            :rf/reply merged into the original message map"
+    (is (= [:items/load {:page 1 :rf/reply reply-payload}]
+           (encoding/build-reply-event
+             {:origin-event  [:items/load {:page 1}]
+              :explicit-on   {:supplied? false :value nil}
+              :reply-payload reply-payload})))
+    (testing "a non-map original message yields a fresh {:rf/reply ...} map"
+      (is (= [:items/load {:rf/reply reply-payload}]
+             (encoding/build-reply-event
+               {:origin-event  [:items/load]
+                :explicit-on   {:supplied? false :value nil}
+                :reply-payload reply-payload}))))))
+
+(deftest build-reply-event-non-vector-explicit-throws
+  (testing "rf2-smqkq — an explicitly supplied non-vector non-nil reply
+            target (keyword / map) is malformed per Spec 014 §Reply
+            addressing ('event vector or nil') and must throw rather than
+            silently fall through to the default-merge branch"
+    ;; bare keyword
+    (let [ex (is (thrown-with-msg?
+                   clojure.lang.ExceptionInfo
+                   #":rf.error/http-bad-reply-target"
+                   (encoding/build-reply-event
+                     {:origin-event  [:items/load {:page 1}]
+                      :explicit-on   {:supplied? true :value :items/loaded}
+                      :reply-payload reply-payload})))]
+      (is (= :items/loaded (:value (ex-data ex)))
+          "the rejected value is surfaced on the ex-data for diagnosis")
+      (is (= :no-recovery (:recovery (ex-data ex)))))
+    ;; map
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf.error/http-bad-reply-target"
+          (encoding/build-reply-event
+            {:origin-event  [:items/load]
+             :explicit-on   {:supplied? true :value {:dispatch :items/loaded}}
+             :reply-payload reply-payload})))
+    (testing "the malformed value is NOT silently re-routed to the originator"
+      (is (not= [:items/load {:page 1 :rf/reply reply-payload}]
+                (try (encoding/build-reply-event
+                       {:origin-event  [:items/load {:page 1}]
+                        :explicit-on   {:supplied? true :value :items/loaded}
+                        :reply-payload reply-payload})
+                     (catch clojure.lang.ExceptionInfo _ ::threw)))))))

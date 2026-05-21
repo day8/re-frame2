@@ -135,7 +135,9 @@
 ;; guard means a non-string `s` (nil, keyword, number, map, vector)
 ;; returns nil cleanly rather than throwing — protecting the
 ;; `:rf.http/managed` decode pipeline from a programmer error in the
-;; transport layer.
+;; transport layer. Per rf2-x1uhu the CLJS branch now carries the same
+;; guard, so the two hosts agree on non-string input (see the CLJS
+;; counterpart `cljs-json-parse-non-string-input-returns-nil`).
 ;;
 ;; The empty-string case `""` flows through Cheshire's `parse-string`
 ;; which returns nil (Jackson's end-of-stream → nil for an empty

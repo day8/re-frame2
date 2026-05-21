@@ -185,6 +185,20 @@
       (and supplied? (vector? value))
       (conj value reply-payload)
 
+      ;; rf2-smqkq — an explicitly supplied non-vector non-nil reply target
+      ;; (e.g. a bare keyword or a map) is malformed: Spec 014 §Reply
+      ;; addressing types `:on-success` / `:on-failure` as "event vector or
+      ;; nil". Earlier this fell into the `:else` default-merge branch and
+      ;; silently re-routed the reply to the originating event-id, dropping
+      ;; the caller's explicit intent. Reject it at the dispatch site rather
+      ;; than swallow the misuse.
+      supplied?
+      (throw (ex-info ":rf.error/http-bad-reply-target"
+                      {:where    :rf.http/managed
+                       :recovery :no-recovery
+                       :value    value
+                       :reason   "`:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"}))
+
       ;; default — back to originator with :rf/reply merged into message
       :else
       (let [event-id (first origin-event)
