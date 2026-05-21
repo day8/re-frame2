@@ -11,6 +11,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [applied-science.js-interop :as j]
             ["bencode" :as bencode]
+            ["fs" :as fs]
             [re-frame2-pair-mcp.nrepl :as nrepl]))
 
 (defn- decode-all
@@ -58,3 +59,237 @@
         [fs rst] (decode-all twice)]
     (is (= 3 (count fs)))
     (is (zero? (.-length rst)))))
+
+;; ===========================================================================
+;; Port discovery — `read-port-from-fs` (rf2-wnrpi, finding G2).
+;;
+;; The fn has a four-way precedence: the `SHADOW_CLJS_NREPL_PORT` env var
+;; wins; failing that, three port-file candidates are tried in order; a
+;; non-numeric value at any source is rejected via the `isNaN` guard; an
+;; all-miss returns nil. None of this was pinned — only `decode-all-frames`
+;; was. We stub `fs.readFileSync` + `process.env.SHADOW_CLJS_NREPL_PORT`
+;; to exercise every branch without touching the real filesystem.
+;; ===========================================================================
+
+(def ^:private env-key "SHADOW_CLJS_NREPL_PORT")
+
+(defn- set-env! [v]
+  (if (nil? v)
+    (js-delete (.-env js/process) env-key)
+    (j/assoc-in! js/process [:env env-key] v)))
+
+(defn- with-fs-stub!
+  "Run `body` with `fs.readFileSync` replaced by `stub-fn` (path → string,
+  or throw to simulate ENOENT) and `process.env.SHADOW_CLJS_NREPL_PORT`
+  set to `env-val` (nil = unset). Restores both afterwards. Returns the
+  value of `body`."
+  [env-val stub-fn body]
+  (let [orig-read (.-readFileSync fs)
+        orig-env  (j/get-in js/process [:env env-key])]
+    (set! (.-readFileSync fs) stub-fn)
+    (set-env! env-val)
+    (try
+      (body)
+      (finally
+        (set! (.-readFileSync fs) orig-read)
+        (set-env! orig-env)))))
+
+(defn- throwing-read
+  "A `readFileSync` stub that always throws — simulates every candidate
+  file being absent."
+  [_path]
+  (throw (js/Error. "ENOENT")))
+
+(defn- read-returning
+  "Build a `readFileSync` stub that returns `content` for `wanted-path`
+  (a substring match) and throws for every other path."
+  [wanted-path content]
+  (fn [^js path]
+    (if (re-find (re-pattern wanted-path) (str path))
+      content
+      (throw (js/Error. "ENOENT")))))
+
+(deftest port-discovery-env-var-wins
+  (testing "SHADOW_CLJS_NREPL_PORT takes precedence over any port file"
+    ;; A port file would resolve to 1234, but the env (7777) wins — the
+    ;; file stub must never be consulted on this path.
+    (with-fs-stub! "7777"
+      (read-returning "nrepl.port" "1234")
+      (fn []
+        (is (= 7777 (nrepl/read-port-from-fs)))))))
+
+(deftest port-discovery-env-numeric-only
+  (testing "a non-numeric env value is rejected by the isNaN guard, fall through to files"
+    (with-fs-stub! "not-a-number"
+      (read-returning "target/shadow-cljs/nrepl.port" "5555")
+      (fn []
+        (is (= 5555 (nrepl/read-port-from-fs))
+            "non-numeric env must NOT short-circuit; the file fallback fires")))))
+
+(deftest port-discovery-first-file-candidate
+  (testing "no env → first candidate (target/shadow-cljs/nrepl.port) is read"
+    (with-fs-stub! nil
+      (read-returning "target/shadow-cljs/nrepl.port" "  6001  \n")
+      (fn []
+        (is (= 6001 (nrepl/read-port-from-fs))
+            "leading/trailing whitespace is trimmed before parse")))))
+
+(deftest port-discovery-fallback-ordering
+  (testing "first candidate absent → second (.shadow-cljs/nrepl.port) wins over third"
+    (with-fs-stub! nil
+      ;; Only the .shadow-cljs candidate (and the .nrepl-port one) exist;
+      ;; the .shadow-cljs one is earlier in the list so it must win.
+      (fn [^js path]
+        (let [p (str path)]
+          (cond
+            (re-find #"\.shadow-cljs[\\/]nrepl\.port" p) "6002"
+            (re-find #"\.nrepl-port" p)                  "6003"
+            :else (throw (js/Error. "ENOENT")))))
+      (fn []
+        (is (= 6002 (nrepl/read-port-from-fs))
+            "earlier candidate in the list wins the ordering contract")))))
+
+(deftest port-discovery-isnan-file-rejected
+  (testing "a port file with non-numeric content is rejected, not returned as NaN"
+    (with-fs-stub! nil
+      (read-returning "nrepl.port" "garbage")
+      (fn []
+        (is (nil? (nrepl/read-port-from-fs))
+            "isNaN guard must reject; never surface a NaN port")))))
+
+(deftest port-discovery-all-miss-is-nil
+  (testing "no env + every candidate absent → nil"
+    (with-fs-stub! nil throwing-read
+      (fn []
+        (is (nil? (nrepl/read-port-from-fs)))))))
+
+;; ===========================================================================
+;; Transport data-handler — `attach-handlers!` (rf2-wnrpi, finding G3).
+;;
+;; The persistent-socket `data` handler folds each chunk into the conn's
+;; `:buf` and splits off complete frames in a SINGLE swap! (the framing-
+;; race fix), then dispatches every complete frame to its pending-id
+;; handler. That logic carried heavy rationale comments but no automated
+;; regression in the default gate (only the opt-in live-nrepl.js). It is
+;; pure buffer logic over a fed chunk — unit-testable with a fake socket
+;; that records its event callbacks rather than a real TCP connection.
+;; ===========================================================================
+
+(defn- fake-socket
+  "A minimal stand-in for a `net.Socket`: `on` records each event's
+  callback into `cbs*` keyed by event name. `emit-data!`/`emit!` below
+  invoke a recorded callback the way Node's EventEmitter would."
+  [cbs*]
+  (j/lit {:on (fn [event cb] (swap! cbs* assoc event cb))}))
+
+(defn- emit-data! [cbs* ^js chunk]
+  ((get @cbs* "data") chunk))
+
+(defn- frame-buf
+  "bencode-encode a CLJS map into a Buffer the data-handler can fold."
+  [m]
+  (bencode/encode (clj->js m)))
+
+(deftest data-handler-dispatches-complete-frame-to-pending
+  (testing "a single complete frame resolves its pending-id handler"
+    (let [cbs*    (atom {})
+          conn    (nrepl/make-conn 0 "127.0.0.1")
+          got*    (atom nil)]
+      (swap! conn assoc :buf (js/Buffer.alloc 0) :pending {"id-1" #(reset! got* %)})
+      (nrepl/attach-handlers! conn (fake-socket cbs*))
+      (emit-data! cbs* (frame-buf {"id" "id-1" "value" "42"}))
+      (is (some? @got*) "the pending handler fired")
+      (is (= "42" (j/get @got* "value")))
+      (is (zero? (.-length (:buf @conn))) "complete frame leaves no trailer"))))
+
+(deftest data-handler-buffers-partial-frame
+  (testing "a partial frame is held in :buf and dispatched once completed"
+    (let [cbs*  (atom {})
+          conn  (nrepl/make-conn 0 "127.0.0.1")
+          got*  (atom nil)
+          full  (frame-buf {"id" "id-2" "value" "7"})
+          mid   (js/Math.floor (/ (.-length full) 2))
+          head  (.slice full 0 mid)
+          tail  (.slice full mid)]
+      (swap! conn assoc :buf (js/Buffer.alloc 0) :pending {"id-2" #(reset! got* %)})
+      (nrepl/attach-handlers! conn (fake-socket cbs*))
+      ;; First chunk: incomplete — must NOT dispatch, must retain bytes.
+      (emit-data! cbs* head)
+      (is (nil? @got*) "partial frame must not dispatch")
+      (is (pos? (.-length (:buf @conn))) "partial bytes retained in :buf")
+      ;; Second chunk completes the frame.
+      (emit-data! cbs* tail)
+      (is (some? @got*) "completed frame dispatches")
+      (is (= "7" (j/get @got* "value")))
+      (is (zero? (.-length (:buf @conn)))))))
+
+(deftest data-handler-splits-two-frames-in-one-chunk
+  (testing "two concatenated frames in one chunk each reach their pending handler"
+    (let [cbs*  (atom {})
+          conn  (nrepl/make-conn 0 "127.0.0.1")
+          a*    (atom nil)
+          b*    (atom nil)
+          chunk (js/Buffer.concat #js [(frame-buf {"id" "a" "value" "1"})
+                                       (frame-buf {"id" "b" "value" "2"})])]
+      (swap! conn assoc :buf (js/Buffer.alloc 0)
+             :pending {"a" #(reset! a* %) "b" #(reset! b* %)})
+      (nrepl/attach-handlers! conn (fake-socket cbs*))
+      (emit-data! cbs* chunk)
+      (is (= "1" (j/get @a* "value")) "first frame dispatched to id a")
+      (is (= "2" (j/get @b* "value")) "second frame dispatched to id b")
+      (is (zero? (.-length (:buf @conn)))))))
+
+(deftest data-handler-ignores-unknown-id
+  (testing "a frame for an id with no pending handler is dropped, not thrown"
+    (let [cbs*  (atom {})
+          conn  (nrepl/make-conn 0 "127.0.0.1")]
+      (swap! conn assoc :buf (js/Buffer.alloc 0) :pending {})
+      (nrepl/attach-handlers! conn (fake-socket cbs*))
+      ;; Must not throw even though no pending entry matches.
+      (emit-data! cbs* (frame-buf {"id" "ghost" "value" "x"}))
+      (is (zero? (.-length (:buf @conn))) "frame consumed, no trailer left"))))
+
+(deftest close-handler-marks-conn-closed
+  (testing "the close event flips :closed?"
+    (let [cbs* (atom {})
+          conn (nrepl/make-conn 0 "127.0.0.1")]
+      (swap! conn assoc :closed? false)
+      (nrepl/attach-handlers! conn (fake-socket cbs*))
+      ((get @cbs* "close") nil)
+      (is (true? (:closed? @conn))))))
+
+(deftest error-handler-marks-conn-closed
+  (testing "a socket error flips :closed? (so the next call reconnects)"
+    (let [cbs*      (atom {})
+          conn      (nrepl/make-conn 0 "127.0.0.1")
+          orig-err  (.-error js/console)]
+      (swap! conn assoc :closed? false)
+      (nrepl/attach-handlers! conn (fake-socket cbs*))
+      ;; The error handler logs to stderr via `log!`; silence it so the
+      ;; otherwise-quiet test run stays clean (the log is the SUT's
+      ;; behaviour, not a test failure).
+      (set! (.-error js/console) (fn [& _] nil))
+      (try
+        ((get @cbs* "error") (js/Error. "boom"))
+        (finally
+          (set! (.-error js/console) orig-err)))
+      (is (true? (:closed? @conn))))))
+
+;; ===========================================================================
+;; `close!` — reconnect / probe-cache reset (rf2-wnrpi, finding G3).
+;; ===========================================================================
+
+(deftest close!-resets-probe-cache-and-pending
+  (testing "close! drops :probed-builds, :pending, :socket and marks closed"
+    (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+      (swap! conn assoc
+             :socket #js {:end (fn [] nil)}
+             :closed? false
+             :pending {"id-1" identity}
+             :probed-builds #{:app})
+      (nrepl/close! conn)
+      (is (true? (:closed? @conn)))
+      (is (nil? (:socket @conn)))
+      (is (= {} (:pending @conn)) "pending cleared so no stale resolvers")
+      (is (= #{} (:probed-builds @conn))
+          "probe cache cleared — a fresh connect must re-probe the preload"))))

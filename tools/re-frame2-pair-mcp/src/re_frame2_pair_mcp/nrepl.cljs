@@ -131,7 +131,7 @@
          :session       nil
          :probed-builds #{}}))
 
-(defn- attach-handlers!
+(defn attach-handlers!
   "Wire up `data` / `error` / `close` on the freshly-connected socket.
   Resolves pending requests on matching `:done` status; logs errors;
   marks the conn closed on disconnect.
@@ -141,7 +141,15 @@
   variants left a window where a second `data` callback (or a
   Buffer.concat racing) could observe the freshly-accumulated bytes
   but not yet the trimmed trailer, double-decoding the same frame.
-  One atomic swap closes that window."
+  One atomic swap closes that window.
+
+  Public (not `defn-`) so `nrepl_test.cljs` can drive the data-folding
+  + pending-id dispatch with a fake socket — feeding synthetic chunks
+  and asserting pending handlers fire — without opening a real TCP
+  socket (rf2-wnrpi). The fake socket need only implement an `on`
+  method that records the callback per event name; see the test's
+  `fake-socket` helper. This mirrors the `decode-all-frames`
+  public-for-test precedent above."
   [conn-atom ^js socket]
   (j/call socket :on "data"
     (fn [chunk]

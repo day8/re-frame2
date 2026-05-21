@@ -270,6 +270,8 @@
     | subscribe              | n/a   | yes         | n/a               |
     | unsubscribe            | n/a   | yes         | n/a               |
     | list-subscriptions     | yes   | n/a         | n/a               |
+    | handler-meta           | yes   | yes         | (short-circuit)   |
+    | list-handlers          | yes   | yes         | (short-circuit)   |
     | get-re-frame2-pair-instructions | yes   | n/a         | n/a               |
     | (pipeline)             | cache-hit (precheck) ; unknown-tool error  |
 
@@ -646,6 +648,58 @@
      ":allow-raw-state? false"]
     :fixture/expect
     {:isError? false}}
+
+   ;; ---------- handler-meta (rf2-wnrpi, finding G7) ----------------------
+   ;; Previously handler-meta / list-handlers had NO outer-wire-shape pin
+   ;; in the corpus — their unit suite carried error paths only (and even
+   ;; those were silently skipped pre-rf2-wnrpi). These fixtures put both
+   ;; tools inside the "every tool" cross-tool ratchet the corpus promises.
+   {:fixture/id    :handler-meta/happy
+    :fixture/doc   "handler-meta on a registered (kind,id) merges :ok? true + the requested kind/id onto the runtime meta map."
+    :fixture/tool  "handler-meta"
+    :fixture/args  {:kind "event" :id ":user/login"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["registrar-describe"        {:ns "user.app" :line 12 :doc "login event"}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError?          false
+     :edn-submap        {:ok? true :kind :event :id :user/login}
+     :edn-contains-keys #{:ns :line :doc}}}
+
+   {:fixture/id    :handler-meta/missing-kind
+    :fixture/doc   "handler-meta with no :kind short-circuits on :invalid-kind before any nREPL round-trip."
+    :fixture/tool  "handler-meta"
+    :fixture/args  {:id ":user/login"}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :invalid-kind}}
+
+   ;; ---------- list-handlers (rf2-wnrpi, finding G7) ---------------------
+   {:fixture/id    :list-handlers/happy
+    :fixture/doc   "list-handlers returns the sorted id vector + :count for a kind, wrapped :ok? true."
+    :fixture/tool  "list-handlers"
+    :fixture/args  {:kind "event"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["registrar-list"            [:user/login :user/logout]]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError?   false
+     :edn-submap {:ok? true :kind :event
+                  :ids [:user/login :user/logout] :count 2}}}
+
+   {:fixture/id    :list-handlers/missing-kind
+    :fixture/doc   "list-handlers with no :kind short-circuits on :invalid-kind."
+    :fixture/tool  "list-handlers"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :invalid-kind}}
 
    ;; ---------- pipeline: unknown tool ------------------------------------
    {:fixture/id    :pipeline/unknown-tool
