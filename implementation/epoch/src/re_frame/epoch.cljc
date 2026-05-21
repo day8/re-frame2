@@ -263,10 +263,14 @@
       buffer is empty (a truly empty cascade — likely a rejected
       dispatch — is degenerate and would emit a misleading record).
     (settle! frame-id db-before db-after outcome halt-reason)
-      Drain-boundary commit with explicit outcome. `outcome` is one of
-      `:ok` / `:halted-depth` / `:halted-destroy` /
-      `:halted-handler-exception`; `halt-reason` is a structured
-      descriptor populated on halt paths (nil on `:ok`). On a buffer
+      Drain-boundary commit with explicit outcome. The runtime commits
+      one of three outcomes: `:ok` / `:halted-depth` / `:halted-destroy`
+      (`:halted-handler-exception` is a schema-reserved value the
+      reference runtime never emits — handler exceptions ride the
+      interceptor error-capture seam and the drain settles `:ok` with the
+      error trace under `:trace-events`; see Spec-Schemas §`:rf/epoch-record`
+      §Outcomes and Spec 009 §register-epoch-listener!). `halt-reason` is
+      a structured descriptor populated on halt paths (nil on `:ok`). On a buffer
       with no recoverable trigger (no `:event/run-start` and no
       `:event-id` tag — e.g. a destroy that races a registration-time
       emit) `build-record` omits `:event-id` / `:trigger-event`

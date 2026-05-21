@@ -918,6 +918,103 @@
           ":rf.epoch/restore-non-ok-record fired so listeners can surface
            the refusal to the user"))))
 
+;; ---- :halted-handler-exception is schema-reserved, never emitted ---------
+;;
+;; Per Spec-Schemas §`:rf/epoch-record` §Outcomes (rf2-v0jwt) and Spec 009
+;; §register-epoch-listener!: the reference runtime commits exactly three
+;; drain-boundary outcomes — :ok / :halted-depth / :halted-destroy.
+;; `:halted-handler-exception` is a SCHEMA-RESERVED enum value held for a
+;; future runtime path that aborts the drain on handler throw; today's
+;; runtime routes handler exceptions through the interceptor error-capture
+;; seam (the drain does NOT abort), so the cascade settles `:ok` with the
+;; `:rf.error/handler-exception` trace under `:trace-events`. This test
+;; pins that contract directly so the dead outcome can't silently start
+;; being emitted (rf2-zymix) — the dual of `depth-exceeded-commits-halted-
+;; record` for the one halt the runtime deliberately does NOT model.
+
+(deftest handler-exception-settles-ok-never-halted-handler-exception
+  (testing "an event handler that throws does NOT halt the drain: the
+            cascade settles with :outcome :ok (the interceptor chain
+            captured the throw via the error-capture seam) and the
+            failure surfaces as a :rf.error/handler-exception trace under
+            :trace-events. The schema-reserved :halted-handler-exception
+            outcome is never committed by the reference runtime."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :boom (fn [_ _] (throw (ex-info "handler blew" {:why :test}))))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    ;; The throw is captured by the chain — dispatch-sync returns normally,
+    ;; the drain does not abort.
+    (rf/dispatch-sync [:boom] {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)
+          boom-r  (last history)]
+      (is (= 2 (count history))
+          "the throwing cascade still commits exactly one epoch record")
+      (is (= :boom (:event-id boom-r))
+          "the throwing event is the cascade trigger")
+      (is (= :ok (:outcome boom-r))
+          ":outcome is :ok — the drain settled cleanly despite the throw")
+      (is (not= :halted-handler-exception (:outcome boom-r))
+          ":halted-handler-exception is schema-reserved, never emitted")
+      (is (nil? (:halt-reason boom-r))
+          "no :halt-reason on a clean settle — there was no drain halt")
+      (is (has-error-op? (:trace-events boom-r) :rf.error/handler-exception)
+          "the throw surfaces as a :rf.error/handler-exception trace under
+           :trace-events, not as a halt outcome")
+      (is (not-any? (fn [r] (= :halted-handler-exception (:outcome r)))
+                    history)
+          "no record across the whole ring carries the reserved outcome"))))
+
+;; ---- rejected / aborted dispatch commits no epoch (rf2-zymix) ------------
+;;
+;; Per `settle!`'s empty-buffer policy (epoch.cljc) — a drain boundary
+;; whose capture buffer holds no cascade context is SKIPPED rather than
+;; committing a record with no :event-id / :trigger-event. This is the
+;; "no misleading record on a rejected / aborted dispatch" guard: the
+;; router calls `discard-buffer!` for the routine cascade-abort case
+;; (depth-exceeded mid-flight, dispatch-sync rejection), so when `settle!`
+;; fires at the abort boundary the harvested buffer is empty and no record
+;; is committed. The invariant was only covered indirectly (cross-
+;; contamination / leaked-buffer tests); this names it directly by driving
+;; the empty-buffer settle! seam.
+
+(deftest empty-buffer-settle-commits-no-epoch
+  (testing "settle! at a drain boundary whose capture buffer is empty —
+            the reality after the router has discarded the buffer for a
+            rejected / aborted dispatch — commits NO epoch record. A
+            record with no :event-id / :trigger-event would misrepresent
+            a cascade that never ran; the empty-buffer skip in settle!
+            (epoch.cljc) suppresses it. The ring stays empty for the frame."
+    (rf/reg-frame :test/main {})
+    ;; Start from a known-empty capture buffer for this frame — the
+    ;; post-discard state the router leaves on a rejected/aborted
+    ;; dispatch. (`reg-frame` emits a :frame/created trace that
+    ;; capture-event! would buffer; reset so the buffer is genuinely
+    ;; empty, mirroring discard-buffer!.)
+    (reset! @#'state/capture-buffers {})
+
+    ;; settle! fires at the abort boundary with no buffered cascade
+    ;; context — the empty-buffer skip suppresses the commit.
+    (epoch/settle! :test/main {} {})
+
+    (is (empty? (rf/epoch-history :test/main))
+        "no epoch record committed for an empty-buffer drain boundary —
+         the rejected/aborted-dispatch no-misleading-record guard")
+
+    ;; A real cascade afterwards DOES commit — proving the skip is an
+    ;; empty-buffer policy, not a frame-wide disable.
+    (rf/reg-event-db :real (fn [_ _] {:n 1}))
+    (rf/dispatch-sync [:real] {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)]
+      (is (= 1 (count history))
+          "the subsequent real cascade commits exactly one record")
+      (is (= :real (:event-id (first history)))
+          "the committed record is the real cascade, not the suppressed
+           empty-buffer boundary"))))
+
 ;; ---- recording is gated on debug-enabled? ---------------------------------
 
 (deftest configure-roundtrip

@@ -264,10 +264,14 @@
    (build-record frame-id db-before db-after events :ok nil))
   ([frame-id db-before db-after events outcome halt-reason]
    ;; Per rf2-v0jwt §Outcomes — :outcome is required and pins the
-   ;; drain-boundary outcome (:ok / :halted-depth / :halted-destroy /
-   ;; :halted-handler-exception); :halt-reason is a structured
-   ;; descriptor populated on halt paths, absent on :ok. The schema
-   ;; in Spec-Schemas §:rf/epoch-record is the canonical pin.
+   ;; drain-boundary outcome. The reference runtime commits one of three:
+   ;; :ok / :halted-depth / :halted-destroy. (:halted-handler-exception
+   ;; is a schema-reserved value the runtime never emits — handler
+   ;; exceptions ride the interceptor error-capture seam and the drain
+   ;; settles :ok with the error trace under :trace-events; see
+   ;; Spec-Schemas §:rf/epoch-record §Outcomes.) :halt-reason is a
+   ;; structured descriptor populated on halt paths, absent on :ok. The
+   ;; schema in Spec-Schemas §:rf/epoch-record is the canonical pin.
    ;;
    ;; Per rf2-kl5p1 (audit r3 §F1): `:event-id` and `:trigger-event`
    ;; are emitted only when `find-trigger-event` resolves them. The
