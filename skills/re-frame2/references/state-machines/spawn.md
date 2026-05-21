@@ -4,6 +4,8 @@
 
 Reach for this leaf when a state hosts an asynchronous activity whose lifetime must match the state's lifetime: an HTTP request, a websocket session, a sub-machine running a sub-flow. For wall-clock guards on that activity, use the parent state's `:after`. For "fan out N children and join when done", see `:spawn-all` below. For the cancellation/cleanup contract, see `cancellation.md`.
 
+> **Mental model — think in xstate, map onto re-frame2.** `:spawn` IS xstate's `invoke` (state-bound child actor), but **this is the one slot re-frame2 deliberately renames** — it's the most semantically-loaded surface, and the rename breaks the "almost-correct xstate code" trap while aligning the declarative key with the imperative `:rf.machine/spawn` fx. So sketch the child-actor flow the xstate `invoke` way, then translate the slot name and watch the divergences: there is no `:onError` (errors flow through `:rf.error/*` + `:on-child-error`), no `:onSnapshot` (read the snapshot via `sub-machine`), no `autoForward` (forward events explicitly with `:fx [[:dispatch ...]]`), and only **one `:spawn` per state** (xstate admits a vector). `onDone` *does* map, to `:final?` + `:on-done` + `:output-key` below. The full divergence list is in Spec 005 §Deliberate name divergence — `:spawn` and §Deliberate omissions vs xstate.
+
 ## Canonical declaration
 
 ```clojure
