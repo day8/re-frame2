@@ -720,7 +720,7 @@
                           ;; normalised ctx into the decoder; nil means
                           ;; the reader uses its default.
                           :max-decoded-keys (:max-decoded-keys ctx)})
-              accepted (encoding/run-accept accept decoded {:status status})]
+              accepted (encoding/run-accept accept decoded)]
           (finalise-success! (assoc ctx :decoded decoded) accepted))
         (catch #?(:clj Throwable :cljs :default) e
           (let [d (ex-data e)]

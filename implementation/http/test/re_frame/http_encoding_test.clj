@@ -366,40 +366,37 @@
 
 ;; ---- run-accept — Spec 014 §`:accept` default normalisation (G2) ----------
 ;;
-;; The default `:accept` (nil accept-fn) maps 2xx → {:ok decoded} and any
-;; other status → {:failure {:kind :http-status ...}}. The user-fn branch
-;; is exercised end-to-end in http_managed_test (accept-failure round-trip);
-;; here we pin the DEFAULT and the simple user-fn pass-through.
+;; Per rf2-7iji6 the default `:accept` (nil accept-fn) is unconditionally
+;; {:ok decoded}. The only call site (http-transport/handle-response!)
+;; reaches run-accept exclusively inside the 2xx branch — status
+;; classification (4xx / 5xx / non-2xx-else) runs BEFORE decode per Spec
+;; 014 §Failure categories — so the default never sees a non-2xx status.
+;; The earlier non-2xx arm ({:failure {:kind :http-status ...}}) was dead
+;; on the live cascade and off the closed `:rf.http/*` taxonomy; it has
+;; been removed. The user-fn branch is exercised end-to-end in
+;; http_managed_test (accept-failure round-trip); here we pin the DEFAULT
+;; and the simple user-fn pass-through.
 
-(deftest run-accept-default-2xx-is-ok
-  (testing "rf2-ohwgm — with no :accept fn, a 2xx status normalises the
-            decoded value to {:ok decoded}"
+(deftest run-accept-default-is-ok
+  (testing "rf2-7iji6 — with no :accept fn, the decoded value is wrapped
+            unconditionally as {:ok decoded} (run-accept only ever runs
+            against an already-classified 2xx response)"
     (is (= {:ok {:title "hello"}}
-           (encoding/run-accept nil {:title "hello"} {:status 200})))
-    (is (= {:ok {:title "hello"}}
-           (encoding/run-accept nil {:title "hello"} {:status 299}))
-        "the whole 2xx band is :ok")))
-
-(deftest run-accept-default-non-2xx-is-failure
-  (testing "rf2-ohwgm — with no :accept fn, a non-2xx status normalises to
-            {:failure {:kind :http-status :status N :body decoded}}"
-    (is (= {:failure {:kind :http-status :status 404 :body {:error "nope"}}}
-           (encoding/run-accept nil {:error "nope"} {:status 404}))
-        "the default treats any non-2xx as a domain failure carrying the
-         status + decoded body")
-    (is (= {:failure {:kind :http-status :status 500 :body nil}}
-           (encoding/run-accept nil nil {:status 500})))))
+           (encoding/run-accept nil {:title "hello"})))
+    (is (= {:ok nil}
+           (encoding/run-accept nil nil))
+        "a nil decoded body still wraps as {:ok nil}")))
 
 (deftest run-accept-user-fn-overrides-default
   (testing "rf2-ohwgm — a supplied :accept fn is invoked with the decoded
             value and its return ({:ok ..} or {:failure ..}) is used
-            verbatim, overriding the status-based default"
+            verbatim, overriding the default"
     (let [accept (fn [decoded]
                    (if (:valid? decoded)
                      {:ok (:data decoded)}
                      {:failure {:kind :domain :reason :invalid}}))]
       (is (= {:ok 42}
-             (encoding/run-accept accept {:valid? true :data 42} {:status 200})))
+             (encoding/run-accept accept {:valid? true :data 42})))
       (is (= {:failure {:kind :domain :reason :invalid}}
-             (encoding/run-accept accept {:valid? false} {:status 200}))
+             (encoding/run-accept accept {:valid? false}))
           "the user :accept can fail a 2xx response (domain-level rejection)"))))

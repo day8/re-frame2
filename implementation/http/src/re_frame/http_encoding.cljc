@@ -110,13 +110,21 @@
 
   Per rf2-5ijhk + audit finding 3.3 the default-accept shape is
   inlined here (the earlier `default-accept-fn` allocated a fresh
-  closure per response even when the user didn't supply `:accept`)."
-  [accept-fn-or-nil decoded {:keys [status]}]
+  closure per response even when the user didn't supply `:accept`).
+
+  Per rf2-7iji6 the default is unconditionally `{:ok decoded}`. The only
+  call site (`http-transport/handle-response!`) reaches `run-accept`
+  exclusively inside the 2xx branch — status classification (4xx / 5xx /
+  non-2xx-else) runs BEFORE decode per Spec 014 §Failure categories, so
+  the default never sees a non-2xx status. The earlier non-2xx arm was
+  dead on the live cascade and emitted an off-taxonomy `:kind
+  :http-status` (not a member of the closed `:rf.http/*` failure set);
+  it has been removed. `:accept` runs only against a successfully
+  decoded 2xx body, so it needs no status."
+  [accept-fn-or-nil decoded]
   (if accept-fn-or-nil
     (accept-fn-or-nil decoded)
-    (if (and (>= status 200) (< status 300))
-      {:ok decoded}
-      {:failure {:kind :http-status :status status :body decoded}})))
+    {:ok decoded}))
 
 ;; ---- reply addressing -----------------------------------------------------
 
