@@ -117,9 +117,20 @@
                   (cond
                     (= :sub/run op)
                     (-> acc
+                        ;; Per rf2-l1jz8 — thread the reactive recompute's
+                        ;; value-change + cascade attribution onto the
+                        ;; aggregated record so the `:rf.cascade/captured`
+                        ;; projection carries the same fields as the epoch
+                        ;; record's `:sub-runs`. Slots are nil for the
+                        ;; `compute-sub` base-shape emit (which omits them).
                         (assoc! :sr (conj-bounded (get acc :sr)
-                                                  {:sub-id  (:sub-id t)
-                                                   :query-v (:query-v t)}
+                                                  {:sub-id         (:sub-id t)
+                                                   :query-v        (:query-v t)
+                                                   :value-changed? (:value-changed? t)
+                                                   :prev-value     (:prev-value t)
+                                                   :value          (:value t)
+                                                   :cascade?       (:cascade? t)
+                                                   :cause-sub      (:cause-sub t)}
                                                   sub-cap))
                         (cond->
                           (>= (count (get acc :sr)) sub-cap)

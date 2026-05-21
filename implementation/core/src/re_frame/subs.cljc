@@ -454,6 +454,19 @@
       ;; Per Spec 009 §:op-type vocabulary: :sub/run marks a sub recompute.
       ;; The pure compute-sub form fires the same op-type as the reactive
       ;; recompute path so tools can observe both call sites uniformly.
+      ;;
+      ;; Per rf2-l1jz8 — the reactive recompute path (subs.memo/validate-
+      ;; and-trace) enriches its `:sub/run` tag with value-change +
+      ;; cascade attribution (`:value-changed?` / `:prev-value` /
+      ;; `:value` / `:cascade?` / `:cause-sub`). `compute-sub` deliberately
+      ;; bypasses the per-frame reactive cache (it's the pure-snapshot
+      ;; form per Spec 008 §Testing), so it has NO prior cached value to
+      ;; diff for `:value-changed?` and NO reactive context to attribute a
+      ;; cascade against — each `:<-` input is re-resolved fresh against
+      ;; the supplied `db`, not observed as a changed upstream signal.
+      ;; It therefore emits the BASE `:sub/run` shape only; attribution is
+      ;; a reactive-path concern. Consumers (Causa) read attribution off
+      ;; the reactive epoch records, never off compute-sub emissions.
       (trace/emit! :sub/run :sub/run
                    {:sub-id  query-id
                     :query-v query-v})

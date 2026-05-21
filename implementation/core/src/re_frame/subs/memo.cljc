@@ -43,6 +43,49 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+;; ---- recompute attribution sentinel + cause-sub resolution ---------------
+;;
+;; Per rf2-l1jz8 — the `:sub/run` trace carries value-change + cascade
+;; attribution so Causa's Reactive panel can populate its "SUBS WHOSE
+;; VALUE CHANGED" and "SUBS THAT CASCADED" sections. The memo wrapper
+;; already holds the prior computed value and prior input value(s) in its
+;; volatile cells (it must, to dedup `=`-equal recomputes per rf2-719e),
+;; so the attribution is computed from data already on hand — no extra
+;; cache read, no second `=` walk on the hot recompute path beyond the one
+;; the memo wrapper already performed.
+
+(def ^{:doc "First-recompute sentinel. Never `=` to any computed value or
+  input value, so the very first recompute is always reported as a value
+  change with no resolvable cause."}
+  unset ::unset)
+
+(defn changed-cause-sub
+  "Resolve the upstream sub whose value-change drove this layer-2+
+  recompute. `prev-in-vals` is the memo wrapper's last-seen input value(s)
+  (the `::unset` sentinel on the first recompute, otherwise a seq parallel
+  to `input-signals`); `in-vals` is the freshly-resolved input value(s);
+  `input-signals` is the vector of upstream `:<-` query-vectors in
+  registration order. Returns the FIRST input-signal query-vector whose
+  value differs from its prior, or nil when none differ / no prior exists
+  (first recompute → `::unset` sentinel, cause unknown).
+
+  Pure; called only inside the dev-gated emit branch."
+  [prev-in-vals in-vals input-signals]
+  ;; NB: `=` not `identical?` — CLJS keywords are NOT guaranteed
+  ;; reference-identical across construction sites (unlike Clojure JVM
+  ;; interning), so `(identical? unset ::unset-literal)` can be false in
+  ;; CLJS. `unset` is a unique namespaced sentinel no real input value
+  ;; can `=`, so value-equality is the correct, portable guard.
+  (when (and (seq input-signals)
+             (not= unset prev-in-vals))
+    (let [prev (vec prev-in-vals)
+          curr (vec in-vals)]
+      (loop [i 0]
+        (when (< i (count input-signals))
+          (if (not= (nth prev i ::missing) (nth curr i ::missing))
+            (nth input-signals i)
+            (recur (inc i))))))))
+
 (defn maybe-validate-sub!
   "Per Spec 010 §Validation order step 6 (rf2-wcam) — after a sub
   recomputes, validate its return value against any :schema on the sub
@@ -74,33 +117,84 @@
 
   Concerns folded in here, in order:
 
-  1. Spec 009 §:op-type vocabulary — emit :sub/run for the recompute.
-     The memo-hit path does NOT emit (per Spec 006 §No-op via value
-     equality).
-  2. Spec 009 §Performance instrumentation (rf2-du3i) — bracket the
+  1. Spec 009 §Performance instrumentation (rf2-du3i) — bracket the
      body call in performance marks so prod builds with the perf flag
      enabled produce a `rf:sub:<sub-id>` measure entry. Default-off;
      under `:advanced` + `re-frame.performance/enabled?=false` the
      bracket DCEs.
-  3. Spec 010 §Validation order step 6 (rf2-wcam) — validate the body's
+  2. Spec 010 §Validation order step 6 (rf2-wcam) — validate the body's
      return value against the sub's `:schema` meta. Failures emit
      :rf.error/schema-validation-failure and yield nil (recovery
      :replaced-with-default).
+  3. Spec 009 §:op-type vocabulary — emit :sub/run for the recompute.
+     The memo-hit path does NOT emit (per Spec 006 §No-op via value
+     equality). The emit fires AFTER (1)+(2) so the trace can carry the
+     COMPUTED value and value-change / cascade attribution (rf2-l1jz8 —
+     see §Recompute attribution below). It MUST stay inside
+     `with-handler-scope` so the sub's source-coord rides the tag.
   4. Spec 009 §Error contract — `try/catch` around (1)+(2)+(3). On
      exception emit :rf.error/sub-exception and yield nil (recovery
-     :replaced-with-default)."
-  [body-fn in-vals query-id query-v frame-id input-signals sub-meta]
-  ;; Publish the sub's HandlerScope for the duration of `:sub/run` emit
-  ;; + body-fn invocation + validation. Per Spec 009 §:rf.trace/
-  ;; trigger-handler the sub's source-coord rides every emit (`:sub/run`
-  ;; success, `:rf.error/sub-exception` / schema-validation / transitive
-  ;; sub-miss errors). The emit MUST sit inside the scope.
+     :replaced-with-default).
+
+  ## Recompute attribution (rf2-l1jz8, dev-only)
+
+  When `interop/debug-enabled?` the `:sub/run` tag carries:
+
+    :value-changed?  — `(not= prev-value computed)`. The `::unset`
+                       sentinel on the first recompute reports `true`.
+                       NOT wire-sensitive (a boolean).
+    :prev-value      — the prior computed value (`nil` on the first
+                       recompute). Wire-value-sensitive app data.
+    :value           — the freshly-computed value. Wire-value-sensitive.
+    :cascade?        — `true` when this is a layer-2+ sub (an upstream
+                       SUB drove the recompute); `false` for a layer-1
+                       sub (an app-db path change drove it).
+    :cause-sub       — for a cascade, the upstream `:<-` query-vector
+                       whose value changed (`changed-cause-sub`); nil
+                       for a layer-1 sub OR a layer-2+ first recompute
+                       (no prior input to diff against).
+
+  ### Privacy — handled at the trace chokepoint, NOT here
+
+  `:prev-value` and `:value` are wire-value-sensitive app data, but they
+  are emitted RAW here and redacted DOWNSTREAM by the existing
+  `re-frame.marks/project-sub-tags` chokepoint that `re-frame.trace/
+  build-event` already runs for every `:sub/run` event. That chokepoint
+  resolves the sub's sensitive/large state from process-scoped marks +
+  the sub-output propagation table — NEVER by reading the frame's app-db
+  container.
+
+  This is deliberate and load-bearing: calling the schema-first
+  `elision/elide-wire-value` walker here would `deref` the frame's
+  app-db container (to read the `[:rf/elision ...]` registry) INSIDE the
+  reaction's compute fn. On a Reagent substrate that registers a
+  spurious reactive dependency on app-db for every layer-2+ sub —
+  breaking the glitch-free `db → layer-1 → layer-2` layering (the sub
+  would recompute on ANY app-db change, not just its own input's). The
+  marks chokepoint reads only process-scoped atoms, so it is
+  reaction-safe. A schema-`:sensitive?` sub egresses `:prev-value` /
+  `:value` as `:rf/redacted`; `:value-changed?` stays a plain boolean.
+
+  The whole attribution branch (the enriched tag map) sits inside
+  `(if interop/debug-enabled? ...)` so Closure DCE folds it out under
+  `:advanced` + `goog.DEBUG=false`; the unattributed base tag is emitted
+  on the production path so the op-type vocabulary is unchanged there.
+  `prev-value`/`prev-in-vals` arrive pre-resolved from the memo
+  wrapper's volatile cells — no extra cache read.
+
+  Callers (the memo wrappers) pass `prev-value` (the wrapper's
+  `last-result` cell, `::unset` on first recompute) and `prev-in-vals`
+  (the wrapper's last-seen input value(s), `::unset` on first recompute,
+  else a coll parallel to `input-signals`)."
+  [body-fn in-vals query-id query-v frame-id input-signals sub-meta
+   prev-value prev-in-vals]
+  ;; Publish the sub's HandlerScope for the duration of body-fn
+  ;; invocation + validation + the `:sub/run` emit. Per Spec 009
+  ;; §:rf.trace/trigger-handler the sub's source-coord rides every emit
+  ;; (`:sub/run` success, `:rf.error/sub-exception` / schema-validation /
+  ;; transitive sub-miss errors). The emit MUST sit inside the scope.
   (trace/with-handler-scope
     (trace/handler-scope-from-meta :sub query-id sub-meta)
-    (trace/emit! :sub/run :sub/run
-                 {:sub-id  query-id
-                  :query-v query-v
-                  :frame   frame-id})
     (try
       (let [computed (performance/mark-and-measure :sub query-id
                       (if (empty? input-signals)
@@ -109,8 +203,35 @@
                         ;; or singleton when only one chain entry.
                         (if (= 1 (count input-signals))
                           (body-fn (first in-vals) query-v)
-                          (body-fn (vec in-vals) query-v))))]
-        (maybe-validate-sub! computed query-v query-id sub-meta))
+                          (body-fn (vec in-vals) query-v))))
+            validated (maybe-validate-sub! computed query-v query-id sub-meta)]
+        ;; Emit AFTER compute+validate so the trace carries the computed
+        ;; value + attribution (rf2-l1jz8). The base tag is unconditional
+        ;; (op-type vocabulary parity with the prod path); the attribution
+        ;; slots ride the dev gate so Closure DCEs the enriched tag map
+        ;; under :advanced. `:prev-value` / `:value` are emitted RAW —
+        ;; the existing `re-frame.marks/project-sub-tags` chokepoint
+        ;; (run by `trace/build-event`) redacts them from process-scoped
+        ;; marks without a reactive container deref. See the ns docstring
+        ;; §Privacy for why we MUST NOT elide here.
+        (if interop/debug-enabled?
+          (let [cascade?  (boolean (seq input-signals))
+                cause-sub (changed-cause-sub prev-in-vals in-vals input-signals)]
+            (trace/emit! :sub/run :sub/run
+                         {:sub-id         query-id
+                          :query-v        query-v
+                          :frame          frame-id
+                          :value-changed? (not= prev-value validated)
+                          :prev-value     (when-not (= unset prev-value)
+                                            prev-value)
+                          :value          validated
+                          :cascade?       cascade?
+                          :cause-sub      cause-sub}))
+          (trace/emit! :sub/run :sub/run
+                       {:sub-id  query-id
+                        :query-v query-v
+                        :frame   frame-id}))
+        validated)
       (catch #?(:clj Throwable :cljs :default) e
         (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
           (trace/emit-error!
@@ -164,9 +285,16 @@
                               :reason                 :input-value-equal
                               :input-paths-unchanged  []})))
             @last-result)
-          (let [computed (validate-and-trace
-                           body-fn (list db) query-id query-v
-                           frame-id [] sub-meta)]
+          ;; Capture the prior cells BEFORE the recompute so the
+          ;; `:sub/run` attribution (rf2-l1jz8) can report value-change
+          ;; against the last computed value. Layer-1 has no upstream
+          ;; sub inputs, so `input-signals` is `[]` and `prev-in-vals`
+          ;; is irrelevant to cause-sub resolution (a layer-1 recompute
+          ;; is driven by an app-db path change, never a sub cascade).
+          (let [prev-result @last-result
+                computed    (validate-and-trace
+                              body-fn (list db) query-id query-v
+                              frame-id [] sub-meta prev-result unset)]
             (vreset! last-db db)
             (vreset! last-result computed)
             computed))))))
@@ -212,9 +340,21 @@
                               :reason                 :input-value-equal
                               :input-paths-unchanged  (vec input-signals)})))
             @last-result)
-          (let [computed (validate-and-trace
-                           body-fn (list v0) query-id query-v
-                           frame-id input-signals sub-meta)]
+          ;; Capture prior cells BEFORE the recompute for the `:sub/run`
+          ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen
+          ;; single input value in singleton-list shape (matching the
+          ;; `(list v0)` `in-vals` form) so `changed-cause-sub` can diff
+          ;; it positionally against `input-signals`; the `::unset`
+          ;; sentinel on first recompute leaves `:cause-sub` nil.
+          (let [prev-result  @last-result
+                prev-v0      @last-v0
+                prev-in-vals (if (= unset prev-v0)
+                               unset
+                               (list prev-v0))
+                computed     (validate-and-trace
+                               body-fn (list v0) query-id query-v
+                               frame-id input-signals sub-meta
+                               prev-result prev-in-vals)]
             (vreset! last-v0 v0)
             (vreset! last-result computed)
             computed))))))
@@ -253,9 +393,17 @@
                               :reason                 :input-value-equal
                               :input-paths-unchanged  (vec input-signals)})))
             @last-result)
-          (let [computed (validate-and-trace
-                           body-fn in-vals query-id query-v
-                           frame-id input-signals sub-meta)]
+          ;; Capture prior cells BEFORE the recompute for the `:sub/run`
+          ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen
+          ;; input-value seq (parallel to `input-signals`), which
+          ;; `changed-cause-sub` diffs positionally to name the upstream
+          ;; sub that cascaded. `::unset` on first recompute → nil cause.
+          (let [prev-result  @last-result
+                prev-in-vals @last-in-vals
+                computed     (validate-and-trace
+                               body-fn in-vals query-id query-v
+                               frame-id input-signals sub-meta
+                               prev-result prev-in-vals)]
             (vreset! last-in-vals in-vals)
             (vreset! last-result computed)
             computed))))))
