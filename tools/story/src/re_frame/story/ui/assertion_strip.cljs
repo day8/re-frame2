@@ -21,7 +21,10 @@
      drills only when something demands attention). A click toggles.
   3. **Token-coloured left border** — green / red / grey by status.
   4. **Truncate long values** — the inline summary clamps to one line
-     with ellipsis; the expanded panel renders the full content.
+     with ellipsis; the expanded panel renders the full content, but a
+     long `:expected` / `:actual` value (e.g. a large map) clamps inside
+     the panel too with a click-to-reveal-full chord, so it never blows
+     the panel into the canvas height.
   5. **Group by dispatching event** — assertions cluster under the
      `:event` slot they were dispatched from. Multiple `:rf.assert/*`
      dispatches against the same play-step land together visually.
@@ -64,6 +67,17 @@
   shape at a glance."
   72)
 
+(def ^:private detail-value-len
+  "Maximum character length for a single `:expected` / `:actual` value
+  rendered inside the *expanded* detail panel. The row head's one-line
+  summary already clamps to `truncate-len`; this second cap stops a
+  large map (e.g. an `:rf.assert/sub-equals` comparing a whole app-db
+  slice) from blowing the expanded panel into the canvas height. Beyond
+  this length the value renders clamped with an ellipsis and a
+  click-to-reveal chord that swaps in the full `pr-str` inline — same
+  no-modal disclosure pattern as the row head (Storybook pattern #4)."
+  120)
+
 (defn truncate
   "Clamp `s` to at most `n` chars, suffixing `\"…\"` when truncated.
   Pure data → string. Returns `\"\"` for nil input."
@@ -74,6 +88,27 @@
      (not (string? s))          (truncate (str s) n)
      (<= (count s) n)           s
      :else                      (str (subs s 0 (max 0 (dec n))) "…"))))
+
+(defn value-display
+  "Pure projection of one detail value (`:expected` / `:actual`) into the
+  shape the detail panel renders: a `pr-str` rendering plus a clamped,
+  click-to-reveal-aware view.
+
+  Returns:
+
+      {:full     <full pr-str string>
+       :clamped  <truncate(full, n) — full when short>
+       :long?    <bool: was the full rendering longer than n?>}
+
+  `:long?` is the renderer's signal to attach the click-to-reveal chord;
+  short values render `:clamped` (= `:full`) directly with no chord. Pure
+  data → data; JVM-testable shape."
+  ([v] (value-display v detail-value-len))
+  ([v n]
+   (let [full (pr-str v)]
+     {:full    full
+      :clamped (truncate full n)
+      :long?   (> (count full) n)})))
 
 (defn summary-line
   "Render the one-line inline summary for one assertion-row projection.
@@ -208,7 +243,18 @@
                  :border-radius "0 3px 3px 0"}
    :detail-key  {:color         (:info colors/tokens)
                  :margin-right  "4px"}
-   :detail-line {:margin        "2px 0"}})
+   :detail-line {:margin        "2px 0"}
+   ;; click-to-reveal chord on a long :expected / :actual value inside
+   ;; the expanded panel. The clamped value renders inline; the chord
+   ;; swaps in the full pr-str — no modal, same row.
+   :value-reveal {:color        (:info colors/tokens)
+                  :margin-left  "6px"
+                  :font-size    (:micro typography/type-scale)
+                  :background   "transparent"
+                  :border       "none"
+                  :padding      "0"
+                  :cursor       "pointer"
+                  :text-decoration "underline"}})
 
 (def ^:private status->row-style
   {:pass (:row-pass styles)
@@ -228,11 +274,47 @@
 
 ;; ---- rendering ------------------------------------------------------------
 
+(defn detail-value
+  "Reagent component rendering one `:expected` / `:actual` value inside
+  the expanded detail panel with click-to-reveal-full.
+
+  Short values (`(value-display v)` `:long?` false) render their full
+  `pr-str` directly with no chord. Long values render the clamped form
+  plus a `(reveal)` chord; clicking the chord swaps in the full value
+  inline (no modal) and toggles back. Per-mount `r/atom` carries the
+  revealed? flag.
+
+  `data-test` is `story-canvas-assertion-detail-value`; the reveal chord
+  is `story-canvas-assertion-detail-reveal`. `data-revealed` reflects the
+  current disclosure state so tests + the agent reader can pin it."
+  [_label _v]
+  (let [revealed? (r/atom false)]
+    (fn [label v]
+      (let [{:keys [full clamped long?]} (value-display v)]
+        [:div {:style        (:detail-line styles)
+               :data-test    "story-canvas-assertion-detail-value"
+               :data-key     label
+               :data-revealed (str (boolean (and long? @revealed?)))}
+         [:span {:style (:detail-key styles)} (str label ":")]
+         (if (and long? (not @revealed?)) clamped full)
+         (when long?
+           [:button {:style     (:value-reveal styles)
+                     :data-test "story-canvas-assertion-detail-reveal"
+                     :type      "button"
+                     :on-click  (fn [e]
+                                  (.stopPropagation e)
+                                  (swap! revealed? not))}
+            (if @revealed? "less" "reveal")])]))))
+
 (defn- row-detail
   "Render the expanded detail for one row. Surfaces `:reason` /
   `:expected` / `:actual` / `:event` / `:phase` / `:predicate` and the
   source-coord stamp. Mirrors the test-mode pane's `row-detail` but
-  inline-sized (no headings; one line per key)."
+  inline-sized (no headings; one line per key).
+
+  `:expected` / `:actual` route through `detail-value` so a large map
+  (the densest realistic case) renders clamped with a click-to-reveal
+  chord rather than blowing the panel into the canvas height."
   [detail]
   (let [{:keys [reason expected actual event phase predicate source]} detail]
     [:div {:style     (:detail styles)
@@ -242,13 +324,9 @@
         [:span {:style (:detail-key styles)} "reason:"]
         (if (string? reason) reason (pr-str reason))])
      (when (or (some? expected) (false? expected))
-       [:div {:style (:detail-line styles)}
-        [:span {:style (:detail-key styles)} "expected:"]
-        (pr-str expected)])
+       [detail-value "expected" expected])
      (when (or (some? actual) (false? actual))
-       [:div {:style (:detail-line styles)}
-        [:span {:style (:detail-key styles)} "actual:"]
-        (pr-str actual)])
+       [detail-value "actual" actual])
      (when (some? event)
        [:div {:style (:detail-line styles)}
         [:span {:style (:detail-key styles)} "event:"]
