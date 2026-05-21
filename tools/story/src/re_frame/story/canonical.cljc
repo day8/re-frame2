@@ -127,8 +127,8 @@
   branch of `ensure-installed!` and don't recurse."
   []
   (reset! installed? true)
-  (doseq [install! canonical-installers]
-    (install!)))
+  (doseq [installer canonical-installers]
+    (installer)))
 
 ;; Register the auto-install hook at canonical-ns load time. The
 ;; registrar consults this hook from each `reg-*!` runtime helper —
