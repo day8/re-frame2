@@ -87,6 +87,7 @@
                        ;; namespaced ids of the form `:story.x/y`, and a
                        ;; namespace-dropping provider would scope the
                        ;; subtree to `:y` — a frame that does not exist.
+                       [re-frame.story.ui.assertion-strip :as assertion-strip]
                        [re-frame.story.ui.canvas :as canvas]
                        [re-frame.story.ui.state :as state]])
             #?(:cljs [re-frame.story.ui.markdown :as md])
@@ -309,16 +310,13 @@
            (for [[i e] (map-indexed vector errors)]
              ^{:key i}
              [:div (pr-str e)])])
+        ;; Cell's inline assertion strip — the structured-row treatment
+        ;; (status glyph + label + summary + click-to-expand detail) is
+        ;; shared with the canvas strip via the assertion-strip
+        ;; component; both render off the same per-record projection
+        ;; rather than `pr-str`-ing raw maps.
         (when (seq assertions)
-          [:div {:style {:margin-top "6px"}}
-           (for [[i a] (map-indexed vector assertions)]
-             ^{:key i}
-             [:div {:style {:padding "2px 6px"
-                            :border-left "3px solid #be4040"
-                            :margin "2px 0"
-                            :background (:danger-bg colors/tokens)
-                            :font-size (:micro typography/type-scale)}}
-              (pr-str a)])])])))
+          [assertion-strip/assertion-strip assertions])])))
 
 #?(:cljs
    (defn- variant-cell
