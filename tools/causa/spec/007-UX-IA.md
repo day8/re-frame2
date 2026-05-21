@@ -87,7 +87,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App DB ○View 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1 │              L3 — 8 tabs
+│ ◉Event ○App DB ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routes ⚠Issues 1 │              L3 — 8 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -106,10 +106,10 @@ The four layers, top to bottom:
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
    `🌐` `🤖`) + trailing redaction marker (`[● REDACTED N]`). The
    spine sub `:rf.causa/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Eight tabs: Event / App DB / View / Trace /
-   Machines / Machines Canvas / Routing / Issues. Letter mnemonics:
-   `e` `a` `v` `t` `m` `c` `r` `i`. Count badges (`View 8`) update
-   with focused cascade. Routing was promoted to its own L3 tab in
+3. **L3 — Tab bar (40px).** Eight tabs: Event / App DB / Views / Trace /
+   Machines / Machines Canvas / Routes / Issues. Letter mnemonics:
+   `e` `a` `v` `t` `m` `c` `r` `i`. Count badges (`Views 8`) update
+   with focused cascade. Routes was promoted to its own L3 tab in
    rf2-nrbs9; Machines Canvas was promoted in rf2-mkpnb — both follow
    the cohesive-sub-domain rule (sub-domains earn their own lens tab).
    (rf2-4v67l — the Chrome A11y dogfood tab was removed in favour of
@@ -1172,8 +1172,8 @@ on `Esc`, click-outside, or invocation of any item.
 - Registered handlers (id + `:doc`)
 - Frames
 - Machines with current state
-- L4 tab jumps — Dynamic: Event / App DB / View / Trace / Machines
-  / Machines Canvas / Routing / Issues; Static: Machines / Routes /
+- L4 tab jumps — Dynamic: Event / App DB / Views / Trace / Machines
+  / Machines Canvas / Routes / Issues; Static: Machines / Routes /
   Schemas / Flows / Interceptors (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
@@ -1631,8 +1631,8 @@ with L2; Static is 3-layer without). The composer (`surface-composer`
 in `shell.cljs`) `case`-dispatches between the two on `[:rf.causa/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
-Dynamic ships 8 tabs (Event / App DB / View / Trace / Machines /
-Machines Canvas / Routing / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+Dynamic ships 8 tabs (Event / App DB / Views / Trace / Machines /
+Machines Canvas / Routes / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id

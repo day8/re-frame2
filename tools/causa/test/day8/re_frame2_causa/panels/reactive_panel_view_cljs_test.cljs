@@ -50,16 +50,17 @@
           icon (th/find-by-testid tree "rf-causa-reactive-panel-icon")]
       (is (nil? icon) "panel-icon span is gone (lived in the deleted h1)"))))
 
-(deftest reactive-panel-uses-view-display-label
-  (testing "rf2-e33ad · Mike-direction 2026-05-21 — the L4 tab now
-            displays as `View` (renamed from `Reactive`); the panel-
+(deftest reactive-panel-uses-views-display-label
+  (testing "Mike-direction 2026-05-21 — the L4 tab displays as `Views`
+            under the all-plural-domain-noun convention (Views / Flows /
+            Schemas / Routes / Machines are all plural); the panel-
             registry key stays `:views` (internal id, never a user
             contract)."
     (facade/install!)
     (let [registered (panel-registry/tab-by-id :dynamic :views)]
       (is (some? registered) "panel-registry has a :views entry under :dynamic")
-      (is (= "View" (:label registered))
-          "L4 tab label renders as `View`"))))
+      (is (= "Views" (:label registered))
+          "L4 tab label renders as `Views`"))))
 
 (deftest reactive-panel-renders-four-cascade-sections
   (testing "rf2-e33ad — the View panel renders four pipeline sections
