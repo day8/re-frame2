@@ -12,6 +12,15 @@
 ;; who want a keyword-typed slot declare an `[:enum :a :b ...]`
 ;; allowlist — the bounded keyword universe.
 ;;
+;; Per rf2-oyw04 :int coercion is STRICT and host-IDENTICAL: a value
+;; coerces to a number only when the WHOLE string is an integer literal
+;; (`^-?\d+$`); partial-numeric / radix-prefixed / whitespace-padded input
+;; (`12abc`, `0x10`, ` 12`) stays a string on EVERY host. This closes a
+;; Spec 011 hydration-mismatch hazard where `Long/parseLong` (strict, JVM)
+;; and `js/parseInt` (lenient, CLJS) disagreed on partial-numeric input.
+;; The non-coerced string then fails the :int-typed slot, surfacing
+;; :validation-failed? true via the layered :query validator.
+;;
 ;; Per [012 §Query strings and fragments]
 ;; (../../012-Routing.md#query-strings-and-fragments).
 
@@ -67,6 +76,35 @@
    :expect {:route-id :route/articles
             :params   {}
             :query    {:q "z" :page "not-a-number"}
+            :fragment nil
+            :validation-failed? true}}
+
+  ;; rf2-oyw04 — cross-host :int coercion must be STRICT and IDENTICAL on
+  ;; every host. A clean integer literal coerces to a number.
+  {:call :match-url :url "/articles?q=p&page=12"
+   :expect {:route-id :route/articles
+            :params   {}
+            :query    {:q "p" :page 12}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; rf2-oyw04 — the cross-host hazard case. Partial-numeric input
+  ;; (`12abc`) must produce the SAME output server- and client-side. The
+  ;; predecessor diverged: `Long/parseLong "12abc"` threw -> string "12abc"
+  ;; (JVM) while `js/parseInt "12abc" 10` -> number 12 (CLJS), a Spec 011
+  ;; hydration-mismatch class violating Spec 012's "same handler both
+  ;; sides" + Spec 000 Goal 2. The canonical semantics: coerce only when
+  ;; the whole string is an integer literal (`^-?\d+$`), else string
+  ;; passthrough on BOTH hosts. The non-coerced string then fails the
+  ;; :int-typed :page slot, surfacing :validation-failed? true — exactly
+  ;; like the `not-a-number` case above. Both the JVM
+  ;; (conformance_test.clj) and CLJS (conformance_corpus_cljs_test.cljs)
+  ;; harnesses run this call, so a host that re-introduced the asymmetry
+  ;; fails the corpus.
+  {:call :match-url :url "/articles?q=p&page=12abc"
+   :expect {:route-id :route/articles
+            :params   {}
+            :query    {:q "p" :page "12abc"}
             :fragment nil
             :validation-failed? true}}
 
