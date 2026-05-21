@@ -926,3 +926,228 @@
             "before-marker carries the schema-declared path")
         (is (= :schema (:reason marker))
             "before-marker carries :reason :schema")))))
+
+;; ---------------------------------------------------------------------------
+;; 8. `:sensitive?` inheritance on `:rf.flow/*` traces (Spec 013 §`:sensitive?`
+;;    inheritance, 013-Flows.md:242).
+;;
+;; Spec 013 is normative: the runtime stamps `:sensitive? true` at the top
+;; level of every `:rf.flow/*` trace event when the in-scope handler's
+;; cascade is sensitive — "the flow itself does not declare `:sensitive?`
+;; directly; the marker rides the cascade." Sensitivity is schema-derived
+;; per rf2-hjs2d: a handler scoped (`rf/path`) over a schema slot marked
+;; `{:sensitive? true}` makes the router bind `:rf/sensitive? true` into the
+;; handler scope. Flows run inside that scope (`commit-and-flow!` sits inside
+;; `run-handler-cascade!`'s `with-handler-scope`), so `trace/build-event`'s
+;; `compute-sensitive?` hoists the stamp onto the flow trace automatically —
+;; the same handler-scope inheritance every other in-cascade trace uses.
+;;
+;; These tests pin the contract end-to-end so a future reorder of the drain
+;; (e.g. moving the flow walk outside the handler scope) cannot silently
+;; strip the privacy marker — which would leak auth-handler-triggered flow
+;; recompute traces past the default-drop forwarders (Sentry / Causa-MCP).
+;; ---------------------------------------------------------------------------
+
+(defn- record-all-traces
+  "Capture every emitted trace event (not just `:op-type :flow`) for the
+  ordered-stream tests. The `*captured*` fixture recorder is flow-only."
+  [body-fn]
+  (let [seen (atom [])]
+    (trace/register-listener! ::all-trace-recorder (fn [ev] (swap! seen conj ev)))
+    (try (body-fn)
+         (finally (trace/unregister-listener! ::all-trace-recorder)))
+    @seen))
+
+(deftest flow-computed-trace-inherits-sensitive-from-schema-scope
+  (testing "Spec 013:242 — `:rf.flow/computed` is stamped `:sensitive? true`
+            when the triggering handler's cascade is schema-sensitive"
+    ;; Sensitive schema slot at [:auth :token]; a path-scoped handler
+    ;; writes it (drives the router's schema-derived overlap → scope
+    ;; `:rf/sensitive? true`). The flow reads [:auth :token] and writes
+    ;; [:auth :derived-user] — it recomputes inside the sensitive scope.
+    (rf/reg-app-schema [:auth]
+                       [:map
+                        [:token {:sensitive? true} :string]])
+    (rf/reg-flow {:id     :auth/derived-user
+                  :inputs [[:auth :token]]
+                  :output (fn [t] (str "user-of-" t))
+                  :path   [:auth :derived-user]})
+    (rf/reg-event-db :auth/signed-in
+                     [(rf/path :auth)]
+                     (fn [auth [_ token]] (assoc auth :token token)))
+    (reset! *captured* [])
+    (rf/dispatch-sync [:auth/signed-in "secret-token"])
+    (let [computes (by-op :rf.flow/computed)]
+      (is (= 1 (count computes))
+          "the flow recomputed once on the sensitive handler's drain")
+      (is (true? (:sensitive? (first computes)))
+          ":rf.flow/computed carries a top-level `:sensitive? true` stamp —
+           inherited from the schema-sensitive handler scope (Spec 013:242)"))))
+
+(deftest flow-failed-trace-inherits-sensitive-from-schema-scope
+  (testing "Spec 013:242 — `:rf.flow/failed` is also stamped `:sensitive?`
+            when the triggering handler's cascade is schema-sensitive"
+    (rf/reg-app-schema [:auth]
+                       [:map
+                        [:token {:sensitive? true} :string]])
+    (rf/reg-flow {:id     :auth/derived-user
+                  :inputs [[:auth :token]]
+                  :output (fn [_] (throw (ex-info "derive boom" {})))
+                  :path   [:auth :derived-user]})
+    (rf/reg-event-db :auth/signed-in
+                     [(rf/path :auth)]
+                     (fn [auth [_ token]] (assoc auth :token token)))
+    (reset! *captured* [])
+    (rf/dispatch-sync [:auth/signed-in "secret-token"])
+    (let [failures (by-op :rf.flow/failed)]
+      (is (= 1 (count failures))
+          "the flow threw once on the sensitive handler's drain")
+      (is (true? (:sensitive? (first failures)))
+          ":rf.flow/failed carries the top-level `:sensitive? true` stamp too"))))
+
+(deftest flow-skip-trace-inherits-sensitive-from-schema-scope
+  (testing "Spec 013:242 — `:rf.flow/skip` is stamped `:sensitive?` when the
+            triggering handler's cascade is schema-sensitive"
+    (rf/reg-app-schema [:auth]
+                       [:map
+                        [:token {:sensitive? true} :string]])
+    (rf/reg-flow {:id     :auth/derived-user
+                  :inputs [[:auth :token]]
+                  :output (fn [t] (str "user-of-" t))
+                  :path   [:auth :derived-user]})
+    (rf/reg-event-db :auth/signed-in
+                     [(rf/path :auth)]
+                     (fn [auth [_ token]] (assoc auth :token token)))
+    ;; First sign-in computes; second sign-in with the SAME token leaves
+    ;; the input value-equal → `:rf.flow/skip` fires, still inside the
+    ;; schema-sensitive handler scope.
+    (rf/dispatch-sync [:auth/signed-in "secret-token"])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:auth/signed-in "secret-token"])
+    (let [skips (by-op :rf.flow/skip)]
+      (is (= 1 (count skips))
+          "the value-equal rewrite produced one `:rf.flow/skip`")
+      (is (true? (:sensitive? (first skips)))
+          ":rf.flow/skip carries the top-level `:sensitive? true` stamp"))))
+
+(deftest flow-trace-NOT-sensitive-when-handler-not-sensitive
+  (testing "Spec 013:242 negative — a flow recompute driven by a NON-sensitive
+            handler does NOT carry the `:sensitive?` stamp (absent reads false)"
+    ;; No sensitive schema slot is under the handler's focus, so the
+    ;; router computes no overlap and the scope is not sensitive. The
+    ;; flow trace must NOT acquire a stamp.
+    (rf/reg-app-schema [:auth]
+                       [:map
+                        [:token {:sensitive? true} :string]])
+    ;; This handler is path-scoped to :profile (disjoint from the sensitive
+    ;; :auth slot) and the flow reads :profile — non-sensitive cascade.
+    (rf/reg-flow {:id     :profile/derived
+                  :inputs [[:profile :name]]
+                  :output (fn [n] (str "hello-" n))
+                  :path   [:profile :greeting]})
+    (rf/reg-event-db :profile/rename
+                     [(rf/path :profile)]
+                     (fn [profile [_ name]] (assoc profile :name name)))
+    (reset! *captured* [])
+    (rf/dispatch-sync [:profile/rename "ada"])
+    (let [computes (by-op :rf.flow/computed)]
+      (is (= 1 (count computes))
+          "the profile flow recomputed once")
+      (is (not (contains? (first computes) :sensitive?))
+          ":rf.flow/computed has NO `:sensitive?` key — non-sensitive cascade
+           (absent, not `false`, per the top-level-stamp contract)"))))
+
+(deftest flow-trace-sensitive-value-also-redacted-on-wire
+  (testing "defence-in-depth: when a flow's input/output path is itself a
+            sensitive schema slot, the wire-bearing payload is ALSO redacted
+            (via `elide-wire-value`) on top of the top-level `:sensitive?`
+            stamp — both privacy layers fire for a sensitive flow trace"
+    ;; The flow's :path is the sensitive slot, so `:result` (and the
+    ;; sensitive input) ride through the elision walker → `:rf/redacted`,
+    ;; while the cascade is sensitive → top-level stamp.
+    (rf/reg-app-schema [:auth]
+                       [:map
+                        [:token {:sensitive? true} :string]
+                        [:derived-token {:sensitive? true} :string]])
+    (rf/reg-flow {:id     :auth/derived-token
+                  :inputs [[:auth :token]]
+                  :output (fn [t] (str "derived-" t))
+                  :path   [:auth :derived-token]})
+    (rf/reg-event-db :auth/signed-in
+                     [(rf/path :auth)]
+                     (fn [auth [_ token]] (assoc auth :token token)))
+    (reset! *captured* [])
+    (rf/dispatch-sync [:auth/signed-in "secret-token"])
+    (let [ev   (first (by-op :rf.flow/computed))
+          tags (:tags ev)]
+      (is (some? ev) ":rf.flow/computed fired")
+      (is (true? (:sensitive? ev))
+          "top-level `:sensitive?` stamp present (cascade is sensitive)")
+      (is (= :rf/redacted (:result tags))
+          ":result value redacted on the wire — its :path is a sensitive slot")
+      (is (= :rf/redacted (first (:input-values tags)))
+          "the sensitive input value is redacted on the wire too"))))
+
+;; ---------------------------------------------------------------------------
+;; 8b. Strict trace-stream ordering on a flow throw (Spec 013 §Failure
+;;     semantics / §Trace stream ordering, 013-Flows.md:155-163; G2).
+;;
+;; The contract: on a flow throw the stream carries, in order,
+;; `:event/db-changed` (the post-handler db commit the failing flow saw)
+;; → `:rf.flow/failed` → `:rf.error/flow-eval-exception`, and NO further
+;; `:rf.fx/handled` trace fires this drain (the cascade halts; pinned for
+;; the :fx GAP by `fx-does-not-run-after-flow-throws` above). The existing
+;; conformance fixture is a subset match that omits `:event/db-changed`;
+;; this test pins the full ordered sequence plus the post-handler-db
+;; snapshot relationship.
+;; ---------------------------------------------------------------------------
+
+(deftest flow-throw-trace-stream-is-strictly-ordered
+  (testing "Spec 013:155-163 — db-changed → flow/failed → flow-eval-exception
+            in order, with the post-handler db snapshot the failing flow saw"
+    (let [evs (record-all-traces
+                (fn []
+                  (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+                  (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+                  (rf/reg-flow {:id     :boom
+                                :inputs [[:n]]
+                                :output (fn [_] (throw (ex-info "boom" {})))
+                                :path   [:doomed]})
+                  ;; Seed first so :n exists; the flow throws on this drain
+                  ;; too, but we re-drain with :bump to assert the ordered
+                  ;; stream against a known post-handler db value.
+                  (rf/dispatch-sync [:seed])
+                  (rf/dispatch-sync [:bump])))
+          ;; Restrict to the :bump cascade (its db-changed carries {:n 1}).
+          ;; Take everything from the :bump :run-start trace to the end.
+          evs-v       (vec evs)
+          bump-start  (->> (map-indexed vector evs-v)
+                           (filter (fn [[_ ev]]
+                                     (and (= :event (:operation ev))
+                                          (= :run-start (get-in ev [:tags :phase]))
+                                          (= [:bump] (get-in ev [:tags :event])))))
+                           (map first)
+                           last)
+          tail        (subvec evs-v bump-start)
+          ops         (mapv :operation tail)
+          db-changed  (first (filterv #(= :event/db-changed (:operation %)) tail))
+          ;; positions within the bump cascade
+          pos         (fn [op] (.indexOf ^java.util.List ops op))
+          p-changed   (pos :event/db-changed)
+          p-failed    (pos :rf.flow/failed)
+          p-error     (pos :rf.error/flow-eval-exception)]
+      (is (some? db-changed)
+          ":event/db-changed fired on the bump cascade")
+      (is (= :bump (get-in db-changed [:tags :event 0]))
+          ":event/db-changed is for the :bump event")
+      (is (and (<= 0 p-changed) (< p-changed p-failed) (< p-failed p-error))
+          (str "ordered: :event/db-changed (" p-changed ") < :rf.flow/failed ("
+               p-failed ") < :rf.error/flow-eval-exception (" p-error ")"))
+      ;; Post-handler-db snapshot relationship: the failing flow read the
+      ;; committed db (:n incremented to 1). The error is the LAST relevant
+      ;; trace — no :rf.fx/handled fires after it this drain (cascade halt).
+      (is (= 1 (:n (rf/get-frame-db :rf/default)))
+          "the post-handler db the failing flow saw has :n = 1 (commit landed)")
+      (let [after-error (subvec (vec ops) (inc p-error))]
+        (is (not-any? #(= :rf.fx/handled %) after-error)
+            "no :rf.fx/handled trace fires after the flow-eval-exception — cascade halts (Spec 013:163 GAP)")))))

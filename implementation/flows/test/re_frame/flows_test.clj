@@ -838,6 +838,20 @@
     (is (= 500 (:result (rf/get-frame-db :right)))
         ":right's :result is preserved (the previous compute's output)"))
 
+  (testing "after clear, a re-drain does NOT recompute :left but DOES recompute :right"
+    ;; Branch 4: the cleared flow truly stops firing. Re-seed both
+    ;; frames and confirm :left's slot stays absent (no flow to run)
+    ;; while :right's still-registered :compute recomputes off the new
+    ;; input. Folded in from the former `flows-are-frame-scoped` test
+    ;; (rf2-zqar3) — the dissoc-only assertion above does not prove the
+    ;; flow stopped firing on subsequent drains.
+    (rf/dispatch-sync [:seed 7] {:frame :left})
+    (rf/dispatch-sync [:seed 7] {:frame :right})
+    (is (not (contains? (rf/get-frame-db :left) :result))
+        ":left's :result stays absent — the cleared flow does not recompute")
+    (is (= 700 (:result (rf/get-frame-db :right)))
+        ":right's :compute still active — 7 * 100 = 700"))
+
   (testing "the :flow registrar slot survives clear-from-one-frame (multi-frame retention)"
     ;; Branch 2: the "last-frame-holding-id" check — the registrar slot is
     ;; flow-id-keyed and shared across frames. Clearing on :left while
@@ -881,40 +895,13 @@
             "the hook count is unchanged across a namespace reload — `defonce` guards the install")))))
 
 ;; ---------------------------------------------------------------------------
-;; 9. Frame-scoped flow smoke (relocated from core/smoke_test.clj, rf2-zqar3)
+;; 9. Frame-scoping coverage lives in `clear-flow-routes-via-frame-opt`
+;; above (registration routing, app-db dissoc, registrar-slot retention,
+;; AND the post-clear re-drain check). The former `flows-are-frame-scoped`
+;; smoke (relocated from core/smoke_test.clj per rf2-zqar3) duplicated that
+;; setup near-verbatim; its only unique assertion — the re-drain-after-clear
+;; check — has been folded into the artefact-native test, so it is dropped.
 ;; ---------------------------------------------------------------------------
-
-(deftest flows-are-frame-scoped
-  (testing "the same flow-id registered against two frames runs independently"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
-    ;; Register :compute against :left as 2x; against :right as 100x.
-    (rf/reg-flow {:id     :compute
-                  :inputs [[:n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:result]}
-                 {:frame :left})
-    (rf/reg-flow {:id     :compute
-                  :inputs [[:n]]
-                  :output (fn [n] (* 100 (or n 0)))
-                  :path   [:result]}
-                 {:frame :right})
-    (rf/dispatch-sync [:seed 5] {:frame :left})
-    (rf/dispatch-sync [:seed 5] {:frame :right})
-    (is (= 10  (:result (rf/get-frame-db :left)))
-        "left frame's :compute uses the 2x formula → 5*2 = 10")
-    (is (= 500 (:result (rf/get-frame-db :right)))
-        "right frame's :compute uses the 100x formula → 5*100 = 500"))
-  (testing "clear-flow on one frame leaves the other frame's flow intact"
-    (rf/clear-flow :compute {:frame :left})
-    ;; Re-trigger drain on both frames; left should NOT recompute (flow gone).
-    (rf/dispatch-sync [:seed 7] {:frame :left})
-    (rf/dispatch-sync [:seed 7] {:frame :right})
-    (is (nil? (:result (rf/get-frame-db :left)))
-        "left's :result was cleared by (clear-flow :compute :frame :left)")
-    (is (= 700 (:result (rf/get-frame-db :right)))
-        "right's :compute still active — 7 * 100 = 700")))
 
 ;; ---------------------------------------------------------------------------
 ;; 9a. invalidate-flow-on-replace! is frame-scoped (rf2-jfpf3 regression)
