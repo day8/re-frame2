@@ -4,7 +4,7 @@ Long-lived bidirectional connection lifecycle (WebSocket / SSE / WebRTC peer) mo
 
 `:rf.ws/*` is one instance of the **managed external effect** umbrella — alongside `:rf.http/managed`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. The connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under `:rf.ws/*`, trace-bus observability, wire-value elision) is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the eight-property shared contract; the rest of this leaf is WebSocket-specific.
 
-> **Status of the worked example:** `examples/reagent/websocket/` is in flight. Until it lands, the canonical declaration below is the source of truth.
+> **Worked example:** `examples/reagent/websocket/` ships the canonical Pattern-WebSocket app (`connection.cljs` holds the machine). Read it as ground truth; the canonical declaration below is the leaf-level summary.
 
 ## When to use this pattern
 
@@ -145,7 +145,7 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 
 **SSR.** No-ops server-side: `:spawn` spawn fx is `:platforms #{:client}`; `:after` timers don't schedule under SSR.
 
-**Final-state termination (`:final?` / `:on-done`).** Restricted to the *child* role. When the WS machine is `:spawn`'d by an outer session machine, mark a terminal-failed branch (e.g. `:permanently-failed`, distinct from recoverable `:failed`) `:final? true` — parent receives clean unrecoverable signal via `:on-done` with optional `:output-key`. Child heartbeat / handshake machines reaching `:expired` / `:handshake-failed` can similarly use `:final?` instead of dispatching custom outbound events. The top-level connection machine itself stays recoverable. See `../references/state-machines/invoke.md` §Final states.
+**Final-state termination (`:final?` / `:on-done`).** Restricted to the *child* role. When the WS machine is `:spawn`'d by an outer session machine, mark a terminal-failed branch (e.g. `:permanently-failed`, distinct from recoverable `:failed`) `:final? true` — parent receives clean unrecoverable signal via `:on-done` with optional `:output-key`. Child heartbeat / handshake machines reaching `:expired` / `:handshake-failed` can similarly use `:final?` instead of dispatching custom outbound events. The top-level connection machine itself stays recoverable. See `../references/state-machines/spawn.md` §Final states.
 
 ## Anti-patterns
 
@@ -160,15 +160,15 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 
 ## Worked example
 
-`examples/reagent/websocket/` (pending — in flight). Until merged, treat the canonical declaration above as the source of truth.
+`examples/reagent/websocket/` is the canonical worked example. `connection.cljs` holds the lifecycle machine (compound `:active` parenting `:connecting` / `:authenticating` / `:connected`, a `:spawn`d socket actor, `:after` backoff, `:always` offline-queue flush, connection-epoch staleness, request/reply correlation); `messages.cljs`, `schema.cljs`, and `views.cljs` complete it. Read the source first; the declaration above is the leaf-level summary.
 
 ## Pointers
 
 - Full pattern doc, request-reply correlation worked example, SSR composition → SKILL-REDIRECT.md → *Pattern — WebSocket*.
 - State-machine substrate (`:spawn`, `:after`, `:always`, hierarchical) → SKILL-REDIRECT.md → *EP — State machines (005)*.
-- `:final?` / `:on-done` / `:output-key` → `../references/state-machines/invoke.md` §Final states.
+- `:final?` / `:on-done` / `:output-key` → `../references/state-machines/spawn.md` §Final states.
 - Connection-epoch idiom → SKILL-REDIRECT.md → *Pattern — Stale detection*.
 
 ---
 
-*Derived from Pattern-WebSocket @ main `89bd9c3`. The worked example `examples/reagent/websocket/` is in flight; re-verify and link once it merges.*
+*Derived from Pattern-WebSocket and the worked example `examples/reagent/websocket/` @ main `89bd9c3`. Re-verify after `:rf.ws/*` or connection-machine changes.*

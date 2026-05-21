@@ -40,7 +40,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   ├── reg-machine.md       (states, initial, guards, actions)
 > │   │   ├── regions.md           (single-region + :type :parallel)
 > │   │   ├── tags.md              (state tags, machine-has-tag?)
-> │   │   ├── invoke.md            (:spawn, :spawn-all, child-machine result)
+> │   │   ├── spawn.md             (:spawn, :spawn-all, child-machine result)
 > │   │   └── cancellation.md      (destroy cascade, cleanup contract)
 > │   ├── tooling/
 > │   │   ├── stories.md           (reg-story, story frames)

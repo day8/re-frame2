@@ -137,7 +137,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md`, `subs.md`, `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
 
-**State machines — `references/state-machines/`**: `reg-machine.md`, `regions.md` (parallel), `tags.md`, `invoke.md` (child machines), `cancellation.md`.
+**State machines — `references/state-machines/`**: `reg-machine.md`, `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `cancellation.md`.
 
 **Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as `:play-script`), `story-mcp-loop.md` (agent self-healing loop over MCP), `causa.md` (the devtools panel — mount strategy, launch modes, host-CSS-variable resize contract, popout, suppress-auto-open).
 
