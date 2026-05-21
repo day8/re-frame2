@@ -111,7 +111,9 @@ nav:
   - Home: index.md
 
   - Guide:
-    - Overview: guide/README.md
+    # navigation.indexes: the section label IS the Guide overview page (no
+    # redundant "Overview" child) — see theme.features (rf2-qgpkm).
+    - guide/README.md
     - "02 — app-db": guide/02-app-db.md
     - "03 — First app": guide/03-first-app.md
     - "04 — Events": guide/04-events.md
@@ -143,7 +145,8 @@ nav:
     - "ClojureScript for non-Clojurians": cljs/index.md
 
   - Story:
-    - "Welcome": story/index.md
+    # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).
+    - story/index.md
     - "1. Your first story": story/01-first-story.md
     - "2. Mode tabs": story/02-mode-tabs.md
     - "3. Recorder + Test Codegen": story/03-recorder-codegen.md
@@ -152,7 +155,8 @@ nav:
     - "6. Time-travel in Story": story/06-time-travel.md
     - "7. Multi-substrate side-by-side": story/07-multi-substrate.md
     - "API reference":
-      - "Overview": story/api/index.md
+      # Sub-section label IS its overview (navigation.indexes, rf2-qgpkm).
+      - story/api/index.md
       - "Registration": story/api/registration.md
       - "Play scripts": story/api/play-script.md
       - "Runtime": story/api/runtime.md
@@ -160,7 +164,8 @@ nav:
       - "Reference": story/api/reference.md
 
   - Causa:
-    - "Welcome": causa/index.md
+    # Section label IS the Causa welcome page (navigation.indexes, rf2-qgpkm).
+    - causa/index.md
     - "1. Installation": causa/01-installation.md
     - "2. Panel tour": causa/02-panel-tour.md
     - "3. Time-travel scrubbing": causa/03-time-travel.md
@@ -171,14 +176,16 @@ nav:
     - "8. Machine inspector": causa/08-machine-inspector.md
     - "9. App-DB diff": causa/09-app-db-diff.md
     - "API reference":
-      - "Overview": causa/api/index.md
+      # Sub-section label IS its overview (navigation.indexes, rf2-qgpkm).
+      - causa/api/index.md
       - "Mount control": causa/api/mount-control.md
       - "Configuration keys": causa/api/config-keys.md
       - "Runtime seam": causa/api/runtime-seam.md
       - "Reference": causa/api/reference.md
 
   - Skills:
-    - Overview: skills/index.md
+    # Section label IS the Skills overview page (navigation.indexes, rf2-qgpkm).
+    - skills/index.md
     - "re-frame2 (authoring)": skills/re-frame2.md
     - re-frame2-improver: skills/re-frame2-improver.md
     - re-frame2-setup: skills/re-frame2-setup.md
@@ -189,7 +196,8 @@ nav:
     - re-frame2-pair-retro: skills/re-frame2-pair-retro.md
 
   - API:
-    - Overview: api/README.md
+    # Section label IS the API overview page (navigation.indexes, rf2-qgpkm).
+    - api/README.md
     - "01 — Core": api/01-core.md
     - "02 — Views": api/02-views.md
     - "03 — Effects": api/03-effects.md
