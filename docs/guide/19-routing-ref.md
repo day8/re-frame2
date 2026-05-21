@@ -318,5 +318,5 @@ That's the bet the previous chapter was defending: the URL is a sub.
 ## Next
 
 - [18 — From re-frame v1](20-migration.md) — appendix-shaped migration notes if you're carrying a re-frame v1 app forward.
-- [20 — Where to go next](22-where-next.md) — the chapter wrap-up, with pointers to the worked examples and pattern docs.
+- [22 — Where to go next](22-where-next.md) — the chapter wrap-up, with pointers to the worked examples and pattern docs.
 - [chapter 13](13-server-side.md) — how routing folds into SSR.

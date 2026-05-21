@@ -93,4 +93,4 @@ Flows are frame-scoped, evaluated in topological order after each event drain, s
 
 - [`skills/re-frame-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md) — the skill that drives the migration end-to-end.
 - [19 — Adapters](21-adapters.md) — substrate-agnostic story, the `init!` call shape, the three adapter packages, the slim-Reagent option.
-- [20 — Where to go next](22-where-next.md) — once the migration settles, where to head next.
+- [22 — Where to go next](22-where-next.md) — once the migration settles, where to head next.
