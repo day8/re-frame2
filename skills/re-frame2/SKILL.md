@@ -58,7 +58,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 
 1. **Implementation is ground truth.** When spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/reagent/**`.
 2. **Recipes over explanations.** Use the canonical shape; do not re-derive from first principles.
-3. **Distinguish orchestration from state.** State machines for *modes* (legal-transitions-depend-on-current-state); slices for *fields*. See [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md).
+3. **Distinguish orchestration from state.** State machines for *modes* (legal-transitions-depend-on-current-state); slices for *fields*. See [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md). **For machines, the standing mental model is: think how you'd do it in xstate, then map onto re-frame2** — xstate is the widely-known FSM model in your training data, and most concepts translate cleanly (`:type :parallel`, `:tags`, `:guards`/`:actions`, `:always`, `:after`, final states). A handful of slots re-frame2 deliberately renames or omits (`invoke`→`:spawn`, `context`→`:data`, no `assign`/action-vectors/compound-guard-data); those divergences are the trap. The translation key + divergence flags live in [`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md).
 4. **Schemas at boundaries.** `reg-app-schema` for paths that cross trust boundaries (HTTP payloads, persisted state, snapshot restores). Do not schema-fence every internal key.
 5. **`examples/reagent/<x>/` is canonical.** When a pattern has a worked example, match its shape.
 6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
@@ -137,7 +137,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md`, `subs.md`, `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
 
-**State machines — `references/state-machines/`**: `reg-machine.md`, `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `cancellation.md`.
+**State machines — `references/state-machines/`**: `reg-machine.md` (declaration + the xstate→re-frame2 translation key), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `cancellation.md`. Standing mental model across all of these: think in xstate, then map onto re-frame2 — see `reg-machine.md` for the full mapping table and deliberate-divergence flags.
 
 **Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as `:play-script`), `story-mcp-loop.md` (agent self-healing loop over MCP), `causa.md` (the devtools panel — mount strategy, launch modes, host-CSS-variable resize contract, popout, suppress-auto-open).
 

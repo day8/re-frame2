@@ -4,6 +4,8 @@
 
 Reach for this leaf when a view needs to ask "is the machine in any in-flight state?" or "is the form read-only?" — without naming the specific state-keyword. Tags are how a state declares its **intent** so views can query the intent, not the state name. Pairs with `regions.md` for the parallel-region tag-union story.
 
+> **Mental model — think in xstate, map onto re-frame2.** re-frame2's `:tags` ARE xstate's state `tags` — this is a clean convergence, name and concept. If you know "any active state carrying the tag puts it in the active configuration's tag set" from xstate, that's exactly the rule here (the union runs along the active path for compound machines and across all regions for parallel ones). The re-frame2-specific binding to learn is the query side: `machine-has-tag?` is a **subscription**, so views deref `@(rf/machine-has-tag? id tag)` rather than reading a tag list off an `ActorRef`.
+
 ## Canonical declaration
 
 A state node carries a `:tags` slot whose value is a **set of keywords**. There is no separate registration call; the slot is just a key on the state node, processed by the runtime via `compute-tags` (`implementation/machines/src/re_frame/machines.cljc:311`):

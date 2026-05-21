@@ -4,6 +4,8 @@
 
 Reach for this leaf when a `:spawn`d child issues `:rf.http/managed` requests, holds a websocket, or owns any in-flight side effect — and the parent might decide to leave the `:spawn`-bearing state. The cleanup is automatic; this leaf tells you what is guaranteed and what to add by hand for non-HTTP side effects.
 
+> **Mental model — think in xstate, map onto re-frame2.** In xstate, leaving an `invoke`-bearing state stops the invoked actor; re-frame2 keeps that intuition — leaving a `:spawn`-bearing state destroys the child — but the **abort cascade is richer and the mechanism deliberately diverges**. There is no `ActorRef` to `.stop()` and no per-actor mailbox: the snapshot lives in `app-db`, and a single destroy hook fires across every trigger (state exit, `:after` timeout, `:spawn-all` cancel-on-decision, frame teardown, imperative destroy), automatically aborting the actor's in-flight `:rf.http/managed` requests. And re-frame2 uses **no `core.async`** in the cancellation path — for non-HTTP resources (websocket, timer, external stream) you wire cleanup into the child's `:exit` action, not a channel close. Sketch the lifecycle the xstate way, then lean on the exit cascade rather than an explicit teardown call.
+
 ## The guarantee
 
 When the runtime destroys a spawned actor by **any** trigger, every in-flight `:rf.http/managed` request the actor had issued is aborted. The trigger list (Spec 005 §Cancellation cascade §The contract, `spec/005-StateMachines.md:2034`):

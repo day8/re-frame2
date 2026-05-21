@@ -5,6 +5,8 @@
 
 re-frame2 gives you three places to put state. The right choice usually falls out of one or two questions; this tree walks them in priority order. The four state-machine tells are listed first because if any of them holds, the choice is settled.
 
+> **Mental-model shortcut:** if you can already picture the feature as an xstate machine — distinct states, an `on` transition table, guards gating transitions, maybe an `invoke`d child — that's a strong signal the answer here is **machine**, not slice. xstate is the widely-known FSM model and a good intuition pump for "is this even a machine?" The four tells below formalise that instinct; once you've decided it *is* a machine, [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) carries the full xstate→re-frame2 translation key (including where re-frame2 deliberately renames or omits xstate slots).
+
 ## The three shapes
 
 | Shape | What it is | When it fits |
