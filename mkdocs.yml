@@ -56,6 +56,30 @@ theme:
   features:
     - navigation.tabs
     - navigation.sections
+    # navigation.indexes lets a section's own index/landing page BE the
+    # clickable section label (see the folded sections in `nav:` below)
+    # instead of a redundant "Overview"/"Welcome" first child (rf2-zr5r5,
+    # rf2-qgpkm).
+    - navigation.indexes
+    # SPA-style instant page loads + link prefetch — makes a corpus this
+    # large (26-chapter guide + multi-thousand-line spec) feel instant
+    # (rf2-zr5r5). The Klipse live-code page (docs/cljs/index.md) keeps
+    # working under instant nav: its bootstrap is an `extra_javascript`
+    # entry (see below) that Material re-runs on every instant navigation,
+    # rather than an inline <script> (which instant nav does NOT re-run).
+    - navigation.instant
+    - navigation.instant.prefetch
+    # Back-to-top affordance on long pages (spec chapters run thousands of
+    # lines).
+    - navigation.top
+    # Keep the TOC sidebar scrolled to the active heading on long pages.
+    - toc.follow
+    # Richer search — search is load-bearing for this corpus (see the
+    # `plugins:` comment). suggest = inline autocomplete, highlight = mark
+    # matches on the landed page, share = deep-link a search query.
+    - search.suggest
+    - search.highlight
+    - search.share
     - content.code.annotate
     - content.code.copy
 
@@ -67,6 +91,16 @@ theme:
 # in the list, otherwise search silently disappears.
 plugins:
   - search
+
+# Klipse live-code bootstrap (rf2-zr5r5). Small, site-wide loader that does
+# NOTHING unless the page actually has ```klipse cells (only docs/cljs/index.md
+# does), at which point it injects the CodeMirror CSS + the vendored ~7 MB
+# Klipse plugin once and re-mounts cells on later instant navigations. Lives
+# here (re-run by Material on every instant page swap) rather than as an inline
+# <script> on the page (which `navigation.instant` does NOT re-execute). The
+# heavy plugin is still loaded ONLY on the cljs page — see the file's header.
+extra_javascript:
+  - klipse/klipse-bootstrap.js
 
 extra:
   social:
