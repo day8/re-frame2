@@ -1,8 +1,9 @@
 /*
- * Playground smoke (Phase 1 rf2-y99zt; Phase 2 rf2-bujlr). Real headless-
- * Chromium run of the PRODUCTION bundle (docs/cljs/playground.js) against a
- * page that mimics the mkdocs-emitted DOM: `<pre class="language-cljs">` and
- * `<pre class="language-cljs-render">` cells.
+ * Playground smoke (Phase 1 rf2-y99zt; Phase 2 rf2-bujlr; Phase 3 rf2-00zvt).
+ * Real headless-Chromium run of the PRODUCTION bundles (docs/cljs/playground.js
+ * + docs/cljs/playground-rf2.js) against a page that mimics the mkdocs-emitted
+ * DOM: `<pre class="language-cljs">`, `<pre class="language-cljs-render">`, and
+ * `<pre class="language-cljs-rf2">` cells.
  *
  * Asserts the Phase-1 contract:
  *   - The bootstrap auto-injects Scittle (we do NOT add a Scittle <script> to
@@ -24,7 +25,19 @@
  *     and the view re-renders (the count increments).
  *   - A plain ```cljs eval cell on the SAME page still works unchanged.
  *
- * Run: node test/smoke.test.mjs   (after `npm run build` + `npm run browsers`)
+ * Asserts the Phase-3 contract:
+ *   - A ```cljs-rf2 cell makes the bootstrap auto-load the self-contained
+ *     re-frame2 SCI bundle (docs/cljs/playground-rf2.js -> window.rf2sci).
+ *     We do NOT add that <script> — the loader must, resolving it as a
+ *     sibling of playground.js.
+ *   - A reagent2 component using re-frame2's OWN subscribe RENDERS live
+ *     (re-frame.core v2 reg-event-db / reg-sub / dispatch-sync), and
+ *     clicking a button DISPATCHES a re-frame2 event that re-renders it.
+ *   - The Phase-1 plain cell + Phase-2 stock render cell on the SAME page
+ *     still work alongside the re-frame2 bundle (Scittle + rf2sci coexist).
+ *
+ * Run: node test/smoke.test.mjs   (after both bundles are built + `npm run
+ * browsers`)
  */
 
 import { createServer } from "node:http";
@@ -37,10 +50,18 @@ import { chromium } from "playwright";
 const here = dirname(fileURLToPath(import.meta.url)); // tools/playground/test
 const repoRoot = join(here, "..", "..", "..");
 const bundlePath = join(repoRoot, "docs", "cljs", "playground.js");
+const rf2BundlePath = join(repoRoot, "docs", "cljs", "playground-rf2.js");
 
 if (!existsSync(bundlePath)) {
   console.error(
     "FAIL: docs/cljs/playground.js not found — run `npm run build` first."
+  );
+  process.exit(1);
+}
+if (!existsSync(rf2BundlePath)) {
+  console.error(
+    "FAIL: docs/cljs/playground-rf2.js not found — run `npm run build` in" +
+      " tools/playground/sci first."
   );
   process.exit(1);
 }
@@ -73,6 +94,18 @@ const PAGE = `<!DOCTYPE html>
    [:span#smoke-cnt "count: " @(rf/subscribe [:smoke/count])]
    [:button#smoke-btn {:on-click #(rf/dispatch [:smoke/inc])} "inc"]])
 [counter]</pre>
+  <h2>live re-frame2 counter (rf2 cell)</h2>
+  <pre class="language-cljs-rf2">(require '[reagent2.core :as r]
+         '[re-frame.core :as rf])
+(rf/reg-event-db :rf2smoke/init (fn [_ _] {:count 0}))
+(rf/reg-event-db :rf2smoke/inc  (fn [db _] (update db :count inc)))
+(rf/reg-sub      :rf2smoke/count (fn [db _] (:count db)))
+(rf/dispatch-sync [:rf2smoke/init])
+(defn counter []
+  [:div
+   [:span#rf2-cnt "count: " @(rf/subscribe [:rf2smoke/count])]
+   [:button#rf2-btn {:on-click #(rf/dispatch [:rf2smoke/inc])} "inc"]])
+[counter]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -93,6 +126,12 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/playground.js") {
       const data = await readFile(bundlePath);
+      res.writeHead(200, { "content-type": "text/javascript" });
+      res.end(data);
+      return;
+    }
+    if (p === "/playground-rf2.js") {
+      const data = await readFile(rf2BundlePath);
       res.writeHead(200, { "content-type": "text/javascript" });
       res.end(data);
       return;
@@ -133,9 +172,9 @@ await page.waitForFunction(
 );
 await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 
-// All cells mount (3 plain-eval + 1 render).
+// All cells mount (3 plain-eval + 1 stock render + 1 rf2 render).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 4, `4 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 5, `5 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only.
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
 assert(cells.length === 3, `3 plain-eval cells (got ${cells.length})`);
@@ -228,6 +267,58 @@ const c1afterRender = await evalCell(0);
 assert(
   c1afterRender.text.includes("=> 6"),
   `plain cell still evals to 6 alongside render cell (got ${JSON.stringify(c1afterRender.text)})`
+);
+
+// --- Phase 3: live re-frame2 (v2) render cell --------------------------------
+
+// The bootstrap must auto-load the self-contained re-frame2 SCI bundle because
+// the page has a ```cljs-rf2 cell. We did NOT add that <script>.
+await page.waitForFunction(
+  () => !!(window.rf2sci && window.rf2sci.renderLast),
+  null,
+  { timeout: 20000 }
+);
+assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
+
+const rf2Cell = await page.$(".cljs-cell--rf2");
+assert(!!rf2Cell, "re-frame2 cell mounted");
+
+// The reagent2 component renders into the result div as live DOM (auto-mount),
+// driven by re-frame2's OWN reg-event-db / reg-sub / dispatch-sync.
+await page.waitForSelector(".cljs-cell--rf2 #rf2-cnt", { timeout: 20000 });
+const rf2Before = (await page.locator("#rf2-cnt").innerText()).trim();
+console.log("rf2 cell count (initial):", JSON.stringify(rf2Before));
+assert(
+  rf2Before === "count: 0",
+  `re-frame2 cell shows initial subscribed count 0 (got ${JSON.stringify(rf2Before)})`
+);
+const rf2MountErr = await rf2Cell.$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2MountErr, "re-frame2 cell not flagged error");
+
+// Clicking the button dispatches a re-frame2 event; the v2 subscription updates
+// and the reagent2 view re-renders.
+await page.click("#rf2-btn");
+await page.click("#rf2-btn");
+await page.waitForFunction(
+  () => document.querySelector("#rf2-cnt")?.innerText.trim() === "count: 2",
+  null,
+  { timeout: 5000 }
+);
+const rf2After = (await page.locator("#rf2-cnt").innerText()).trim();
+console.log("rf2 cell count (after 2 dispatches):", JSON.stringify(rf2After));
+assert(
+  rf2After === "count: 2",
+  `re-frame2 dispatch increments subscribed count to 2 (got ${JSON.stringify(rf2After)})`
+);
+
+// The stock Phase-2 render cell still works alongside the re-frame2 bundle
+// (Scittle's stock re-frame and window.rf2sci coexist without interference).
+const stockStillWorks = (await page.locator("#smoke-cnt").innerText()).trim();
+assert(
+  stockStillWorks === "count: 2",
+  `stock render cell unaffected by rf2 bundle (got ${JSON.stringify(stockStillWorks)})`
 );
 
 assert(pageErrors.length === 0, `no uncaught page errors (saw: ${JSON.stringify(pageErrors)})`);

@@ -1,0 +1,32 @@
+;; shadow-cljs build for the playground's re-frame2 SCI eval bundle
+;; (rf2-00zvt, Phase 3).
+;;
+;; Produces docs/cljs/playground-rf2.js — an :advanced-compiled IIFE-ish
+;; browser bundle that installs `window.rf2sci.{evalString,renderLast}`.
+;; The playground bootstrap (tools/playground/src/playground.mjs) loads
+;; it as a classic <script> ONLY on pages that have a ```cljs-rf2 cell,
+;; the same on-demand pattern Phase 2 uses for the Scittle plugins.
+;;
+;; React resolution: reagent2 (the substrate re-frame2 renders through)
+;; targets React 19 via reagent2.dom.client/create-root. React 19 DROPPED
+;; the UMD build, so the Phase-2 global-React-from-CDN trick (which works
+;; for Scittle's React-18 reagent plugin) is unavailable. Instead this
+;; bundle BUNDLES react@19 + react-dom@19 from npm (the same versions the
+;; implementation pins) — so docs/cljs/playground-rf2.js is fully
+;; self-contained: one <script>, no external React, no version-mismatch
+;; risk. shadow-cljs resolves "react"/"react-dom" via node_modules
+;; (tools/playground/sci/package.json).
+{:deps {:aliases []}
+
+ :builds
+ {:rf2
+  ;; Output to a local out/ dir (which also collects shadow's manifest.edn
+  ;; + dev cljs-runtime), then the npm build step copies just the single
+  ;; advanced bundle to docs/cljs/playground-rf2.js — keeping the deployed
+  ;; docs/cljs/ tree clean (one committed JS file, like the esbuild side).
+  {:target     :browser
+   :output-dir "out"
+   :asset-path "."
+   :modules    {:playground-rf2 {:init-fn rf2-playground.sci/init}}
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto}}}}
