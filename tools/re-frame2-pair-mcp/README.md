@@ -67,12 +67,24 @@ Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`):
 }
 ```
 
-The server auto-discovers the nREPL port from (in order):
+The server auto-discovers the nREPL port from (highest precedence first):
 
-1. `$SHADOW_CLJS_NREPL_PORT` env var
-2. `target/shadow-cljs/nrepl.port`
-3. `.shadow-cljs/nrepl.port`
-4. `.nrepl-port`
+1. `--port-file <path>` launch flag — an explicit, **cwd-independent**
+   path to the port file. See [Launch flags](#launch-flags).
+2. `$SHADOW_CLJS_NREPL_PORT` env var.
+3. `target/shadow-cljs/nrepl.port`
+4. `.shadow-cljs/nrepl.port`
+5. `.nrepl-port`
+
+> **cwd caveat (rf2-3dbwh).** Steps 3–5 are bare *relative* paths,
+> resolved against the server process's current working directory
+> (`process.cwd()`). The MCP server runs as a **subprocess of the agent
+> host** (Claude Code / Cursor / Copilot), whose cwd is frequently **not**
+> your project root. When it isn't, all three file fallbacks miss
+> silently and only the env var (step 2) or `--port-file` (step 1)
+> resolve a port. If discovery fails with no obvious cause, prefer the
+> explicit escape hatches: set `SHADOW_CLJS_NREPL_PORT`, or pass
+> `--port-file <absolute-path-to-nrepl.port>`.
 
 ### Path-drift probe
 
@@ -133,6 +145,30 @@ your editor is the source of truth.
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
 | `--allow-eval`              | OFF     | Enable the `eval-cljs` tool. Default-OFF gate (rf2-cxx5s); see "eval-cljs gate" below. |
 | `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
+| `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
+
+#### port-file flag (rf2-3dbwh)
+
+The default port-file fallbacks (`target/shadow-cljs/nrepl.port`,
+`.shadow-cljs/nrepl.port`, `.nrepl-port`) are **relative** paths resolved
+against the server's current working directory. Because the MCP server is
+launched as a subprocess of the agent host, that cwd is frequently *not*
+your project root — in which case the relative scan misses and only the
+env var or `--port-file` resolve a port. `--port-file` takes an
+**absolute** path and wins over every other source:
+
+```json
+{
+  "mcpServers": {
+    "re-frame2-pair": {
+      "command": "re-frame2-pair-mcp",
+      "args": ["--port-file", "/abs/path/to/project/.shadow-cljs/nrepl.port"]
+    }
+  }
+}
+```
+
+It is the cwd-independent escape hatch when port auto-discovery fails.
 
 #### eval-cljs gate (rf2-cxx5s)
 

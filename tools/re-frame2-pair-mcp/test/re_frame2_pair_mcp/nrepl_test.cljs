@@ -163,6 +163,61 @@
       (fn []
         (is (nil? (nrepl/read-port-from-fs)))))))
 
+;; ---------------------------------------------------------------------------
+;; --port-file explicit override (rf2-3dbwh). The 1-arity `read-port-from-fs`
+;; takes an explicit, cwd-independent path that wins over BOTH the env var and
+;; the relative file-scan candidates. nil/blank ⇒ falls through to the normal
+;; precedence chain.
+;; ---------------------------------------------------------------------------
+
+(deftest port-discovery-explicit-port-file-wins-over-env
+  (testing "an explicit --port-file path beats SHADOW_CLJS_NREPL_PORT"
+    ;; env says 7777, the explicit file says 9001 → explicit wins. The
+    ;; env must NOT short-circuit ahead of the explicit path.
+    (with-fs-stub! "7777"
+      (read-returning "explicit/nrepl\\.port" "9001")
+      (fn []
+        (is (= 9001 (nrepl/read-port-from-fs "explicit/nrepl.port"))
+            "explicit --port-file is highest precedence")))))
+
+(deftest port-discovery-explicit-port-file-wins-over-file-scan
+  (testing "an explicit --port-file path beats the cwd-relative candidates"
+    (with-fs-stub! nil
+      (fn [^js path]
+        (let [p (str path)]
+          (cond
+            (re-find #"explicit[\\/]nrepl\.port" p) "9002"
+            (re-find #"target/shadow-cljs/nrepl\.port" p) "6001"
+            :else (throw (js/Error. "ENOENT")))))
+      (fn []
+        (is (= 9002 (nrepl/read-port-from-fs "explicit/nrepl.port"))
+            "explicit path wins over the relative scan")))))
+
+(deftest port-discovery-explicit-port-file-trimmed-and-parsed
+  (testing "explicit-path content is trimmed + parsed like the candidates"
+    (with-fs-stub! nil
+      (read-returning "explicit/nrepl\\.port" "  9003  \n")
+      (fn []
+        (is (= 9003 (nrepl/read-port-from-fs "explicit/nrepl.port")))))))
+
+(deftest port-discovery-explicit-port-file-missing-falls-through
+  (testing "an absent explicit path falls through to env then file scan"
+    ;; The explicit path throws ENOENT; env (7777) must then resolve.
+    (with-fs-stub! "7777" throwing-read
+      (fn []
+        (is (= 7777 (nrepl/read-port-from-fs "nope/missing.port"))
+            "missing --port-file ⇒ fall through to env")))))
+
+(deftest port-discovery-explicit-port-file-nil-is-normal-chain
+  (testing "nil explicit path behaves exactly like the 0-arity chain"
+    (with-fs-stub! nil
+      (read-returning "target/shadow-cljs/nrepl.port" "6001")
+      (fn []
+        (is (= 6001 (nrepl/read-port-from-fs nil))
+            "nil explicit ⇒ normal env→file precedence")
+        (is (= 6001 (nrepl/read-port-from-fs))
+            "0-arity stays equivalent")))))
+
 ;; ===========================================================================
 ;; Transport data-handler — `attach-handlers!` (rf2-wnrpi, finding G3).
 ;;

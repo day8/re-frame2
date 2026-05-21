@@ -121,6 +121,46 @@
         "Legacy --allow-raw-state must not enable the gate post-rename")))
 
 ;; ---------------------------------------------------------------------------
+;; --port-file launch flag (rf2-3dbwh) — explicit, cwd-independent port file.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-launch-flags-port-file-defaults-nil
+  (let [flags (server/parse-launch-flags [])]
+    (is (nil? (:port-file flags))
+        "absent --port-file ⇒ :port-file nil")))
+
+(deftest parse-launch-flags-port-file-space-form
+  (testing "--port-file <path> reads the value from the next argv element"
+    (let [flags (server/parse-launch-flags ["--port-file" "/abs/path/nrepl.port"])]
+      (is (= "/abs/path/nrepl.port" (:port-file flags)))
+      (is (false? (:allow-eval? flags)) "other flags stay at defaults"))))
+
+(deftest parse-launch-flags-port-file-equals-form
+  (testing "--port-file=<path> reads the inline value"
+    (let [flags (server/parse-launch-flags ["--port-file=/abs/path/nrepl.port"])]
+      (is (= "/abs/path/nrepl.port" (:port-file flags))))))
+
+(deftest parse-launch-flags-port-file-rides-with-other-flags
+  (let [flags (server/parse-launch-flags
+                ["--allow-eval" "--port-file" "/p/nrepl.port" "--allow-sensitive-reads"])]
+    (is (= "/p/nrepl.port" (:port-file flags)))
+    (is (true? (:allow-eval? flags)))
+    (is (true? (:allow-raw-state? flags)))))
+
+(deftest parse-launch-flags-port-file-missing-value-is-nil
+  (testing "a trailing --port-file with no value (or followed by a flag) yields nil"
+    (is (nil? (:port-file (server/parse-launch-flags ["--port-file"])))
+        "trailing --port-file with no value")
+    (is (nil? (:port-file (server/parse-launch-flags ["--port-file" "--allow-eval"])))
+        "--port-file immediately followed by another flag is not a value")))
+
+(deftest parse-launch-flags-port-file-last-occurrence-wins
+  (let [flags (server/parse-launch-flags
+                ["--port-file" "/first/nrepl.port" "--port-file=/second/nrepl.port"])]
+    (is (= "/second/nrepl.port" (:port-file flags))
+        "later --port-file overrides earlier (argv override semantics)")))
+
+;; ---------------------------------------------------------------------------
 ;; signal-runtime! cache — fires once per (build-id, server-lifetime).
 ;; ---------------------------------------------------------------------------
 
