@@ -1,36 +1,21 @@
 (ns day8.re-frame2-causa.panels.reactivity.mode-toggle-reactivity-cljs-test
-  "Sub-reactivity guard for the Cmd-Shift-M mode toggle (rf2-dhoc9
-  per-control-action test).
+  "Sub-reactivity guard for the mode-control slots NOT already pinned
+  by the e2e harness (rf2-dhoc9 per-control-action test).
 
-  `:rf.causa/toggle-mode` flips between `:dynamic` and `:static`. The
-  `:rf.causa/mode` sub the shell's chrome reads MUST re-fire so the
-  L3 tab bar / silhouette switch in lockstep. This is the unit-level
-  mirror of rf2-rwhat Phase 3's browser interaction; runs in millis."
+  De-dup note (rf2-dkmnm): the `:dynamic`→`:static`→`:dynamic`
+  round-trip via `:rf.causa/toggle-mode` is owned by
+  `control-axes-e2e/mode-toggle-e2e-cljs-test` (which also pins the
+  wrong-frame `*-survives-host-dispatch` assertion). This file keeps
+  only the slots that harness does NOT cover:
+
+    - `:rf.causa/set-mode` (the per-segment pill click writes a
+      specific mode, not a toggle).
+    - `:rf.causa.static/select-tab` (the Static-scoped tab lives on
+      its own slot)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-causa.test-helpers.sub-reactivity :as h]))
 
 (use-fixtures :each h/fixture)
-
-(deftest toggle-mode-flips-mode-sub
-  (testing "rf2-dhoc9 — `:rf.causa/toggle-mode` flips `:rf.causa/mode`
-            from `:dynamic` (default) to `:static` and back. The
-            mode sub re-fires on each toggle."
-    (h/setup-causa-frame!)
-    (let [mode-0 (h/read-sub :rf.causa/mode)]
-      (is (= :dynamic mode-0)
-          "default mode is :dynamic per spec/007-UX-IA.md §Static mode")
-      (h/dispatch-causa! [:rf.causa/toggle-mode])
-      (let [mode-1 (h/read-sub :rf.causa/mode)]
-        (is (= :static mode-1)
-            "first toggle flips to :static")
-        (is (not= mode-0 mode-1)
-            "mode sub re-fired on toggle")
-        (h/dispatch-causa! [:rf.causa/toggle-mode])
-        (let [mode-2 (h/read-sub :rf.causa/mode)]
-          (is (= :dynamic mode-2)
-              "second toggle flips back to :dynamic")
-          (is (not= mode-1 mode-2)
-              "mode sub re-fired on second toggle"))))))
 
 (deftest set-mode-writes-specific-mode
   (testing "rf2-dhoc9 — `:rf.causa/set-mode` writes a specific mode
