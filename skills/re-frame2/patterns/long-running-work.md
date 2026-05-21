@@ -147,4 +147,4 @@ Full rationale — `:spawn-all` runtime, join-state layout, `:join` modes (`:any
 
 ---
 
-*Derived from Pattern-LongRunningWork and the in-flight `examples/reagent/long_running_work/` (rf2-o9fg) @ main `89bd9c3`.*
+*Derived from Pattern-LongRunningWork and the in-flight `examples/reagent/long_running_work/` @ main `89bd9c3`.*

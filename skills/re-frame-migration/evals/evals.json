@@ -1,7 +1,7 @@
 {
   "skill_name": "re-frame-migration",
   "schema_version": "1",
-  "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md (per rf2-djprj). Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
+  "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md. Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
   "notes": "Positives target v1->v2 migration prompts: explicit phrasing OR any v1 surface mention (re-frame.db, dispatch-with, reg-global-interceptor, reg-sub-raw, ^:flush-dom, re-frame.alpha, re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys). Negatives target greenfield, authoring on already-v2, live-runtime, and pure spec / EP questions.",
   "evals": [
     {"id": 1,  "name": "explicit-migrate",      "should_trigger": true,  "prompt": "Migrate my re-frame v1 app to re-frame2."},

@@ -70,7 +70,7 @@ The SSR pipeline calls this internally; reach for it only when emitting custom H
 
 Dispatch from a `:rf/hydrate` handler. Compares the payload's `:rf/version` against the runtime's published `:rf2/runtime-version` hook; emits `:rf.ssr/version-mismatch` (a trace event, `:op-type :error`) on disagreement. The hydrate handler still applies — locked best-effort posture.
 
-Two input forms (per rf2-69ad2):
+Two input forms:
 
 ```clojure
 ;; scalar — the reference handler's shape; client-side actual looked up via :rf2/runtime-version hook
@@ -141,4 +141,4 @@ These are **trace** events — DCE-eligible in CLJS production builds. To ship t
 
 ---
 
-*Derived from `re-frame.ssr.head` (rf2-4dra9 PR #724) and `:rf.ssr/check-*` fxs (rf2-69ad2 PR #731) @ main. Verified shapes: `examples/reagent/ssr/core.cljc:112-118` (canonical `:rf/hydrate`); `spec/011-SSR.md §Head/meta contract` (head surface); `spec/Spec-Schemas.md §:rf/head-model` (head-model shape).*
+*Derived from `re-frame.ssr.head` and `:rf.ssr/check-*` fxs @ main. Verified shapes: `examples/reagent/ssr/core.cljc:112-118` (canonical `:rf/hydrate`); `spec/011-SSR.md §Head/meta contract` (head surface); `spec/Spec-Schemas.md §:rf/head-model` (head-model shape).*

@@ -53,7 +53,7 @@
              :col        (parse-int-str col-part)}))))))
 
 ;; ---------------------------------------------------------------------------
-;; Canonical case — the DOM snippet from PR #135 (rf2-z7f7).
+;; Canonical case — the DOM snippet from PR #135.
 ;; ---------------------------------------------------------------------------
 
 (deftest canonical-form-1
@@ -71,8 +71,8 @@
 ;; `^rf\.src-coord-test:no-attrs:\d+:\d+$` — concrete sample below.
 ;; ---------------------------------------------------------------------------
 
-(deftest form-1-rf2-test-sample
-  (testing "Form-1 sample matching the rf2 test regex"
+(deftest form-1-sample
+  (testing "Form-1 sample matching the test regex"
     (is (= {:ns         "rf.src-coord-test"
             :handler-id "no-attrs"
             :line       54

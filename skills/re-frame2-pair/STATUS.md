@@ -2,7 +2,7 @@
 
 A living record of what's actually implemented, what's scaffolded, and what's blocked. Updated per release. See `docs/initial-spec.md` for the design this is measured against.
 
-**Last updated:** 2026-05-13 (rf2-cxik: fixture app + initial validation envelope)
+**Last updated:** 2026-05-13 — fixture app + initial validation envelope
 
 ---
 
@@ -16,10 +16,10 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | `scripts/ops.clj` + shell shims | Written — babashka dispatches every op |
 | `.claude-plugin/plugin.json` | Written |
 | `package.json` + GH Actions (CI + release) | Written |
-| Fixture app | **Landed (rf2-cxik)** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
-| End-to-end against a live re-frame2 app | **Scaffolded (rf2-cxik)** — three Playwright specs under `tests/e2e/`, soft-skips when no fixture. |
-| Shim integration (changed-surface PR) | **Landed (rf2-cxik)** — 7 tests, 28 assertions against a stubbed nREPL. |
-| Prompt regression (changed-surface PR) | **Landed (rf2-cxik)** — 8 tests, 27 assertions, structural drift on `references/*.md` + `SKILL.md`. |
+| Fixture app | **Landed** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
+| End-to-end against a live re-frame2 app | **Scaffolded** — three Playwright specs under `tests/e2e/`, soft-skips when no fixture. |
+| Shim integration (changed-surface PR) | **Landed** — 7 tests, 28 assertions against a stubbed nREPL. |
+| Prompt regression (changed-surface PR) | **Landed** — 8 tests, 27 assertions, structural drift on `references/*.md` + `SKILL.md`. |
 
 **Changed-surface validation envelope is in place.** Live-runtime e2e is
 opt-in/manual. The bb-runnable test surfaces (`tests/runtime/`,
@@ -61,9 +61,9 @@ Three things need to be proven against a fixture before calling this beyond pre-
 
 Does `scripts/eval-cljs.sh '(+ 1 2)'` return `{:ok? true :value 3}`? If not, `ops.clj`'s `cljs-eval-value` parsing needs adjustment.
 
-### 3. `data-rf2-source-coord` format — RESOLVED 2026-05-09 (rf2-7g2q)
+### 3. `data-rf2-source-coord` format — RESOLVED 2026-05-09
 
-Resolved against re-frame2 rf2-z7f7 (PR #135). Per [Spec 006 §Source-coord annotation](https://github.com/day8/re-frame2/blob/master/spec/006-ReactiveSubstrate.md) and [Tool-Pair §Source-mapping](https://github.com/day8/re-frame2/blob/master/spec/Tool-Pair.md) the emitted attribute value is:
+Per [Spec 006 §Source-coord annotation](https://github.com/day8/re-frame2/blob/master/spec/006-ReactiveSubstrate.md) and [Tool-Pair §Source-mapping](https://github.com/day8/re-frame2/blob/master/spec/Tool-Pair.md) the emitted attribute value is:
 
 ```
 data-rf2-source-coord="<ns>:<handler-id>:<line>:<col>"
@@ -93,22 +93,22 @@ Everything else is structurally correct per the Tool-Pair Spec but not runtime-v
 In order:
 
 1. ~~Stand up a fixture re-frame2 app (minimal Reagent v2 + shadow-cljs).~~
-   **Done (rf2-cxik)** — `tests/fixture/`.
+   **Done** — `tests/fixture/`.
 2. Ground-truth the three items under *Known unknowns* against the
    live fixture using the `tests/e2e/` runner.
 3. Adjust `runtime.cljs` and `ops.clj` to match any findings.
 4. Wire `tests/runtime/` into an actual shadow-cljs test build (the bb
    mirrors are the canonical drift-detector for now).
 5. ~~Wire `tests/shim/` and `tests/prompts/` into PR CI.~~
-   **Done (rf2-70yi0)** — changed-surface only via `skills-structural`.
+   **Done** — changed-surface only via `skills-structural`.
 6. Graduate out of pre-alpha and cut `v0.1.0-beta.1`.
 
 ---
 
 ## Asymmetries to monitor in the spec
 
-These are documented gaps in re-frame2's `:rf/epoch-record` projection that affect what recipes can return today. Each is a candidate `bd` bead if real usage shows it materially blocks a recipe:
+These are documented gaps in re-frame2's `:rf/epoch-record` projection that affect what recipes can return today. Each is a candidate follow-on if real usage shows it materially blocks a recipe:
 
 - **`:effects` projection captures only warning/error outcomes** — successful fx execution is not in the projection (Spec-Schemas §`:rf/epoch-record`). The skill's "What effects fired?" recipe falls back to walking `:trace-events` directly when successful-fx attribution is needed.
-- **`:render-key` shape is TBD** (Spec-Schemas §`:rf/epoch-record`, rf2-t5tx). Treated as opaque by the skill; recipes that route by render-key compare via `str` until the shape stabilises.
+- **`:render-key` shape is TBD** (Spec-Schemas §`:rf/epoch-record`). Treated as opaque by the skill; recipes that route by render-key compare via `str` until the shape stabilises.
 - **`:sub-runs` `:result-changed?` is currently always true when the sub recomputed** — the raw trace doesn't yet carry the prior value. Tools requiring fine-grained change-tracking consume the raw trace stream.

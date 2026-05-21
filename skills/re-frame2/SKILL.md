@@ -22,7 +22,7 @@ allowed-tools:
   - Write
   - Grep
   - Glob
-  # story-mcp authoring-side tools (rf2-1v7tu HYBRID): re-frame2 owns the
+  # story-mcp authoring-side tools (HYBRID split): re-frame2 owns the
   # authoring loop (write/refine variant); re-frame2-pair owns the run side
   # (run-variant / read-failures / record-as-variant). Per
   # tools/story-mcp/spec/002-Tool-Registry.md.

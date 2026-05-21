@@ -31,7 +31,7 @@ The runtime maintains a derived `:tags` slot on the snapshot — the **union** o
 
 - **Flat machine** — the single active state's `:tags` set.
 - **Compound (hierarchical)** — the union along the path from root to active leaf.
-- **Parallel-region machine** — the union across every active state in every region (`machines.cljc:295`, Stage 2 / rf2-l67o).
+- **Parallel-region machine** — the union across every active state in every region (`machines.cljc:295`).
 
 If the union is empty the slot is **elided** entirely (snapshot-size optimisation, `machines.cljc:327` `commit-tags`). The `:rf/machine-snapshot` schema marks `:tags` as `{:optional true}` — both presence (with non-empty set) and absence are valid.
 

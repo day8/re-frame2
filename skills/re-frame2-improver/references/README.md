@@ -2,7 +2,7 @@
 
 Anti-pattern catalogue for `re-frame2-improver`. Each leaf is one anti-pattern with: detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching leaf under `skills/re-frame2/patterns/` or the relevant `spec/` document.
 
-## Status — populated (rf2-bquci)
+## Status — populated
 
 Six launch anti-patterns are now resident. The catalogue is intentionally narrow — grow it as new anti-patterns surface across 3+ real review sessions (same growth discipline as `re-frame-pair-improver2/references/known-frictions.md`).
 
@@ -31,7 +31,7 @@ Each leaf carries the same five sections:
 
 When a new anti-pattern surfaces across 3+ review sessions, add it as a new leaf and a new row above. Mirrors how `re-frame-pair-improver2/references/known-frictions.md` grows organically. Anti-patterns flagged in `ai/findings/improver-architecture-20260513-1752.md` §Angle 2 as "bonus" candidates (view renders only happy state; effect handlers writing to foreign frames) are deferred until they surface in real reviews.
 
-## Shared retro protocol (rf2-dhe9v)
+## Shared retro protocol
 
 - [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md) — seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol. Extracted from `re-frame-pair-retro2`; consumed by both this skill and `re-frame-pair-retro2`. The SKILL.md loads it; per-leaf detection rules below assume the protocol is already in scope.
 
@@ -39,4 +39,4 @@ When a new anti-pattern surfaces across 3+ review sessions, add it as a new leaf
 
 - `SKILL.md` — the skill's top-level entry; describes when this catalogue is consulted.
 - `skills/re-frame2/patterns/` — the canonical-idiom leaves each anti-pattern routes to.
-- `ai/findings/improver-architecture-20260513-1752.md` — the design rationale (rf2-zf7zd).
+- `ai/findings/improver-architecture-20260513-1752.md` — the design rationale.

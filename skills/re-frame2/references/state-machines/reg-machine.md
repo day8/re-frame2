@@ -153,4 +153,4 @@ For the full transition-table grammar, guard/action effect-map shape, hierarchic
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (registration + transition table) and `implementation/core/src/re_frame/core.cljc` (the `reg-machine` macro + `sub-machine` / `machine-has-tag?` sugar) @ main `89bd9c3`. Re-verify line numbers after machine-registration refactors (e.g. rf2-oz9t nested-validation).*
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (registration + transition table) and `implementation/core/src/re_frame/core.cljc` (the `reg-machine` macro + `sub-machine` / `machine-has-tag?` sugar) @ main `89bd9c3`. Re-verify line numbers after machine-registration refactors.*

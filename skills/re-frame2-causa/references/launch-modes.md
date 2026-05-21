@@ -9,32 +9,32 @@ the spec doc rather than improvising prose.
 
 ```
 Is the host app's dev build running with the Causa preload? ── no ──► §Install the preload
-                       │
-                      yes
-                       │
-            Has `rf/init!` run? ── no ──► §Programmatic init!
-                       │
-                      yes
-                       │
-        Is there a [data-rf-causa-host] in the page layout?
-                       │
-        ┌──────────────┴──────────────┐
-       yes                           no
-        │                             │
-        ▼                             ▼
-  Causa auto-opened into the    Causa logged the missing-host
-  inline host on page load.     diagnostic (console.error +
-  Toggle with Ctrl+Shift+C.     window.day8.re_frame2_causa.status())
-        │                             │
-        ▼                             ▼
-  Need a second monitor?        §Layout host contract (add the column)
-        │
-       yes
-        │
-        ▼
-  (causa/popout!) — same-origin
-  second window, reads the
-  opener's runtime atoms directly.
+ │
+ yes
+ │
+ Has `rf/init!` run? ── no ──► §Programmatic init!
+ │
+ yes
+ │
+ Is there a [data-rf-causa-host] in the page layout?
+ │
+ ┌──────────────┴──────────────┐
+ yes no
+ │ │
+ ▼ ▼
+ Causa auto-opened into the Causa logged the missing-host
+ inline host on page load. diagnostic (console.error +
+ Toggle with Ctrl+Shift+C. window.day8.re_frame2_causa.status)
+ │ │
+ ▼ ▼
+ Need a second monitor? §Layout host contract (add the column)
+ │
+ yes
+ │
+ ▼
+ (causa/popout!) — same-origin
+ second window, reads the
+ opener's runtime atoms directly.
 ```
 
 ## Install the preload
@@ -52,10 +52,10 @@ The preload runs four foundation side-effects (per
 
 1. Register `:rf.causa/*` handlers against the `:rf/causa` frame.
 2. Register the trace collector via `register-listener!` under
-   `:rf.causa/trace-collector`.
+ `:rf.causa/trace-collector`.
 3. Register the epoch collector via `register-epoch-listener!` under
-   `:rf.causa/epoch-collector` (no-op when the
-   `day8/re-frame2-epoch` artefact is absent).
+ `:rf.causa/epoch-collector` (no-op when the
+ `day8/re-frame2-epoch` artefact is absent).
 4. Attach the global `Ctrl+Shift+C` keydown listener.
 
 It schedules an auto-open into `[data-rf-causa-host]` once
@@ -75,20 +75,20 @@ right):
 
 ```html
 <div class="app-shell">
-  <main id="app"></main>
-  <aside data-rf-causa-host></aside>
+ <main id="app"></main>
+ <aside data-rf-causa-host></aside>
 </div>
 ```
 
 ```css
-:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) */
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var */
 body { margin: 0; }
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 560px);
-  min-width: 320px;
-  box-sizing: border-box;
-  border-left: 1px solid #2a2a2a;
+ flex: 0 0 var(--rf-causa-inline-width, 560px);
+ min-width: 320px;
+ box-sizing: border-box;
+ border-left: 1px solid #2a2a2a;
 }
 #app { flex: 1; min-width: 0; }
 ```
@@ -107,18 +107,17 @@ The recommended CSS reads `--rf-causa-inline-width` for its
 `flex-basis`. Two cooperating resize mechanisms:
 
 1. **CSS variable** — host-owned, fixed-point sizing. Set the initial
-   width or override per route/per build via the cascade. One
-   declaration, no listeners.
-   ```css
-   :root { --rf-causa-inline-width: 720px; }        /* global default */
-   .debug-route { --rf-causa-inline-width: 960px; } /* per route */
-   ```
-2. **Causa drag handle** — auto-injected by Causa (rf2-70u8q; see
-   `tools/causa/spec/007-UX-IA.md` §Resize affordance) on the panel's
-   outer edge. Pointer-driven (mouse, touch, pen via pointer events),
-   keyboard-navigable, persisted across reloads via
-   `configure! :rf.causa/settings :general :panel-width-px`, clamped to
-   `[320px, 90vw]`, double-click to reset.
+ width or override per route/per build via the cascade. One
+ declaration, no listeners.
+ ```css
+ :root { --rf-causa-inline-width: 720px; } /* global default */
+ .debug-route { --rf-causa-inline-width: 960px; } /* per route */
+ ```
+2. **Causa drag handle** — auto-injected by Causa on the panel's
+ outer edge. Pointer-driven (mouse, touch, pen via pointer events),
+ keyboard-navigable, persisted across reloads via
+ `configure! :rf.causa/settings :general :panel-width-px`, clamped to
+ `[320px, 90vw]`, double-click to reset.
 
 Both mechanisms write the same `flex-basis` slot. Consumers that
 prefer the browser-native handle opt out by setting `resize:
@@ -161,11 +160,11 @@ guarded so a second call is a no-op.
 (require '[day8.re-frame2-causa.core :as causa])
 
 (causa/init!
- {:default-frame :app/main          ; target-frame for the scrubber
-  :theme         :dark              ; / :light / :high-contrast
-  :density       :compact           ; / :cosy
-  :ai-provider   {:provider :claude}
-  :buffer-depths {:trace 200 :epoch 50}})
+ {:default-frame :app/main ; target-frame for the scrubber
+ :theme :dark ; / :light / :high-contrast
+ :density :compact ; / :cosy
+ :ai-provider {:provider :claude}
+ :buffer-depths {:trace 200 :epoch 50}})
 ```
 
 Pre-alpha posture: `:default-frame` threads through to the
@@ -182,7 +181,7 @@ full-screen." Same-origin required.
 ```clojure
 (causa/popout!)
 ;; or, from a devtools console:
-;; window.day8.re_frame2_causa.popout_BANG_()
+;; window.day8.re_frame2_causa.popout_BANG_
 ```
 
 Mechanism: `window.open` whose JS realm is connected to the opener's
@@ -195,14 +194,14 @@ Caveats inherited from the `window.opener` posture:
 
 - Same-origin required; do not open with `noopener` / `noreferrer`.
 - If the user closes the opener, the pop-out becomes orphaned. Pop-out
-  detects this via `window.opener.closed` and shows a clean
-  "opener gone — close this window" overlay (per rf2-h3ekl).
+ detects this via `window.opener.closed` and shows a clean
+ "opener gone — close this window" overlay.
 - The pop-out can't survive a hard reload of the opener — atoms get
-  garbage-collected; the pop-out re-bootstraps via
-  `window.opener.causaRuntime` on opener reload.
+ garbage-collected; the pop-out re-bootstraps via
+ `window.opener.causaRuntime` on opener reload.
 - No keybinding pre-alpha. The programmatic call is the contract.
 - A right-click → `Pop out` affordance on the launcher pill is the
-  canonical chrome-side path once that surface lands.
+ canonical chrome-side path once that surface lands.
 
 ## Wired hotkeys
 
@@ -218,7 +217,7 @@ catalogues additional shortcuts (`?`, `,`, `Ctrl+F`, `Esc`, `j`/`k`,
 `[`/`]`, panel-jump mnemonics). These are normative for the future but
 require focus inside Causa today; most are per-panel rather than
 global. The historical `Ctrl+K` command palette was never wired and
-was struck under rf2-27zh2 (Cluster C cleanup) — do not surface it
+was struck under (Cluster C cleanup) — do not surface it
 as a launch path. The command palette opens through the top-strip
 control once that surface lands.
 

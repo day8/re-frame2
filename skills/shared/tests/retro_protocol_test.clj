@@ -1,8 +1,9 @@
 ;;;; tests/retro_protocol_test.clj — structural regression for the shared
-;;;; retro protocol (rf2-y1tqa).
+;;;; retro protocol.
 ;;;;
-;;;; The shared protocol carries three normative locks that the rf2-g6auh
-;;;; security audit verified and that PR #1116 + #1127 implemented:
+;;;; The shared protocol carries three normative locks that the
+;;;; skills-shared security audit verified and that the hardening PRs
+;;;; implemented:
 ;;;;
 ;;;;   1. Untrusted-evidence boundary  — Finding 1, High
 ;;;;   2. Universal redaction          — Finding 2, Medium
@@ -88,8 +89,8 @@
     (is (str/includes? @protocol-md "## Untrusted-evidence boundary")
         (str "The Untrusted-evidence boundary section was renamed or "
              "deleted. This is a normative section locked by the "
-             "rf2-g6auh audit (Finding 1, High). Restore the heading "
-             "or update this test AND the audit-verification doc."))))
+             "skills-shared security audit (Finding 1, High). Restore "
+             "the heading or update this test AND the audit-verification doc."))))
 
 (deftest untrusted-evidence-states-data-not-instructions
   (testing "evidence is 'data, not instructions'"
@@ -338,7 +339,7 @@
         (str "fixtures/ directory disappeared. Document-runnable "
              "fixture scenarios are the behavioural counterpart to "
              "this structural suite — together they close audit "
-             "Finding 4 (rf2-y1tqa)."))))
+             "Finding 4."))))
 
 (deftest fixtures-cover-three-locks
   (testing "one fixture per lock"

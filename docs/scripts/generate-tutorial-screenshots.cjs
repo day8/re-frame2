@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Tutorial screenshot generator (rf2-6e53j, rf2-we013, rf2-duat7).
+ * Tutorial screenshot generator.
  *
  * Drives a headless Chromium through the Causa + Story testbeds and
  * captures annotated screenshots for the Causa and Story tutorials at
@@ -13,7 +13,7 @@
  *      `npm run test:examples -- --serve-only` in a future iteration).
  *   2. For each declared scene, we navigate to the testbed URL, drive
  *      the UI into the target state, then call page.screenshot.
- *   3. ANNOTATIONS are data-driven (rf2-we013). The companion file
+ *   3. ANNOTATIONS are data-driven. The companion file
  *      `tutorial-annotation-spec.json` declares one entry per scene-id
  *      with a list of regions (DOM selectors or absolute xy boxes,
  *      labels, colours, optional arrows). The pipeline resolves the
@@ -66,7 +66,7 @@ const BASE_URL = process.env.SCREENSHOT_BASE_URL || 'http://127.0.0.1:8030';
 const VIEWPORT = { width: 1280, height: 800 };
 
 // ---------------------------------------------------------------------------
-// Annotation spec loader — data-driven (rf2-we013).
+// Annotation spec loader — data-driven.
 // ---------------------------------------------------------------------------
 
 function loadAnnotationSpec() {
@@ -454,7 +454,7 @@ SCENES.push({
   },
 });
 
-// --- rf2-duat7: new Causa scenes -----------------------------------------
+// --- Additional Causa scenes ----------------------------------------------
 
 SCENES.push({
   id: 'causa-copilot-rail',
@@ -581,8 +581,7 @@ SCENES.push({
   },
 });
 
-// rf2-duat7: file renamed from 03-test-mode.png to 02-test-mode.png to
-// match its referring chapter (02-mode-tabs.md).
+// File is 02-test-mode.png to match its referring chapter (02-mode-tabs.md).
 SCENES.push({
   id: 'story-test-mode',
   out: path.join(OUT_STORY, '02-test-mode.png'),
@@ -616,7 +615,7 @@ SCENES.push({
   },
 });
 
-// --- rf2-duat7: new Story scenes ----------------------------------------
+// --- Additional Story scenes --------------------------------------------
 
 SCENES.push({
   id: 'story-recorder-modal',

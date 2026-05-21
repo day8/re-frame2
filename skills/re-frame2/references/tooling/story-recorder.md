@@ -14,7 +14,7 @@ Do **not** load this leaf to learn what a story is, or to author a variant body 
 
 A variant's frame is already a self-contained fixture: phase-1 loaders seed remote-data, phase-2 `:events` reach the pre-render state, the canvas renders against that frame's app-db. Every interaction (click, type, route) lands as a `dispatch` on the variant's router; the trace bus already projects those dispatches with `:event/dispatched` emissions per Spec 009 §Listener contract.
 
-So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay under `:play-script` (per rf2-0wrud — `:play-script` is the canonical AND ONLY phase-4 surface as of 2026-05-20). No DOM-event capture, no Testing-Library translation, no page-object layer.
+So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay under `:play-script`, which is the canonical AND ONLY phase-4 surface. No DOM-event capture, no Testing-Library translation, no page-object layer.
 
 ## Public surface
 
@@ -41,7 +41,7 @@ The trace-bus callback short-circuits unless a recording is in flight, so it's f
 
 ## Sensitive events — record-but-redact
 
-A handler registered `:sensitive? true` (an auth flow, a 2FA verify, a password change) still appears in the recording, but as the placeholder vector `[:rf/redacted]` rather than the verbatim event payload. Per rf2-hdadz (pragmatic stance, 2026-05-14): the row's temporal position survives so the dev can see "click → auth happened → click", but the credential / PII / auth-token never rides into the snippet text.
+A handler registered `:sensitive? true` (an auth flow, a 2FA verify, a password change) still appears in the recording, but as the placeholder vector `[:rf/redacted]` rather than the verbatim event payload. The row's temporal position survives so the dev can see "click → auth happened → click", but the credential / PII / auth-token never rides into the snippet text.
 
 ```clojure
 ;; A recording that includes a sensitive dispatch lands like this:
@@ -100,7 +100,7 @@ The story-mcp `record-as-variant` tool calls the same public surface through the
 
 **The MCP path inherits the same four-filter pipeline, including layer 4 (sensitivity).** `record-as-variant` does not — and must not — bypass `:sensitive?` redaction: the tool's structured output is shipped over an MCP transport to an agent process, which is a wire boundary, so sensitive payloads must never appear in the returned `:play-script` body. The tool also never accepts a `:rf.privacy/show-sensitive? true` override at call time. If a recording session captured any sensitive events, the response carries the same `[:rf/redacted]` placeholders the in-canvas overlay shows, plus a metadata count of redactions for the agent to surface to the human.
 
-Authoring rule for tools that consume `gen-play-snippet` output (or call `record-as-variant` directly): treat any `[:rf/redacted]` slot as a non-reproducible step. Do not auto-commit a `:play-script` body containing `[:rf/redacted]` into source control; either ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording to avoid the sensitive step. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) §Story recorder for the rf2-hdadz normative contract.
+Authoring rule for tools that consume `gen-play-snippet` output (or call `record-as-variant` directly): treat any `[:rf/redacted]` slot as a non-reproducible step. Do not auto-commit a `:play-script` body containing `[:rf/redacted]` into source control; either ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording to avoid the sensitive step. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) §Story recorder for the normative contract.
 
 ## Deeper material
 
@@ -111,4 +111,4 @@ Authoring rule for tools that consume `gen-play-snippet` output (or call `record
 
 ---
 
-*Derived from `tools/story/spec/005-SOTA-Features.md` §Test Codegen (rf2-5fc15) and `re-frame.story.recorder` source @ main. Re-verify after recorder API or filter-layer changes.*
+*Derived from `tools/story/spec/005-SOTA-Features.md` §Test Codegen and `re-frame.story.recorder` source @ main. Re-verify after recorder API or filter-layer changes.*

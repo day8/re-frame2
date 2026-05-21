@@ -1,6 +1,6 @@
 # `:on-error` per-frame policy — return-map contract
 
-When the user wires (or asks you to wire) a frame's `:on-error` policy, the return value is a **closed shape**. The contract was pinned by rf2-ciy (PR #618) — the canonical normative source is [spec/009-Instrumentation.md §Error-handler policy (`:on-error` per frame)](../../../spec/009-Instrumentation.md). This file is the operational reminder agents need before they propose or inspect a policy at the REPL.
+When the user wires (or asks you to wire) a frame's `:on-error` policy, the return value is a **closed shape**. The canonical normative source is [spec/009-Instrumentation.md §Error-handler policy (`:on-error` per frame)](../../../spec/009-Instrumentation.md). This file is the operational reminder agents need before they propose or inspect a policy at the REPL.
 
 ## The closed shape
 

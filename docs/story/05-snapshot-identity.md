@@ -87,7 +87,7 @@ Story's *share via QR* button renders the snapshot identity (plus the picked wor
 
 The motivating use case: design review against a real device. You've built the login form's `:error` variant; the design lead wants to see it on the actual phone they were thinking about, not the Chrome device emulator. Click the QR. Scan with the phone. The phone opens the variant on your dev server at the same picked state — same args, same mode, same workspace overrides. Two seconds, instead of the usual "let me get my laptop on the same WiFi as your phone."
 
-The QR encoder is **vendored locally** via the `qrcode-generator` npm package (MIT, ~52 KB unpacked, zero deps) per rf2-20w5i. There's no network roundtrip when you open the popover, no third-party tracking, no leaking the share URL (which encodes your variant state and cell-overrides) to anyone. The encoder lives at `re-frame.story.qr/qr-svg-string` and the popover splices the SVG inline. Production builds short-circuit before the encoder code is reachable; the prod bundle carries no QR bytes.
+The QR encoder is **vendored locally** via the `qrcode-generator` npm package (MIT, ~52 KB unpacked, zero deps). There's no network roundtrip when you open the popover, no third-party tracking, no leaking the share URL (which encodes your variant state and cell-overrides) to anyone. The encoder lives at `re-frame.story.qr/qr-svg-string` and the popover splices the SVG inline. Production builds short-circuit before the encoder code is reachable; the prod bundle carries no QR bytes.
 
 Two affordances on the QR popover:
 

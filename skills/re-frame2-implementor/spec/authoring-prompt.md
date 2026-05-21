@@ -21,19 +21,19 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 >
 > ```
 > skills/re-frame2-implementor/
-> ├── SKILL.md                       (router; ~250 lines)
-> ├── README.md                      (~80 lines)
-> ├── LICENSE                        (mirror skills/re-frame-migration/LICENSE)
-> ├── package.json                   (npm metadata; mirror re-frame-migration shape)
-> ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
+> ├── SKILL.md (router; ~250 lines)
+> ├── README.md (~80 lines)
+> ├── LICENSE (mirror skills/re-frame-migration/LICENSE)
+> ├── package.json (npm metadata; mirror re-frame-migration shape)
+> ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 > └── references/
->     ├── kickoff-prompt.md          (~80 lines; paste-ready prompt)
->     ├── phase-1-decisions.md       (~200 lines; D1-D7 walkthrough)
->     ├── decision-record.md         (~120 lines; fill-in template)
->     ├── phase-2-impl-order.md      (~250 lines; EP-by-EP)
->     ├── reference-impl-tour.md     (~150 lines; descriptive tour of implementation/)
->     ├── conformance.md             (~140 lines; harness + diagnosis)
->     └── output-format.md           (~120 lines; three report shapes)
+> ├── kickoff-prompt.md (~80 lines; paste-ready prompt)
+> ├── phase-1-decisions.md (~200 lines; D1-D7 walkthrough)
+> ├── decision-record.md (~120 lines; fill-in template)
+> ├── phase-2-impl-order.md (~250 lines; EP-by-EP)
+> ├── reference-impl-tour.md (~150 lines; descriptive tour of implementation/)
+> ├── conformance.md (~140 lines; harness + diagnosis)
+> └── output-format.md (~120 lines; three report shapes)
 > ```
 >
 > *Each leaf has a single job; the leaves don't duplicate each other; SKILL.md routes between them. Every leaf is one level deep from SKILL.md (no SKILL → A → B chains).*
@@ -56,7 +56,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > *- **L3 — Q14: NO verification module.** No `references/verify.md`; no "verify before claiming done" hard rule. The engineer runs their builds; the skill walks the workflow.*
 > *- **L4 — Substrate-agnostic phrasing throughout.** Identity primitive, render-tree, reactive container — generic.*
 > *- **L5 — Conformance corpus is the acceptance test.** The objective measure of "is this re-frame2?"*
-> *- **L6 — Spec gaps file GitHub issues against `day8/re-frame2`.** No silent extrapolation; no patching the spec inline. `bd` is monorepo-internal and never invoked from a published skill (rf2-hpkkx baseline).*
+> *- **L6 — Spec gaps file GitHub issues against `day8/re-frame2`.** No silent extrapolation; no patching the spec inline. `bd` is monorepo-internal and never invoked from a published skill.*
 > *- **L7 — No bead-ids in user-facing content.** SKILL.md / README / references/ leaves carry no `rf2-XXXX` references.*
 > *- **L8 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L9 — No AI attribution.** Commits and PR title/body read as Mike's own work.*
@@ -76,7 +76,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > *- Don't conflate CLJS reference behaviour with pattern requirements outside the tour leaf.*
 > *- Don't reference rf2-XXXX bead ids in user-facing content.*
 >
-> *Open the PR with title `feat(skills): re-frame2-implementor — guided two-phase skill for building a new re-frame2 impl (rf2-5xje)`. PR body lists: skill structure, the file LoC table, the locks applied, the existing repo material folded in (`spec/Implementor-Checklist.md`, `spec/conformance/`, `spec/000-Vision.md`'s host matrix), cross-link updates made, the three open-questions-resolutions copied from `spec/design.md` §7.*
+> *Open the PR with title `feat(skills): re-frame2-implementor — guided two-phase skill for building a new re-frame2 impl`. PR body lists: skill structure, the file LoC table, the locks applied, the existing repo material folded in (`spec/Implementor-Checklist.md`, `spec/conformance/`, `spec/000-Vision.md`'s host matrix), cross-link updates made, the three open-questions-resolutions copied from `spec/design.md` §7.*
 
 ## Notes on the reauthoring contract
 

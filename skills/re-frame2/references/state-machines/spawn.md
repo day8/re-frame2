@@ -35,7 +35,7 @@ Verbatim from Spec 005 §Spec-spec keys (`spec/005-StateMachines.md:1821`). The 
 
 ## Final states — `:final?` / `:on-done` / `:output-key`
 
-Per rf2-gn80, re-frame2 ships first-class final-state-with-parent-notification — the xstate `onDone` shape. A leaf state declares `:final? true`; the parent's `:spawn` declares `:on-done`.
+re-frame2 ships first-class final-state-with-parent-notification — the xstate `onDone` shape. A leaf state declares `:final? true`; the parent's `:spawn` declares `:on-done`.
 
 ```clojure
 ;; Child machine — declares its terminal state with :final? + :output-key.
@@ -126,10 +126,10 @@ Validation happens at registration (`machines.cljc:1653`): `:on-child-done` / `:
 ## Common gotchas
 
 - **Pick exactly one of `:machine-id` or `:definition`.** Registration rejects both forms or neither (`spec/005-StateMachines.md:1920`).
-- **No `:timeout-ms` on `:spawn` or `:spawn-all`.** Wall-clock guards live on the parent state's `:after`. Use `:after {30000 :timeout-target}` — when the timer fires, the standard exit cascade destroys the in-flight child and the parent transitions. Per rf2-3y3y the `:timeout-ms` slot is dropped; registration throws `:rf.error/spawn-timeout-ms-removed`.
-- **`:on-spawn` is advisory.** Per rf2-t07u Option A revised, the runtime tracks the spawn-id at `[:rf/spawned <parent-id> <invoke-id>]` itself — you no longer need `:on-spawn` to write the id under any specific `:data` slot for destroy to work. Most apps still set `:on-spawn (fn [{data :data id :id}] (assoc data :pending id))` so other transitions can address the child by name.
+- **No `:timeout-ms` on `:spawn` or `:spawn-all`.** Wall-clock guards live on the parent state's `:after`. Use `:after {30000 :timeout-target}` — when the timer fires, the standard exit cascade destroys the in-flight child and the parent transitions. The `:timeout-ms` slot is dropped; registration throws `:rf.error/spawn-timeout-ms-removed`.
+- **`:on-spawn` is advisory.** The runtime tracks the spawn-id at `[:rf/spawned <parent-id> <invoke-id>]` itself — you no longer need `:on-spawn` to write the id under any specific `:data` slot for destroy to work. Most apps still set `:on-spawn (fn [{data :data id :id}] (assoc data :pending id))` so other transitions can address the child by name.
 - **`:data` is a literal map or `(fn [snap ev] data)` — not arbitrary code.** When the fn form is used, it runs at state entry against the post-action snapshot (`machines.cljc:782`). If it throws, the transition halts with `:rf.error/machine-action-exception` and the snapshot does NOT commit.
-- **`:start` runs after spawn; if absent the runtime dispatches a synthetic `[:rf.machine/spawned]`.** Per rf2-ijm7, every spawned actor receives `[:rf.machine/spawned]` if no `:start` was declared — generic child machines can declare a leaf `:on :rf.machine/spawned :target ...` transition that fires the actor's first work on entry.
+- **`:start` runs after spawn; if absent the runtime dispatches a synthetic `[:rf.machine/spawned]`.** Every spawned actor receives `[:rf.machine/spawned]` if no `:start` was declared — generic child machines can declare a leaf `:on :rf.machine/spawned :target ...` transition that fires the actor's first work on entry.
 - **Path convention for `:on-spawn`:** the callback receives `:data` directly. Write `(assoc data :pending id)`, not `(assoc-in snap [:data :pending] id)`. Uniform with `:guard` and `:action`.
 - **One `:spawn` per state.** Multiple children per state → refactor into a compound state where each substate invokes one of the actors, or use `:spawn-all`. Validated at registration; `:spawn` + `:spawn-all` together throws `:rf.error/machine-spawn-all-with-spawn` (`machines.cljc:1669`).
 
@@ -139,4 +139,4 @@ For the full declarative-`:spawn` desugaring rules, composition with hierarchica
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (declarative-`:spawn` desugar, `:spawn-all` join engine, `:on-spawn` stamping) @ main `89bd9c3`, and `spec/conformance/fixtures/invoke-all-*` fixtures. Re-verify after `:spawn`/`:spawn-all` runtime changes (e.g. rf2-3y3y `:timeout-ms` removal, rf2-er0t spawn-args contract).*
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (declarative-`:spawn` desugar, `:spawn-all` join engine, `:on-spawn` stamping) @ main `89bd9c3`, and `spec/conformance/fixtures/invoke-all-*` fixtures. Re-verify after `:spawn`/`:spawn-all` runtime changes.*

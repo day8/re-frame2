@@ -476,7 +476,7 @@
       (= a "--origin")          (recur (rest more) (assoc pred :origin (->kw (first more))))
       (= a "--frame")           (recur (rest more) (assoc pred :frame (->kw (first more))))
 
-      ;; rf2-gy3n: --custom (arbitrary CLJS predicate form) was advertised
+      ;; --custom (arbitrary CLJS predicate form) was advertised
       ;; in earlier docs but never implemented. Implementing it requires
       ;; designing the predicate-fn surface (security implications: the
       ;; transport would eval untrusted CLJS), so it is removed from the
@@ -506,7 +506,7 @@
   (let [build-id     (build-id-from-args args)
         stream?      (has-flag? args "--stream")
         stop?        (has-flag? args "--stop")
-        ;; rf2-gy3n: --window-ms and --count are independent modes.
+        ;; --window-ms and --count are independent modes.
         ;;   --window-ms alone: run for N ms, no count limit.
         ;;   --count alone:     run until N matches, no window timeout.
         ;;   both set:          first to fire wins (race).

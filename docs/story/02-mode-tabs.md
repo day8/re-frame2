@@ -134,7 +134,7 @@ After working through this chapter:
 
 ## When it doesn't work
 
-- **The *Tests* tab is greyed out / shows "no tests registered".** The variant's `:play-script` slot is empty or missing. If you wrote `:play [[:rf.assert/path-equals [:count] 0]]` instead of `:play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]`, that's the symptom. The `:play` slot was retired in favour of `:play-script` per rf2-0wrud; the new shape is *step-tuples* with `:dispatch-sync` wrapping any event vector you want fired. Fix the slot name and the step shape and the tests light up.
+- **The *Tests* tab is greyed out / shows "no tests registered".** The variant's `:play-script` slot is empty or missing. If you wrote `:play [[:rf.assert/path-equals [:count] 0]]` instead of `:play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]`, that's the symptom. Story's test slot is `:play-script`; its shape is *step-tuples* with `:dispatch-sync` wrapping any event vector you want fired. Fix the slot name and the step shape and the tests light up.
 
 - **A11y chip click does nothing visible.** First-time click triggers a consent prompt that's easy to dismiss without noticing. Re-click; read the prompt; accept. If you're in a CSP-locked environment where the axe-core CDN is blocked, you'll see a console error and the panel will stay empty — for those cases either whitelist the CDN or skip a11y in Story (run it elsewhere).
 

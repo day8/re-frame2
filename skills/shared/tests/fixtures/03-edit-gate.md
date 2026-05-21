@@ -3,8 +3,9 @@
 **Lock under test:** `skills/shared/retro-protocol.md` §The seven-step
 protocol, Step 6 (Edit-gate split).
 
-**Audit origin:** rf2-g6auh Finding 3 (recommendation), verified
-resolved in `ai/findings/skills-shared-audit-verification-2026-05-15.md`.
+**Audit origin:** Skills-shared security audit, Finding 3
+(recommendation), verified resolved in
+`ai/findings/skills-shared-audit-verification-2026-05-15.md`.
 
 **Surface:** document-runnable. Replay this fixture against a fresh
 agent invocation of `re-frame2-improver` — this is the only current

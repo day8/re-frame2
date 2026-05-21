@@ -62,7 +62,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 ## HTTP — `day8/re-frame2-http`
 
-Production fx surface: `re-frame.http-managed`. Test surfaces (canned-stub fxs + `with-managed-request-stubs` family): `re-frame.http-test-support` — per rf2-lwmgw the test machinery consolidated into one namespace; tests `:require` it explicitly.
+Production fx surface: `re-frame.http-managed`. Test surfaces (canned-stub fxs + `with-managed-request-stubs` family): `re-frame.http-test-support` — the test machinery consolidates into one namespace; tests `:require` it explicitly.
 
 | Surface | Shape |
 |---|---|

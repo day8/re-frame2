@@ -2,7 +2,7 @@
 
 The diagnosis-first workflow shared by `re-frame2-pair-retro` (retrospect on a re-frame2-pair session) and `re-frame2-improver` (critique on a body of re-frame2 code). Both skills load this leaf for the workflow shape, evidence discipline, layer-routing rules, and opt-in bead protocol; each skill provides its own domain catalogue (friction signals for retro2; anti-patterns for improver) on top.
 
-Origin: extracted under rf2-dhe9v from the locked decisions in `re-frame2-pair-retro/spec/design.md` and the body of `re-frame2-pair-retro/SKILL.md`. The locks below are normative for any retro-style skill that loads this leaf.
+Origin: extracted from the locked decisions in `re-frame2-pair-retro/spec/design.md` and the body of `re-frame2-pair-retro/SKILL.md`. The locks below are normative for any retro-style skill that loads this leaf.
 
 ## What "retrospect" means here
 
@@ -119,4 +119,4 @@ Use **stable placeholders** so the rendered finding still reads cleanly and the 
 - [`re-frame2-pair-retro/references/known-frictions.md`](../re-frame2-pair-retro/references/known-frictions.md) — recurring friction classes for pair-retro pattern-matching.
 - [`re-frame2-improver/references/README.md`](../re-frame2-improver/references/README.md) — anti-pattern catalogue index for improver pattern-matching.
 - [`re-frame2-pair-retro/references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) — bead body template (re-used by both consumers until improver authors its own).
-- Design rationale: rf2-zf7zd (`ai/findings/improver-architecture-20260513-1752.md` — local-only, not committed).
+- Design rationale: `ai/findings/improver-architecture-20260513-1752.md` (local-only, not committed).

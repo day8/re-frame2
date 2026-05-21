@@ -83,7 +83,7 @@ On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as 
 
 ## Asserting state: `assert-path-equals` / `assert-db-equals` and `get-frame-db`
 
-Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story event-family (rf2-8j9m6):
+Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story event-family:
 
 ```clojure
 (ts/assert-db-equals   {:n 0})                          ;; full-db match against current frame

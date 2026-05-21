@@ -12,7 +12,7 @@ a small family of args that trade off detail for size. Reach for them
 ## de-dupe — round-tripping the wire form
 
 **What it is.** Structural-sharing preserver from `day8/de-dupe`
-(`.cljc` per rf2-nw6sj). Persistent data structures share subtrees in
+(`.cljc`). Persistent data structures share subtrees in
 memory; `pr-str` flattens them. de-dupe walks the value, hash-pools
 repeated subtrees, and rewrites the structure as a flat cache map
 keyed by `de-dupe.cache/cache-N` namespaced symbols. The companion

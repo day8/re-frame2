@@ -47,7 +47,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 ## 2. Key concepts at a glance
 
 - **Live runtime.** The browser JS runtime behind `shadow-cljs watch`.
-- **Reactive graph.** re-frame2's subscription signal graph, with rf2-719e value-equal recompute suppression.
+- **Reactive graph.** re-frame2's subscription signal graph, with value-equal recompute suppression.
 - **Per-frame state.** Each frame's `app-db` is reachable via `(rf/get-frame-db frame-id)` and `(rf/snapshot-of path opts)`.
 - **Writes.** `dispatch` (with `:origin :pair` opt), `reg-*` re-registration, `restore-epoch`, container reset (rare).
 - **Runtime introspection API.** Every Tool-Pair surface listed in [Tool-Pair §How AI tools attach](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md#how-ai-tools-attach).
@@ -119,7 +119,7 @@ re-frame2-pair/
 
 A UUID set once at preload-load time, mirrored to `js/globalThis.__re_frame2_pair_runtime`. The MCP server's `discover-app` probes the mirror; absence means the preload isn't configured and the op refuses with `:reason :runtime-not-preloaded`. A full page refresh wipes both the var and the mirror, but the next bundle load re-runs the preload — no manual reconnect step.
 
-(Pre-rf2-7dvg the runtime was injected via `cljs-eval` on first connect each session; that path was cut along with the cljs-eval fallback for pre-alpha simplicity.)
+(Earlier iterations injected the runtime via `cljs-eval` on first connect each session; that path was cut along with the cljs-eval fallback for pre-alpha simplicity — the runtime now ships via shadow-cljs `:preloads`.)
 
 ### 3.5 Watch transport
 

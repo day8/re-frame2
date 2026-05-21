@@ -3,7 +3,8 @@
 **Lock under test:** `skills/shared/retro-protocol.md` §Untrusted-evidence
 boundary.
 
-**Audit origin:** rf2-g6auh Finding 1 (High), verified resolved in
+**Audit origin:** Skills-shared security audit, Finding 1 (High),
+verified resolved in
 `ai/findings/skills-shared-audit-verification-2026-05-15.md`.
 
 **Surface:** document-runnable. Replay this fixture against a fresh

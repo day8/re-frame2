@@ -2,7 +2,7 @@
 
 Four surfaces need coverage at different fidelities. See `docs/initial-spec.md` §9 for the architectural split.
 
-The fixture app at `tests/fixture/` (rf2-cxik) backs the shim and e2e
+The fixture app at `tests/fixture/` backs the shim and e2e
 surfaces — a minimal Reagent + shadow-cljs build that preloads
 `re-frame2-pair.runtime` and renders a counter. See `tests/fixture/README.md`
 for run instructions.
@@ -35,7 +35,7 @@ node out/test.js
 
 Failing points to flag on first run:
 
-- ~~`parse-rf2-coord` assumes a `'<ns>|<file>:<line>:<col>'` shape for `data-rf2-source-coord`.~~ Resolved 2026-05-09 (rf2-7g2q): parser updated to the canonical `<ns>:<handler-id>:<line>:<col>` shape per Spec 006 §Source-coord annotation. Bb-runnable tests at `tests/runtime/parse_rf2_coord_test.clj` until the shadow-cljs harness lands.
+- ~~`parse-rf2-coord` assumes a `'<ns>|<file>:<line>:<col>'` shape for `data-rf2-source-coord`.~~ Resolved 2026-05-09: parser updated to the canonical `<ns>:<handler-id>:<line>:<col>` shape per Spec 006 §Source-coord annotation. Bb-runnable tests at `tests/runtime/parse_rf2_coord_test.clj` until the shadow-cljs harness lands.
 - `parse-rc-src` assumes a `"file:line"` or `"file:line:column"` format for `data-rc-src`. Real re-com attribute format needs verification.
 
 ## 2. Bash-shim integration (`tests/shim/`)

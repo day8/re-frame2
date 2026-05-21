@@ -28,7 +28,7 @@ Registrations are **frame-scoped** — the schema attaches to a path inside one 
 
 ## What `:schema` does on a handler
 
-Every `reg-*` macro accepts a `:schema` key in its metadata-map (the canonical name post-rf2-ieu0i):
+Every `reg-*` macro accepts a `:schema` key in its metadata-map:
 
 ```clojure
 (rf/reg-event-db :flight/set-trip-type
@@ -59,7 +59,7 @@ Behaviour matrix:
 
 - **Dev build** — no-op (step-1 validation already runs).
 - **Production with `:schema`** — runs the same validation inline.
-- **Registration without `:schema`** — rejected at `reg-event-*` time with `:rf.error/at-boundary-missing-schema` (rf2-iftj4). The boundary interceptor is structurally meaningless without a schema; the registrar refuses to install the handler.
+- **Registration without `:schema`** — rejected at `reg-event-*` time with `:rf.error/at-boundary-missing-schema`. The boundary interceptor is structurally meaningless without a schema; the registrar refuses to install the handler.
 
 ## Canonical mini-example
 
@@ -108,4 +108,4 @@ Validation-order spec, per-step recovery, digest algorithm, the schemas artefact
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `validate-at-boundary-interceptor` or `set-schema-validator!` changes (rf2-84e9, rf2-froe).*
+*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `validate-at-boundary-interceptor` or `set-schema-validator!` changes.*

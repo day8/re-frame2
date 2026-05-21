@@ -80,7 +80,7 @@ across the matrix.
 
 ## Linting
 
-Two complementary linters run on every PR (rf2-4v147):
+Two complementary linters run on every PR:
 
 - **clj-kondo** — bug-class linter (unresolved symbols, arity mismatches,
   redefined vars, unused bindings). Config lives at
@@ -91,14 +91,14 @@ Two complementary linters run on every PR (rf2-4v147):
   smells outside kondo's lexical analysis. Per-project config in
   [`.splint.edn`](.splint.edn).
 
-**First-iteration posture (rf2-4v147 follow-on bead pending):** both jobs are
-**report-only** — they surface findings in the PR's check log but do not block
-the merge. The baseline at landing is ~4 000 kondo warnings + 25 errors and
-~1 600 Splint warnings + 4 errors, a mix of pre-existing test-fixture quirks
-(slashed keywords in trace tests), kondo's "Unresolved var" noise on the
-framework's dynamically-defined registration macros, and Splint's style
-suggestions that need triaging before they earn their teeth. The follow-on
-bead tightens the gates once the baseline is triaged.
+**First-iteration posture:** both jobs are **report-only** — they surface
+findings in the PR's check log but do not block the merge. The current
+baseline is ~4 000 kondo warnings + 25 errors and ~1 600 Splint warnings
++ 4 errors, a mix of pre-existing test-fixture quirks (slashed keywords
+in trace tests), kondo's "Unresolved var" noise on the framework's
+dynamically-defined registration macros, and Splint's style suggestions
+that need triaging before they earn their teeth. The gates will tighten
+once the baseline is triaged.
 
 Run locally before opening a PR:
 

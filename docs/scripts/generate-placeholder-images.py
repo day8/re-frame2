@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate placeholder PNGs for the Causa + Story tutorials (rf2-6e53j).
+"""Generate placeholder PNGs for the Causa + Story tutorials.
 
 These are committed so the docs site builds cleanly even without re-running
 the live Playwright capture pipeline (`generate-tutorial-screenshots.cjs`).
@@ -33,8 +33,8 @@ OUT_STORY = REPO_ROOT / "docs" / "images" / "story"
 # outputs. The Playwright pipeline overwrites these placeholders with
 # real captures (annotated per docs/scripts/tutorial-annotation-spec.json).
 PLACEHOLDERS = [
-    # rf2-6e53j originals (captures already live; this generator is the
-    # fallback for fresh checkouts before someone runs Playwright):
+    # Causa tutorial captures (this generator is the fallback for fresh
+    # checkouts before someone runs Playwright):
     ("causa", "01-floating-pill.png",   "The Causa floating pill on the live counter app"),
     ("causa", "02-shell-opened.png",    "The Causa shell, opened over the live app"),
     ("causa", "02-sidebar-panels.png",  "Sixteen panels in three bands"),
@@ -44,25 +44,23 @@ PLACEHOLDERS = [
     ("causa", "05-dom-attribute.png",   "data-rf2-source-coord on every rendered element"),
     ("causa", "08-machines.png",        "Machine inspector with state-chart"),
     ("causa", "09-app-db-diff.png",     "App-DB diff for a cascade"),
-    # rf2-duat7 new Causa scenes (renumbered under rf2-hhwcm — the
-    # AI co-pilot moved from ch 6 to ch 10; the conditional-band
-    # chapters shifted one slot down to absorb the move):
+    # Additional Causa scenes — the AI co-pilot lives at ch 10; the
+    # conditional-band chapters shifted one slot down to absorb the move:
     ("causa", "10-copilot-rail.png",    "AI co-pilot rail — pull-only, slash commands"),
     ("causa", "06-schema-timeline.png", "Schema-violation timeline — dot per epoch"),
     ("causa", "07-hydration.png",       "Hydration debugger — server vs client trees"),
     ("causa", "09-app-db-modes.png",    "App-DB diff — three rendering modes"),
 
-    # rf2-6e53j originals:
+    # Story tutorial captures:
     ("story", "01-shell-overview.png",  "The Story shell — sidebar / canvas / inspectors"),
     ("story", "01-variant-loaded.png",  "A registered variant rendered in the canvas"),
     ("story", "02-mode-tabs.png",       "Mode-tab strip on a variant canvas"),
     ("story", "02-docs-mode.png",       "Docs mode for a variant"),
-    # rf2-duat7: renamed from 03-test-mode.png — the file is referenced
-    # from chapter 2 (02-mode-tabs.md), so the filename now matches its
-    # referring chapter:
+    # File is 02-test-mode.png so its filename matches the referring
+    # chapter (02-mode-tabs.md):
     ("story", "02-test-mode.png",       "Test mode — every assertion in order"),
     ("story", "04-workspace-grid.png",  "A 2×2 workspace mounting four variants"),
-    # rf2-duat7 new Story scenes:
+    # Additional Story scenes:
     ("story", "03-recorder-modal.png",  "Recorder modal — generated :play body (EDN)"),
     ("story", "05-qr-share.png",        "QR sharing — snapshot identity as a scannable code"),
     ("story", "06-time-travel-mini.png", "Per-cell mini-scrubbers across a workspace"),

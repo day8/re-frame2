@@ -1,12 +1,11 @@
-;; Pair2 fixture classpath (rf2-cxik; rf2-kp1d8 added thheller/shadow-cljs
-;; for the `:deps true` flip in shadow-cljs.edn).
+;; Pair2 fixture classpath.
 ;;
 ;; Pulls in the local re-frame2 artefacts as :local/root entries so the
 ;; fixture builds against the exact tree-of-truth in this repo (rather
 ;; than a Maven release). Reagent + Malli + shadow-cljs come from Maven.
 ;;
 ;; Path math: this file lives at
-;;   skills/re-frame2-pair/tests/fixture/deps.edn
+;; skills/re-frame2-pair/tests/fixture/deps.edn
 ;; so "../../../../implementation/<artefact>" lands in the right place.
 ;;
 ;; The fixture needs core + reagent (for the view substrate) + epoch
@@ -16,15 +15,15 @@
 ;; `thheller/shadow-cljs` is listed here because `shadow-cljs.edn` runs
 ;; with `:deps true` — shadow-cljs builds the classpath from this file
 ;; via `clojure -Sdeps ...`, and the library jar must therefore be
-;; resolvable on it (same idiom as tools/re-frame2-pair-mcp/deps.edn, rf2-obpa9).
+;; resolvable on it (same idiom as tools/re-frame2-pair-mcp/deps.edn).
 ;; The npm-side shadow-cljs CLI (`shadow-cljs` binary, declared in
 ;; package.json) drives the build; this entry just makes the JVM side
 ;; happy when the CLI shells out to `clojure`. The version is pinned
 ;; to match the package.json devDependency exactly.
 {:paths ["src" "../../preload"]
- :deps  {day8/re-frame2         {:local/root "../../../../implementation/core"}
-         day8/re-frame2-reagent {:local/root "../../../../implementation/adapters/reagent"}
-         day8/re-frame2-epoch   {:local/root "../../../../implementation/epoch"}
-         reagent/reagent        {:mvn/version "2.0.1"}
-         metosin/malli          {:mvn/version "0.20.1"}
-         thheller/shadow-cljs   {:mvn/version "3.4.10"}}}
+ :deps {day8/re-frame2 {:local/root "../../../../implementation/core"}
+ day8/re-frame2-reagent {:local/root "../../../../implementation/adapters/reagent"}
+ day8/re-frame2-epoch {:local/root "../../../../implementation/epoch"}
+ reagent/reagent {:mvn/version "2.0.1"}
+ metosin/malli {:mvn/version "0.20.1"}
+ thheller/shadow-cljs {:mvn/version "3.4.10"}}}

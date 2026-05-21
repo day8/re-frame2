@@ -1,40 +1,40 @@
 ---
 name: re-frame2-pair-retro
 description: >
-  Retrospect on a `re-frame2-pair` session and turn it into prioritised
-  improvement ideas for the `re-frame2-pair` skill, scripts, MCP
-  surface, or upstream `re-frame2` Tool-Pair contract. Surfaces
-  friction, wasted effort, missing observability, workflow mismatches,
-  and high-leverage product gaps; optionally drafts a GitHub issue
-  the user can file against the target repo. Activates on two
-  triggers: (a) **explicit pull** — user asks for a retrospective
-  on a recent pair session ("retro on this pair session", "what went
-  wrong with my pair session", "review my re-frame2-pair session",
-  "draft an issue about that"); or (b)
-  **post-error within a re-frame2-pair session** — after a stack trace, failed
-  dispatch, red CI, or `:on-error` policy fire during live re-frame2-pair work,
-  to post-mortem the immediate firefight. Acceptable evidence is
-  either a concrete `re-frame2-pair` session in this conversation —
-  turns where the user attached to a running app, dispatched events,
-  walked traces or epochs, hot-swapped a handler, or time-travelled
-  with `restore-epoch` — **or** a user-supplied recap / summary of
-  such a session. **Do not use** for ordinary `re-frame2-pair`
-  operation (use `re-frame2-pair` itself), generic debugging
-  retrospectives with no pair-tool involvement, authoring re-frame2
-  app code (use `re-frame2`), critique of re-frame2 patterns / idioms
-  in code (use `re-frame2-improver`), spec or architecture
-  discussion, or framework feedback unrelated to the pair tool.
-  Vocabulary matches alone ("retro", "what went wrong", "how could
-  this be better", "any improvements?") do not justify activation —
-  a real `re-frame2-pair` session must have occurred in this
-  conversation or be summarised by the user as a recap.
+ Retrospect on a `re-frame2-pair` session and turn it into prioritised
+ improvement ideas for the `re-frame2-pair` skill, scripts, MCP
+ surface, or upstream `re-frame2` Tool-Pair contract. Surfaces
+ friction, wasted effort, missing observability, workflow mismatches,
+ and high-leverage product gaps; optionally drafts a GitHub issue
+ the user can file against the target repo. Activates on two
+ triggers: (a) **explicit pull** — user asks for a retrospective
+ on a recent pair session ("retro on this pair session", "what went
+ wrong with my pair session", "review my re-frame2-pair session",
+ "draft an issue about that"); or (b)
+ **post-error within a re-frame2-pair session** — after a stack trace, failed
+ dispatch, red CI, or `:on-error` policy fire during live re-frame2-pair work,
+ to post-mortem the immediate firefight. Acceptable evidence is
+ either a concrete `re-frame2-pair` session in this conversation —
+ turns where the user attached to a running app, dispatched events,
+ walked traces or epochs, hot-swapped a handler, or time-travelled
+ with `restore-epoch` — **or** a user-supplied recap / summary of
+ such a session. **Do not use** for ordinary `re-frame2-pair`
+ operation (use `re-frame2-pair` itself), generic debugging
+ retrospectives with no pair-tool involvement, authoring re-frame2
+ app code (use `re-frame2`), critique of re-frame2 patterns / idioms
+ in code (use `re-frame2-improver`), spec or architecture
+ discussion, or framework feedback unrelated to the pair tool.
+ Vocabulary matches alone ("retro", "what went wrong", "how could
+ this be better", "any improvements?") do not justify activation —
+ a real `re-frame2-pair` session must have occurred in this
+ conversation or be summarised by the user as a recap.
 allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash(gh issue list *)
-  - Bash(gh issue view *)
-  - Bash(gh issue create *)
+ - Read
+ - Grep
+ - Glob
+ - Bash(gh issue list *)
+ - Bash(gh issue view *)
+ - Bash(gh issue create *)
 ---
 
 # re-frame2-pair-retro
@@ -65,7 +65,7 @@ Deliver:
 
 **Activation precondition**: a `re-frame2-pair` session must be available as evidence — either occurring in this conversation, or supplied by the user as a recap / summary. If no pair-tool surface was exercised and the user has not described one, decline — there is nothing to retrospect on.
 
-**Story recorder-session retros are out of scope.** Retrospectives on a Story Test Codegen recording (rf2-5fc15 — clicks/fills captured as a `:play-script` body, per rf2-0wrud) are NOT this skill's concern. Those retros belong in `re-frame2-pair`'s variant-refinement workflow (the recorder output is a `:play-script` snippet to refine against a frame, not a pair-session friction trace). If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame2-pair`.
+**Story recorder-session retros are out of scope.** Retrospectives on a Story Test Codegen recording are NOT this skill's concern. Those retros belong in `re-frame2-pair`'s variant-refinement workflow (the recorder output is a `:play-script` snippet to refine against a frame, not a pair-session friction trace). If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame2-pair`.
 
 Routing decisions (mid-session pair work, app-authoring without a live runtime, framework / spec feedback, app-bug help, vocabulary-only matches) follow the matrix at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source) and §Disqualifiers.
 
@@ -140,7 +140,7 @@ Single-quoted here-doc delimiter (`<<'EOF'`) so `$`, `` ` ``, and `\` inside the
 
 ## Reference files
 
-- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Extracted by rf2-dhe9v; consumed by both this skill and `re-frame2-improver`.
+- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Extracted by ; consumed by both this skill and `re-frame2-improver`.
 - [`references/analysis-lenses.md`](references/analysis-lenses.md) — friction signals (generic + re-frame2-specific), root-cause categories, improvement patterns, routing decisions, prioritization.
 - [`references/known-frictions.md`](references/known-frictions.md) — recurring classes of `re-frame2-pair` pain; sanity-check one-off vs pattern.
 - [`references/issue-template.md`](references/issue-template.md) — GitHub-issue body template (+ shell-safety pattern for transcript-derived bodies).

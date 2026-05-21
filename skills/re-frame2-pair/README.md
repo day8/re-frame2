@@ -81,7 +81,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: I dispatched `[:profile/save ...]` but the name in the header isn't changing.
 >
-> **Claude**: The header reads `[:user/display-name]`. The last epoch's `:sub-runs` has `[:user/profile]` in it — that one re-ran — but `[:user/display-name]` is absent, so it cache-hit (rf2-719e value-equal recompute suppression). Your handler wrote to `[:user :pending-profile]`, not `[:user :profile]`. The upstream sub returned `=`, the equality gate held, the header didn't re-render. Want me to hot-swap the handler to write the intended path?
+> **Claude**: The header reads `[:user/display-name]`. The last epoch's `:sub-runs` has `[:user/profile]` in it — that one re-ran — but `[:user/display-name]` is absent, so it cache-hit (value-equal recompute suppression). Your handler wrote to `[:user :pending-profile]`, not `[:user :profile]`. The upstream sub returned `=`, the equality gate held, the header didn't re-render. Want me to hot-swap the handler to write the intended path?
 
 ### Jump from a click to the line of code
 

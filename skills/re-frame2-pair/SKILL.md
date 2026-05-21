@@ -29,7 +29,7 @@ allowed-tools:
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
   - mcp__re-frame2-pair__get-re-frame2-pair-instructions
-  # story-mcp — live-session tools only (rf2-1v7tu HYBRID). The
+  # story-mcp — live-session tools only (HYBRID split). The
   # authoring-side surface (register-variant, get-variant,
   # preview-variant, list-stories, …) is allow-listed by the
   # `re-frame2` skill. These entries cover running a variant against
@@ -174,12 +174,12 @@ Load at most two references for a single task. If you find yourself wanting thre
 - **Surface restore limits.** Before any time-travel experiment, walk the cascade's effects and tell the user which effects already fired and cannot be reversed.
 - **Use the assembled epoch stream by default; reach for the raw trace stream when you need detail the projection drops.** `:sub-runs`, `:renders`, `:effects` are the routing surface; `:trace-events` is the escape hatch when the projection is incomplete (e.g. successful-fx attribution).
 - **One trace listener per skill.** This skill registers exactly one listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`). Multi-tool coexistence is the expected default — don't worry about other listeners; per Spec 009 §Listener ordering, ordering is not contract.
-- **Sensitive data does not cross the LLM boundary by default.** Per [Spec 009 §Privacy](../../spec/009-Instrumentation.md), re-frame2-pair-mcp ships with a `--allow-sensitive-reads` boot gate that is **OFF by default** (rf2-c2dtu; CLI flag aligned cross-MCP per rf2-2x3ql). When OFF:
+- **Sensitive data does not cross the LLM boundary by default.** Per [Spec 009 §Privacy](../../spec/009-Instrumentation.md), re-frame2-pair-mcp ships with a `--allow-sensitive-reads` boot gate that is **OFF by default**; the CLI flag name is aligned across MCP servers. When OFF:
   - `snapshot`, `get-path`, `trace-window`, `watch-epochs`, and `subscribe` always force `:include-sensitive? false` and `:elision true` regardless of the per-call MCP arg. Sensitive slots in `:app-db` / `:sub-cache` reads return `:rf/redacted`; declared-large slots return the `:rf.size/large-elided` marker.
   - The preload's `app-db-reset!` taps default-elide both `:previous` and `:next` payloads through `re-frame.core/elide-wire-value` before any registered tap consumer sees them.
   - The streaming subscription dispatch additionally drops `:sensitive? true` trace events at source (the preload's `streaming-drop?` filter).
 
-  Operators who need raw state for offline debug pass `--allow-sensitive-reads` at server launch — then the per-call MCP args win again (`:include-sensitive? true` and `:elision false` ride through). The retain-N ring buffer reached via `(rf/trace-buffer)` is a separate, explicit read surface — direct CLJS callers see everything regardless of the gate. Same architecture as the `--allow-eval` gate (rf2-zyoj2) on `eval-cljs` and the canonically-named `--allow-sensitive-reads` gate on story-mcp (rf2-uaymx / rf2-g9fje). See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface).
+  Operators who need raw state for offline debug pass `--allow-sensitive-reads` at server launch — then the per-call MCP args win again (`:include-sensitive? true` and `:elision false` ride through). The retain-N ring buffer reached via `(rf/trace-buffer)` is a separate, explicit read surface — direct CLJS callers see everything regardless of the gate. Same architecture as the `--allow-eval` gate on `eval-cljs` and the canonically-named `--allow-sensitive-reads` gate on story-mcp. See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface).
 
 ---
 

@@ -75,7 +75,7 @@ Three events: an initialiser and two mutations. Each takes the current `db`, ret
 
 ### Subscriptions
 
-One subscription, `[:count]`, reads `(:count db)`. Views deref it with `@(subscribe [:count])`. Under re-frame2's value-equal recompute suppression (rf2-719e), the sub re-runs only when its inputs change; if the new return value is `=` to the previous one, downstream consumers don't re-render. That suppression is automatic; nothing to configure.
+One subscription, `[:count]`, reads `(:count db)`. Views deref it with `@(subscribe [:count])`. Under re-frame2's value-equal recompute suppression, the sub re-runs only when its inputs change; if the new return value is `=` to the previous one, downstream consumers don't re-render. That suppression is automatic; nothing to configure.
 
 ### Views
 

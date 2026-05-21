@@ -1289,7 +1289,7 @@ Three paths forward, depending on what you want next:
   Klipse's 40+ registered language modes. The non-minified build is the
   only variant the upstream maintainer tests against, and it does NOT
   exhibit that bug for ClojureScript cells when only `selector` is
-  configured. See bead rf2-jg9af for the full forensic trace.
+  configured.
 
   Why `selector` (no suffix) and not `selector_eval_clojure`?
   ClojureScript is Klipse's default mode; `selector` is the documented
