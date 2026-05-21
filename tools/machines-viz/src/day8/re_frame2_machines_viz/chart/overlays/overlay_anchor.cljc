@@ -38,6 +38,32 @@
   (when (and node-id (not (str/blank? (str node-id))))
     (str "rf-mv-chart-node-" node-id)))
 
+#?(:cljs
+   (defn rect->map
+     "JS `DOMRect` → the `{:left :top :width :height}` map the anchoring
+     helpers consume. Returns nil for a nil rect. CLJS-only (DOM
+     interop); the overlays share this single seam (rf2-ed099)."
+     [^js dom-rect]
+     (when dom-rect
+       {:left   (.-left dom-rect)
+        :top    (.-top dom-rect)
+        :width  (.-width dom-rect)
+        :height (.-height dom-rect)})))
+
+#?(:cljs
+   (defn query-node-rect-by-testid
+     "Walk `root`'s subtree for `[data-testid=\"<testid>\"]` and return
+     the matched element's bounding rect as a `rect->map`, or nil when
+     `root` / `testid` is missing or the node isn't in the DOM
+     (off-screen / not yet mounted / compound parent without a leaf).
+     CLJS-only; the shared DOM-measurement seam for every chart overlay
+     (rf2-ed099)."
+     [^js root testid]
+     (when (and root testid)
+       (let [el (.querySelector root (str "[data-testid=\"" testid "\"]"))]
+         (when el
+           (rect->map (.getBoundingClientRect el)))))))
+
 (defn anchor-right-of
   "Anchor a card to the RIGHT of a bearing node. Takes the node's
   viewport rect + the overlay container's rect; returns
