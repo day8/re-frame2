@@ -272,20 +272,35 @@
   ;; encoder entry point.
   (testing "well-formed patches return nil"
     (is (nil? (#'de/validate-patches! [[[:a] :assoc 1]
-                                       [[:b] :dissoc]]))))
+                                       [[:b] :dissoc]]
+                                      'mcp-base/diff-encode-db-after))))
   (testing "malformed patches throw :rf.error/bad-diff-patches"
     (let [bad [[[:a] :replace 1]]]
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/bad-diff-patches"
-            (#'de/validate-patches! bad)))
+            (#'de/validate-patches! bad 'mcp-base/diff-encode-db-after)))
       (try
-        (#'de/validate-patches! bad)
+        (#'de/validate-patches! bad 'mcp-base/diff-encode-db-after)
         (is false "expected throw")
         (catch clojure.lang.ExceptionInfo e
           (is (= :rf.error/bad-diff-patches
                  (:rf.error/id (ex-data e)))
-              "ex-info carries the reserved :rf.error/* code"))))))
+              "ex-info carries the reserved :rf.error/* code")))))
+  (testing "the threaded `where` symbol propagates to ex-info :where (rf2-4ypau)"
+    (let [bad [[[:a] :replace 1]]]
+      (try
+        (#'de/validate-patches! bad 'mcp-base/diff-encode-db-after)
+        (is false "expected throw")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= 'mcp-base/diff-encode-db-after (:where (ex-data e)))
+              "encoder caller threads its own site")))
+      (try
+        (#'de/validate-patches! bad 'mcp-base/apply-patches)
+        (is false "expected throw")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= 'mcp-base/apply-patches (:where (ex-data e)))
+              "decoder caller threads its own site"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Decoder-boundary validation (rf2-8e61v / F17).
@@ -318,13 +333,16 @@
           clojure.lang.ExceptionInfo
           #":rf\.error/bad-diff-patches"
           (de/apply-patches {} [[:a :assoc 1]]))))
-  (testing "ex-info carries reserved :rf.error/bad-diff-patches code"
+  (testing "ex-info carries reserved :rf.error/bad-diff-patches code + decode-side :where"
     (try
       (de/apply-patches {} [[[:a] :replace 1]])
       (is false "expected throw")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/bad-diff-patches
-               (:rf.error/id (ex-data e))))))))
+               (:rf.error/id (ex-data e))))
+        (is (= 'mcp-base/apply-patches
+               (:where (ex-data e)))
+            "ex-info names the DECODE-side boundary, not the encoder (rf2-4ypau)")))))
 
 (deftest apply-patches-well-formed-input-passes-validation
   ;; Soft contract: well-formed patches pass the gate silently and
@@ -397,9 +415,9 @@
           (is (= :rf.error/bad-diff-sections
                  (:rf.error/id (ex-data e)))
               "ex-info carries the reserved :rf.error/* code")
-          (is (= 'mcp-base/diff-encode-db-after
+          (is (= 'mcp-base/decode-db-after
                  (:where (ex-data e)))
-              "ex-info names the validation site"))))))
+              "ex-info names the DECODE-side boundary, not the encoder (rf2-4ypau)"))))))
 
 (deftest decode-db-after-well-formed-sections-round-trip
   ;; The positive companion: well-formed sections decode silently and

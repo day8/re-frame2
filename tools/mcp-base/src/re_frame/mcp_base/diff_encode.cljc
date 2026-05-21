@@ -192,14 +192,22 @@
   "Validate `patches` against `patches-schema` and throw ex-info on
   mismatch. No-op when Malli is not resolvable on the runtime
   classpath (soft-pass — mirrors `re-frame.schemas.malli`'s default
-  validator). Called by `diff-encode-db-after` at the wire boundary."
-  [patches]
+  validator).
+
+  `where` is the calling-site symbol threaded in by the caller so the
+  ex-info `:where` reflects the ACTUAL wire boundary that tripped
+  (rf2-4ypau): `'mcp-base/diff-encode-db-after` from the encoder,
+  `'mcp-base/apply-patches` from the decoder. Both boundaries call
+  this; hardcoding one side misattributes a decode-side throw to the
+  encoder and misleads operator triage about which side of the wire
+  drifted."
+  [patches where]
   (when validate-patches?
     (when-let [validate (resolve-malli-validate)]
       (when-not (validate patches-schema patches)
         (throw (ex-info ":rf.error/bad-diff-patches"
                         {:rf.error/id    :rf.error/bad-diff-patches
-                         :where          'mcp-base/diff-encode-db-after
+                         :where          where
                          :recovery       :no-recovery
                          :reason         "diff-encode patch grammar violated"
                          :schema         patches-schema
@@ -209,15 +217,21 @@
 (defn- validate-sections!
   "Validate `sections` against `sections-schema` and throw ex-info on
   mismatch. Soft-pass when Malli is absent, mirrors
-  `validate-patches!`. Called by `diff-encode-db-after` at the wire
-  boundary after the section-grouping pass (rf2-qeous)."
-  [sections]
+  `validate-patches!`.
+
+  `where` is the calling-site symbol threaded in by the caller so the
+  ex-info `:where` reflects the ACTUAL wire boundary that tripped
+  (rf2-4ypau): `'mcp-base/diff-encode-db-after` from the encoder
+  (after the section-grouping pass, rf2-qeous), `'mcp-base/decode-db-after`
+  from the decoder. Both boundaries call this; hardcoding one side
+  misattributes a decode-side throw to the encoder."
+  [sections where]
   (when validate-patches?
     (when-let [validate (resolve-malli-validate)]
       (when-not (validate sections-schema sections)
         (throw (ex-info ":rf.error/bad-diff-sections"
                         {:rf.error/id   :rf.error/bad-diff-sections
-                         :where         'mcp-base/diff-encode-db-after
+                         :where         where
                          :recovery      :no-recovery
                          :reason        "diff-encode section grammar violated"
                          :schema        sections-schema
@@ -302,7 +316,9 @@
   drifted re-frame2 mcp-base, a third-party decoder rolling its own
   shape, a transport corruption). Mirror `diff-encode-db-after`'s
   encoder-boundary gate: validate `patches` against `patches-schema`
-  and throw `:rf.error/bad-diff-patches` ex-info on mismatch.
+  and throw `:rf.error/bad-diff-patches` ex-info on mismatch. The
+  ex-info names `'mcp-base/apply-patches` as the decode-side boundary
+  (rf2-4ypau).
 
   The encoder side already pinned the grammar; this is the symmetric
   decode-side gate so the cross-MCP wire convention surfaces the
@@ -315,7 +331,7 @@
   CLJS `validate-patches?` `goog-define` toggle elides both gates
   together in `:advanced` builds."
   [base patches]
-  (validate-patches! patches)
+  (validate-patches! patches 'mcp-base/apply-patches)
   (reduce
     (fn [acc patch]
       (let [[path op v] patch]
@@ -356,9 +372,9 @@
                (contains? epoch :db-after))
     epoch
     (let [patches  (collect-patches (:db-before epoch) (:db-after epoch) [])
-          _        (validate-patches! patches)
+          _        (validate-patches! patches 'mcp-base/diff-encode-db-after)
           sections (sg/group-patches-into-sections patches)
-          _        (validate-sections! sections)]
+          _        (validate-sections! sections 'mcp-base/diff-encode-db-after)]
       (assoc epoch :db-after
              {vocab/diff-from-key :db-before
               :sections           sections}))))
@@ -383,7 +399,9 @@
   encoder/decoder symmetry per the rf2-8e61v argument: the cross-MCP
   wire convention surfaces drift on the receiving side too, rather
   than silently passing the cosmetic `:section-kind` / `:section-path`
-  slots through to an agent-host UI that paints them as truth.
+  slots through to an agent-host UI that paints them as truth. The
+  ex-info names `'mcp-base/decode-db-after` as the decode-side boundary
+  (rf2-4ypau).
 
   Soft-pass + `goog-define`-elidable by construction — reuses the
   same `validate-sections!` helper as the encoder."
@@ -393,7 +411,7 @@
                  (= :db-before (get da vocab/diff-from-key)))
       epoch
       (let [sections  (:sections da)
-            _         (validate-sections! (or sections []))
+            _         (validate-sections! (or sections []) 'mcp-base/decode-db-after)
             patches   (sg/sections->patches (or sections []))
             db-before (:db-before epoch)
             rebuilt   (apply-patches db-before patches)]
