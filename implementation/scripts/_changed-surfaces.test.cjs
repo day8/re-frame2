@@ -96,9 +96,66 @@ test('Mixed Story src + spec change DOES trigger story_causa_browser (rf2-k9ekz)
   assert.equal(result.story_causa_browser, 'true');
 });
 
-test('targeted Story/Causa workflow runs the Story feature-load gate', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  assert.match(workflow, /story-causa-browser:[\s\S]*npm run test:story-feature-load/);
+// rf2-wa3oo — the story-causa-browser PR job now runs the PR-SMOKE
+// tier, not the full sweep. It runs the Causa gate in --smoke mode and
+// the single-testbed Story :play-script gate (which renders the
+// assertion-strip, keeping rf2-5lw9w covered per-PR). The full sweep —
+// test:story-feature-load, the non-smoke test:causa-feature-gate, and
+// test:story-static — moved to the nightly expensive-tests.yml workflow.
+const EXPENSIVE_WORKFLOW = path.join(
+  REPO_ROOT,
+  '.github',
+  'workflows',
+  'expensive-tests.yml',
+);
+
+// Narrow the workflow text to the story-causa-browser job block so the
+// per-tier assertions can't accidentally match a step in a sibling job.
+function storyCausaJobBlock(workflow) {
+  const start = workflow.indexOf('\n  story-causa-browser:');
+  assert.notEqual(start, -1, 'story-causa-browser job not found in test.yml');
+  // The next top-level job starts at the next `\n  <name>:` at 2-space
+  // indent. Find it from just after the job header.
+  const rest = workflow.slice(start + 1);
+  const nextJob = rest.search(/\n {2}[A-Za-z0-9_-]+:\n/);
+  return nextJob === -1 ? rest : rest.slice(0, nextJob);
+}
+
+test('PR story-causa-browser job runs the Causa --smoke gate (rf2-wa3oo)', () => {
+  const block = storyCausaJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  assert.match(block, /npm run test:causa-feature-gate:smoke/);
+});
+
+test('PR story-causa-browser job keeps the Story :play-script gate (assertion-strip cover, rf2-5lw9w)', () => {
+  const block = storyCausaJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  assert.match(block, /npm run test:story-play-scripts/);
+});
+
+test('PR story-causa-browser job does NOT run the full sweep (moved to nightly, rf2-wa3oo)', () => {
+  const block = storyCausaJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  assert.doesNotMatch(block, /npm run test:story-feature-load/);
+  assert.doesNotMatch(block, /npm run test:story-static/);
+  // The non-smoke (full-matrix) Causa gate must not run at PR time. The
+  // `:smoke` suffix is intentionally allowed; assert the bare invocation
+  // (followed by end-of-line, not `:smoke`) is absent.
+  assert.doesNotMatch(block, /npm run test:causa-feature-gate(?!:smoke)/);
+});
+
+test('Nightly expensive workflow runs the full Story/Causa sweep (rf2-wa3oo)', () => {
+  const workflow = fs.readFileSync(EXPENSIVE_WORKFLOW, 'utf8');
+  assert.match(workflow, /npm run test:story-feature-load/);
+  assert.match(workflow, /npm run test:causa-feature-gate\b/);
+  assert.match(workflow, /npm run test:story-static/);
+  assert.match(workflow, /npm run test:story-play-scripts/);
+});
+
+test('PR + nightly Story/Causa jobs cache the shadow-cljs compile output (rf2-og36y)', () => {
+  const prBlock = storyCausaJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
+  assert.match(prBlock, /implementation\/\.shadow-cljs/);
+  assert.match(prBlock, /story-causa-shadow-/);
+  const nightly = fs.readFileSync(EXPENSIVE_WORKFLOW, 'utf8');
+  assert.match(nightly, /implementation\/\.shadow-cljs/);
+  assert.match(nightly, /story-causa-shadow-/);
 });
 
 // rf2-t5slp — the framework-testbeds gate was retired after all four

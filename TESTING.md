@@ -20,8 +20,8 @@ Running everything everywhere makes PRs slow and the dev loop painful. Skipping 
 | **MCP conformance — wire** (`tools/mcp-conformance` suite) | medium | MCP servers honour the strict `CallToolResultSchema`; trusted-PATH + symlink-safe-unlink helpers. |
 | **MCP conformance — live** (`test:re-frame2-pair-live-overflow-hermetic`, `test:re-frame2-pair-live-subscribe`) | expensive | Real re-frame2-pair-mcp behaviour against a real shadow-cljs nREPL; over-budget eval cap; subscribe/unsubscribe lifecycle. |
 | **Example smoke** (`test:examples`, `test:examples:realworld`) | expensive | Whole-example browser smoke for the runnable examples (cart, counter variants, RealWorld). |
-| **Story feature gates** (`test:story-feature-load`, `test:story-play-scripts`) | expensive | Story testbed exercises the feature/load matrix; play-scripts double every story's `:play-script` as a regression test. |
-| **Causa feature gates** (`test:causa-feature-gate`) | expensive | Causa panel-gallery feature matrix (4-layer chrome, tab navigation, modal/popover behaviour). |
+| **Story feature gates** (`test:story-feature-load`, `test:story-play-scripts`) | expensive | Story testbed exercises the feature/load matrix; play-scripts double every story's `:play-script` as a regression test. `test:story-play-scripts` is single-testbed + high-signal (it renders the live shell + assertion-strip) and stays on the PR critical path; `test:story-feature-load` is nightly-full only (see the Story/Causa PR-smoke vs nightly-full split below). |
+| **Causa feature gates** (`test:causa-feature-gate`, `test:causa-feature-gate:smoke`) | expensive (full) / medium (smoke) | Causa feature matrix (4-layer chrome, tab navigation, exception/issue surfacing). The `--smoke` tier runs the 3 highest-signal scenarios over 2 staged surfaces on the PR critical path; the full 14-scenario / 13-surface sweep runs nightly. |
 | **Template emitted-app smoke** (`jvm-tools-template`) | expensive | The emitted app from `tools/template/` boots + passes its own gates — proves the template stays viable. |
 | **Skills structural** (`skills-structural`) | fast | Skill manifests + shared content stay structurally valid against the schema. |
 
@@ -59,9 +59,61 @@ The classifier maps "what files changed" → "which expensive jobs fire on this 
 ## The 4 tier scenarios (outputs of the management approach above)
 
 1. **Agent pre-checkin** — `scripts/test-fast-pr.sh` plus the surface-specific command for files touched. Run the always-on PR spine locally, then add the narrow changed surface: JVM artefact, browser, bundle, tool, template, or skill structural tests.
-2. **PR CI** — `.github/workflows/test.yml`. Always runs lockstep drift, skill/MCP drift, core JVM, CLJS node integration, JS harness self-tests, and docs link validation for docs PRs. Expensive jobs run only when conservative path filters say the owning surface changed.
-3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/examples/bundle matrix, Story/Causa gates, template emitted-app smoke, and live MCP conformance — kept off the PR critical path.
+2. **PR CI** — `.github/workflows/test.yml`. Always runs lockstep drift, skill/MCP drift, core JVM, CLJS node integration, JS harness self-tests, and docs link validation for docs PRs. Expensive jobs run only when conservative path filters say the owning surface changed. The `story-causa-browser` job runs the **PR-smoke tier** (a fast high-signal subset — see the Story/Causa split below), not the full sweep.
+3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/examples/bundle matrix, the **full** Story/Causa sweep, template emitted-app smoke, and live MCP conformance — kept off the PR critical path.
 4. **Release** — `.github/workflows/release.yml` plus the latest green expensive workflow. The core pre-release gate; release is cut only after the scheduled/manual expensive suite is green on the release candidate.
+
+### Story/Causa gate — PR-smoke vs nightly-full split
+
+The `story-causa-browser` Playwright gate used to run the full sweep
+(full Causa feature matrix + Story feature-load + Story static-export +
+Story play-scripts) on the critical path of every Story/Causa PR. That
+made it the single slowest CI gate at ~700s (≈6× the next slowest job),
+and the **identical** sweep already runs nightly in
+`expensive-tests.yml` — so PR time ran the full matrix twice over. The
+dominant cost is shadow-cljs testbed compilation (each bundle is 400+
+files, ~24s; the full Causa gate stages 13 surfaces).
+
+The gate is now split into two tiers:
+
+- **PR tier (`story-causa-browser` in `test.yml`)** — a fast smoke on the
+  critical path. It runs only:
+  - `npm run test:causa-feature-gate:smoke` — the 3 highest-signal Causa
+    scenarios (6-tab shell handoff, deterministic-exception →
+    Issues/Trace surfacing, Cmd-K palette) over just 2 staged surfaces
+    (`counter` + `deliberate-throw`), compiling 2 testbed bundles
+    instead of 13. Scenarios opt into the smoke via `smoke: true` in
+    `tools/causa/testbeds/feature_matrix/scenarios.cjs`; the gate fails
+    loud if the smoke set is ever empty.
+  - `npm run test:story-play-scripts` — single-testbed
+    (`counter-with-stories`), drives the live Story shell, and is the
+    render path that exercises the assertion-strip. Kept on the PR path
+    so the assertion-strip stays covered per-PR.
+
+  Target PR-tier wall-clock: **<180s** (down from ~700s), helped by the
+  keyed `.shadow-cljs/` + `.cpcache` compile cache (next bullet).
+
+- **Nightly tier (`expensive-tests.yml`)** — the full sweep:
+  `test:causa-feature-gate` (all 14 scenarios / 13 surfaces),
+  `test:story-feature-load`, `test:story-play-scripts`, and
+  `test:story-static`. Off the PR critical path; the nightly-full set is
+  a strict superset of the PR-smoke set, so nothing the smoke covers is
+  lost.
+
+Both tiers restore a keyed shadow-cljs compile cache
+(`implementation/.shadow-cljs` + `implementation/.cpcache`), keyed on
+the build config + the Story/Causa src/testbed source hashes + shared
+implementation source. The nightly run repopulates the cache so the
+first PR-smoke of the day lands a warm partial cache (shared
+`<os>-story-causa-shadow-` `restore-keys` prefix). Any change under the
+keyed source trees busts the cache, so a stale cache can never serve
+wrong compile output.
+
+When adding a new Causa scenario, decide its tier: tag it `smoke: true`
+only if it is high-signal enough to earn a slot on every PR's critical
+path **and** it loads one of the already-staged smoke surfaces (or
+accept the extra compile if it must stage a new one). Everything else
+runs nightly by default.
 
 ## Local commands
 
@@ -94,9 +146,10 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `npm run test:reagent-slim:bundle-isolation` | Reagent Slim invariant: slim advanced bundles exclude stock Reagent impl sentinels and `react-dom/server`, with a stock-Reagent positive control. |
 | `npm run test:examples` | Browser smoke across the runnable examples. |
 | `npm run test:examples:realworld` | Narrow RealWorld (Conduit / Spec 014) smoke only (rf2-h9ut9). The full sweep above is rigorous local / nightly / release; this changed-surface gate compiles and smokes one example end-to-end for cross-artefact runtime changes. Accepts `--filter <substring>` (or `EXAMPLES_FILTER=<substring>`) for ad-hoc narrowing against any single example or testbed. |
-| `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). Occasional / pre-commit until proven stable — not yet default CI. |
-| `npm run test:story-play-scripts` | Story `:play-script` CI-as-test gate (rf2-3qcxk). Discovers every registered variant whose body carries a non-empty `:play-script` slot, navigates the live shell to each, waits for the auto-run's terminal status, and reports per-variant pass/fail. Variants whose id contains `failing` or `expected-fail` invert the assertion (expected `:fail`); everything else asserts `:pass`. Runs in the `story-causa-browser` GH job alongside `test:story-feature-load`. |
-| `npm run test:causa-feature-gate` | Causa browser feature/load gate from `tools/causa/spec/017-Test-Coverage-Matrix.md`. Occasional; not default CI. |
+| `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). **Nightly-full tier** — runs in `expensive-tests.yml`, not on the PR critical path (per the Story/Causa split above). |
+| `npm run test:story-play-scripts` | Story `:play-script` CI-as-test gate (rf2-3qcxk). Discovers every registered variant whose body carries a non-empty `:play-script` slot, navigates the live shell to each, waits for the auto-run's terminal status, and reports per-variant pass/fail. Variants whose id contains `failing` or `expected-fail` invert the assertion (expected `:fail`); everything else asserts `:pass`. **PR-smoke tier** — single-testbed, renders the assertion-strip, runs in the `story-causa-browser` PR job (and nightly). |
+| `npm run test:causa-feature-gate` | Causa browser feature/load gate from `tools/causa/spec/017-Test-Coverage-Matrix.md` — the full 14-scenario / 13-surface sweep. **Nightly-full tier** (`expensive-tests.yml`). |
+| `npm run test:causa-feature-gate:smoke` | PR-smoke tier of the Causa gate (`--smoke`). Runs only the scenarios tagged `smoke: true` over just the surfaces those scenarios load (3 scenarios / 2 surfaces today). On the `story-causa-browser` PR critical path. |
 | `npm run test:story-static` | Static-build contract and deployable-output sanity for the Story export. |
 | `npm run story:build` | Build the Story static artefact. |
 | `npm run test:script-policy` / `npm run test:script-helpers` | Self-tests for the JS harness helpers (path policy, changed-surface classifier port, browser-test report, gate report, local browser harness). |
@@ -286,7 +339,7 @@ PR time; one row per output here so the table stays scannable).
 | `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
 | `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,re-frame2-pair,wire-vocab,...}`) |
 | `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
-| `story_causa_browser` | `story-causa-browser` (feature gates, Playwright — Causa feature-matrix + Story static + Story feature-load + Story play-scripts) |
+| `story_causa_browser` | `story-causa-browser` (PR-smoke, Playwright — Causa feature-matrix `--smoke` + Story play-scripts only; the full Causa matrix, Story feature-load, and Story static run nightly in `expensive-tests.yml` — see the Story/Causa split above) |
 | `skills_structural` | `skills-structural` |
 
 
@@ -319,11 +372,13 @@ the per-tool matrices govern the contract for individual features.
 | Story | [`tools/story/spec/015-Test-Coverage.md`](tools/story/spec/015-Test-Coverage.md) | [`tools/story/test/story_feature_load.cjs`](tools/story/test/story_feature_load.cjs) (browser feature-load + 20-event re-check, run via `npm run test:story-feature-load` from `implementation/`). |
 | Causa | [`tools/causa/spec/017-Test-Coverage-Matrix.md`](tools/causa/spec/017-Test-Coverage-Matrix.md) | [`implementation/scripts/serve-and-run-causa-feature-gate.cjs`](implementation/scripts/serve-and-run-causa-feature-gate.cjs) (browser feature/load matrix slice + 20-event re-check, run via `npm run test:causa-feature-gate` from `implementation/`). |
 
-Both feature gates are deliberately occasional / pre-commit, not
-default CI, while their flake rate and runtime stabilise. A coverage
-row that says `covered` in the per-tool matrix and is gated by the
-feature command above is real; a `partial` or `missing` row is the
-owning team's backlog.
+Both feature gates are split per the Story/Causa PR-smoke vs
+nightly-full tiers above: a high-signal smoke runs on the PR critical
+path (`test:causa-feature-gate:smoke` + `test:story-play-scripts`) and
+the full sweep runs nightly. A coverage row that says `covered` in the
+per-tool matrix and is gated by the feature command above is real (the
+nightly-full sweep is the system of record for matrix coverage); a
+`partial` or `missing` row is the owning team's backlog.
 
 ## Placement decision dimensions
 

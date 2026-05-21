@@ -2526,6 +2526,11 @@ const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
     url: '/counter/',
+    // rf2-wa3oo: PR-smoke tier. The 6-tab handoff over the counter
+    // surface is the highest-signal Causa scenario — it boots the shell,
+    // walks every surviving L3 tab, and proves the chrome wiring. Kept
+    // on the PR critical path; the rest of the matrix runs nightly.
+    smoke: true,
     panels: PANEL_HANDOFFS.map(([id]) => id),
     // Post rf2-xy4yb + rf2-y0z5b: coverage narrowed to the 6
     // surviving L3 tabs. Removed surfaces (Time Travel, Causality
@@ -2558,6 +2563,11 @@ const SCENARIOS = [
   {
     name: 'deterministic exceptions and issue/trace surfacing',
     url: '/testbeds/deliberate-throw/',
+    // rf2-wa3oo: PR-smoke tier. The exception → Issues/Trace surfacing
+    // path is the second-highest-signal slice (it proves the error lens
+    // wires up end-to-end against a real thrown handler). Counter +
+    // deliberate-throw are the only two surfaces the smoke compiles.
+    smoke: true,
     panels: ['issues', 'trace'],
     coveredRows: ['Event Detail', 'Trace', 'Issues Ribbon', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
     run: runExceptionSchemaHttp,
@@ -2622,6 +2632,11 @@ const SCENARIOS = [
     // recents persist + lead on re-open, Esc closes without dispatch.
     name: 'command palette chord, fuzzy filter, execute verb, and recents round-trip',
     url: '/counter/',
+    // rf2-wa3oo: PR-smoke tier. Reuses the already-staged counter
+    // surface (no extra compile), and exercises the Cmd-K interaction
+    // path — the highest-signal "key interactions" coverage the audit
+    // asked the smoke to keep. Adds no surface to the compile set.
+    smoke: true,
     panels: [],
     coveredRows: [
       'Cmd-K palette',
