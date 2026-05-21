@@ -61,9 +61,13 @@
   color: var(--md-default-fg-color--light, #555);
 }
 
+/* Result value (=> …). A fixed dark green — NOT --md-typeset-ins-color, which
+ * is Material's CriticMarkup inserted-text HIGHLIGHT green (a light green meant
+ * to sit on a tinted background) and renders low-contrast on the light-grey
+ * result panel. #1a5e1a is 7.31:1 on --md-code-bg-color #f4f7f4 (WCAG AAA). */
 .cljs-val {
   font-weight: 600;
-  color: var(--md-typeset-ins-color, #1a5e1a);
+  color: #1a5e1a;
 }
 
 [data-md-color-scheme="slate"] .cljs-val {
