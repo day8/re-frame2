@@ -26,7 +26,7 @@ Story-emitted framework events and panel ids live under the framework's `:rf.*` 
 | Sub-namespace | Closed member set | Spec |
 |---|---|---|
 | `:rf.story/*` | Story-emitted events (`:rf.story/save-current-as-variant`) and built-in decorator ids (`:rf.story/force-fx-stub`). | [005-SOTA-Features.md](005-SOTA-Features.md) |
-| `:rf.story.panel/*` | Story-panel registration ids (`:rf.story.panel/schema-validation`, `:rf.story.panel/epoch-view`). The `panel` segment is the discriminator so a reader scanning a panel id can tell the registry kind. | [003-Render-Shell.md](003-Render-Shell.md) §Panel registration contract |
+| `:rf.story.panel/*` | Story-panel registration ids (`:rf.story.panel/schema-validation`, `:rf.story.panel/layout-debug`). The `panel` segment is the discriminator so a reader scanning a panel id can tell the registry kind. | [003-Render-Shell.md](003-Render-Shell.md) §Panel registration contract |
 | `:rf.story.layout-debug/*` | Built-in layout-debug decorator ids (`:rf.story.layout-debug/measure`, `:rf.story.layout-debug/outline`, `:rf.story.layout-debug/pseudo`). | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout debug |
 
 Third-party Story extensions MUST NOT register handlers, fx, subs, panels, or decorators under `:rf.story.*`. Library authors choose their own top-level prefix per [framework Conventions §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes).

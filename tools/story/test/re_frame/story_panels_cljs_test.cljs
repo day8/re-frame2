@@ -2,9 +2,9 @@
   "CLJS smoke tests for Stage 6 (rf2-zhwd) — the v1.0 story-panel set.
 
   Covers the panel-registration contract documented in IMPL-SPEC §4.5:
-  the three v1 panels (a11y, layout-debug controls, 10x epoch stub)
-  register with `:placement` slots and the late-bind `:render` view
-  resolves on the framework registry."
+  the v1 panels (a11y, layout-debug controls) register with `:placement`
+  slots and the late-bind `:render` view resolves on the framework
+  registry."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -24,25 +24,13 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ---- the three v1.0 panels --------------------------------------------
+;; ---- the v1.0 panels --------------------------------------------------
 
 (deftest v1-panels-registered
-  (testing "Stage 6 ships three v1.0 story-panel registrations"
+  (testing "Stage 6 ships the v1.0 story-panel registrations"
     (let [ps (story/registrations :story-panel)]
       (is (contains? ps a11y/panel-id))
-      (is (contains? ps panels/epoch-panel-id))
       (is (contains? ps panels/layout-debug-panel-id)))))
-
-(deftest epoch-stub-panel-body
-  (testing "epoch-panel registers with :placement :bottom"
-    (let [body (story/handler-meta :story-panel panels/epoch-panel-id)]
-      (is (= :bottom (:placement body)))
-      (is (= panels/epoch-panel-render-id (:render body)))
-      (is (re-find #"(?i)10x" (or (:title body) ""))))))
-
-(deftest epoch-stub-view-registered
-  (testing "the stub view is registered against re-frame's view registry"
-    (is (some? (rf/view panels/epoch-panel-render-id)))))
 
 (deftest layout-debug-panel-body
   (testing "layout-debug panel registers as :right placement"

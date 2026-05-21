@@ -189,14 +189,14 @@
 ;; LATE-BIND `reg-story-panel` CONTRACT (spec/006 §5)
 ;; ===========================================================================
 ;;
-;; Per spec/006 §5: "The Causa embed is the canonical late-bind example.
-;; Stub view ships with Story; Causa registers the live view under the
-;; same `:rf.story.panel/epoch-view` id when present; shell picks
-;; Causa's view automatically."
+;; Per spec/006 §5: late-bind is the contract — a `:render` id can be
+;; registered from any artefact on the classpath; Story panels resolve
+;; via `(rf/view <render-id>)` at render time, so the view-author and
+;; the panel-registrant need not live in the same jar.
 ;;
 ;; The contract on Story's side: a panel id can be re-registered, and
 ;; the second registration replaces the first slot. That is what lets
-;; Causa override Story's stub when the artefact is present, and what
+;; one artefact ship a stub and another override it later, and what
 ;; lets an MCP `register-story-panel` write tool (if ever exposed) ship
 ;; a new panel in place.
 
