@@ -18,7 +18,7 @@ reagent/
   ssr/                         <-- CP-9 worked example (Spec 011)
   ssr_streaming/               <-- streaming SSR worked example (Spec 011 §Streaming)
   managed_http_counter/        <-- compact Spec 014 demo
-  state_machine_walkthrough/   <-- runnable companion to docs/guide/09
+  state_machine_walkthrough/   <-- runnable companion to docs/guide/11-machines
   nine_states/                 <-- the nine canonical UI states
   boot/                        <-- Pattern-Boot worked example
   long_running_work/           <-- Pattern-LongRunningWork worked example
