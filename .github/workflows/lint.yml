@@ -14,9 +14,11 @@ name: lint
 #   - Splint (noahtheduke/splint): style-shape linter inspired by the
 #     Clojure Style Guide. Catches idiomatic-Clojure smells that
 #     kondo's lexical analysis is not designed to surface. Per-project
-#     config lives in `.splint.edn` at repo root. The Splint job stays
-#     report-only at first iteration — fail-loud follows in a separate
-#     iteration once the warning baseline is triaged.
+#     config lives in `.splint.edn` at repo root. The job runs with
+#     `--fail-on-errors`, so an introduced ERROR (a file Splint cannot
+#     parse — `splint/parsing-error` and friends) blocks the PR while
+#     style warnings stay informational — the same shape as the
+#     clj-kondo job's `--fail-level error`.
 #
 # Lint surface: implementation/, tools/ (minus template/resources/),
 # examples/, testbeds/. Generated trees (.shadow-cljs/, target/,
@@ -126,12 +128,12 @@ jobs:
             --lint tools/template/test
 
   splint:
-    name: Splint (report-only, first iteration)
+    name: Splint (fail on errors, warnings informational)
     runs-on: ubuntu-latest
-    # Splint never fails the gate at first-iteration. The `continue-on-error`
-    # at the job level is intentional: we want PR authors to see the report
-    # without blocking on style noise until the baseline stabilises.
-    continue-on-error: true
+    # The job runs with `--fail-on-errors` so an introduced ERROR (a
+    # file Splint cannot parse) blocks the PR. Style warnings still
+    # print to the log for triage but never fail the gate — the same
+    # shape as the clj-kondo job above.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -163,16 +165,20 @@ jobs:
       # alias next to the artefacts it lints; the explicit path args
       # widen the surface to tools/ + examples/ + testbeds/.
       #
-      # `|| true` is the report-only gate: Splint exits non-zero when it
-      # finds style warnings, but we don't fail the workflow on that.
-      # Combined with the job-level continue-on-error this gives us two
-      # belt-and-braces against blocking PRs on style noise.
+      # The alias entry-point is `re-frame.splint-main` (a thin
+      # cross-platform shim around Splint's own runner — see
+      # implementation/deps.edn). Its `--fail-on-errors` flag makes the
+      # process exit non-zero ONLY when an error-class diagnostic is
+      # present (a file Splint could not parse). Style warnings still
+      # print to the log but never fail the run — matching the kondo
+      # job's `--fail-level error`. No `|| true` / continue-on-error:
+      # an introduced parse-error genuinely blocks the PR.
       - name: Run Splint
         working-directory: implementation
         run: |
           clojure -M:splint \
+            --fail-on-errors \
             ../implementation \
             ../tools \
             ../examples \
-            ../testbeds \
-            || true
+            ../testbeds
