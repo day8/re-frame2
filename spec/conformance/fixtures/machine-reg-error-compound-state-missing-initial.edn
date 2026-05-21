@@ -1,0 +1,49 @@
+;; Conformance fixture: machine/reg-error-compound-state-missing-initial
+;;
+;; Per [005 §Initial-state cascading](../../005-StateMachines.md#initial-state-cascading)
+;; and rf2-boryv: every COMPOUND state-node (one that declares `:states`)
+;; MUST declare `:initial` — the substate to enter when control reaches
+;; the compound state without a deeper target. Without it the cascade has
+;; no entry-point and would silently yield a non-leaf `:state` snapshot
+;; instead of failing registration, so the validator rejects it at
+;; construction time.
+;;
+;; This is a Mode-B `:reg-machine` fixture: it pins the registration-error
+;; taxonomy (Spec 009 §The thrown-error shape — the `:rf.error/id` ex-data
+;; contract) at the conformance layer. The thrown error's `:rf.error/id`
+;; discriminator is `:rf.error/machine-compound-state-missing-initial`.
+;; Per [009 §The thrown-error shape](../../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract):
+;; consumers (Causa's error widget, the pair-tool overlay) `case` on
+;; `:rf.error/id`, never the message string.
+
+{:fixture/id           :machine/reg-error-compound-state-missing-initial
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/registration-validation}
+ :fixture/doc          "A compound state-node declaring :states but no :initial is rejected at registration with :rf.error/machine-compound-state-missing-initial. The control case — a compound state that DOES declare :initial — validates silently."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) Top-level compound state missing :initial — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :authenticated
+                  :states  {:authenticated
+                            {:states {:dashboard {}
+                                      :settings  {}}}}}    ;; no :initial
+   :expect-error :rf.error/machine-compound-state-missing-initial}
+
+  ;; (2) Deeply-nested compound state missing :initial — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :outer
+                  :states  {:outer {:initial :mid
+                                    :states  {:mid {:states {:leaf {}}}}}}}  ;; :mid compound, no :initial
+   :expect-error :rf.error/machine-compound-state-missing-initial}
+
+  ;; (3) Control: a compound state that declares :initial validates silently.
+  {:call       :reg-machine
+   :definition {:initial :authenticated
+                :states  {:authenticated
+                          {:initial :dashboard
+                           :states  {:dashboard {}
+                                     :settings  {}}}}}}]}

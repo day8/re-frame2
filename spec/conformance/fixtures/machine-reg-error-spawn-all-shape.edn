@@ -1,0 +1,55 @@
+;; Conformance fixture: machine/reg-error-spawn-all-shape
+;;
+;; Per [005 §Spawn-and-join via `:spawn-all`](../../005-StateMachines.md#spawn-and-join-via-spawn-all)
+;; and rf2-6vmw. A `:spawn-all`-bearing state node is shape-validated at
+;; registration:
+;;
+;;   - A state node MUST NOT declare BOTH `:spawn` and `:spawn-all` (they
+;;     are mutually exclusive) — `:rf.error/machine-spawn-all-with-spawn`.
+;;   - Two children inside one `:spawn-all` block MUST NOT share an `:id`
+;;     keyword — `:rf.error/machine-spawn-all-duplicate-id`.
+;;
+;; Mode-B `:reg-machine` fixture pinning two members of the
+;; registration-error taxonomy (Spec 009 §The thrown-error shape). Each
+;; call's `:expect-error` names the `:rf.error/id` discriminator.
+
+{:fixture/id           :machine/reg-error-spawn-all-shape
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:actor/spawn-and-join :fsm/registration-validation}
+ :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id. The control case — a well-formed :spawn-all with distinct child :ids — validates silently."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) A state declaring BOTH :spawn and :spawn-all — mutually exclusive, rejected.
+  {:call         :reg-machine
+   :definition   {:initial :gathering
+                  :states  {:gathering
+                            {:spawn     {:machine-id :worker/solo}
+                             :spawn-all {:children        [{:id :a :machine-id :worker/a}]
+                                         :on-child-done   :child/done
+                                         :on-child-error  :child/error
+                                         :on-all-complete [:all/done]}}}}
+   :expect-error :rf.error/machine-spawn-all-with-spawn}
+
+  ;; (2) Two :spawn-all children sharing an :id keyword — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :gathering
+                  :states  {:gathering
+                            {:spawn-all {:children        [{:id :dup :machine-id :worker/a}
+                                                           {:id :dup :machine-id :worker/b}]
+                                         :on-child-done   :child/done
+                                         :on-child-error  :child/error
+                                         :on-all-complete [:all/done]}}}}
+   :expect-error :rf.error/machine-spawn-all-duplicate-id}
+
+  ;; (3) Control: a well-formed :spawn-all with distinct child :ids validates silently.
+  {:call       :reg-machine
+   :definition {:initial :gathering
+                :states  {:gathering
+                          {:spawn-all {:children        [{:id :a :machine-id :worker/a}
+                                                         {:id :b :machine-id :worker/b}]
+                                       :on-child-done   :child/done
+                                       :on-child-error  :child/error
+                                       :on-all-complete [:all/done]}}}}}]}

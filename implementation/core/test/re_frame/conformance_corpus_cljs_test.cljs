@@ -103,6 +103,7 @@
     :fsm/tags
     :fsm/parallel-regions
     :fsm/final-states
+    :fsm/registration-validation                      ;; rf2-vf5cf — registration-error taxonomy via :reg-machine
     :routing/match-url
     :ssr/render-to-string
     :ssr/hydration
@@ -858,6 +859,31 @@
                        "    actual   snapshot: " snap-out "\n"
                        "    expected effects:  " want-fx "\n"
                        "    actual   effects:  " fx-out))})
+
+    ;; pure registration-validation call (rf2-vf5cf). Pins the machine
+    ;; registration-error taxonomy (Spec 009 §The thrown-error shape)
+    ;; against the pure `validate-machine!` validator. `:expect-error
+    ;; <category-kw>` ⇒ the validator must throw an ex-info whose
+    ;; `:rf.error/id` ex-data slot equals the category; absent
+    ;; `:expect-error` ⇒ a well-formed control that must NOT throw.
+    :reg-machine
+    (let [want-error (:expect-error call)
+          thrown     (try (machines/validate-machine! (:definition call)) nil
+                          (catch :default e e))]
+      (if want-error
+        (let [got-id (:rf.error/id (ex-data thrown))
+              ok?    (= want-error got-id)]
+          {:passed? ok?
+           :detail  (when-not ok?
+                      (str "reg-machine\n"
+                           "    expected error :rf.error/id: " want-error "\n"
+                           "    actual   error :rf.error/id: " got-id "\n"
+                           "    thrown:                       " (some-> thrown ex-message)))})
+        {:passed? (nil? thrown)
+         :detail  (when (some? thrown)
+                    (str "reg-machine\n"
+                         "    expected: no error (well-formed machine)\n"
+                         "    thrown:   " (ex-message thrown)))}))
 
     {:passed? false :detail (str "unknown :call form: " (:call call))}))
 
