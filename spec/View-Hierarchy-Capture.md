@@ -1,6 +1,7 @@
 # View Hierarchy Capture — runtime view-tree readback
 
 > **Type:** Reference (single contract document)
+> **Normative status:** v1 contract surface — pattern contract; a conformant React-backed port MUST implement the walker against the read paths below. Non-React substrates (post-v1) MAY publish their own equivalent capture surface; this doc owns the React case.
 > Locked: 2026-05-19 — Fiber-reading for hierarchy capture relaxed; per-component metadata reads remain rejected.
 
 This doc pins the contract for **runtime view-hierarchy capture** — how a tool (today, Causa) reads the parent ⊃ children relationships of the views the host application has mounted. The contract is single-document because **the React Fiber parent/child slots ARE the contract for every React-backed substrate** the framework supports (Reagent / UIx / Helix all mount through React).
@@ -60,6 +61,20 @@ When the property is absent (anonymous fn, plain host element, fragment, third-p
 3. `"<host>"` (literal label for host elements like `:div`)
 
 The fallback keeps the tree rendering meaningful even for un-tagged elements — the row appears but does not resolve to a re-frame2 view-id, so the Views panel's per-row drilldown is not available for that row.
+
+## Capture algorithm
+
+The walk is a strict depth-first traversal over the React Fiber tree, rooted at the host application's mount node. The walker:
+
+1. **Resolves the root Fiber.** From the configured mount node (a DOM element handed in by the host tool), the walker reads the documented Fiber-pointer property (`__reactFiber$<hash>` on React 17+, `__reactInternalInstance$<hash>` on React 16). The first Fiber discovered through `__REACT_DEVTOOLS_GLOBAL_HOOK__` (when present) takes precedence over the direct property read.
+2. **Walks `child` / `sibling` recursively.** At each Fiber the walker visits `child` first (descending), then `sibling` (advancing to the next peer once a subtree is exhausted). `return` is read only when needed to compute parent-relative depth; the walker MUST NOT follow `return` upward as part of normal traversal — the recursion's own stack carries depth.
+3. **Resolves each Fiber's `elementType` to a view-id** per [§View-id tagging convention](#view-id-tagging-convention) — fallback chain `__rf2_view_id__` → `:displayName` → `:name` → `"<host>"`.
+4. **Emits one record per Fiber** in document order (the order the recursion visits them) into the output vector documented at [§Output shape](#output-shape) below.
+5. **Halts on any unreadable slot.** A null `child` ends descent; a null `sibling` ends the peer walk; a Fiber whose `elementType` cannot be resolved still emits a record with `:view-id nil` (the fallback `"<host>"` covers the common case). The walker MUST NOT throw on a malformed Fiber — it elides the offending subtree and continues.
+
+The walker reads only the four slots listed under §Scope (`return`, `child`, `sibling`, `elementType`). Per-component metadata slots (`memoizedState`, `pendingProps`, lane priority) are out of scope per the same section and the walker MUST NOT read them — a port that does is non-conformant.
+
+Re-walks are stateless: the walker holds no inter-call state. A repeated capture against the same Fiber tree produces an identical output (modulo `:fiber-key`s where React replaced a Fiber as part of a remount). Tools that need stable identity across cascades use `:fiber-key` as the React-side row key per [§Output shape](#output-shape).
 
 ## Output shape
 

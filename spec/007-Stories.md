@@ -465,11 +465,32 @@ These are **dev-tool conveniences with documented egress, not gated**. Both endp
 
 ## What the framework supplies vs. what the library adds
 
-**Framework hooks (in 002):** `make-frame`/`destroy-frame!`/`reset-frame!`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`registrations`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
+The 007-Stories contract has a deliberate two-tier shape — what a conformant port MUST ship, and what the port MAY consume from a hosted library (or hosted tool, or third-party catalog browser). Confusing the two yields ports that either over-ship (carry tool-specific UI shell as a normative contract) or under-ship (omit pattern-level surfaces other tools depend on).
 
-**`re-frame.story` library (the `tools/story/` artefact):** `story/reg-story`/`story/reg-variant`/`story/reg-workspace`/`story/reg-decorator`/`story/reg-tag`/`story/reg-mode`/`story/reg-story-panel`; tool-owned side-table registries at `tools.story.registry/*`; `story/registrations` (Public-query parity over the side-table); `story/run-variant` (programmatic execution + assertions); `story/reset-variant`; `story/variants-with-tags`; `story/snapshot-identity`; `story/watch-variant`; the story-tool UI.
+### Pattern contract — port MUST ship
 
-The framework surface is sufficient for any team to roll their own equivalent if they want.
+Pattern-level surfaces every conformant 007-Stories implementation MUST ship:
+
+- **Framework hooks** (already in 002, listed here for completeness): `make-frame` / `destroy-frame!` / `reset-frame!`; per-frame `:fx-overrides` / `:interceptor-overrides` / `:interceptors`; run-to-completion drain; the public registrar query API (`registrations` / `frame-meta` / `frame-ids` / `get-frame-db` / `snapshot-of` / `sub-topology`); hot-reload notifications. These are 002's contract and 007 inherits them; a port that ships 002 ships them.
+- **Story registry kinds.** The kinds `:story`, `:variant`, `:workspace`, `:story.decorator`, `:story.tag`, `:story.mode`, `:story-panel` (per [§Canonical id grammar](#canonical-id-grammar)) — registration shape, metadata grammar, the four-phase setup ordering (loaders → events → render → play), and the `:variant *is* a frame` identity (per [§Relationship with frames](#relationship-with-frames)).
+- **Lifecycle event surface.** The trace events fired by variant setup, render, and play execution — including the `:rf.assert/*` family per the Story event-family contract — are pattern contract so cross-tool consumers (Causa, snapshot harnesses, headless test runners) can attach uniformly.
+- **Programmatic execution + assertion surface.** `story/run-variant`, `story/reset-variant`, `story/variants-with-tags`, `story/snapshot-identity` — these are the API the [Story-as-test duality](#story-as-test-duality) leans on, and a port that omits them breaks the round-trip with `008-Testing`.
+- **Variant snapshot identity** (per [§Variant snapshot identity](#variant-snapshot-identity)) — the hash function that names a variant's settled state independently of UI affordances. Visual-regression / golden-snapshot tools key on this; the contract is locked across ports.
+
+A port can ship every pattern-contract surface above without shipping a single line of catalog-browser UI; the surface is purely the data + lifecycle contract.
+
+### Implementation discretion — port MAY consume
+
+Surfaces a conformant port MAY consume from a host library, third-party catalog browser, or in-house tool, rather than ship itself:
+
+- **The catalog-browser UI shell.** The browseable index of registered stories / variants / workspaces, the per-variant render preview, the args-control panel, the tag-filter sidebar — all UI affordances are tool-discretionary. The CLJS reference ships one (the `re-frame.story` library's story-tool UI in the `tools/story/` artefact); other ports MAY ship a different shell, embed into a host like Storybook / devcards / Workspaces via an adapter shim (per [§Devcards / Workspaces interop](#devcards--workspaces-interop-post-v1-rf2-9amwm)), or omit a UI entirely and consume the pattern-contract surface from tests only.
+- **MDX / markdown wrappers, doc-tooling integration.** Annotating stories with prose, embedding them in a docs site, generating screenshots — all post-processing patterns that consume the pattern-contract surface. None are normative.
+- **The story-tool extension hook** (`tools.story.registry/*` side-table registries, `story/reg-story-panel`, per [§Story-tool extension hook](#story-tool-extension-hook)) — pattern contract names the registry kinds and the registration shape; the *tool* that consumes the side-table to render extension panels is implementation discretion. Story-MCP and Causa each consume it differently; both are valid.
+- **Visual-regression / screenshot integration** (per the [resolved decision](#screenshot--visual-regression-integration)) — pattern contract reserves `[:story.snapshot/*]` event ids; the *runner* that takes the snapshot, diffs against golden, and reports is tool discretion.
+
+### Reading the split
+
+The test is "would this need re-defining for another port to interoperate?" — if yes, it's pattern contract; if no, it's tool discretion. The framework surface above is sufficient for any team to roll their own equivalent tool; the discretionary list names what the team is free to vary without breaking interop with the wider re-frame2 ecosystem.
 
 ## Relationship with frames
 

@@ -110,6 +110,20 @@ The `:request` map carries the wire shape. Keys are minimal and chosen to be hos
 | `:referrer` | no | string | CLJS-only passthrough. |
 | `:integrity` | no | string (subresource-integrity hash) | CLJS-only passthrough. |
 
+#### JVM transport — degraded behaviour for CLJS-only options
+
+Five keys on the args map / request envelope are **CLJS-only** — semantically meaningful against the browser Fetch API and ignored by the JVM's `java.net.http.HttpClient`-backed transport. A request that carries any of them on the JVM proceeds normally; the option is **silently no-op** and the runtime emits one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace per occurrence so consumers (Causa, Story, off-box monitors) can spot the degraded code path:
+
+| Key | Where | JVM behaviour |
+|---|---|---|
+| `:abort-signal` | args map (top-level) | Ignored. Internal `:request-id`-driven abort still works on the JVM; the external Fetch `AbortController.signal` handle has no `HttpClient` analogue and is dropped. |
+| `:mode` | `:request` map | Ignored. CORS policy is browser-only. |
+| `:cache` | `:request` map | Ignored. The Fetch cache directive has no `HttpClient` equivalent. |
+| `:referrer` | `:request` map | Ignored. Browser-only request-context. |
+| `:integrity` | `:request` map | Ignored. Subresource-integrity is a browser-only verification path. |
+
+The trace event's `:tags` carry the key name, the request URL, and `:sensitive?` from the request envelope per [§Privacy](#privacy); a request whose URL falls under the query-param denylist or whose handler is marked `:sensitive?` has the URL redacted on the way to the trace surface. The trace is informational only — there is no `:rf.error/*` for this path, and the request is not classified as a failure. Cross-host portable code SHOULD avoid these five keys when JVM support matters, or feature-flag them at the call site. See also [§`:rf.http/cors` is CLJS-only](#rfhttpcors-is-cljs-only) for the symmetric failure-category asymmetry.
+
 ### Body encoding
 
 If `:body` is a thunk `(fn [] body)`, the fx invokes it just before sending (after `:retry :backoff` delays elapse). Each retry re-invokes the thunk to obtain a fresh handle — useful when `:body` is a single-shot stream that can't be replayed. Whatever the thunk returns is then encoded per the rules below.
