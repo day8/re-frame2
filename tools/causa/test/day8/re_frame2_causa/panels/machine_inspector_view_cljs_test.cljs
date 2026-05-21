@@ -1,7 +1,7 @@
 (ns day8.re-frame2-causa.panels.machine-inspector-view-cljs-test
   "View tests for the collapsed Machine Inspector panel (rf2-y9xmf).
 
-  Post-collapse the Runtime Machines panel is event-driven only:
+  Post-collapse the Dynamic Machines panel is event-driven only:
 
     - BLANK when the focused event has no machine activity.
     - One per-machine section (topology + transition highlight + guards +

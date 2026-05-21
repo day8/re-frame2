@@ -1,5 +1,5 @@
 (ns day8.re-frame2-causa.panels.machine-canvas
-  "Interactive viewport adapter for the Runtime Machines panel
+  "Interactive viewport adapter for the Dynamic Machines panel
   (rf2-y3l8z).
 
   ## What this owns
@@ -40,13 +40,13 @@
   fit too. Static callers pass:
 
     :show-view-mode-toggle? false  — Canvas/List toggle is a
-                                     Runtime concept; the Static
+                                     Dynamic concept; the Static
                                      Machines panel already owns
                                      a per-machine sub-mode pill
                                      strip at L3, so the toggle
                                      is meaningless on static.
     :show-after-rings?      false  — after-rings overlay is a
-                                     Runtime focused-event lens;
+                                     Dynamic focused-event lens;
                                      no live focused event exists
                                      on the static surface.
     :testid                 \"rf-causa-static-machines-topology-svg\"
@@ -58,7 +58,7 @@
                                      left on.
 
   The per-machine viewport slot IS shared across Static and
-  Runtime — if the user pans/zooms a machine in either surface,
+  Dynamic — if the user pans/zooms a machine in either surface,
   the other surface picks up the same viewport when it next
   mounts. This matches the user model: 'this is the chart for
   machine X, and I parked it in this view'."
@@ -422,7 +422,7 @@
 ;; ---- public Chart view --------------------------------------------------
 
 (defn Chart
-  "Render the interactive MachineChart inside the Runtime Machines
+  "Render the interactive MachineChart inside the Dynamic Machines
   panel (or the Static Machines Topology body — rf2-md9oz).
 
   Args (map):
@@ -436,17 +436,17 @@
     :on-state-click   — click handler for state nodes.
     :show-after-rings? — when true (default) overlay
                         `[after-rings/AfterRingsOverlay positioned]`
-                        on top of the chart. Runtime keeps true;
+                        on top of the chart. Dynamic keeps true;
                         Static passes false (no focused-event
                         lens on static).
     :show-view-mode-toggle? — when true (default) render the
                         Canvas/List pill in the canvas's top-
-                        left. Runtime keeps true; Static passes
+                        left. Dynamic keeps true; Static passes
                         false (the L3 sub-mode pills already
                         own per-machine mode at the panel level).
     :show-controls-toolbar? — when true (default) render the
                         zoom/pan/fit controls toolbar in the
-                        canvas's top-right. Both Runtime and
+                        canvas's top-right. Both Dynamic and
                         Static keep true.
     :testid           — when present, forwarded to `mv-svg/render`
                         as the inner SVG's root data-testid.

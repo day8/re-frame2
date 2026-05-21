@@ -33,7 +33,7 @@
   Four pills: `:topology` (default) · `:sim` · `:instances` · `:cascade`.
   Per bead's §4-mode sub-strip the Sim cell is a placeholder until
   sibling rf2-r4nao lands the real Sim view; the Cascade pill is
-  rendered but greyed (Runtime-only surface)."
+  rendered but greyed (Dynamic-only surface)."
   (:require [clojure.string :as str]))
 
 ;; ---- sub-mode taxonomy --------------------------------------------------

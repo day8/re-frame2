@@ -1595,13 +1595,13 @@
                   :mode        :live
                   :previewing? false))))
 
-  ;; rf2-2moh1 — register the Runtime Event tab with the internal L4
+  ;; rf2-2moh1 — register the Dynamic Event tab with the internal L4
   ;; tab registry. The runtime shell's L3 tab bar + L4 detail panel
-  ;; pick the entry up by `tabs-for-mode :runtime`.
+  ;; pick the entry up by `tabs-for-mode :dynamic`.
   (panel-registry/reg-l4-tab!
     {:id    :event
      :label "Event"
      :mnem  "e"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 0
      :panel Panel}))

@@ -6,7 +6,7 @@
     1. Pip cluster — pip-cap dots inline, '>cap N live' textual count
        beyond. Silent for zero (per rf2-g3ghh).
     2. Sort button label reflects the active axis.
-    3. Per-row `→ Runtime` chip dispatches the JUMP fn (verified via
+    3. Per-row `→ Dynamic` chip dispatches the JUMP fn (verified via
        app-db side-effects).
     4. Search box keystroke fires set-search; Escape key fires
        clear-search."
@@ -133,7 +133,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest per-row-jump-chip-fires-jump
-  (testing "Clicking the per-row `→ Runtime` chip fires set-mode +
+  (testing "Clicking the per-row `→ Dynamic` chip fires set-mode +
             select-tab + select-machine-id (via the centralised
             dispatcher)"
     (causa-setup!)
@@ -146,7 +146,7 @@
     (rf/with-frame :rf/causa
       (jump/dispatch-jump-sync! :m/a))
     (rf/with-frame :rf/causa
-      (is (= :runtime (frame-sub [:rf.causa/mode])))
+      (is (= :dynamic (frame-sub [:rf.causa/mode])))
       (is (= :machines (frame-sub [:rf.causa/selected-tab])))
       (is (= :m/a (frame-sub [:rf.causa/selected-machine-id]))))))
 

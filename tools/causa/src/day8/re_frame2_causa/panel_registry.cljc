@@ -4,7 +4,7 @@
   ## The seam
 
   Before this ns, `shell.cljs` carried a hard-coded vector of the 7
-  Runtime tabs + a parallel case-switch in `detail-panel`; `static/
+  Dynamic tabs + a parallel case-switch in `detail-panel`; `static/
   shell.cljs` carried the same shape for the 6 Static tabs. Adding a
   tab (e.g. promoting Routing to its own L3 lens per rf2-nrbs9)
   required editing two files in lock-step — modify-shell coupling.
@@ -20,7 +20,7 @@
         {:id    :foo
          :label \"Foo\"
          :mnem  \"f\"
-         :modes #{:runtime}
+         :modes #{:dynamic}
          :order 6
          :panel foo/Panel}))
 
@@ -40,16 +40,16 @@
   Each tab entry carries:
 
     :id     keyword — keyword that lands on `:rf.causa/selected-tab`
-            (Runtime) or `:rf.causa.static/selected-tab` (Static)
+            (Dynamic) or `:rf.causa.static/selected-tab` (Static)
             when the tab is selected.
     :label  string — visible tab label.
     :mnem   string — single-letter keyboard mnemonic.
-    :modes  set    — subset of #{:runtime :static}. Tabs registered
+    :modes  set    — subset of #{:dynamic :static}. Tabs registered
                      against multiple modes appear in every matching
                      tab bar.
     :order  number — sort key for the tab bar render order. Lower
                      comes first. The canonical 0..N integers reserve
-                     stable positions per spec/018 §5 (Runtime) +
+                     stable positions per spec/018 §5 (Dynamic) +
                      `tools/causa/spec/007-UX-IA.md` §Static mode
                      (Static).
     :panel  fn     — view function rendered when the tab is selected.
@@ -82,20 +82,19 @@
 
 (defonce ^{:doc "The L4 tab registry. Map of `[mode tab-id] → tab-entry`
                  — composite key because the same `:id` may legitimately
-                 register against multiple modes (e.g. `:views` exists
-                 as both the Runtime Reactive tab — `panels/reactive_
-                 panel.cljs` (rf2-wyvf2 · key stays `:views`, display
-                 label rebases to `Reactive` per spec/021 §11.5) — and
-                 the Static Views catalogue tab — `static/views/
-                 panel.cljs`; same id, different content). Atom (not a
-                 defonce on a literal map) so per-panel `install!`
-                 mutations are visible to readers without re-loading
-                 this ns. Re-loading this ns under shadow-cljs
+                 register against multiple modes (e.g. `:routes` exists
+                 as both the Dynamic Routing tab — `panels/routing.cljs`
+                 (focused-event lens) — and the Static Routes catalogue
+                 tab — `static/routes/panel.cljs` (browse-all); same id,
+                 different content). Atom (not a defonce on a literal
+                 map) so per-panel `install!` mutations are visible to
+                 readers without re-loading this ns. Re-loading this ns
+                 under shadow-cljs
                  `:after-load` preserves the atom's contents — `defonce`
                  semantics.
 
                  Tabs registered against multiple modes (a single tab
-                 entry with `:modes #{:runtime :static}`) materialise
+                 entry with `:modes #{:dynamic :static}`) materialise
                  as ONE entry per `[mode id]` key — the registration
                  mutation expands the `:modes` set across keys so
                  lookup-by-mode is a constant-time `get`. Today every
@@ -160,7 +159,7 @@
   inventory is declarative-per-panel rather than hard-coded in
   the shell.
 
-  Tabs registered against multiple modes (`:modes #{:runtime :static}`)
+  Tabs registered against multiple modes (`:modes #{:dynamic :static}`)
   materialise as one entry per `[mode id]` key — every mode in the
   set gets its own entry pointing at the same metadata. Today every
   panel registers a single-mode entry; the multi-mode pathway is
@@ -171,7 +170,7 @@
          (or (nil? mnem) (string? mnem))
          (set? modes)
          (seq modes)
-         (every? #{:runtime :static} modes)
+         (every? #{:dynamic :static} modes)
          (or (nil? order) (number? order))
          (or (nil? placeholder-bead) (string? placeholder-bead))]}
   (swap! registry

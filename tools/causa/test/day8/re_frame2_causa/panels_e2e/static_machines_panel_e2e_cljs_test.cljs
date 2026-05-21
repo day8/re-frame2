@@ -31,8 +31,8 @@
     3. 4-mode sub-strip — Topology pill `aria-selected=\"true\"`;
        Cascade pill `aria-disabled=\"true\"` + `disabled` (sub-strip
        placeholder states per rf2-o5f5f.2).
-    4. → Runtime JUMP — clicking the per-row jump chip flips
-       `:rf.causa/mode` to `:runtime`, opens the Runtime Machines
+    4. → Dynamic JUMP — clicking the per-row jump chip flips
+       `:rf.causa/mode` to `:dynamic`, opens the Dynamic Machines
        tab (`:rf.causa/selected-tab :machines`), and focuses the
        chosen machine-id (`:rf.causa/selected-machine-id`).
 
@@ -142,7 +142,7 @@
             pill aria-selected='true' AND Cascade pill aria-disabled=
             'true' + disabled (the placeholder pill states per
             rf2-o5f5f.2 — Sim is a renderer, Instances is a JUMP,
-            Cascade is Runtime-only)."
+            Cascade is Dynamic-only)."
     (e2e/with-host-and-causa-frames
       {:install-host deep-machine/install-and-init!}
       (fn []
@@ -161,15 +161,15 @@
           (is (= "true" (:aria-selected (th/attrs topology)))
               "Topology pill should be aria-selected='true' on default mount")
           (is (= "true" (:aria-disabled (th/attrs cascade)))
-              "Cascade pill should carry aria-disabled='true' — Runtime-only surface per rf2-o5f5f.2")
+              "Cascade pill should carry aria-disabled='true' — Dynamic-only surface per rf2-o5f5f.2")
           (is (true? (:disabled (th/attrs cascade)))
               "Cascade pill should carry the HTML disabled attribute so the click is a no-op"))))))
 
 (deftest static-machines-first-row-jump-flips-mode-and-opens-runtime-machines-tab
-  (testing "rf2-1laqx — the first row's → Runtime JUMP chip fires
-            the three-event handoff (set-mode :runtime + select-tab
+  (testing "rf2-1laqx — the first row's → Dynamic JUMP chip fires
+            the three-event handoff (set-mode :dynamic + select-tab
             :machines + select-machine-id <mid>) so the user lands
-            on the Runtime Machines panel focused on the chosen
+            on the Dynamic Machines panel focused on the chosen
             machine."
     (e2e/with-host-and-causa-frames
       {:install-host deep-machine/install-and-init!}
@@ -186,7 +186,7 @@
           (is (some? machine-id-str)
               "first row missing :data-machine-id — can't resolve jump testid")
           (is (some? jump-chip)
-              (str "→ Runtime jump chip missing at testid " (pr-str jump-testid)))
+              (str "→ Dynamic jump chip missing at testid " (pr-str jump-testid)))
           (is (fn? (th/extract-handler jump-chip :on-click))
               "jump chip carries no :on-click handler — the JUMP is wired but never fires")
           ;; Drive the production handler synchronously. The chip's own
@@ -196,9 +196,9 @@
           ;; uses to assert post-dispatch state without an event-queue flush.
           (rf/with-frame :rf/causa
             (jump/dispatch-jump-sync! :deep/main))
-          (is (= :runtime (e2e/sub-causa [:rf.causa/mode]))
-              ":rf.causa/set-mode :runtime did not flip the mode slot")
+          (is (= :dynamic (e2e/sub-causa [:rf.causa/mode]))
+              ":rf.causa/set-mode :dynamic did not flip the mode slot")
           (is (= :machines (e2e/sub-causa [:rf.causa/selected-tab]))
-              ":rf.causa/select-tab :machines did not select the Runtime Machines tab")
+              ":rf.causa/select-tab :machines did not select the Dynamic Machines tab")
           (is (= :deep/main (e2e/sub-causa [:rf.causa/selected-machine-id]))
               ":rf.causa/select-machine-id :deep/main did not land on the slot"))))))

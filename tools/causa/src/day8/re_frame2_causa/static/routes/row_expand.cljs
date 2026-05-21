@@ -94,9 +94,9 @@
     (:keys compiled)))
 
 (defn jump-button
-  "Cross-link chip `→ Runtime Routing` per the parent-epic findings
+  "Cross-link chip `→ Dynamic Routing` per the parent-epic findings
   §4.4 — fires the cross-link event the registry installs so the
-  user lands on the Runtime Routing lens scoped to this route."
+  user lands on the Dynamic Routing lens scoped to this route."
   [route-id]
   [:button {:data-testid (str "rf-causa-static-routes-jump-runtime-"
                               (subs (pr-str route-id) 1))
@@ -104,10 +104,10 @@
                            ;; Prevent the row-toggle click from
                            ;; bubbling up — the jump is its own action.
                            (.stopPropagation e)
-                           (rf/dispatch [:rf.causa.static.routes/jump-to-runtime
+                           (rf/dispatch [:rf.causa.static.routes/jump-to-dynamic
                                          route-id]
                                         {:frame :rf/causa}))
-            :title       "Open Runtime Routing scoped to this route"
+            :title       "Open Dynamic Routing scoped to this route"
             :style       {:background    "transparent"
                           :border        (str "1px solid " (:accent-violet tokens))
                           :border-radius "3px"
@@ -118,7 +118,7 @@
                           :font-size     "10px"
                           :cursor        "pointer"
                           :white-space   "nowrap"}}
-   "→ Runtime"])
+   "→ Dynamic"])
 
 (defn- sim-nav-toggle
   "The hermetic 'Simulate navigation' button. Toggles the

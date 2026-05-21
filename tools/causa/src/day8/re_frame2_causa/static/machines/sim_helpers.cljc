@@ -5,7 +5,7 @@
   ## Rehost (rf2-r4nao)
 
   Rehosted from `panels/machine_inspector_sim_helpers.cljc` when the
-  Runtime Machine Inspector collapsed (rf2-y9xmf). The pure-data algebra
+  Dynamic Machine Inspector collapsed (rf2-y9xmf). The pure-data algebra
   is unchanged — only the ns name + the consuming UI surface moved.
   Sim is now exclusively a Static-surface sub-mode (event-INDEPENDENT
   'what-if' simulator).

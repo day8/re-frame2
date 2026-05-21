@@ -1,22 +1,22 @@
 (ns day8.re-frame2-causa.static.persistence
-  "localStorage round-trip for Causa's Runtime ↔ Static mode selection
+  "localStorage round-trip for Causa's Dynamic ↔ Static mode selection
   (rf2-o5f5f.1).
 
   Per `tools/causa/spec/007-UX-IA.md` §Static mode + the findings doc
   `ai/findings/2026-05-19-causa-explorer-mode.md`: Causa exposes TWO
-  modes — Runtime (the existing event-coupled spine + 4-layer chrome)
-  and Static (event-independent browse of what's registered). The
-  user's mode choice survives reloads via localStorage under the
-  canonical key `causa.mode`.
+  modes — Dynamic (the event-coupled spine + 4-layer chrome) and
+  Static (event-independent browse of what's registered). The user's
+  mode choice survives reloads via localStorage under the canonical
+  key `causa.mode`.
 
   ## Shape
 
       ;; localStorage value (raw string — not EDN-quoted):
-      \"runtime\"   ;; or \"static\"
+      \"dynamic\"   ;; or \"static\"
 
   A bare string keeps the value cheap to read + cheap to inspect from
   the browser's devtools — modes are an enum, not a structured value.
-  Unrecognised values fall back to `:runtime` (the conservative
+  Unrecognised values fall back to `:dynamic` (the conservative
   default; the existing chrome).
 
   ## Why the namespace prefix is `causa.mode` (not `re-frame2.causa…`)
@@ -43,7 +43,7 @@
   (:require [re-frame.core :as rf]))
 
 (def storage-key
-  "Canonical localStorage key for Causa's Runtime ↔ Static mode
+  "Canonical localStorage key for Causa's Dynamic ↔ Static mode
   selection. Constant — not configurable via `configure!` (unlike the
   filter pills which support per-instance isolation for Story
   testbeds; mode is a process-global UX choice)."
@@ -53,21 +53,21 @@
 
 (def valid-modes
   "The two modes Causa knows. Anything outside this set is normalised
-  back to `:runtime` (conservative default — the existing chrome)."
-  #{:runtime :static})
+  back to `:dynamic` (conservative default — the existing chrome)."
+  #{:dynamic :static})
 
 (defn normalise-mode
   "Coerce a raw mode value (keyword OR string OR nil) to the canonical
-  `:runtime | :static` keyword. Unknown values fall back to `:runtime`.
+  `:dynamic | :static` keyword. Unknown values fall back to `:dynamic`.
 
   Pure data — JVM-runnable so the JVM test corpus can cover the
   normalisation round-trip."
   [v]
   (cond
-    (keyword? v) (if (contains? valid-modes v) v :runtime)
+    (keyword? v) (if (contains? valid-modes v) v :dynamic)
     (string? v)  (let [kw (keyword v)]
-                   (if (contains? valid-modes kw) kw :runtime))
-    :else        :runtime))
+                   (if (contains? valid-modes kw) kw :dynamic))
+    :else        :dynamic))
 
 (defn ->raw
   "Serialise a mode keyword to its localStorage string form."
@@ -76,7 +76,7 @@
 
 (defn <-raw
   "Parse a raw localStorage string back to a mode keyword. Nil / unknown
-  → `:runtime`."
+  → `:dynamic`."
   [s]
   (normalise-mode s))
 
@@ -124,14 +124,14 @@
 
 (defn load
   "Read + parse the persisted mode slot. Always returns a valid mode
-  keyword (`:runtime` is the conservative fallback when the slot is
+  keyword (`:dynamic` is the conservative fallback when the slot is
   empty, unavailable, or carries an unknown value)."
   []
   (<-raw (read-raw)))
 
 (defn save!
   "Write `mode` to localStorage. No-op when localStorage is
-  unavailable. Normalises unknown inputs back to `:runtime`."
+  unavailable. Normalises unknown inputs back to `:dynamic`."
   [mode]
   (write-raw! (->raw mode))
   nil)

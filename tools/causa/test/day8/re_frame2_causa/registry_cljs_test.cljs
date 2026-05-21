@@ -174,7 +174,7 @@
    :rf.causa.machine-canvas/view-mode-for
    :rf.causa.machine-canvas/viewport-dims-for
    :rf.causa.machine-canvas/viewport-for
-   ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab (Runtime).
+   ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab (Dynamic).
    :rf.causa.machines-canvas/selected-id
    ;; rf2-a9cke — focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
@@ -214,7 +214,7 @@
    :rf.causa/routing-tab-data
    ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
    ;; the Static Routes panel (promoted from `:rf.causa.routing/*` per
-   ;; the two-verbs-two-homes split). The Runtime Routing lens narrows
+   ;; the two-verbs-two-homes split). The Dynamic Routing lens narrows
    ;; to the focused-event surface and no longer owns these slots.
    :rf.causa.static.routes/query
    :rf.causa.static.routes/sim-url
@@ -230,12 +230,6 @@
    :rf.causa.static.schemas/registry
    :rf.causa.static.schemas/registry-override
    :rf.causa.static.schemas/tab-data
-   ;; rf2-o5f5f.5 — Static Views sub-tab subs (browse-all over the
-   ;; registrar's `:view` slot + view-facing composite + test seam).
-   :rf.causa.static.views/query
-   :rf.causa.static.views/registry
-   :rf.causa.static.views/registry-override
-   :rf.causa.static.views/tab-data
    ;; rf2-uhsqb — Static Flows sub-tab subs (browse-all over the live
    ;; `re-frame.flows.registry/flows` atom + view-facing composite +
    ;; test seam).
@@ -243,16 +237,6 @@
    :rf.causa.static.flows/registered-flows
    :rf.causa.static.flows/registered-flows-override
    :rf.causa.static.flows/tab-data
-   ;; rf2-o5f5f.6 — Static Events sub-tab subs (browse-all over the
-   ;; registrar's `:event` slot + selection + simulate state + view-
-   ;; facing composite + test seam).
-   :rf.causa.static.events/query
-   :rf.causa.static.events/selected-id
-   :rf.causa.static.events/sim-input
-   :rf.causa.static.events/sim-result
-   :rf.causa.static.events/registry
-   :rf.causa.static.events/registry-override
-   :rf.causa.static.events/tab-data
    ;; rf2-o5f5f.6 — Static Interceptors sub-tab subs (pure-browse over
    ;; the interceptors surfaced through registered events).
    :rf.causa.static.interceptors/query
@@ -278,7 +262,7 @@
    :rf.causa/muted-event-ids
    :rf.causa/muted-event-ids-count
    :rf.causa/row-context-menu
-   ;; rf2-o5f5f.1 — Runtime ↔ Static mode slot + Static-scoped tab.
+   ;; rf2-o5f5f.1 — Dynamic ↔ Static mode slot + Static-scoped tab.
    :rf.causa/mode
    :rf.causa.static/selected-tab
    ;; rf2-o5f5f.2 — Static Machines sub-tab subs (browse-all + per-
@@ -494,7 +478,7 @@
    :rf.causa/select-frame
    :rf.causa/select-machine-id
    :rf.causa/select-tab
-   ;; rf2-o5f5f.1 — Runtime ↔ Static mode events + Static-scoped tab.
+   ;; rf2-o5f5f.1 — Dynamic ↔ Static mode events + Static-scoped tab.
    ;; `set-mode` writes a specific mode; `toggle-mode` flips between
    ;; them; both attach the `:rf.causa.static/persist-mode` fx so the
    ;; choice round-trips through localStorage.
@@ -524,30 +508,20 @@
    :rf.causa/set-registered-routes-override-for-test
    ;; rf2-o5f5f.3 — Static Routes UI-state events (search input,
    ;; Simulate-URL input, expand-row toggle, hermetic Simulate-nav
-   ;; toggle, cross-link to Runtime Routing). Promoted from the
-   ;; Runtime `:rf.causa.routing/*` group per the two-verbs-two-homes
+   ;; toggle, cross-link to Dynamic Routing). Promoted from the
+   ;; Dynamic `:rf.causa.routing/*` group per the two-verbs-two-homes
    ;; split.
    :rf.causa.static.routes/set-query
    :rf.causa.static.routes/set-sim-url
    :rf.causa.static.routes/toggle-row
    :rf.causa.static.routes/toggle-sim-nav
-   :rf.causa.static.routes/jump-to-runtime
+   :rf.causa.static.routes/jump-to-dynamic
    ;; rf2-o5f5f.4 — Static Schemas sub-tab events.
    :rf.causa.static.schemas/set-query
    :rf.causa.static.schemas/set-registry-override-for-test
-   ;; rf2-o5f5f.5 — Static Views sub-tab events.
-   :rf.causa.static.views/set-query
-   :rf.causa.static.views/set-registry-override-for-test
    ;; rf2-uhsqb — Static Flows sub-tab events.
    :rf.causa.static.flows/set-query
    :rf.causa.static.flows/set-registered-flows-override-for-test
-   ;; rf2-o5f5f.6 — Static Events sub-tab events (search slot, row
-   ;; selection, simulate input + run, test seam).
-   :rf.causa.static.events/set-query
-   :rf.causa.static.events/select
-   :rf.causa.static.events/set-sim-input
-   :rf.causa.static.events/run-simulate
-   :rf.causa.static.events/set-registry-override-for-test
    ;; rf2-o5f5f.6 — Static Interceptors sub-tab events (search slot,
    ;; test seam).
    :rf.causa.static.interceptors/set-query
@@ -661,7 +635,7 @@
    ;; every `:command` invocation so the persisted list is always
    ;; current.
    :rf.causa.palette.fx/persist-recents
-   ;; rf2-o5f5f.1 — Runtime ↔ Static mode persistence side-effect.
+   ;; rf2-o5f5f.1 — Dynamic ↔ Static mode persistence side-effect.
    ;; Bound to the `:rf.causa/set-mode` + `:rf.causa/toggle-mode`
    ;; handlers; writes the post-mutation mode to localStorage in one
    ;; place (mirrors the filter-persistence shape above).

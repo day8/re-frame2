@@ -20,7 +20,7 @@
     5. Cascade pill is dimmed (disabled attribute set + dashed border
        in style); clicking it does nothing.
 
-    6. Instances pill click dispatches three events: set-mode :runtime
+    6. Instances pill click dispatches three events: set-mode :dynamic
        + select-tab :machines + select-machine-id.
 
   ## Pure hiccup walk
@@ -309,8 +309,8 @@
           "Cascade button is disabled")
       (is (= "true" (:aria-disabled attrs))
           "aria-disabled=true for screen readers")
-      (is (re-find #"Runtime-only" (or (:title attrs) ""))
-          "tooltip surfaces 'Runtime-only' message"))))
+      (is (re-find #"Dynamic-only" (or (:title attrs) ""))
+          "tooltip surfaces 'Dynamic-only' message"))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) Sim body (rf2-r4nao — rehosted Sim machinery replaces the
@@ -391,8 +391,8 @@
     (rf/with-frame :rf/causa
       (jump/dispatch-jump-sync! :m/b))
     (rf/with-frame :rf/causa
-      (is (= :runtime (frame-sub [:rf.causa/mode]))
-          ":rf.causa/set-mode :runtime fired")
+      (is (= :dynamic (frame-sub [:rf.causa/mode]))
+          ":rf.causa/set-mode :dynamic fired")
       (is (= :machines (frame-sub [:rf.causa/selected-tab]))
           ":rf.causa/select-tab :machines fired")
       (is (= :m/b (frame-sub [:rf.causa/selected-machine-id]))

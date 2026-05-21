@@ -1,10 +1,10 @@
 (ns day8.re-frame2-causa.panels.routing-cljs-test
-  "CLJS-side wiring + view tests for Causa's Runtime Routing tab —
+  "CLJS-side wiring + view tests for Causa's Dynamic Routing tab —
   the topology-plus-overlay shape (rf2-3kjlo, refining rf2-o5f5f.3).
 
   ## Scope (post-rf2-3kjlo)
 
-  The Runtime Routing tab is a topology-plus-overlay surface per
+  The Dynamic Routing tab is a topology-plus-overlay surface per
   spec/021 §7: the FULL routing tree is always visible (registered
   routes nested by `:parent` meta); the focused epoch's nav activity
   overlays as a `:to` / `:from` / `:here` marker on the relevant

@@ -3,13 +3,13 @@
 
   ## Two verbs, two homes (Mike's decision, 2026-05-19)
 
-  Routes appears in BOTH Runtime AND Static surfaces with different
+  Routes appears in BOTH Dynamic AND Static surfaces with different
   verbs:
 
     - **Static Routes** — browse-all + Simulate-URL + per-row inline
       expand + hermetic Simulate-navigation preview. Lives at
       `static/routes/panel.cljs`.
-    - **Runtime Routing** — topology-plus-overlay (this ns) per
+    - **Dynamic Routing** — topology-plus-overlay (this ns) per
       spec/021 §7. The full route tree is ALWAYS visible; the focused
       epoch's nav activity overlays as a `:to` / `:from` / `:here`
       marker on the relevant nodes. A 'This epoch' detail block below
@@ -471,7 +471,7 @@
                                                (:dispatch-id focus))]
         (h/project-topology-data routes-map slice focused-cascade))))
 
-  ;; rf2-2moh1 — register the Runtime Routing tab with the internal L4
+  ;; rf2-2moh1 — register the Dynamic Routing tab with the internal L4
   ;; tab registry. Per rf2-nrbs9 Mike's design call (2026-05-18) Routing
   ;; earns its own L3 lens tab between Machines and Issues.
   ;;
@@ -482,7 +482,7 @@
     {:id    :routing
      :label "Routing"
      :mnem  "r"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 6
      :panel Panel})
 

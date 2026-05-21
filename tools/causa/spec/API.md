@@ -224,7 +224,7 @@ facade:
 
 - **`runtime.cljs`.** The Causa ↔ MCP seam is a parallel public
   surface — public-for-tools, not public-for-host-apps — and the
-  read/mutate accessors are documented under §Runtime accessor
+  read/mutate accessors are documented under §Dynamic accessor
   surface below as their own contract surface (the same Tool-Pair
   discipline that governs `:trace-bus` and `epoch-history` per
   [`Principles.md`](./Principles.md) §Observation only). Re-exporting
@@ -257,10 +257,10 @@ eight are the surviving `Panel` exports. The L4 display label for
 panel-registry key stays `:views` for the smaller diff — the
 namespace `panels.reactive-panel` is the post-rf2-wyvf2 spelling
 (rf2-yxw57 corrected the stale `panels.views/Panel` symbol).
-`routing/Panel` is the **Runtime** routing tab — the topology-plus-
+`routing/Panel` is the **Dynamic** routing tab — the topology-plus-
 overlay verb per `spec/021 §7`; the Static-mode browse-all +
 Simulate-URL verb lives at `static.routes.panel/Panel` (not part of
-the Runtime canonical eight — Static-mode L4 sub-tabs live under
+the Dynamic canonical eight — Static-mode L4 sub-tabs live under
 `day8.re-frame2-causa.static.*` and are enumerated separately in
 §Static-mode Panel reg-views below per the canonical 8 framing of
 `spec/018-Event-Spine.md` §The 8 tabs).
@@ -282,40 +282,40 @@ one `opts` key — `:frame` — defaulting to `:rf/causa`.
 
 ### Static-mode Panel reg-views
 
-The canonical nine above are the **Runtime-mode** L4 tabs (the
+The canonical nine above are the **Dynamic-mode** L4 tabs (the
 event-coupled spine — every panel narrates against the focused
 event). Causa's Static mode (per §Static mode above and
 [`007-UX-IA.md`](./007-UX-IA.md) §Static mode) ships a parallel set
 of L4 sub-tabs that browse the **registrar** rather than the event
-spine — flat catalogues of registered events / flows / interceptors
-/ routes / schemas / views with optional hermetic Simulate inputs
-(per Lock #15 — two-verbs-two-homes — browse-all lives in Static).
-Each Static sub-tab is its own namespace under
+spine — flat catalogues of registered flows / interceptors / routes
+/ schemas (per Lock #15 — two-verbs-two-homes — browse-all lives in
+Static). Each Static sub-tab is its own namespace under
 `day8.re-frame2-causa.static.*` and exports a single public `Panel`
 component:
 
 ```clojure
-day8.re-frame2-causa.static.events.panel/Panel
 day8.re-frame2-causa.static.flows.panel/Panel
 day8.re-frame2-causa.static.interceptors.panel/Panel
 day8.re-frame2-causa.static.routes.panel/Panel
 day8.re-frame2-causa.static.schemas.panel/Panel
-day8.re-frame2-causa.static.views.panel/Panel
 ```
 
-These six Static-mode `Panel` exports are a **sibling inventory** to
-the canonical nine — they do NOT extend the Runtime list. The
-Runtime panel-registry (per [`018-Event-Spine.md`](./018-Event-Spine.md)
-§The 9 tabs) and the Static panel-registry are disjoint dispatch
-tables keyed by L3 tab id; the surface composer renders one or the
-other under the mode flag (`:rf.causa/mode` — `:runtime` /
-`:static`). Naming convention is the same as Runtime (bare `Panel`
-per `rf2-qiek0`); reg-view registration uses `rf/reg-view` per
-`rf2-in6l2` so subscribes resolve to `:rf/causa`.
+These four Static-mode `Panel` exports are a **sibling inventory** to
+the canonical nine — they do NOT extend the Dynamic list. rf2-b2fif
+dropped the Static Events + Views sub-tabs (the info those tabs
+surfaced is already in the source code; the tabs were not pulling
+their weight). The Dynamic panel-registry (per
+[`018-Event-Spine.md`](./018-Event-Spine.md) §The 9 tabs) and the
+Static panel-registry are disjoint dispatch tables keyed by L3 tab
+id; the surface composer renders one or the other under the mode
+flag (`:rf.causa/mode` — `:dynamic` / `:static`). Naming convention
+is the same as Dynamic (bare `Panel` per `rf2-qiek0`); reg-view
+registration uses `rf/reg-view` per `rf2-in6l2` so subscribes
+resolve to `:rf/causa`.
 
 The Static-mode Routes sub-tab is the **browse-all + Simulate-URL**
 verb (the flat catalogue + hermetic Simulate-navigation preview);
-the Runtime-mode Routes tab at `panels.routing/Panel` is the
+the Dynamic-mode Routes tab at `panels.routing/Panel` is the
 **focused-event lens** (FROM/TO markers when the focused event
 triggered navigation). Two surfaces, two verbs, two homes per
 Mike's 2026-05-19 decision (Lock #15).
@@ -408,7 +408,7 @@ yields a clickable URI rather than a no-op; source-coords without
 
 Static mode is unconditionally available: the surface composer
 mounts a 3-layer Static silhouette (no L2 event list) alongside the
-default 4-layer Runtime silhouette, with a mode pill at ribbon-left
+default 4-layer Dynamic silhouette, with a mode pill at ribbon-left
 and a `Cmd-Shift-M` / `Ctrl-Shift-M` chord wired to
 `:rf.causa/toggle-mode`. Per rf2-8l3uk the prior
 `:rf.causa/static-mode?` opt-in feature gate was removed (pre-alpha
@@ -419,7 +419,7 @@ useful, expose it unconditionally).
 |---|---|---|
 | Toggle chord | `Cmd-Shift-M` / `Ctrl-Shift-M` | Global keydown listener; fires `:rf.causa/toggle-mode`. |
 | Mode pill | `data-testid="rf-causa-mode-pill"` | Mounts at ribbon-left in every host. Click flips mode; `aria-checked` + `data-active-mode` reflect state for stylesheet/automation hooks. |
-| Persistence | `causa.mode` (localStorage) | Bare string `"runtime"` / `"static"`. Hydrates on boot; missing/corrupt → `"runtime"` fallback. |
+| Persistence | `causa.mode` (localStorage) | Bare string `"dynamic"` / `"static"`. Hydrates on boot; missing/corrupt → `"dynamic"` fallback. |
 | Toggle event | `:rf.causa/toggle-mode` | Public dispatch surface (chord parity + the palette's `:toggle-mode` verb). |
 
 See [`007-UX-IA.md`](./007-UX-IA.md) §Static mode (visual-language
@@ -493,7 +493,7 @@ Closes on `Esc`, click-outside, or invocation of any item.
 | Recents localStorage key | `re-frame2.causa.palette.recents.v1` | Top-3 ring of command-ids only (verbs, tab-jumps) — never event-ids, handler-ids, or host-app data. Best-effort persistence; quota/availability failures swallowed. |
 | Recents app-db slot | `:rf.causa.palette/recents` | Hydrates on first palette open via `recents/load`; the reducer (`recents/record`) is pure `update + distinct + take 3`. |
 | Reduced-motion override | `:cycle-reduced-motion` verb | Three-state cycle `:os → :always → :never` that overrides `prefers-reduced-motion: reduce` via the `--rf-causa-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
-| Mode-aware filter | `:modes` set per item | Every palette item carries `#{:runtime}` / `#{:static}` / `#{:runtime :static}`; the aggregator (`palette/sources/by-mode-pred`) filters by membership against the active `:rf.causa/mode`. Items missing `:modes` fall through to both modes. |
+| Mode-aware filter | `:modes` set per item | Every palette item carries `#{:dynamic}` / `#{:static}` / `#{:dynamic :static}`; the aggregator (`palette/sources/by-mode-pred`) filters by membership against the active `:rf.causa/mode`. Items missing `:modes` fall through to both modes. |
 
 The six chord-reachable command verbs that ship post-rf2-ybjkx —
 `:toggle-theme`, `:cycle-reduced-motion`, `:snapshot-app-db`,
@@ -514,7 +514,7 @@ shape, and close behaviour.
 ### Command palette verbs (catalogue)
 
 The palette ships ten command verbs in total at v1; six are mode-agnostic
-(surface in both Runtime and Static modes) and four are Runtime-only
+(surface in both Dynamic and Static modes) and four are Dynamic-only
 (scoped to the event-coupled spine). Plus one palette-internal verb
 (`:close-palette` — `Esc` keybind echo). Each row below mirrors the
 literal map shape in
@@ -522,7 +522,7 @@ literal map shape in
 §`command-items`; the spec is normative, the source is the load-bearing
 catalogue.
 
-#### Mode-agnostic verbs (Runtime + Static — the six "chord-reachable" verbs from rf2-ybjkx)
+#### Mode-agnostic verbs (Dynamic + Static — the six "chord-reachable" verbs from rf2-ybjkx)
 
 | Verb id | Label | Hint | Action | Notes |
 |---|---|---|---|---|
@@ -530,16 +530,16 @@ catalogue.
 | `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `user override of prefers-reduced-motion` | `[:palette/cycle-reduced-motion]` | Three-state cycle `:os → :always → :never → :os`. Overrides `prefers-reduced-motion: reduce` via the `--rf-causa-motion-scale` seam. Persists across reloads. |
 | `:snapshot-app-db` | Snapshot app-db | `→ console.log + clipboard` | `[:palette/snapshot-app-db]` | Drops the focused frame's app-db onto the JS console + clipboard for share-with-teammate capture. |
 | `:jump-to-settings` | Jump to Settings | `,` | `[:palette/jump-to-settings]` | Opens the Settings popup at the General tab. Equivalent to the `,` bare-key shortcut. |
-| `:toggle-mode` | Toggle mode (Runtime ↔ Static) | `Cmd/Ctrl+Shift+M` | `[:palette/toggle-mode]` | Flip Runtime ↔ Static. Chord parity with `Cmd/Ctrl+Shift+M` in `keybinding.cljs`. |
+| `:toggle-mode` | Toggle mode (Dynamic ↔ Static) | `Cmd/Ctrl+Shift+M` | `[:palette/toggle-mode]` | Flip Dynamic ↔ Static. Chord parity with `Cmd/Ctrl+Shift+M` in `keybinding.cljs`. |
 | `:open-popout` | Open Causa in a pop-out window | `rf-causa-popout` | `[:palette/open-popout]` | Opens the same-origin pop-out window via `popout!`. |
 
-#### Runtime-only verbs (event-coupled spine)
+#### Dynamic-only verbs (event-coupled spine)
 
 | Verb id | Label | Hint | Action | Notes |
 |---|---|---|---|---|
-| `:clear-trace-buffer` | Clear trace buffer | `drops Causa's ring buffer` | `[:palette/clear-trace-buffer]` | Drops Causa's trace ring buffer. Runtime-only — Static mode has no spine. |
-| `:clear-epoch-history` | Clear epoch history | `drops Causa's epoch snapshots` | `[:palette/clear-epoch-history]` | Drops Causa's per-frame epoch history. Runtime-only. |
-| `:reset-suppressed-counters` | Reset redacted-events counter | `clears the REDACTED N indicator` | `[:palette/reset-suppressed-counters]` | Clears the `REDACTED N` overlay counter that surfaces when filters elide events. Runtime-only. |
+| `:clear-trace-buffer` | Clear trace buffer | `drops Causa's ring buffer` | `[:palette/clear-trace-buffer]` | Drops Causa's trace ring buffer. Dynamic-only — Static mode has no spine. |
+| `:clear-epoch-history` | Clear epoch history | `drops Causa's epoch snapshots` | `[:palette/clear-epoch-history]` | Drops Causa's per-frame epoch history. Dynamic-only. |
+| `:reset-suppressed-counters` | Reset redacted-events counter | `clears the REDACTED N indicator` | `[:palette/reset-suppressed-counters]` | Clears the `REDACTED N` overlay counter that surfaces when filters elide events. Dynamic-only. |
 
 #### Palette-internal verb
 
@@ -684,7 +684,7 @@ it with `:include-sensitive?` and `:include-large?` defaulting
 
 | Accessor (fn) | Tool name | Returns | Behaviour |
 |---|---|---|---|
-| `subscribe!` | `subscribe` | `{:ok? true :sub-id <uuid> :topic <kw> :filter <map>}` | Open a streaming subscription for `:topic` ∈ `#{:trace :epoch :fx :error}` with `:filter`. Runtime records metadata; the MCP server owns the per-tick drain pump + queue overflow bookkeeping. |
+| `subscribe!` | `subscribe` | `{:ok? true :sub-id <uuid> :topic <kw> :filter <map>}` | Open a streaming subscription for `:topic` ∈ `#{:trace :epoch :fx :error}` with `:filter`. Dynamic records metadata; the MCP server owns the per-tick drain pump + queue overflow bookkeeping. |
 | `unsubscribe!` | `unsubscribe` | `{:ok? true :sub-id <id> :existed? <bool>}` | Idempotent close per the catalogue entry. |
 | `list-subscriptions` | `list-subscriptions` | `{:ok? true :subs <vec> :count <n>}` | Diagnostic enumerating active runtime-side subscription metadata. Per-tick `:queue-depth` / `:queue-bytes` / `:dropped-events` fields live MCP-side. |
 
@@ -832,7 +832,7 @@ better. The decision keeps the current names.
 
 3. **Mode-symmetric renames double the vocabulary without reducing
    surface.** Causa ships a Static-mode chrome alongside the default
-   Runtime chrome (per §Static mode above and
+   Dynamic chrome (per §Static mode above and
    [`007-UX-IA.md`](./007-UX-IA.md) §Mode bifurcation rule). A
    mode-symmetric naming pass would require parallel triplets per
    mode (or a mode arg threaded through every open verb); the

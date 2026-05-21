@@ -245,16 +245,16 @@ That's the entire Causa-side perf surface post-rewrite.
 ## Routes — two verbs, two homes (rf2-o5f5f.3)
 
 Per Mike's design call (2026-05-19) Routes appears in **both** the
-Runtime and the Static surfaces with **different verbs**. The
+Dynamic and the Static surfaces with **different verbs**. The
 two-verbs-two-homes pattern is the normative shape:
 
 - **Static Routes (browse-all).** Flat list of every registered
   route, substring search, Simulate-URL (hermetic — zero host nav
   mutation), per-row inline expand for the full registrar meta, and
-  a per-row `→ Runtime` jump chip. Event-INDEPENDENT — the panel
+  a per-row `→ Dynamic` jump chip. Event-INDEPENDENT — the panel
   reads the registrar, not the spine, so it surfaces whether or not
   the focused cascade touched routing.
-- **Runtime Routing (focused-event lens).** Narrows to the cascade
+- **Dynamic Routing (focused-event lens).** Narrows to the cascade
   in focus — `FROM`/`TO` chips when the cascade allocated a
   nav-token, an `◆ HERE` orientation glyph when it did not. Event-
   COUPLED — the lens IS the focused cascade's slice of routing
@@ -264,20 +264,20 @@ The pattern generalises (DESIGN-RATIONALE Lock #15 — "Two verbs, two
 homes"): when a cohesive sub-domain has both a browse-all surface
 and a focused-event lens, the browse-all surface lives in Static
 mode (chrome silhouette signals event-INDEPENDENCE), the focused-
-event lens lives in Runtime (the spine signals event-coupling).
+event lens lives in Dynamic (the spine signals event-coupling).
 Machines follows the same pattern (browse-all in Static, focused-
-event activity in Runtime); Views and Events are positioned to
+event activity in Dynamic); Views and Events are positioned to
 follow.
 
 ### Sub-domain inheritance
 
 The Routes section that follows splits into two: **Static Routes**
-(the browse-all home) + **Runtime Routing** (the focused-event lens
+(the browse-all home) + **Dynamic Routing** (the focused-event lens
 home). Each home is its own normative surface; readers looking for
 "the Routes panel" must check which mode they mean. Cross-link the
-two homes via the Static `→ Runtime` jump chip (rf2-o5f5f.3 surfaces
-this; the chip dispatches `:rf.causa.static.routes/jump-to-runtime`
-which flips mode + selects the Runtime Routing tab).
+two homes via the Static `→ Dynamic` jump chip (rf2-o5f5f.3 surfaces
+this; the chip dispatches `:rf.causa.static.routes/jump-to-dynamic`
+which flips mode + selects the Dynamic Routing tab).
 
 ## Static Routes
 
@@ -308,16 +308,16 @@ list browse-all surface with hermetic Simulate-URL preview.
   calling the host's navigation fx**. The host's `:rf/route` slot is
   unchanged; this is a lens, not a verb. Pure-data projection via
   `routing_helpers/simulate-navigation-preview` (JVM-portable).
-- **Per-row `→ Runtime` jump chip** — flips Causa to Runtime mode
-  (`:rf.causa/set-mode :runtime`) and selects the Runtime Routing
+- **Per-row `→ Dynamic` jump chip** — flips Causa to Dynamic mode
+  (`:rf.causa/set-mode :dynamic`) and selects the Dynamic Routing
   tab (`:rf.causa/select-tab :routing`). The two-verbs-two-homes
-  affordance — the Static lens shows you the catalogue, the Runtime
+  affordance — the Static lens shows you the catalogue, the Dynamic
   lens shows you the focused event's slice of it.
 
 ### Inputs
 
 - `:rf.causa/registered-routes` — flat `{<route-id> <meta>}` map.
-  Shared with the Runtime Routing lens.
+  Shared with the Dynamic Routing lens.
 - `:rf.causa.static.routes/query` — substring search input.
 - `:rf.causa.static.routes/sim-url` — Simulate-URL input.
 - `:rf.causa.static.routes/expanded` — set of expanded route-ids.
@@ -335,7 +335,7 @@ a pure-data projection: given a route-id + a URL, return what
 `:on-match`'s app-db slot would look like if that URL navigated. The
 host stays where it is; Causa is a lens, not a verb. (This is the
 load-bearing distinction from the host's `:rf.route/navigate` fx —
-the Runtime lens picks that up if the user runs it; the Static
+the Dynamic lens picks that up if the user runs it; the Static
 preview never does.)
 
 ### Empty state
@@ -345,10 +345,10 @@ header + a terse `No routes registered.` one-liner. No `(none)`
 placeholder. Search + Simulate-URL are hidden when the catalogue is
 empty.
 
-## Runtime Routing
+## Dynamic Routing
 
 Per rf2-nrbs9 (tab promotion) + rf2-o5f5f.3 (focused-event narrowing).
-The Runtime-side home for Routes — focused-event lens that surfaces
+The Dynamic-side home for Routes — focused-event lens that surfaces
 `FROM` / `TO` chips when the cascade allocated a nav-token, or
 `◆ HERE` orientation when it did not.
 
@@ -371,7 +371,7 @@ signal.
   scans the focused cascade's trace events for the routing-emit.
 - `:rf.causa/focus` — the spine's focused dispatch-id + epoch.
 - `:rf.causa.routing/query`, `:rf.causa.routing/sim-url`,
-  `:rf.causa.routing/expanded` — Runtime-side UI-state slots
+  `:rf.causa.routing/expanded` — Dynamic-side UI-state slots
   (separate from the Static slots so the two homes carry independent
   filter / expand state).
 - `:rf.causa/routing-tab-data` — view-facing composite folding all
@@ -453,7 +453,7 @@ shows the raw slice diff like any other key. Navigation trace events
 `:rf.route/registered` / `:rf.route/cleared` / `:rf.route/activated` /
 `:rf.route/deactivated` (rf2-dn26r)) continue to
 appear in the Trace tab when the `event` chip is ON (default) —
-the Runtime Routing lens does not duplicate the firehose, it
+the Dynamic Routing lens does not duplicate the firehose, it
 projects the single nav-event that pertains to the focused cascade.
 
 ### Vision (future)

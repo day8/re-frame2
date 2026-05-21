@@ -6,7 +6,7 @@
 
   Promoted from `panels/routing.cljs` per the two-verbs-two-homes
   decision (Mike, 2026-05-19): the URL → route resolver is a Static
-  surface verb (browse), not a Runtime cascade lens. Paste a URL,
+  surface verb (browse), not a Dynamic cascade lens. Paste a URL,
   see every route that matches plus its 6-rule `:rf.route/rank`
   tuple; the winner is the first row by rank-descending (mirrors
   `match-url`).

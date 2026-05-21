@@ -3,13 +3,13 @@
 
   ## Two verbs, two homes (Mike's decision, 2026-05-19)
 
-  Routes appears in BOTH Runtime AND Static surfaces with different
+  Routes appears in BOTH Dynamic AND Static surfaces with different
   verbs. **Static gets BROWSE** — flat catalogue + Simulate-URL + per-
-  row inline expand + hermetic Simulate-navigation preview. Runtime
+  row inline expand + hermetic Simulate-navigation preview. Dynamic
   gets the FOCUSED-EVENT LENS — FROM/TO markers when the focused
   event triggered navigation; otherwise an empty state.
 
-  This panel is the Static-side surface. The Runtime-side lens lives
+  This panel is the Static-side surface. The Dynamic-side lens lives
   at `panels/routing.cljs` and is narrowed to the focused-event lens
   per the parent epic.
 
@@ -40,15 +40,15 @@
       hermetic Simulate-navigation preview is open.
     - `:rf.causa.static.routes/tab-data` — view-facing composite.
 
-  ## Cross-link to Runtime Routing
+  ## Cross-link to Dynamic Routing
 
-  The per-row `→ Runtime` chip fires
-  `:rf.causa.static.routes/jump-to-runtime` which:
+  The per-row `→ Dynamic` chip fires
+  `:rf.causa.static.routes/jump-to-dynamic` which:
 
-    1. Flips Causa to Runtime mode (`:rf.causa/set-mode :runtime`).
-    2. Selects the Runtime Routing tab (`:rf.causa/select-tab :routing`).
+    1. Flips Causa to Dynamic mode (`:rf.causa/set-mode :dynamic`).
+    2. Selects the Dynamic Routing tab (`:rf.causa/select-tab :routing`).
 
-  The Runtime side picks up the focused event automatically — there
+  The Dynamic side picks up the focused event automatically — there
   is no per-route routing-scope filter on the lens (the lens IS the
   focused event's slice of routing concerns).
 
@@ -126,8 +126,8 @@
       `:rf.causa.static.routes/toggle-row`,
       `:rf.causa.static.routes/toggle-sim-nav` — dispatch hooks.
 
-    - `:rf.causa.static.routes/jump-to-runtime` — cross-link from
-      Static to the Runtime Routing tab (flips mode + selects tab).
+    - `:rf.causa.static.routes/jump-to-dynamic` — cross-link from
+      Static to the Dynamic Routing tab (flips mode + selects tab).
 
     - `:rf.causa.static.routes/tab-data` — view-facing composite over
       `:rf.causa/registered-routes` (registered by
@@ -180,15 +180,15 @@
     (fn [db _]
       (or (:rf.causa.static.routes/sim-nav-open db) #{})))
 
-  ;; ---- cross-link to Runtime Routing -----------------------------------
+  ;; ---- cross-link to Dynamic Routing -----------------------------------
 
-  ;; Per the parent epic findings §4.4: the `→ Runtime` chip jumps to
-  ;; Runtime + opens the Routing lens. No route-id is plumbed down to
-  ;; the Runtime side — the lens IS the focused-event slice; the
+  ;; Per the parent epic findings §4.4: the `→ Dynamic` chip jumps to
+  ;; Dynamic + opens the Routing lens. No route-id is plumbed down to
+  ;; the Dynamic side — the lens IS the focused-event slice; the
   ;; orientation comes from whatever event is currently focused.
-  (rf/reg-event-fx :rf.causa.static.routes/jump-to-runtime
+  (rf/reg-event-fx :rf.causa.static.routes/jump-to-dynamic
     (fn [_ [_ _route-id]]
-      {:fx [[:dispatch [:rf.causa/set-mode :runtime]]
+      {:fx [[:dispatch [:rf.causa/set-mode :dynamic]]
             [:dispatch [:rf.causa/select-tab :routing]]]}))
 
   ;; ---- view-facing composite -------------------------------------------

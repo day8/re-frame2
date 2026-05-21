@@ -50,7 +50,6 @@
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.spine-filters :as spine-filters]
-            [day8.re-frame2-causa.static.events.panel :as static-events-panel]
             [day8.re-frame2-causa.static.flows.panel :as static-flows-panel]
             [day8.re-frame2-causa.static.interceptors.panel :as static-interceptors-panel]
             [day8.re-frame2-causa.static.machines.panel :as static-machines-panel]
@@ -58,7 +57,6 @@
             [day8.re-frame2-causa.static.routes.panel :as static-routes-panel]
             [day8.re-frame2-causa.static.schemas.panel :as static-schemas-panel]
             [day8.re-frame2-causa.static.shell :as static-shell]
-            [day8.re-frame2-causa.static.views.panel :as static-views-panel]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.app-db-segment-inspector
@@ -327,9 +325,9 @@
     ;; ---- Static-mode chrome (rf2-o5f5f.1) -------------------------
     ;;
     ;; Causa exposes TWO modes per `tools/causa/spec/007-UX-IA.md`
-    ;; §Static mode: Runtime (event-coupled spine) and Static
+    ;; §Static mode: Dynamic (event-coupled spine) and Static
     ;; (registry browse). The mode slot lives on Causa's app-db under
-    ;; `:mode` (default `:runtime`); the Static tab selection lives
+    ;; `:mode` (default `:dynamic`); the Static tab selection lives
     ;; under `:rf.causa.static/selected-tab` (default `:machines`).
     ;;
     ;; Three event handlers drive the mode lifecycle:
@@ -341,7 +339,7 @@
     ;;     Cmd-Shift-M chord — see `keybinding.cljs`).
     ;;   - `:rf.causa.static/select-tab` flips the Static-scoped tab
     ;;     (mirrors `:rf.causa/select-tab` but writes the Static
-    ;;     surface's own slot so Runtime + Static tab choices don't
+    ;;     surface's own slot so Dynamic + Static tab choices don't
     ;;     clobber each other).
     ;;
     ;; The set / toggle handlers attach the `:rf.causa.static/persist-
@@ -352,7 +350,7 @@
 
     (rf/reg-sub :rf.causa/mode
       (fn [db _query]
-        (static-persistence/normalise-mode (get db :mode :runtime))))
+        (static-persistence/normalise-mode (get db :mode :dynamic))))
 
     (rf/reg-sub :rf.causa.static/selected-tab
       (fn [db _query]
@@ -367,8 +365,8 @@
 
     (rf/reg-event-fx :rf.causa/toggle-mode
       (fn [{:keys [db]} _event]
-        (let [current  (static-persistence/normalise-mode (get db :mode :runtime))
-              next-mode (if (= current :static) :runtime :static)
+        (let [current  (static-persistence/normalise-mode (get db :mode :dynamic))
+              next-mode (if (= current :static) :dynamic :static)
               next-db   (assoc db :mode next-mode)]
           {:db next-db
            :fx [[:rf.causa.static/persist-mode next-mode]]})))
@@ -670,7 +668,7 @@
     (event-detail/install!)
     (issues-ribbon/install!)
     (machine-inspector/install!)
-    ;; Runtime Machines Canvas tab (rf2-mkpnb) — spine-INDEPENDENT canvas
+    ;; Dynamic Machines Canvas tab (rf2-mkpnb) — spine-INDEPENDENT canvas
     ;; browser. Sibling tab to the event-driven Machines Inspector
     ;; (above): picker on the left, interactive `machine-canvas/Chart`
     ;; on the right. Installs AFTER `machine-inspector/install!` so the
@@ -679,7 +677,7 @@
     ;; cosmetic — re-frame resolves `:<-` chains lazily.
     (machines-canvas-panel/install!)
     ;; Static Machines sub-tab (rf2-o5f5f.2) — browses every registered
-    ;; machine + Topology + JUMP-to-Runtime + Cascade-dimmed surfaces.
+    ;; machine + Topology + JUMP-to-Dynamic + Cascade-dimmed surfaces.
     ;; Installs AFTER `machine-inspector/install!` so the static-machines
     ;; sub graph can :<- onto the existing `:rf.causa/registered-machines`,
     ;; `:rf.causa/machine-definitions`, and `:rf.causa/machine-snapshots`
@@ -693,7 +691,7 @@
     ;; mounts inline in event_detail.cljs under the six-domino cascade,
     ;; so no L3 tab is added.
     (managed-fx-subs/install!)
-    ;; Routing tab (rf2-nrbs9, narrowed per rf2-o5f5f.3) — Runtime L3
+    ;; Routing tab (rf2-nrbs9, narrowed per rf2-o5f5f.3) — Dynamic L3
     ;; tab carrying the focused-event lens (FROM/TO chips when the
     ;; focused event triggered navigation). Installs the registered-
     ;; routes / current-route-slice / routing-tab-data subs +
@@ -716,12 +714,6 @@
     ;; `:event` / `:sub` `:spec` slots. Source-coord chip dispatches
     ;; `:rf.causa/open-in-editor` (open-in-editor installed above).
     (static-schemas-panel/install!)
-    ;; Static Views sub-tab (rf2-o5f5f.5) — browse every registered
-    ;; view via the registrar's `:view` slot. Pure-browse verb —
-    ;; event-INDEPENDENT registry catalogue (no Fiber-walker live
-    ;; mount tree at this surface; that's the Runtime Views panel's
-    ;; concern).
-    (static-views-panel/install!)
     ;; Static Flows sub-tab (rf2-uhsqb) — browse every flow registered
     ;; via `re-frame.flows/reg-flow`. Reads the per-frame flows atom
     ;; `re-frame.flows.registry/flows`. Flows are frame-scoped per
@@ -737,13 +729,11 @@
     ;; `tools/story/src/re_frame/story/ui/a11y.cljs`). A11y dogfooding
     ;; is Story's domain; a duplicate Causa panel was noise that flagged
     ;; the Causa events-list as a problem.
-    ;; Static Events sub-tab (rf2-o5f5f.6) — browse every registered
-    ;; event handler (reg-event-db / reg-event-fx / reg-event-ctx) +
-    ;; interceptor chain + hermetic single-step simulate. Reads
-    ;; `(re-frame.registrar/registrations :event)`. Source-coord chip
-    ;; dispatches `:rf.causa/open-in-editor` (open-in-editor installed
-    ;; above).
-    (static-events-panel/install!)
+    ;; (rf2-b2fif — Mike-direction) The Static Events + Views sub-tabs
+    ;; were removed — info is in the source code, the tabs were not
+    ;; pulling their weight. Remaining Static sub-tabs: Flows ·
+    ;; Interceptors · Routes · Schemas (+ the densest Machines tab as
+    ;; the landing target).
     ;; Static Interceptors sub-tab (rf2-o5f5f.6) — pure-browse lens
     ;; over every interceptor surfaced through the registered event
     ;; chains. Collapses by `:id` so each interceptor appears once

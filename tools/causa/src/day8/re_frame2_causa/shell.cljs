@@ -145,10 +145,10 @@
 ;; Per rf2-2moh1 the L3 tab inventory now lives in the internal
 ;; `panel-registry` — each panel's `install!` registers its own tab
 ;; metadata declaratively (`reg-l4-tab!`), and the L3 tab-bar +
-;; L4 detail-panel read the registry via `tabs-for-mode :runtime`
+;; L4 detail-panel read the registry via `tabs-for-mode :dynamic`
 ;; (driven by the `:modes` set on each entry).
 ;;
-;; The seven Runtime tabs registered against `#{:runtime}` retain the
+;; The seven Dynamic tabs registered against `#{:dynamic}` retain the
 ;; canonical left-to-right order via `:order` (0..6) — spec/018 §5
 ;; ordering is preserved as registration metadata rather than a literal
 ;; vector in this ns.
@@ -166,17 +166,17 @@
 ;; ribbon's `[frame-switcher/frame-switcher-view]` is the only call
 ;; site here.
 
-(defn- runtime-tabs
-  "Ordered Runtime tab entries — reads the panel registry. Pulled
+(defn- dynamic-tabs
+  "Ordered Dynamic tab entries — reads the panel registry. Pulled
   through a fn (not a def) so re-`install!`-driven registrations
   during shadow-cljs `:after-load` are picked up by the tab bar
   without a manual reload of this ns."
   []
-  (panel-registry/tabs-for-mode :runtime))
+  (panel-registry/tabs-for-mode :dynamic))
 
 (def ^:private default-tab
-  "Default landing tab for Runtime mode per spec/018 §5 — the Event
-  lens. Registry-derived defaults (the first tab in `runtime-tabs`)
+  "Default landing tab for Dynamic mode per spec/018 §5 — the Event
+  lens. Registry-derived defaults (the first tab in `dynamic-tabs`)
   would land here too, but pinning the keyword keeps the documented
   default explicit (spec/018 §5 is normative on the landing tab)."
   :event)
@@ -697,7 +697,7 @@
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    ;; rf2-o5f5f.1 — mode-signal mechanism #2: a 2-px
                    ;; left-edge stripe in the active mode's accent
-                   ;; (violet in Runtime, cyan in Static). Painted on
+                   ;; (violet in Dynamic, cyan in Static). Painted on
                    ;; the ribbon so it lines up with the top-of-shell
                    ;; edge regardless of the L2 resize-handle. The
                    ;; stripe-hex helper closes over the current
@@ -705,7 +705,7 @@
                    ;; properties); cyan is already in the palette so
                    ;; zero new tokens introduced.
                    :border-left      (str "2px solid "
-                                          (static-shell/stripe-hex-for-mode :runtime))
+                                          (static-shell/stripe-hex-for-mode :dynamic))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
      ;; rf2-o5f5f.1 — mode pill at ribbon-left. Always rendered
@@ -1464,9 +1464,9 @@
                    :background    (:bg-1 tokens)
                    :border-top    (str "1px solid " (:border-subtle tokens))
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     ;; rf2-2moh1 — iterate `runtime-tabs` (registry-derived) rather
+     ;; rf2-2moh1 — iterate `dynamic-tabs` (registry-derived) rather
      ;; than a literal vector. Tab order follows each entry's `:order`.
-     (for [{:keys [id] :as tab} (runtime-tabs)]
+     (for [{:keys [id] :as tab} (dynamic-tabs)]
        ^{:key id}
        [tab-button (assoc tab :active? (= id selected))])]))
 
@@ -1548,21 +1548,21 @@
       ;; `install!` declares `:panel <view-fn>` via
       ;; `panel-registry/reg-l4-tab!`; the previous case-switch over
       ;; `{:event :app-db :views :trace :machines :routing :issues}` is
-      ;; replaced by a lookup against `tab-by-id :runtime`. The seven
+      ;; replaced by a lookup against `tab-by-id :dynamic`. The seven
       ;; tabs and their per-panel view fns each live colocated with
       ;; the panel's own subs / events / fxs in `panels/<panel>.cljs`
       ;; rather than the panel-cum-shell coupling the literal case-
       ;; switch encoded.
-      (if-let [tab (panel-registry/tab-by-id :runtime selected)]
+      (if-let [tab (panel-registry/tab-by-id :dynamic selected)]
         [(:panel tab)]
         [unknown-tab-stub selected])]]))
 
-;; ---- Runtime / Static surface composer (rf2-o5f5f.1) --------------------
+;; ---- Dynamic / Static surface composer (rf2-o5f5f.1) --------------------
 ;;
-;; The shell exposes TWO modes (Runtime — the 4-layer chrome below,
+;; The shell exposes TWO modes (Dynamic — the 4-layer chrome below,
 ;; Static — the 3-layer registry-browse surface owned by
 ;; `static/shell.cljs`). The composer reads `:rf.causa/mode` and
-;; renders either Runtime or Static. Per rf2-8l3uk the
+;; renders either Dynamic or Static. Per rf2-8l3uk the
 ;; `:rf.causa/static-mode?` feature gate was removed — Static mode
 ;; is unconditionally available.
 ;;
@@ -1570,8 +1570,8 @@
 ;; body resolves through React-context to `:rf/causa` — same
 ;; discipline as the rest of the shell.
 
-(rf/reg-view runtime-chrome
-  "The Runtime 4-layer chrome (L1 ribbon · L2 event list · L3 tab bar ·
+(rf/reg-view dynamic-chrome
+  "The Dynamic 4-layer chrome (L1 ribbon · L2 event list · L3 tab bar ·
   L4 detail panel) wrapped as a single component. Extracted from the
   inline composition in `shell-view` so the Static surface can swap in
   alongside it via the mode composer (rf2-o5f5f.1).
@@ -1587,7 +1587,7 @@
 
 (rf/reg-view surface-composer
   "Mode-aware composer (rf2-o5f5f.1). Reads `:rf.causa/mode` and renders
-  either the Runtime 4-layer chrome OR the Static 3-layer surface.
+  either the Dynamic 4-layer chrome OR the Static 3-layer surface.
 
   Per rf2-8l3uk the `:rf.causa/static-mode?` feature gate was removed
   — Static mode is unconditionally available; the active mode drives
@@ -1599,7 +1599,7 @@
   (let [mode @(rf/subscribe [:rf.causa/mode])]
     (case mode
       :static  [static-shell/surface]
-      [runtime-chrome])))
+      [dynamic-chrome])))
 
 ;; ---- shell view ----------------------------------------------------------
 
@@ -1724,7 +1724,7 @@
     ;; host's `flex-basis` re-evaluates this paint.
     [resize-handle/Handle mode]
     ;; Mode-aware surface (rf2-o5f5f.1). The composer reads
-    ;; `:rf.causa/mode` and renders either the Runtime 4-layer
+    ;; `:rf.causa/mode` and renders either the Dynamic 4-layer
     ;; chrome or the Static 3-layer surface. Per rf2-8l3uk the
     ;; `:rf.causa/static-mode?` feature gate was removed — Static
     ;; mode is unconditionally available.

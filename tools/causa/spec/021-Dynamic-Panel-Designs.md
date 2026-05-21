@@ -1,7 +1,7 @@
 # 021-Dynamic-Panel-Designs
 
 Worker design doc for the Causa **Dynamic L4 panel redesign** (rf2-dur6w).
-(File previously titled "Runtime Panel Designs" — renamed to track the
+(File previously titled "Dynamic Panel Designs" — renamed to track the
 locked Static/Dynamic linguistic pairing per the polished super-prompt.
 "Dynamic" = what's happening across epochs; "Static" = what's registered
 before any event fires.)
@@ -1414,7 +1414,7 @@ real beads after approving this doc.
 
 ## §14.1 Heading scrub (rf2-6xezz)
 
-Per Mike-direction 2026-05-21 (rf2-6xezz) every L4 Runtime + Static
+Per Mike-direction 2026-05-21 (rf2-6xezz) every L4 Dynamic + Static
 panel scrubs its top-of-panel large heading. The L4 tab strip is the
 panel-name source-of-truth; the heading was redundant and wasted
 vertical space. Content starts immediately under the tab bar (or

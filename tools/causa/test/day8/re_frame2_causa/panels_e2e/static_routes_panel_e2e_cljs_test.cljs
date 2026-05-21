@@ -11,8 +11,8 @@
        `:rf.causa/set-registered-routes-override-for-test`.
     3. Simulate-URL `/articles` resolves a WINNER candidate without
        mutating the host's `[:rf/route]` slot (hermetic preview).
-    4. The `:rf.causa.static.routes/jump-to-runtime` cross-link flips
-       mode → `:runtime` and opens the Runtime Routing tab.
+    4. The `:rf.causa.static.routes/jump-to-dynamic` cross-link flips
+       mode → `:dynamic` and opens the Dynamic Routing tab.
 
   The Playwright surface was retired (browser-level chrome/scenario
   tests live in framework + Causa gates; the e2e tier is sub-layer).
@@ -118,10 +118,10 @@
           (is (= counter-before (e2e/sub-host [:counter/value]))
               "Simulate-URL leaked into the host's counter slot"))))))
 
-;; ---- (3) → Runtime JUMP — mode flip + Routing tab opens -----------------
+;; ---- (3) → Dynamic JUMP — mode flip + Routing tab opens -----------------
 
-(deftest static-routes-jump-to-runtime-flips-mode-and-opens-routing-tab
-  (testing "jump-to-runtime cross-link flips :static → :runtime + opens Routing"
+(deftest static-routes-jump-to-dynamic-flips-mode-and-opens-routing-tab
+  (testing "jump-to-dynamic cross-link flips :static → :dynamic + opens Routing"
     (e2e/with-host-and-causa-frames
       {:install-host counter/install-and-init!}
       (fn []
@@ -135,10 +135,10 @@
             "precondition failed — mode did not start at :static")
         ;; Dispatch the cross-link with a route-id payload (panel
         ;; ignores the id but the event-shape requires the vector form).
-        (rf/dispatch-sync [:rf.causa.static.routes/jump-to-runtime
+        (rf/dispatch-sync [:rf.causa.static.routes/jump-to-dynamic
                            :route/articles]
                           {:frame :rf/causa})
-        (is (= :runtime (e2e/sub-causa [:rf.causa/mode]))
-            "mode did not flip to :runtime after jump-to-runtime")
+        (is (= :dynamic (e2e/sub-causa [:rf.causa/mode]))
+            "mode did not flip to :dynamic after jump-to-dynamic")
         (is (= :routing (e2e/sub-causa [:rf.causa/selected-tab]))
-            "Runtime Routing tab was not opened after jump-to-runtime")))))
+            "Dynamic Routing tab was not opened after jump-to-dynamic")))))

@@ -2047,7 +2047,7 @@ async function runConfigurePartialUpdate(page, state) {
 // feature-matrix carried zero browser coverage for the highest-user-
 // visible Causa surface to land in the recent cluster. This scenario:
 //
-//   1. Asserts the Runtime baseline — mode pill present with `runtime`
+//   1. Asserts the Dynamic baseline — mode pill present with `dynamic`
 //      segment selected (aria-checked=true), L2 spine event-list
 //      visible (4-layer chrome).
 //   2. Fires Ctrl+Shift+M (the cross-platform chord per
@@ -2062,11 +2062,11 @@ async function runConfigurePartialUpdate(page, state) {
 //      / Views / Flows) mounts its real panel root testid while
 //      `:events` (rf2-o5f5f.6 — last remaining placeholder) still
 //      renders a placeholder card naming the sibling bead.
-//   3. Clicks `rf-causa-mode-pill-runtime`; mode flips back; L2 spine
+//   3. Clicks `rf-causa-mode-pill-dynamic`; mode flips back; L2 spine
 //      returns (proves the pill is the canonical toggle path too —
 //      not just the chord).
 //   4. Reloads the page; asserts localStorage `causa.mode` round-
-//      trips the last-set mode (Runtime here, per the flip-back step).
+//      trips the last-set mode (Dynamic here, per the flip-back step).
 async function runStaticModeChromeAndChord(page, state) {
   // ---- (0) baseline — clear the persisted mode slot -----------------
   await page.goto(page.url(), { waitUntil: 'load' });
@@ -2075,25 +2075,25 @@ async function runStaticModeChromeAndChord(page, state) {
   await expectHostCounterEquals(page, 5, 10000);
   // Clear the persisted mode slot so we start from a known baseline
   // (otherwise a previous scenario's localStorage write could pre-
-  // select Static and skip the Runtime baseline check below).
+  // select Static and skip the Dynamic baseline check below).
   await page.evaluate(() => {
     try { window.localStorage.removeItem('causa.mode'); }
     catch (_) { /* localStorage unavailable in some test runtimes */ }
   });
   await openCausa(page);
 
-  // ---- (1) Runtime baseline -----------------------------------------
+  // ---- (1) Dynamic baseline -----------------------------------------
   // Per rf2-8l3uk the mode pill is always rendered (the Static-mode
-  // feature gate was removed). The Runtime segment must be selected
+  // feature gate was removed). The Dynamic segment must be selected
   // by default.
   await expectVisible(
     page.locator('[data-testid="rf-causa-mode-pill"]'),
     5000,
   );
-  const runtimeBaseline = await waitForValue(
+  const dynamicBaseline = await waitForValue(
     () => page.evaluate(() => {
-      const runtimePill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-runtime"]',
+      const dynamicPill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-dynamic"]',
       );
       const staticPill = document.querySelector(
         '[data-testid="rf-causa-mode-pill-static"]',
@@ -2108,7 +2108,7 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-surface"]',
       );
       return {
-        runtimePillChecked: runtimePill ? runtimePill.getAttribute('aria-checked') : null,
+        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
         staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
         pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
         eventListPresent: Boolean(eventList),
@@ -2116,20 +2116,20 @@ async function runStaticModeChromeAndChord(page, state) {
       };
     }),
     (snap) =>
-      snap.runtimePillChecked === 'true' &&
+      snap.dynamicPillChecked === 'true' &&
       snap.staticPillChecked === 'false' &&
-      snap.pillGroupActiveMode === 'runtime' &&
+      snap.pillGroupActiveMode === 'dynamic' &&
       snap.eventListPresent &&
       !snap.staticSurfacePresent,
-    { timeoutMs: 5000, description: 'Runtime baseline before mode toggle' },
+    { timeoutMs: 5000, description: 'Dynamic baseline before mode toggle' },
   );
 
-  // ---- (2) Cmd/Ctrl-Shift-M chord — Runtime → Static ----------------
+  // ---- (2) Cmd/Ctrl-Shift-M chord — Dynamic → Static ----------------
   await page.keyboard.press('Control+Shift+M');
   const afterChord = await waitForValue(
     () => page.evaluate(() => {
-      const runtimePill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-runtime"]',
+      const dynamicPill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-dynamic"]',
       );
       const staticPill = document.querySelector(
         '[data-testid="rf-causa-mode-pill-static"]',
@@ -2160,7 +2160,7 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-detail-panel-machines"]',
       );
       return {
-        runtimePillChecked: runtimePill ? runtimePill.getAttribute('aria-checked') : null,
+        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
         staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
         pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
         staticSurfacePresent: Boolean(surface),
@@ -2174,7 +2174,7 @@ async function runStaticModeChromeAndChord(page, state) {
     }),
     (snap) =>
       snap.staticPillChecked === 'true' &&
-      snap.runtimePillChecked === 'false' &&
+      snap.dynamicPillChecked === 'false' &&
       snap.pillGroupActiveMode === 'static' &&
       snap.staticSurfacePresent &&
       snap.staticSurfaceModeAttr === 'static' &&
@@ -2188,30 +2188,25 @@ async function runStaticModeChromeAndChord(page, state) {
 
   // ---- (2a) Walk the Static sub-tabs --------------------------------
   // Tab inventory (per `static/shell.cljs/static-tabs`):
-  //   :machines (.2 — default, mounted above)
-  //   :routes   (.3 — shipped #1568)
-  //   :schemas  (.4 — shipped #1636 / rf2-o5f5f.4)
-  //   :views    (.5 — shipped #1636 / rf2-o5f5f.5)
-  //   :flows    (rf2-uhsqb — shipped #1636)
-  //   :events   (.6 — last remaining placeholder)
+  //   :machines     (.2 — default, mounted above)
+  //   :routes       (.3 — shipped #1568)
+  //   :schemas      (.4 — shipped #1636 / rf2-o5f5f.4)
+  //   :flows        (rf2-uhsqb — shipped #1636)
+  //   :interceptors (.6 — shipped)
+  //
+  // rf2-b2fif dropped the Static Views + Events sub-tabs — the info
+  // those tabs surfaced is already in the source code; the tabs were
+  // not pulling their weight.
   //
   // For each shipped panel we click its tab and wait for the panel's
   // canonical root `data-testid` (e.g. `rf-causa-static-schemas`) —
   // React renders asynchronously so a click + read in the same
   // `page.evaluate` misses the post-commit DOM. Each tab gets its own
   // click + waitFor.
-  //
-  // For `:events` (the one remaining placeholder) we still assert the
-  // `rf-causa-static-placeholder-events` card text names the sibling
-  // bead rf2-o5f5f.6 — this gate is what catches a sibling-bead ship
-  // landing without the matching scenario refresh (which is exactly
-  // what rf2-m1o3j fixed for .4 / .5 / rf2-uhsqb).
   const shippedSubTabs = [
     ['routes',       'rf-causa-static-routes'],
     ['schemas',      'rf-causa-static-schemas'],
-    ['views',        'rf-causa-static-views'],
     ['flows',        'rf-causa-static-flows'],
-    ['events',       'rf-causa-static-events'],
     ['interceptors', 'rf-causa-static-interceptors'],
   ];
   const shippedSubTabRoots = {};
@@ -2254,15 +2249,15 @@ async function runStaticModeChromeAndChord(page, state) {
     5000,
   );
 
-  // ---- (3) Click Runtime pill — Static → Runtime --------------------
-  await page.locator('[data-testid="rf-causa-mode-pill-runtime"]').click();
+  // ---- (3) Click Dynamic pill — Static → Dynamic --------------------
+  await page.locator('[data-testid="rf-causa-mode-pill-dynamic"]').click();
   const afterClickBack = await waitForValue(
     () => page.evaluate(() => {
       const pillGroup = document.querySelector(
         '[data-testid="rf-causa-mode-pill"]',
       );
-      const runtimePill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-runtime"]',
+      const dynamicPill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-dynamic"]',
       );
       const staticPill = document.querySelector(
         '[data-testid="rf-causa-mode-pill-static"]',
@@ -2275,24 +2270,24 @@ async function runStaticModeChromeAndChord(page, state) {
       );
       return {
         pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
-        runtimePillChecked: runtimePill ? runtimePill.getAttribute('aria-checked') : null,
+        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
         staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
         eventListPresent: Boolean(eventList),
         staticSurfacePresent: Boolean(surface),
       };
     }),
     (snap) =>
-      snap.pillGroupActiveMode === 'runtime' &&
-      snap.runtimePillChecked === 'true' &&
+      snap.pillGroupActiveMode === 'dynamic' &&
+      snap.dynamicPillChecked === 'true' &&
       snap.staticPillChecked === 'false' &&
       snap.eventListPresent &&
       !snap.staticSurfacePresent,
-    { timeoutMs: 5000, description: 'Runtime restored after clicking pill segment' },
+    { timeoutMs: 5000, description: 'Dynamic restored after clicking pill segment' },
   );
 
   // ---- (4) Reload — localStorage round-trip -------------------------
   // Per static/persistence.cljs the canonical slot is the bare string
-  // `"runtime"` or `"static"` under localStorage key `causa.mode`. The
+  // `"dynamic"` or `"static"` under localStorage key `causa.mode`. The
   // mode-set fx writes this on every mode flip; a reload should re-
   // hydrate the same mode (per rf2-8l3uk Static mode is unconditionally
   // available — no feature flag re-opt-in needed).
@@ -2300,9 +2295,9 @@ async function runStaticModeChromeAndChord(page, state) {
     try { return window.localStorage.getItem('causa.mode'); }
     catch (_) { return null; }
   });
-  if (persistedBeforeReload !== 'runtime') {
+  if (persistedBeforeReload !== 'dynamic') {
     failWithDetails(
-      'localStorage causa.mode did not round-trip the last-set mode (expected "runtime")',
+      'localStorage causa.mode did not round-trip the last-set mode (expected "dynamic")',
       { persistedBeforeReload, afterClickBack },
     );
   }
@@ -2312,14 +2307,14 @@ async function runStaticModeChromeAndChord(page, state) {
     try { return window.localStorage.getItem('causa.mode'); }
     catch (_) { return null; }
   });
-  if (persistedAfterReload !== 'runtime') {
+  if (persistedAfterReload !== 'dynamic') {
     failWithDetails(
-      'localStorage causa.mode slot regressed across reload (expected "runtime")',
+      'localStorage causa.mode slot regressed across reload (expected "dynamic")',
       { persistedAfterReload },
     );
   }
   await openCausa(page);
-  // The hydrated mode should drive the surface — Runtime here, so the
+  // The hydrated mode should drive the surface — Dynamic here, so the
   // L2 spine returns + the Static surface is absent.
   const afterReload = await waitForValue(
     () => page.evaluate(() => {
@@ -2339,13 +2334,13 @@ async function runStaticModeChromeAndChord(page, state) {
       };
     }),
     (snap) =>
-      snap.pillGroupActiveMode === 'runtime' &&
+      snap.pillGroupActiveMode === 'dynamic' &&
       snap.eventListPresent &&
       !snap.staticSurfacePresent,
-    { timeoutMs: 5000, description: 'persisted mode (Runtime) hydrated after reload' },
+    { timeoutMs: 5000, description: 'persisted mode (Dynamic) hydrated after reload' },
   );
   state.staticMode = {
-    runtimeBaseline,
+    dynamicBaseline,
     afterChord,
     shippedSubTabRoots,
     placeholderTexts,

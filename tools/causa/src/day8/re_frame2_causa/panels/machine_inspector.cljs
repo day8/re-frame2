@@ -1,7 +1,7 @@
 (ns day8.re-frame2-causa.panels.machine-inspector
-  "Machine Inspector panel — collapsed Runtime surface (rf2-y9xmf).
+  "Machine Inspector panel — collapsed Dynamic surface (rf2-y9xmf).
 
-  Per Mike's 2026-05-19 redesign, the Runtime Machines panel is
+  Per Mike's 2026-05-19 redesign, the Dynamic Machines panel is
   **event-driven only**:
 
     - **BLANK** when the currently focused event is not machine-related
@@ -17,11 +17,11 @@
   ## What was collapsed (rf2-y9xmf)
 
   The pre-collapse panel (1362 LoC) carried five orthogonal
-  exploration surfaces piled into one Runtime tab: a Machine picker, a
+  exploration surfaces piled into one Dynamic tab: a Machine picker, a
   sub-strip (Topology / Sim / Instances / Cascade), Mode A/B/C
   instance-tab + cluster views, the Sim ribbon UI, a Browse-all entry
   point, an arc overlay + mini-scrubber. None of those belong in a
-  Runtime panel whose only job is to be the lens on the focused event.
+  Dynamic panel whose only job is to be the lens on the focused event.
   The collapse drops every ribbon. Sim's engine + the browse-all index
   remain in the codebase (sibling bead rf2-r4nao re-hosts them under
   the future Static surface); only the UI ribbons go away.
@@ -623,7 +623,7 @@
         (assoc db :machine-definitions-override ov))))
 
   ;; The user's per-panel machine selection (kept as a slot for the
-  ;; Sim engine + share-URL round-trip; the collapsed Runtime panel
+  ;; Sim engine + share-URL round-trip; the collapsed Dynamic panel
   ;; itself drives focus off the event lens, not the picker slot).
   (rf/reg-sub :rf.causa/selected-machine-id
     (fn [db _query]
@@ -765,7 +765,7 @@
   ;;
   ;; rf2-r4nao — Sim engine + UI rehosted under
   ;; `static.machines.sim` (event/sub family renamed to
-  ;; `:rf.causa.static.machines/sim-*`). The Runtime Machine Inspector
+  ;; `:rf.causa.static.machines/sim-*`). The Dynamic Machine Inspector
   ;; no longer installs Sim; the Static Machines panel does. See
   ;; `static.machines.panel/install!`.
 
@@ -778,12 +778,12 @@
   ;; ---- Share affordance (rf2-nqw0v) -----------------------------
   (share/install!)
 
-  ;; rf2-2moh1 — register the Runtime Machines tab with the internal L4
+  ;; rf2-2moh1 — register the Dynamic Machines tab with the internal L4
   ;; tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :machines
      :label "Machines"
      :mnem  "m"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 4
      :panel Panel}))

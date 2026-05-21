@@ -189,7 +189,7 @@
             in Causa. Sister-pattern to Story (`theme/motion.cljc:173`)."
     (let [css @#'gs/motion-css]
       (is (re-find #"\[data-testid=\"rf-causa-shell\"\][^,]*:focus-visible" css)
-          "focus-visible rule scoped to the Runtime shell root")
+          "focus-visible rule scoped to the Dynamic shell root")
       (is (re-find #"\[data-testid=\"rf-causa-static-shell\"\][^,]*:focus-visible" css)
           "focus-visible rule scoped to the Static shell root")
       (is (re-find #"\[data-testid=\"rf-causa-palette-backdrop\"\][^,]*:focus-visible" css)

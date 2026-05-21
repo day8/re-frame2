@@ -4,7 +4,7 @@
 
   ## Rehost (rf2-r4nao)
 
-  Rehosted from `panels/machine_inspector_sim.cljs` when the Runtime
+  Rehosted from `panels/machine_inspector_sim.cljs` when the Dynamic
   Machine Inspector collapsed (rf2-y9xmf). The engine + UI algebra is
   unchanged; only the ns + the mount point + the event/sub namespacing
   moved. Sim now lives ONLY on the Static surface — it is event-

@@ -329,7 +329,7 @@ duration, tier, source coord, arg-map preview (via `inspect-inline`).
 See [`018-Event-Spine.md`](./018-Event-Spine.md) §4 for the full
 tooltip wireframe.
 
-## Runtime Machines panel shape (post-rf2-y9xmf)
+## Dynamic Machines panel shape (post-rf2-y9xmf)
 
 The L4 content of the **Machines** tab is **event-driven only**. The
 panel never carries exploratory chrome (no picker, no Mode A/B/C
@@ -369,7 +369,7 @@ shapes based on the focused event's machine activity:
   A/B/C) is no longer emitted; legacy URLs carrying it are silently
   dropped on restore.
 
-**The Sim engine + browse-all index have no Runtime UI.**
+**The Sim engine + browse-all index have no Dynamic UI.**
 Sibling bead rf2-r4nao landed the Sim toggle / side-rail + the
 browse-all entry point under the Static Machines surface; the engine
 events / subs are now namespaced `:rf.causa.static.machines/sim-*` (re-
@@ -379,7 +379,7 @@ Programmatic callers drive Sim against `:rf/causa` via that ns.
 
 ### Interactive Machines canvas (rf2-y3l8z)
 
-Every per-machine section in the Runtime Machines panel wraps its
+Every per-machine section in the Dynamic Machines panel wraps its
 chart in an interactive viewport adapter (`panels/machine_canvas.cljs`
 → `chart/controls.cljc`). The chart is no longer a static SVG paint;
 it pans, zooms, and fits to viewport.
@@ -1172,7 +1172,7 @@ on `Esc`, click-outside, or invocation of any item.
 - Registered handlers (id + `:doc`)
 - Frames
 - Machines with current state
-- L4 tab jumps — Runtime: Event / App-db / Views / Trace / Machines
+- L4 tab jumps — Dynamic: Event / App-db / Views / Trace / Machines
   / Routing / Issues; Static: Machines / Routes / Schemas / Views /
   Events (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
@@ -1185,15 +1185,15 @@ Fuzzy match splits on camelCase / kebab-case / namespace boundaries.
 ### Mode-aware command surface (rf2-ybjkx)
 
 Every palette item carries a **`:modes`** set declaring which Causa
-modes it surfaces under — `#{:runtime}`, `#{:static}`, or
-`#{:runtime :static}` for verbs meaningful in both. The aggregator
+modes it surfaces under — `#{:dynamic}`, `#{:static}`, or
+`#{:dynamic :static}` for verbs meaningful in both. The aggregator
 (`palette/sources/by-mode-pred`) filters by membership against the
 active `:rf.causa/mode`. Items missing `:modes` fall through to
 both modes (the legacy contract — every item used to be visible
 always).
 
 The L4 tab-jump items are mode-aware so the **same mnemonic
-letter** dispatches the active mode's tab. `m` in Runtime jumps to
+letter** dispatches the active mode's tab. `m` in Dynamic jumps to
 the Machines instance-inspector; `m` in Static jumps to the
 Machines registry browse. The mnemonic chord — `e` (Events) · `m`
 (Machines) · `r` (Routes/Routing) · `c` (Schemas — Static only) ·
@@ -1208,12 +1208,12 @@ of them ship post-rf2-ybjkx:
 
 | Command id | Label | Modes | Action |
 |---|---|---|---|
-| `:toggle-theme` | Toggle theme (dark ↔ light) | `#{:runtime :static}` | Flips the `rf-causa-theme-{dark,light}` class on the shell root. |
-| `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `#{:runtime :static}` | Three-state cycle: `:os` (OS pref alone) → `:always` (force reduce) → `:never` (force full). User override of `prefers-reduced-motion: reduce`; rides the `--rf-causa-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
-| `:snapshot-app-db` | Snapshot app-db | `#{:runtime :static}` | Dumps the focused frame's app-db to the JS console + clipboard for sharing. |
-| `:jump-to-settings` | Jump to Settings | `#{:runtime :static}` | Equivalent to the `,` / `s` bare-key shortcut; available from the palette so the user can fuzzy-find the gesture without leaving the keyboard. |
-| `:toggle-mode` | Toggle mode (Runtime ↔ Static) | `#{:runtime :static}` | Chord parity with `Cmd-Shift-M`; flips `:rf.causa/mode` between `:runtime` and `:static`. |
-| `:clear-epoch-history` | Clear epoch history | `#{:runtime}` | Drops Causa's epoch snapshots (Runtime-only — no epoch concept under Static). |
+| `:toggle-theme` | Toggle theme (dark ↔ light) | `#{:dynamic :static}` | Flips the `rf-causa-theme-{dark,light}` class on the shell root. |
+| `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `#{:dynamic :static}` | Three-state cycle: `:os` (OS pref alone) → `:always` (force reduce) → `:never` (force full). User override of `prefers-reduced-motion: reduce`; rides the `--rf-causa-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
+| `:snapshot-app-db` | Snapshot app-db | `#{:dynamic :static}` | Dumps the focused frame's app-db to the JS console + clipboard for sharing. |
+| `:jump-to-settings` | Jump to Settings | `#{:dynamic :static}` | Equivalent to the `,` / `s` bare-key shortcut; available from the palette so the user can fuzzy-find the gesture without leaving the keyboard. |
+| `:toggle-mode` | Toggle mode (Dynamic ↔ Static) | `#{:dynamic :static}` | Chord parity with `Cmd-Shift-M`; flips `:rf.causa/mode` between `:dynamic` and `:static`. |
+| `:clear-epoch-history` | Clear epoch history | `#{:dynamic}` | Drops Causa's epoch snapshots (Dynamic-only — no epoch concept under Static). |
 
 Pre-rf2-ybjkx verbs (clear-trace-buffer, reset-suppressed-counters,
 open-popout, …) continue to surface under their original `:modes`
@@ -1405,7 +1405,7 @@ These render under `machine-inspector/Panel` and are NOT exposed as
 standalone mount fns. Mounting a ring overlay without a chart
 underneath is geometrically meaningless; they remain reachable via
 `mount-machine-inspector!`. (Per rf2-y9xmf the prior arc / cluster /
-scrubber sub-components were collapsed into the Runtime panel; the
+scrubber sub-components were collapsed into the Dynamic panel; the
 remaining sub-component surface is the two listed above.)
 
 ### The mount-fn contract
@@ -1485,16 +1485,16 @@ from a host's `init!` path at any frequency without risk.
 
 ## Static mode (rf2-o5f5f)
 
-Causa exposes TWO modes — **Runtime** (the event-coupled spine + 4-layer
+Causa exposes TWO modes — **Dynamic** (the event-coupled spine + 4-layer
 chrome described above) and **Static** (event-INDEPENDENT browse of
 what's registered). Static is "Causa-in-a-quieter-key": it shares the
-full Runtime design language (Inter + JetBrains Mono, the complete
+full Dynamic design language (Inter + JetBrains Mono, the complete
 `theme/tokens.cljc` palette, the 4px spacing grid, the 56px ribbon, the
 40px tab-bar). Differentiation is **temperature, not vocabulary**.
 
 ### Surface inventory (3-layer chrome)
 
-Runtime is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4 detail
+Dynamic is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4 detail
 panel). Static drops L2 — there is no spine in Static mode because the
 surface is event-independent — and renders 3 layers:
 
@@ -1516,14 +1516,17 @@ Five Static sub-tabs, mode-scoped mnemonics per the findings doc
 
 | Tab | Mnemonic | Bead | Contents |
 |---|---|---|---|
-| **Machines** | `m` (default) | rf2-o5f5f.2 | Registry browse + Topology + 4-mode sub-strip |
-| **Routes**   | `r` | rf2-o5f5f.3 | Registered routes (promoted from Runtime) + Simulate-URL |
-| **Schemas**  | `c` | rf2-o5f5f.4 | Registered schemas + sample data + jump-to-source |
-| **Views**    | `v` | rf2-o5f5f.5 | Registered views catalogue (Fiber-walker consumer) |
-| **Events**   | `e` | rf2-o5f5f.6 | Registered handlers + interceptor stack |
+| **Machines**     | `m` (default) | rf2-o5f5f.2 | Registry browse + Topology + 4-mode sub-strip |
+| **Routes**       | `r` | rf2-o5f5f.3 | Registered routes (promoted from Dynamic) + Simulate-URL |
+| **Schemas**      | `c` | rf2-o5f5f.4 | Registered schemas + sample data + jump-to-source |
+| **Flows**        | `f` | rf2-uhsqb   | Registered flows catalogue |
+| **Interceptors** | `i` | rf2-o5f5f.6 | Pure-browse lens over interceptor chains |
+
+rf2-b2fif removed the Views + Events sub-tabs (info already in the
+source code; the tabs were not pulling their weight).
 
 Mnemonic mode-scoping: the same letter dispatches the active mode's
-tab — `m` in Runtime opens the Machines instance-inspector, `m` in
+tab — `m` in Dynamic opens the Machines instance-inspector, `m` in
 Static opens the Machines registry browse.
 
 ### Mode-signal mechanism (4 stacked signals)
@@ -1532,26 +1535,26 @@ The user reads Static at a glance via four stacked signals — together
 they telegraph the mode without the user needing to look at the pill:
 
 1. **Mode pill** at ribbon-left — two-segment radio
-   `[● Runtime] [○ Static]`, 160px total, accent-violet active
+   `[● Dynamic] [○ Static]`, 160px total, accent-violet active
    segment with a 200ms cross-fade. Lives in both modes (it's the
    toggle, not the indicator). Cmd-Shift-M (the global chord) fires
    the same `:rf.causa/toggle-mode` event so chord and pill share
    the handler.
-2. **2-px left-edge ribbon stripe** — `:accent-violet` in Runtime,
+2. **2-px left-edge ribbon stripe** — `:accent-violet` in Dynamic,
    `:cyan` (already in the palette) in Static. Zero new tokens
    introduced.
-3. **Motion dampening** — Runtime ships the LIVE pulse + machine-active
+3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-active
    pulse + 180ms tab fade. Static drops the continuous pulses entirely
    and collapses the 180ms tab fade to instant (so cluster swaps land
    without motion). Honours `prefers-reduced-motion: reduce` via the
    `--rf-causa-motion-scale` seam in `theme/global-styles/motion-css`.
-4. **Chrome silhouette** — Runtime is 4-layer; Static is 3-layer (no
+4. **Chrome silhouette** — Dynamic is 4-layer; Static is 3-layer (no
    L2 / no spine). The shape itself is a signal.
 
 ### Mode-state lifecycle
 
 The mode slot lives on Causa's app-db at `[:rf.causa/mode]`
-(`:runtime | :static`); the Static-scoped tab choice lives at
+(`:dynamic | :static`); the Static-scoped tab choice lives at
 `[:rf.causa.static/selected-tab]` (default `:machines`). Three event
 handlers drive the lifecycle:
 
@@ -1560,17 +1563,17 @@ handlers drive the lifecycle:
 - `:rf.causa/toggle-mode` — flips between modes (the Cmd-Shift-M
   chord — see `keybinding.cljs`).
 - `:rf.causa.static/select-tab` — flips the Static-scoped tab
-  (independent of the Runtime `:rf.causa/select-tab` slot so flipping
+  (independent of the Dynamic `:rf.causa/select-tab` slot so flipping
   modes preserves both choices).
 
 Set + toggle attach the `:rf.causa.static/persist-mode` fx so every
 mutation round-trips through localStorage under the canonical key
 `causa.mode`. Unknown / malformed values normalise back to
-`:runtime` — the conservative default.
+`:dynamic` — the conservative default.
 
 ### Frame isolation
 
-Same discipline as the Runtime shell. The Static surface composer
+Same discipline as the Dynamic shell. The Static surface composer
 inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame
 :rf/causa}]`; every subscribe + dispatch inside the surface resolves
 to `:rf/causa`. Each subscribing region is `reg-view`-registered so
@@ -1621,13 +1624,13 @@ in `shell.cljs`) `case`-dispatches between the two on `[:rf.causa/mode]`.
 Dynamic ships 7 tabs (Event / App-DB / Views / Trace / Machines /
 Routing / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs). Static ships 5 tabs (Machines /
-Routes / Schemas / Views / Events — see §Sub-tab inventory above). New
-tabs MUST declare which mode(s) they belong to; tab-id keyword
-collisions across modes (`:machines`, `:views`) are deliberate and
+Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
+above). New tabs MUST declare which mode(s) they belong to; tab-id
+keyword collisions across modes (`:machines`) are deliberate and
 resolved by the active-mode dispatch, not by renaming. Mnemonic
-collisions across modes (`m` · `v` · `e` · `r`) are likewise resolved
-by the mode-scoped resolver (Cmd-Shift-M flips the active mode; the
-letter then dispatches the active mode's tab — see §Keyboard).
+collisions across modes (`m` · `r`) are likewise resolved by the
+mode-scoped resolver (Cmd-Shift-M flips the active mode; the letter
+then dispatches the active mode's tab — see §Keyboard).
 
 **Shared-token rule.** Design tokens — colours, spacing, typography,
 motion — live ONCE in the HCM token registry (`theme/tokens.cljc`,

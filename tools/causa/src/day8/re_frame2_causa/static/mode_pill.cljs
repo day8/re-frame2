@@ -1,5 +1,5 @@
 (ns day8.re-frame2-causa.static.mode-pill
-  "Ribbon-left mode pill — two-segment radio toggling Runtime ↔ Static
+  "Ribbon-left mode pill — two-segment radio toggling Dynamic ↔ Static
   (rf2-o5f5f.1).
 
   ## Purpose
@@ -8,12 +8,12 @@
   mode + the findings doc `ai/findings/2026-05-19-causa-explorer-
   mode.md`:
 
-    - **Runtime** — the event-coupled spine + 4-layer chrome. The
+    - **Dynamic** — the event-coupled spine + 4-layer chrome. The
       surface the rest of Causa ships today.
     - **Static** — event-independent browse of what's registered
-      (Machines / Routes / Schemas / Views / Events). Same design
-      language as Runtime; differentiation is temperature, not
-      vocabulary.
+      (Machines / Routes / Schemas / Flows / Interceptors). Same
+      design language as Dynamic; differentiation is temperature,
+      not vocabulary.
 
   The pill is the user-facing toggle that lives at ribbon-left in
   BOTH modes. Cmd-Shift-M (the global chord — see `keybinding.cljs`)
@@ -43,7 +43,7 @@
   ## Production posture
 
   Mounted only by `static/shell.cljs` (Static mode) AND by `shell.cljs`'s
-  L1 ribbon (Runtime mode) — see the ribbon-left cluster wiring. Both
+  L1 ribbon (Dynamic mode) — see the ribbon-left cluster wiring. Both
   call sites pass the current mode in as a prop so the pill doesn't
   re-subscribe per render."
   (:require [re-frame.core :as rf]
@@ -62,7 +62,7 @@
   Glyphs match Causa's existing `●` (active) / `○` (inactive) language
   (cf. `shell.cljs/tab-button`). The selected segment is rendered with
   `●`; the other with `○`."
-  [{:mode :runtime :label "Runtime" :title "Runtime mode — event-coupled spine (Cmd-Shift-M)"}
+  [{:mode :dynamic :label "Dynamic" :title "Dynamic mode — event-coupled spine (Cmd-Shift-M)"}
    {:mode :static  :label "Static"  :title "Static mode — registry browse (Cmd-Shift-M)"}])
 
 (defn segment-glyph
@@ -128,7 +128,7 @@
 
 (rf/reg-view mode-pill
   "Ribbon-left mode pill (rf2-o5f5f.1) — two-segment radio toggling
-  Runtime ↔ Static. The active segment paints accent-violet; the
+  Dynamic ↔ Static. The active segment paints accent-violet; the
   inactive segment is flat. 200ms cross-fade via CSS transitions
   (no JS animation), threaded through the `--rf-causa-motion-scale`
   seam so reduced-motion users see an instant swap.

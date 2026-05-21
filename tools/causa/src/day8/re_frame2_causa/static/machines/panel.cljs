@@ -9,7 +9,7 @@
       ┌──────────────────────┬────────────────────────────────────┐
       │ L4-left (~280px)     │  L4-right (fills)                  │
       │ ─ search box         │  ─ machine-id · source-coord ↗     │
-      │ ─ sort cycle button  │     · N states · M live (→ Runtime)│
+      │ ─ sort cycle button  │     · N states · M live (→ Dynamic)│
       │ ─ scrollable rows    │  ─ sub-strip [T][S][I][C]          │
       │                      │  ─ mode renderer (Topology / Sim   │
       │                      │     placeholder / Instances JUMP / │
@@ -143,7 +143,7 @@
   ;; machine-snapshots subs registered by panels.machine-inspector
   ;; (install order is purely cosmetic — re-frame resolves :<- lazily).
   ;; The `:rf.causa/machine-snapshots-override` test-seam composes on
-  ;; top of the live snapshots — same shape the Runtime Machine
+  ;; top of the live snapshots — same shape the Dynamic Machine
   ;; Inspector's composite uses, so the override flips both surfaces.
   (rf/reg-sub :rf.causa.static.machines/rows
     :<- [:rf.causa/registered-machines]

@@ -908,12 +908,12 @@
     (fn [db _event]
       (dissoc db :trace-expanded-row-ids)))
 
-  ;; rf2-2moh1 — register the Runtime Trace tab with the internal L4
+  ;; rf2-2moh1 — register the Dynamic Trace tab with the internal L4
   ;; tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :trace
      :label "Trace"
      :mnem  "t"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 3
      :panel Panel}))

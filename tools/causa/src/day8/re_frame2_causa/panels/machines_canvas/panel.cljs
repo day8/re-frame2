@@ -1,5 +1,5 @@
 (ns day8.re-frame2-causa.panels.machines-canvas.panel
-  "Machines Canvas — Runtime L4 sub-domain tab (rf2-mkpnb).
+  "Machines Canvas — Dynamic L4 sub-domain tab (rf2-mkpnb).
 
   ## Why a separate tab
 
@@ -26,8 +26,8 @@
       lens — the canvas always shows the machine's whole graph.
 
   Static mode already carries a comparable surface
-  (`static/machines/topology.cljs`); this tab is its Runtime
-  counterpart for users running with the Runtime chrome.
+  (`static/machines/topology.cljs`); this tab is its Dynamic
+  counterpart for users running with the Dynamic chrome.
 
   ## Shape
 
@@ -49,7 +49,7 @@
   in the `:rf/causa` frame's app-db. The selection slot is reactive
   (subscribe → rerender) but NOT persisted to localStorage v1 — the
   Static Machines panel already owns a persisted browse selection
-  for the Static surface; the Runtime canvas tab's selection lives
+  for the Static surface; the Dynamic canvas tab's selection lives
   fresh-per-session. Persistence can land as a follow-on if usage
   signals demand.
 
@@ -65,7 +65,7 @@
   Same discipline as every other Causa panel — the view body is
   pure hiccup with no Reagent / UIx / Helix references. Frame
   isolation comes from the enclosing
-  `[rf/frame-provider {:frame :rf/causa}]` in `shell.cljs` (Runtime
+  `[rf/frame-provider {:frame :rf/causa}]` in `shell.cljs` (Dynamic
   L4 mount path) or the `mount-machines-canvas!` mount fn (when the
   panel is embedded in isolation per spec/008)."
   (:require [re-frame.core :as rf]
@@ -297,7 +297,7 @@
           ;; No focused-event lens on this tab — this is a
           ;; spine-INDEPENDENT canvas browser. No from/to highlight,
           ;; no after-rings overlay, no view-mode toggle (the toggle
-          ;; is a Runtime concept that belongs in the event-driven
+          ;; is a Dynamic concept that belongs in the event-driven
           ;; Machines Inspector tab).
           :show-after-rings?      false
           :show-view-mode-toggle? false
@@ -393,7 +393,7 @@
         metadata rail or JUMP-to-Inspector verb.
 
   The tab itself is registered against the L4 tab registry under
-  `:id :machines-canvas`, `:mnem c`, `:modes #{:runtime}`, `:order
+  `:id :machines-canvas`, `:mnem c`, `:modes #{:dynamic}`, `:order
   5`. Routing + Issues shift to orders 6 + 7 (see
   `panels/routing.cljs` + `panels/issues_ribbon.cljs`)."
   []
@@ -411,7 +411,7 @@
   (rf/reg-event-db :rf.causa.machines-canvas/state-clicked
     (fn [db [_ _payload]] db))
 
-  ;; rf2-mkpnb — register the Runtime Machines Canvas tab with the
+  ;; rf2-mkpnb — register the Dynamic Machines Canvas tab with the
   ;; internal L4 tab registry. Sits between Machines (4) and Routing
   ;; (now 6) so the two machine sub-domain tabs are adjacent in the
   ;; tab bar.
@@ -419,7 +419,7 @@
     {:id    :machines-canvas
      :label "Machines Canvas"
      :mnem  "c"
-     :modes #{:runtime}
+     :modes #{:dynamic}
      :order 5
      :panel Panel})
 

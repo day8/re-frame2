@@ -37,7 +37,7 @@
 
 ;; ---- canonical panel list ------------------------------------------------
 ;;
-;; Per rf2-2moh1 the palette reads its Runtime + Static panel inventory
+;; Per rf2-2moh1 the palette reads its Dynamic + Static panel inventory
 ;; directly from the internal L4 tab registry. Adding a tab means a
 ;; single `panel-registry/reg-l4-tab!` call in the panel's `install!`;
 ;; the palette's source aggregator picks it up via the helpers below.
@@ -48,15 +48,15 @@
 ;; is a one-way edge.
 
 (defn palette-panels
-  "Runtime-mode tab entries in the shape the palette source-aggregator
+  "Dynamic-mode tab entries in the shape the palette source-aggregator
   consumes — `[{:id :label} ...]`. Pulled at sub-recompute time so the
   registry's runtime entries are the single source of truth.
 
   Public so test fixtures + downstream tooling (story-mcp, pair-mcp)
-  can read the canonical Runtime tab inventory without reaching into
+  can read the canonical Dynamic tab inventory without reaching into
   the panel registry directly."
   []
-  (->> (panel-registry/tabs-for-mode :runtime)
+  (->> (panel-registry/tabs-for-mode :dynamic)
        (mapv (fn [{:keys [id label]}] {:id id :label label}))))
 
 (defn palette-static-tabs

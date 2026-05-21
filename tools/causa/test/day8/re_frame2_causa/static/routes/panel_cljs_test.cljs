@@ -6,7 +6,7 @@
 
   Per Mike's two-verbs-two-homes decision: the BROWSE verb (flat
   list + Simulate-URL + per-row inline expand + hermetic Simulate-
-  navigation preview + cross-link to Runtime Routing) lives on the
+  navigation preview + cross-link to Dynamic Routing) lives on the
   Static surface. This file covers:
 
     1. **Registry wires the Static Routes subs + events** under
@@ -28,8 +28,8 @@
        place; pattern + matched-keys + handler chip + Simulate-nav
        toggle + cross-link chip.
 
-    7. **Cross-link** — `:rf.causa.static.routes/jump-to-runtime`
-       flips mode + selects the Runtime Routing tab.
+    7. **Cross-link** — `:rf.causa.static.routes/jump-to-dynamic`
+       flips mode + selects the Dynamic Routing tab.
 
     8. **Frame isolation** — every read targets `:rf/causa`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -126,8 +126,8 @@
         "toggle-row event registered")
     (is (some? (registrar/handler :event :rf.causa.static.routes/toggle-sim-nav))
         "toggle-sim-nav event registered")
-    (is (some? (registrar/handler :event :rf.causa.static.routes/jump-to-runtime))
-        "jump-to-runtime cross-link event registered")))
+    (is (some? (registrar/handler :event :rf.causa.static.routes/jump-to-dynamic))
+        "jump-to-dynamic cross-link event registered")))
 
 ;; ---- (2) silent state ---------------------------------------------------
 
@@ -249,7 +249,7 @@
         (is (some? (find-by-testid tree "rf-causa-static-routes-meta-route/cart"))
             "registrar meta block rendered")
         (is (some? (find-by-testid tree "rf-causa-static-routes-jump-runtime-route/cart"))
-            "→ Runtime cross-link chip rendered")
+            "→ Dynamic cross-link chip rendered")
         (is (some? (find-by-testid tree "rf-causa-static-routes-sim-nav-toggle-route/cart"))
             "Simulate-navigation toggle rendered"))
       (rf/dispatch-sync [:rf.causa.static.routes/toggle-row :route/cart]
@@ -310,21 +310,21 @@
         (is (= :route/cart (:id slice))
             "current slice unchanged — preview did NOT mutate app-db")))))
 
-;; ---- (8) cross-link to Runtime Routing ----------------------------------
+;; ---- (8) cross-link to Dynamic Routing ----------------------------------
 
-(deftest panel-jump-to-runtime-flips-mode-and-tab
-  (testing ":rf.causa.static.routes/jump-to-runtime → mode :runtime + tab :routing"
+(deftest panel-jump-to-dynamic-flips-mode-and-tab
+  (testing ":rf.causa.static.routes/jump-to-dynamic → mode :dynamic + tab :routing"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Start in :static, on the Static :routes tab.
       (rf/dispatch-sync [:rf.causa/set-mode :static] {:frame :rf/causa})
       (rf/dispatch-sync [:rf.causa.static/select-tab :routes] {:frame :rf/causa})
-      (rf/dispatch-sync [:rf.causa.static.routes/jump-to-runtime :route/cart]
+      (rf/dispatch-sync [:rf.causa.static.routes/jump-to-dynamic :route/cart]
                         {:frame :rf/causa})
-      (is (= :runtime @(rf/subscribe [:rf.causa/mode]))
-          "mode flipped to :runtime")
+      (is (= :dynamic @(rf/subscribe [:rf.causa/mode]))
+          "mode flipped to :dynamic")
       (is (= :routing @(rf/subscribe [:rf.causa/selected-tab]))
-          "Runtime tab set to :routing"))))
+          "Dynamic tab set to :routing"))))
 
 ;; ---- (9) Static tab inventory exposes :routes --------------------------
 
