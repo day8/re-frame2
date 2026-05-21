@@ -46,6 +46,7 @@
             ["elkjs/lib/elk.bundled.js" :as elkjs]
             [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.chart.nodes :as nodes]
             [day8.re-frame2-machines-viz.chart.edges :as edges]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
@@ -92,43 +93,6 @@
    "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
    "elk.edgeRouting"                            "SPLINES"})
 
-(defn- elk-child
-  "Build a single elk.js child descriptor for a parsed node (a plain
-  CLJS map; `->elk-input` `clj->js`-es the whole tree)."
-  [n]
-  {:id     (:id n)
-   :width  (if (:compound? n) 220 nodes/state-node-min-width)
-   :height (if (:compound? n) 120 nodes/state-node-min-height)
-   :labels [{:text (:label n)}]})
-
-(defn- ->elk-children
-  "Project parsed nodes into elk.js's `children` shape.
-
-  Flat (non-parallel) machines emit one flat child per node. Parallel
-  machines (rf2-lkwev) nest each region's states UNDER their region
-  container node so elkjs lays the states out INSIDE the region's
-  bounding box (xyflow's parentNode sub-flow then renders them inside
-  the dashed region boundary). Region containers carry their own
-  `elk.algorithm`/`elk.padding` so each orthogonal zone gets a clean
-  internal layout, and the regions themselves are laid side-by-side at
-  the root."
-  [{:keys [nodes parallel?]}]
-  (if-not parallel?
-    (mapv elk-child nodes)
-    (let [region-nodes (filterv :region? nodes)
-          ;; Group the non-region (state) nodes by their parent region.
-          by-parent    (group-by :parent-id (remove :region? nodes))]
-      (mapv (fn [rn]
-              (let [children (get by-parent (:id rn) [])]
-                {:id    (:id rn)
-                 :labels [{:text (:label rn)}]
-                 ;; Each region lays out its own states internally;
-                 ;; padding leaves room for the region header strip.
-                 :layoutOptions {"elk.algorithm" "layered"
-                                 "elk.padding"   "[top=34,left=14,bottom=14,right=14]"}
-                 :children (mapv elk-child children)}))
-            region-nodes))))
-
 (defn- ->elk-input
   "Build an elk.js JS-side input graph for the given parsed nodes +
   edges + direction. Parallel machines (rf2-lkwev) get a hierarchical
@@ -149,7 +113,7 @@
                       (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN")))]
     #js {:id "root"
          :layoutOptions (clj->js opts)
-         :children (clj->js (->elk-children parsed))
+         :children (clj->js (projection/->elk-children parsed))
          :edges (clj->js
                   (mapv (fn [e]
                           {:id (:id e)
@@ -179,8 +143,8 @@
                     (swap! acc assoc (.-id c)
                            {:x      (or (.-x c) 0)
                             :y      (or (.-y c) 0)
-                            :width  (or (.-width c) nodes/state-node-min-width)
-                            :height (or (.-height c) nodes/state-node-min-height)})
+                            :width  (or (.-width c) projection/state-node-min-width)
+                            :height (or (.-height c) projection/state-node-min-height)})
                     (walk! c)))))]
       (walk! elk-result))
     @acc))
@@ -211,95 +175,12 @@
        (done-fn nil)))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
-
-(defn- choose-edge-type
-  [edge]
-  (cond
-    (:after edge)  "after"
-    :else          "transition"))
-
-(defn xyflow-graph
-  "Project the parsed graph + a `{node-id position}` map into the
-  xyflow `:nodes` + `:edges` arrays. Pure fn (no DOM, no React).
-
-  Options:
-
-    :highlight-id        — node-id of the active state.
-    :from-highlight-id   — node-id of the focused-event lens's
-                           origin state.
-    :to-highlight-id     — node-id of the focused-event lens's
-                           landing state.
-    :sim?                — flips the highlight palette to amber.
-    :on-state-click      — `(fn [path] ...)` invoked when a state
-                           node is clicked."
-  [{:keys [nodes edges]}
-   positions
-   {:keys [highlight-id from-highlight-id to-highlight-id sim? on-state-click]}]
-  {:nodes
-   ;; rf2-lkwev — region container nodes MUST precede their children in
-   ;; the xyflow nodes array (xyflow requires a parentNode to appear
-   ;; before any node that references it). Regions are already emitted
-   ;; before their states by `parse-parallel`, but sort defensively so
-   ;; the parent-before-child invariant holds regardless of upstream
-   ;; ordering.
-   (mapv (fn [n]
-           (let [pos     (get positions (:id n) {:x 0 :y 0})
-                 region? (boolean (:region? n))
-                 active? (= (:id n) highlight-id)
-                 from-hi? (= (:id n) from-highlight-id)
-                 to-hi?   (= (:id n) to-highlight-id)
-                 base
-                 {:id       (:id n)
-                  :type     (cond
-                              region?         "parallel-region"
-                              (:compound? n)  "compound"
-                              :else           "state")
-                  :position {:x (:x pos) :y (:y pos)}
-                  :data     (cond-> {:label          (:label n)
-                                     :path           (:path n)
-                                     :active         active?
-                                     :fromHighlight  from-hi?
-                                     :toHighlight    to-hi?
-                                     :sim            (boolean (and active? sim?))
-                                     :final          (boolean (:final? n))
-                                     :compound       (boolean (:compound? n))
-                                     :tags           (vec (:tags n))
-                                     :onClick        on-state-click}
-                              region? (assoc :regionId    (:region n)
-                                             :regionIndex (:region-index n)))
-                  :draggable false
-                  :selectable false}]
-             (cond-> base
-               ;; Region containers carry an explicit measured size so
-               ;; xyflow draws the zone box at the elk-computed extent.
-               region? (assoc :style {:width  (:width pos)
-                                      :height (:height pos)})
-               ;; A state inside a region attaches to its parent region
-               ;; via xyflow's parentNode sub-flow; `:extent "parent"`
-               ;; clamps it inside the dashed boundary.
-               (and (not region?) (:parent-id n))
-               (assoc :parentNode (:parent-id n)
-                      :extent     "parent"))))
-         (sort-by #(if (:region? %) 0 1) nodes))
-   :edges
-   (mapv (fn [e]
-           (let [from-active? (or (= (:source e) highlight-id)
-                                  (= (:target e) highlight-id))
-                 focused?     (and (some? from-highlight-id)
-                                   (some? to-highlight-id)
-                                   (= (:source e) from-highlight-id)
-                                   (= (:target e) to-highlight-id))]
-             {:id     (:id e)
-              :source (:source e)
-              :target (:target e)
-              :type   (choose-edge-type e)
-              :data   {:eventLabel (:event-label e)
-                       :active     from-active?
-                       :focused    focused?
-                       :afterMs    (:after e)
-                       :guard      (some-> (:guard e) name)
-                       :action     (some-> (:action e) name)}}))
-         edges)})
+;;
+;; rf2-0gmwp — the pure projector (`xyflow-graph` / `choose-edge-type`
+;; / the elk `children` shape) moved to `chart.projection` so the JVM
+;; test corpus can pin it without loading xyflow/elkjs. `chart.cljs`
+;; retains only the JS-interop layout glue above + the React component
+;; below.
 
 ;; ---- inline keyframes ---------------------------------------------------
 
@@ -482,7 +363,7 @@
                 to-highlight-id   (layout/highlight-id to-highlight)
                 callback          (when-not read-only? on-state-click)
                 {:keys [nodes edges]}
-                (xyflow-graph parsed
+                (projection/xyflow-graph parsed
                               @positions
                               {:highlight-id      highlight-id
                                :from-highlight-id from-highlight-id

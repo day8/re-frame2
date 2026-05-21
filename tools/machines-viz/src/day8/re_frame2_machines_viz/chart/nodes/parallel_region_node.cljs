@@ -14,7 +14,7 @@
   ## How it works with xyflow
 
   `chart.layout/parse-parallel` mints a synthetic `:region?` compound
-  node per region; `chart.chart/xyflow-graph` projects it as a
+  node per region; `chart.projection/xyflow-graph` projects it as a
   `type: \"parallel-region\"` xyflow node and assigns every state in
   the region a `parentNode` pointing at the region node (xyflow's
   sub-flow mechanic). This component renders the region's CHROME — a

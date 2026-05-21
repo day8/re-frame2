@@ -1,13 +1,6 @@
 (ns day8.re-frame2-machines-viz.visual-constants-cljs-test
-  "Roundtrip / shape pin for the chart visual constants (rf2-hz3tj).
-
-  Per audit `ai/findings/2026-05-20-tools-testing-posture-audit.md`
-  Gap-4, `visual_constants.cljc` was the only src file in
-  `tools/machines-viz/src/` without a test companion. The constants
-  themselves don't drift silently — but the dependents (chart/svg,
-  chart/layout, chart/controls) destructure specific keys from
-  `vc/chart`, and a typo in a key rename would surface as a runtime
-  nil through every chart consumer.
+  "Shape + density-contract pin for the chart visual constants
+  (rf2-hz3tj).
 
   This file pins the SHAPE of `vc/chart`: the expected key set, the
   types each value resolves to, and the no-nil invariant. Cheap —
@@ -21,7 +14,21 @@
   holds across every density, and `chart-for-density` resolves the
   closed catalogue + throws on unknown densities.
 
-  Cites audit Gap-4."
+  rf2-0gmwp — what this guards, post-xyflow-migration. The
+  pre-migration consumers (`chart/svg`, `chart/controls`) were
+  DELETED in rf2-gpzb4; the docstring above used to name them. What
+  `visual-constants` (and therefore this suite) actually guards now is
+  the **`:density` contract specified in `tools/machines-viz/spec/`
+  `API.md` §Density** — `MachineChart`'s `:density` prop resolves
+  through `visual-constants/chart-for-density`, the three named maps
+  share a key set, and the corner-radius lock is density-invariant.
+  That is a normative spec surface in a spec-first project, so the
+  contract is real even while the xyflow renderer's `:density`
+  consumption is still being re-wired (the xyflow `MachineChart`
+  currently hardcodes the regular-density numbers rather than reading
+  `chart-for-density`; closing that renderer gap — including
+  reconciling the drifted tag-pill values — is tracked separately).
+  This suite pins the data contract the renderer rewire must satisfy."
   (:require
     #?(:clj  [clojure.test :refer [deftest is testing]]
        :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -29,7 +36,9 @@
 
 ;; ---- the expected key catalogue ----------------------------------------
 ;;
-;; The chart's renderer destructures every one of these. A key
+;; The `:density` contract (spec/API.md §Density) requires every named
+;; density map to carry exactly this key set; the renderer rewire that
+;; threads `chart-for-density` destructures every one. A key
 ;; disappearing here (rename, accidental dissoc, late edit) would
 ;; surface as a runtime nil in the chart hiccup — silently. This set
 ;; is the load-bearing inventory.
