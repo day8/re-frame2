@@ -42,6 +42,9 @@
             ;; opt-in on both runtimes; without it the default
             ;; validator soft-passes (Spec 010 §Recommended soft-pass).
             [re-frame.schemas.malli]
+            ;; rf2-rbbmt dedup D3 — single-source the empty-set digest
+            ;; literal from the parity fixtures rather than re-pinning it.
+            [re-frame.schemas.digest-parity-fixtures :as digest-fixtures]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.registrar :as registrar]
             [re-frame.spec :as spec]
@@ -518,6 +521,143 @@
           (is (= {:x "bad"} (-> v :tags :received)))
           (is (= :skipped   (:recovery v))))))))
 
+;; ---- G2 (rf2-rbbmt): direct-call shape for event / cofx / sub ------------
+;;
+;; validate-fx! has a dedicated direct-invocation shape test above
+;; (fx-args-validation-direct-call-shape). The three sibling fns were
+;; exercised ONLY through live dispatch — no direct call asserting the
+;; boolean return contract (true on pass / false on fail / true on the
+;; no-`:schema` soft-pass arm at validate.cljc:250) plus the locked tag
+;; shape. These mirror the fx shape test for symmetry across the four
+;; meta-bearing wrappers.
+
+(deftest event-payload-validation-direct-call-shape
+  (testing "rf2-rbbmt — validate-event! returns true on pass, false on
+            fail, true on the no-:schema soft-pass arm; emits the
+            canonical :where :event trace with the locked tag shape"
+    (let [traces (atom [])]
+      (rf/register-listener! ::evd (fn [ev] (swap! traces conj ev)))
+      (is (true? (schemas/validate-event! :user/strict [:user/strict 7]
+                                          {:schema [:cat [:= :user/strict] :int]}))
+          "well-typed event vector passes")
+      (is (false? (schemas/validate-event! :user/strict [:user/strict "bad"]
+                                           {:schema [:cat [:= :user/strict] :int]}))
+          "malformed event vector fails")
+      (is (true? (schemas/validate-event! :user/strict [:user/strict "bad"] {}))
+          "no :schema on meta → soft pass (validate.cljc:250 true arm)")
+      (rf/unregister-listener! ::evd)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 1 (count violations))
+            "exactly one trace — only the malformed call with a :schema fired")
+        (let [v (first violations)]
+          (is (= :event       (-> v :tags :where)))
+          (is (= :user/strict (-> v :tags :event-id)))
+          (is (= :user/strict (-> v :tags :failing-id)))
+          (is (= :user/strict (-> v :tags :schema-id)))
+          (is (= [:user/strict "bad"] (-> v :tags :value)))
+          (is (= [:user/strict "bad"] (-> v :tags :received)))
+          (is (= :no-recovery (:recovery v))))))))
+
+(deftest cofx-validation-direct-call-shape
+  (testing "rf2-rbbmt — validate-cofx! returns true on pass, false on
+            fail, true on the no-:schema soft-pass arm; emits the
+            canonical :where :cofx trace with the locked tag shape"
+    (let [traces (atom [])]
+      (rf/register-listener! ::cfd (fn [ev] (swap! traces conj ev)))
+      (is (true? (schemas/validate-cofx! :app-version :ev/origin "1.4.5"
+                                         {:schema :string}))
+          "well-typed cofx value passes")
+      (is (false? (schemas/validate-cofx! :app-version :ev/origin 42
+                                          {:schema :string}))
+          "malformed cofx value fails")
+      (is (true? (schemas/validate-cofx! :app-version :ev/origin 42 {}))
+          "no :schema on meta → soft pass (validate.cljc:250 true arm)")
+      (rf/unregister-listener! ::cfd)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 1 (count violations)))
+        (let [v (first violations)]
+          (is (= :cofx        (-> v :tags :where)))
+          (is (= :app-version (-> v :tags :cofx-id)))
+          (is (= :ev/origin   (-> v :tags :event-id)))
+          (is (= :ev/origin   (-> v :tags :failing-id)))
+          (is (= :app-version (-> v :tags :schema-id)))
+          (is (= 42           (-> v :tags :value)))
+          (is (= 42           (-> v :tags :received)))
+          (is (= :no-recovery (:recovery v))))))))
+
+(deftest sub-return-validation-direct-call-shape
+  (testing "rf2-rbbmt — validate-sub! returns true on pass, false on
+            fail, true on the no-:schema soft-pass arm; emits the
+            canonical :where :sub-return trace with the locked tag shape"
+    (let [traces (atom [])]
+      (rf/register-listener! ::sbd (fn [ev] (swap! traces conj ev)))
+      (is (true? (schemas/validate-sub! :items [:items] ["a" "b"]
+                                        {:schema [:vector :string]}))
+          "well-typed sub return passes")
+      (is (false? (schemas/validate-sub! :items [:items] [1 2]
+                                         {:schema [:vector :string]}))
+          "malformed sub return fails")
+      (is (true? (schemas/validate-sub! :items [:items] [1 2] {}))
+          "no :schema on meta → soft pass (validate.cljc:250 true arm)")
+      (rf/unregister-listener! ::sbd)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 1 (count violations)))
+        (let [v (first violations)]
+          (is (= :sub-return  (-> v :tags :where)))
+          (is (= :items       (-> v :tags :sub-id)))
+          (is (= :items       (-> v :tags :failing-id)))
+          (is (= :items       (-> v :tags :schema-id)))
+          (is (= [:items]     (-> v :tags :query-v)))
+          (is (= [1 2]        (-> v :tags :value)))
+          (is (= [1 2]        (-> v :tags :received)))
+          (is (= :replaced-with-default (:recovery v))))))))
+
+;; ---- G3 (rf2-rbbmt): production-elision symmetry for cofx + sub ----------
+;;
+;; debug-enabled?=false elision is pinned for app-db (:75), event (:282),
+;; and fx (:472) but NOT for validate-cofx! / validate-sub!. The bodies
+;; share the outer `(if interop/debug-enabled? ... true)` gate, so a
+;; refactor of one wrapper that broke its gate would slip past the suite.
+;; These direct-call pins close that asymmetry.
+
+(deftest cofx-validation-elides-when-debug-disabled
+  (testing "rf2-rbbmt — validate-cofx! is a no-op (returns true, emits
+            nothing) when debug-enabled? is false (production)"
+    (let [traces (atom [])]
+      (rf/register-listener! ::cfe (fn [ev] (swap! traces conj ev)))
+      (with-redefs [interop/debug-enabled? false]
+        (is (true? (schemas/validate-cofx! :app-version :ev/origin 42
+                                           {:schema :string}))
+            "production gate returns true unconditionally — even on a
+             value that would fail in dev"))
+      (rf/unregister-listener! ::cfe)
+      (is (empty? (filter #(= :rf.error/schema-validation-failure
+                              (:operation %))
+                          @traces))
+          "no validation trace when debug-enabled? is false"))))
+
+(deftest sub-return-validation-elides-when-debug-disabled
+  (testing "rf2-rbbmt — validate-sub! is a no-op (returns true, emits
+            nothing) when debug-enabled? is false (production)"
+    (let [traces (atom [])]
+      (rf/register-listener! ::sbe (fn [ev] (swap! traces conj ev)))
+      (with-redefs [interop/debug-enabled? false]
+        (is (true? (schemas/validate-sub! :items [:items] [1 2]
+                                          {:schema [:vector :string]}))
+            "production gate returns true unconditionally — even on a
+             value that would fail in dev"))
+      (rf/unregister-listener! ::sbe)
+      (is (empty? (filter #(= :rf.error/schema-validation-failure
+                              (:operation %))
+                          @traces))
+          "no validation trace when debug-enabled? is false"))))
+
 (deftest fx-args-validation-redacts-when-sensitive
   (testing "validate-fx! consults the schema tree for `:sensitive?` props
             (the fx-meta `:sensitive?` annotation has been removed); on
@@ -813,9 +953,10 @@
     (let [d (rf/app-schemas-digest :test/empty)]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d))
-      ;; SHA-256 of "" is e3b0c44298fc1c14...; first 16 hex chars are
-      ;; e3b0c44298fc1c14.
-      (is (= "sha256:e3b0c44298fc1c14" d)
+      ;; rf2-rbbmt dedup D3 — the empty-set digest literal is single-
+      ;; sourced from the parity fixtures (the namespace's own docstring
+      ;; declares it the source of truth) rather than re-pinned here.
+      (is (= (:expected digest-fixtures/empty-set) d)
           "empty schema set hashes the empty concatenation per Spec 010"))))
 
 (deftest app-schemas-digest-independent-of-registration-order
@@ -884,26 +1025,41 @@
               "exactly one trace fired — for the value the custom validator rejected")
           (is (= "totally-bad" (-> violations first :tags :value))))))))
 
-(deftest nil-validator-disables-validation-everywhere
-  (testing "Per Spec 010 §Non-Malli validators — passing nil to
-            set-schema-validator! disables validation entirely; every
-            validate-* fn returns true without inspecting the schema."
+(deftest nil-validator-disables-validation-on-every-surface
+  (testing "Per Spec 010 §Non-Malli validators (rf2-rbbmt dedup D1) —
+            passing nil to set-schema-validator! disables validation
+            entirely; every meta-bearing validate-*! fn AND the app-db
+            walker return true without inspecting the schema, and no
+            trace fires. Parameterised over the surfaces that previously
+            duplicated the no-op assertion as separate deftests."
     (rf/set-schema-validator! nil)
-    (rf/reg-app-schema [:n] [:int])
     (let [traces (atom [])]
       (rf/register-listener! ::nilv (fn [ev] (swap! traces conj ev)))
-      ;; Malformed value would normally fire a trace; with nil
-      ;; validator the call site short-circuits.
-      (schemas/validate-app-schema! {:n "definitely-not-an-int"} :test/h)
+      (rf/reg-app-schema [:n] [:int])
+      ;; Each malformed value would fire a trace under the default
+      ;; (Malli) validator; with nil installed every call short-circuits
+      ;; to true and emits nothing.
+      (is (true? (schemas/validate-app-schema! {:n "bad"} :test/h))
+          "app-db walk: nil validator → true, no trace")
+      (is (true? (schemas/validate-event! :ev/x [:ev/x "bad"]
+                                          {:schema [:cat [:= :ev/x] :int]}))
+          "event: nil validator → true")
+      (is (true? (schemas/validate-cofx! :cf/x :ev/o 42 {:schema :string}))
+          "cofx: nil validator → true")
+      (is (true? (schemas/validate-sub! :sub/x [:sub/x] [1] {:schema [:vector :string]}))
+          "sub-return: nil validator → true")
+      (is (true? (schemas/validate-fx! :fx/x :ev/o {:x "bad"} {:schema [:map [:x :int]]}))
+          "fx-args: nil validator → true")
       (rf/unregister-listener! ::nilv)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
-          "nil validator: no validation, no trace, no surprise"))))
+          "nil validator: no validation, no trace, no surprise — on any surface"))))
 
-(deftest nil-validator-also-disables-event-validation
-  (testing "Per Spec 010 §Non-Malli validators — nil validator covers every
-            validation site, not just app-db. The event-validation site
-            short-circuits too."
+(deftest nil-validator-disables-validation-end-to-end-via-dispatch
+  (testing "Per Spec 010 §Non-Malli validators — the nil-validator no-op
+            also holds through a live dispatch: the handler runs even on
+            a payload that would fail the registered :schema, and no
+            pre-handler validation trace fires."
     (rf/set-schema-validator! nil)
     (let [calls (atom 0)]
       (rf/reg-event-db :user/strict
@@ -911,8 +1067,6 @@
         (fn [db _] (swap! calls inc) db))
       (let [traces (atom [])]
         (rf/register-listener! ::nile (fn [ev] (swap! traces conj ev)))
-        ;; A wildly malformed payload — but with no validator the
-        ;; check is skipped and the handler runs anyway.
         (rf/dispatch-sync [:user/strict "not-an-int"])
         (rf/unregister-listener! ::nile)
         (is (= 1 @calls)

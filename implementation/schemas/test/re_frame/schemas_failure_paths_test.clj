@@ -41,7 +41,9 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
-            [re-frame.schemas.test-fixture :as tf]))
+            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.schemas.validate :as validate]
+            [re-frame.schemas.validator :as validator]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -333,3 +335,115 @@
                   [:auth    [:map [:token {:sensitive? true} :string]]]]]
       (is (false? (schemas/schema-sensitive-at? schema [:public]))
           ":public is on a different branch from :auth/:token"))))
+
+;; ---- G1: multi-error common-prefix narrowing (rf2-rbbmt) -----------------
+;;
+;; Every test above drives a SINGLE failing slot, so the Malli explainer
+;; reports one `:errors` entry and `failing-in-path`'s
+;; `(reduce common-prefix (first paths) (rest paths))` never folds over a
+;; non-empty `(rest paths)`. The tests below drive TWO diverging `:in`
+;; paths under one registered `[:map ...]` schema so the reduce branch
+;; executes and must narrow to the common ancestor — plus direct unit
+;; tests for `common-prefix` and `failing-in-path` (the only non-trivial
+;; private helpers in the validate slice, previously with zero direct
+;; coverage).
+
+(deftest multi-error-path-narrows-to-common-ancestor
+  (testing "rf2-rbbmt — two diverging children of one nested [:map ...]
+            both fail; the Malli explainer reports two `:in` paths
+            ([:root :user :id] + [:root :user :age]) and `failing-in-path`
+            must `reduce common-prefix` them to the parent slot
+            [:user]. :path is then the registered root + that ancestor."
+    (rf/reg-app-schema [:root]
+                       [:map
+                        [:user [:map
+                                [:id  :int]
+                                [:age :int]]]])
+    (let [traces (capture-trace
+                   #(schemas/validate-app-schema!
+                      ;; BOTH children fail — :id and :age are strings,
+                      ;; not ints. Two diverging :in paths under one schema.
+                      {:root {:user {:id "bad" :age "also-bad"}}}
+                      :root/bad))]
+      (is (= 1 (count traces))
+          "one trace per registered schema, even with two leaf failures")
+      (let [v (first traces)]
+        (is (= [:root :user] (-> v :tags :path))
+            ":path narrows to the common ancestor [:root :user] — the
+             reduce common-prefix branch collapsed [:user :id] and
+             [:user :age] to [:user], conj'd onto the registered root")
+        (is (= [:root] (-> v :tags :registered-path)))
+        (is (= {:id "bad" :age "also-bad"} (-> v :tags :value))
+            ":value is the ancestor slot's value — both failing children")))))
+
+(deftest multi-error-top-level-map-narrows-to-root
+  (testing "rf2-rbbmt — two diverging children of a top-level [:map ...]
+            registered directly at the path; their `:in` paths
+            ([:id] + [:age]) common-prefix to [] (the map root), so the
+            leaf path collapses to the registered root. Distinguishes the
+            empty-common-prefix fold from the single-error :in [] case."
+    (rf/reg-app-schema [:rec] [:map [:id :int] [:age :int]])
+    (let [traces (capture-trace
+                   #(schemas/validate-app-schema!
+                      {:rec {:id "bad" :age "bad"}}
+                      :rec/bad))]
+      (is (= 1 (count traces)))
+      (let [v (first traces)]
+        (is (= [:rec] (-> v :tags :path))
+            "common-prefix of [:id] and [:age] is [] — leaf path is the
+             registered root [:rec]")
+        (is (= [:rec] (-> v :tags :registered-path)))))))
+
+;; ---- G1: direct unit tests for the private helpers -----------------------
+
+(deftest common-prefix-unit
+  (testing "rf2-rbbmt — common-prefix returns the longest shared leading
+            run of two sequential collections, as a vector"
+    (let [cp #'validate/common-prefix]
+      (is (= [:a :b] (cp [:a :b :c]   [:a :b :d]))
+          "diverge at index 2 → prefix is the first two elements")
+      (is (= []      (cp [:x]         [:y]))
+          "diverge at index 0 → empty prefix")
+      (is (= [:a :b] (cp [:a :b]      [:a :b]))
+          "identical → the whole vector")
+      (is (= [:a]    (cp [:a :b]      [:a]))
+          "one is a strict prefix of the other → the shorter one")
+      (is (= []      (cp []          [:a]))
+          "empty input → empty prefix")
+      (is (= []      (cp [:a]        []))
+          "empty other → empty prefix")
+      (is (= [:a :b :c] (cp [:a :b :c] [:a :b :c :d]))
+          "longer-suffix divergence still stops at the shorter length")
+      (is (vector? (cp [:a] [:a]))
+          "result is a vector (transient→persistent!), not a lazy seq"))))
+
+(deftest failing-in-path-unit
+  (testing "rf2-rbbmt — failing-in-path extracts and narrows the Malli
+            explainer's per-error :in paths; nil when no extractable path"
+    (let [fip #'validate/failing-in-path]
+      (is (nil? (fip nil))
+          "non-map explanation → nil")
+      (is (nil? (fip {}))
+          "no :errors key → nil")
+      (is (nil? (fip {:errors []}))
+          "empty :errors → nil")
+      (is (nil? (fip {:errors [{:path [:x]} {:path [:y]}]}))
+          "errors carry no :in → nil (keep :in drops every entry)")
+      (is (= [:a] (fip {:errors [{:in [:a]}]}))
+          "single error → that error's :in verbatim")
+      (is (= [:user] (fip {:errors [{:in [:user :id]} {:in [:user :age]}]}))
+          "two diverging :in → reduce common-prefix to the ancestor")
+      (is (= [] (fip {:errors [{:in [:id]} {:in [:age]}]}))
+          "fully-divergent :in → empty common prefix (the root)")
+      (is (= [:a :b] (fip {:errors [{:in [:a :b :c]}
+                                    {:in [:a :b :d]}
+                                    {:in [:a :b :e]}]}))
+          "three errors fold left to the shared [:a :b] prefix")))
+  (testing "rf2-rbbmt — failing-in-path agrees with the live Malli
+            explainer on a real two-child divergence"
+    (let [fip #'validate/failing-in-path
+          schema [:map [:user [:map [:id :int] [:age :int]]]]
+          expl   (validator/run-explainer schema {:user {:id "x" :age "y"}})]
+      (is (= [:user] (fip expl))
+          "live Malli explanation with two failing children narrows to
+           the [:user] ancestor"))))
