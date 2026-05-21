@@ -1,9 +1,12 @@
 /*
- * re-frame2 docs/cljs playground styles (Phase 1, rf2-y99zt).
+ * re-frame2 docs/cljs playground styles (Phase 1, rf2-y99zt; Phase 2, rf2-bujlr;
+ * Phase 3, rf2-00zvt).
  *
  * Styles the live-CLJS cells produced by playground.js. Uses Material theme
  * variables where possible so light/dark modes both look right. Built/copied
- * to docs/cljs/playground.css and wired via mkdocs `extra_css`.
+ * to docs/cljs/playground.css and wired via mkdocs `extra_css`. re-frame2
+ * (cljs-rf2) cells reuse the Phase-2 .cljs-mount render surface (they carry
+ * both .cljs-cell--render and .cljs-cell--rf2).
  */
 
 .cljs-cell {

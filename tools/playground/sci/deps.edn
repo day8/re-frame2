@@ -1,0 +1,30 @@
+;; SCI eval bundle for the docs/cljs playground's re-frame2 cells
+;; (rf2-00zvt, Phase 3). Self-contained shadow-cljs :browser build that
+;; bundles re-frame2's runtime API into an SCI context (findings doc §6
+;; option B). This is NOT a Scittle plugin: there is no published
+;; `scittle.core` artefact a standalone plugin build could `:require`,
+;; and Scittle's plugins ship STOCK reagent/re-frame, not re-frame2.
+;;
+;; Deps:
+;;   - org.babashka/sci — the SCI interpreter (the eval engine).
+;;   - day8/re-frame2 (core) — the public API this bundle exposes
+;;     (re-frame.core). Pulled transitively by reagent-slim, named here
+;;     for clarity.
+;;   - day8/reagent-slim — reagent2 (the substrate re-frame2 renders
+;;     through) + the re-frame.adapter.reagent-slim adapter.
+;;
+;; The :local/root coords point at the implementation artefacts (same
+;; mechanism implementation/deps.edn uses). Bundle-isolation is not a
+;; concern here — this is a tools/ docs-build artefact, never shipped in
+;; a production app bundle (tools/README.md: nothing under
+;; implementation/ :requires anything under tools/, and this bundle is
+;; only loaded by the docs/cljs page).
+{:paths ["src"]
+ ;; SCI is published on Clojars (not Maven Central) under group
+ ;; `org.babashka`; pin the v0.11.51 release sha via a git coord so the
+ ;; build is reproducible without relying on a Clojars mirror.
+ :deps  {thheller/shadow-cljs {:mvn/version "3.4.10"}
+         org.babashka/sci {:git/url "https://github.com/babashka/sci"
+                           :git/sha "44ce05e3af3d4b7731ae776b85c3af491019ff16"}
+         day8/re-frame2    {:local/root "../../../implementation/core"}
+         day8/reagent-slim {:local/root "../../../implementation/adapters/reagent-slim"}}}

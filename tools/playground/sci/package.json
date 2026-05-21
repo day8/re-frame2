@@ -1,0 +1,17 @@
+{
+  "name": "rf2-docs-cljs-playground-sci",
+  "version": "0.1.0",
+  "private": true,
+  "description": "re-frame2-aware SCI eval bundle for the docs/cljs playground (rf2-00zvt Phase 3). shadow-cljs :browser build that bundles re-frame2 core + reagent2 into an SCI context -> docs/cljs/playground-rf2.js (window.rf2sci.{evalString,renderLast}). Not a Scittle plugin; standalone bundle (findings doc §6 option B).",
+  "scripts": {
+    "build": "shadow-cljs release rf2 && node scripts/copy-bundle.mjs",
+    "build:dev": "shadow-cljs compile rf2 && node scripts/copy-bundle.mjs"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "shadow-cljs": "3.4.10"
+  }
+}

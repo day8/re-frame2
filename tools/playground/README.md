@@ -1,4 +1,4 @@
-# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover; rf2-bujlr Phase 2)
+# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover; rf2-bujlr Phase 2; rf2-00zvt Phase 3)
 
 The roll-your-own live-ClojureScript-cell playground for the `docs/cljs` page —
 the production replacement for Klipse. It turns ` ```cljs ` fenced blocks in
@@ -6,14 +6,17 @@ mkdocs prose into CodeMirror 6 editors that evaluate plain CLJS in the browser
 via Scittle (SCI), instant-nav-safe.
 
 **Phase 2 (rf2-bujlr)** adds a second cell kind for **live reagent / re-frame
-components** — see [Cell kinds](#cell-kinds) below.
+components** (stock libs, via Scittle plugins). **Phase 3 (rf2-00zvt)** adds a
+third cell kind for **live re-frame2 components** that evaluate re-frame2's OWN
+public API — see [Cell kinds](#cell-kinds) below.
 
 ## Cell kinds
 
 | Fence | Class emitted | Behaviour |
 |---|---|---|
 | ` ```cljs ` | `language-cljs` | **plain-eval cell** — evaluates the source and `pr-str`s the last form's value into the result div (Phase 1). |
-| ` ```cljs-render ` | `language-cljs-render` | **render cell** — evaluates the source and **mounts the last form's value as a reagent component** into the result div (Phase 2). Stock reagent + re-frame are available. |
+| ` ```cljs-render ` | `language-cljs-render` | **stock render cell** — evaluates the source and **mounts the last form's value as a reagent component** into the result div (Phase 2). STOCK reagent + re-frame are available, via the Scittle plugins. |
+| ` ```cljs-rf2 ` | `language-cljs-rf2` | **re-frame2 render cell** — same as `cljs-render` but evaluated against **re-frame2's OWN public API** (`re-frame.core` v2) rendered via **reagent2** (Phase 3). Backed by a self-contained SCI bundle (`sci/` → `docs/cljs/playground-rf2.js`), NOT Scittle. |
 
 ### Render cells (` ```cljs-render `)
 
@@ -48,12 +51,61 @@ The reagent + re-frame Scittle plugins (and the `React` + `ReactDOM` globals
 they need) are loaded from the CDN **only on pages that contain a
 ` ```cljs-render ` cell** — plain-CLJS pages never pay that cost.
 
+### re-frame2 cells (` ```cljs-rf2 `, Phase 3)
+
+A `cljs-rf2` cell evaluates against **re-frame2's own public API** — the v2
+`re-frame.core` (`reg-event-db` / `reg-sub` / `dispatch` / `subscribe`), rendered
+via **reagent2** (the reagent-slim rewrite re-frame2 actually renders through),
+NOT stock re-frame. Like a `cljs-render` cell, the **last form** must be a
+reagent renderable; the cell auto-renders on load and re-renders on Mod-Enter.
+
+```cljs-rf2
+(require '[reagent2.core :as r]
+         '[re-frame.core :as rf])
+(rf/reg-event-db :init (fn [_ _] {:n 0}))
+(rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+(rf/reg-sub      :n    (fn [db _] (:n db)))
+(rf/dispatch-sync [:init])
+(defn counter []
+  [:div
+   [:span "count: " @(rf/subscribe [:n])]
+   [:button {:on-click #(rf/dispatch [:inc])} "inc"]])
+[counter]
+```
+
+**Why this is NOT a Scittle plugin.** Scittle's `scittle.reagent.js` /
+`scittle.re-frame.js` plugins ship STOCK reagent + re-frame, and there is no
+published `scittle.core` artefact a standalone plugin build could `:require`
+(Scittle is a monorepo module-graph build). So Phase 3 is a **self-contained SCI
+eval bundle** (findings doc §6 option B): the `sci/` sub-project is a shadow-cljs
+`:browser` `:advanced` build that depends on `org.babashka/sci` + re-frame2 core
++ reagent-slim, builds an SCI context via `sci/copy-ns` over `re-frame.core`, and
+installs `window.rf2sci.{evalString,renderLast}`. The bootstrap loads it as a
+classic `<script>` **only on pages with a ` ```cljs-rf2 ` cell**.
+
+How re-frame2's API reaches a cell:
+
+- In compiled CLJS, `re-frame.core` carries plain-fn **aliases** for every
+  `reg-*` registration (the macro forms are JVM-only and only add source-coord
+  capture, which a browser cell does not need), so `sci/copy-ns` exposes them
+  under their plain names.
+- `dispatch` / `dispatch-sync` / `subscribe` / `inject-cofx` are macro-only on
+  the public surface (the fns are `dispatch*` / … / `subscribe*`), so the SCI
+  config adds those names explicitly, bound to the `*`-fns.
+
+**React 19 is bundled, not global.** reagent2 targets React 19, which **dropped
+its UMD build** — so the Phase-2 global-`React`-from-CDN trick is unavailable.
+The `sci/` bundle therefore bundles `react`/`react-dom`@19 (the impl-pinned
+versions) directly: `playground-rf2.js` is one fully self-contained file (no
+external React, no CDN, no version-mismatch risk). ~1.06 MB raw / ~256 KB
+gzipped.
+
 This is **option B** from the findings doc
 (`ai/findings/2026-05-21-roll-your-own-cljs-playground.md` §6) realised as a
-self-contained `tools/` artefact. The cells are plain CLJS, so the artefact is
-mostly JS bundled by **esbuild** — not shadow-cljs. (The shadow-cljs SCI config
-that exposes re-frame2's own API to cells is a Phase 3 concern; see the findings
-doc. `tools/shadow-cljs.edn` is **untouched** by this artefact.)
+self-contained `tools/` artefact. The bootstrap + CM6 editor are plain JS bundled
+by **esbuild**; the Phase-3 re-frame2 eval engine is the **CLJS + shadow-cljs**
+sub-build under `sci/`. (This artefact ships its own `sci/shadow-cljs.edn` +
+`sci/deps.edn` — the top-level `tools/shadow-cljs.edn` is **untouched**.)
 
 ## Stack (pinned)
 
@@ -66,28 +118,45 @@ doc. `tools/shadow-cljs.edn` is **untouched** by this artefact.)
 | Scittle | 0.8.31 | SCI eval engine — loaded as a classic `<script>` global from jsDelivr (NOT bundled, NOT an ES module) |
 | `scittle.reagent.js` | 0.8.31 | reagent plugin (Phase 2) — loaded from jsDelivr ONLY on pages with a ` ```cljs-render ` cell |
 | `scittle.re-frame.js` | 0.8.31 | re-frame plugin (Phase 2) — same on-demand load |
-| React + ReactDOM | 18 (UMD) | globals the Scittle reagent plugin references — loaded from jsDelivr ahead of the plugins, on-demand |
-| esbuild | ^0.28.0 | bundler (IIFE) |
+| React + ReactDOM | 18 (UMD) | globals the Scittle reagent plugin references — loaded from jsDelivr ahead of the plugins, on-demand (Phase 2 only) |
+| esbuild | ^0.28.0 | bundler (IIFE) for the bootstrap |
 | playwright | ^1.60.0 | smoke harness (chromium) |
+
+The Phase-3 re-frame2 eval bundle (`sci/`) pins:
+
+| Dependency | Version | Role |
+|---|---|---|
+| `org.babashka/sci` | 0.11.51 (git) | the SCI interpreter — the re-frame2 cells' eval engine |
+| `day8/re-frame2` (core) | `:local/root` | the public API exposed to cells (`re-frame.core` v2) |
+| `day8/reagent-slim` | `:local/root` | reagent2 (the render substrate) + the `reagent-slim` adapter |
+| `react` + `react-dom` | 19.2.0 | **bundled** into `playground-rf2.js` (React 19 has no UMD) |
+| `shadow-cljs` | 3.4.10 | the CLJS → `:advanced` browser bundler |
 
 ## Build
 
 ```bash
 cd tools/playground
 npm install
-npm run build          # esbuild --minify -> ../../docs/cljs/playground.js + copies playground.css
-# npm run build:dev    # unminified, for debugging
+npm run build          # builds BOTH bundles (bootstrap + re-frame2 SCI)
+# npm run build:bootstrap   # just the esbuild bootstrap
+# npm run build:rf2         # just the sci/ shadow-cljs re-frame2 bundle
+# npm run build:dev         # unminified bootstrap, for debugging
 ```
 
-`npm run build` produces two committed, deployed assets:
+`npm run build` produces three committed, deployed assets:
 
 - `docs/cljs/playground.js` — the esbuild IIFE bundle (CM6 + clojure-mode + the
   instant-nav bootstrap). **Committed** (vendored prebuilt; bump = re-bundle).
 - `docs/cljs/playground.css` — hand-authored cell styles, copied verbatim.
+- `docs/cljs/playground-rf2.js` — the shadow-cljs `:advanced` re-frame2 SCI
+  bundle (Phase 3). Built from `sci/` (`shadow-cljs release rf2` → copied from
+  `sci/out/`). **Committed** (vendored prebuilt; bump = re-bundle).
 
-Scittle is **not** bundled — the bootstrap injects its CDN `<script>` at eval
-time (only on pages that have ` ```cljs ` cells), the same guarded, lazy-load
-pattern the deleted Klipse bootstrap used for its plugin.
+Neither Scittle nor the re-frame2 bundle is loaded eagerly — the bootstrap
+injects each `<script>` at eval time, only on pages that have the relevant cell
+kind (Scittle for ` ```cljs `/` ```cljs-render `; `playground-rf2.js` for
+` ```cljs-rf2 `), the same guarded, lazy-load pattern the deleted Klipse
+bootstrap used for its plugin.
 
 ## Test
 
@@ -96,10 +165,11 @@ npm run browsers       # one-time: playwright install chromium
 npm run smoke          # headless chromium drives 3 cells against docs/cljs/playground.js
 ```
 
-The smoke loads the **production** `docs/cljs/playground.js` against a page that
-mimics the mkdocs-emitted DOM (`<pre class="language-cljs">` +
-`<pre class="language-cljs-render">`), proves the bootstrap auto-injects
-Scittle, then asserts:
+The smoke loads BOTH **production** bundles (`docs/cljs/playground.js` +
+`docs/cljs/playground-rf2.js`) against a page that mimics the mkdocs-emitted DOM
+(`<pre class="language-cljs">` + `<pre class="language-cljs-render">` +
+`<pre class="language-cljs-rf2">`), proves the bootstrap auto-injects each engine
+on demand, then asserts:
 
 - **Phase 1:** `(+ 1 2 3) => 6`; a `defn`/`println`/nested-coll cell captures
   `*out*` and renders the value; an error cell renders `ERROR` without crashing
@@ -109,6 +179,14 @@ Scittle, then asserts:
   counter using a re-frame `subscribe` renders live; clicking its button
   `dispatch`es a re-frame event and the subscribed view updates (count 0 → 2);
   a plain ` ```cljs ` cell on the same page still works.
+- **Phase 3:** a ` ```cljs-rf2 ` cell makes the bootstrap auto-load the
+  self-contained re-frame2 SCI bundle (`window.rf2sci`); a reagent2 component
+  using re-frame2's OWN `subscribe` renders live; clicking its button
+  `dispatch`es a re-frame2 event and the v2 subscription updates (count 0 → 2);
+  the Phase-1 plain cell + Phase-2 stock cell on the same page still work.
+
+Build both bundles first: `npm run build` (or `npm run build:rf2` for just the
+re-frame2 one).
 
 ## mkdocs wiring
 

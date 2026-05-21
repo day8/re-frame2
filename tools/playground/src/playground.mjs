@@ -2,6 +2,7 @@
  * re-frame2 docs/cljs playground.
  *   - rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover (plain-CLJS cells).
  *   - rf2-bujlr Phase 2 (live reagent/re-frame component cells).
+ *   - rf2-00zvt Phase 3 (live re-frame2 component cells — re-frame2's OWN API).
  *
  * A roll-your-own, instant-nav-safe live-CLJS-cell bootstrap — the production
  * renderer for the `docs/cljs` page. It is the production successor to the
@@ -9,14 +10,27 @@
  * page's ```cljs cells (`.language-cljs`) are now rendered here, and the
  * vendored ~7 MB Klipse plugin + its bootstrap have been deleted.
  *
- * Two cell kinds:
+ * Three cell kinds:
  *   - ```cljs        -> plain-eval cell. Evaluates the source and pr-str's the
  *                       last form's value (Phase 1). No reagent/re-frame loaded.
  *   - ```cljs-render -> render cell. Evaluates the source and MOUNTS the last
  *                       form's value as a reagent component into the result div
- *                       (Phase 2). Stock reagent + re-frame are available; the
+ *                       (Phase 2). STOCK reagent + re-frame are available; the
  *                       cell may `require` reagent.core / reagent.dom /
  *                       re-frame.core and reg-event/reg-sub/dispatch/subscribe.
+ *   - ```cljs-rf2    -> re-frame2 render cell. Same as cljs-render but evaluated
+ *                       against re-frame2's OWN public API (re-frame.core v2)
+ *                       rendered via reagent2 (Phase 3). The cell may `require`
+ *                       re-frame.core / reagent2.core and call re-frame2's
+ *                       reg-event-db / reg-sub / dispatch / subscribe. Backed by
+ *                       a self-contained SCI bundle (cljs/playground-rf2.js,
+ *                       built by tools/playground/sci) — NOT Scittle: there is
+ *                       no published scittle.core artefact to build a plugin
+ *                       against, and Scittle ships STOCK libs. The bundle
+ *                       bundles re-frame2 core + reagent2 + React 19 (React 19
+ *                       dropped its UMD build, so the global-React CDN trick
+ *                       Phase 2 uses is unavailable) into one self-contained
+ *                       file, loaded on demand only on pages with a cljs-rf2 cell.
  *
  * Stack:
  *   - CodeMirror 6 (@codemirror/{state,view,commands}) — the editor.
@@ -62,12 +76,22 @@ const REACT_SRC =
 const REACT_DOM_SRC =
   "https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js";
 
+// The re-frame2 SCI bundle (Phase 3) — a self-contained shadow-cljs build
+// (tools/playground/sci) that bundles re-frame2 core + reagent2 + React 19 and
+// installs window.rf2sci.{evalString,renderLast}. Sibling of this file under
+// docs/cljs/, so it is resolved relative to this file's own URL (see selfUrl
+// below) for /re-frame2/ sub-path safety. Loaded as a classic <script> on
+// demand, only on pages that contain a ```cljs-rf2 cell.
+const RF2_BUNDLE_NAME = "playground-rf2.js";
+
 // The fence classes pymdownx.superfences emits (see mkdocs.yml custom_fences).
 //   ```cljs        -> pre.language-cljs        -> plain-eval cell
-//   ```cljs-render -> pre.language-cljs-render  -> reagent/re-frame render cell
+//   ```cljs-render -> pre.language-cljs-render  -> stock reagent/re-frame render cell
+//   ```cljs-rf2    -> pre.language-cljs-rf2     -> re-frame2 (v2) render cell
 const EVAL_SELECTOR = "pre.language-cljs:not([data-cljs-mounted])";
 const RENDER_SELECTOR = "pre.language-cljs-render:not([data-cljs-mounted])";
-const ANY_CELL_SELECTOR = `${EVAL_SELECTOR}, ${RENDER_SELECTOR}`;
+const RF2_SELECTOR = "pre.language-cljs-rf2:not([data-cljs-mounted])";
+const ANY_CELL_SELECTOR = `${EVAL_SELECTOR}, ${RENDER_SELECTOR}, ${RF2_SELECTOR}`;
 
 // --- Eval wiring (validated in spike rf2-qk3sh) ----------------------------
 
@@ -141,6 +165,22 @@ function renderComponentCljs(src, targetEl) {
   );
 }
 
+// re-frame2 render-cell eval (Phase 3). Evaluates the source against
+// re-frame2's OWN public API via the self-contained SCI bundle
+// (window.rf2sci, installed by playground-rf2.js) and mounts the last form's
+// value as a reagent2 component into `targetEl`. window.rf2sci.renderLast owns
+// the SCI eval + the reagent2 React-19 root, including re-render-in-place on
+// re-eval, so the bootstrap just hands it the source + target.
+function renderComponentRf2(src, targetEl) {
+  const rf2 = window.rf2sci;
+  if (!rf2 || !rf2.renderLast) {
+    throw new Error(
+      "re-frame2 SCI bundle not loaded (window.rf2sci.renderLast missing)"
+    );
+  }
+  rf2.renderLast(src, targetEl);
+}
+
 function renderResult(targetEl, { printed, result }) {
   targetEl.classList.remove("cljs-result--err");
   targetEl.innerHTML = "";
@@ -167,9 +207,23 @@ function renderError(targetEl, err) {
 // default / clojure-mode handler that might also bind Mod-Enter and swallow the
 // event (the bug that made the spike cell render nothing without Prec.highest).
 //
-// `render` selects the cell behaviour: render cells mount a reagent component
-// into the result div; plain cells pr-str the value.
-function evalKeymap(getResultEl, render) {
+// `kind` selects the cell behaviour:
+//   "eval"   -> pr-str the last form's value (Phase 1)
+//   "render" -> mount last form as a STOCK reagent component (Phase 2)
+//   "rf2"    -> mount last form as a re-frame2/reagent2 component (Phase 3)
+function runCell(kind, src, resultEl) {
+  if (kind === "render") {
+    resultEl.classList.remove("cljs-result--err");
+    renderComponentCljs(src, resultEl);
+  } else if (kind === "rf2") {
+    resultEl.classList.remove("cljs-result--err");
+    renderComponentRf2(src, resultEl);
+  } else {
+    renderResult(resultEl, evalCljs(src));
+  }
+}
+
+function evalKeymap(getResultEl, kind) {
   return Prec.highest(
     keymap.of([
       {
@@ -179,12 +233,7 @@ function evalKeymap(getResultEl, render) {
           const src = view.state.doc.toString();
           const resultEl = getResultEl();
           try {
-            if (render) {
-              resultEl.classList.remove("cljs-result--err");
-              renderComponentCljs(src, resultEl);
-            } else {
-              renderResult(resultEl, evalCljs(src));
-            }
+            runCell(kind, src, resultEl);
           } catch (e) {
             renderError(resultEl, e);
           }
@@ -288,18 +337,26 @@ function ensureDarkPalette() {
 
 // --- Cell mount ------------------------------------------------------------
 
+function cellKind(preEl) {
+  if (preEl.classList.contains("language-cljs-rf2")) return "rf2";
+  if (preEl.classList.contains("language-cljs-render")) return "render";
+  return "eval";
+}
+
 function mountCell(preEl) {
   if (preEl.dataset.cljsMounted) return;
   const source = preEl.textContent.replace(/\n+$/, "");
-  const isRender = preEl.classList.contains("language-cljs-render");
+  const kind = cellKind(preEl);
+  const isMount = kind === "render" || kind === "rf2";
 
   const wrap = document.createElement("div");
   wrap.className = "cljs-cell";
-  if (isRender) wrap.classList.add("cljs-cell--render");
+  if (kind === "render") wrap.classList.add("cljs-cell--render");
+  if (kind === "rf2") wrap.classList.add("cljs-cell--render", "cljs-cell--rf2");
   const editorHost = document.createElement("div");
   editorHost.className = "cljs-editor";
   const resultEl = document.createElement("div");
-  resultEl.className = isRender ? "cljs-result cljs-mount" : "cljs-result";
+  resultEl.className = isMount ? "cljs-result cljs-mount" : "cljs-result";
   wrap.appendChild(editorHost);
   wrap.appendChild(resultEl);
 
@@ -323,20 +380,20 @@ function mountCell(preEl) {
       // plain monospace (rf2-wj623).
       syntaxHighlighting(highlightStyle),
       keymap.of([...complete_keymap, ...defaultKeymap, ...historyKeymap]),
-      evalKeymap(() => resultEl, isRender),
+      evalKeymap(() => resultEl, kind),
       editorTheme,
     ],
   });
 
   new EditorView({ state, parent: editorHost });
 
-  // Render cells auto-mount on load so the live component is visible without
-  // interaction (the demo is the point). Plain eval cells stay Mod-Enter-only
-  // — they print a value, which the reader triggers deliberately. Editing +
-  // Mod-Enter re-renders either kind.
-  if (isRender) {
+  // Render cells (stock + re-frame2) auto-mount on load so the live component
+  // is visible without interaction (the demo is the point). Plain eval cells
+  // stay Mod-Enter-only — they print a value, which the reader triggers
+  // deliberately. Editing + Mod-Enter re-renders any kind.
+  if (isMount) {
     try {
-      renderComponentCljs(source, resultEl);
+      runCell(kind, source, resultEl);
     } catch (e) {
       renderError(resultEl, e);
     }
@@ -375,11 +432,29 @@ const selfUrl =
   })();
 
 function hasCells() {
-  return document.querySelector("pre.language-cljs, pre.language-cljs-render") !== null;
+  return (
+    document.querySelector(
+      "pre.language-cljs, pre.language-cljs-render, pre.language-cljs-rf2"
+    ) !== null
+  );
 }
 
 function hasRenderCells() {
   return document.querySelector("pre.language-cljs-render") !== null;
+}
+
+function hasRf2Cells() {
+  return document.querySelector("pre.language-cljs-rf2") !== null;
+}
+
+// Resolve a sibling-asset URL (same dir as this file) for /re-frame2/
+// sub-path safety. selfUrl is this module's own src (set below).
+function siblingUrl(name) {
+  try {
+    return new URL(name, selfUrl).href;
+  } catch (_e) {
+    return name;
+  }
 }
 
 // Inject a classic <script> at most once per document (keyed by `id`) and call
@@ -463,15 +538,38 @@ function ensureReagentStack(onReady) {
   );
 }
 
+// Load the self-contained re-frame2 SCI bundle (Phase 3). It installs
+// window.rf2sci.{evalString,renderLast} and bundles its own React 19 — no
+// external React, no Scittle. Idempotent across instant navs (keyed by id);
+// "ready" = window.rf2sci present.
+function rf2Ready() {
+  return !!(window.rf2sci && window.rf2sci.renderLast);
+}
+
+function ensureRf2(onReady) {
+  ensureScript("cljs-rf2-js", siblingUrl(RF2_BUNDLE_NAME), rf2Ready, onReady);
+}
+
 function loadPlayground() {
   if (!hasCells()) return;
-  ensureScittle(() => {
-    if (hasRenderCells()) {
-      ensureReagentStack(mountAll);
-    } else {
-      mountAll();
-    }
-  });
+  // The re-frame2 bundle is independent of Scittle (it carries its own SCI +
+  // React). Plain ```cljs and stock ```cljs-render cells still need Scittle.
+  const needsScittle =
+    document.querySelector("pre.language-cljs, pre.language-cljs-render") !==
+    null;
+  const finishScittlePath = () => {
+    if (hasRf2Cells()) ensureRf2(mountAll);
+    else mountAll();
+  };
+  if (needsScittle) {
+    ensureScittle(() => {
+      if (hasRenderCells()) ensureReagentStack(finishScittlePath);
+      else finishScittlePath();
+    });
+  } else if (hasRf2Cells()) {
+    // re-frame2-only page: skip Scittle + the reagent CDN stack entirely.
+    ensureRf2(mountAll);
+  }
 }
 
 // Subscribe ONCE to Material's document$ (emits on initial load AND every
@@ -493,3 +591,4 @@ if (window.document$ && typeof window.document$.subscribe === "function") {
 window.__rf2PlaygroundMountAll = mountAll;
 window.__rf2PlaygroundEvalCljs = evalCljs;
 window.__rf2PlaygroundRenderCljs = renderComponentCljs;
+window.__rf2PlaygroundRenderRf2 = renderComponentRf2;

@@ -2,11 +2,13 @@
   "name": "rf2-docs-cljs-playground",
   "version": "0.1.0",
   "private": true,
-  "description": "re-frame2 docs/cljs live-CLJS-cell playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover): CM6 + @nextjournal/clojure-mode + Scittle. esbuild IIFE bundle -> docs/cljs/playground.js, instant-nav-safe extra_javascript bootstrap. Replaced Klipse as of Phase 1b.",
+  "description": "re-frame2 docs/cljs live-CLJS-cell playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover; rf2-bujlr Phase 2; rf2-00zvt Phase 3): CM6 + @nextjournal/clojure-mode + Scittle (plain + stock reagent/re-frame cells) + a self-contained re-frame2 SCI bundle (sci/, shadow-cljs) for live re-frame2 (v2) cells. esbuild IIFE bundle -> docs/cljs/playground.js + shadow-cljs -> docs/cljs/playground-rf2.js, instant-nav-safe extra_javascript bootstrap. Replaced Klipse as of Phase 1b.",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/playground.mjs --bundle --minify --format=iife --outfile=../../docs/cljs/playground.js && node scripts/copy-css.mjs",
+    "build": "npm run build:bootstrap && npm run build:rf2",
+    "build:bootstrap": "esbuild src/playground.mjs --bundle --minify --format=iife --outfile=../../docs/cljs/playground.js && node scripts/copy-css.mjs",
     "build:dev": "esbuild src/playground.mjs --bundle --format=iife --outfile=../../docs/cljs/playground.js && node scripts/copy-css.mjs",
+    "build:rf2": "cd sci && npm install && npm run build",
     "smoke": "node test/smoke.test.mjs",
     "browsers": "playwright install chromium"
   },
