@@ -426,6 +426,36 @@ const ARTEFACTS = [
     consumerAllowList: null,
     expectedAllowListHits: 0,
   },
+
+  // binaryage/cljs-devtools — the Chrome custom-formatters library
+  // Causa's EDN widget adopts for value-rendering
+  // (tools/causa/src/.../views/edn_widget/cljs_devtools_render.cljs).
+  // Same posture as xyflow + elkjs: dev-only, consumed only by tools/
+  // (Causa), gated behind the Causa `:devtools/preloads`. Production
+  // bundles MUST NOT pull cljs-devtools — the formatters body weighs
+  // tens of kilobytes and gives consumers no runtime benefit (Chrome's
+  // console isn't relevant to end users).
+  //
+  // Sentinels are distinctive identifiers from cljs-devtools' internal
+  // namespaces. `devtools.formatters.markup` is the ns that emits
+  // JSONML; `devtools_formatters$markup` is its munged form under
+  // :advanced. The literal namespace-name string appears in
+  // cljs-devtools' source body (in ex-info contexts, in goog.provide
+  // calls, in the prefs map). A non-zero hit means cljs-devtools' body
+  // got pulled into the bundle — most likely a `:require` slipped from
+  // tools/causa/* into implementation/*, or the EDN widget got
+  // referenced outside the Causa preload-gated tree.
+  {
+    name: 'cljs-devtools',
+    internalSentinels: [
+      // The namespace name as a literal string — appears in
+      // cljs-devtools' goog.provide-equivalent and prefs metadata.
+      { source: 'binaryage/cljs-devtools formatters namespace (devtools.formatters)',
+        sentinel: 'devtools.formatters' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
 ];
 
 // ----- helpers ---------------------------------------------------------------

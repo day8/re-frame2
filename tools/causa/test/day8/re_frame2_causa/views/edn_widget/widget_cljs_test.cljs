@@ -1,16 +1,21 @@
 (ns day8.re-frame2-causa.views.edn-widget.widget-cljs-test
-  "Tests for the canonical Causa EDN widget (rf2-9wsdy).
+  "Tests for the canonical Causa EDN widget.
 
   ## What's under test
 
   1. **Variant dispatch** — `browse` / `diff` / `mini` / `render` route
-     to the right underlying engine call shape.
+     to the right underlying engine call shape. `browse` of a
+     collection routes through `data-display/render-tree`; `browse` of
+     a non-collection routes through `cljs-devtools-render`; `mini`
+     always routes through `cljs-devtools-render`.
   2. **Code-block tokenizer** — `tokenize-clojure` classifies keywords,
      strings, numbers, parens, builtins, and plain symbols correctly.
+     This is the source-text highlighter (not CLJS-value rendering;
+     cljs-devtools owns values, this tokenizer owns source strings).
   3. **Code-block rendering** — `code-block` returns the expected
      `[:pre [:code ...]]` shape with per-token colour spans.
-  4. **Mini truncation** — long values get the ellipsis + the full
-     value lands in the title attribute.
+  4. **Mini chrome** — `:title`, `:data-pr`, and `:data-testid`
+     attributes are set; long pr-str gets truncated in `:data-pr`.
 
   Pure-data scope — no DOM mount; hiccup-shape assertions only."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -43,23 +48,48 @@
 
 ;; ---- variant: browse -----------------------------------------------------
 
-(deftest browse-returns-tree-hiccup
+(deftest browse-of-collection-routes-through-data-display
   (let [out (w/browse {:value     {:a 1 :b 2}
                        :panel-id  :test
                        :render-id "browse-1"})]
-    (testing "browse returns a [:div ...] root with the panel-keyed data-testid"
+    (testing "browse of a map returns a [:div ...] root with the panel-keyed data-testid"
       (is (vector? out))
       (is (= :div (first out)))
       ;; The underlying render-tree stamps the panel-keyed root testid.
       (is (some? (find-by-testid out "rf-causa-data-display-test-browse-1"))))))
 
-(deftest browse-renders-keyword-value-in-violet
-  (let [out  (w/browse {:value     :foo/bar
+(defn- find-testid-prefix
+  "Return the first hiccup node whose :data-testid attr starts with
+  `prefix`. The engine's leaf-testid is dynamic
+  (`rf-causa-data-display-leaf-<path>`) so callers asserting that a
+  leaf rendered cannot match exactly."
+  [tree prefix]
+  (->> (walk-hiccup tree)
+       (filter (fn [n]
+                 (and (vector? n)
+                      (map? (second n))
+                      (let [id (get (second n) :data-testid)]
+                        (and (string? id)
+                             (.startsWith id prefix))))))
+       first))
+
+(deftest browse-of-collection-still-routes-keyword-leaf-to-engine
+  (let [out  (w/browse {:value     {:k :foo/bar}
                         :panel-id  :test
                         :render-id "kw-1"})
-        leaf (find-by-testid out "rf-causa-data-display-leaf-")]
-    (testing "browse routes through the canonical leaf renderer"
+        leaf (find-testid-prefix out "rf-causa-data-display-leaf-")]
+    (testing "map containing a keyword routes through the engine's leaf renderer"
       (is (some? leaf)))))
+
+(deftest browse-of-non-collection-routes-through-cljs-devtools
+  (let [out (w/browse {:value     :foo/bar
+                       :panel-id  :test
+                       :render-id "scalar-1"})]
+    (testing "non-collection browse returns a [:div ...] container"
+      (is (vector? out))
+      (is (= :div (first out)))
+      (is (some? (find-by-testid out
+                                 "rf-causa-edn-widget-browse-test-scalar-1"))))))
 
 ;; ---- variant: diff -------------------------------------------------------
 
@@ -75,23 +105,37 @@
 
 ;; ---- variant: mini -------------------------------------------------------
 
-(deftest mini-short-value-is-not-truncated
+(deftest mini-returns-span-shape
   (let [out (w/mini {:a 1})]
-    (testing "short pr-str fits — no ellipsis"
+    (testing "mini returns a [:span ...] with the canonical testid"
       (is (= :span (first out)))
-      (let [body (last out)]
-        (is (string? body))
-        (is (not (re-find #"…$" body)))))))
+      (is (= "rf-causa-edn-widget-mini"
+             (-> out second :data-testid))))))
 
-(deftest mini-long-value-is-truncated-and-title-carries-full
+(deftest mini-short-value-data-pr-not-truncated
+  (let [out   (w/mini {:a 1})
+        attrs (second out)]
+    (testing "short pr-str fits — no ellipsis in :data-pr"
+      (is (= (pr-str {:a 1}) (:title attrs)))
+      (is (not (re-find #"…$" (:data-pr attrs)))))))
+
+(deftest mini-long-value-data-pr-truncated-but-title-full
   (let [v   (zipmap (map #(keyword (str "key-" %)) (range 30))
                     (range 30))
         out (w/mini v 40)
         attrs (second out)]
-    (testing "ellipsis appended when over max-len"
-      (is (re-find #"…$" (last out))))
-    (testing "title attr carries the full pr-str"
+    (testing "ellipsis appended to :data-pr when over max-len"
+      (is (re-find #"…$" (:data-pr attrs))))
+    (testing ":title attr carries the full pr-str"
       (is (= (pr-str v) (:title attrs))))))
+
+(deftest mini-renders-cljs-devtools-markup-inside
+  (let [out   (w/mini :hello)
+        spans (walk-hiccup out)]
+    (testing "mini embeds cljs-devtools-rendered hiccup as children"
+      ;; cljs-devtools renders a keyword as a coloured span; we should
+      ;; see at least one nested :span under the outer :span.
+      (is (some #(and (vector? %) (= :span (first %))) (rest spans))))))
 
 ;; ---- code-block tokenizer ------------------------------------------------
 

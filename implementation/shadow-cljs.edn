@@ -149,7 +149,13 @@
                 [metosin/malli     "0.20.1"]
                 [com.pitch/uix.core "1.4.4"]
                 [com.pitch/uix.dom  "1.4.4"]
-                [lilactown/helix   "0.2.2"]]
+                [lilactown/helix   "0.2.2"]
+                ;; binaryage/devtools — Causa's EDN widget value-rendering
+                ;; layer (rf2-gycfj). Dev-only; the bundle-isolation gate
+                ;; verifies `devtools.formatters` does not reach production
+                ;; bundles. See tools/causa/deps.edn for the artefact-side
+                ;; rationale.
+                [binaryage/devtools "1.0.7"]]
 
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades
