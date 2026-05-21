@@ -292,6 +292,12 @@
        (let [path (:path flow)]
          (when-let [container (frame/get-frame-db frame-id)]
            (let [cur    (adapter/read-container container)
+                 ;; `validate-flow` guarantees `:path` is a non-empty
+                 ;; vector at registration (rejects non-vector and empty
+                 ;; via :rf.error/flow-bad-path), so a flow read back out
+                 ;; of the registry always carries one — no non-vector /
+                 ;; empty-path arms are reachable here.
+                 ;;
                  ;; rf2-aqt7: when :path is a single-element vector [:k],
                  ;; (butlast [:k]) is () and (update-in cur [] dissoc :k)
                  ;; does NOT dissoc — Clojure's update-in on the empty
@@ -303,11 +309,9 @@
                  ;; which handles the unmaterialised-parent / non-map-
                  ;; intermediate cases without writing nil parents or
                  ;; throwing (per audit rf2-q25os).
-                 new-db (cond
-                          (not (vector? path))         (dissoc cur path)
-                          (empty? path)                cur
-                          (= 1 (count path))           (dissoc cur (first path))
-                          :else                        (dissoc-in-safe cur path))]
+                 new-db (if (= 1 (count path))
+                          (dissoc cur (first path))
+                          (dissoc-in-safe cur path))]
              ;; Per rf2-2vpac: skip `replace-container!` when the dissoc
              ;; branch was a no-op (empty-path, missing key, or
              ;; `dissoc-in-safe` returning `cur` literally on
