@@ -246,21 +246,6 @@
   value when `:density` is unspecified."
   chart-regular)
 
-(def ^:dynamic *chart*
-  "The currently-resolved chart visual-constants map. Defaults to
-  `chart-regular`. The `MachineChart` render entry (`chart.svg/render`)
-  rebinds this for the duration of a single render pass to the
-  density picked by `:density`; helpers inside the renderer read
-  their geometry / typography off this dynamic Var instead of off
-  the namespace-level `chart` Var so a single chart instance can
-  render at compact, regular, or cosy without re-wiring the helper
-  graph.
-
-  Test-only, non-public consumers may rebind this directly via
-  `binding`; production callers go through the `:density` prop. Per
-  rf2-32gw5."
-  chart-regular)
-
 (def densities
   "The complete catalogue of density keywords accepted by
   `chart-for-density` (and, transitively, the `MachineChart`
