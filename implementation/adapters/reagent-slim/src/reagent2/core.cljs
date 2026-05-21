@@ -26,7 +26,8 @@
 
   Symbols **shipped as Class B throw-on-call shims** (per Stage 4-F /
   IMPL-SPEC §10.1 — surfaces React 19 removed; calls throw an `ex-info`
-  whose `:type` is `:rf.error/react-19-removed-surface`):
+  whose canonical `:rf.error/id` discriminator (per Spec 009) is
+  `:rf.error/react-19-removed-surface`):
 
     render            — Use reagent2.dom.client/{create-root, render}.
     dom-node          — findDOMNode is removed; use :ref / useRef.
@@ -166,8 +167,9 @@
 ;; Two of the five React-19-removed surfaces live on `reagent.core` in
 ;; stock Reagent: `reagent.core/render` and `reagent.core/dom-node`.
 ;; The three `reagent.dom/*` shims live in `reagent2.dom`. All five
-;; share `:type :rf.error/react-19-removed-surface` so a single
-;; try/catch in a migration helper matches the lot.
+;; share `:rf.error/id :rf.error/react-19-removed-surface` (the
+;; canonical discriminator per Spec 009) so a single try/catch in a
+;; migration helper matches the lot.
 ;;
 ;; Static-analysis friendliness: each shim's body is a single throw,
 ;; so :advanced Closure compilation can DCE the symbol when no call
@@ -186,10 +188,13 @@
   [& _]
   (throw
     (ex-info
-      "reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
-      {:type     :rf.error/react-19-removed-surface
-       :surface  'reagent2.core/render
-       :recovery :no-recovery})))
+      ":rf.error/react-19-removed-surface"
+      {:rf.error/id :rf.error/react-19-removed-surface
+       :where       'reagent2.core/render
+       :recovery    :no-recovery
+       :reason      "reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead."
+       :surface     'reagent2.core/render
+       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path"})))
 
 (defn dom-node
   "REMOVED under React 19. See migration message; throws on first call.
@@ -201,7 +206,10 @@
   [& _]
   (throw
     (ex-info
-      "reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#dom-node-removal."
-      {:type     :rf.error/react-19-removed-surface
-       :surface  'reagent2.core/dom-node
-       :recovery :no-recovery})))
+      ":rf.error/react-19-removed-surface"
+      {:rf.error/id :rf.error/react-19-removed-surface
+       :where       'reagent2.core/dom-node
+       :recovery    :no-recovery
+       :reason      "reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead."
+       :surface     'reagent2.core/dom-node
+       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#dom-node-removal"})))

@@ -25,9 +25,10 @@ the keys it excludes, and walks through the canonical Form-3 use case
 | `:display-name` | A string used by React DevTools and error messages. Compile-time only — zero runtime cost. |
 
 **Any other key throws.** The throw fires at `create-class` call time (registration
-time, not render time — fail fast) with `:type :rf.error/create-class-key-unsupported`,
+time, not render time — fail fast) with the canonical discriminator
+`:rf.error/id :rf.error/create-class-key-unsupported` (per Spec 009),
 the offending key(s) in `:keys`, and the supported set in `:supported-keys`. The
-error message names the supported keys and points the user at the migration paths
+`:reason` slot names the supported keys and points the user at the migration paths
 in §3 below.
 
 The cap is checked once per `create-class` call site. Components passing the

@@ -595,15 +595,16 @@ Any other key throws `:rf.error/create-class-key-unsupported` at `create-class` 
     (when (seq unsupported)
       (throw
         (ex-info ":rf.error/create-class-key-unsupported"
-          {:type            :rf.error/create-class-key-unsupported
-           :keys            (vec unsupported)
-           :supported-keys  supported
+          {:rf.error/id     :rf.error/create-class-key-unsupported
+           :where           'reagent2.core/create-class
+           :recovery        :no-recovery
            :reason          (str "create-class accepts a 7-key cap. "
                                  "Unsupported: " (pr-str unsupported) ". "
                                  "Migrate to the supported keys, restructure "
                                  "via :on-create / :on-destroy events, or "
                                  "switch to day8/reagent-classic.")
-           :recovery        :no-recovery})))
+           :keys            (vec unsupported)
+           :supported-keys  supported})))
     spec))
 ```
 
@@ -963,13 +964,16 @@ Each shim is a `defn` whose body throws an `ex-info` with the migration message.
   "REMOVED under React 19. See migration message."
   [& _]
   (throw
-    (ex-info "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
-      {:type :rf.error/react-19-removed-surface
-       :symbol 'reagent2.dom/render
-       :recovery :no-recovery})))
+    (ex-info ":rf.error/react-19-removed-surface"
+      {:rf.error/id :rf.error/react-19-removed-surface
+       :where       'reagent2.dom/render
+       :recovery    :no-recovery
+       :reason      "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead."
+       :surface     'reagent2.dom/render
+       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path"})))
 ```
 
-The `:type` keyword `:rf.error/react-19-removed-surface` is shared across all five shims so a try/catch-as-migration-helper can match all of them with one `(= :rf.error/react-19-removed-surface (:type (ex-data e)))` check.
+The canonical `:rf.error/id` discriminator (per Spec 009) `:rf.error/react-19-removed-surface` is shared across all five shims so a try/catch-as-migration-helper can match all of them with one `(= :rf.error/react-19-removed-surface (:rf.error/id (ex-data e)))` check. The message string is the stringified discriminator kw; the human-readable explanation rides on `:reason` and the migration-guide URL on `:migration`.
 
 ### §10.3 Static-analysis friendliness
 
@@ -1033,7 +1037,7 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 | `reagent2.ratom` | `ratom_test.cljs` | RAtom + Reaction lifecycle; protocol satisfaction; equality memoisation; `IDisposable` reify; cross-substrate cache-wiring contract. |
 | `reagent2.dom.client` | `dom_client_test.cljs` | create-root / render / unmount / hydrate-root happy-paths; flush-views! determinism contract per §4.6; React-19 `act` cooperation. |
 | `reagent2.dom.server` | `dom_server_test.cljs` + `parity_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7. |
-| `reagent2.dom` (throw shims) | `dom_throw_test.cljs` | each of the 5 throw-on-call symbols throws an `ex-info` of `:type :rf.error/react-19-removed-surface` with the right migration message. |
+| `reagent2.dom` (throw shims) | `dom_throw_test.cljs` | each of the 5 throw-on-call symbols throws an `ex-info` of `:rf.error/id :rf.error/react-19-removed-surface` with the migration explanation on `:reason` and the guide URL on `:migration`. |
 | `reagent2.impl.template` | `impl/template_test.cljs` | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
 | `reagent2.impl.component` | `impl/component_test.cljs` | create-class 7-key cap (R-002); throw-on-unsupported-key per banned key; lifecycle method mapping per §6.4; `:component-did-catch` error-boundary integration per §6.5; `:get-snapshot-before-update` pairing per §6.6. |
 | `reagent2.impl.batching` | `impl/batching_test.cljs` | microtask scheduling; dirty-set dedup; flush! synchronous drain; after-render queue; React 19 transition cooperation (R-005). |

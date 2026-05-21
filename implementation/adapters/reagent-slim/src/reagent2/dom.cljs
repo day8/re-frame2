@@ -11,10 +11,11 @@
 
   The three shims here mirror stock Reagent's `reagent.dom` namespace
   so a `s/reagent\\./reagent2./g` import-site rewrite continues to
-  resolve. The body throws an `ex-info` whose `:type` is
-  `:rf.error/react-19-removed-surface` — a single try/catch in a
-  migration helper can match all five Class B shims (the two
-  `reagent2.core` shims share the same `:type` per IMPL-SPEC §10.1).
+  resolve. The body throws an `ex-info` whose canonical `:rf.error/id`
+  discriminator (per Spec 009) is `:rf.error/react-19-removed-surface`
+  — a single try/catch in a migration helper can match all five Class B
+  shims (the two `reagent2.core` shims share the same `:rf.error/id`
+  per IMPL-SPEC §10.1).
 
   Static-analysis friendliness: each shim's body is a single throw, so
   `:advanced` Closure compilation can DCE the symbol when no call site
@@ -41,10 +42,13 @@
   [& _]
   (throw
     (ex-info
-      "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
-      {:type     :rf.error/react-19-removed-surface
-       :surface  'reagent2.dom/render
-       :recovery :no-recovery})))
+      ":rf.error/react-19-removed-surface"
+      {:rf.error/id :rf.error/react-19-removed-surface
+       :where       'reagent2.dom/render
+       :recovery    :no-recovery
+       :reason      "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead."
+       :surface     'reagent2.dom/render
+       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path"})))
 
 (defn unmount-component-at-node
   "REMOVED under React 19. See migration message; throws on first call.
@@ -53,10 +57,13 @@
   [& _]
   (throw
     (ex-info
-      "reagent.dom/unmount-component-at-node is removed under React 19. Use reagent2.dom.client/unmount instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
-      {:type     :rf.error/react-19-removed-surface
-       :surface  'reagent2.dom/unmount-component-at-node
-       :recovery :no-recovery})))
+      ":rf.error/react-19-removed-surface"
+      {:rf.error/id :rf.error/react-19-removed-surface
+       :where       'reagent2.dom/unmount-component-at-node
+       :recovery    :no-recovery
+       :reason      "reagent.dom/unmount-component-at-node is removed under React 19. Use reagent2.dom.client/unmount instead."
+       :surface     'reagent2.dom/unmount-component-at-node
+       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path"})))
 
 (defn force-update-all
   "REMOVED under React 19. See migration message; throws on first call.
@@ -67,7 +74,10 @@
   []
   (throw
     (ex-info
-      "reagent.dom/force-update-all is removed (it iterated React 17 internals). If you have a legitimate use case, file an issue at https://github.com/day8/re-frame2/issues."
-      {:type     :rf.error/react-19-removed-surface
-       :surface  'reagent2.dom/force-update-all
-       :recovery :no-recovery})))
+      ":rf.error/react-19-removed-surface"
+      {:rf.error/id :rf.error/react-19-removed-surface
+       :where       'reagent2.dom/force-update-all
+       :recovery    :no-recovery
+       :reason      "reagent.dom/force-update-all is removed (it iterated React 17 internals). If you have a legitimate use case, file an issue at https://github.com/day8/re-frame2/issues."
+       :surface     'reagent2.dom/force-update-all
+       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path"})))
