@@ -270,8 +270,8 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
 
 ```clojure
 (rf/reg-event-fx :rf.route/navigate
-  {:doc  "Navigate to a registered route."
-   :spec [:cat [:= :rf.route/navigate] [:or :keyword [:map [:url :string]]]
+  {:doc    "Navigate to a registered route."
+   :schema [:cat [:= :rf.route/navigate] [:or :keyword [:map [:url :string]]]
                                     [:? :map]      ;; params
                                     [:? :map]]}    ;; opts
   (fn handler-route-navigate [{:keys [db]} [_ target params opts]]
@@ -474,7 +474,7 @@ The two boundaries where route params enter the runtime — **programmatic navig
 
 The asymmetry is deliberate. Programmatic navigation is *caller code* — schema failures are bugs and should be surfaced loudly (throw / reject). URL-driven navigation is *user input* — schema failures are 404s, not exceptions. Both paths share the same `:params` / `:query` schemas (per [Spec 010](010-Schemas.md)), so a route that compiles cleanly with one validates the same way against the other.
 
-The event-boundary validation for `:rf.route/navigate` is a re-use of the standard schema-validation interceptor (the `:spec` slot on the `reg-event-fx` registration) — no routing-specific machinery.
+The event-boundary validation for `:rf.route/navigate` is a re-use of the standard schema-validation interceptor (the `:schema` slot on the `reg-event-fx` registration) — no routing-specific machinery.
 
 ##### Validation-error surfacing across the three paths
 

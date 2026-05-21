@@ -158,7 +158,7 @@ The mechanisms compose. A boot machine reads config (3), spawns the connection m
 
 - **Hardcoding parameters in the machine spec's `:data` without an override path.** A literal `:chunk-size 100` in the spec is a default value the user cannot override. Put the default in the action's destructuring fallback (mechanism 1) so callers can supply a different value.
 - **Reading host globals from inside actions.** An action body that calls `(api/current-token)` or reads `js/window.__CONFIG__` closes over global state — non-testable, non-replayable, breaks Tool-Pair epoch replay because the global is not part of the event payload. Thread the value in via one of the three mechanisms.
-- **Threading parameters via `:spec` metadata at registration.** The `:spec` slot is for argument validation, not for runtime values. Passing the URL through `:spec` conflates registration time (one-shot, at app load) with dispatch time (per-call). Use mechanism 1 for per-call values and mechanism 3 for app-lifetime values.
+- **Threading parameters via `:schema` metadata at registration.** The `:schema` slot is for argument validation, not for runtime values. Passing the URL through `:schema` conflates registration time (one-shot, at app load) with dispatch time (per-call). Use mechanism 1 for per-call values and mechanism 3 for app-lifetime values.
 
 ## Concrete instances
 

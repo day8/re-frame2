@@ -77,7 +77,7 @@ References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to
 | P2 Named things | ✓ | Frames, handlers, views, fx all stably-id'd. Anonymous lambdas survive only inside view bodies (`:on-click #(dispatch ...)`) which is borderline acceptable. |
 | P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. `:fx-overrides` and `:interceptor-overrides` accept function values at the CLJS reference level. Pattern-level contract is id-based; CLJS reference also accepts fn values. |
 | P4 Public query surfaces | ✓ | `registrations`, `frame-meta`, `frame-ids`, `get-frame-db`, `snapshot-of`, `sub-topology` all in. |
-| P5 Schemas | ◐ | `:spec` in registration metadata is documented for handlers/subs/fx but the *frame's `:on-create` event* and *override map shape* aren't schema-described. |
+| P5 Schemas | ◐ | `:schema` in registration metadata is documented for handlers/subs/fx but the *frame's `:on-create` event* and *override map shape* aren't schema-described. |
 | P6 Deterministic execution | ✓ | Run-to-completion drain, depth limit, no-cross-frame-drain — all locked. |
 | P7 Machine-readable errors | ◐ | "Errors are maps with documented keys" stated as an aspiration but the actual error shapes aren't enumerated. Needs a §Error contract subsection. |
 | P8 Low hidden context | ◐ | **The biggest gap.** React-context-driven `dispatch`/`subscribe` injection is hidden context by definition. The pattern contract is explicit-frame addressing with React context positioned as a CLJS optimisation, but 002's body still leans on the React-context machinery as primary. A full rewrite of the View Ergonomics section would close this. |
@@ -106,7 +106,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 | P2 Named things | ✓ | All views id'd. |
 | P3 Data before magic | ✓ | View output is hiccup (data); render-tree contract is serialisable. |
 | P4 Public query surfaces | ✓ | View registry queryable via `(registrations :view)`. |
-| P5 Schemas | ◐ | `:spec` for the view's *props vector* is documented but most examples don't use it. Construction Prompts CP-4 enforces. |
+| P5 Schemas | ◐ | `:schema` for the view's *props vector* is documented but most examples don't use it. Construction Prompts CP-4 enforces. |
 | P6 Deterministic execution | ✓ | Pure render-tree per pattern contract. |
 | P7 Machine-readable errors | n/a | (Errors during render are mostly substrate concerns.) |
 | P8 Low hidden context | ◐ | Plain Reagent fns "silently route to `:rf/default`" if rendered under a non-default frame. Documented as a known limitation. Removing this footgun (or making it loud at runtime) closes the gap. |
@@ -174,7 +174,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | One `:spec` key; one `reg-app-schema` call. |
+| P1 Regularity | ✓ | One `:schema` key; one `reg-app-schema` call. |
 | P2 Named things | ✓ | Schemas attached to id'd registrations. |
 | P3 Data before magic | ✓ | Malli schemas are data. |
 | P4 Public query surfaces | ✓ | `(app-schemas)`, `(app-schema-at path)`. |

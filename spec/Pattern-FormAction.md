@@ -97,7 +97,7 @@ The `action` attribute is what makes the form work without JS: the browser will 
 ```clojure
 (rf/reg-event-fx :cart/add-item
   {:doc  "Add an item to the user's cart. Runs on both platforms; the POST entry point lives on the server."
-   :spec [:cat [:= :cart/add-item] AddToCartForm]}    ;; schema validates form-params per 010
+   :schema [:cat [:= :cart/add-item] AddToCartForm]}  ;; schema validates form-params per 010
   [(rf/inject-cofx :rf.server/request)
    (rf/inject-cofx :rf.csrf/active-token)]
   (fn [{:keys [db rf.server/request rf.csrf/active-token]} [_ form-params]]
@@ -110,7 +110,7 @@ The `action` attribute is what makes the form work without JS: the browser will 
 
       :else
       (let [draft (select-keys form-params [:item-id :quantity])]
-        ;; Schema validation per :spec already ran; if we're here the args are clean.
+        ;; Schema validation per :schema already ran; if we're here the args are clean.
         {:db (-> db
                  (update-in [:cart :items] (fnil conj []) draft)
                  (assoc-in  [:cart :add-form :status] :submitted)
@@ -118,7 +118,7 @@ The `action` attribute is what makes the form work without JS: the browser will 
          :fx [[:rf.server/redirect {:status 303 :location "/cart"}]]}))))
 ```
 
-Schema validation runs as the standard `:spec` boundary check ([010 §Validation timing](010-Schemas.md#validation-timing)). If `form-params` fails the `AddToCartForm` schema, the framework's structured-error trace fires (`:rf.error/handler-spec-failure`); the error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps it to a 400 response with the public-error shape, *and* the per-field error sub for the form slice reads the validation result and renders the re-served page with inline messages. The app does not write a separate validation branch.
+Schema validation runs as the standard `:schema` boundary check ([010 §Validation timing](010-Schemas.md#validation-timing)). If `form-params` fails the `AddToCartForm` schema, the framework's structured-error trace fires (`:rf.error/schema-validation-failure`); the error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps it to a 400 response with the public-error shape, *and* the per-field error sub for the form slice reads the validation result and renders the re-served page with inline messages. The app does not write a separate validation branch.
 
 The success path emits `303 See Other` (the canonical POST-redirect-GET pattern); the host adapter materialises the redirect, the browser GETs `/cart`, and the cart page renders.
 
@@ -227,7 +227,7 @@ Apps without a form slice (e.g. a pure-API endpoint that happens to share the ac
 ## Anti-patterns
 
 - **Skipping the `action` attribute.** A form without `method` and `action` only works with JS — the progressive-enhancement guarantee breaks. Always emit the attributes; the `:on-submit` interceptor is purely additive.
-- **Validating only on the client.** Client validation is for UX; the server is the authority. Re-running the schema check in the action handler (via `:spec` on `reg-event-fx`) is mandatory — never trust the POST body.
+- **Validating only on the client.** Client validation is for UX; the server is the authority. Re-running the schema check in the action handler (via `:schema` on `reg-event-fx`) is mandatory — never trust the POST body.
 - **Building the redirect URL via `:rf.nav/navigate` on the server.** `:rf.nav/navigate` is client-only ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)); on the server it no-ops silently. Use `:rf.server/redirect` (the server-only fx) for the POST-redirect-GET pattern.
 - **Reading the CSRF token from a hardcoded value or a query string.** Sessions rotate tokens; cofx-binding via `:rf.csrf/active-token` is the single source of truth. Apps that put the token in a URL leak it to referrer logs.
 - **Using `302 Found` for POST success.** Some clients re-POST on `302`; the canonical POST-redirect-GET status is `303 See Other`. The `:rf.server/redirect` fx defaults to 302 for GET-side redirects (per [011 §Standard fx](011-SSR.md#standard-fx)); apps MUST explicitly set `:status 303` for post-action redirects.
@@ -242,7 +242,7 @@ A form-action implementation conforms to this convention when:
 - The form carries a CSRF token in a hidden `<input>` field with name `csrf-token` (or via header for JS-fetch submits); the action handler MUST verify it before any state mutation.
 - The host adapter parses POST bodies (form-urlencoded and multipart) and binds them to `*current-request*` under a `:form-params` slot.
 - `:rf/server-init` routes GET → page loader; POST → action event. Apps MAY collapse the two when the route's action and loader share an event.
-- The action handler carries a `:spec` matching the form schema, so the standard `:spec` boundary check runs on every POST. Server-side validation is NEVER skipped, even when client validation matches.
+- The action handler carries a `:schema` matching the form schema, so the standard `:schema` boundary check runs on every POST. Server-side validation is NEVER skipped, even when client validation matches.
 - On schema failure, the per-form slice's `:errors` map is populated and the page re-renders; on schema success, the handler emits `[:rf.server/redirect {:status 303 :location "..."}]`.
 - The action handler MUST mark `:sensitive? true` when the form's fields carry credentials, PII, or other secrets; trace-event redaction follows from [009-Instrumentation.md §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) and [014 §Privacy](014-HTTPRequests.md#privacy).
 - Multipart uploads expose files as `{:filename :content-type :size :tempfile}` maps; file contents NEVER appear in trace events.
@@ -255,7 +255,7 @@ A form-action implementation conforms to this convention when:
 - [011-SSR.md §Standard fx](011-SSR.md#standard-fx) — `:rf.server/redirect` and the multi-status policy.
 - [011-SSR.md §Server error projection](011-SSR.md#server-error-projection) — the default mapping from `:rf.error/handler-spec-failure` to a 400 public-error response.
 - [011-SSR.md §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx) — the platform-gating that lets one handler emit both server and client effects.
-- [010-Schemas.md §Validation timing](010-Schemas.md#validation-timing) — the `:spec` boundary check that runs on every dispatched event.
+- [010-Schemas.md §Validation timing](010-Schemas.md#validation-timing) — the `:schema` boundary check that runs on every dispatched event.
 - [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) — how `:sensitive?` propagates through schema-validation error reporting.
 - [014-HTTPRequests.md §Header denylist (always-on)](014-HTTPRequests.md#1-header-denylist-always-on) — the canonical sensitive-header set, including `X-CSRF-Token` / `X-XSRF-Token`.
 - [014-HTTPRequests.md §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive) — how the action's per-request / per-call `:sensitive? true` flag propagates to the request-side cascade for the JS-fetch path.
