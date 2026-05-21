@@ -30,9 +30,26 @@ theme:
     logo: material/home
     repo: fontawesome/brands/git-alt
   language: en
+  # Light/dark palette toggle (rf2-q0n02). Two schemes share the existing
+  # blue brand colour; `media` seeds the initial scheme from the reader's OS
+  # preference, and each `toggle` adds a manual switch in the header. The
+  # blue primary/accent reads cleanly against both `default` (light) and
+  # `slate` (dark) — Material darkens the primary surface automatically.
   palette:
-    primary: blue
-    accent: blue
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
   font:
     text: IBM Plex Sans
     code: Source Code Pro
