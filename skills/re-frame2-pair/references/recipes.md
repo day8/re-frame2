@@ -87,7 +87,7 @@ Given a component name or render key, find the latest epoch whose `:renders` inc
 
 ## "Explain this error" / "What caused this error?"
 
-1. Pull recent error traces: `(rf/trace-buffer {:op-type :error})`. Each entry is an `:rf.error/*` op with `:rf.error/data`.
+1. Pull recent error traces: `(re-frame.trace.tooling/trace-buffer {:op-type :error})`. Each entry is an `:rf.error/*` op with `:rf.error/data`. (Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime this skill drives.)
 2. Read `:rf.trace/trigger-handler` on the error event — `{:kind :event :id :user/save :source-coord {:ns ... :file ... :line ... :column ...}}`. This is the **handler that was executing when the error fired**, not the throw site inside the framework. Report it as `<kind> :<id> at <file>:<line>` so the user can jump straight to the source — works in production builds (the field is not elided like `:rf.assert/*`).
 3. If the error sits inside a known epoch, cross-check `:trigger-event` and walk the cascade via `:parent-dispatch-id` — the upstream event that queued the offending handler is often the real culprit.
 4. If `:rf.trace/trigger-handler` is **absent**, the error fired at dispatch-time before any handler ran (e.g. `:rf.error/no-such-event` because the registered id is misspelt). The `:rf.error/data` payload — the failing id, the lookup map — is then the only handle; offer to `registrar/list` the matching kind to find a near match.
@@ -135,7 +135,7 @@ Canonical procedure:
 
 1. `trace/dispatch-and-collect [:foo ...]` → observe baseline. Capture the `:epoch-id` from the resulting record.
 2. **Tell the user** which side effects in the cascade can't be rewound. Walk `:trace-events` for `:event/do-fx` involving non-pure fx (`:http`, navigation, localStorage, `:dispatch-later` that already landed) and warn before restoring.
-3. `epoch/restore <epoch-id>` → rewind `app-db`. Watch for `false` return + check `(rf/trace-buffer {:op-type :error})` for the failure reason.
+3. `epoch/restore <epoch-id>` → rewind `app-db`. Watch for `false` return + check `(re-frame.trace.tooling/trace-buffer {:op-type :error})` for the failure reason.
 4. **Modify the part of the system you're iterating on.**
    - *Handlers / subs / fx:* `(rf/reg-event-fx :foo ...)` / `(rf/reg-sub :bar ...)` / `(rf/reg-fx :baz ...)` via `repl/eval`. The registrar replaces; `:rf.registry/handler-replaced` fires.
    - *Machines:* `(rf/reg-machine :auth ...)` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.

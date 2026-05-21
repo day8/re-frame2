@@ -15,7 +15,7 @@ A coding agent working with just the **static code** is working with a limited p
 It can:
 
 - use the REPL
-- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`register-trace-listener`), the retain-N trace buffer (`trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `machines`, `machine-meta`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
+- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`re-frame.trace.tooling/register-listener!`), the retain-N trace buffer (`re-frame.trace.tooling/trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `machines`, `machine-meta`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
 - use re-frame2's source-coord annotation (`data-rf2-source-coord`) — and re-com's `data-rc-src` as a fallback — to bridge live DOM elements back to source `{:ns :line :file}`
 
 With these capabilities, Claude Code can iteratively perform experiments by patching parts of the system, restoring state to a recorded epoch, retrying events and seeing the results.
@@ -198,7 +198,7 @@ Useful when you want to force the tool, or when the phrasing of your question do
 
 The skill's first op in a session is `discover-app`, which:
 
-1. Finds the running shadow-cljs nREPL (from `target/shadow-cljs/nrepl.port`, falling back to `.shadow-cljs/nrepl.port` or the `SHADOW_CLJS_NREPL_PORT` env var — the exact location depends on shadow-cljs version and config).
+1. Finds the running shadow-cljs nREPL. The `SHADOW_CLJS_NREPL_PORT` env var is a CWD-independent override that wins outright; otherwise the shim scans the standard port files (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port`) at both the CWD and under `implementation/`, and picks the **most-recently-modified** one — so a freshly (re)started build always beats a stale leftover port file.
 2. Verifies a browser runtime is attached to that build.
 3. Checks that `re-frame.core` is loaded and `re-frame.interop/debug-enabled?` is true.
 4. Probes the `re-frame2-pair.runtime` preload marker; refuses with `:reason :runtime-not-preloaded` and a setup hint when absent.
@@ -212,7 +212,7 @@ The pieces (design; see *Status* above):
 2. `eval-cljs` (MCP tool `mcp__re-frame2-pair__eval-cljs`) sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
 3. `preload/re_frame2_pair/runtime.cljs` is the `re-frame2-pair.runtime` namespace itself, loaded into the consumer app via shadow-cljs's `:devtools :preloads`. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), and installs the `js/globalThis.__re_frame2_pair_runtime` marker the connect-flow probes.
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
-5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-listener`, `trace-buffer`, `register-epoch-listener!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
+5. All trace and epoch reads come from re-frame2's own surfaces — `re-frame.trace.tooling/register-listener!`, `re-frame.trace.tooling/trace-buffer`, `register-epoch-listener!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
 
 See [`docs/initial-spec.md`](docs/initial-spec.md) for the full operation catalogue, architecture, error surfaces, versioning, and phased delivery plan.
 

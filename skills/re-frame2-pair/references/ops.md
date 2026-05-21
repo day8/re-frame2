@@ -62,7 +62,7 @@ Read-only from the trace stream + epoch history.
 
 | Op | Invocation | Returns |
 |---|---|---|
-| `trace/buffer` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/trace-buffer)"}` | Recent N trace events from the retain-N ring (Spec 009 §Retain-N trace ring buffer). Optional `{:operation _ :op-type _ :since _ :frame _}` filter. |
+| `trace/buffer` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame.trace.tooling/trace-buffer)"}` | Recent N trace events from the retain-N ring (Spec 009 §Retain-N trace ring buffer). Optional `{:operation _ :op-type _ :since _ :frame _}` filter. **CLJS callers must use the `re-frame.trace.tooling` ns** — `rf/trace-buffer` is a JVM-only alias and silently returns nil in the browser runtime this skill drives. |
 | `trace/last-epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/last-epoch)"}` | Most recent `:rf/epoch-record` for the operating frame |
 | `trace/last-pair-epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/last-pair-epoch)"}` | Most recent epoch whose `:trigger-event`'s top-level dispatch carried `:origin :pair` (i.e. *this skill* fired it) |
 | `trace/epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/epoch-by-id <id>)"}` | The named epoch from the frame's history |
@@ -144,7 +144,7 @@ mcp__re-frame2-pair__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}
 - After editing a view or helper: pick a CLJS form that derefs the view's namespace var (e.g. `(some-ns/my-view)` or `(meta #'some-ns/my-view)`).
 - If you don't know a good probe, omit `probe` and the tool falls back to a 300ms timer; the result includes `:soft? true` so you know it's timer-based.
 
-A successful probe-flip also coincides with a `:rf.registry/handler-replaced` trace event arriving in the buffer, so an alternative confirmation is `(filter #(= :rf.registry/handler-replaced (:operation %)) (rf/trace-buffer {:since <pre-edit-id>}))`. Use whichever fits — they're not exclusive.
+A successful probe-flip also coincides with a `:rf.registry/handler-replaced` trace event arriving in the buffer, so an alternative confirmation is `(filter #(= :rf.registry/handler-replaced (:operation %)) (re-frame.trace.tooling/trace-buffer {:since <pre-edit-id>}))`. Use whichever fits — they're not exclusive.
 
 ## Time-travel (epoch restore)
 
@@ -169,7 +169,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 | Version mismatch | `:rf.epoch/restore-version-mismatch` | Recorded `:rf/snapshot-version` of an active machine is incompatible with the currently-loaded definition (hot-reload bumped it) |
 | Concurrent drain | `:rf.epoch/restore-during-drain` | Called while the frame's run-to-completion drain is in flight |
 
-When `restore-epoch` returns `false`, read the matching trace event from `(rf/trace-buffer {:op-type :error})` to get the structured `:tags`, then report to the user.
+When `restore-epoch` returns `false`, read the matching trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})` to get the structured `:tags`, then report to the user.
 
 **Caveat (always tell the user before restoring):** restore rewinds `app-db` only. Side effects that already fired (HTTP requests sent, navigation pushed, localStorage written, `:dispatch-later` already landed) are *not* undone.
 

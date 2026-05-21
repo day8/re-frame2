@@ -105,13 +105,19 @@ Restart the shell (and Claude Code) so the new `PATH` takes effect.
 
 ### `:nrepl-port-not-found`
 
-`discover-app.sh` couldn't locate `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, or `$SHADOW_CLJS_NREPL_PORT`. Start your dev build:
+`discover-app.sh` couldn't locate a port file (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, or `.nrepl-port` — probed at the CWD and under `implementation/`) and `$SHADOW_CLJS_NREPL_PORT` is unset. Start your dev build:
 
 ```bash
 npx shadow-cljs watch <build-id>
 ```
 
 ...and make sure nREPL is enabled for the build.
+
+If a build *is* running but discovery picks the wrong port (`connection refused`, or it attaches to a stale build), set the override explicitly — it bypasses file discovery entirely and is independent of the shell's working directory:
+
+```bash
+SHADOW_CLJS_NREPL_PORT=<live-port> scripts/discover-app.sh
+```
 
 ### `:debug-disabled`
 

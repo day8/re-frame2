@@ -58,7 +58,7 @@ mcp__re-frame2-pair__eval-cljs {form: "(:on-error (rf/frame-meta :rf/default))"}
 mcp__re-frame2-pair__eval-cljs {
   form: "(filter #(#{:rf.error/bad-on-error-return
                      :rf.error/on-error-policy-exception} (:operation %))
-                 (rf/trace-buffer {:op-type :error}))"
+                 (re-frame.trace.tooling/trace-buffer {:op-type :error}))"
 }
 
 ;; Hot-swap a policy (ephemeral; survives until full page reload):

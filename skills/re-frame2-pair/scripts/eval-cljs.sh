@@ -9,8 +9,10 @@
 # sessions where the MCP server isn't configured.
 #
 # Usage:
-#   scripts/eval-cljs.sh '(+ 1 2)' [--build=:app]
+#   scripts/eval-cljs.sh '(+ 1 2)' [--build=app]
 #   scripts/eval-cljs.sh '(re-frame2-pair.runtime/snapshot)'
+# (--build accepts both `app` and `:app`; default build is `app` or
+#  $SHADOW_CLJS_BUILD_ID.)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 command -v bb >/dev/null 2>&1 || {

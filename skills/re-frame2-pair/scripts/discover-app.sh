@@ -8,7 +8,9 @@
 # `@day8/re-frame2-pair-mcp` (tools/re-frame2-pair-mcp/). Kept for back-compat.
 #
 # Usage:
-#   scripts/discover-app.sh [--build=:app]
+#   scripts/discover-app.sh [--build=app]
+# (--build accepts both `app` and `:app`; default build is `app` or
+#  $SHADOW_CLJS_BUILD_ID.)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 command -v bb >/dev/null 2>&1 || {

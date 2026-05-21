@@ -29,8 +29,11 @@ wrong skill — close this and answer from the spec corpus directly.
 - **reg-machine** — state-machine handler registrations (Spec 005).
 - **interceptor** — the cascade middleware contract; introspectable via
   `handler-meta`.
-- **trace-buffer** / **register-trace-listener** — the raw trace stream and its
-  listener registration (Spec 009).
+- **trace-buffer** / **register-listener!** — the raw trace stream's retain-N
+  ring and its listener registration (Spec 009). Both live in
+  `re-frame.trace.tooling`; `register-listener!` is re-exported on `rf/`,
+  `trace-buffer` is a JVM-only `rf/` alias (CLJS callers use the
+  `re-frame.trace.tooling` form).
 - **register-epoch-listener!** / **epoch-history** / **restore-epoch** — the
   assembled-stream listener, the per-frame ring of epoch records, and the
   time-travel entry point.
@@ -63,8 +66,8 @@ This skill honours that contract. The preload's streaming dispatch
 (`on-trace-streaming` → `dispatch-trace-to-subs!`, fed by every
 `subscribe!`) drops `:sensitive? true` events before any subscription
 queue sees them. The retain-N ring buffer reached via
-`(rf/trace-buffer)` is unaffected — agents asking for it are making a
-deliberate request and can pre-filter with `(rf/trace-buffer {:sensitive? false})`.
+`(re-frame.trace.tooling/trace-buffer)` is unaffected — agents asking for it are making a
+deliberate request and can pre-filter with `(re-frame.trace.tooling/trace-buffer {:sensitive? false})`.
 
 ### What gets dropped, what doesn't
 
@@ -73,7 +76,7 @@ deliberate request and can pre-filter with `(rf/trace-buffer {:sensitive? false}
   cursor still advances over them so `:since`-based ring-buffer reads
   remain monotonic.
 - **Not dropped**: events with `:sensitive? false` or no `:sensitive?`
-  key, the underlying `rf/trace-buffer` ring, and `:rf/epoch-record`
+  key, the underlying `re-frame.trace.tooling/trace-buffer` ring, and `:rf/epoch-record`
   values surfaced via `epoch-history` / the `:epoch` streaming topic.
   Epoch records do not carry a top-level `:sensitive?` stamp per spec;
   schema-sensitive slots are redacted by the app-side elision walker
