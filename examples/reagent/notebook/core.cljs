@@ -256,11 +256,19 @@
 ;; ============================================================================
 ;; MOUNT
 ;; ============================================================================
+;;
+;; Lazy mount: defer `create-root` to `run` so ns-load is DOM-side-effect-free.
+;; This is the mount-isolation convention documented at
+;; [examples/TESTING.md §Example mount-isolation convention] — multiple example
+;; namespaces co-exist in the `:browser-test` bundle and share one DOM, so a
+;; ns-load `create-root` would race roots onto the same container.
 
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce react-root (atom nil))
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:notebook/initialise])
-  (rdc/render react-root [notebook]))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [notebook])))
