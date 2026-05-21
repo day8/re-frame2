@@ -91,6 +91,17 @@
   ;; of the per-artefact classpaths — pinning the dep on the top-level
   ;; coordinator keeps the version in one place. Pre-1.0 we exact-pin
   ;; per the lockstep convention.
+  ;;
+  ;; The entry-point is `re-frame.splint-main` (under
+  ;; `scripts/splint/`), a thin cross-platform shim around Splint's own
+  ;; `-main`. Splint v1.24.0 builds its default-config + version
+  ;; resource paths with `(str (io/file ...))`, which on Windows joins
+  ;; with `\` — and `io/resource` only accepts `/`-separated keys, so
+  ;; Splint dies with `Cannot open <nil> as a Reader.` on Windows dev
+  ;; machines. The shim re-binds those two vars to forward-slash
+  ;; lookups before delegating; on Linux/macOS it is a no-op
+  ;; normalisation. Remove once Splint ships an upstream fix.
   :splint
   {:replace-deps {io.github.noahtheduke/splint {:mvn/version "1.24.0"}}
-   :main-opts    ["-m" "noahtheduke.splint"]}}}
+   :extra-paths  ["scripts/splint"]
+   :main-opts    ["-m" "re-frame.splint-main"]}}}

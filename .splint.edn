@@ -1,14 +1,34 @@
-;; Splint configuration (rf2-4v147 · dual-linter CI gate).
+;; Splint configuration (rf2-4v147 · dual-linter CI gate; tightened in
+;; rf2-ps9u9).
 ;;
-;; First-iteration posture: report-only (no rules disabled here; the
-;; `lint.yml` workflow runs Splint with `continue-on-error: true`).
-;; Triage + rule-tuning lands in a follow-on bead.
+;; ## Gate posture — fail on errors, warnings informational
 ;;
-;; The only configuration we MUST carry is the exclusion of
-;; `tools/template/resources/` — those `.cljs` files ship deps-new
-;; placeholder substitutions (`{{top/ns}}`) and are not valid Clojure
+;; The `lint.yml` Splint job runs the `:splint` alias with
+;; `--fail-on-errors`, matching the clj-kondo job's `--fail-level
+;; error`. An *error-class* diagnostic — a file Splint cannot parse
+;; (`splint/parsing-error` / `splint/error` / `splint/unknown-error`) —
+;; blocks the PR. Style/lint *warnings* print to the log for triage but
+;; never fail the gate. No rules are disabled below: the warning stream
+;; stays high-signal and visible. Per-rule suppressions for genres we
+;; deliberately accept can be added here as conventions solidify, e.g.
+;;
+;;   style/eq-zero {:enabled false}
+;;
+;; — but that is a follow-on judgment call, not a gate prerequisite.
+;;
+;; ## The one MUST-carry exclusion — the deps-new template tree
+;;
+;; `tools/template/resources/` ships deps-new template `.cljs` files
+;; whose `{{top/ns}}` placeholder substitutions are not valid Clojure
 ;; (see tools/deps.edn → "Why template is NOT in the base :deps map"
-;; for the matching shadow-cljs exclusion). Splint's parser errors on
-;; them.
-
-{global {:excludes ["tools/template/resources/"]}}
+;; for the matching shadow-cljs exclusion). Splint's reader errors on
+;; them — exactly the error-class the gate now blocks on — so they MUST
+;; be excluded.
+;;
+;; `:excludes` entries are matched as REGEXES against the file path
+;; (Splint's default `re-find:` matcher — see
+;; noahtheduke.splint.path-matcher). The pattern accepts BOTH path
+;; separators (`/` on Linux/macOS CI, `\` on Windows dev machines) so
+;; the exclusion holds cross-platform. (A bare `tools/template/...`
+;; string silently failed to match on Windows, where paths use `\`.)
+{global {:excludes ["tools[/\\\\]template[/\\\\]resources[/\\\\]"]}}
