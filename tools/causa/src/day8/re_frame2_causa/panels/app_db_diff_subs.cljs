@@ -17,11 +17,10 @@
 
   The legacy `:rf.causa/selected-epoch-diff` (flat triples) stays
   registered for back-compat consumers — the pin-store, MCP exporter,
-  and `show me when this changed` walker continue to read it. Both
-  shapes are kept in lockstep via the triples-adapter (the legacy sub
-  now derives from the annotated tree via
-  `diff.triples-adapter/annotated-tree->triples`, so a future audit
-  can switch to the adapter projection if desired)."
+  and `show me when this changed` walker continue to read it. It
+  computes its flat triples directly via
+  `app-db-diff-helpers/diff-paths` (independent of the annotated
+  tree above)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.diff.annotated-tree :as at]
             [day8.re-frame2-causa.diff.section-grouping :as sg]
