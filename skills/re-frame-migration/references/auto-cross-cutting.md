@@ -87,7 +87,7 @@ Closed mechanical rename set. Apply across all source files. the dual-key read `
 
 **No alias semantics.** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata is silently ignored (the registration becomes schemaless), so an incomplete rewrite is a correctness hazard. Sweep every `:spec` metadata-map slot to `:schema` in one pass; do not rely on a deprecation warning to find stragglers.
 
-**Cross-references.** [`MIGRATION.md` §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) for the full table and rationale; [`breaking-changes.md`](breaking-changes.md) for the surface-level breakage summary.
+**Cross-references.** [`MIGRATION.md` §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the full table and rationale; [`breaking-changes.md`](breaking-changes.md) for the surface-level breakage summary.
 
 ---
 
@@ -132,7 +132,7 @@ Closed mechanical rename table. The trace and epoch listener APIs collapse onto 
 
 The old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.
 
-**Cross-references.** [`MIGRATION.md` §M-55](../../../migration/from-re-frame-v1/README.md#m-55-listener-registration-verb-unification--register--cb--register--listener-rf2-dcyjm) for the full table; [009 §The trace event model](../../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API).
+**Cross-references.** [`MIGRATION.md` §M-55](../../../migration/from-re-frame-v1/README.md#m-55-listener-registration-verb-unification--register--cb--register--listener) for the full table; [009 §The trace event model](../../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API).
 
 ---
 
@@ -146,7 +146,7 @@ the `:retry :on` set on `:rf.http/managed` requests no longer accepts arbitrary 
 
 Any keyword outside this set in `:retry :on` raises `:rf.error/http-bad-retry-on` at fx-call time, before the request is issued. The three excluded `:rf.http/*` categories (`:rf.http/aborted` / `:rf.http/decode-failure` / `:rf.http/accept-failure`) are deterministic on retry and were silently retrying as a no-op. Sweep `:retry :on` sets, drop excluded categories. v1 had no `:rf.http/managed` fx; v2-pre-rename codebases only.
 
-**Cross-references.** [`MIGRATION.md` §M-31b](../../../migration/from-re-frame-v1/README.md#m-31b-rfhttpmanaged-retry-on-is-a-closed-set-rf2-apwkm); [Spec 014 §Closed-set `:retry :on` validation](../../../spec/014-HTTPRequests.md#closed-set-retry-on-validation--rf2-apwkm).
+**Cross-references.** [`MIGRATION.md` §M-31b](../../../migration/from-re-frame-v1/README.md#m-31b-rfhttpmanaged-retry-on-is-a-closed-set); [Spec 014 §Closed-set `:retry :on` validation](../../../spec/014-HTTPRequests.md#closed-set-retry-on-validation--rf2-apwkm).
 
 ---
 

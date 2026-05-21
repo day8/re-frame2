@@ -527,7 +527,7 @@ The `re-frame.alpha` namespace is **not part of v2**. The alpha experiment was a
 - Lifecycle-policy plumbing in the per-frame sub-cache — **dropped**. The cache uses a single algorithm: deferred ref-counting with a configurable grace-period (default 50ms); see [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal).
 - `reg-flow`, `flow<-`, `clear-flow`, `get-flow`, the `:flow` and `:live?` registered subs — **promoted to `re-frame.core`** under the `flow` family per [Spec 013](013-Flows.md). The migration is a namespace switch.
 
-Migration entries land at [MIGRATION §M-23](../migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
+Migration entries land at [MIGRATION §M-23](../migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed).
 
 ### Plain Reagent fns under non-default frames
 

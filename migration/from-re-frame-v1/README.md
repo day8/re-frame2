@@ -43,7 +43,7 @@ These are the changes that **must** be applied if the codebase trips them.
 
 ### M-0. Bump the dependency coordinate to `day8/re-frame2`
 
-**Type A** (mechanical). The target coord is unambiguous (per rf2-5sqd[^rf2-5sqd]); apply without asking.
+**Type A** (mechanical). The target coord is unambiguous; apply without asking.
 
 Before applying any other migration rule, inspect the target project's dependency files and replace the re-frame coordinate with the latest released version of `day8/re-frame2`. Every other rule below assumes the project is already pointing at the v2 artefact — without this step the agent has nothing to verify against.
 
@@ -62,7 +62,7 @@ re-frame          {:mvn/version "1.x.x"}     ;; deps.edn / shadow-cljs.edn — o
 [re-frame "1.x.x"]                            ;; project.clj — Lein vector form
 ```
 
-**Replacement.** Swap the entire coord (not just the version) — the artefact name changes — AND add a substrate-adapter artefact alongside the core (rf2-0hxm). v1 was a single `re-frame/re-frame` artefact; v2 ships core and adapter as siblings, so a Reagent app needs both:
+**Replacement.** Swap the entire coord (not just the version) — the artefact name changes — AND add a substrate-adapter artefact alongside the core. v1 was a single `re-frame/re-frame` artefact; v2 ships core and adapter as siblings, so a Reagent app needs both:
 
 ```clojure
 ;; deps.edn / shadow-cljs.edn / bb.edn
@@ -82,9 +82,7 @@ day8/re-frame2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
 
 **Report.** Include the before/after coord pair in the migration report's preamble (e.g. `re-frame/re-frame 1.4.5 → day8/re-frame2 2.0.0`).
 
-**Why:** v1 (`re-frame/re-frame`) and v2 (`day8/re-frame2`) share the `re-frame.core` namespace and cannot coexist on the same classpath; migration is necessarily atomic per project. Shipping v2 under a new artefact label (rather than as `re-frame/re-frame 2.x`) makes the redesign visible to ops and deps tooling and lets the v1 line continue under its own coord for maintenance releases. See rf2-5sqd for the full rationale.
-
-[^rf2-5sqd]: Decision recorded in bead **rf2-5sqd** ("Decide artefact name for re-frame2 publication") — option 2 (new artefact `day8/re-frame2`, public namespace `re-frame.core` unchanged).
+**Why:** v1 (`re-frame/re-frame`) and v2 (`day8/re-frame2`) share the `re-frame.core` namespace and cannot coexist on the same classpath; migration is necessarily atomic per project. Shipping v2 under a new artefact label (rather than as `re-frame/re-frame 2.x`) makes the redesign visible to ops and deps tooling and lets the v1 line continue under its own coord for maintenance releases. The artefact name change is deliberate: the public `re-frame.core` namespace is unchanged, but the Maven coord moves to `day8/re-frame2` so v1 and v2 can ship as siblings without classpath conflict.
 
 ---
 
@@ -697,7 +695,7 @@ re-frame2 does not ship `reg-sub-raw`. The substrate now has explicit answers fo
 
 **Bridging non-Reagent reactive sources** at the substrate level is the [006](../../spec/006-ReactiveSubstrate.md) adapter contract's job — a custom adapter brings the external source into the substrate so subs consume it normally. This replaces the v1 stopgap of using `reg-sub-raw` to hand-roll the bridge.
 
-**Why:** see the rationale in the [rf2-fjpn](#) bead and [006 §The adapter contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract). `reg-sub-raw` existed in v1 to cover gaps the architecture hadn't filled yet; v2 fills those gaps explicitly. Subs that hold state outside `app-db` violate [000 Goal 2](../../spec/000-Vision.md#frame-state-revertibility); their state must move into `app-db` for revertibility.
+**Why:** see [006 §The adapter contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract). `reg-sub-raw` existed in v1 to cover gaps the architecture hadn't filled yet; v2 fills those gaps explicitly. Subs that hold state outside `app-db` violate [000 Goal 2](../../spec/000-Vision.md#frame-state-revertibility); their state must move into `app-db` for revertibility.
 
 ---
 
@@ -809,7 +807,7 @@ re-frame2 collapses the v1 / early-v2 multi-prefix scheme into a single root: ev
 | `:nav/scroll` | `:rf.nav/scroll` |
 | `:nav/external` | `:rf.nav/external` |
 | `:route/navigate` | `:rf.route/navigate` |
-| `:route/url-changed` | `:rf.route/transitioned` (the runtime event; rf2-cj9fn — the v2 trace op `:rf.route/fragment-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/fragment-changed` rename target) |
+| `:route/url-changed` | `:rf.route/transitioned` (the runtime event; the v2 trace op was separately named `:rf.route/fragment-changed`, leaving no `:rf.route/fragment-changed` rename target) |
 | `:route/handle-url-change` | `:rf.route/handle-url-change` |
 | `:route/not-found` | `:rf.route/not-found` |
 | `:route/navigation-blocked` | `:rf.route/navigation-blocked` |
@@ -884,7 +882,7 @@ Any of the five interceptor refs in any registration's interceptor list.
 
 **Type A** (mechanical).
 
-Per [Spec 004 §reg-view](../../spec/004-Views.md#reg-view-is-the-multi-frame-contract) and rf2-d0pi: `reg-view` is now a defn-shape macro that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects `dispatch` / `subscribe`. The keyword-shape call `(reg-view :id render-fn)` no longer compiles; the macro rejects it at macroexpand-time with an error pointing the user at `re-frame.core/reg-view*`.
+Per [Spec 004 §reg-view](../../spec/004-Views.md#reg-view-is-the-multi-frame-contract): `reg-view` is now a defn-shape macro that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects `dispatch` / `subscribe`. The keyword-shape call `(reg-view :id render-fn)` no longer compiles; the macro rejects it at macroexpand-time with an error pointing the user at `re-frame.core/reg-view*`.
 
 **What to look for** in the codebase:
 
@@ -941,7 +939,7 @@ The agent rewrites mechanically: the keyword's local-name becomes the auto-defed
 
 ---
 
-### M-23. `re-frame.alpha` is removed (rf2-7cb2 / rf2-s9dn)
+### M-23. `re-frame.alpha` is removed
 
 **Type A** (mechanical for the registration / subscribe shapes; **Type B** for any code that depended on a specific lifecycle policy — flag and request human review).
 
@@ -981,7 +979,7 @@ The per-kind registration macros, `reg-flow`, `reg-route`, and the vector-form `
 
 **Type A** (mechanical).
 
-Per rf2-n4um / rf2-u33b: the `h` compile-time hiccup walker has been dropped from the v1 surface. The Var idiom (`reg-view counter [...] ...` defs `counter`; users write `[counter "Hello"]`) is the canonical call-site form; `(rf/view :id)` is the documented escape hatch for late-binding by id. Two call-site forms, no compile-time hiccup walker.
+The `h` compile-time hiccup walker has been dropped from the v1 surface. The Var idiom (`reg-view counter [...] ...` defs `counter`; users write `[counter "Hello"]`) is the canonical call-site form; `(rf/view :id)` is the documented escape hatch for late-binding by id. Two call-site forms, no compile-time hiccup walker.
 
 **What to look for** in the codebase:
 
@@ -1013,13 +1011,13 @@ Per rf2-n4um / rf2-u33b: the `h` compile-time hiccup walker has been dropped fro
 
 The agent rewrites mechanically. For the Var-ref form (the common case), the namespaced keyword's local-name becomes a symbol reference to the Var defed by `reg-view`. If the call-site context indicates late-binding intent (a comment to that effect, or the symbol isn't in scope at the call site), the agent emits the `[(rf/view :id) args]` form instead. Ambiguous sites default to Var-ref — the reverse migration to `view` is a one-line edit if the user later decides hot-reload semantics matter.
 
-**Why?** Two view call-site forms is enough; three was drifty (P1 violation flagged in [AI-Audit §G-E](../../spec/AI-Audit.md#g-e-view-invocation-has-two-forms--var-canonical-view-id-for-late-binding)). Same surface-shrinking principle as rf2-7cb2 (drop alpha) and rf2-iyzm (Var-ref canonical for views): when two surfaces cover every case the third was solving, the third is excess.
+**Why?** Two view call-site forms is enough; three was drifty (P1 violation flagged in [AI-Audit §G-E](../../spec/AI-Audit.md#g-e-view-invocation-has-two-forms--var-canonical-view-id-for-late-binding)). Same surface-shrinking principle as dropping `re-frame.alpha` (M-23) and making Var-ref canonical for views: when two surfaces cover every case the third was solving, the third is excess.
 
 ### M-25. `re-frame.test` helpers renamed to `re-frame.test-support`
 
 **Type A** (mechanical).
 
-Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re-frame-test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. `dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals-rf2-8j9m6) so the fn-side shares a name root with the `:rf.assert/*` Story event-family. `run-test-sync` is **dropped** in v2 (per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture); rewrite call sites to inline `dispatch-sync`). The require-rewrite for the surviving helpers is mechanical.
+v1's `re-frame.test` namespace (the `day8/re-frame-test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. `dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals) so the fn-side shares a name root with the `:rf.assert/*` Story event-family. `run-test-sync` is **dropped** in v2 (per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture); rewrite call sites to inline `dispatch-sync`). The require-rewrite for the surviving helpers is mechanical.
 
 **What to look for** in the codebase:
 
@@ -1050,7 +1048,7 @@ Any `run-test-sync` call sites encountered during this rewrite are handled by [M
 **Signature notes** (the v2 helpers are frame-aware; v1 helpers were single-frame implicit):
 
 - `(dispatch-sequence events)` / `(dispatch-sequence events {:after-each f :frame f-id})` — v1's frame-implicit form maps to the no-opts arity; tests targeting a non-default frame supply `{:frame ...}`.
-- `(assert-path-equals path expected-val)` / `(assert-db-equals expected-db)` / either form `+ {:frame ...}` — v1's two-arg `(assert-state path expected)` maps to `(assert-path-equals path expected-val)`; the full-db form is now the separate `(assert-db-equals expected-db)`. The split (per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals-rf2-8j9m6)) gives the fn-side a shared name root with the `:rf.assert/*` Story event-family. The `:frame` opt is a v2 addition on both shapes.
+- `(assert-path-equals path expected-val)` / `(assert-db-equals expected-db)` / either form `+ {:frame ...}` — v1's two-arg `(assert-state path expected)` maps to `(assert-path-equals path expected-val)`; the full-db form is now the separate `(assert-db-equals expected-db)`. The split (per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals)) gives the fn-side a shared name root with the `:rf.assert/*` Story event-family. The `:frame` opt is a v2 addition on both shapes.
 
 If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the dependency — v2 ships the surviving helpers in the core artefact (no separate coordinate to require).
 
@@ -1058,7 +1056,7 @@ If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the 
 
 **Type A** (mechanical) for the symbols whose canonical replacement is a direct rewrite; **Type B** (semantic flag) for `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` where the v2 surface differs in shape.
 
-Per rf2-gr0n: a sweep of API.md and the spec corpus identified 11 v1-era public symbols that were carried as documentation rows but had no v2 impl, no test, and no canonical owner — a per-symbol decision was made to drop each. The replacements below cover both v1 callers and any draft-spec call sites still authored against v2 docs.
+A sweep of API.md and the spec corpus identified 11 v1-era public symbols that were carried as documentation rows but had no v2 impl, no test, and no canonical owner — a per-symbol decision was made to drop each. The replacements below cover both v1 callers and any draft-spec call sites still authored against v2 docs.
 
 **What to look for** in the codebase:
 
@@ -1083,18 +1081,18 @@ rf/trace-api-version                             ;; version slot, never wired
 | v1 surface | v2 equivalent | Notes |
 |---|---|---|
 | `with-trace` / `merge-trace!` / `finish-trace` | `(rf/emit-trace-event! op-type operation tags)` | re-frame2's trace stream is point-event, not span-shape. Each emit is one trace event; tools assemble spans externally if needed. See [009-Instrumentation §The trace event model](../../spec/009-Instrumentation.md#the-trace-event-model). |
-| `trace-api-version` | (none — drop) | Per rf2-j7kv (Spec 009 narrowed), the version slot is unused. Tools branch on the presence of `re-frame.core/register-listener!` and the `:rf/epoch-record` schema instead. |
+| `trace-api-version` | (none — drop) | Spec 009 narrowed; the version slot is unused. Tools branch on the presence of `re-frame.core/register-listener!` and the `:rf/epoch-record` schema instead. |
 | `add-post-event-callback` / `remove-post-event-callback` | `(rf/register-listener! key cb)` / `(rf/unregister-listener! key)` | v1's per-frame post-event hook is subsumed by the trace listener API. Listeners receive every dispatched event as a trace event; filter on `:operation` for the equivalent. **Type B** — the rewrite depends on whether the callback was observer-shaped (trivial trace-listener replacement) or behaviour-modifying (rare; should move into a frame-level interceptor). |
 | `purge-event-queue` | (none — drop) | v2's `dispatch-sync` drains synchronously and v2's drain is run-to-completion (per [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)); the v1 affordance for "drop a stuck queue" no longer applies. Tests that need a fresh frame use `with-fresh-registrar` / `make-reset-runtime-fixture` (per [008-Testing](../../spec/008-Testing.md)). |
 | `dispatch-and-settle` | `dispatch-sync` | v2's `dispatch-sync` is settle-by-default — the call returns once the cascade has fully drained. The v1 deferred-shaped return is gone; callers that awaited the deferred can replace `(deref (dispatch-and-settle ev))` with `(dispatch-sync ev)`. The `:overrides` opt maps to `dispatch-sync`'s `:fx-overrides` / `:interceptor-overrides`. |
 | `reg-event-error-handler` | per-frame `:on-error` slot, or `(rf/register-listener! key cb)` filtering on `:rf.error/*` | The single-slot global error-handler is gone (per M-13's note this was already a fragile policy). v2 layers error policy at the frame level (`:on-error` in `reg-frame` metadata) and exposes the structured error stream via the trace listener API. **Type B** — the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-listener!`). |
 | `spawn-machine` | `[:rf.machine/spawn spec]` (fx, inside an event handler's `:fx`) | The fx-id is canonical; the public fn `spawn-machine` is dropped. From outside a handler (e.g. boot-time), wrap in `(rf/dispatch-sync [:my-bootstrap-event])` whose handler returns `{:fx [[:rf.machine/spawn spec]]}`. |
 | `destroy-machine` | `[:rf.machine/destroy actor-id]` (fx, inside an event handler's `:fx`) | Same — fx-id is canonical; the public fn is dropped. |
-| `make-restore-fn` | `epoch/restore-epoch` (epoch-id-keyed; refuses halted-cascade records) + `epoch/reset-frame-db!` (value-shape replace). For the v1 snapshot+closure pattern, write it inline: `(let [snapshot (rf/get-frame-db frame-id)] (fn [] (rf/reset-frame-db! frame-id snapshot)))`. | The epoch surface is the v2 mechanism for state capture and restore. Per rf2-tdfbd (Mike decision 2026-05-19): pre-alpha posture rejects v1 helpers that have a v2 replacement. |
+| `make-restore-fn` | `epoch/restore-epoch` (epoch-id-keyed; refuses halted-cascade records) + `epoch/reset-frame-db!` (value-shape replace). For the v1 snapshot+closure pattern, write it inline: `(let [snapshot (rf/get-frame-db frame-id)] (fn [] (rf/reset-frame-db! frame-id snapshot)))`. | The epoch surface is the v2 mechanism for state capture and restore. Pre-alpha posture rejects v1 helpers that have a v2 replacement. |
 
 **Why:** each of these v1 surfaces had a v2-canonical equivalent that subsumed the use case (trace listeners, point-event tracing, fx-shaped lifecycle, run-to-completion drain, frame-level error policy, epoch-based capture/restore). Carrying the v1 names as separate documented entries created drift between the API table and the actual v2 surfaces.
 
-For `init-platform` and the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these were also flagged in the rf2-gr0n triage but carry post-v1 ergonomic value; they are deferred (not dropped) and tracked as separate beads. Migration tooling should not attempt to rewrite these. (`sub-topology` was flagged the same way and has since been implemented as part of the v1-✓ public registrar query API — see [O-12](#o-12-introspect-the-static-sub-graph-via-rfsub-topology) for opt-in adoption.)
+For `init-platform` and the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these were also flagged in the same triage but carry post-v1 ergonomic value; they are deferred (not dropped). Migration tooling should not attempt to rewrite these. (`sub-topology` was flagged the same way and has since been implemented as part of the v1-✓ public registrar query API — see [O-12](#o-12-introspect-the-static-sub-graph-via-rfsub-topology) for opt-in adoption.)
 
 ---
 
@@ -1102,7 +1100,7 @@ For `init-platform` and the SSR-head trio (`reg-head` / `render-head` / `active-
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-p7va](#) (the first per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 010's schema-attachment surface — `reg-app-schema`, `app-schema-at`, `app-schemas`, the validation hot-path entry points, and the `re-frame.schemas` namespace — ships as a separate Maven artefact `day8/re-frame2-schemas`. The core artefact (`day8/re-frame2`) no longer carries the namespace or its Malli dep; an app that doesn't register any schemas builds an `:advanced` bundle clean of schema strings, Malli code, and the `re-frame.schemas` ns symbols.
+As the first per-feature artefact split (Strategy B), Spec 010's schema-attachment surface — `reg-app-schema`, `app-schema-at`, `app-schemas`, the validation hot-path entry points, and the `re-frame.schemas` namespace — ships as a separate Maven artefact `day8/re-frame2-schemas`. The core artefact (`day8/re-frame2`) no longer carries the namespace or its Malli dep; an app that doesn't register any schemas builds an `:advanced` bundle clean of schema strings, Malli code, and the `re-frame.schemas` ns symbols.
 
 **What to look for** in the codebase:
 
@@ -1119,11 +1117,11 @@ Per [rf2-p7va](#) (the first per-feature artefact split per [rf2-5vjj](#) Strate
         day8/re-frame2-schemas {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
-CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot path so the default validator delegates to Malli (rf2-t0hq). The adapter namespace publishes `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load; the schemas artefact's default validator consults the hook on every call. Absent the require, the default validator soft-passes per Spec 010 §Recommended soft-pass (CLJS has no runtime `resolve`, so a previous-generation `(resolve 'malli.core/validate)` approach silently no-op'd even when Malli was on the classpath). The schemas artefact carries Malli as a `:deps` entry so the namespace is available without an explicit `:require`; the app's `:require [re-frame.schemas.malli]` is what wires the runtime fns into the framework.
+CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot path so the default validator delegates to Malli. The adapter namespace publishes `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load; the schemas artefact's default validator consults the hook on every call. Absent the require, the default validator soft-passes per Spec 010 §Recommended soft-pass (CLJS has no runtime `resolve`, so a previous-generation `(resolve 'malli.core/validate)` approach silently no-op'd even when Malli was on the classpath). The schemas artefact carries Malli as a `:deps` entry so the namespace is available without an explicit `:require`; the app's `:require [re-frame.schemas.malli]` is what wires the runtime fns into the framework.
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-app-schema ...)`, `(rf/app-schema-at ...)`, `(rf/app-schemas ...)` still work, the wrappers in core late-bind through the hook table to the schemas artefact's implementations. An app that calls `rf/reg-app-schema` *without* the schemas artefact on the classpath gets a clear `:rf.error/schemas-artefact-missing` error at the call site.
 
-**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-p7va](#).
+**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
 ---
 
@@ -1131,7 +1129,7 @@ CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot 
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
+As the second per-feature artefact split (Strategy B), Spec 005's state-machine surface — `reg-machine`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
 
 **What to look for** in the codebase:
 
@@ -1152,7 +1150,7 @@ Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/ma
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/make-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)`, `(rf/sub-machine ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
 
-**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-xbtj](#).
+**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
 ---
 
@@ -1160,7 +1158,7 @@ Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/ma
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+As the third per-feature artefact split (Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
 
 **What to look for** in the codebase:
 
@@ -1182,7 +1180,7 @@ Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` event
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-route ...)`, `(rf/match-url ...)`, `(rf/route-url ...)` still work, the wrappers in core late-bind through the hook table to the routing artefact's implementations. The active surfaces throw `:rf.error/routing-artefact-missing` when the routing artefact is absent.
 
-**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-k682](#).
+**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
 ---
 
@@ -1190,7 +1188,7 @@ Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` event
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-tfw3](#) (the fourth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 013's flows surface — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, the post-drain `run-flows!` walker, and the `re-frame.flows` namespace — ships as a separate Maven artefact `day8/re-frame2-flows`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the topo-sort engine, or any of the flow-evaluation machinery; an app that doesn't register any flows builds an `:advanced` bundle clean of every flows-related symbol.
+As the fourth per-feature artefact split (Strategy B), Spec 013's flows surface — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, the post-drain `run-flows!` walker, and the `re-frame.flows` namespace — ships as a separate Maven artefact `day8/re-frame2-flows`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the topo-sort engine, or any of the flow-evaluation machinery; an app that doesn't register any flows builds an `:advanced` bundle clean of every flows-related symbol.
 
 **What to look for** in the codebase:
 
@@ -1211,7 +1209,7 @@ Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.f
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-flow ...)`, `(rf/clear-flow ...)` still work, the wrappers in core late-bind through the hook table to the flows artefact's implementations. The active surfaces throw `:rf.error/flows-artefact-missing` when the flows artefact is absent.
 
-**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-tfw3](#).
+**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
 ---
 
@@ -1219,7 +1217,7 @@ Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.f
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` fxs, the `with-managed-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` test helpers, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `re-frame.http-managed` namespace — ships as a separate Maven artefact `day8/re-frame2-http`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
+As the fifth per-feature artefact split (Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` fxs, the `with-managed-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` test helpers, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `re-frame.http-managed` namespace — ships as a separate Maven artefact `day8/re-frame2-http`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
 
 **What to look for** in the codebase:
 
@@ -1242,13 +1240,13 @@ Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs 
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/with-managed-request-stubs ...)`, `(rf/install-managed-request-stubs! ...)`, `(rf/uninstall-managed-request-stubs!)` and `(rf/with-managed-request-stubs* ...)` still work, the wrappers in core late-bind through the hook table to the http artefact's implementations.
 
-**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-5kpd](#).
+**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
-#### M-31a. Managed-HTTP canned-stub fxs require `re-frame.http-test-support` (rf2-cdmle)
+#### M-31a. Managed-HTTP canned-stub fxs require `re-frame.http-test-support`
 
 **Type B** (touch test-namespace requires).
 
-Per [rf2-cdmle](#) (follow-up to the [rf2-zk08x](#) security audit), the two canonical canned-stub fxs `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` no longer register at `re-frame.http-managed` namespace load. They register from a sibling test-support namespace, `re-frame.http-test-support`, that ships in the same `day8/re-frame2-http` Maven artefact. Production / SSR application code MUST NOT `:require` that namespace; tests opt in.
+Following a security audit, the two canonical canned-stub fxs `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` no longer register at `re-frame.http-managed` namespace load. They register from a sibling test-support namespace, `re-frame.http-test-support`, that ships in the same `day8/re-frame2-http` Maven artefact. Production / SSR application code MUST NOT `:require` that namespace; tests opt in.
 
 The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself. On CLJS `:advanced + goog.DEBUG=false` that gate folded to `false` and the registrations elided as intended; on the JVM `debug-enabled?` is unconditionally true, so the canned-stub fx ids stayed registered as production-default API on JVM/SSR builds — discoverable via `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` from any handler. The require-boundary gate makes the absence load-bearing on every host.
 
@@ -1265,7 +1263,7 @@ The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-m
 ```clojure
 (ns my-app.tests
   (:require [re-frame.http-managed]        ;; production fx surface
-            [re-frame.http-test-support])) ;; canned-stub fx registrations (rf2-cdmle)
+            [re-frame.http-test-support])) ;; canned-stub fx registrations
 ```
 
 Test fixtures that `(registrar/clear-all!)` between tests and `(require 're-frame.http-managed :reload)` to re-seat the production-eligible fxs SHOULD also `(require 're-frame.http-test-support :reload)` to re-seat the canned-stub registrations — without the reload, only one test sees the stubs registered and subsequent tests fail with `:rf.error/no-such-fx` for `:rf.http/managed-canned-*`.
@@ -1274,13 +1272,13 @@ Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` d
 
 **Public API** is unchanged. The fx ids `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` retain their args contract per Spec 014 §Testing; only the registration site moved.
 
-**Why:** rf2-zk08x's security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [rf2-cdmle](#) and [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw).
+**Why:** a security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw).
 
-#### M-31b. `:rf.http/managed` `:retry :on` is a closed-set (rf2-apwkm)
+#### M-31b. `:rf.http/managed` `:retry :on` is a closed-set
 
 **Type A** (mechanical). Affects v2-pre-rename codebases only — v1 had no `:rf.http/managed` fx.
 
-Per rf2-apwkm (audit Finding 7 on `:retry :on` open-set acceptance), the `:retry :on` field on `:rf.http/managed` requests no longer accepts arbitrary `:rf.http/*` keywords. The closed retryable subset is:
+Per audit Finding 7 on `:retry :on` open-set acceptance, the `:retry :on` field on `:rf.http/managed` requests no longer accepts arbitrary `:rf.http/*` keywords. The closed retryable subset is:
 
 ```
 #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
@@ -1320,7 +1318,7 @@ Any keyword outside this set in `:retry :on` (the three non-retryable `:rf.http/
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-uo7v](#) (the sixth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 011's server-side rendering and hydration surface — the pure hiccup → HTML emitter (`render-to-string`), the FNV-1a structural render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with `:replace-app-db` semantics, the six `:rf.server/*` server-only fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`), the per-request HTTP response accumulator at `[:rf/response]`, the `reg-error-projector` registry kind plus the built-in `:rf.ssr/default-error-projector`, the SSR error-projection trace listener, the `data-rf2-source-coord` annotation on registered-view roots, and the `re-frame.ssr` namespace — ships as a separate Maven artefact `day8/re-frame2-ssr`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the HTML emitter, the FNV-1a hash machinery, the response-accumulator bookkeeping, the projector registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace strings; an app that doesn't render server-side builds an `:advanced` bundle clean of every `re-frame.ssr` / `:rf.ssr/*` / `:rf.server/*` symbol and trace string.
+As the sixth per-feature artefact split (Strategy B), Spec 011's server-side rendering and hydration surface — the pure hiccup → HTML emitter (`render-to-string`), the FNV-1a structural render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with `:replace-app-db` semantics, the six `:rf.server/*` server-only fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`), the per-request HTTP response accumulator at `[:rf/response]`, the `reg-error-projector` registry kind plus the built-in `:rf.ssr/default-error-projector`, the SSR error-projection trace listener, the `data-rf2-source-coord` annotation on registered-view roots, and the `re-frame.ssr` namespace — ships as a separate Maven artefact `day8/re-frame2-ssr`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the HTML emitter, the FNV-1a hash machinery, the response-accumulator bookkeeping, the projector registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace strings; an app that doesn't render server-side builds an `:advanced` bundle clean of every `re-frame.ssr` / `:rf.ssr/*` / `:rf.server/*` symbol and trace string.
 
 **What to look for** in the codebase:
 
@@ -1343,7 +1341,7 @@ Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/r
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/render-to-string ...)`, `(rf/render-tree-hash ...)`, `(rf/reg-error-projector ...)` and `(rf/project-error ...)` still work, the wrappers in core late-bind through the hook table to the ssr artefact's implementations.
 
-**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-uo7v](#).
+**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
 ---
 
@@ -1351,7 +1349,7 @@ Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/r
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-lt4e](#) (the seventh and final per-feature artefact split per [rf2-5vjj](#) Strategy B), the [Tool-Pair §Time-travel](../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo) surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure :epoch-history {:depth N})` knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the `restore-epoch` rewind with its six documented failure modes (`:rf.epoch/restore-unknown-epoch`, `:rf.epoch/restore-schema-mismatch`, `:rf.epoch/restore-missing-handler`, `:rf.epoch/restore-version-mismatch`, `:rf.epoch/restore-during-drain`, plus `:rf.error/no-such-handler` for the unknown-frame case), the per-cascade trace-capture buffer the router and the trace surface feed via the `:epoch/capture-event` / `:epoch/settle!` / `:epoch/discard-buffer!` late-bind hooks, the `:rf.epoch/snapshotted` and `:rf.epoch/restored` trace events, the `:sub-runs` / `:renders` / `:effects` per-cascade projections, and the `re-frame.epoch` namespace itself — ships as a separate Maven artefact `day8/re-frame2-epoch`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the per-frame ring buffer, the trace-capture path, the projection walker, the schema-validate / machine-version / missing-reference predicates, or any of the `:rf.epoch/*` trace strings; an app that doesn't consume the pair-tool / time-travel surface builds an `:advanced` bundle clean of every `re-frame.epoch` / `:rf.epoch/*` symbol and trace string. The whole surface is still gated on `interop/debug-enabled?` (per [Tool-Pair §Time-travel §Production elision](../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) so a release build elides regardless of classpath presence — the split is a development-time bundle-shape improvement, not a production-elision change.
+As the seventh and final per-feature artefact split (Strategy B), the [Tool-Pair §Time-travel](../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo) surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure :epoch-history {:depth N})` knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the `restore-epoch` rewind with its six documented failure modes (`:rf.epoch/restore-unknown-epoch`, `:rf.epoch/restore-schema-mismatch`, `:rf.epoch/restore-missing-handler`, `:rf.epoch/restore-version-mismatch`, `:rf.epoch/restore-during-drain`, plus `:rf.error/no-such-handler` for the unknown-frame case), the per-cascade trace-capture buffer the router and the trace surface feed via the `:epoch/capture-event` / `:epoch/settle!` / `:epoch/discard-buffer!` late-bind hooks, the `:rf.epoch/snapshotted` and `:rf.epoch/restored` trace events, the `:sub-runs` / `:renders` / `:effects` per-cascade projections, and the `re-frame.epoch` namespace itself — ships as a separate Maven artefact `day8/re-frame2-epoch`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the per-frame ring buffer, the trace-capture path, the projection walker, the schema-validate / machine-version / missing-reference predicates, or any of the `:rf.epoch/*` trace strings; an app that doesn't consume the pair-tool / time-travel surface builds an `:advanced` bundle clean of every `re-frame.epoch` / `:rf.epoch/*` symbol and trace string. The whole surface is still gated on `interop/debug-enabled?` (per [Tool-Pair §Time-travel §Production elision](../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) so a release build elides regardless of classpath presence — the split is a development-time bundle-shape improvement, not a production-elision change.
 
 **What to look for** in the codebase:
 
@@ -1373,26 +1371,26 @@ Every namespace that calls `rf/epoch-history` / `rf/restore-epoch` / `rf/registe
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/epoch-history ...)`, `(rf/restore-epoch ...)`, `(rf/register-epoch-listener! ...)`, `(rf/unregister-epoch-listener! ...)`, and `(rf/configure :epoch-history ...)` still work; the wrappers in core late-bind through the hook table to the epoch artefact's implementations.
 
-**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-lt4e](#) — the seventh and final per-feature split closes the rf2-5vjj Strategy B set.
+**Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split. This is the seventh and final per-feature split, closing out the Strategy B set.
 
 ---
 
 ### M-34. Spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`
 
-**Type B** (flag for human review — only when the user-defined machine relied on the old "the runtime reads `:data :pending`" assumption that pre-rf2-t07u prose hinted at; the snapshot shape and the user-facing `:on-spawn` callback signature are unchanged).
+**Type B** (flag for human review — only when the user-defined machine relied on the old "the runtime reads `:data :pending`" assumption that earlier draft prose hinted at; the snapshot shape and the user-facing `:on-spawn` callback signature are unchanged).
 
-Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:spawn` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` instead of reading the spawned id back out of the parent's `:data` (the v1-spec-prose claim was that the runtime "tracks which key the user's `:on-spawn` wrote" — concretely the implementation was reading `(get-in snapshot [:data :pending])`). Two consequences:
+The runtime now tracks each declarative-`:spawn` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` instead of reading the spawned id back out of the parent's `:data` (the v1-spec-prose claim was that the runtime "tracks which key the user's `:on-spawn` wrote" — concretely the implementation was reading `(get-in snapshot [:data :pending])`). Two consequences:
 
 1. **`:on-spawn` becomes purely advisory.** Users may still record the spawned id in their own `:data` (so other transitions can address the child by name), but the runtime no longer requires it for the destroy-side resolution. Apps that omit `:on-spawn` entirely now correctly destroy the spawned child on state-exit.
 2. **The destroy fx accepts a richer arg shape.** Inside a machine action's `:fx`, `[:rf.machine/destroy actor-id]` (the legacy / imperative form, hand-emitted by user actions) still works unchanged. The declarative-`:spawn` desugar now emits `[:rf.machine/destroy {:rf/parent-id ... :rf/spawn-id ...}]` and the fx handler resolves the actor id from the registry slot at fx-call time.
 
 **What to look for** in the codebase:
 
-- Machine specs that declared `:spawn` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-alpha these were broken by definition; the rf2-t07u change makes them correct without user-side rewrite.
+- Machine specs that declared `:spawn` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-alpha these were broken by definition; the runtime-owned spawn-id tracking makes them correct without user-side rewrite.
 - Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (e.g. `:exit (fn [data _] {:fx [[:rf.machine/destroy (:pending data)]]})`) — these continue to work unchanged (the keyword form of the destroy fx is preserved).
 - User-supplied `:exit` action bodies that read `(get-in db [:rf/machines (:pending data)])` to peek at the child's last snapshot before the auto-destroy fires — these continue to work unchanged. The composition rule ([§Composition with explicit `:entry` / `:exit`](../../spec/005-StateMachines.md#composition-with-explicit-entry--exit)) is unchanged: the user's `:exit` action runs BEFORE the auto-destroy, so the snapshot is still readable through the parent's recorded id.
 
-**What to do.** Type B because the rewrite depends on intent: a `:spawn` without `:on-spawn` was silently broken pre-rf2-t07u (the actor leaked); after rf2-t07u it works correctly. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (e.g. tests asserting `:rf/machines` has a stale entry after exit) needs explicit triage.
+**What to do.** Type B because the rewrite depends on intent: a `:spawn` without `:on-spawn` was silently broken pre-fix (the actor leaked); it now works correctly under the runtime-owned spawn-id registry. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (e.g. tests asserting `:rf/machines` has a stale entry after exit) needs explicit triage.
 
 **Public API** (in `re-frame.core` and the `reg-machine` / `:spawn` surface) is unchanged — `:on-spawn` callback signature is `(fn [data spawned-id] new-data)` exactly as before. The change is to the **runtime semantics** of where the spawn-id is stored: the user's `:data` is now user territory, and the runtime owns `[:rf/spawned ...]`.
 
@@ -1404,7 +1402,7 @@ Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:
 
 **Type A** (mechanical, name-rename).
 
-Per [rf2-m83v](#), the actor-lifecycle fx-ids registered by `re-frame.machines` (Spec 005) are renamed to the framework-canonical `:rf.<feature>/...` form. The bare unqualified pair (`:spawn` / `:destroy-machine`) is dropped — they are no longer registered, and using them in `:fx` raises `:rf.error/no-such-fx`. The new pair (`:rf.machine/spawn` / `:rf.machine/destroy`) is the single canonical surface; it is emitted by the `:spawn` desugar and may be authored by hand inside any event handler's `:fx` (machine actions and ordinary handlers alike). Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) and [Conventions §Reserved fx-ids](../../spec/Conventions.md#reserved-fx-ids).
+The actor-lifecycle fx-ids registered by `re-frame.machines` (Spec 005) are renamed to the framework-canonical `:rf.<feature>/...` form. The bare unqualified pair (`:spawn` / `:destroy-machine`) is dropped — they are no longer registered, and using them in `:fx` raises `:rf.error/no-such-fx`. The new pair (`:rf.machine/spawn` / `:rf.machine/destroy`) is the single canonical surface; it is emitted by the `:spawn` desugar and may be authored by hand inside any event handler's `:fx` (machine actions and ordinary handlers alike). Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) and [Conventions §Reserved fx-ids](../../spec/Conventions.md#reserved-fx-ids).
 
 **What to look for** in the codebase:
 
@@ -1427,9 +1425,9 @@ Per [rf2-m83v](#), the actor-lifecycle fx-ids registered by `re-frame.machines` 
       [:rf.machine/destroy actor-id]]}
 ```
 
-The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Schemas §Standard fx-args schemas](../../spec/Spec-Schemas.md#standard-fx-args-schemas)) stays exactly as it was. (Composes with [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-): the rf2-t07u runtime registry uses the new fx-id name; the destroy-fx arg shape — keyword `actor-id` for imperative or `{:rf/parent-id ... :rf/spawn-id ...}` for declarative — is orthogonal to this rename.)
+The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Schemas §Standard fx-args schemas](../../spec/Spec-Schemas.md#standard-fx-args-schemas)) stays exactly as it was. (Composes with [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-): the runtime registry uses the new fx-id name; the destroy-fx arg shape — keyword `actor-id` for imperative or `{:rf/parent-id ... :rf/spawn-id ...}` for declarative — is orthogonal to this rename.)
 
-**Why:** the bare names were inherited from a transitional design where the machine handler routed the fxs locally. Once `re-frame.machines` started registering them via the standard `reg-fx` path so the `:spawn` desugar (and the [§Top-level boot-time spawn](../../spec/005-StateMachines.md#top-level-boot-time-spawn-rare) worked example) could emit them from any event handler's `:fx`, the framework-canonical `:rf.<feature>/...` namespace was the right home; the bare unqualified pair drifted from the [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) rule and the L1116 worked example raised `:rf.error/no-such-fx` on a literal copy. Per [rf2-m83v](#) (audit-derived; pre-alpha and back-compat-free, so the bare names are dropped rather than aliased).
+**Why:** the bare names were inherited from a transitional design where the machine handler routed the fxs locally. Once `re-frame.machines` started registering them via the standard `reg-fx` path so the `:spawn` desugar (and the [§Top-level boot-time spawn](../../spec/005-StateMachines.md#top-level-boot-time-spawn-rare) worked example) could emit them from any event handler's `:fx`, the framework-canonical `:rf.<feature>/...` namespace was the right home; the bare unqualified pair drifted from the [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) rule and the worked example raised `:rf.error/no-such-fx` on a literal copy. Audit-derived; pre-alpha and back-compat-free, so the bare names are dropped rather than aliased.
 
 ---
 
@@ -1437,7 +1435,7 @@ The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Sch
 
 **Type A — note only** (no codebase rewrite needed; the v1→v2 rename target was already canonical).
 
-Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the routing slot key — `:route` (legacy) and `:rf/route` (canonical). The drift spanned 012-Routing.md, Spec-Schemas.md, Runtime-Architecture.md, API.md, Cross-Spec-Interactions.md, and 011-SSR.md. The reconciliation pins `:rf/route` corpus-wide. The same sweep aligned two adjacent Conventions table cells: the framework machine sub-id is `[:rf/machine <id>]` (was `[:rf.machine <id>]`), and the `:rf.route/*` row's enumeration of routing events lists `:rf.route/transitioned` (was `:rf.route/fragment-changed`, which is a trace-event flavour, not the runtime event) per rf2-sjnf D2 / D3.
+The v2 spec corpus had drifted between two phrasings for the routing slot key — `:route` (legacy) and `:rf/route` (canonical). The drift spanned 012-Routing.md, Spec-Schemas.md, Runtime-Architecture.md, API.md, Cross-Spec-Interactions.md, and 011-SSR.md. The reconciliation pins `:rf/route` corpus-wide. The same sweep aligned two adjacent Conventions table cells: the framework machine sub-id is `[:rf/machine <id>]` (was `[:rf.machine <id>]`), and the `:rf.route/*` row's enumeration of routing events lists `:rf.route/transitioned` (was `:rf.route/fragment-changed`, which is a trace-event flavour, not the runtime event).
 
 **No user-side migration.** The v1→v2 rename table above (`app-db [:route]` → `app-db [:rf/route]`, `[:route]` framework sub → `[:rf/route]`) was already correct — the drift was internal to the v2 corpus, not a change to the rename target. Codebases following [M-20](#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix) land at `:rf/route` regardless.
 
@@ -1447,7 +1445,7 @@ Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the r
 
 **Type A — note only** (no codebase rewrite needed; Maven artefact names are unchanged).
 
-Per [rf2-zha9](#) the three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` under rf2-zha9 and renamed to `adapters/` under [rf2-0imy](#) — the [§Adapter-canonical naming](#) decision). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §adapter API contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract); per-feature artefacts plug in via [`re-frame.late-bind`](../../spec/Conventions.md#independence-rule).
+The three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` and then renamed to `adapters/` — see the [§Adapter-canonical naming](#) decision). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §adapter API contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract); per-feature artefacts plug in via [`re-frame.late-bind`](../../spec/Conventions.md#independence-rule).
 
 **No user-side migration.** Maven artefact names (`day8/re-frame2-reagent`, `day8/re-frame2-uix`, `day8/re-frame2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter).
 
@@ -1457,9 +1455,9 @@ Per [rf2-zha9](#) the three adapters now live under a single `implementation/ada
 
 **Type A — fully mechanical.** Agent applies the rewrite without asking; the substring rename is unambiguous.
 
-Per [rf2-0imy](#) — the [§Adapter-canonical naming](#) decision — the four CLJS namespaces that name adapter implementations or adapter-shared utilities have been renamed under the canonical `re-frame.adapter.*` prefix. "**Substrate**" now refers exclusively to the abstract contract (Spec 006); "**adapter**" names each implementation:
+Per the [§Adapter-canonical naming](#) decision, the four CLJS namespaces that name adapter implementations or adapter-shared utilities have been renamed under the canonical `re-frame.adapter.*` prefix. "**Substrate**" now refers exclusively to the abstract contract (Spec 006); "**adapter**" names each implementation:
 
-| Old (pre-rf2-0imy) | New (canonical) |
+| Old (pre-rename) | New (canonical) |
 |---|---|
 | `re-frame.substrate.reagent` | `re-frame.adapter.reagent` |
 | `re-frame.substrate.uix` | `re-frame.adapter.uix` |
@@ -1478,7 +1476,7 @@ Apps update each `:require` line in their ns declarations:
 
 **Type A rewrite.** The substring `re-frame.substrate.{reagent|uix|helix|context}` has exactly one canonical replacement (`re-frame.adapter.{reagent|uix|helix|context}`); the agent rewrites every `:require` and any reference to the namespace symbol mechanically. The local alias on the right of `:as` is the consumer's choice and is left untouched.
 
-**No back-compat alias.** Pre-1.0 supports a clean rename; the old `re-frame.substrate.<name>` symbols do not resolve in re-frame2. The substrate-contract namespaces under `re-frame.substrate.*` (notably `re-frame.substrate.adapter` and `re-frame.substrate.plain-atom`) are unaffected by this rename and stay as-is — they are slated for separate redesign under [rf2-agql](#) (explicit `(rf/init! adapter-map)` form).
+**No back-compat alias.** Pre-1.0 supports a clean rename; the old `re-frame.substrate.<name>` symbols do not resolve in re-frame2. The substrate-contract namespaces under `re-frame.substrate.*` (notably `re-frame.substrate.adapter` and `re-frame.substrate.plain-atom`) are unaffected by this rename and stay as-is — they are slated for separate redesign under the explicit `(rf/init! adapter-map)` form (M-40).
 
 **Maven artefact names are unchanged.** A consumer's `deps.edn` continues to declare `day8/re-frame2-reagent` / `day8/re-frame2-uix` / `day8/re-frame2-helix` exactly as before. Only the `:require` lines move.
 
@@ -1488,7 +1486,7 @@ Apps update each `:require` line in their ns declarations:
 
 **Type A — additive, no rewrite.** The new surface is opt-in: existing `:rf.http/managed` call sites continue to work unchanged.
 
-Per [rf2-6y3q](#) (Spec 014 §Middleware) re-frame2 ships a per-frame request-side interceptor chain on `:rf.http/managed`. v1 had no equivalent — apps that wanted a Bearer-auth header / correlation-id / dev-mode base-URL rewrite had to thread the transform through their own request-builder helper. The new fns let one registration cover every outbound request from a frame:
+Per [Spec 014 §Middleware](../../spec/014-HTTPRequests.md#middleware), re-frame2 ships a per-frame request-side interceptor chain on `:rf.http/managed`. v1 had no equivalent — apps that wanted a Bearer-auth header / correlation-id / dev-mode base-URL rewrite had to thread the transform through their own request-builder helper. The new fns let one registration cover every outbound request from a frame:
 
 ```clojure
 (rf/reg-http-interceptor
@@ -1504,7 +1502,7 @@ The interceptor's `before` receives a ctx `{:request :args :frame :event}` and r
 
 **What to do.** Nothing on the migration path — the surface is additive. Apps that had a per-call-site request builder threading common headers can collapse the threading into a single `reg-http-interceptor` registration; the migration agent does not rewrite this automatically (the rewrite depends on whether the helper still has per-call concerns the interceptor wouldn't cover).
 
-**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor id before)` / `(rf/reg-http-interceptor id opts before)` per rf2-eyjbn (positional id + opts kwarg with `:frame` / `:doc` / `:tags` / `:schema` / `:sensitive?` + positional handler — `reg-flow` precedent) and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)`. Both ship in the `day8/re-frame2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
+**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor id before)` / `(rf/reg-http-interceptor id opts before)` (positional id + opts kwarg with `:frame` / `:doc` / `:tags` / `:schema` / `:sensitive?` + positional handler — `reg-flow` precedent; see also [M-63](#m-63-reg-http-interceptor-reshaped-to-positional-id--opts-kwarg)) and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)`. Both ship in the `day8/re-frame2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
 
 ---
 
@@ -1512,12 +1510,12 @@ The interceptor's `before` receives a ctx `{:request :args :frame :event}` and r
 
 **Type B — flag for human review.** The rewrite is mechanical *given* a chosen adapter, but the agent must surface every call site so the consumer confirms which adapter the app boots against.
 
-Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! …)` requires an adapter spec map argument. Per [rf2-3ubmv](#) the no-arg arity was cut from the fn defn entirely so the no-arg call `(rf/init!)` raises a language-level `ArityException` at the call site rather than a runtime ex-info — earlier diagnosis, clearer stack trace, IDE-flaggable. The keyword form (`(rf/init! :reagent)`) and the nil form (`(rf/init! nil)`) still raise `:rf.error/no-adapter-specified` at runtime. The default-adapter registry — populated by adapter ns-load side-effects under rf2-84po — is dropped entirely.
+`(rf/init! …)` requires an adapter spec map argument. The no-arg arity was cut from the fn defn entirely so the no-arg call `(rf/init!)` raises a language-level `ArityException` at the call site rather than a runtime ex-info — earlier diagnosis, clearer stack trace, IDE-flaggable. The keyword form (`(rf/init! :reagent)`) and the nil form (`(rf/init! nil)`) still raise `:rf.error/no-adapter-specified` at runtime. The default-adapter registry — previously populated by adapter ns-load side-effects — is dropped entirely.
 
 **Rationale.**
 
 1. **Explicit > implicit.** Reading any app's `run` function tells you which adapter is in use without chasing ns-load side-effects through the require graph.
-2. **Bundle-size.** A registry is bundle weight even when unused. Under rf2-agql an app that requires only the adapter it needs ships only that adapter's code; the registry-and-resolver paths are gone.
+2. **Bundle-size.** A registry is bundle weight even when unused. With the explicit-init form, an app that requires only the adapter it needs ships only that adapter's code; the registry-and-resolver paths are gone.
 
 **Migration steps.**
 
@@ -1556,17 +1554,17 @@ Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! �
 
 ---
 
-### M-41. `subscribe` + `dispatch` consult the React-context tier of the resolution chain (rf2-d4sf)
+### M-41. `subscribe` + `dispatch` consult the React-context tier of the resolution chain
 
 **Type A — additive, no rewrite.** The fix closes a runtime gap; no user-side action is required.
 
-Per [rf2-d4sf](#) the CLJS implementations of `subscribe`, `subscribe-once`, `unsubscribe`, and the dispatch envelope's `:frame` default now consult the `:adapter/current-frame` late-bind hook (registered by the active adapter's namespace at load time). Before this change those call sites called `re-frame.frame/current-frame` directly, which only honours the dynamic-var tier and the `:rf/default` tier of the [3-tier resolution chain](../../spec/002-Frames.md#reading-the-frame-from-react-context-cljs-implementation-detail) — the React-context tier was implemented in `re-frame.views/current-frame` but never reached by subscribe / dispatch. Net effect: `(rf/subscribe ...)` inside a non-default `frame-provider` silently routed to `:rf/default` regardless of what the provider named.
+The CLJS implementations of `subscribe`, `subscribe-once`, `unsubscribe`, and the dispatch envelope's `:frame` default now consult the `:adapter/current-frame` late-bind hook (registered by the active adapter's namespace at load time). Before this change those call sites called `re-frame.frame/current-frame` directly, which only honours the dynamic-var tier and the `:rf/default` tier of the [3-tier resolution chain](../../spec/002-Frames.md#reading-the-frame-from-react-context-cljs-implementation-detail) — the React-context tier was implemented in `re-frame.views/current-frame` but never reached by subscribe / dispatch. Net effect: `(rf/subscribe ...)` inside a non-default `frame-provider` silently routed to `:rf/default` regardless of what the provider named.
 
 **What changed for users.** Apps that wired `[rf/frame-provider {:frame :tenant} ...]` around a subtree expecting subscribe / dispatch inside the subtree to route to `:tenant` now observe the documented behaviour. A v1 app that **relied** on the silent routing-to-default would observe a behaviour change — but no such app could have been working as designed (the documented contract says subscribe routes to the surrounding provider's frame, so a working app on the old behaviour was either single-frame or used `with-frame` / explicit-`:frame` everywhere). The agent does not rewrite anything; the change is the runtime closing the gap between documentation and implementation.
 
 **Reagent prop-conversion bypass.** Stock Reagent's `convert-prop-value` (`reagent.impl.template`) stringifies named values when they pass as React props — and `(name kw)` is lossy for namespaced keywords (`(name :foo/bar)` → `"bar"`). The canonical user-facing surface (`rf/frame-provider`) mounts the Provider via Reagent's `:r>` interop head, which passes the props map to React as a raw JS object and bypasses `convert-prop-value` entirely. The Provider's `:value` therefore reaches React unchanged — namespaced frame-ids (`:tenant/admin`) survive the React-context round trip on every adapter. A user who writes `[:> (.-Provider frame-context) {:value :tenant}]` directly (raw `:>` interop, not `rf/frame-provider`) still passes through `convert-prop-value` under the classic adapter; the shared `re-frame.adapter.context/coerce-context-value` rounds the stringified shape back to a keyword as defensive cover. Raw-hiccup mounts that need namespaced frame-ids should switch to `rf/frame-provider` or `re-frame.adapter.context/provider-element`.
 
-**Test-side note.** `:rf.warning/plain-fn-under-non-default-frame-once` (M-11 / rf2-d3k3) continues to fire correctly. Plain fns lack the routing wiring that reg-view'd components carry; their subscribe calls still route to `:rf/default` (the warning's contract). Reg-view'd components route correctly to the surrounding provider — the M-41 fix narrowed the warning to apply only to the actual plain-fn footgun, which is what the warning was always supposed to mean.
+**Test-side note.** `:rf.warning/plain-fn-under-non-default-frame-once` (M-11) continues to fire correctly. Plain fns lack the routing wiring that reg-view'd components carry; their subscribe calls still route to `:rf/default` (the warning's contract). Reg-view'd components route correctly to the surrounding provider — the M-41 fix narrowed the warning to apply only to the actual plain-fn footgun, which is what the warning was always supposed to mean.
 
 ---
 
@@ -1574,7 +1572,7 @@ Per [rf2-d4sf](#) the CLJS implementations of `subscribe`, `subscribe-once`, `un
 
 **Type B — flag for human review.** Hit sites are mechanical to identify (the symbols are named), but the replacement depends on call-site intent (root-API mount vs. one-off ref capture, etc.).
 
-Per [rf2-6hyy](#) Stage 4-F (implementation per IMPL-SPEC §10.1 / DECISION-7 / Stage 1 §2.3a) the slim Reagent rewrite (`day8/reagent-slim`) drops five Reagent surfaces that have no React 19 replacement. Each ships as a one-line throw-on-call shim whose body raises an `ex-info` of `:type :rf.error/react-19-removed-surface`. A single try/catch in a migration helper matches all five:
+Per the slim Reagent rewrite design (Stage 4-F, IMPL-SPEC §10.1 / DECISION-7 / Stage 1 §2.3a), `day8/reagent-slim` drops five Reagent surfaces that have no React 19 replacement. Each ships as a one-line throw-on-call shim whose body raises an `ex-info` of `:type :rf.error/react-19-removed-surface`. A single try/catch in a migration helper matches all five:
 
 | Removed surface | Replacement |
 |---|---|
@@ -1613,7 +1611,7 @@ The migration message string carries the migration target inline so a stack-trac
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading per rf2-6y3q), **M-41** (subscribe + dispatch consult the React-context tier; runtime gap closed per rf2-d4sf — additive, no rewrite), **M-47** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading), **M-41** (subscribe + dispatch consult the React-context tier; additive, no rewrite), **M-47** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:spawn` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts).
 
 Per [000-Vision §C1](../../spec/000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
@@ -1624,9 +1622,9 @@ Per [000-Vision §C1](../../spec/000-Vision.md#c1-mechanical-migration-via-ai-ag
 
 **Type B — additive feature** (no rewrite needed; the spec adds a new state-node key but no existing behaviour changes).
 
-Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all), the v1 spec adds a new state-node key `:spawn-all` for first-class spawn-and-join (parallel-region state-machines). It is sugar over N parallel `:spawn`s plus a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`); the runtime owns the join state at `[:rf/spawned <parent-id> <invoke-id> :join]` and dispatches one of three parent events (`:on-all-complete` / `:on-some-complete` / `:on-any-failed`) when the join condition resolves. Cancel-on-decision is the default — when the join resolves, surviving siblings are torn down via the standard `:rf.machine/destroy` exit-cascade machinery (matching Dash8/rf8 boot-page-reload semantics).
+Per [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all), the v1 spec adds a new state-node key `:spawn-all` for first-class spawn-and-join (parallel-region state-machines). It is sugar over N parallel `:spawn`s plus a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`); the runtime owns the join state at `[:rf/spawned <parent-id> <invoke-id> :join]` and dispatches one of three parent events (`:on-all-complete` / `:on-some-complete` / `:on-any-failed`) when the join condition resolves. Cancel-on-decision is the default — when the join resolves, surviving siblings are torn down via the standard `:rf.machine/destroy` exit-cascade machinery (matching Dash8/rf8 boot-page-reload semantics).
 
-**No user-side migration.** `:spawn-all` is a new key; existing transition tables are unaffected. Codebases that hand-rolled spawn-and-join via siblings + counter + `:always` (the awkward-but-possible substitute the pre-rf2-6vmw spec called out in [findings/boot-as-statemachine-dash8-rf8.md §M1](#)) **may** rewrite to `:spawn-all` for the readability win — see [O-15 below](#o-15-replace-hand-rolled-spawn-and-join-with-spawn-all-rf2-6vmw) for the opt-in modernisation.
+**No user-side migration.** `:spawn-all` is a new key; existing transition tables are unaffected. Codebases that hand-rolled spawn-and-join via siblings + counter + `:always` (the awkward-but-possible substitute earlier drafts called out) **may** rewrite to `:spawn-all` for the readability win — see [O-15 below](#o-15-replace-hand-rolled-spawn-and-join-with-spawn-all) for the opt-in modernisation.
 
 **`:rf/spawned` shape extension.** The reserved app-db slot at `[:rf/spawned <parent-id> <invoke-id>]` previously held a single `<spawned-id>` keyword; for `:spawn-all` it holds a join-bookkeeping map `{:children {<child-id> <spawned-id> ...} :done #{...} :failed #{...} :resolved? bool :spec ...}`. Reads at the destroy-resolution call site disambiguate by value type (`map?` vs `keyword?`); the shape is open and the existing `:spawn` slot shape is unchanged. Per [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys) and [Spec-Schemas §`:rf/spawned`](../../spec/Spec-Schemas.md#rfspawned-reserved-app-db-key).
 
@@ -1644,11 +1642,11 @@ Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:spawn-all`](../../spec/005-Sta
 
 **Type A — pre-1.0 spec lock; mechanical rewrite where the slot was used.** The v1 spec is pre-release; no back-compat constraint applies. Codebases that adopted the never-shipped `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all` rewrite mechanically to the parent state's `:after` map.
 
-Per rf2-3y3y, the pre-release `:spawn` / `:spawn-all` `:timeout-ms` slot is **dropped** in favour of the canonical `:after` primitive on the parent state. The motivating use case (a boot machine wanting "the auth phase completes in 30 s total, including retries") is fully served by `:after` on the `:spawn`-bearing state — the timer is anchored to **state entry**, so the wall-clock spans the child's retries; when the timer fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy`. Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. See [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) for the resolved design.
+The pre-release `:spawn` / `:spawn-all` `:timeout-ms` slot is **dropped** in favour of the canonical `:after` primitive on the parent state. The motivating use case (a boot machine wanting "the auth phase completes in 30 s total, including retries") is fully served by `:after` on the `:spawn`-bearing state — the timer is anchored to **state entry**, so the wall-clock spans the child's retries; when the timer fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy`. Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. See [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) for the resolved design.
 
 **Migration recipe.** Lift the `:timeout-ms` value into the `:spawn`-bearing state's `:after` map; the `:on-timeout` event vector becomes the `:after` transition's target (or, if the target is already named in `:on`, just a transition keyword sugar):
 
-Before (the never-shipped pre-rf2-3y3y form):
+Before (the never-shipped `:timeout-ms` form):
 
 ```clojure
 {:authenticating
@@ -1660,7 +1658,7 @@ Before (the never-shipped pre-rf2-3y3y form):
            :auth-timed-out :auth-failed}}}
 ```
 
-After (the canonical rf2-3y3y form):
+After (the canonical `:after` form):
 
 ```clojure
 {:authenticating
@@ -1700,23 +1698,23 @@ After:
   :on        {:hydrate/done :ready}}}
 ```
 
-The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren) terminating, the parent transitions out of the `:spawn`-bearing state; the standard `:exit` cascade (auto-generated by `:spawn` / `:spawn-all`'s desugaring per [005 §Desugaring rules](../../spec/005-StateMachines.md#desugaring-rules)) destroys the spawned child(ren); per [rf2-wvkn]'s in-flight-abort contract once it lands, the destroy cascade further aborts in-flight `:rf.http/managed` requests inside the children — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
+The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren) terminating, the parent transitions out of the `:spawn`-bearing state; the standard `:exit` cascade (auto-generated by `:spawn` / `:spawn-all`'s desugaring per [005 §Desugaring rules](../../spec/005-StateMachines.md#desugaring-rules)) destroys the spawned child(ren); per the in-flight-abort contract (M-46), the destroy cascade further aborts in-flight `:rf.http/managed` requests inside the children — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
 
-**Retired trace event.** The pre-rf2-3y3y `:rf.machine.spawn/timed-out` trace event is retired alongside the slot. Observers wanting "this `:spawn`-bearing state's wall-clock guard fired" consume `:rf.machine.timer/fired` on the `:spawn`-bearing state's `:after` entry — same semantic, uniform substrate. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
+**Retired trace event.** The pre-release `:rf.machine.spawn/timed-out` trace event is retired alongside the slot. Observers wanting "this `:spawn`-bearing state's wall-clock guard fired" consume `:rf.machine.timer/fired` on the `:spawn`-bearing state's `:after` entry — same semantic, uniform substrate. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
 
-**Retired error categories.** The pre-rf2-3y3y `:rf.error/machine-spawn-timeout-without-on-timeout` / `:rf.error/machine-spawn-on-timeout-without-timeout` / `:rf.error/machine-spawn-timeout-not-positive` registration-time error categories are retired. The `:after` slot's existing validation (`pos-int?` / subscription-vector / fn delay; transition-spec value) covers the same shape constraints from a different angle; an invalid `:after` shape surfaces as the standard transition-table validation error per [Spec-Schemas §`:rf/transition-table`](../../spec/Spec-Schemas.md#rftransition-table).
+**Retired error categories.** The pre-release `:rf.error/machine-spawn-timeout-without-on-timeout` / `:rf.error/machine-spawn-on-timeout-without-timeout` / `:rf.error/machine-spawn-timeout-not-positive` registration-time error categories are retired. The `:after` slot's existing validation (`pos-int?` / subscription-vector / fn delay; transition-spec value) covers the same shape constraints from a different angle; an invalid `:after` shape surfaces as the standard transition-table validation error per [Spec-Schemas §`:rf/transition-table`](../../spec/Spec-Schemas.md#rftransition-table).
 
 **Retired capability axis.** The `:actor/timeout` capability is retired from [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix). The `:fsm/delayed-after` capability subsumes it — a port that claims `:fsm/delayed-after` already supports state-level wall-clock-timeout semantics for both pure timed-transition states and `:spawn`-bearing states.
 
-**What to do.** If a codebase adopted the pre-release `:timeout-ms` slot, run the mechanical rewrite above. The `:after` primitive itself is unchanged from the pre-rf2-3y3y shape on the value side; the new delay forms (subscription vector — `[:sub-id & args]`) are additive and need not be adopted during the migration. Apps that did not adopt `:timeout-ms` are unaffected.
+**What to do.** If a codebase adopted the pre-release `:timeout-ms` slot, run the mechanical rewrite above. The `:after` primitive itself is unchanged on the value side; the new delay forms (subscription vector — `[:sub-id & args]`) are additive and need not be adopted during the migration. Apps that did not adopt `:timeout-ms` are unaffected.
 
-**Why:** the boot-as-state-machine pattern needs phase-level wall-clock guards that span retries (auth, hydrate). The pre-rf2-3y3y design proposed `:timeout-ms` at the call site; the rf2-3y3y design observes that state-level `:after` is **already** the canonical primitive for "after N ms in this state, do X" and the `:spawn`-bearing case composes via the standard exit cascade per [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins). One primitive, not two. Per boot-as-state-machine §M3 (rf2-1lop) the M3 finding's resolution is now "use the parent state's `:after`".
+**Why:** the boot-as-state-machine pattern needs phase-level wall-clock guards that span retries (auth, hydrate). The earlier draft proposed `:timeout-ms` at the call site; the resolved design observes that state-level `:after` is **already** the canonical primitive for "after N ms in this state, do X" and the `:spawn`-bearing case composes via the standard exit cascade per [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins). One primitive, not two.
 
 **Cross-references.** [005 §Delayed `:after` transitions](../../spec/005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar (including the new subscription-vector delay form); [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) for the dropped-slot record.
 
 ### M-45. `:rf.http/managed` requests issued from spawned actors abort on actor-destroy (additive)
 
-Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destroyed (parent state exit, parent's `:after` firing, `:spawn-all` cancel-on-decision, frame destroy), in-flight `:rf.http/managed` requests the actor had issued continued running until they completed naturally. Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) and [Spec 014 §Abort on actor destroy](../../spec/014-HTTPRequests.md#abort-on-actor-destroy), the runtime now aborts those requests automatically on actor-destroy.
+Pre-release framing: previously, when a spawned state-machine actor was destroyed (parent state exit, parent's `:after` firing, `:spawn-all` cancel-on-decision, frame destroy), in-flight `:rf.http/managed` requests the actor had issued continued running until they completed naturally. Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) and [Spec 014 §Abort on actor destroy](../../spec/014-HTTPRequests.md#abort-on-actor-destroy), the runtime now aborts those requests automatically on actor-destroy.
 
 **Direction.** Additive — no user-side change required. Apps that previously threaded `:rf.http/managed-abort` calls through `:exit` actions or relied on the request's reply landing on a destroyed actor (no observer; benign no-op) continue to work. Apps that wrote bespoke abort-on-exit logic can simplify.
 
@@ -1728,25 +1726,25 @@ Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destro
 
 ### M-46. `:rf.http/managed` ships as a child-invokable machine in addition to the fx (additive)
 
-Pre-release framing: per [rf2-ijm7](#), `:rf.http/managed` is now ALSO registered as a state machine under the same id — usable directly via `:spawn {:machine-id :rf.http/managed :data {:request {...}}}` from a parent machine's state node. The fx form is unchanged and remains the canonical surface for event-handler-issued requests.
+Pre-release framing: `:rf.http/managed` is now ALSO registered as a state machine under the same id — usable directly via `:spawn {:machine-id :rf.http/managed :data {:request {...}}}` from a parent machine's state node. The fx form is unchanged and remains the canonical surface for event-handler-issued requests.
 
-**Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in the boot-as-state-machine study, rf2-ijm7) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
+**Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in the boot-as-state-machine study) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
 
-**Related additive changes (same bead, same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data` (rf2-ijm7)](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7) and [§Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7):
+**Related additive changes (same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7) and [§Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7):
 - Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` (the latter two only for declarative-`:spawn` spawns) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
 - Spawns without an explicit `:start` now receive a synthetic `[:rf.machine/spawned]` event as their first event. Machines that don't handle it see a no-op; the existing `:start` form continues to work and overrides the synthetic event.
 
-**Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data` (rf2-ijm7)](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7).
+**Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7).
 
 ### M-47. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
 
-Pre-release framing: per rf2-ee0d (Nine States Stage 1), state-machine state nodes may now declare `:tags <set-of-keywords>`. The runtime maintains a derived union at `[:rf/machines <id> :tags]` recomputed on every transition; the framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar answer the predicate question.
+Pre-release framing: state-machine state nodes may now declare `:tags <set-of-keywords>` (Nine States Stage 1). The runtime maintains a derived union at `[:rf/machines <id> :tags]` recomputed on every transition; the framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar answer the predicate question.
 
 **Direction.** Additive — no user-side change required. The `:rf/machine-snapshot` schema's new `:tags` key is `{:optional true}`; machines that don't declare `:tags` produce snapshots without the slot, byte-identical to pre-tag snapshots. Existing views, subs, and traces don't care.
 
 **What changes for the snapshot.** When at least one active state-node declares `:tags`, the committed snapshot carries `:tags <set>` reflecting the union of every active state-node's tag set. For a flat machine the active set is the single named state; for a compound machine it's every state along the path from root to leaf. The slot is **elided** entirely when the union is empty.
 
-**Why now.** The Pattern-NineStates rewrite (rf2-c7wl) needs tags to express orthogonal-axis predicates (`:data/loading`, `:form/invalid`, `:mode/done`) without inventing a boolean discriminator sub per axis-state. Per the design lock rf2-ee0d §9.1, tags ship before the parallel-region capability that depends on them; per §9.6, both capabilities claim v1 in their respective stages.
+**Why now.** The Pattern-NineStates rewrite needs tags to express orthogonal-axis predicates (`:data/loading`, `:form/invalid`, `:mode/done`) without inventing a boolean discriminator sub per axis-state. Per the design lock §9.1, tags ship before the parallel-region capability that depends on them; per §9.6, both capabilities claim v1 in their respective stages.
 
 **Reserved namespaces apply.** The framework-reserved `:rf/*` and `:rf.*/*` keyword namespaces (per [Conventions.md §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)) MUST NOT appear in user-declared `:tags`. Any other namespace is fair game, including dotted forms like `:ui.state/loading`.
 
@@ -1754,13 +1752,13 @@ Pre-release framing: per rf2-ee0d (Nine States Stage 1), state-machine state nod
 
 ### M-48. Parallel regions shipped — `:type :parallel` machines with map-shaped `:state` (additive)
 
-Pre-release framing: per rf2-l67o (Nine States Stage 2), state-machine declarations may now declare `:type :parallel` at the root and a `:regions` map of region-name → state-tree. Each region is a full state-node body running independently; all regions are active simultaneously; the snapshot's `:state` becomes a **map** of region-name → that region's keyword-or-vector-path. Transitions broadcast across regions; the macrostep drain settles every region before commit; `:data` is shared across regions; `:tags` union across every active state-node in every region.
+Pre-release framing: state-machine declarations may now declare `:type :parallel` at the root and a `:regions` map of region-name → state-tree (Nine States Stage 2). Each region is a full state-node body running independently; all regions are active simultaneously; the snapshot's `:state` becomes a **map** of region-name → that region's keyword-or-vector-path. Transitions broadcast across regions; the macrostep drain settles every region before commit; `:data` is shared across regions; `:tags` union across every active state-node in every region.
 
 **Direction.** Additive — no user-side change required. The `:rf/machine-snapshot` schema's `:state` slot widens from `[:or :keyword [:vector :keyword]]` to a `[:multi {:dispatch ...}]` form that also accepts the new region-keyed map arm; existing flat / compound machines continue to produce keyword / vector `:state` values unchanged. Pre-feature machines have no `:type` slot; the runtime treats absent `:type` as `:single` (the existing flat-or-compound behaviour). The `:rf/state-node` schema gains `:type {:optional true} [:enum :single :parallel]` and `:regions {:optional true} [:map-of :keyword [:ref ::state-node]]`; both are optional, neither affects pre-feature machines.
 
-**When to reach for parallel regions vs N machines.** Parallel regions are the right answer when the regions are **orthogonal axes of one feature** with one shared `:data` blob (one form with three orthogonal axes / one widget with display + interaction state / one page whose render-mode is a function of three independent inputs). The pre-existing N-machines-per-region substitute documented in [CP-5-MachineGuide §Substitutes](../../spec/CP-5-MachineGuide.md#substitutes-for-skipped-features) remains valid and is the right answer when the regions are **conceptually independent features** that don't share data (multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event). Both patterns ship together; choose by domain shape. Per rf2-l67o §9.4 (Shared `:data` lock), per-region `:data` is NOT supported in parallel regions — if your axes need encapsulated `:data`, that's the substrate signalling N separate machines.
+**When to reach for parallel regions vs N machines.** Parallel regions are the right answer when the regions are **orthogonal axes of one feature** with one shared `:data` blob (one form with three orthogonal axes / one widget with display + interaction state / one page whose render-mode is a function of three independent inputs). The pre-existing N-machines-per-region substitute documented in [CP-5-MachineGuide §Substitutes](../../spec/CP-5-MachineGuide.md#substitutes-for-skipped-features) remains valid and is the right answer when the regions are **conceptually independent features** that don't share data (multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event). Both patterns ship together; choose by domain shape. Per the design lock §9.4 (Shared `:data` lock), per-region `:data` is NOT supported in parallel regions — if your axes need encapsulated `:data`, that's the substrate signalling N separate machines.
 
-**Why now.** The Pattern-NineStates rewrite (rf2-c7wl / Stage 3) needs parallel regions to express orthogonal-axis state (data cardinality / form validity / display mode) in one machine declaration rather than three coordinated machines; Stage 1's `:fsm/tags` capability gives the predicate query mechanism the parallel-region pattern needs to feel finished. Per the design lock rf2-8qz1 §9.6, both `:fsm/tags` and `:fsm/parallel-regions` claim v1 in their respective stages.
+**Why now.** The Pattern-NineStates rewrite (Stage 3) needs parallel regions to express orthogonal-axis state (data cardinality / form validity / display mode) in one machine declaration rather than three coordinated machines; Stage 1's `:fsm/tags` capability gives the predicate query mechanism the parallel-region pattern needs to feel finished. Per the design lock §9.6, both `:fsm/tags` and `:fsm/parallel-regions` claim v1 in their respective stages.
 
 **Registration-time validation.** `:type :parallel` is mutually exclusive with `:initial` / `:states` at the root; declaring both emits `:rf.error/machine-parallel-bad-shape` at registration time. Nested parallel regions (a region's own state-tree declaring `:type :parallel`) are not supported in v1 — the validator emits `:rf.error/machine-parallel-nested-not-supported`.
 
@@ -1768,7 +1766,7 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), state-machine declarati
 
 ### M-49. Snapshot `:state` widens to a third arm — map of region-name → state (additive; readers that pattern-match on `:state` may widen)
 
-Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state` slot has a new third arm — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
+Pre-release framing: the snapshot's `:state` slot has a new third arm (Nine States Stage 2) — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
 
 **Direction.** Additive at the framework layer. User code that **never** pattern-matches on a machine's `:state` shape pays nothing — `(rf/sub-machine id)` returns the full snapshot value and consumers compose on it as data. User code that DOES pattern-match — usually views that destructure `:state` into a state-keyword expecting a flat machine — must widen the match iff the machine in question is or becomes a parallel-region machine. The framework's own readers (`:rf/machine`, `(machines)`, `(machine-meta id)`, trace consumers, Tool-Pair, SSR hydration) treat snapshots as opaque values and require no change.
 
@@ -1776,7 +1774,7 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state`
 
 - **Existing flat / compound machines.** No change; their `:state` stays keyword / vector. The third arm is silent for them.
 - **New parallel-region machines.** Authors writing views against them subscribe through `:rf/machine` (or the `:rf/machine-has-tag?` framework sub) and read the snapshot's `:state` as the map shape they declared. Per-region projections fall out of normal `:<-`-chained subs: `(rf/reg-sub :ui.data/state :<- [:rf/machine :ui/nine-states] (fn [snap _] (get-in snap [:state :data])))`.
-- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3 / rf2-c7wl) update their existing views: anywhere `(= :loading (:state @(rf/sub-machine :ui/foo)))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/sub-machine :ui/foo) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/machine-has-tag? :ui/foo :data/loading)`).
+- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3) update their existing views: anywhere `(= :loading (:state @(rf/sub-machine :ui/foo)))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/sub-machine :ui/foo) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/machine-has-tag? :ui/foo :data/loading)`).
 
 **Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
 
@@ -1786,7 +1784,7 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state`
 
 **Type A** (mechanical, name-rename).
 
-Per rf2-mozsm: the test-support macro `re-frame.core/with-overrides` (per rf2-5uwl) is renamed to `with-fx-overrides` for symmetry with the `:fx-overrides` opt key it binds and the `re-frame.router/*fx-overrides*` dynvar it sets. Three names — macro, opt key, dynvar — now share the same `fx-overrides` stem. The bare `with-overrides` name is freed for a future general-purpose override helper (e.g. `with-interceptor-overrides` is a natural companion).
+The test-support macro `re-frame.core/with-overrides` is renamed to `with-fx-overrides` for symmetry with the `:fx-overrides` opt key it binds and the `re-frame.router/*fx-overrides*` dynvar it sets. Three names — macro, opt key, dynvar — now share the same `fx-overrides` stem. The bare `with-overrides` name is freed for a future general-purpose override helper (e.g. `with-interceptor-overrides` is a natural companion).
 
 **What to look for** in the codebase:
 
@@ -1815,7 +1813,7 @@ Body, override-map shape, precedence rules, and composition with `with-frame` ar
 
 **Type A — pre-1.0 spec lock; mechanical rewrite.** The v1 spec is pre-release; no back-compat constraint applies. Codebases that registered unary fx handlers under v1 (`(fn [args] body)`) rewrite mechanically to the binary form (`(fn [_ args] body)`).
 
-Per [rf2-j9cm2](#), the canonical `reg-fx` signature is binary: `(fn [m args] body)` where `m` carries `:frame`, `:event`, and (per [Spec 014 §Reply addressing](../../spec/014-HTTPRequests.md#reply-addressing)) any cofx the handler needs to address replies. The v1 unary signature `(fn [args] body)` and the runtime arity-detect / `*current-frame*`-wrapping shim that supported it are dropped. The runtime invokes every registered fx handler with two args; a unary handler raises a language-level arity error at the call site (`ArityException` on JVM, `TypeError` / "Cannot read … of undefined" or similar on CLJS depending on shape).
+The canonical `reg-fx` signature is binary: `(fn [m args] body)` where `m` carries `:frame`, `:event`, and (per [Spec 014 §Reply addressing](../../spec/014-HTTPRequests.md#reply-addressing)) any cofx the handler needs to address replies. The v1 unary signature `(fn [args] body)` and the runtime arity-detect / `*current-frame*`-wrapping shim that supported it are dropped. The runtime invokes every registered fx handler with two args; a unary handler raises a language-level arity error at the call site (`ArityException` on JVM, `TypeError` / "Cannot read … of undefined" or similar on CLJS depending on shape).
 
 **Why.** Pre-alpha cuts the v1 compat tax: one signature, no arity branch in `do-fx`, no `*current-frame*` dynamic-var binding to maintain just for the unary path. The dynamic-var was only ever a shim for sync paths — it could not cover async callbacks (the binding has unwound by then), so library authors targeting multi-frame had to update to binary anyway. Cutting the shim shortens the path and removes a footgun (unary handler that *appears* to work in sync tests but silently routes to `:rf/default` from async callbacks).
 
@@ -1873,7 +1871,7 @@ Library packages (`re-frame-http-fx`, `re-frame-async-flow-fx`, etc.) and apps t
 
 **Type A** (mechanical).
 
-Per rf2-u3w8j: v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim" under `re-frame.test-support`, but the shim was pure migration tax — v2's `dispatch-sync` is already settle-by-default (drains the event queue to fixed point synchronously per [Spec 002 §Run-to-completion dispatch](../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics) and [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)), and v2 test suites already wrap each test in `make-reset-runtime-fixture` (or `with-fresh-registrar`) for registrar isolation. The macro's only job was a snapshot/restore bracket around the body, and the per-test fixture supplies that uniformly. Per pre-alpha policy: v2 drops the shim.
+v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim" under `re-frame.test-support`, but the shim was pure migration tax — v2's `dispatch-sync` is already settle-by-default (drains the event queue to fixed point synchronously per [Spec 002 §Run-to-completion dispatch](../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics) and [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)), and v2 test suites already wrap each test in `make-reset-runtime-fixture` (or `with-fresh-registrar`) for registrar isolation. The macro's only job was a snapshot/restore bracket around the body, and the per-test fixture supplies that uniformly. Per pre-alpha policy: v2 drops the shim.
 
 **What to look for** in the codebase:
 
@@ -1920,7 +1918,7 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
 
 **Why:** v2's `dispatch-sync` is already synchronous so the macro added nothing on the drain axis; the registrar-isolation half is covered by the per-test fixture every v2 suite already installs. Carrying a shim whose job is duplicated by the standard fixture is migration drift, not migration tax-relief. Per pre-alpha policy: cut freely.
 
-**Cross-references.** [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the surviving helper rewrites (`dispatch-sequence`, `assert-path-equals` / `assert-db-equals`); [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals-rf2-8j9m6) for the `assert-state` split; [Spec 008 §`re-frame-test` library compatibility](../../spec/008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
+**Cross-references.** [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the surviving helper rewrites (`dispatch-sequence`, `assert-path-equals` / `assert-db-equals`); [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals) for the `assert-state` split; [Spec 008 §`re-frame-test` library compatibility](../../spec/008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
 
 ---
 
@@ -1928,7 +1926,7 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
 
 **Type A** (mechanical). Closed rename table; apply across all source files.
 
-Per rf2-cmabc (the tear-down verb axis discipline; see [Conventions §Tear-down verb axis — `clear-` vs `destroy-`](../../spec/Conventions.md#tear-down-verb-axis--clear--vs-destroy-)) the public tear-down surface collapses onto two verbs:
+Per the tear-down verb axis discipline (see [Conventions §Tear-down verb axis — `clear-` vs `destroy-`](../../spec/Conventions.md#tear-down-verb-axis--clear--vs-destroy-)), the public tear-down surface collapses onto two verbs:
 
 - `clear-` — registrar / cache / buffer decrement (in-process)
 - `destroy-` — lifecycle boundary
@@ -1953,33 +1951,33 @@ One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface w
 (rf/destroy-adapter!)
 ```
 
-**No alias.** Per rf2-0zlcd (pre-alpha posture: no back-compat shims), the public `re-frame.core/dispose-adapter!` Var is **removed**. Stale call sites raise an unresolved-symbol at compile time. There is no deprecation cycle; the rename is hard.
+**No alias.** Per pre-alpha posture (no back-compat shims), the public `re-frame.core/dispose-adapter!` Var is **removed**. Stale call sites raise an unresolved-symbol at compile time. There is no deprecation cycle; the rename is hard.
 
 **Adapter-spec map key is unchanged.** The adapter contract still uses the `:dispose-adapter!` key inside the adapter spec map (the slot adapter implementations provide). That key is an internal contract surface — adapters keep implementing `{:dispose-adapter! (fn [] ...)}`. Only the public `re-frame.core` wrapper name moves.
 
-**`rf/unsubscribe` is unchanged — carve-out, not rename.** rf2-cmabc originally proposed `unsubscribe → clear-sub` alongside the adapter rename. The proposal collides with the existing `rf/clear-sub` (the symmetric inverse of `reg-sub` — the **registrar** decrement, distinct from the cache ref-count decrement that `unsubscribe` performs). The two operations are semantically distinct and cannot share a name, so `unsubscribe` is **carved out** from the verb axis as the singular `un-` surface. See [Conventions §Tear-down verb axis — Carve-out: `unsubscribe`](../../spec/Conventions.md#carve-out-unsubscribe) for the rationale. No rewrite is required for `unsubscribe` call sites.
+**`rf/unsubscribe` is unchanged — carve-out, not rename.** The verb-axis sweep originally proposed `unsubscribe → clear-sub` alongside the adapter rename. The proposal collides with the existing `rf/clear-sub` (the symmetric inverse of `reg-sub` — the **registrar** decrement, distinct from the cache ref-count decrement that `unsubscribe` performs). The two operations are semantically distinct and cannot share a name, so `unsubscribe` is **carved out** from the verb axis as the singular `un-` surface. See [Conventions §Tear-down verb axis — Carve-out: `unsubscribe`](../../spec/Conventions.md#carve-out-unsubscribe) for the rationale. No rewrite is required for `unsubscribe` call sites.
 
-**Cross-references.** [Conventions §Tear-down verb axis](../../spec/Conventions.md#tear-down-verb-axis--clear--vs-destroy-) (the rule); [API.md](../../spec/API.md) row `destroy-adapter!` (the contract); rf2-cmabc (the decision) and its parent rf2-k6xyr Finding #1 (the audit that surfaced the 5-verb mess).
+**Cross-references.** [Conventions §Tear-down verb axis](../../spec/Conventions.md#tear-down-verb-axis--clear--vs-destroy-) (the rule); [API.md](../../spec/API.md) row `destroy-adapter!` (the contract); the audit that surfaced the 5-verb mess.
 
 ---
 
-### M-54. Schema vocabulary unification — `:spec` → `:schema` (rf2-ieu0i)
+### M-54. Schema vocabulary unification — `:spec` → `:schema`
 
 **Type A** (mechanical, per-file token rewrite + reserved-keyword rename).
 
-Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` reserved trace namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag — under a single canonical name: **schema**. The framework speaks `:schema` end-to-end after the rename. Per rf2-0zlcd (pre-alpha posture: no back-compat shims), the dual-key read `(or (:schema meta) (:spec meta))` is **removed** — `:spec` on `reg-*` metadata is no longer accepted. The `:rf.warning/deprecated-schema-alias` trace category is gone with it.
+The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` reserved trace namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag — has been collapsed under a single canonical name: **schema**. The framework speaks `:schema` end-to-end after the rename. Per pre-alpha posture (no back-compat shims), the dual-key read `(or (:schema meta) (:spec meta))` is **removed** — `:spec` on `reg-*` metadata is no longer accepted. The `:rf.warning/deprecated-schema-alias` trace category is gone with it.
 
 **The rename table.**
 
-| Old (v1 / early v2) | New (rf2-ieu0i) | Surface |
+| Old (v1 / early v2) | New | Surface |
 |---|---|---|
 | `:spec` (per-`reg-*` metadata key) | `:schema` | every `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` / `reg-view` registration's metadata map; `:rf/registration-metadata` shape per [Spec-Schemas §`:rf/registration-metadata`](../../spec/Spec-Schemas.md#rfregistration-metadata) |
 | `:rf.spec/violation` | `:rf.schema/violation` | hot-reload schema-mismatch trace category (warning); [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) |
-| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on the production-side schema validator (Var rename to `validate-at-boundary-interceptor` documented separately in M-59); at rf2-ieu0i time the surface was `re-frame.core/at-boundary` and only the keyword `:id` was changing |
+| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on the production-side schema validator (Var rename to `validate-at-boundary-interceptor` documented separately in M-59); during this sweep the Var surface was `re-frame.core/at-boundary` and only the keyword `:id` was changing |
 | `:spec-id` | `:schema-id` | trace tag on `:rf.error/schema-validation-failure` (every `:where`); locator for the failing registration's id |
 | `:rf.spec/*` reserved namespace | `:rf.schema/*` | [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) — the `:rf.spec/*` + bare `:spec/*` rows collapsed into a single `:rf.schema/*` row |
 
-**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (per the M-59 Var-name rename — at rf2-ieu0i time the recommended surface was `re-frame.core/at-boundary`). The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
+**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (per the M-59 Var-name rename — during this sweep the recommended surface was `re-frame.core/at-boundary`). The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
 
 **What to look for.**
 
@@ -2000,7 +1998,7 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 **What to do (Type A — mechanical per-token).**
 
 ```clojure
-;; after — every surface speaks `schema`. Per rf2-0zlcd (pre-alpha posture)
+;; after — every surface speaks `schema`. Pre-alpha posture: no back-compat shims
 ;; the framework no longer accepts :spec on reg-* metadata; the dual-key
 ;; read was removed. Migrations MUST rewrite every :spec slot.
 
@@ -2021,19 +2019,19 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
 5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (recommended; per M-59) or `re-frame.spec/validate-at-boundary-interceptor` (the ns/Var path).
 
-**No deprecation alias (pre-alpha posture, rf2-0zlcd).**
+**No deprecation alias (pre-alpha posture).**
 
-The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprecated-schema-alias` once-per-`(kind, id)` warning shipped briefly with rf2-ieu0i but were stripped under rf2-0zlcd alongside the M-53 `dispose-adapter!` alias. The framework now reads `:schema` only; `:spec` on `reg-*` metadata is a stale key that registrations silently ignore (and that schema validators treat as "no schema declared" — every read at the boundary will pass with a soft-pass, hiding bugs). Migration agents MUST rewrite every `:spec` slot.
+The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprecated-schema-alias` once-per-`(kind, id)` warning shipped briefly during the initial rename but were stripped in a follow-up pass alongside the M-53 `dispose-adapter!` alias. The framework now reads `:schema` only; `:spec` on `reg-*` metadata is a stale key that registrations silently ignore (and that schema validators treat as "no schema declared" — every read at the boundary will pass with a soft-pass, hiding bugs). Migration agents MUST rewrite every `:spec` slot.
 
-**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the renamed boundary interceptor), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename from rf2-cmabc — same per-token pattern, different surface), rf2-0zlcd (the strip-back-compat pass that removed both M-53 and M-54 deprecation aliases).
+**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the renamed boundary interceptor), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename — same per-token pattern, different surface).
 
 ---
 
-### M-55. Listener-registration verb unification — `register-*-cb!` → `register-*-listener!` (rf2-dcyjm)
+### M-55. Listener-registration verb unification — `register-*-cb!` → `register-*-listener!`
 
 **Type A** (mechanical). Closed rename table; apply across all source files.
 
-Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and epoch listener APIs collapse onto the same shape already used by `register-event-listener!` / `register-error-listener!` and their `unregister-*-listener!` counterparts. v2-pre-rename codebases trip this; v1 codebases did not have a trace-listener or epoch-listener concept (the v1 equivalent was `add-post-event-callback`, which is covered by [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)). v1-→-v2 migrations land directly on the new names via M-26's rewrite.
+Per the listener-registration verb-shape unification, the trace and epoch listener APIs collapse onto the same shape already used by `register-event-listener!` / `register-error-listener!` and their `unregister-*-listener!` counterparts. v2-pre-rename codebases trip this; v1 codebases did not have a trace-listener or epoch-listener concept (the v1 equivalent was `add-post-event-callback`, which is covered by [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)). v1-→-v2 migrations land directly on the new names via M-26's rewrite.
 
 | v2 pre-rename | v2 post-rename | Surface |
 |---|---|---|
@@ -2072,19 +2070,19 @@ Per rf2-dcyjm (the listener-registration verb-shape unification) the trace and e
 (rf/register-epoch-listener! :my-app/post-mortem-shipper (fn [epoch] ...))
 ```
 
-**No alias.** Per rf2-dcyjm (pre-alpha posture: no back-compat shims), the old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.
+**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.
 
-**Cross-references.** [009 §The trace event model](../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API); [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) (the v1 `add-post-event-callback` → `register-listener!` mapping); [M-33](#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch) (the `day8/re-frame2-epoch` artefact that hosts `register-epoch-listener!`); rf2-dcyjm Finding #2 (the parent rf2-k6xyr API-cleanup audit's listener-registration-unification decision).
+**Cross-references.** [009 §The trace event model](../../spec/009-Instrumentation.md#the-trace-event-model) (the trace listener API); [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) (the v1 `add-post-event-callback` → `register-listener!` mapping); [M-33](#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch) (the `day8/re-frame2-epoch` artefact that hosts `register-epoch-listener!`).
 
 ---
 
-### M-56. Machine vocabulary divergence — `:invoke` → `:spawn` + `:invoke-all` → `:spawn-all` (rf2-5r4q2)
+### M-56. Machine vocabulary divergence — `:invoke` → `:spawn` + `:invoke-all` → `:spawn-all`
 
 **Type A** (mechanical). Closed rename table; apply across machine specs, snapshot-internal references, trace listeners, error catalogues.
 
-Per rf2-5r4q2 the declarative child-actor key on a state node is renamed **`:invoke` → `:spawn`** (and **`:invoke-all` → `:spawn-all`** for the parallel-fanout-and-join sugar). v1 codebases that adopted the xstate-shaped `:invoke` slot trip this; the same slot for v1 → v2 migrators reads as `:spawn` on first encounter.
+The declarative child-actor key on a state node is renamed **`:invoke` → `:spawn`** (and **`:invoke-all` → `:spawn-all`** for the parallel-fanout-and-join sugar). v1 codebases that adopted the xstate-shaped `:invoke` slot trip this; the same slot for v1 → v2 migrators reads as `:spawn` on first encounter.
 
-The rename is a **deliberate divergence** from xstate vocabulary — see [005 §Deliberate name divergence — `:spawn`](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) for the rationale. The convergence with xstate names is otherwise high (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`); the rename targets the single most semantically-loaded surface where xstate-trained AI agents otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. The new name also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn`.
+The rename is a **deliberate divergence** from xstate vocabulary — see [005 §Deliberate name divergence — `:spawn`](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) for the rationale.  The convergence with xstate names is otherwise high (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`); the rename targets the single most semantically-loaded surface where xstate-trained AI agents otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. The new name also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn`.
 
 | v1 / v2-pre-rename | v2 post-rename | Surface |
 |---|---|---|
@@ -2145,13 +2143,14 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 
 **Cross-references.** [005 §Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn) (the canonical surface); [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all); [005 §Deliberate name divergence — `:spawn` (NOT `:invoke`)](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) (the rationale); [CP-5-MachineGuide §Lessons from xstate](../../spec/CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) (where the divergence sits in the broader xstate-comparison table); [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-) (the parent runtime-owned spawn-id tracking change this rename now aligns names with); [M-43](#m-43-spawn-all-spawn-and-join-is-added--additive-no-user-side-action) (the original `:invoke-all` add — supplanted by this rename); [M-44](#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) (the `:timeout-ms` retirement — same surface, prior step).
 
+
 ---
 
-### M-57. Machine-handler builder verb unification — `create-machine-handler` → `make-machine-handler` (rf2-g0bbk)
+### M-57. Machine-handler builder verb unification — `create-machine-handler` → `make-machine-handler`
 
 **Type A** (mechanical). Single-symbol global rename.
 
-Per rf2-g0bbk (audit-of-audits state-machines #12) the machine-handler builder is renamed from `create-machine-handler` to `make-machine-handler` to align with the `make-*` verb already used by the sibling `make-frame`. `create-*` was the lone outlier in the public-API surface; the new name slots into the existing factory-verb convention.
+Per audit-of-audits state-machines #12, the machine-handler builder is renamed from `create-machine-handler` to `make-machine-handler` to align with the `make-*` verb already used by the sibling `make-frame`. `create-*` was the lone outlier in the public-API surface; the new name slots into the existing factory-verb convention.
 
 | Old | New | Surface |
 |---|---|---|
@@ -2174,11 +2173,11 @@ Per rf2-g0bbk (audit-of-audits state-machines #12) the machine-handler builder i
 
 ---
 
-### M-58. Trace-redaction factory rename — `with-redacted` → `redact-interceptor` (rf2-aas6o)
+### M-58. Trace-redaction factory rename — `with-redacted` → `redact-interceptor`
 
 **Type A** (mechanical). Single-symbol global rename.
 
-Per rf2-aas6o (audit-of-audits naming): the `with-redacted` factory's `with-*` prefix misled — `with-*` macros conventionally take a body (`with-frame`, `with-fx-overrides`), but `with-redacted` returns an interceptor value to drop into a `:interceptors` vector. The new name `redact-interceptor` matches the value-shape it produces and aligns with the interceptor-value family (`at-boundary-interceptor`, `unwrap-interceptor` per rf2-k367k).
+Per audit-of-audits naming: the `with-redacted` factory's `with-*` prefix misled — `with-*` macros conventionally take a body (`with-frame`, `with-fx-overrides`), but `with-redacted` returns an interceptor value to drop into a `:interceptors` vector. The new name `redact-interceptor` matches the value-shape it produces and aligns with the interceptor-value family (`at-boundary-interceptor`, `unwrap-interceptor`).
 
 | Old | New | Surface |
 |---|---|---|
@@ -2205,11 +2204,11 @@ Per rf2-aas6o (audit-of-audits naming): the `with-redacted` factory's `with-*` p
 
 ---
 
-### M-59. Interceptor-value family suffix — `at-boundary` / `unwrap` → `*-interceptor` (rf2-k367k + rf2-todvi)
+### M-59. Interceptor-value family suffix — `at-boundary` / `unwrap` → `*-interceptor`
 
 **Type A** (mechanical). Two-symbol rename across all source files.
 
-Per rf2-k367k (audit-of-audits naming): the public Vars holding pre-built interceptor maps must carry an `-interceptor` suffix to telegraph value-shape at the call site (per [Conventions §Value-vs-fn naming](../../spec/Conventions.md), rf2-nalp6). Combined with rf2-todvi (the `at-boundary` Var carries a *time/build-mode* axis, not a *location* axis — the `validate-` prefix telegraphs the mode-gated semantic), the rename folds into a single sweep.
+Per audit-of-audits naming: the public Vars holding pre-built interceptor maps must carry an `-interceptor` suffix to telegraph value-shape at the call site (per [Conventions §Value-vs-fn naming](../../spec/Conventions.md)). Combined with the observation that the `at-boundary` Var carries a *time/build-mode* axis (not a *location* axis — the `validate-` prefix telegraphs the mode-gated semantic), the rename folds into a single sweep.
 
 | Old | New | Surface |
 |---|---|---|
@@ -2220,7 +2219,7 @@ Per rf2-k367k (audit-of-audits naming): the public Vars holding pre-built interc
 
 The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **unchanged** — only the Var names move. `path` is a *factory fn* (returns an interceptor when called with path-segs); per Conventions §Value-vs-fn naming the factory itself does NOT carry the suffix. Likewise the `redact-interceptor` rename (M-58) keeps `redact-interceptor` as a factory-fn shape because the bundled-PR task explicitly named it that way.
 
-**Detect.** v2-pre-rename codebases trip this. v1 had `at-boundary` as part of M-54's `:spec` → `:schema` rename (the Var itself was preserved at rf2-ieu0i time); the new rename moves the Var name too. v1 codebases land directly on the new name via the bundled sweep.
+**Detect.** v2-pre-rename codebases trip this. v1 had `at-boundary` as part of M-54's `:spec` → `:schema` rename (the Var itself was preserved at that sweep's time); the new rename moves the Var name too. v1 codebases land directly on the new name via the bundled sweep.
 
 ```clojure
 ;; before
@@ -2238,15 +2237,15 @@ The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **uncha
 
 **No alias.** Per pre-alpha posture, the old names are **removed** — stale call sites raise unresolved-symbol at compile time.
 
-**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md) (the rule, rf2-nalp6); [API.md §Standard interceptors](../../spec/API.md) (the family catalogue); [Spec 010 §Production builds](../../spec/010-Schemas.md) (`validate-at-boundary-interceptor`'s mode-gated semantic); [M-54](#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) (the prior `:spec` → `:schema` keyword unification, sibling pass).
+**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md) (the rule); [API.md §Standard interceptors](../../spec/API.md) (the family catalogue); [Spec 010 §Production builds](../../spec/010-Schemas.md) (`validate-at-boundary-interceptor`'s mode-gated semantic); [M-54](#m-54-schema-vocabulary-unification--spec--schema) (the prior `:spec` → `:schema` keyword unification, sibling pass).
 
 ---
 
-### M-60. Route event + trace rename — `:rf/url-changed` / `:rf.route/url-changed` → `:rf.route/transitioned` / `:rf.route/fragment-changed` (rf2-ixezs)
+### M-60. Route event + trace rename — `:rf/url-changed` / `:rf.route/url-changed` → `:rf.route/transitioned` / `:rf.route/fragment-changed`
 
 **Type A** (mechanical). Two-keyword global rename.
 
-Per rf2-ixezs (audit-of-audits routing): two near-identical names (`:rf/url-changed` as an event, `:rf.route/url-changed` as a trace op) trapped readers. The rename gives each a distinct verb, and the event moves into the `:rf.route/*` reserved namespace alongside its siblings.
+Per audit-of-audits routing: two near-identical names (`:rf/url-changed` as an event, `:rf.route/url-changed` as a trace op) trapped readers. The rename gives each a distinct verb, and the event moves into the `:rf.route/*` reserved namespace alongside its siblings.
 
 | Old | New | Surface |
 |---|---|---|
@@ -2273,11 +2272,11 @@ Per rf2-ixezs (audit-of-audits routing): two near-identical names (`:rf/url-chan
 
 **Cross-references.** [Spec 012 §Route-change event catalogue](../../spec/012-Routing.md); [Spec 009 §Trace event catalogue](../../spec/009-Instrumentation.md); [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the `:rf.route/*` ownership).
 
-### M-61. Validator family rename — `validate-app-db!` / `validate-sub-return!` → `validate-app-schema!` / `validate-sub!` (rf2-s2jgz)
+### M-61. Validator family rename — `validate-app-db!` / `validate-sub-return!` → `validate-app-schema!` / `validate-sub!`
 
 **Type A** (mechanical). Two-symbol rename plus two late-bind hook-key renames.
 
-Per rf2-s2jgz (audit-of-audits #20): the five dev-time validator fns the framework calls at the locked Spec 010 validation sites are named on the **kind axis** — `validate-event!`, `validate-cofx!`, `validate-fx!`, `validate-sub!`, `validate-app-schema!`. The two pre-rename names (`validate-app-db!` and `validate-sub-return!`) sat off-axis (one named after the *target slot*, one after the *value role*) and broke the family symmetry the other three siblings established.
+Per audit-of-audits #20: the five dev-time validator fns the framework calls at the locked Spec 010 validation sites are named on the **kind axis** — `validate-event!`, `validate-cofx!`, `validate-fx!`, `validate-sub!`, `validate-app-schema!`. The two pre-rename names (`validate-app-db!` and `validate-sub-return!`) sat off-axis (one named after the *target slot*, one after the *value role*) and broke the family symmetry the other three siblings established.
 
 | Old | New | Surface |
 |---|---|---|
@@ -2310,11 +2309,11 @@ Per rf2-s2jgz (audit-of-audits #20): the five dev-time validator fns the framewo
 
 ---
 
-### M-63. `reg-http-interceptor` reshaped to positional id + opts kwarg (rf2-eyjbn)
+### M-63. `reg-http-interceptor` reshaped to positional id + opts kwarg
 
 **Type A** (mechanical). Closed signature change; applies to every `rf/reg-http-interceptor` call site. v1 codebases never had this surface; v2-pre-rename codebases only.
 
-Per rf2-eyjbn the public surface aligns with the rest of the `reg-*` family — positional id + opts kwarg + positional handler — matching `reg-flow`'s precedent. The pre-rename signature carried `:frame` / `:id` / `:before` inside a single map argument, which made it the sole documented exception to the `reg-*` opts-kwarg convention (per [Conventions §`reg-*` frame-binding convention](../../spec/Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). The exception is closed; the family is uniform.
+The public surface aligns with the rest of the `reg-*` family — positional id + opts kwarg + positional handler — matching `reg-flow`'s precedent. The pre-rename signature carried `:frame` / `:id` / `:before` inside a single map argument, which made it the sole documented exception to the `reg-*` opts-kwarg convention (per [Conventions §`reg-*` frame-binding convention](../../spec/Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). The exception is closed; the family is uniform.
 
 ```clojure
 ;; before (v2-pre-rename)
@@ -2346,11 +2345,11 @@ Per rf2-eyjbn the public surface aligns with the rest of the `reg-*` family — 
 
 ---
 
-### M-64. Test-fixture builder verb unification — `reset-runtime-fixture-factory` → `make-reset-runtime-fixture` (rf2-v779c)
+### M-64. Test-fixture builder verb unification — `reset-runtime-fixture-factory` → `make-reset-runtime-fixture`
 
 **Type A** (mechanical). Single-symbol global rename.
 
-Per rf2-v779c (audit-of-audits testing #14) the per-test fixture builder is renamed from `reset-runtime-fixture-factory` to `make-reset-runtime-fixture` to align with the `make-*` factory verb already used by `make-frame` and (per [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler-rf2-g0bbk)) `make-machine-handler`. The `-factory` suffix mis-read as "do the reset" rather than "build a fixture for `use-fixtures :each`"; the new name lands in the established factory-verb convention and reads as what it is (a builder that returns a fixture fn).
+Per audit-of-audits testing #14, the per-test fixture builder is renamed from `reset-runtime-fixture-factory` to `make-reset-runtime-fixture` to align with the `make-*` factory verb already used by `make-frame` and (per [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler)) `make-machine-handler`. The `-factory` suffix mis-read as "do the reset" rather than "build a fixture for `use-fixtures :each`"; the new name lands in the established factory-verb convention and reads as what it is (a builder that returns a fixture fn).
 
 | Old | New | Surface |
 |---|---|---|
@@ -2370,15 +2369,15 @@ Per rf2-v779c (audit-of-audits testing #14) the per-test fixture builder is rena
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
 
-**Cross-references.** [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace); [API.md §Testing](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue). Sibling renames in the same `make-*` family: [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler-rf2-g0bbk) (`make-machine-handler`).
+**Cross-references.** [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace); [API.md §Testing](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue). Sibling renames in the same `make-*` family: [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler) (`make-machine-handler`).
 
 ---
 
-### M-62. Test assertion fn-family alignment — `assert-state` → `assert-path-equals` + `assert-db-equals` (rf2-8j9m6)
+### M-62. Test assertion fn-family alignment — `assert-state` → `assert-path-equals` + `assert-db-equals`
 
 **Type A** (mechanical). Single-fn split into a two-fn predicate-family.
 
-Per rf2-8j9m6 (audit-of-audits testing #13) the generic `assert-state` is split into per-shape fns whose names share a root with the `:rf.assert/*` event family used inside Story `:play` blocks (per [Spec 007 §Play functions](../../spec/007-Stories.md#play-functions)). The fn-side and the event-side covered the same predicate (`= expected (get-in db path)`) under completely different names; the rename gives the fn-family the same `path-equals` root as the event-family so a reader who knows one surface can navigate the other without a translation table.
+Per audit-of-audits testing #13, the generic `assert-state` is split into per-shape fns whose names share a root with the `:rf.assert/*` event family used inside Story `:play` blocks (per [Spec 007 §Play functions](../../spec/007-Stories.md#play-functions)). The fn-side and the event-side covered the same predicate (`= expected (get-in db path)`) under completely different names; the rename gives the fn-family the same `path-equals` root as the event-family so a reader who knows one surface can navigate the other without a translation table.
 
 | Old | New | Mirrors event |
 |---|---|---|
@@ -2409,11 +2408,11 @@ The two arities of v2's `assert-state` (path form + full-db form) become two nam
 
 ---
 
-### M-65. HTTP stubbing macros consolidated into `re-frame.http-test-support` (rf2-lwmgw)
+### M-65. HTTP stubbing macros consolidated into `re-frame.http-test-support`
 
 **Type A** (mechanical). Single-file rename per call site: change the `:require` of `re-frame.http-managed` to also pull in `re-frame.http-test-support` for any test that touches the stub-macros family. Existing v1 codebases never had this surface (Spec 014 is re-frame2 only); v2-pre-rename codebases only.
 
-Per rf2-lwmgw (audit-of-audits #15): the previous arrangement split the HTTP test surface across two namespaces — `with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` lived in `re-frame.http-managed` (alongside the production fxs), and `re-frame.http-test-support` was a bare "registration gate" namespace whose only job was to register the two canned-stub fxs. A test author reaching for "the HTTP stub helper" had to know which surface lived where. The consolidation drops that split: every HTTP test surface (canned-stub fxs + stub macros + matching late-bind hook publications) now lives in `re-frame.http-test-support`. One namespace, one require, name matches content.
+Per audit-of-audits #15: the previous arrangement split the HTTP test surface across two namespaces — `with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` lived in `re-frame.http-managed` (alongside the production fxs), and `re-frame.http-test-support` was a bare "registration gate" namespace whose only job was to register the two canned-stub fxs. A test author reaching for "the HTTP stub helper" had to know which surface lived where. The consolidation drops that split: every HTTP test surface (canned-stub fxs + stub macros + matching late-bind hook publications) now lives in `re-frame.http-test-support`. One namespace, one require, name matches content.
 
 ```clojure
 ;; before (v2-pre-rename) — stub macros + canned-stub fxs each had a separate require
@@ -2443,13 +2442,13 @@ without `re-frame.http-test-support` in their require closure.
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the stub-macros family no longer publishes from `re-frame.http-managed` — stale `rf/install-managed-request-stubs!` call sites without the test-support require raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the late-bind hook is nil). Stale `re-frame.http-managed/install-managed-request-stubs!` direct calls raise `Unable to resolve symbol` (CLJS) / `Unable to resolve var` (CLJ).
 
-**Production posture unchanged.** Production / SSR application code must NOT `:require` `re-frame.http-test-support`. The require boundary continues to gate every test surface — both the canned-stub fxs (per rf2-cdmle) and now also the stub-macros family (per rf2-lwmgw). The CLJS production-bundle elision sentinels and the JVM-side `re-frame.http-test-support-absent-test` continue to pin the absence; the assertion set widened to cover the stub-family late-bind hooks too.
+**Production posture unchanged.** Production / SSR application code must NOT `:require` `re-frame.http-test-support`. The require boundary continues to gate every test surface — both the canned-stub fxs (per M-31a) and now also the stub-macros family (this rule). The CLJS production-bundle elision sentinels and the JVM-side `re-frame.http-test-support-absent-test` continue to pin the absence; the assertion set widened to cover the stub-family late-bind hooks too.
 
 **Cross-references.** [014-HTTPRequests §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw); [Spec 008 §HTTP test surfaces](../../spec/008-Testing.md#http-test-surfaces--single-namespace-rf2-lwmgw); [API.md row](../../spec/API.md#http-requests-spec-014).
 
 ---
 
-### M-67. Causa Static-mode feature gate removed — `:rf.causa/static-mode?` no longer accepted (rf2-8l3uk)
+### M-67. Causa Static-mode feature gate removed — `:rf.causa/static-mode?` no longer accepted
 
 **Type A** (mechanical). Single-file removal per call site: drop the `:rf.causa/static-mode?` entry from any `(causa-config/configure! …)` map. The option no longer exists; Static mode is always available.
 
@@ -2464,7 +2463,7 @@ without `re-frame.http-test-support` in their require closure.
   {:rf.causa/editor :cursor})
 ```
 
-Per rf2-8l3uk: the prior `:rf.causa/static-mode?` flag was a back-compat hedge that does not apply to pre-1.0. Static mode (mode pill at ribbon-left, Cmd-Shift-M / Ctrl-Shift-M chord, Static surface render) is now unconditionally available; hosts that previously opted in via `configure!` should drop the key.
+The prior `:rf.causa/static-mode?` flag was a back-compat hedge that does not apply to pre-1.0. Static mode (mode pill at ribbon-left, Cmd-Shift-M / Ctrl-Shift-M chord, Static surface render) is now unconditionally available; hosts that previously opted in via `configure!` should drop the key.
 
 **Detect.** Boot code that passes `:rf.causa/static-mode?` (any value) inside a `(causa-config/configure! …)` map.
 
@@ -2539,7 +2538,7 @@ If the codebase has a self-contained subsystem under a single `app-db` path (e.g
 
 ### O-5. ~~Update fx handlers to binary form for full multi-frame support~~ — *promoted to [M-51](#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).*
 
-Per [rf2-j9cm2](#) the unary-fx-handler back-compat path was cut from the runtime; the binary signature is the only signature `do-fx` accepts. What was an opt-in modernisation under v1 compat is now a required mechanical rewrite — see M-51 above.
+The unary-fx-handler back-compat path was cut from the runtime; the binary signature is the only signature `do-fx` accepts. What was an opt-in modernisation under v1 compat is now a required mechanical rewrite — see M-51 above.
 
 ### O-6. Future-proof against Reagent-specific subscription return types
 
@@ -2577,7 +2576,7 @@ This entry is preserved as a pointer for users searching for `:dispatch-n` migra
 
 ### O-9. Adopt `:system-id` named-machine addressing (Spec 005)
 
-re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md#named-addressing-via-system-id) and rf2-suue / rf2-ecv4, a spawn whose args carry `:system-id` binds a name in the per-frame `[:rf/system-ids]` reverse index, lookable up via `(rf/machine-by-system-id sid)`. Adoption is purely **opt-in**:
+re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md#named-addressing-via-system-id), a spawn whose args carry `:system-id` binds a name in the per-frame `[:rf/system-ids]` reverse index, lookable up via `(rf/machine-by-system-id sid)`. Adoption is purely **opt-in**:
 
 - `:system-id` is an additive key on `[:rf.machine/spawn ...]` and on `:spawn` slots; existing spawns / invokes continue to work unchanged.
 - `[:rf/system-ids]` is a runtime-managed reserved app-db slot (allocated lazily); user code that doesn't bind any `:system-id`s never sees the slot appear.
@@ -2622,7 +2621,7 @@ This is a meaningful migration of consumer code, not a mechanical rewrite. Do no
 
 Spec 000 now carries a summary [Contract block](../../spec/000-Vision.md#contract--pattern-obligations) — a small set of formal `C-000.NN` clauses that capture checkable obligations the prose did not previously make explicit (PDS revert is O(1); the explicit-frame view contract; identity-primitive anti-patterns; and a handful of others). The block is implementor-facing — it does not change the migration of an existing re-frame app, but a port author auditing a re-frame2 implementation against its conformance fixtures should grep for `C-000.NN` references and verify each kept clause holds. Spec-authoring and conformance-harness obligations live in [SPEC-AUTHORING.md](../../spec/SPEC-AUTHORING.md) under the parallel `SA-N` id scheme. There is no rewrite for an application codebase; this is orientation only.
 
-### O-11. Source-coord stamping for state machines (rf2-8bp3)
+### O-11. Source-coord stamping for state machines
 
 re-frame2 turns `reg-machine` into a macro that walks the literal spec form at expansion time and stamps per-element source coordinates under the spec's `:rf.machine/source-coords` key (per [Spec 005 §Source-coord stamping](../../spec/005-StateMachines.md#source-coord-stamping-rf2-8bp3)). This gives pair tools (re-frame-pair, re-frame-10x, IDE jump-to-source) a structured surface for "click on a guard, jump to its definition" and "click on a transition, jump to its source line" gestures.
 
@@ -2647,15 +2646,15 @@ Adoption is opt-in:
 
 No application-code rewrite is required. The surface is additive; existing `reg-sub` registrations populate the topology automatically.
 
-### O-13. Switch a Reagent app to UIx via the `day8/re-frame2-uix` adapter (rf2-3yij)
+### O-13. Switch a Reagent app to UIx via the `day8/re-frame2-uix` adapter
 
 re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagent (per [Spec 006 §UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij)). Migrating a Reagent app to UIx is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to UIx.
 
 **What changes.**
 
 - **Dependencies.** Drop `day8/re-frame2-reagent` and add `day8/re-frame2-uix` (lockstep version with core).
-- **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.uix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up UIx without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
-- **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-3yij Decision 4. Rewrite each `(reg-view foo [args] body)` as a UIx `(defui foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
+- **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.uix]`; the `:require`'s ns-load auto-registers the adapter as the default, so `(rf/init!)` with no args picks up UIx without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the older form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
+- **View registration.** `reg-view` (the macro) stays Reagent-only per Spec 006 Decision 4. Rewrite each `(reg-view foo [args] body)` as a UIx `(defui foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(uix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work; only the view-layer reactive read shape changes.
 - **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.
 - **Local component state.** `(reagent.core/atom ...)` and Form-2 closures become `(uix.core/use-state ...)` / `use-reducer` / `use-ref`. This is the largest mechanical change in a typical view body.
@@ -2666,15 +2665,15 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 
 The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
 
-### O-14. Switch a Reagent app to Helix via the `day8/re-frame2-helix` adapter (rf2-2qit)
+### O-14. Switch a Reagent app to Helix via the `day8/re-frame2-helix` adapter
 
 re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Reagent and UIx (per [Spec 006 §Helix as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate-rf2-2qit)). Migrating a Reagent app to Helix is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to Helix.
 
 **What changes.**
 
 - **Dependencies.** Drop `day8/re-frame2-reagent` and add `day8/re-frame2-helix` (lockstep version with core).
-- **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.helix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
-- **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-2qit Decision 4. Rewrite each `(reg-view foo [args] body)` as a Helix `(defnc foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
+- **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.helix]`; the `:require`'s ns-load auto-registers the adapter as the default, so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the older form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
+- **View registration.** `reg-view` (the macro) stays Reagent-only per Spec 006 Decision 4. Rewrite each `(reg-view foo [args] body)` as a Helix `(defnc foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(helix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work; only the view-layer reactive read shape changes.
 - **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.
 - **Local component state.** `(reagent.core/atom ...)` and Form-2 closures become `(helix.hooks/use-state ...)` / `use-reducer` / `use-ref`. This is the largest mechanical change in a typical view body.
@@ -2686,9 +2685,9 @@ re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Rea
 
 The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
 
-### O-15. Replace hand-rolled spawn-and-join with `:spawn-all` (rf2-6vmw)
+### O-15. Replace hand-rolled spawn-and-join with `:spawn-all`
 
-Codebases that hand-rolled spawn-and-join in machine specs — N siblings + counter set in `:data` + `:always` guards over a `:seen-all-of?`-style predicate — can rewrite to the first-class `:spawn-all` slot from [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all). The hand-rolled form was the recommended substitute pre-rf2-6vmw (per [findings/boot-as-statemachine-dash8-rf8.md §M1](#)); the substrate didn't have a primitive for it. With rf2-6vmw the primitive exists; the hand-rolled form continues to work but `:spawn-all` is the preferred shape for new code.
+Codebases that hand-rolled spawn-and-join in machine specs — N siblings + counter set in `:data` + `:always` guards over a `:seen-all-of?`-style predicate — can rewrite to the first-class `:spawn-all` slot from [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all). The hand-rolled form was the recommended substitute in earlier drafts; the substrate didn't have a primitive for it. The primitive now exists; the hand-rolled form continues to work but `:spawn-all` is the preferred shape for new code.
 
 **Transformation:**
 
@@ -2707,7 +2706,7 @@ Codebases that hand-rolled spawn-and-join in machine specs — N siblings + coun
            {:guard :any-bucket-failed? :target :error}]
   :spawn {:machine-id :load-config       :on-spawn :record-cfg}
   :spawn {:machine-id :load-feature-flags :on-spawn :record-flag}
-  ...}}                                                ;; :spawn is singular — this doesn't even compile pre-rf2-6vmw
+  ...}}                                                ;; :spawn is singular — multi-`:spawn` keys don't compile
 ```
 
 ```clojure
@@ -2729,9 +2728,9 @@ Codebases that hand-rolled spawn-and-join in machine specs — N siblings + coun
 
 Drops: the counter sets in `:data`, the `:record-bucket-*` actions, the `:all-buckets-done?` / `:any-bucket-failed?` guards, the `:always` block, and the parent's `:on` entries for `:bucket/*`. The runtime owns all of them at `[:rf/spawned <parent> [:hydrating] :join]`. Cancel-on-decision (default `true`) handles the surviving-siblings teardown the hand-rolled form had to leave to chance.
 
-Apply only when the user wants the modernisation. Hand-rolled spawn-and-join continues to work indefinitely; the agent does NOT auto-rewrite — the `:spawn-all` shape is structurally different (vector of children vs siblings) and the transformation requires understanding which child completion events are which. Per rf2-6vmw.
+Apply only when the user wants the modernisation. Hand-rolled spawn-and-join continues to work indefinitely; the agent does NOT auto-rewrite — the `:spawn-all` shape is structurally different (vector of children vs siblings) and the transformation requires understanding which child completion events are which.
 
-### O-16. Convert `day8.re-frame/async-flow-fx` flows to `reg-machine` (rf2-qonq4)
+### O-16. Convert `day8.re-frame/async-flow-fx` flows to `reg-machine`
 
 **Type B** (semantic rewrite, ask first). The full rule — detection, the async-flow → machine concept mapping table, before/after worked boot-orchestration example, the explicit-escalation cases (notably the `:halt-fns?` predicate-closing-over-external-state case), and the reporting protocol — lives in a dedicated companion doc:
 
@@ -2741,9 +2740,9 @@ The summary: `day8.re-frame/async-flow-fx` (latest 0.4.0) is a v1-era **separate
 
 Per-call-site escalations: `:halt-fns?` predicates closing over state outside the machine's `:data` (Spec 005 §Strict encapsulation locks actions and guards to `:data` only); `:events` declared as a predicate fn rather than keyword(s); rule-sets built at runtime; flows whose `:db-path` is read by other code. The agent surfaces every flow and waits for operator approval.
 
-Apply only when the operator wants the modernisation. `day8.re-frame/async-flow-fx` 0.4.0 continues to work against v2 — its surface (`reg-event-fx`, `reg-fx`, event observation) is preserved. Per rf2-qonq4 / gh-1368.
+Apply only when the operator wants the modernisation. `day8.re-frame/async-flow-fx` 0.4.0 continues to work against v2 — its surface (`reg-event-fx`, `reg-fx`, event observation) is preserved. See gh-1368 for the upstream tracker.
 
-### O-17. Convert `day8.re-frame/http-fx` (`:http-xhrio`) to re-frame2 managed HTTP (`:rf.http/managed`) (rf2-ncsog)
+### O-17. Convert `day8.re-frame/http-fx` (`:http-xhrio`) to re-frame2 managed HTTP (`:rf.http/managed`)
 
 **Type B** (semantic rewrite, ask first). The full rule — detection, the `:http-xhrio` → `:rf.http/managed` slot-by-slot mapping, before/after worked GET-with-JSON-decode example, the explicit-escalation cases (notably `:progress-cb`, custom `:format` / `:response-format` fns, hand-rolled retry, response-side `:interceptors` chains), and the reporting protocol — lives in a dedicated companion doc:
 
@@ -2751,11 +2750,11 @@ Apply only when the operator wants the modernisation. `day8.re-frame/async-flow-
 
 The summary: `day8.re-frame/http-fx` is a v1-era **separate add-on lib** shipping the `:http-xhrio` fx (Google Closure `XhrIo` transport behind a re-frame `reg-fx` registration). The canonical v2 successor is `:rf.http/managed` (per [014-HTTPRequests.md](../../spec/014-HTTPRequests.md), shipped in the [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) artefact `day8/re-frame2-http`): the request envelope is the same shape, but the response surface adds the eight-category closed `:rf.http/*` failure taxonomy, schema-driven Malli decode + `:accept` projection, transport-level retry-with-backoff, per-attempt timeouts with a 30s security default, abort via `:request-id`, classification ordering (status-before-decode), and a co-located reply addressing mode. Trace events (`:rf.http/retry-attempt`, per-category failure traces) integrate with the standard trace surface that 10x / Causa / `register-listener!`-consumers see for free.
 
-Per-call-site escalations: per-XHR progress callbacks (out of scope for v1 managed-HTTP); custom `:format` / `:response-format` fns that aren't one of the canonical helpers; hand-rolled retry that closes over body content or app state (lift to a state machine per [O-16](#o-16-convert-day8re-frameasync-flow-fx-flows-to-reg-machine-rf2-qonq4) — semantic retry); cljs-ajax `:interceptors` chains with response-side transforms (request-side ports to [M-39](#m-39-reg-http-interceptor--clear-http-interceptor--additive-request-side-middleware-on-rfhttpmanaged), response-side splits to `:accept` or `register-listener!`); `(rf/reg-fx :http-xhrio ...)` user-registrations that wrapped or overrode the lib's fx. The agent surfaces every request site and waits for operator approval.
+Per-call-site escalations: per-XHR progress callbacks (out of scope for v1 managed-HTTP); custom `:format` / `:response-format` fns that aren't one of the canonical helpers; hand-rolled retry that closes over body content or app state (lift to a state machine per [O-16](#o-16-convert-day8re-frameasync-flow-fx-flows-to-reg-machine) — semantic retry); cljs-ajax `:interceptors` chains with response-side transforms (request-side ports to [M-39](#m-39-reg-http-interceptor--clear-http-interceptor--additive-request-side-middleware-on-rfhttpmanaged), response-side splits to `:accept` or `register-listener!`); `(rf/reg-fx :http-xhrio ...)` user-registrations that wrapped or overrode the lib's fx. The agent surfaces every request site and waits for operator approval.
 
-Apply only when the operator wants the modernisation. `day8.re-frame/http-fx` continues to work against v2 — its surface (`reg-fx`, `reg-event-fx`, `dispatch`) is preserved. Per rf2-ncsog / gh-1374.
+Apply only when the operator wants the modernisation. `day8.re-frame/http-fx` continues to work against v2 — its surface (`reg-fx`, `reg-event-fx`, `dispatch`) is preserved. See gh-1374 for the upstream tracker.
 
-### O-18. Security + operational logging sweep on the observability interceptor surface (rf2-ihzz9)
+### O-18. Security + operational logging sweep on the observability interceptor surface
 
 **Type B** (semantic flag, ask per site). The full rule — discovery patterns, the closed sensitive-key floor checklist + recursive-walk discipline, the size-cap pattern with dropped-count surfacing, and the reference mediation interceptor body (composing the framework's `:sensitive?` defense + the wire-elision walker + the dropped-count signal) — lives in a dedicated companion doc:
 
@@ -2767,7 +2766,7 @@ Four sections in the companion doc: **(1) Discovery** — grep patterns for ever
 
 The follow-on per rewrite is a schema-annotation pass — every sensitive key the agent found that **does** appear in a registered schema gets a proposed `{:sensitive? true}` annotation (per [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling) and [009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The schema declaration is strictly stronger than per-listener explicit drops — it covers every consumer (trace listeners, error monitors, MCP servers, hosted dashboards) uniformly and the framework's always-on substrates honour it before fan-out.
 
-Apply this rule whenever the codebase has any observability sites (the discovery grep in §1 always finds them in non-trivial v1 codebases). Per rf2-ihzz9 / gh-1375.
+Apply this rule whenever the codebase has any observability sites (the discovery grep in §1 always finds them in non-trivial v1 codebases). See gh-1375 for the upstream tracker.
 
 ---
 
@@ -2780,11 +2779,11 @@ A non-exhaustive list of public API surface that is **preserved unchanged** in r
 - **`dispatch` and `dispatch-sync`.** Same names; the optional second `opts` arg is a new addition that doesn't affect single-arg calls.
 - **`subscribe`.** Same. Optional second `opts` arg.
 - **`@(subscribe [...])`.** The deref-to-read pattern is the documented contract and stays valid.
-- **Subscription composition.** `:<-` and `reg-sub`'s sugar variants are preserved. The query-vector shape is the canonical subscribe argument; the alpha-namespace query-map shape (`(sub {:re-frame/q ::id ...})`) is removed per [M-23](#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn). (`reg-sub-raw` is removed per M-18.)
+- **Subscription composition.** `:<-` and `reg-sub`'s sugar variants are preserved. The query-vector shape is the canonical subscribe argument; the alpha-namespace query-map shape (`(sub {:re-frame/q ::id ...})`) is removed per [M-23](#m-23-re-framealpha-is-removed). (`reg-sub-raw` is removed per M-18.)
 - **Standard interceptors.** `path`, `unwrap`, `inject-cofx` — preserved (plus `->interceptor` as the primitive for custom before/after work). **Removed in v2:** `debug`, `trim-v`, `on-changes`, `enrich`, `after` (per [M-21](#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)).
 - **The `:fx` slot in effect maps.** The `[[fx-id args] ...]` form for the `:fx` slot is preserved unchanged. (The wider effect-map shape is *consolidated* under **M-8** — `:dispatch`, `:dispatch-later`, `:dispatch-n`, and other top-level keys move into `:fx`. That migration is mechanical; see M-8. Listed here to be unambiguous: the `:fx` slot itself is preserved; the *outer* shape changes.)
 - **`reg-fx` / `reg-cofx` without `:platforms`.** These default to **universal** (`#{:server :client}`) — same effective behaviour as re-frame v1, where fx ran wherever you dispatched them. New code that needs to gate fx to client-only adds `:platforms #{:client}` explicitly (see [011 §`:platforms` metadata](../../spec/011-SSR.md#platforms-metadata-on-reg-fx)). Migrating apps don't need to touch existing `reg-fx` registrations.
-- **Flow features.** `reg-flow`, `flow<-`, `clear-flow` are preserved as canonical surfaces in `re-frame.core` (per [Spec 013](../../spec/013-Flows.md)). The `re-frame.alpha` namespace itself — including `reg :sub-lifecycle` and the `:re-frame/q` query-map shape — is removed; see [M-23](#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
+- **Flow features.** `reg-flow`, `flow<-`, `clear-flow` are preserved as canonical surfaces in `re-frame.core` (per [Spec 013](../../spec/013-Flows.md)). The `re-frame.alpha` namespace itself — including `reg :sub-lifecycle` and the `:re-frame/q` query-map shape — is removed; see [M-23](#m-23-re-framealpha-is-removed).
 - **`re-frame.std-interceptors`** namespace — public, preserved.
 - **JVM interop layer.** `re-frame.interop` (separate `.clj` and `.cljs` implementations) is preserved; tests continue to run on the JVM.
 - **Hot-reload semantics on the default frame.** `reg-event-*` re-registration replaces a single handler without resetting `app-db`, matching today's behavior (re-frame2 commits to "surgical update" as the default frame's hot-reload semantics).
