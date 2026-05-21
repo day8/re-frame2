@@ -32,7 +32,8 @@
   "
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines.result :as result]
+            [re-frame.trace :as trace]))
 
 (def auth-flow-spec
   "A tiny declarative-`:spawn` machine. On `[:submit]` from `:idle` it
@@ -171,6 +172,85 @@
           ;; and the guard passes — transition to :authed.
           {s ::result/snap} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
       (is (= :authed (:state s))))))
+
+;; ---- depth-limit boundary parity (rf2-r26e2) ------------------------------
+;;
+;; Per Spec 005 §Bounded depth (005:1276) the `:always` microstep loop and
+;; the `:raise` drain share the same default (16) and the same intent: a
+;; limit of N permits exactly N steps before the cascade aborts uncommitted.
+;; The `:always` loop bounds on `(>= depth limit)`; pre-rf2-r26e2 the
+;; `:raise` drain bounded on `(> depth limit)`, which silently permitted one
+;; extra recursion (N+1). These two tests pin the boundary to N on BOTH
+;; paths so the operators can never drift apart again.
+;;
+;; The boundary is a pure-engine property, observed here via the `:depth`
+;; tag the depth-exceeded error trace carries: with the `>=` boundary the
+;; abort fires at `depth == limit`, so the trace's `:depth` equals the limit
+;; (not limit+1).
+
+(defn- capture-error-depth!
+  "Drive a pure `machine-transition` while a tooling listener records traces,
+  returning the `:depth` tag of the first error trace whose `:operation`
+  matches `error-op` (or nil if none fired)."
+  [error-op definition snapshot event]
+  (let [seen (atom [])]
+    (trace/register-listener! ::depth-probe (fn [ev] (swap! seen conj ev)))
+    (try
+      (machines/machine-transition definition snapshot event)
+      (finally (trace/unregister-listener! ::depth-probe)))
+    (->> @seen
+         (filter #(= error-op (:operation %)))
+         first
+         :tags
+         :depth)))
+
+(deftest always-depth-boundary-permits-exactly-limit-microsteps
+  (testing ":always loop with :always-depth-limit N aborts at depth N
+   (>= boundary) — permits exactly N microsteps"
+    ;; Two states ping-pong via always-true `:always` guards. With the
+    ;; limit set to 4 the loop runs microsteps at depths 0..3, then aborts
+    ;; at depth 4. The error trace's `:depth` is therefore 4 (== the limit).
+    (let [spec {:initial :start
+                :data    {}
+                :always-depth-limit 4
+                :guards  {:p? (fn [_] true)}
+                :states  {:start {:on {:go {:target :a}}}
+                          :a     {:always [{:guard :p? :target :b}]}
+                          :b     {:always [{:guard :p? :target :a}]}}}
+          depth (capture-error-depth!
+                  :rf.error/machine-always-depth-exceeded
+                  spec {:state :start :data {}} [:go])]
+      (is (= 4 depth)
+          ":always aborts at depth == limit (4), permitting exactly 4 microsteps"))))
+
+(deftest raise-depth-boundary-matches-always-boundary
+  (testing ":raise drain with :raise-depth-limit N aborts at depth N
+   (>= boundary, rf2-r26e2) — parity with the :always loop, not N+1"
+    ;; The `drain-raises` depth counts raises drained from the queue. A
+    ;; fanned-out batch of more raises than the limit feeds the loop past
+    ;; the bound (same shape as raise-depth-exceeded-tag-carries-frame).
+    ;; With :raise-depth-limit 4 and 6 raises in one batch the drain
+    ;; processes raises at depths 0..3 then aborts at depth 4 — the SAME
+    ;; boundary the :always loop above hits at its limit. Pre-rf2-r26e2
+    ;; (`> depth limit`) the abort fired at depth 5 (N+1), one past parity.
+    (let [spec {:initial :idle
+                :data    {}
+                :raise-depth-limit 4
+                :actions {:fan-out (fn [_]
+                                     {:fx [[:raise [:noop]]
+                                           [:raise [:noop]]
+                                           [:raise [:noop]]
+                                           [:raise [:noop]]
+                                           [:raise [:noop]]
+                                           [:raise [:noop]]]})}
+                :states  {:idle    {:on {:start {:target :running :action :fan-out}
+                                         :noop  :idle}}
+                          :running {:on {:noop :idle}}}}
+          depth (capture-error-depth!
+                  :rf.error/machine-raise-depth-exceeded
+                  spec {:state :idle :data {}} [:start])]
+      (is (= 4 depth)
+          ":raise aborts at depth == limit (4) — same boundary as :always (was 5 pre-fix)"))))
 
 (deftest machine-raise-pre-commit
   (testing ":raise routes locally pre-commit (does not go to runtime fifo)"
