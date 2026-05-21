@@ -23,17 +23,17 @@ The same four pillars as the `re-frame2` skill, scoped to greenfield bootstrap:
 
 These are not up for re-litigation. A future authoring pass MUST preserve them unless explicitly unlocked by Mike.
 
-### L1 — Never hardcode artefact versions in suggestions written to disk
+### L1 — Never hardcode the re-frame2 artefact VERSION in suggestions written to disk
 
-re-frame2 ships ten Maven artefacts in lockstep at a single VERSION. Versions change. The skill points the author at `references/deps-versions.md` for lookup; the cardinal rule lives in SKILL.md so it's read on every load. Hardcoded versions in suggestions are a documented anti-pattern.
+re-frame2 ships eleven Maven artefacts in lockstep at a single VERSION (core + 7 per-feature + 3 per-adapter per `spec/Conventions.md`; `day8/re-frame2-causa` rides the same line). The re-frame2 VERSION changes. The skill leaves it as `<VERSION>` and points the author at `references/deps-versions.md` for lookup; the cardinal rule lives in SKILL.md so it's read on every load. Hardcoded re-frame2 VERSIONs in suggestions are a documented anti-pattern. (The non-re-frame2 pins — Clojure/ClojureScript/Reagent — are pinned to concrete versions matching the generator template, since those are slow-moving and the template fixes them.)
 
-### L2 — All ten artefacts ship at the same VERSION
+### L2 — All eleven artefacts ship at the same VERSION
 
-The author picks the VERSION once; every `day8/re-frame2-*` dep gets that same version. Mixing versions across artefacts is unsupported. This rule lands in both SKILL.md and `references/deps-versions.md`.
+The author picks the VERSION once; every `day8/re-frame2-*` dep (including `-causa`) gets that same version. Mixing versions across artefacts is unsupported. This rule lands in both SKILL.md and `references/deps-versions.md`.
 
-### L3 — Only add the per-feature artefacts the author actually uses
+### L3 — Day-one shape matches the generator template; remaining per-feature artefacts are pay-as-you-go
 
-Core (`day8/re-frame2`) and adapter (`day8/re-frame2-reagent`) are mandatory on day one. Per-feature artefacts (`-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists the temptation to "add them all defensively" — pay-as-you-go is the contract.
+The day-one deps match the deps-new template: core (`day8/re-frame2`), the Reagent adapter (`day8/re-frame2-reagent`), `-schemas` (the starter app attaches a whole-app-db schema), and `-causa` (the in-app devtools panel, Causa-priority by default), plus an explicit `reagent/reagent` pin. The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists "add them all defensively" — pay-as-you-go is the contract for everything past the day-one shape.
 
 ### L4 — The Reagent adapter is the default reference substrate
 
@@ -95,13 +95,15 @@ skills/re-frame2-setup/
 │   ├── shadow-cljs.md             (~100 lines; build shape, index.html)
 │   ├── entry-namespace.md         (~120 lines; rf/init! + Reagent root contract)
 │   └── first-counter.md           (~110 lines; end-to-end worked example)
-└── spec/
-    ├── design.md                  (this file)
-    ├── inputs.md                  (canonical inputs)
-    └── authoring-prompt.md        (one-shot reauthor prompt)
+├── spec/
+│   ├── design.md                  (this file)
+│   ├── inputs.md                  (canonical inputs)
+│   └── authoring-prompt.md        (one-shot reauthor prompt)
+└── evals/
+    └── evals.json                 (trigger-accuracy fixture)
 ```
 
-SKILL.md (~170) + 4 reference leaves (~450) + 3 spec files (~250) ≈ ~870 LoC across 10 files. Typical greenfield session reads SKILL.md + 2 reference leaves = ~370 LoC.
+SKILL.md (~170) + 4 reference leaves (~450) + 3 spec files (~250) ≈ ~870 LoC across 10 files, plus the `evals/evals.json` trigger fixture. Typical greenfield session reads SKILL.md + 2 reference leaves = ~370 LoC. `spec/` and `evals/` are excluded from the npm `files` array by design.
 
 ## 6. Discovery surface (frontmatter `description`)
 
@@ -110,7 +112,7 @@ The `description` is "pushy" and lists every greenfield-trigger phrase: *"start 
 ## 7. Anti-patterns the skill explicitly resists
 
 - **Hardcoding artefact versions in suggestions** — L1 cardinal rule.
-- **Mixing versions across the ten artefacts** — L2 cardinal rule.
+- **Mixing versions across the eleven artefacts** — L2 cardinal rule.
 - **Adding per-feature artefacts defensively** — L3 cardinal rule + `references/deps-versions.md`'s "pay-as-you-go" framing.
 - **Branching into UIx/Helix at greenfield** — L4. Substrate-switch is a separate conversation.
 - **Writing tests for the author** — L5 cardinal rule.

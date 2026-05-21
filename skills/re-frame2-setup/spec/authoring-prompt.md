@@ -31,10 +31,12 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 > │   ├── shadow-cljs.md             (~100 lines; minimal build shape, index.html)
 > │   ├── entry-namespace.md         (~120 lines; rf/init! + Reagent root contract)
 > │   └── first-counter.md           (~110 lines; end-to-end worked example)
-> └── spec/
->     ├── design.md
->     ├── inputs.md
->     └── authoring-prompt.md
+> ├── spec/
+> │   ├── design.md
+> │   ├── inputs.md
+> │   └── authoring-prompt.md
+> └── evals/
+>     └── evals.json                 (trigger-accuracy fixture)
 > ```
 >
 > *Every reference leaf is ≤250 lines (target ~120). SKILL.md is ~170 lines (under Anthropic's 500-line ceiling). All leaves are one level deep.*
@@ -45,15 +47,15 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 > *2. Add deps to `deps.edn`.*
 > *3. Add npm deps to `package.json`.*
 > *4. Write `shadow-cljs.edn`.*
-> *5. Write the entry namespace with `(rf/init! reagent-adapter/adapter)` before any render.*
+> *5. Write the entry namespace with `(rf/init! reagent-adapter/adapter)` before any render. Exported entry symbol is `init` (matches the generator template).*
 > *6. Write the first counter (event + sub + reg-view + mount).*
 > *7. Run it and verify.*
 >
 > *Cardinal rules to bake in (these go in SKILL.md):*
 >
-> *1. **Never hardcode artefact versions in suggestions written to disk.** Look them up first.*
-> *2. **All ten artefacts ship at the same VERSION.** Mixing is unsupported.*
-> *3. **Only add the per-feature artefacts the author actually uses.** Core + adapter on day one; the rest pay-as-you-go.*
+> *1. **Never hardcode the re-frame2 artefact VERSION in suggestions written to disk.** Look it up first; leave it as `<VERSION>`. (Concrete Clojure/CLJS/Reagent pins matching the template are fine.)*
+> *2. **All eleven artefacts ship at the same VERSION** (and `day8/re-frame2-causa` rides the same line). Mixing is unsupported.*
+> *3. **The day-one shape matches the generator template:** core + Reagent adapter + `-schemas` + `-causa` + explicit `reagent/reagent`. The remaining per-feature artefacts (`-machines`/`-routing`/`-flows`/`-http`/`-ssr`/`-epoch`) are pay-as-you-go.*
 > *4. **The Reagent adapter is the default reference substrate.** Unless the author says UIx or Helix, scaffold Reagent.*
 > *5. **Don't write tests for the author.** This skill stops at "the counter mounts".*
 >
@@ -90,7 +92,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 
 ## When to re-author
 
-- A new mandatory artefact ships in lockstep (the ten-artefact set grows) → update `references/deps-versions.md` and the SKILL.md framing.
+- A new mandatory artefact ships in lockstep (the eleven-artefact set grows) → update `references/deps-versions.md` and the SKILL.md framing.
 - The `re-frame.adapter.reagent` contract changes materially → `references/entry-namespace.md` and `references/first-counter.md` need updates.
 - `rf/init!`'s signature changes → all four reference leaves need a sweep.
 - Reagent v3 lands and supplants v2 → re-derive against the v3 counter example.

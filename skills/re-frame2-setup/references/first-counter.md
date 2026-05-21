@@ -57,7 +57,7 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn ^:export init []
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (rdc/render react-root [root-view]))
@@ -94,10 +94,10 @@ The result is regular Reagent hiccup. Reagent renders, the React 19 root commits
 
 `defonce` guards `react-root` against hot-reload. See `entry-namespace.md` for why.
 
-`run`'s three lines (in this order):
+`init`'s three lines (in this order):
 
 1. `(rf/init! reagent-adapter/adapter)` — install the Reagent substrate adapter.
-2. `(rf/dispatch-sync [:counter/initialise])` — seed `app-db` to `{:count 0}` before first render. `dispatch-sync` drains the event synchronously; the `app-db` is committed before `run` returns.
+2. `(rf/dispatch-sync [:counter/initialise])` — seed `app-db` to `{:count 0}` before first render. `dispatch-sync` drains the event synchronously; the `app-db` is committed before `init` returns.
 3. `(rdc/render react-root [root-view])` — mount.
 
 ## Verifying it works
@@ -120,7 +120,7 @@ Click `+` — the number becomes `1`. Click `-` — back to `0`. Refresh the pag
 
 If you see a blank page, open the browser console. Most failures land there with a clear error:
 - `Cannot read property 'getElementById' of undefined` — script ran before DOM was ready; check `index.html` loads `main.js` at the *bottom* of `<body>`.
-- `Could not find frame :rf/default` — `rf/init!` didn't run before render. Check `run` is the `:init-fn` shadow-cljs is calling.
+- `Could not find frame :rf/default` — `rf/init!` didn't run before render. Check `init` is the `:init-fn` shadow-cljs is calling.
 - `No subscription handler registered for: :count` — registrations didn't run. If you split into multiple namespaces, make sure `core.cljs` `:require`s them so they load.
 
 ## What to do next
