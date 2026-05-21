@@ -1,11 +1,11 @@
 /*
- * re-frame2 docs/cljs playground — Phase 1 MVP (rf2-y99zt).
+ * re-frame2 docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover).
  *
- * A roll-your-own, instant-nav-safe live-CLJS-cell bootstrap that replaces
- * Klipse for the `docs/cljs` page. It is the production successor to the
- * Phase 0 spike (rf2-qk3sh, docs/cljs/_spike-qk3sh/) — same validated wiring,
- * now wrapped in the same `extra_javascript` + `document$` instant-nav loader
- * the Klipse bootstrap uses (docs/klipse/klipse-bootstrap.js).
+ * A roll-your-own, instant-nav-safe live-CLJS-cell bootstrap — the production
+ * renderer for the `docs/cljs` page. It is the production successor to the
+ * Phase 0 spike (rf2-qk3sh) and replaced Klipse outright as of Phase 1b: the
+ * page's ```cljs cells (`.language-cljs`) are now rendered here, and the
+ * vendored ~7 MB Klipse plugin + its bootstrap have been deleted.
  *
  * Stack:
  *   - CodeMirror 6 (@codemirror/{state,view,commands}) — the editor.
@@ -17,10 +17,6 @@
  *
  * This module is bundled by esbuild into an IIFE at docs/cljs/playground.js
  * and wired via mkdocs `extra_javascript`. See tools/playground/README.md.
- *
- * Phase 1 deliberately uses a NEW fence class (`language-cljs`) so it coexists
- * with Klipse (`language-klipse`). The cutover (flip the fence, delete Klipse)
- * is Phase 1b (rf2-j06sy) — NOT this bead.
  */
 
 import { EditorState, Prec } from "@codemirror/state";
@@ -37,7 +33,7 @@ const SCITTLE_SRC =
   "https://cdn.jsdelivr.net/npm/scittle@0.8.31/dist/scittle.js";
 
 // The fence class pymdownx.superfences emits for ```cljs cells (see mkdocs.yml
-// custom_fences). NEW class so this coexists with Klipse's .language-klipse.
+// custom_fences). This is the docs/cljs page's only live-cell renderer.
 const CELL_SELECTOR = "pre.language-cljs:not([data-cljs-mounted])";
 
 // --- Eval wiring (validated in spike rf2-qk3sh) ----------------------------
@@ -46,7 +42,7 @@ const CELL_SELECTOR = "pre.language-cljs:not([data-cljs-mounted])";
 // the real CLJS value; numbers are JS numbers) and THROWS a JS Error on failure.
 //
 // To also capture *out* (println etc.) AND pr-str the result, we eval a small
-// wrapper. Three gotchas the spike found are honoured here:
+// wrapper. Four gotchas are honoured here:
 //   1. SCI has no JVM classes — java.io.StringWriter is absent. Capture *out*
 //      with clojure.core/with-out-str.
 //   2. with-out-str only captures explicit prints, NOT the body's return value.
@@ -54,6 +50,11 @@ const CELL_SELECTOR = "pre.language-cljs:not([data-cljs-mounted])";
 //   3. A CLJS vector returned to JS is a PersistentVector OBJECT, not a JS
 //      Array — index access returns garbage. Wrap the return in (clj->js ...)
 //      so Scittle hands JS a real Array.
+//   4. A top-level (def x ...)/(defn ...) returns the VAR, so a bare REPL would
+//      print `#'user/x` — confusing for the non-Clojurian audience the docs/cljs
+//      page targets, and a fidelity regression vs Klipse (which showed the bound
+//      value). When the last form's value is a var, deref it and pr-str the
+//      bound value instead, matching Klipse. Other values pass through unchanged.
 function evalCljs(src) {
   const scittle = window.scittle;
   if (!scittle || !scittle.core || !scittle.core.eval_string) {
@@ -66,8 +67,10 @@ function evalCljs(src) {
     "  (let [r# (atom nil)" +
     "        o# (with-out-str (reset! r# (do " +
     src +
-    "\n)))]" +
-    "    [o# (pr-str (deref r#))]))";
+    "\n)))" +
+    "        v# (deref r#)" +
+    "        v# (if (var? v#) (deref v#) v#)]" +
+    "    [o# (pr-str v#)]))";
   const out = scittle.core.eval_string(wrapped); // -> JS array [printed, resultStr]
   return { printed: out[0] || "", result: out[1] };
 }
@@ -168,9 +171,10 @@ function mountAll() {
 
 // --- Scittle loader + instant-nav bootstrap --------------------------------
 //
-// Ported from docs/klipse/klipse-bootstrap.js. Material's `navigation.instant`
-// swaps page <main> via fetch and does NOT re-execute inline page <script>s,
-// but it DOES re-run every `extra_javascript` module on each instant nav.
+// Originally ported from the (now-deleted) Klipse bootstrap. Material's
+// `navigation.instant` swaps page <main> via fetch and does NOT re-execute
+// inline page <script>s, but it DOES re-run every `extra_javascript` module
+// on each instant nav.
 // So this module fires on initial load and every instant page swap. It is:
 //   - Guarded: it does nothing on pages with no ```cljs cells (Scittle's ~183 KB
 //     gz only loads on the page that actually has live cells).
@@ -178,8 +182,7 @@ function mountAll() {
 //     on later instant navs it just re-scans the freshly swapped DOM.
 
 // Resolve sibling-asset URLs relative to THIS file's own location, so the
-// /re-frame2/ GitHub Pages sub-path and the domain root both work. Identical
-// trick to the Klipse bootstrap.
+// /re-frame2/ GitHub Pages sub-path and the domain root both work.
 const selfUrl =
   (document.currentScript && document.currentScript.src) ||
   (function () {

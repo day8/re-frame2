@@ -97,11 +97,11 @@ The result of the evaluation will be shown below the editor.
 
 Try these experiments — what does each one evaluate to? Edit the cell and see:
 
-```klipse
+```cljs
 {:a 1 :a 4}
 ```
 
-```klipse
+```cljs
 [:apple :orange :banana
 ```
 
@@ -135,19 +135,19 @@ Example symbol evaluations:
 
 Try these experiments — evaluate each cell:
 
-```klipse
+```cljs
 inc
 ```
 
 (Functions are technically objects, and cljs represents them by printing `object[qualified$name]`.)
 
-```klipse
+```cljs
 [inc dec +]
 ```
 
 (This is simply three items in a vector. Just because they're functions does not mean you're calling them.)
 
-```klipse
+```cljs
 {inc 5}
 ```
 
@@ -206,19 +206,19 @@ Let's start evaluating, live. Type into each editor. Press `Ctrl-Enter` to evalu
 
   - is `(+ 1)` an error? How about `(+)` or `(*)`?
 
-```klipse
+```cljs
 (+ 1)
 ```
 
   - try `(odd? 5)`
 
-```klipse
+```cljs
 (odd? 5)
 ```
 
   - try `(count [1 2 3])`
 
-```klipse
+```cljs
 (count [1 2 3])
 ```
 
@@ -255,15 +255,15 @@ More:
 
 Evaluate these experiments yourself (any surprises?):
 
-```klipse
+```cljs
 (inc (dec 1))
 ```
 
-```klipse
+```cljs
 (odd? (inc (dec 1)))
 ```
 
-```klipse
+```cljs
 (= (inc (dec 1)) 1)
 ```
 
@@ -302,7 +302,7 @@ Keywords can have a `namespace`.
 
 To give you a taste of where this can go, here they are used as the keys in a hashmap:
 
-```klipse
+```cljs
 {:user/id      1
  :user/name    "Barry"
  :user/age     28
@@ -312,15 +312,15 @@ To give you a taste of where this can go, here they are used as the keys in a ha
 
 Evaluate these experiments yourself (any surprises?):
 
-```klipse
+```cljs
 (namespace :a)
 ```
 
-```klipse
+```cljs
 (keyword (name :a))
 ```
 
-```klipse
+```cljs
 (keyword (namespace :a/b) (name :a/b))
 ```
 
@@ -408,7 +408,7 @@ Possible experiments:
   - check if `(if true)` is valid.
   - explore what is "truthy", via  `(if "hello" true false)` or `(if [] true false)` or `(if nil true false)`
 
-```klipse
+```cljs
 (if "hello" true false)
 ```
 
@@ -436,7 +436,7 @@ Here is a very simple example `(fn [x] x)`:
 
 ***Answer***: easy, we already know how, just place it as the first element in a form. Then add a 2nd element in that form, which is the actual argument. Like this:
 
-```klipse
+```cljs
 ;; Aside: a line which starts with a semi-colon is a comment
 
 ;; The following is a two element list:
@@ -447,7 +447,7 @@ Here is a very simple example `(fn [x] x)`:
 
 I'd like you to see this two element list as more like, say:
 
-```klipse
+```cljs
 (count "the actual arg")
 ```
 
@@ -471,7 +471,7 @@ Let's work through it in more detail:
 
 Here's another call to the same function:
 
-```klipse
+```cljs
 ((fn [x] x) [:a :b])
 ```
 
@@ -479,7 +479,7 @@ The actual argument is `[:a :b]`, and the form (function call) will evaluate to 
 
 Let's create a different function and evaluate it:
 
-```klipse
+```cljs
 ((fn [num] (+ num 1)) 4)
 ```
 
@@ -488,19 +488,19 @@ The body of the function, `(+ num 1)`, will be evaluated with the `num` symbol b
 
 Try these experiments:
 
-```klipse
+```cljs
 ((fn [x] [x x]) 4)
 ```
 
-```klipse
+```cljs
 ((fn [x y] {x y}) :a 4)
 ```
 
-```klipse
+```cljs
 ((fn []))
 ```
 
-```klipse
+```cljs
 ((fn [yes?] {:a (if yes? "yes")}) true)
 ```
 
@@ -508,7 +508,7 @@ what if, instead, we called this function with `false`.
 
 You won't see this written in normal ClojureScript code, because it is weird, but here's a puzzle:
 
-```klipse
+```cljs
 (((fn  [] inc)) 4)
 ```
 
@@ -520,7 +520,7 @@ What is the evaluation? Note: there is an extra set of parens around the `fn` fo
 
 The `def` form creates a symbol and binds it to a value.
 
-```klipse
+```cljs
 (def gurus 2)
 ```
 
@@ -535,7 +535,7 @@ Functions don't normally cause side effect - they are normally pure.
 
 The 3rd element of a `def` is evaluated:
 
-```klipse
+```cljs
 (def saints (inc gurus))    ;; look, using the symbol `gurus` !!
 ```
 
@@ -543,11 +543,11 @@ The 3rd element of a `def` is evaluated:
 
 Consider these two:
 
-```klipse
+```cljs
 (def beach-list [:hat :sunglasses :towel])
 ```
 
-```klipse
+```cljs
 (def beach-items (count beach-list))     ;; count is a builtin function
 ```
 
@@ -555,13 +555,13 @@ Consider these two:
 
 Now, consider what is happening here:
 
-```klipse
+```cljs
 (def my-inc (fn [a] (+ a 1)))
 ```
 
 That `fn` form will create a function, and then the `def` will bind it to the symbol  `my-inc`. Two steps. Hey, we've just created our own `inc`.
 
-```klipse
+```cljs
 (my-inc 4)
 ```
 
@@ -569,13 +569,13 @@ evaluates to `5`.
 
 And again:
 
-```klipse
+```cljs
 (def square-it (fn [x] (* x x)))
 ```
 
 We can use this symbol `square-it` in a form (it is now bound to a function), like this:
 
-```klipse
+```cljs
 (square-it 5)
 ```
 
@@ -592,7 +592,7 @@ which combines the two, called `defn`.
 
 You use it like this:
 
-```klipse
+```cljs
 (defn dec-by-one  ;; `dec-by-one` is the symbol being defined
   [n]             ;; a vector of symbols for the actual arguments
   (- n 1))        ;; function body - evaluated when function is called - uses `n`
@@ -603,7 +603,7 @@ So, this binds a symbol to a function. All of the "builtin functions" mentioned 
 
 To use the symbol/function just defined:
 
-```klipse
+```cljs
 (dec-by-one 4)
 ```
 
@@ -611,7 +611,7 @@ evaluates to `3`.
 
 Define another function:
 
-```klipse
+```cljs
 (defn square-it  ;; `square-it` is the symbol being defined
   [n]            ;; a vector of symbols for the actual arguments
   (* n n))       ;; function body - evaluated when function is called - uses `n`
@@ -619,7 +619,7 @@ Define another function:
 
 use it:
 
-```klipse
+```cljs
 (square-it 3)
 ```
 
@@ -627,7 +627,7 @@ evaluates to `9`.
 
 Or use it like this:
 
-```klipse
+```cljs
 (square-it (inc 3))
 ```
 
@@ -635,7 +635,7 @@ evaluates to `16` .
 
 Define another:
 
-```klipse
+```cljs
 (defn greet
   [username]
   (str "Hello " username))
@@ -645,7 +645,7 @@ Define another:
 
 use it:
 
-```klipse
+```cljs
 (greet "world")
 ```
 
@@ -658,7 +658,7 @@ In a functional language, creating functions is a big deal. You'll be using `def
 
 This is another special form you'll be using _a lot_.
 
-```klipse
+```cljs
 ;; a let form has two parts:
 ;;   - 1st a vector of "binding pairs"
 ;;   - 2nd a "body"
@@ -670,7 +670,7 @@ This `let` form evaluates to `"pen"`.
 
 Another one:
 
-```klipse
+```cljs
 (let [a "pen"]
   :foo)         ;; odd. The body doesn't use `a`. But this still works.
 ```
@@ -679,7 +679,7 @@ This `let` form evaluates to `:foo`.
 
 Notice the way this `let` form  is formatted:
 
-```klipse
+```cljs
 (let [a  "pen"         ;; this pair means `a` is bound to "pen"
       b  "sword"]      ;; this pair means `b` is bound to "sword"
   (> a b))             ;; is "pen" greater than "sword" ??
@@ -689,7 +689,7 @@ evaluates to `false`. Wait, no. That isn't conventional wisdom. Damn you lexicog
 
 We need to make some changes:
 
-```klipse
+```cljs
 (let [a  "the pen"
       b  "a sword"]
   (if (> a b) a b))
@@ -697,7 +697,7 @@ We need to make some changes:
 
 evaluates to `"the pen"`. Phew!
 
-```klipse
+```cljs
 (let [a  "the pen"
       b  "a sword"]
   {:winner-is (if (> a b) a b)})
@@ -707,7 +707,7 @@ evaluates to `{:winner-is "the pen"}`.
 
 `let` is often used within a `defn`:
 
-```klipse
+```cljs
 (defn greet-friendly
   [name friendly?]
   (let [greeting (if friendly? "Hello " "Go away ")]
@@ -716,23 +716,23 @@ evaluates to `{:winner-is "the pen"}`.
 
 Experiment with the function:
 
-```klipse
+```cljs
 (greet-friendly "Mum" true)
 ```
 
-```klipse
+```cljs
 (greet-friendly "Noisy Neighbours" false)
 ```
 
 In this particular case, we could have got away with not using a `let`, like this:
 
-```klipse
+```cljs
 (defn greet-direct
   [name friendly?]
   [:div (if friendly? "Hello " "Go away ") name])
 ```
 
-```klipse
+```cljs
 (defn items-text
   [items]
   (let [num    (count items)
@@ -743,15 +743,15 @@ In this particular case, we could have got away with not using a `let`, like thi
 
 Check on the output in these cases:
 
-```klipse
+```cljs
 (items-text [:towel :sunglasses])
 ```
 
-```klipse
+```cljs
 (items-text [:towel])
 ```
 
-```klipse
+```cljs
 (items-text [])
 ```
 
@@ -777,28 +777,28 @@ Sometimes data can act as a function - it can appear as the first element in a f
 
 For example, a hashmap can act as a function. This is easiest to explain via code:
 
-```klipse
+```cljs
 ({:a 11} :a)
 ```
 
 Here, a hashmap `{:a 11}` is used as the 1st element in a `form`. The actual argument,  `:a`,  will be looked up in that hashmap, and the associated value,  `11`, is the return value of the function call. So  `11` is the evaluation.
 
 
-```klipse
+```cljs
 ({:a 11 :b 21} :b)
 ```
 
 evaluates to `21`. We are looking up the key `:b` in the hashmap  `{:a 11 :b 21}` and obtaining the associated value `21`.
 
 
-```klipse
+```cljs
 ({:a 11 :b 21} :c)
 ```
 
 evaluates to `nil`. There's no key `:c` in the hashmap.
 
 
-```klipse
+```cljs
 ({:a 11 :b 21} :c :not-found)
 ```
 
@@ -807,26 +807,26 @@ evaluates to `:not-found`. The key was not found in the hashmap, but we supplied
 
 This can be reversed. A `keyword` can also be used as the 1st element in a form, provided the actual argument is a hashmap.
 
-```klipse
+```cljs
 (:a {:a 11})
 ```
 
 evaluates to `11`.
 
 
-```klipse
+```cljs
 (:b {:a 11 :b 21})
 ```
 
 evaluates to `21`.
 
-```klipse
+```cljs
 (:c {:a 11 :b 21})
 ```
 
 evaluates to `nil`.
 
-```klipse
+```cljs
 (:c {:a 11 :b 21} :not-found)
 ```
 
@@ -861,7 +861,7 @@ Applies a function to all the elements of a collection.
 
 First, we create a function called  `plus-one`:
 
-```klipse
+```cljs
 (defn plus-one
   [it]
   (+ 1 it))
@@ -882,7 +882,7 @@ Now use it with `map`:
 
 Create `add` for use with  `map` below:
 
-```klipse
+```cljs
 (defn add
   [a b]
   (+ a b))
@@ -897,13 +897,13 @@ Create `add` for use with  `map` below:
 
 Exercises:
 
-```klipse
+```cljs
 (map {:a 1 :b 2 :c 3} [:a :b :c :d])
 ```
 
 What would this evaluate to?
 
-```klipse
+```cljs
 (map count (map str (map inc [9 99 999])))
 ```
 
@@ -917,7 +917,7 @@ It takes three arguments:
   - the initial state of the accumulation
   - a collection to accumulate "across"
 
-```klipse
+```cljs
 (reduce +          ;; accumulating with `+`
         0          ;; initial state of accumulation
         [1 2 4])   ;; the collection to accumulate across, element by element
@@ -934,7 +934,7 @@ Because there are three elements in our example collection  `[1 2 4]`, there are
 
 This is effectively what reduce will compute for the example above:
 
-```klipse
+```cljs
 (+ (+ (+ 0 1) 2) 4)
 ```
 
@@ -952,7 +952,7 @@ Or, to explain the three steps another way:
 
 Next example: we create this accumulation function:
 
-```klipse
+```cljs
 (defn maximum
   [a b]
   (if (> a b) a b))
@@ -960,7 +960,7 @@ Next example: we create this accumulation function:
 
 Then we use that function with a reduce:
 
-```klipse
+```cljs
 (reduce maximum    ;; accumulating with `maximum`
         0          ;; initial accumulation  (maximum)
         [1 2 4])   ;; the collection to process
@@ -968,14 +968,14 @@ Then we use that function with a reduce:
 
 Effectively, what gets evaluated:
 
-```klipse
+```cljs
 (maximum (maximum (maximum 0 1) 2) 4)
 ```
 
 
 How about this one:
 
-```klipse
+```cljs
 (reduce str        ;; accumulating with the builtin `str`
         0
         [1 2 4])
@@ -986,7 +986,7 @@ We "accumulate" a string.
 
 How about this one:
 
-```klipse
+```cljs
 (reduce conj       ;; <--- `conj` is a builtin too
         []         ;; <--- empty vector
         [1 2 4])
@@ -994,7 +994,7 @@ How about this one:
 
 Or this one:
 
-```klipse
+```cljs
 (defn only-odd
   [accumulation val]            ;; <-- accumulated value, new value
   (if (even? val)
@@ -1002,7 +1002,7 @@ Or this one:
     (conj accumulation val)))
 ```
 
-```klipse
+```cljs
 (reduce only-odd
         []             ;; <--- start with an empty vector
         [1 2 3 4 5 6])
@@ -1031,13 +1031,13 @@ The key takeaway is that macros rewrite your code in useful ways.
 
 Let's talk examples ... here's a deeply nested arrangement of forms we talked about earlier:
 
-```klipse
+```cljs
 (+ (+ (+ 0 1) 2) 4)
 ```
 
 Deeply nested forms, like this, are often rewritten using the `thread first` macro `->`:
 
-```klipse
+```cljs
 (-> (+ 0 1)   ;; (+ 0 1)
     (+ 2)    ;; (+ (+ 0 1) 2)
     (+ 4))   ;; (+ (+ (+ 0 1) 2) 4)
@@ -1063,7 +1063,7 @@ It is as if the evaluation of the higher form is "flowing down" and into the for
 
 How about this use of `->`:
 
-```klipse
+```cljs
 (-> {}
     (assoc :a 1)    ;; (assoc {} :a 1)
     (assoc :b 2))   ;; (assoc (assoc {} :a 1) :b 2)
@@ -1081,7 +1081,7 @@ Now, we could choose to simply write it the deeply nested way ourselves, of cour
 
 Work out the evaluation of:
 
-```klipse
+```cljs
 (-> {:a {:aa 11}}
     :a               ;; same as (:a)
     :aa)             ;; same as (:aa)
@@ -1093,13 +1093,13 @@ Work out the evaluation of:
 
 Do you remember this nested form example from earlier:
 
-```klipse
+```cljs
 (map count (map str (map inc [9 99 999])))
 ```
 
 This can be rewritten using the "thread last" macro `->>`:
 
-```klipse
+```cljs
 (->> [9 99 999]
     (map inc)      ;; (map inc [9 99 999])
     (map str)      ;; (map str (map inc [9 99 999]))
@@ -1110,7 +1110,7 @@ With `thread last` the evaluation of the previous form is threaded into the next
 
 Work out the evaluation of:
 
-```klipse
+```cljs
 (->> (range 10)      ;; (range 10)
      (map inc)       ;; (map inc (range 10))
      (filter odd?))  ;; (filter odd? (map inc (range 10))
@@ -1140,7 +1140,7 @@ can't change this revision either. But, you can create a further revision (copy)
 
 Let's see this in action. Evaluate the following:
 
-```klipse
+```cljs
 (let [car1  {:doors 2}                 ;; an original hashmap
       car2  (assoc car1 :seats 4)      ;; add a key/value pair, a new revision is created
       car3  (assoc car2 :engine :big)] ;; add a key/value pair, a new revision is created
@@ -1155,7 +1155,7 @@ When you are used to imperative, in-place modification of data, it can initially
 
 More experiments. If we evaluate this:
 
-```klipse
+```cljs
 (def score {:a 1 :b 2})
 (assoc (assoc score :c 3) :d 4)
 ```
@@ -1173,7 +1173,7 @@ All grand claims. We'll need to see how this plays out in bigger programs.
 
 Evaluate the following:
 
-```klipse
+```cljs
 (let [car1   {:doors 2}                     ;; original hashmap
       car2   (assoc car1 :doors 4)          ;; new value for :doors
       car3   (assoc car2 :doors 2)]         ;; back to the original value of 2
@@ -1182,7 +1182,7 @@ Evaluate the following:
 
 Evaluate the following:
 
-```klipse
+```cljs
 (let [car1   {:doors 2}                 ;; this hashmap can't be changed
       car2   (assoc car1 :doors 2)]     ;; wait on, same values!!!
   (identical? car1 car2))               ;; identical? tests if two pieces of data are the same piece
@@ -1203,11 +1203,11 @@ One last bit of reader shorthand you'll meet often.
 
 `%` is the single argument; `%1` `%2` `%3` are positional arguments when there are multiple. You'll see `#(...)` constantly in `map`/`filter`/`reduce` calls in `re-frame2` source.
 
-```klipse
+```cljs
 (#(* 3 %) 4)
 ```
 
-```klipse
+```cljs
 (#(* 3 (+ %1 %2)) 4 5)
 ```
 
@@ -1244,50 +1244,3 @@ Three paths forward, depending on what you want next:
     - The [shadow-cljs User's Guide](https://shadow-cljs.github.io/docs/UsersGuide.html) — once you're ready to build something.
 
     Or, easier and more fun: clone an example, change something, and watch it hot-reload.
-
----
-
-<!--
-  Klipse: in-browser ClojureScript evaluator. Loaded ONLY on this page
-  (intentionally not site-wide; the non-minified plugin is ~7 MB).
-  Vendored locally in docs/klipse/ rather than CDN-loaded so the chapter
-  works even if the upstream Klipse project (dormant since 2022) goes
-  away.
-
-  The actual loading (CodeMirror CSS + klipse_settings + plugin) lives in
-  docs/klipse/klipse-bootstrap.js, wired via `extra_javascript` in
-  mkdocs.yml. That indirection is required because `navigation.instant` is
-  enabled site-wide: Material does NOT re-execute inline <script> tags in
-  page content on an instant page swap, so a reader reaching this page via
-  an in-site link would get dead cells. `extra_javascript` modules ARE
-  re-run by Material on every instant navigation, so the bootstrap fires
-  reliably and mounts the cells. The bootstrap is guarded — it does nothing
-  on pages without ```klipse cells, keeping the heavy plugin off every
-  other page. See that file's header for the full rationale, including the
-  reasons for the non-minified klipse_plugin.js and the `selector` setting.
-
-  The <style> block below is plain CSS and stays inline: browsers apply
-  page-content <style> as the DOM is inserted (no script execution needed),
-  so it survives instant navigation.
--->
-
-<style>
-  /* Match Material theme: keep cells visually distinct from the static
-     pygments highlight, but inherit the Material content-area font. */
-  .CodeMirror {
-    height: auto !important;
-    border: 1px solid var(--md-default-fg-color--lightest, #e0e0e0);
-    border-radius: 4px;
-    font-family: "Source Code Pro", ui-monospace, monospace;
-    font-size: 0.85rem;
-  }
-  .klipse-result, .klipse-clojure-result {
-    border-left: 3px solid var(--md-primary-fg-color, #1976d2);
-    padding: 0.5em 0.75em;
-    margin-top: 0.25em;
-    background: var(--md-code-bg-color, #f5f5f5);
-    font-family: "Source Code Pro", ui-monospace, monospace;
-    font-size: 0.85rem;
-    white-space: pre-wrap;
-  }
-</style>

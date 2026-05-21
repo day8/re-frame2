@@ -1,16 +1,16 @@
-# docs/cljs playground (Phase 1, rf2-y99zt)
+# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover)
 
 The roll-your-own live-ClojureScript-cell playground for the `docs/cljs` page —
-the production successor to Klipse. It turns ` ```cljs ` fenced blocks in mkdocs
-prose into CodeMirror 6 editors that evaluate plain CLJS in the browser via
-Scittle (SCI), instant-nav-safe.
+the production replacement for Klipse. It turns ` ```cljs ` fenced blocks in
+mkdocs prose into CodeMirror 6 editors that evaluate plain CLJS in the browser
+via Scittle (SCI), instant-nav-safe.
 
 This is **option B** from the findings doc
 (`ai/findings/2026-05-21-roll-your-own-cljs-playground.md` §6) realised as a
-self-contained `tools/` artefact. Phase 1 cells are plain CLJS, so the artefact
-is mostly JS bundled by **esbuild** — not shadow-cljs. (The shadow-cljs SCI
-config that exposes re-frame2's own API to cells is a Phase 3 concern; see the
-findings doc. `tools/shadow-cljs.edn` is **untouched** by this artefact.)
+self-contained `tools/` artefact. The cells are plain CLJS, so the artefact is
+mostly JS bundled by **esbuild** — not shadow-cljs. (The shadow-cljs SCI config
+that exposes re-frame2's own API to cells is a Phase 3 concern; see the findings
+doc. `tools/shadow-cljs.edn` is **untouched** by this artefact.)
 
 ## Stack (pinned)
 
@@ -40,8 +40,8 @@ npm run build          # esbuild --minify -> ../../docs/cljs/playground.js + cop
 - `docs/cljs/playground.css` — hand-authored cell styles, copied verbatim.
 
 Scittle is **not** bundled — the bootstrap injects its CDN `<script>` at eval
-time (only on pages that have ` ```cljs ` cells), exactly like the Klipse
-bootstrap injects its plugin.
+time (only on pages that have ` ```cljs ` cells), the same guarded, lazy-load
+pattern the deleted Klipse bootstrap used for its plugin.
 
 ## Test
 
@@ -65,12 +65,18 @@ instant nav; the bootstrap subscribes once to `window.document$` and re-scans
 the swapped DOM (idempotent via `data-cljs-mounted`). Sub-path (`/re-frame2/`)
 asset resolution uses `document.currentScript.src`.
 
-## Phase boundary
+## Cutover (Phase 1b, rf2-j06sy)
 
-Phase 1 uses a **new** fence class (`language-cljs`) so it coexists with Klipse
-(`language-klipse`). It does **not** delete Klipse or flip the `docs/cljs`
-page's cells. The cutover — spot-check all ~88 cells, flip the fence, remove the
-Klipse bootstrap + the 7.4 MB plugin — is **Phase 1b (rf2-j06sy)**.
+Phase 1 shipped behind a **new** fence class (`language-cljs`) so it could
+coexist with Klipse during the transition. **Phase 1b cut over**: the
+`docs/cljs/index.md` cells are now `cljs` fences rendered here, Klipse's
+`extra_javascript` line + `klipse` custom fence were removed from `mkdocs.yml`,
+and the vendored Klipse assets (`docs/klipse/klipse_plugin.js` ~7.4 MB,
+`klipse-bootstrap.js`, `codemirror.css`) were deleted. All ~87 cells were
+spot-checked under the playground first (eval-result + error fidelity vs
+Klipse — Risk #1). One fidelity fix landed in the cutover: a top-level
+`def`/`defn` returns a var, so the renderer derefs it to show the bound value
+(matching Klipse's friendlier display) rather than `#'user/x`.
 
 ## Three gotchas honoured (from the Phase 0 spike, rf2-qk3sh)
 
