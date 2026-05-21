@@ -70,22 +70,20 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 
 ## How to run
 
-The example is wired into the canonical examples harness. From `implementation/`:
+The example's behaviour is verified by its CLJS test fixtures (see
+**Headless tests** below). From `implementation/`:
 
 ```bash
-npm run test:examples
+npm run test:cljs
 ```
 
-That compiles every example (this one builds under shadow-cljs id `examples/realworld`), stages its `index.html` into `out/examples/realworld/`, serves the lot on port 8030, and runs [`realworld.spec.cjs`](realworld.spec.cjs) against it.
+In production point `realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the upstream spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`. The demo entry installs an in-process `:rf.http/managed` override (`:rf.http/managed.realworld-demo`) that synthesises canned responses for the common reads (global feed, tags, profile) — Spec 014 §Testing — so the fixtures run without a network.
 
-In production point `realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`. The demo entry installs an in-process `:rf.http/managed` override (`:rf.http/managed.realworld-demo`) that synthesises canned responses for the common reads (global feed, tags, profile) — Spec 014 §Testing — so the headless smoke and Playwright run without a network.
-
-To iterate on the source alone, watch the build directly from `implementation/`:
+To view the app in a browser, build it under shadow-cljs id `examples/realworld` from `implementation/`:
 
 ```bash
 shadow-cljs watch examples/realworld
-# then visit http://127.0.0.1:8030/realworld/ once the harness is running, or
-# stage the index.html into out/examples/realworld/ by running the harness once first.
+# then open the example's index.html (served however you prefer).
 ```
 
 ## Headless tests
@@ -116,11 +114,10 @@ shadow-cljs `node-test` build picks them up via the integration wrapper
 at `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`
 (run with `npm run test:cljs` from the `implementation/` directory).
 
-The Playwright spec at `realworld.spec.cjs` exercises the user-visible
-flow against the `:rf.http/managed.realworld-demo` override and runs as
-part of `npm run test:examples`. Coverage includes the initial-load
-shell (navbar, global feed, sidebar tags), article-detail navigation,
-the auth machine end-to-end (login → authed navbar), and an optimistic
+Together the fixtures exercise the user-visible flow against the
+`:rf.http/managed.realworld-demo` override: the initial-load shell
+(navbar, global feed, sidebar tags), article-detail navigation, the
+auth machine end-to-end (login → authed navbar), and an optimistic
 comment-submission round-trip through the comment form.
 
 ## Why RealWorld
