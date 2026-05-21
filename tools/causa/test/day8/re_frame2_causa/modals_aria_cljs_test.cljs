@@ -116,6 +116,33 @@
                 points at a heading id rendered in the same tree, or
                 aria-label carries a non-empty string")))))
 
+(defn- assert-dialog-focus-ref!
+  "rf2-dkmnm (audit finding #3 follow-on) — assert the dialog node
+  actually ATTACHES the focus-trap ref + the `tab-index=\"-1\"`
+  fallback target.
+
+  `assert-dialog-contract!` proves the modal is *labelled*, but a
+  labelled dialog with NO focus trap passes that gate. `dialog-ref`
+  (the WAI-ARIA APG capture/trap/restore closure) is wired via the
+  dialog node's `:ref`. Each `dialog-ref` call returns a FRESH closure
+  so identity comparison is impossible — instead we assert the dialog
+  node carries a `:ref` that is a function, plus the
+  `tab-index=\"-1\"` (or `0`) the ref's focus-on-open fallback
+  requires. A renderer that shipped role/aria-modal but dropped the
+  `:ref` would now fail here rather than staying green."
+  [tree dialog-testid label]
+  (let [dialog (find-by-testid tree dialog-testid)
+        attrs  (props dialog)]
+    (is (some? dialog) (str label ": dialog wrapper renders"))
+    (is (fn? (:ref attrs))
+        (str label ": dialog node attaches a :ref (the a11y/dialog-ref
+              focus-trap callback) — a labelled modal with no trap is
+              an a11y regression"))
+    (is (contains? attrs :tab-index)
+        (str label ": dialog node carries :tab-index so dialog-ref's
+              focus-on-open fallback (focus the root when there is no
+              focusable child) has a target"))))
+
 ;; -------------------------------------------------------------------------
 ;; (1) Settings popup
 ;; -------------------------------------------------------------------------
@@ -209,3 +236,69 @@
           tree
           "rf-causa-segment-inspector-dialog"
           "Segment inspector popover")))))
+
+;; -------------------------------------------------------------------------
+;; Per-modal focus-ref wiring (rf2-dkmnm — audit finding #3 follow-on)
+;; -------------------------------------------------------------------------
+;;
+;; The contract tests above prove each of the six modals is LABELLED
+;; (role + aria-modal + accessible name). They do NOT prove the modal
+;; actually attaches the focus-trap. A renderer could ship a perfectly
+;; labelled dialog with no `a11y/dialog-ref` and every contract test
+;; would stay green while keyboard users fell out of the trap. These
+;; six tests close that hole by asserting each dialog node carries a
+;; function `:ref` (the dialog-ref closure) + the tab-index its
+;; focus-on-open fallback needs — one assertion per surface so a
+;; regression names the exact modal that lost its trap.
+
+(deftest settings-popup-attaches-focus-ref
+  (causa-setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/settings-open]))
+  (let [tree (rf/with-frame :rf/causa (settings-view/popup-view))]
+    (assert-dialog-focus-ref! tree "rf-causa-settings-dialog"
+                              "Settings popup")))
+
+(deftest share-modal-attaches-focus-ref
+  (causa-setup!)
+  (let [tree (rf/with-frame :rf/causa (share-modal/share-dialog))]
+    (assert-dialog-focus-ref! tree "rf-causa-share-modal-dialog"
+                              "Share modal")))
+
+(deftest mute-manager-attaches-focus-ref
+  (causa-setup!)
+  (let [tree (rf/with-frame :rf/causa (spine-filters/dialog))]
+    (assert-dialog-focus-ref! tree "rf-causa-mute-manager-dialog"
+                              "Mute manager")))
+
+(deftest filter-edit-popup-attaches-focus-ref
+  (causa-setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/open-edit-popup
+                       {:source :add :mode :in :pill {}}]))
+  (let [tree (rf/with-frame :rf/causa (edit-popup/popup-view))]
+    (assert-dialog-focus-ref! tree "rf-causa-edit-popup-dialog"
+                              "Filter edit-popup")))
+
+(deftest cancellation-cascade-popover-attaches-focus-ref
+  (causa-setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/cancellation-cascade-open
+                       {:dispatch-id :test-dispatch-id}]))
+  (let [tree (rf/with-frame :rf/causa (cancellation-cascade/Popover))]
+    (is (some? tree) "Popover renders when open")
+    (when tree
+      (assert-dialog-focus-ref!
+        tree "rf-causa-cancellation-cascade-popover-dialog"
+        "Cancellation-cascade popover"))))
+
+(deftest segment-inspector-popover-attaches-focus-ref
+  (causa-setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/open-segment-inspector []]))
+  (let [tree (rf/with-frame :rf/causa (segment-inspector/Popup))]
+    (is (some? tree) "Popup renders when open")
+    (when tree
+      (assert-dialog-focus-ref!
+        tree "rf-causa-segment-inspector-dialog"
+        "Segment inspector popover"))))
