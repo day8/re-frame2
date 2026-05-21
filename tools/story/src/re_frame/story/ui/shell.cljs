@@ -51,6 +51,7 @@
   them; closure's reachability analysis DCEs the lot."
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdc]
+            [re-frame.core :as rf]
             [re-frame.story.causa-preset :as causa-preset]
             [re-frame.story.config :as config]
             [re-frame.story.decorators :as decorators]
@@ -407,6 +408,37 @@
                      ;; would otherwise deref subscriptions against a
                      ;; non-existent frame.
                      (ensure-variant-frame! now)
+                     ;; Re-orient Causa's target-frame to the freshly-
+                     ;; selected variant's frame. Each Story variant is
+                     ;; reg-frame'd under its variant-id (see
+                     ;; `re-frame.story.frames`), so the variant-id IS
+                     ;; the frame-id from Causa's perspective. Without
+                     ;; this dispatch Causa stays anchored on whatever
+                     ;; the first-mount seed picked (commonly the boot
+                     ;; `:rf/default` or the previously-focused variant)
+                     ;; and the App-DB / Event panels render against a
+                     ;; frame the user is no longer observing —
+                     ;; producing the empty-state-with-stale-frame view
+                     ;; the user sees on every variant switch. The
+                     ;; `:rf.causa/set-target-frame` handler writes both
+                     ;; `:target-frame` AND re-seeds `:epoch-history`
+                     ;; from `(rf/epoch-history variant-id)` in lockstep
+                     ;; (per Causa's `epoch.cljs` reducer), so the L2
+                     ;; list, App-DB diff and downstream subs all flip
+                     ;; in one frame.
+                     ;;
+                     ;; `dispatch-sync` (rather than `dispatch*`) so the
+                     ;; slot is observable immediately — the watcher
+                     ;; runs outside any event-handler / drain cycle
+                     ;; (it's an atom-watch callback on the shell
+                     ;; ratom), so the in-drain guard does not apply.
+                     ;; The rf2-q9kv5 sibling dispatches in
+                     ;; `causa-preset/on-variant-selected!` below still
+                     ;; ride the async queue — they're Causa's own
+                     ;; preset-applies and don't gate the next-frame
+                     ;; panel paint the way the target-frame slot does.
+                     (rf/with-frame :rf/causa
+                       (rf/dispatch-sync [:rf.causa/set-target-frame now]))
                      ;; rf2-v1ach: Causa now mounts per-panel into the
                      ;; RHS via `causa-embed/causa-embed-panel`. The
                      ;; embed owns its own React lifecycle — selecting

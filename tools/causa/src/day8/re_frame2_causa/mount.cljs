@@ -333,7 +333,7 @@
 
 ;; ---- public API ----------------------------------------------------------
 
-(defn- ensure-causa-frame!
+(defn ensure-causa-frame!
   "Register the `:rf/causa` frame if not already registered, then run
   each registered first-mount hook in insertion order. Idempotent via
   `reg-frame`'s surgical-update-on-re-register semantics (per Spec
