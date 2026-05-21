@@ -32,6 +32,8 @@ This skill **does not write new code from scratch** (that's `re-frame2`), **does
 
 Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for greenfield bootstrap, authoring new application code, live-runtime pair work, retrospecting on a pair session, v1→v2 migration, spec/architecture/design discussion, or inline mid-edit anti-pattern interruption — this skill is critique-on-request only.
 
+**Not `re-frame2-implementor`.** Despite the near-homograph name, this skill improves a **user's application code** by critiquing it; `re-frame2-implementor` ports the **re-frame2 framework itself** to a new host. If the task is evolving or porting re-frame2, this is the wrong skill.
+
 Vocabulary alone (*"review", "audit", "any improvements?"*) is not enough — a body of re-frame2 source must be in scope. If no source files have been read, edited, or supplied as snippets, decline and ask for a snippet rather than fabricate evidence.
 
 ## Core job
@@ -92,7 +94,7 @@ If the in-scope code is too thin for findings, say so plainly and ask for a wide
 - Don't reduce every finding to "read the spec". The cross-link is supporting evidence; the finding must stand on its own with the symptom + suggested rewrite.
 - Don't apply `Edit` for higher-leverage redesigns or for any finding the user hasn't agreed to. Only **canonical-idiom-shaped** rewrites (the new shape comes verbatim from `skills/re-frame2/patterns/` or `spec/`) bypass the approval gate; **evidence-shaped** rewrites (content / motivation derived from a pasted snippet, transcript, stack trace, recap, or in-source comment) require explicit approval first, even when mechanical. When in doubt, gate. See [`../shared/retro-protocol.md` §Step 6](../shared/retro-protocol.md#the-seven-step-protocol).
 - Don't interrupt authoring with anti-pattern detections. The skill is pull-only; if the user is in the middle of writing code via `re-frame2`, wait for the pull.
-- Don't propose framework-shape changes here. If the friction is really a gap in re-frame2's Tool-Pair surface or spec, route the user toward filing a bead via the appropriate retro skill rather than rewriting their code.
+- Don't propose framework-shape changes here. If the friction is really a gap in re-frame2's Tool-Pair surface or spec, route the user toward filing a bead via the appropriate retro skill rather than rewriting their code. **Filing is delegated, not performed here** — this skill's `allowed-tools` deliberately omit a `gh` / issue-filing surface; it critiques code and hands framework-shape friction to the retro skill that owns filing.
 
 ## Reference files
 
