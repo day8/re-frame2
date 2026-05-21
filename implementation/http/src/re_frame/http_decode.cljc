@@ -75,6 +75,31 @@
       (and ct (str/starts-with? ct "text/"))         :text
       :else                                          :blob)))
 
+(def ^:private binary-decode-kinds
+  "Decode modes whose result is a native binary/structured Fetch body
+  rather than a string. These resolve the response via `.blob()` /
+  `.arrayBuffer()` / `.formData()` instead of `.text()` (rf2-5zj6t)."
+  #{:blob :array-buffer :form-data})
+
+(defn binary-read-kind
+  "Resolve the user-supplied `:decode` (+ response `headers` for the
+  `:auto` sniff) to the binary Fetch body-read kind (`:blob` /
+  `:array-buffer` / `:form-data`) or `nil` when the resolved decoder is
+  text-based (`:json` / `:text` / a fn / a Malli schema / any other
+  keyword). Mirrors the resolution `decode-response-body` performs so
+  the CLJS transport can choose the right Fetch reader BEFORE the body
+  is consumed (a Response body may only be read once). `:auto` over a
+  non-text / non-JSON Content-Type sniffs to `:blob`, so an image
+  fetched without an explicit `:decode` still reads as binary (rf2-5zj6t)."
+  [decode headers]
+  (let [resolved (cond
+                   (fn? decode)        nil
+                   (nil? decode)       (sniff-decoder (content-type-of headers))
+                   (= :auto decode)    (sniff-decoder (content-type-of headers))
+                   :else               decode)]
+    (when (contains? binary-decode-kinds resolved)
+      resolved)))
+
 ;; Memoised resolves (per rf2-tja2y). The Malli vars never rebind at
 ;; runtime; resolving once per JVM / once per CLJS runtime is enough,
 ;; and the deref asymmetry (JVM `requiring-resolve` returns a Var,
@@ -140,8 +165,8 @@
   (`:cause :too-many-keys`) is a security-relevant signal and must
   surface as `:rf.http/decode-failure`, not be masked behind a malli
   rejection."
-  [{:keys [body-text headers decode decode-supplied? request-id url sensitive?
-           max-decoded-keys]}]
+  [{:keys [body-text body-binary headers decode decode-supplied? request-id url
+           sensitive? max-decoded-keys]}]
   (let [content-type (content-type-of headers)
         decoder      (cond
                        (nil? decode)        :auto
@@ -176,14 +201,20 @@
       (= :text resolved)
       body-text
 
+      ;; rf2-5zj6t — binary decode modes return the native Fetch body
+      ;; the transport already read via `.blob()` / `.arrayBuffer()` /
+      ;; `.formData()`. On hosts that have no binary body (the JVM
+      ;; transport reads `.body` as a String) `body-binary` is absent and
+      ;; we fall back to the raw `body-text` so the value is at least the
+      ;; payload, not nil.
       (= :blob resolved)
-      body-text
+      (if (some? body-binary) body-binary body-text)
 
       (= :array-buffer resolved)
-      body-text
+      (if (some? body-binary) body-binary body-text)
 
       (= :form-data resolved)
-      body-text
+      (if (some? body-binary) body-binary body-text)
 
       ;; Malli schema (or anything keyword-like that isn't recognised above).
       ;; rf2-wu1n5 — re-raise a `:rf.error/malformed-json` ex-info
