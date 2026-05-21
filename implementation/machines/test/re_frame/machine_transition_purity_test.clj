@@ -252,6 +252,66 @@
       (is (= 4 depth)
           ":raise aborts at depth == limit (4) — same boundary as :always (was 5 pre-fix)"))))
 
+;; ---- transitive self-chaining raise depth (rf2-b88nm) ---------------------
+;;
+;; The `raise-depth-boundary-matches-always-boundary` test above bounds
+;; BREADTH — N raise siblings drained from a single `:fx` vector through
+;; one `drain-raises` queue. But a SELF-CHAINING single-raise (a state
+;; whose `:raise` re-targets a path that itself raises) recurses through
+;; nested `machine-transition-single` → `drain-raises` frames. Pre-fix
+;; each nested `drain-raises` restarted its depth counter at 0, so the
+;; transitive chain was UNBOUNDED: a runaway self-chain blew the JVM call
+;; stack (StackOverflowError) instead of firing the clean
+;; `:rf.error/machine-raise-depth-exceeded`. The fix threads the
+;; transitive raise-depth across the nested recursion so self-chaining
+;; raises accumulate against the same `:raise-depth-limit`.
+
+(deftest self-chaining-raise-bounded-transitively
+  (testing "an infinitely self-chaining :raise hits :raise-depth-limit cleanly,
+   not a host StackOverflowError (rf2-b88nm)"
+    ;; `:loop` has an internal (no-:target) transition on :tick whose
+    ;; action re-raises [:tick] — an unbounded self-chain. Each raise
+    ;; re-enters machine-transition-single from the same state. With
+    ;; :raise-depth-limit 4 the transitive chain must abort at depth 4
+    ;; (the >= boundary, matching the breadth test above) rather than
+    ;; recursing forever down the JVM stack.
+    (let [spec {:initial :loop
+                :data    {}
+                :raise-depth-limit 4
+                :actions {:reraise (fn [_] {:fx [[:raise [:tick]]]})}
+                :states  {:loop {:on {:tick {:action :reraise}}}}}
+          ;; If the transitive depth were NOT threaded this call would
+          ;; recurse without bound and throw StackOverflowError before
+          ;; producing any Result — so reaching the assertion at all
+          ;; proves the chain terminated.
+          depth (capture-error-depth!
+                  :rf.error/machine-raise-depth-exceeded
+                  spec {:state :loop :data {}} [:tick])]
+      (is (= 4 depth)
+          "self-chaining :raise aborts at depth == limit (4) — the SAME bound
+           the breadth fan-out hits, now reached transitively across nested
+           machine-transition-single calls (was StackOverflowError pre-fix)")))
+
+  (testing "a self-chain shorter than the limit still completes normally (rf2-b88nm)"
+    ;; Three chained internal raises (s0 → s1 → s2 → s3) under the default
+    ;; limit (16) must NOT trip the bound — the transitive counter only
+    ;; fires the error when the chain genuinely exceeds the limit.
+    (let [mk (fn [next-ev]
+               (fn [_] (if next-ev {:fx [[:raise next-ev]]} {})))
+          spec {:initial :s0
+                :data    {}
+                :actions {:r1 (mk [:e2]) :r2 (mk [:e3]) :r3 (mk nil)}
+                :states  {:s0 {:on {:e1 {:target :s1 :action :r1}}}
+                          :s1 {:on {:e2 {:target :s2 :action :r2}}}
+                          :s2 {:on {:e3 {:target :s3 :action :r3}}}
+                          :s3 {}}}
+          {s ::result/snap} (machines/machine-transition
+                              spec {:state :s0 :data {}} [:e1])]
+      (is (= :s3 (:state s))
+          "a 3-deep self-chain under the default limit reaches the terminal
+           state in a single macrostep — transitive bounding does not lower
+           the legitimate chain budget"))))
+
 (deftest machine-raise-pre-commit
   (testing ":raise routes locally pre-commit (does not go to runtime fifo)"
     (let [calls (atom [])
