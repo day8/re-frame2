@@ -90,7 +90,7 @@
 
 (rf/reg-event-db :timer/set-duration
   {:doc "User dragged the slider."
-   :spec [:cat [:= :timer/set-duration] :int]}
+   :schema [:cat [:= :timer/set-duration] :int]}
   (fn handler-timer-set-duration [db [_ ms]]
     (assoc-in db [:timer :duration-ms] ms)))
 

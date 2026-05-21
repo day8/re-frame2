@@ -57,19 +57,19 @@
 
 (rf/reg-event-db :flight/set-trip-type
   {:doc "User changed the trip-type combo."
-   :spec [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
+   :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
   (fn handler-flight-set-trip-type [db [_ trip-type]]
     (assoc-in db [:flight :trip-type] trip-type)))
 
 (rf/reg-event-db :flight/set-start
   {:doc "User edited the start-date input."
-   :spec [:cat [:= :flight/set-start] :string]}
+   :schema [:cat [:= :flight/set-start] :string]}
   (fn handler-flight-set-start [db [_ raw]]
     (assoc-in db [:flight :start-text] raw)))
 
 (rf/reg-event-db :flight/set-return
   {:doc "User edited the return-date input."
-   :spec [:cat [:= :flight/set-return] :string]}
+   :schema [:cat [:= :flight/set-return] :string]}
   (fn handler-flight-set-return [db [_ raw]]
     (assoc-in db [:flight :return-text] raw)))
 

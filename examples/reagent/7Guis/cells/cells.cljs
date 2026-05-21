@@ -173,7 +173,7 @@
 
 (rf/reg-event-db :cells/commit
   {:doc "Commit the user's edit. Parses formulas and stores deps."
-   :spec [:cat [:= :cells/commit] :string :string]}
+   :schema [:cat [:= :cells/commit] :string :string]}
   (fn [db [_ id raw]]
     (let [formula? (and (string? raw) (str/starts-with? raw "="))
           ast      (when formula? (parse-formula raw))

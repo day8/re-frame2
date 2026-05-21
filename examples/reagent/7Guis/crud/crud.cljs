@@ -69,7 +69,7 @@
 
 (rf/reg-event-db :crud/select
   {:doc "User clicked a list entry. Populates the draft from the selected person."
-   :spec [:cat [:= :crud/select] :uuid]}
+   :schema [:cat [:= :crud/select] :uuid]}
   (fn handler-crud-select [db [_ id]]
     (let [people (get-in db [:crud :people])
           person (first (filter #(= id (:id %)) people))]

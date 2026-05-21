@@ -197,7 +197,7 @@
                :submit-error      nil})))
 
 (rf/reg-event-db :auth.login-form/edit-field
-  {:spec [:cat [:= :auth.login-form/edit-field] :keyword :string]}
+  {:schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
   (fn [db [_ field value]]
     (-> db
         (assoc-in [:auth :login-form :draft field] value)

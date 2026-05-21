@@ -234,7 +234,7 @@
   {:doc  "User edited a form field. Broadcasts :edit into the machine —
           the :form region returns from :correct / :incorrect to
           :neutral and updates the draft + :touched."
-   :spec [:cat [:= :settings/edit-field] :keyword :string]}
+   :schema [:cat [:= :settings/edit-field] :keyword :string]}
   (fn handler-settings-edit-field [_ [_ field value]]
     {:fx [[:dispatch [:settings/form
                       [:edit {:field field :value value}]]]]}))

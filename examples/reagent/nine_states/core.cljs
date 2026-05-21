@@ -406,7 +406,7 @@
   {:doc  "User edited a form field. Updates :draft and marks the field
           touched; broadcasts :edit into the machine so the :form region
           returns from :correct or :incorrect to :neutral."
-   :spec [:cat [:= :new-todo/edit-field] :keyword :string]}
+   :schema [:cat [:= :new-todo/edit-field] :keyword :string]}
   (fn handler-new-todo-edit-field [{:keys [db]} [_ field value]]
     {:db (-> db
              (assoc-in  [:new-todo :draft field] value)
