@@ -1,71 +1,61 @@
 (ns day8.re-frame2-causa.panels.machine-canvas
-  "Interactive viewport adapter for the Dynamic Machines panel
-  (rf2-y3l8z).
+  "Causa-side wrapper around the machines-viz `MachineChart` xyflow
+  component (rf2-gpzb4 — 2026-05-21 xyflow migration; supersedes the
+  rf2-y3l8z viewport-reducer machinery the SVG renderer needed).
 
-  ## What this owns
+  ## What this owns post-migration
 
-  The Causa-side wiring that promotes the machines-viz MachineChart
-  from a static-render hiccup primitive to an interactive canvas:
+  Two surfaces survive:
 
-    - **viewport state slot** — one `{:scale :tx :ty}` per machine,
-      living at `[:rf.causa/machine-canvas :viewports machine-id]`
-      in the `:rf/causa` frame's app-db. nil = identity viewport.
-    - **view-mode slot** — `:canvas` or `:list` per machine, living
-      at `[:rf.causa/machine-canvas :view-mode-by-id machine-id]`.
-      Persisted to localStorage so the user's choice survives
-      reloads.
-    - **drag-state slot** — transient mouse-down pan accumulator,
-      living at `[:rf.causa/machine-canvas :drag]`. Cleared on
-      mouseup. (Lives in app-db rather than a JS ref so the
-      panel's pure-hiccup contract is preserved.)
-    - **event handlers** — wheel-zoom, click-drag pan, keyboard
-      shortcuts. All dispatch back through re-frame.
-    - **chart wrapper** — `Chart` returns hiccup that renders the
-      machines-viz chart *with* the user's viewport transform
-      applied + the controls toolbar overlaid in the chart's
-      top-right corner.
+    1. **View-mode slot** — `:canvas` or `:list` per machine, living
+       at `[:rf.causa/machine-canvas :view-mode-by-id machine-id]`.
+       Persisted to localStorage so the user's choice survives
+       reloads. The toggle button + the `Chart` wrapper still read
+       this.
+    2. **`Chart` hiccup adapter** — thin wrapper around
+       `mv-chart/MachineChart` that wires the focused-event lens
+       from-state / to-state highlights, the on-state-click
+       dispatch, the Canvas/List view-mode toggle, and the
+       after-rings overlay.
 
-  ## Why a separate ns
+  ## What this no longer owns
 
-  Keeps `machine_inspector.cljs` thin: that ns owns the focused-
-  event lens + section-per-machine layout; this ns owns the
-  interactive-canvas surface inside each section. Same split the
-  static panel uses (`static/machines/topology.cljs` consumes the
-  chart in static-read mode; this ns is its runtime peer).
+  Per the xyflow migration these surfaces moved into xyflow itself:
+
+    - **Viewport state** (`{:scale :tx :ty}` per machine) — xyflow
+      manages zoom/pan/fit internally.
+    - **Drag / wheel / keyboard handlers** — xyflow's
+      `nodesDraggable` / `panOnDrag` / `zoomOnScroll` props give
+      the same UX without a host-side reducer.
+    - **Controls toolbar** — replaced by xyflow's built-in
+      `<Controls>` component.
+    - **The `:rf.causa.machine-canvas/apply-action` /
+      `/drag-start` / `/drag-move` / `/drag-end` / `/measure`
+      events** — removed; nothing dispatches them post-migration.
+
+  ## After-rings overlay
+
+  The `panels/machine_after_rings.cljs` overlay still paints
+  `:after`-timer countdown rings on top of the chart. Post-migration
+  it walks the xyflow node DOM (`[data-testid^=rf-mv-chart-node-...]`)
+  to find each bearing node's bounding box and absolute-positions a
+  ring there. No special wiring needed from this ns — the overlay
+  is mounted as a sibling of the chart and reads the DOM itself.
 
   ## Static-mode parity (rf2-md9oz)
 
   The static topology consumer (`static/machines/topology.cljs`)
-  is read-only and embeds this `Chart` view to get zoom + pan +
-  fit too. Static callers pass:
+  embeds this `Chart` view too, so zoom + pan + fit are uniform
+  across Static and Dynamic. Static callers pass:
 
-    :show-view-mode-toggle? false  — Canvas/List toggle is a
-                                     Dynamic concept; the Static
-                                     Machines panel already owns
-                                     a per-machine sub-mode pill
-                                     strip at L3, so the toggle
-                                     is meaningless on static.
-    :show-after-rings?      false  — after-rings overlay is a
-                                     Dynamic focused-event lens;
-                                     no live focused event exists
-                                     on the static surface.
-    :testid                 \"rf-causa-static-machines-topology-svg\"
-                                   — overrides the inner SVG's
-                                     root data-testid so the
-                                     static-panel tests find it.
-    :show-controls-toolbar? true   — zoom/pan/fit toolbar still
-                                     useful on static; default
-                                     left on.
-
-  The per-machine viewport slot IS shared across Static and
-  Dynamic — if the user pans/zooms a machine in either surface,
-  the other surface picks up the same viewport when it next
-  mounts. This matches the user model: 'this is the chart for
-  machine X, and I parked it in this view'."
+    :show-after-rings?      false  — no live focused event on static.
+    :show-view-mode-toggle? false  — Static's L3 sub-mode pills own
+                                     per-machine mode at the panel
+                                     level.
+    :testid                 \"rf-causa-static-machines-topology\""
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
-            [day8.re-frame2-machines-viz.chart.controls :as ctl]
-            [day8.re-frame2-machines-viz.chart.svg :as mv-svg]
+            [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-causa.panels.machine-after-rings :as after-rings]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -79,27 +69,11 @@
   rest of Causa's slots stay clean."
   :rf.causa/machine-canvas)
 
-(defn- viewport-of
-  "Read the persisted viewport for `machine-id` from the canvas slot.
-  Returns nil when the slot is missing — callers should treat that
-  as the identity viewport."
-  [db machine-id]
-  (get-in db [slot-root :viewports machine-id]))
-
 (defn- view-mode-of
   "Read the persisted view-mode for `machine-id`. Defaults to
-  `:canvas` — Canvas is the dominant surface per rf2-y3l8z."
+  `:canvas` — Canvas is the dominant surface."
   [db machine-id]
   (get-in db [slot-root :view-mode-by-id machine-id] :canvas))
-
-(defn- viewport-dims-of
-  "Read the last-measured viewport box for `machine-id` (a map
-  `{:width :height}`). `Fit` needs the viewport size; mouse events
-  observe it from the DOM and writes through the
-  `:rf.causa.machine-canvas/measure` event. nil = not measured yet
-  (caller falls back to a sensible default)."
-  [db machine-id]
-  (get-in db [slot-root :viewport-dims machine-id]))
 
 ;; ---- localStorage round-trip --------------------------------------------
 
@@ -158,94 +132,17 @@
 ;; ---- subs ---------------------------------------------------------------
 
 (defn- install-subs! []
-  (rf/reg-sub :rf.causa.machine-canvas/viewport-for
-    (fn [db [_ machine-id]]
-      (viewport-of db machine-id)))
-
   (rf/reg-sub :rf.causa.machine-canvas/view-mode-for
     (fn [db [_ machine-id]]
       (view-mode-of db machine-id)))
 
   (rf/reg-sub :rf.causa.machine-canvas/view-mode-by-id
     (fn [db _]
-      (get-in db [slot-root :view-mode-by-id] {})))
-
-  (rf/reg-sub :rf.causa.machine-canvas/viewport-dims-for
-    (fn [db [_ machine-id]]
-      (viewport-dims-of db machine-id))))
+      (get-in db [slot-root :view-mode-by-id] {}))))
 
 ;; ---- events -------------------------------------------------------------
 
 (defn- install-events! []
-
-  ;; ---- viewport mutation ------------------------------------------
-
-  (rf/reg-event-db :rf.causa.machine-canvas/apply-action
-    (fn [db [_ {:keys [machine-id action]}]]
-      (let [cur     (viewport-of db machine-id)
-            ;; Fit/keyboard actions may not carry viewport dims;
-            ;; merge in the last-measured dims from the slot.
-            dims    (viewport-dims-of db machine-id)
-            action' (cond-> action
-                      (and dims
-                           (nil? (:viewport-width action)))
-                      (assoc :viewport-width (:width dims))
-                      (and dims
-                           (nil? (:viewport-height action)))
-                      (assoc :viewport-height (:height dims)))
-            ;; If the action is :fit-request (from the toolbar
-            ;; button) we expand it to a full :fit using the
-            ;; measured dims + the last-positioned content dims
-            ;; (passed in by the panel through :content-* keys
-            ;; when available — otherwise the reducer falls back
-            ;; to identity).
-            action'' (if (= :fit-request (:type action'))
-                       (assoc action' :type :fit)
-                       action')
-            next-vp (ctl/apply-action cur action'')]
-        (assoc-in db [slot-root :viewports machine-id] next-vp))))
-
-  ;; ---- viewport measurement ---------------------------------------
-
-  ;; Panels write the chart-host's bounding box here on mount /
-  ;; resize so :fit + keyboard shortcuts have viewport dims to work
-  ;; with. The wrapping mouse handlers also read this slot to map
-  ;; clientX/clientY into viewport-local coords.
-  (rf/reg-event-db :rf.causa.machine-canvas/measure
-    (fn [db [_ {:keys [machine-id width height]}]]
-      (if (and machine-id (pos? (or width 0)) (pos? (or height 0)))
-        (assoc-in db [slot-root :viewport-dims machine-id]
-                  {:width width :height height})
-        db)))
-
-  ;; ---- drag state -------------------------------------------------
-
-  (rf/reg-event-db :rf.causa.machine-canvas/drag-start
-    (fn [db [_ {:keys [machine-id x y]}]]
-      (let [cur (viewport-of db machine-id)]
-        (assoc-in db [slot-root :drag]
-                  {:machine-id      machine-id
-                   :dragging?       true
-                   :origin-x        x
-                   :origin-y        y
-                   :origin-viewport (or cur (ctl/identity-viewport))}))))
-
-  (rf/reg-event-db :rf.causa.machine-canvas/drag-move
-    (fn [db [_ {:keys [x y]}]]
-      (if-let [{:keys [machine-id] :as drag} (get-in db [slot-root :drag])]
-        (if (:dragging? drag)
-          (let [next-vp (ctl/drag-step drag x y)]
-            (cond-> db
-              next-vp (assoc-in [slot-root :viewports machine-id] next-vp)))
-          db)
-        db)))
-
-  (rf/reg-event-db :rf.causa.machine-canvas/drag-end
-    (fn [db _]
-      (update db slot-root dissoc :drag)))
-
-  ;; ---- view-mode toggle -------------------------------------------
-
   (rf/reg-event-fx :rf.causa.machine-canvas/set-view-mode
     (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
       (let [mode' (if (#{:canvas :list} mode) mode :canvas)
@@ -273,28 +170,9 @@
       (rf/dispatch [:rf.causa.machine-canvas/hydrate-view-modes by-id]
                    {:frame :rf/causa}))))
 
-;; ---- DOM helpers --------------------------------------------------------
+;; ---- view-mode toggle ---------------------------------------------------
 
-(defn- element-offset
-  "Map a mouse event's clientX/clientY into element-local coords.
-  Returns `[x y]` or nil when the event / target is unavailable."
-  [^js e]
-  (when-let [target (when e (.-currentTarget e))]
-    (when-let [rect (try (.getBoundingClientRect ^js target)
-                         (catch :default _ nil))]
-      [(- (.-clientX e) (.-left rect))
-       (- (.-clientY e) (.-top rect))])))
-
-(defn- dispatch-action
-  "Dispatch a canvas action into `:rf/causa`. Convenience wrapper."
-  [machine-id action]
-  (rf/dispatch [:rf.causa.machine-canvas/apply-action
-                {:machine-id machine-id :action action}]
-               {:frame :rf/causa}))
-
-;; ---- hiccup adapter -----------------------------------------------------
-
-(defn- view-mode-toggle
+(defn view-mode-toggle
   "Two-button pill — Canvas | List — at the section header. Wires
   click → `:set-view-mode`."
   [{:keys [machine-id mode]}]
@@ -350,228 +228,89 @@
        :style       (tab-style (= :list mode))}
       "List"]]))
 
-(defn- on-wheel
-  [machine-id ^js e]
-  (let [[x y] (or (element-offset e) [0 0])
-        delta (when e (.-deltaY e))
-        action (ctl/wheel->action {:delta-y delta :x x :y y})]
-    (when action
-      (.preventDefault e)
-      (dispatch-action machine-id action))))
-
-(defn- on-chart-node?
-  "Walk up to 5 DOM ancestors looking for a `data-testid` that marks
-  the element as a chart-node or chart-edge group. Returns true if
-  found — caller skips drag-start so the node's `:on-click` fires."
-  [^js target]
-  (loop [el target
-         depth 0]
-    (cond
-      (or (nil? el) (> depth 5))
-      false
-
-      :else
-      (let [tid (when (and el (.-getAttribute el))
-                  (try (.getAttribute el "data-testid")
-                       (catch :default _ nil)))]
-        (if (and (string? tid)
-                 (or (.startsWith tid "rf-mv-chart-node-")
-                     (.startsWith tid "rf-mv-chart-edge-")))
-          true
-          (recur (when el (.-parentNode el)) (inc depth)))))))
-
-(defn- on-mouse-down
-  [machine-id ^js e]
-  ;; Only start a pan when the user pressed primary-button on the
-  ;; chart background. State-nodes / edges have their own click
-  ;; handlers; we walk up the DOM looking for those testids and let
-  ;; the click through if found.
-  (when (and e (zero? (.-button e)))
-    (when-not (on-chart-node? (.-target e))
-      (.preventDefault e)
-      (let [[x y] (or (element-offset e) [0 0])]
-        (rf/dispatch [:rf.causa.machine-canvas/drag-start
-                      {:machine-id machine-id :x x :y y}]
-                     {:frame :rf/causa})))))
-
-(defn- on-mouse-move
-  [_machine-id ^js e]
-  (let [[x y] (or (element-offset e) [0 0])]
-    (rf/dispatch [:rf.causa.machine-canvas/drag-move {:x x :y y}]
-                 {:frame :rf/causa})))
-
-(defn- on-mouse-up
-  [_machine-id _e]
-  (rf/dispatch [:rf.causa.machine-canvas/drag-end]
-               {:frame :rf/causa}))
-
-(defn- on-key-down
-  [machine-id content-dims ^js e]
-  (when e
-    (let [k       (.-key e)
-          action  (ctl/key->action
-                    {:key k
-                     :viewport-width  nil
-                     :viewport-height nil
-                     :content-width   (:width content-dims)
-                     :content-height  (:height content-dims)})]
-      (when action
-        (.preventDefault e)
-        (dispatch-action machine-id action)))))
-
 ;; ---- public Chart view --------------------------------------------------
 
 (defn Chart
   "Render the interactive MachineChart inside the Dynamic Machines
-  panel (or the Static Machines Topology body — rf2-md9oz).
+  panel (or the Static Machines Topology body).
 
   Args (map):
 
-    :positioned       — laid-out graph from
-                        `chart-layout/layout` / `elk-layout/layout-
-                        or-fallback`. Required.
-    :machine-id       — keyword; identifies the per-machine
-                        viewport + view-mode slots.
-    :from-highlight-id / :to-highlight-id — focused-event lens.
-    :on-state-click   — click handler for state nodes.
-    :show-after-rings? — when true (default) overlay
-                        `[after-rings/AfterRingsOverlay positioned]`
-                        on top of the chart. Dynamic keeps true;
-                        Static passes false (no focused-event
-                        lens on static).
+    :definition         — machine definition map. Required.
+    :machine-id         — keyword; identifies the per-machine
+                          view-mode slot and surfaces on every
+                          per-node testid.
+    :from-highlight     — focused-event lens origin state. Optional;
+                          a state-id keyword or path vector. xyflow
+                          renders the originating state with a
+                          dashed violet border.
+    :to-highlight       — focused-event lens landing state. Optional;
+                          xyflow renders the landing state with an
+                          emphasised cyan border. Wins over
+                          `:current-state`.
+    :current-state      — live snapshot state for the active-state
+                          highlight. Optional; nil renders no
+                          highlight.
+    :on-state-click     — `(fn [path] ...)` invoked on node click.
+    :show-after-rings?  — when true (default) overlay the
+                          `:after`-timer countdown rings. Dynamic
+                          keeps true; Static passes false.
     :show-view-mode-toggle? — when true (default) render the
-                        Canvas/List pill in the canvas's top-
-                        left. Dynamic keeps true; Static passes
-                        false (the L3 sub-mode pills already
-                        own per-machine mode at the panel level).
-    :show-controls-toolbar? — when true (default) render the
-                        zoom/pan/fit controls toolbar in the
-                        canvas's top-right. Both Dynamic and
-                        Static keep true.
-    :testid           — when present, forwarded to `mv-svg/render`
-                        as the inner SVG's root data-testid.
-                        Static passes
-                        `\"rf-causa-static-machines-topology-svg\"`
-                        so the existing static-panel tests still
-                        match. nil leaves the SVG with its
-                        default (`rf-mv-chart-svg`).
+                              Canvas/List pill in the chart top-left.
+    :testid             — wrapper testid override.
 
-  Returns hiccup. Reads `:rf.causa.machine-canvas/viewport-for` so
-  zoom/pan updates re-render the chart with a new
-  `:viewport-transform` arg.
-
-  The wrapper div carries the wheel/drag/keyboard handlers + sets
-  `tabIndex=0` so the keyboard shortcuts work after the user
-  clicks on the canvas. The controls toolbar sits absolute-
-  positioned in the top-right corner."
-  [{:keys [positioned machine-id from-highlight-id to-highlight-id
-           on-state-click show-after-rings? show-view-mode-toggle?
-           show-controls-toolbar? testid]
+  Returns hiccup. xyflow owns zoom/pan/fit + keyboard shortcuts
+  internally — no host-side viewport machinery is needed
+  post-migration."
+  [{:keys [definition machine-id from-highlight to-highlight current-state
+           on-state-click show-after-rings? show-view-mode-toggle? testid
+           inner-testid]
     :or   {show-after-rings?       true
            show-view-mode-toggle?  true
-           show-controls-toolbar?  true}}]
-  (let [viewport @(rf/subscribe
-                    [:rf.causa.machine-canvas/viewport-for machine-id])
-        content-dims {:width  (:width positioned)
-                      :height (:height positioned)}]
-    [:div
-     {:data-testid "rf-causa-machine-canvas-host"
-      :data-machine-id (str machine-id)
-      :data-viewport-scale (str (:scale (or viewport (ctl/identity-viewport))))
-      ;; tabIndex makes the wrapper keyboard-focusable so `+`/`-`/etc.
-      ;; reach the panel-level shortcuts. The visible focus ring is
-      ;; suppressed via outline:none — the chart border already reads
-      ;; as 'focusable surface'.
-      :tabIndex 0
-      :role "application"
-      :aria-label (str "Machine topology canvas for " machine-id
-                       ". Use plus and minus to zoom, arrow keys to pan, "
-                       "f to fit, zero to reset.")
-      :on-wheel       (fn [e] (on-wheel machine-id e))
-      :on-mouse-down  (fn [e] (on-mouse-down machine-id e))
-      :on-mouse-move  (fn [e] (on-mouse-move machine-id e))
-      :on-mouse-up    (fn [e] (on-mouse-up machine-id e))
-      :on-mouse-leave (fn [e] (on-mouse-up machine-id e))
-      :on-key-down    (fn [e] (on-key-down machine-id content-dims e))
-      :ref            (fn [^js el]
-                        ;; Measure the viewport box so :fit + keyboard
-                        ;; shortcuts can read it from app-db without
-                        ;; round-tripping a DOM query.
-                        (when el
-                          (let [rect (try (.getBoundingClientRect el)
-                                          (catch :default _ nil))]
-                            (when rect
-                              (rf/dispatch
-                                [:rf.causa.machine-canvas/measure
-                                 {:machine-id machine-id
-                                  :width      (.-width rect)
-                                  :height     (.-height rect)}]
-                                {:frame :rf/causa})))))
-      :style {:position    "relative"
-              :width       "100%"
-              :height      "100%"
-              :min-height  "260px"
-              :outline     "none"
-              ;; Click-drag pan — show the grabby cursor when dragging
-              ;; is in progress. We can't read the drag state inside
-              ;; an inline style without a subscribe — kept simple
-              ;; here; the cursor flip is a follow-on polish bead.
-              :cursor      "grab"
-              :user-select "none"
-              :overflow    "hidden"
-              :background  (:bg-1 tokens)}}
-     ;; Chart SVG — viewport-transform passes the user's zoom + pan.
-     ;; rf2-rhtjp — `:machine-id` carries the identity slug down to
-     ;; `mv-svg/render` so its `aria-label` reads as e.g. "State
-     ;; machine: auth with 4 states and 3 transitions." The
-     ;; surrounding wrapper div still owns the interactive
-     ;; `role="application"` + keyboard-shortcut affordance; the
-     ;; inner `<svg>` gets the per-chart descriptive label.
-     (mv-svg/render
-       positioned
-       (cond-> {:from-highlight-id  from-highlight-id
-                :to-highlight-id    to-highlight-id
-                :on-state-click     on-state-click
-                :viewport-transform viewport
-                :machine-id         machine-id
-                :svg-attrs          {:style {:width  "100%"
-                                             :height "100%"
-                                             :display "block"}}}
-         (some? testid) (assoc :testid testid)))
-     (when show-after-rings?
-       ;; rf2-obp4z — the after-rings overlay receives the same
-       ;; viewport-transform the chart applies. The overlay wraps
-       ;; its rings group in `<g transform="translate(tx,ty)
-       ;; scale(s)">` so each ring tracks its bearing node centre
-       ;; through the user's zoom + pan. Pre-fix the rings drifted
-       ;; off-node at any non-identity viewport.
-       [after-rings/AfterRingsOverlay
-        positioned
-        {:viewport-transform viewport}])
-     (when show-controls-toolbar?
-       ;; Toolbar — absolute top-right, above the chart SVG.
-       [:div {:data-testid "rf-causa-machine-canvas-toolbar"
-              :style {:position "absolute"
-                      :top      "8px"
-                      :right    "8px"
-                      :z-index  2}}
-        (ctl/toolbar
-          {:viewport viewport
-           :on-action (fn [action]
-                        (dispatch-action machine-id action))
-           :testid-prefix (str "rf-causa-machine-canvas-controls-"
-                               (when machine-id
-                                 (subs (str machine-id) 1)))
-           :compact? false})])
-     (when show-view-mode-toggle?
-       ;; View-mode toggle — absolute top-left.
-       [:div {:style {:position "absolute"
-                      :top      "8px"
-                      :left     "8px"
-                      :z-index  2}}
-        (let [mode @(rf/subscribe
-                      [:rf.causa.machine-canvas/view-mode-for machine-id])]
-          (view-mode-toggle {:machine-id machine-id :mode mode}))])]))
+           testid                  "rf-causa-machine-canvas-host"
+           inner-testid            "rf-mv-chart"}}]
+  [:div
+   {:data-testid testid
+    :data-machine-id (str machine-id)
+    :style {:position    "relative"
+            :width       "100%"
+            :height      "100%"
+            :min-height  "260px"
+            :background  (:bg-1 tokens)
+            :overflow    "hidden"}}
+   ;; A static wrapper div carrying the inner testid so JVM /
+   ;; hiccup-walking tests (and static-panel selectors) can find
+   ;; the chart placeholder even before the Reagent MachineChart
+   ;; component mounts. The actual xyflow canvas is the child;
+   ;; selectors that probe DOM (Playwright) can use either the
+   ;; outer wrapper id or xyflow's own `.react-flow` root.
+   [:div {:data-testid inner-testid
+          :data-machine-id (str machine-id)
+          :style {:width "100%" :height "100%"}}
+    [mv-chart/MachineChart
+     {:definition      definition
+      :machine-id      machine-id
+      :from-highlight  from-highlight
+      :to-highlight    to-highlight
+      :current-state   current-state
+      :on-state-click  on-state-click
+      :show-minimap?   false
+      :show-controls?  true
+      :show-background? true
+      :testid          "rf-mv-chart"}]]
+   (when show-after-rings?
+     ;; The overlay walks the chart's node DOM by data-testid to find
+     ;; bbox positions; no positioned-graph prop is needed
+     ;; post-migration (xyflow owns positions internally).
+     [after-rings/AfterRingsOverlay nil])
+   (when show-view-mode-toggle?
+     [:div {:style {:position "absolute"
+                    :top      "8px"
+                    :left     "8px"
+                    :z-index  2}}
+      (let [mode @(rf/subscribe
+                    [:rf.causa.machine-canvas/view-mode-for machine-id])]
+        (view-mode-toggle {:machine-id machine-id :mode mode}))])])
 
 ;; ---- install ------------------------------------------------------------
 
@@ -581,7 +320,4 @@
   (install-subs!)
   (install-events!)
   (install-fx!)
-  ;; Defer hydration to the post-mount path so the dispatch lands
-  ;; after `:rf/causa` is registered — same posture as
-  ;; `static.machines.persistence/hydrate!`.
   (hydrate!))

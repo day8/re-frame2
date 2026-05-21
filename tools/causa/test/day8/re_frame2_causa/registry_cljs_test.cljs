@@ -169,11 +169,11 @@
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
-   ;; rf2-y3l8z — interactive viewport adapter subs (zoom/pan + view-mode).
+   ;; rf2-y3l8z — view-mode toggle slot subs (post-rf2-gpzb4 xyflow
+   ;; migration the viewport-state subs were retired; xyflow owns
+   ;; zoom/pan/fit internally).
    :rf.causa.machine-canvas/view-mode-by-id
    :rf.causa.machine-canvas/view-mode-for
-   :rf.causa.machine-canvas/viewport-dims-for
-   :rf.causa.machine-canvas/viewport-for
    ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab (Dynamic).
    :rf.causa.machines-canvas/selected-id
    ;; rf2-a9cke — focused-event lens composite consumed by the
@@ -427,14 +427,10 @@
    ;; Phase 4 (rf2-m7co9) — ELK chart layout pulse.
    :rf.causa/machine-chart-layout-pulse
    :rf.causa/machine-state-clicked
-   ;; rf2-y3l8z — interactive viewport adapter for the runtime Machines
-   ;; canvas (zoom/pan/fit + view-mode toggle).
-   :rf.causa.machine-canvas/apply-action
-   :rf.causa.machine-canvas/drag-end
-   :rf.causa.machine-canvas/drag-move
-   :rf.causa.machine-canvas/drag-start
+   ;; rf2-y3l8z — view-mode toggle events for the Dynamic Machines
+   ;; canvas (rf2-gpzb4 xyflow migration: viewport-state events
+   ;; retired — xyflow owns zoom/pan/fit internally).
    :rf.causa.machine-canvas/hydrate-view-modes
-   :rf.causa.machine-canvas/measure
    :rf.causa.machine-canvas/set-view-mode
    ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab events.
    :rf.causa.machines-canvas/select

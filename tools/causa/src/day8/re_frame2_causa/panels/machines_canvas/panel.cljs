@@ -69,7 +69,6 @@
   L4 mount path) or the `mount-machines-canvas!` mount fn (when the
   panel is embedded in isolation per spec/008)."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
@@ -228,31 +227,11 @@
 
 (defn- canvas-body
   "L4-right canvas. Renders the interactive Chart for the selected
-  machine. The Chart adapter owns zoom / pan / fit + keyboard
-  shortcuts; this body is a thin wrapper that picks the definition
-  + drives the ELK layout."
+  machine. xyflow + elkjs own zoom / pan / fit / layout end-to-end
+  post-migration (rf2-gpzb4); this body is a thin wrapper that
+  picks the definition and hands it to the chart."
   [{:keys [machine-id definition]}]
-  (let [direction  :tb
-        positioned (when definition
-                     (elk-layout/layout-or-fallback definition direction))
-        engine     (if (and definition
-                            (some? (elk-layout/cached-layout
-                                     definition direction)))
-                     "elk"
-                     "layered")]
-    (when definition
-      (elk-layout/ensure-elk!
-        (fn [_inst]
-          (when (and (= :ready (elk-layout/elk-status))
-                     (nil? (elk-layout/cached-layout
-                             definition direction)))
-            (elk-layout/compute-layout!
-              definition direction
-              (fn [chart-layout]
-                (when chart-layout
-                  (rf/dispatch
-                    [:rf.causa/machine-chart-layout-pulse]
-                    {:frame :rf/causa}))))))))
+  (let [engine "xyflow+elkjs"]
     [:div {:data-testid "rf-causa-machines-canvas-body"
            :data-machine-id (str machine-id)
            :data-layout-engine engine
@@ -292,7 +271,7 @@
        :else
        [:<>
         [machine-canvas/Chart
-         {:positioned             positioned
+         {:definition             definition
           :machine-id             machine-id
           ;; No focused-event lens on this tab — this is a
           ;; spine-INDEPENDENT canvas browser. No from/to highlight,

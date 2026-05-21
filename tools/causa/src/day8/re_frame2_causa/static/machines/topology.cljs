@@ -53,7 +53,6 @@
   (the `machine-definitions` sub fires on framework hot-reload), so
   the data shown is always live."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.static.machines.helpers :as h]
@@ -88,24 +87,10 @@
                                      so the existing static-panel
                                      tests still match."
   [{:keys [definition machine-id]}]
-  (let [direction  :tb
-        positioned (elk-layout/layout-or-fallback definition direction)
-        engine     (if (some? (elk-layout/cached-layout definition direction))
-                     "elk"
-                     "layered")]
-    ;; Trigger ELK to take over post-mount if available; layered serves
-    ;; the first paint either way. Same wire-up the Dynamic panel uses
-    ;; (per `panels/machine_inspector.cljs/focused-event-section`).
-    (elk-layout/ensure-elk!
-      (fn [_inst]
-        (when (and (= :ready (elk-layout/elk-status))
-                   (nil? (elk-layout/cached-layout definition direction)))
-          (elk-layout/compute-layout!
-            definition direction
-            (fn [chart-layout]
-              (when chart-layout
-                (rf/dispatch [:rf.causa/machine-chart-layout-pulse]
-                             {:frame :rf/causa})))))))
+  ;; rf2-gpzb4 (2026-05-21 xyflow migration) — ELK is now driven
+  ;; internally by xyflow inside `mv-chart/MachineChart`; the
+  ;; host-side layout-or-fallback dance is gone.
+  (let [engine "xyflow+elkjs"]
     [:div {:data-testid    "rf-causa-static-machines-topology-chart"
            :data-machine-id (str machine-id)
            :data-layout-engine engine
@@ -118,11 +103,11 @@
                    :flex       "1 1 auto"
                    :min-height "260px"}}
      [machine-canvas/Chart
-      {:positioned             positioned
+      {:definition             definition
        :machine-id             machine-id
        :show-after-rings?      false
        :show-view-mode-toggle? false
-       :testid                 "rf-causa-static-machines-topology-svg"
+       :inner-testid           "rf-causa-static-machines-topology-svg"
        :on-state-click
        (fn [path]
          (rf/dispatch [:rf.causa.static.machines/state-clicked
