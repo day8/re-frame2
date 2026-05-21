@@ -8,8 +8,10 @@
   Scope. This ns provides:
 
     * The plain-`atom` container quartet (make / read / replace / subscribe).
-    * `make-derived-value` (one watch per source; reifies the
-      re-frame-owned `re-frame.disposable/IDisposable`).
+    * `make-derived-value` (one watch per source, coalesced through a
+      shared per-adapter epoch scheduler so a multi-input derived value
+      recomputes glitch-free and notifies once per coherent input epoch;
+      reifies the re-frame-owned `re-frame.disposable/IDisposable`).
     * React 18+ root renderer (createRoot + render, hydrateRoot for
       hydrate).
     * Late-bind hiccup-emitter atom + `render-to-string` thrower.
@@ -40,6 +42,113 @@
             [re-frame.subs       :as subs]
             [re-frame.adapter.context :as adapter-context]))
 
+;; ---- epoch scheduler (glitch-freedom; Spec 006 §Invalidation algorithm) ----
+;;
+;; Reagent realises the Phase 1/2/3 invalidation contract automatically:
+;; each `Reaction` re-runs once per `r/flush!` against settled inputs, so
+;; a multi-input layer-2+ reaction never sees a half-updated input set and
+;; never notifies more than once per app-db change. The spine has no
+;; reaction primitive, so it must satisfy the contract explicitly
+;; (Spec 006: "Non-CLJS implementations must satisfy the contract
+;; explicitly").
+;;
+;; The bug a naive spine has (rf2-i21f5): wiring one `add-watch` per
+;; source that recomputes-and-notifies INLINE means a layer-2+ sub with N
+;; changed inputs recomputes once per changed input. The first source's
+;; notify drives the downstream recompute; the second source's notify
+;; drives it AGAIN, and so on — N recomputes per app-db change instead of
+;; one. Each redundant recompute re-runs the user's sub body and emits a
+;; `:sub/run` trace, and a downstream layer-3 sub re-fires per redundant
+;; layer-2 notification, fanning the waste out across the whole `:<-`
+;; graph. (The spine's derived value is pull-based — `-deref` recomputes
+;; fresh from current sources — so each recompute reads settled source
+;; state and the final notified VALUE is correct; the defect is the
+;; redundant recompute storm + over-notification, not a wrong value. The
+;; downstream `notify` only fires on a `=`-change, which masks the storm
+;; for `=`-stable bodies but not for the recompute work, the trace
+;; emissions, or any body with observable per-call cost.) Reagent is
+;; immune (native batched `r/flush!`); the spine must satisfy the Phase
+;; 1/2/3 contract explicitly.
+;;
+;; The fix mirrors Reagent's batched flush. A single per-adapter
+;; scheduler is shared by `replace-container!` (the only app-db mutation
+;; entry point, Spec 006 §revertibility) and every `make-derived-value`.
+;; `replace-container!` brackets its `reset!` in an epoch: source watches
+;; fired by the `reset!` only MARK their derived value dirty (enqueue a
+;; recompute-and-notify thunk) instead of recomputing inline. When the
+;; outermost epoch closes, the scheduler drains the queue. A derived
+;; value's recompute, on changing by `=`, notifies its watchers — which
+;; for a downstream derived value's source-watch marks THAT derived dirty
+;; and enqueues it in turn. Because a dirty-flag dedups re-marks within an
+;; epoch, every derived value recomputes EXACTLY ONCE against fully
+;; settled inputs and notifies its subscribers at most once — exactly the
+;; Phase 1/2/3 ordering (one Phase-3 notification per dirty entry).
+;;
+;; Outside an epoch (a direct `reset!`/`swap!` on a source by test code or
+;; tooling, rather than through `replace-container!`) the mark falls
+;; through to an immediate single-derived flush so the contract still
+;; holds for the one-source-changed case.
+;;
+;; `depth` / `flushing?` / `queue` are written and read only on the
+;; single-threaded JS event loop and never escape the adapter closure —
+;; `volatile!` is the right primitive, no CAS cost.
+
+(defn make-scheduler
+  "Return a fresh per-adapter epoch scheduler cell. Each adapter owns its
+  own so multiple React-shaped adapters can coexist in a test bundle
+  without sharing an epoch queue."
+  []
+  {:depth     (volatile! 0)   ;; open-epoch nesting depth
+   :flushing? (volatile! false)
+   :queue     (volatile! [])  ;; ordered queue of pending flush thunks
+   :queued    (volatile! #{})}) ;; identity set guarding double-enqueue
+
+(defn- drain-scheduler!
+  "Drain the scheduler's pending flush thunks in enqueue order until the
+  queue is empty. Re-entrant-safe: an in-progress drain swallows nested
+  drain requests (the running loop already observes newly-enqueued
+  thunks). Each thunk recomputes its derived value and, on a `=`-change,
+  notifies its watchers — which may enqueue downstream thunks that the
+  same loop then drains, preserving topological order."
+  [{:keys [flushing? queue queued] :as _scheduler}]
+  (when-not @flushing?
+    (vreset! flushing? true)
+    (try
+      (loop []
+        (when (seq @queue)
+          (let [thunk (nth @queue 0)]
+            (vreset! queue (subvec @queue 1))
+            (vswap! queued disj thunk)
+            (thunk))
+          (recur)))
+      (finally
+        (vreset! flushing? false)))))
+
+(defn- schedule-flush!
+  "Enqueue `thunk` on the scheduler (dedup by identity within the current
+  epoch). When no epoch is open, drain immediately so a direct source
+  mutation outside `replace-container!` still flushes synchronously."
+  [{:keys [depth queue queued] :as scheduler} thunk]
+  (when-not (contains? @queued thunk)
+    (vswap! queued conj thunk)
+    (vswap! queue conj thunk))
+  (when (zero? @depth)
+    (drain-scheduler! scheduler)))
+
+(defn- with-epoch
+  "Run `body-thunk` inside an open epoch on `scheduler`; the outermost
+  close drains the pending flush queue. Nested epochs (a re-entrant
+  `replace-container!` during a flush) only drain at the outermost
+  boundary so coalescing spans the whole synchronous cascade."
+  [{:keys [depth] :as scheduler} body-thunk]
+  (vswap! depth inc)
+  (try
+    (body-thunk)
+    (finally
+      (vswap! depth dec)
+      (when (zero? @depth)
+        (drain-scheduler! scheduler)))))
+
 ;; ---- container ------------------------------------------------------------
 ;;
 ;; Per Spec 006 §revertibility-constraints the container holds the
@@ -58,9 +167,18 @@
 (defn read-container [container]
   @container)
 
-(defn replace-container! [container new-value]
-  (reset! container new-value)
-  nil)
+(defn make-replace-container-fn
+  "Return a `replace-container!` fn that brackets its `reset!` in an epoch
+  on `scheduler`. The `reset!` fires source watches synchronously; those
+  watches only MARK their derived values dirty (see
+  `make-derived-value-fn`). The epoch close drains the coalesced flush
+  queue so each affected derived value recomputes glitch-free against the
+  settled app-db and notifies its subscribers exactly once (Spec 006
+  §Invalidation algorithm)."
+  [scheduler]
+  (fn replace-container! [container new-value]
+    (with-epoch scheduler (fn epoch-body [] (reset! container new-value)))
+    nil))
 
 (defn make-subscribe-container
   "Return a `subscribe-container` fn that gensyms watch keys with the
@@ -124,9 +242,20 @@
 
 (defn make-derived-value-fn
   "Return a `make-derived-value` fn that tags per-source watch keys with
-  the given `gensym-prefix`. The fn signature matches the substrate
-  contract: `(sources compute-fn) -> derived-container`."
-  [gensym-prefix]
+  the given `gensym-prefix` and coalesces source-change notifications
+  through `scheduler` (see the epoch-scheduler section above). The fn
+  signature matches the substrate contract:
+  `(sources compute-fn) -> derived-container`.
+
+  Single-recompute / single-notification (rf2-i21f5): a source-change
+  watch does NOT recompute or notify inline. It marks this derived value
+  dirty (enqueues a single recompute-and-notify thunk on the scheduler).
+  The epoch open by `replace-container!` defers the drain until the whole
+  synchronous app-db cascade has settled, so a multi-input derived value
+  recomputes EXACTLY ONCE against the coherent input set and notifies its
+  subscribers at most once — never N times (one recompute + one Phase-3
+  notification per dirty entry per app-db change)."
+  [gensym-prefix scheduler]
   (fn make-derived-value [source-containers compute-fn]
     (let [recompute      (build-recompute-fn source-containers compute-fn)
           watchers       (atom {})           ;; user-key → wrapper-fn
@@ -138,31 +267,42 @@
           ;; source-change notification.
           notify         (fn [prev nu]
                            (when (not= prev nu)
-                             (run! (fn [w] (w prev nu)) (vals @watchers))))]
+                             (run! (fn [w] (w prev nu)) (vals @watchers))))
+          ;; Baseline derived value. Seeded from the *derived* value at
+          ;; construction time, not the raw source. The flush thunk
+          ;; compares prev-derived against the recomputed derived value;
+          ;; if we seeded from `(deref s)` (the raw source), the first
+          ;; source change would spuriously notify whenever the derived
+          ;; projection differs in identity from the raw source — e.g.
+          ;; `(odd? x)`, counts, `:k` lookups, projections — even when the
+          ;; derived value itself is `=`.
+          ;;
+          ;; `prev-state` / `dirty?` are written and read only on the
+          ;; single-threaded JS event loop and never escape this closure —
+          ;; `volatile!` is the right primitive, no CAS cost. `dirty?`
+          ;; dedups re-marks within an epoch: a multi-input derived value
+          ;; whose N sources all fire enqueues exactly one flush thunk.
+          prev-state     (volatile! (recompute))
+          dirty?         (volatile! false)
+          flush!         (fn flush! []
+                           (vreset! dirty? false)
+                           (let [new-derived  (recompute)
+                                 prev-derived @prev-state]
+                             (vreset! prev-state new-derived)
+                             (notify prev-derived new-derived)))
+          mark-dirty!    (fn mark-dirty! []
+                           (when-not @dirty?
+                             (vreset! dirty? true)
+                             (schedule-flush! scheduler flush!)))]
       ;; Wire one watch per source so the listener registry surface
-      ;; (subscribe-container) on the derived container fires whenever
-      ;; any source changes.
-      ;; Seed the baseline from the *derived* value at construction time,
-      ;; not the raw source. The watch callback compares prev-derived
-      ;; against the recomputed derived value; if we seeded from
-      ;; `(deref s)` (the raw source), the first source change would
-      ;; spuriously notify whenever the derived projection differs in
-      ;; identity from the raw source — e.g. `(odd? x)`, counts, `:k`
-      ;; lookups, projections — even when the derived value itself is `=`.
-      ;;
-      ;; `prev-state` is written and read only inside the watch callback
-      ;; (single-threaded JS / Reagent reactivity) and never escapes
-      ;; this closure — `volatile!` is the right primitive, no CAS cost.
-      (let [prev-state (volatile! (recompute))]
-        (doseq [s source-containers]
-          (let [k (gensym gensym-prefix)]
-            (swap! own-keys assoc s k)
-            (add-watch s k
-              (fn [_ _ _ _]
-                (let [new-derived  (recompute)
-                      prev-derived @prev-state]
-                  (vreset! prev-state new-derived)
-                  (notify prev-derived new-derived)))))))
+      ;; (subscribe-container) on the derived container fires whenever any
+      ;; source changes. The watch only MARKS dirty — the actual recompute
+      ;; + notify is deferred to the scheduler drain so it runs once
+      ;; against settled inputs (glitch-free, single notification).
+      (doseq [s source-containers]
+        (let [k (gensym gensym-prefix)]
+          (swap! own-keys assoc s k)
+          (add-watch s k (fn [_ _ _ _] (mark-dirty!)))))
       (reify
         IDeref
         (-deref [_] (recompute))
@@ -763,7 +903,14 @@
                                      after-render-queue-cell
                                      after-render-set-tick-ref)
         subscribe-cont     (make-subscribe-container gensym-prefix-sub)
-        make-derived       (make-derived-value-fn gensym-prefix-derived)
+        ;; rf2-i21f5: one epoch scheduler per adapter, shared by
+        ;; `replace-container!` and every `make-derived-value`, so a
+        ;; multi-input derived value recomputes glitch-free and notifies
+        ;; once per coherent app-db epoch (Spec 006 §Invalidation
+        ;; algorithm). See the epoch-scheduler section above.
+        scheduler          (make-scheduler)
+        replace-cont!      (make-replace-container-fn scheduler)
+        make-derived       (make-derived-value-fn gensym-prefix-derived scheduler)
         ;; Precompute the `use-subscribe` watch-key keyword namespace
         ;; once (outside the render hot path). The per-reaction key
         ;; derives from `(hash reaction)` so the subscribe-fn closure
@@ -895,7 +1042,7 @@
      :active-roots-cell           active-roots-cell
      :make-state-container        make-state-container
      :read-container              read-container
-     :replace-container!          replace-container!
+     :replace-container!          replace-cont!
      :subscribe-container         subscribe-cont
      :make-derived-value          make-derived
      :render                      render-fn

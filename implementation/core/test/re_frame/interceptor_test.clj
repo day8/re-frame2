@@ -182,6 +182,46 @@
     (is (= 11 (get-in (rf/get-frame-db :rf/default) [:foo :bar]))
         "handler that emits :db still gets its slice spliced back")))
 
+;; Per rf2-mas2y: when an EARLIER interceptor's `:before` throws,
+;; `execute-chain` short-circuits all downstream `:before` stages
+;; (including `path`'s) yet still runs every `:after` in reverse
+;; (teardown contract). `path`'s `:before` therefore never pushed onto
+;; `:rf/path-stack`, so its `:after` must NOT call `(pop [])` — that
+;; would throw a SPURIOUS second error masking the original cause. The
+;; sibling `unwrap` interceptor is already guarded for this case (it
+;; no-ops when `:rf/unwrap-stash` is absent); `path` mirrors that guard.
+;;
+;; Source: std_interceptors.cljc — `path`'s `:after` no-ops when
+;; `:rf/path-stack` is empty.
+
+(deftest path-interceptor-after-no-ops-when-before-short-circuited
+  (testing "(path ...) :after does not throw and preserves the original
+            error when an upstream interceptor's :before throws first"
+    (let [boom    (interceptor/->interceptor
+                    :id     :path-short/boom
+                    :before (fn [_ctx]
+                              (throw (ex-info "before blew up"
+                                              {:src :path-short/boom}))))
+          ;; Order: boom (throws in :before) → path (its :before is
+          ;; short-circuited, but its :after still runs in reverse).
+          chain   [boom (rf/path :foo :bar)]
+          final   (interceptor/execute-chain
+                    chain
+                    {:coeffects {:db {:foo {:bar 10}}} :effects {}})
+          errs    (:rf/interceptor-errors final)]
+      (is (= :path-short/boom (get-in final [:rf/interceptor-error :id]))
+          "the original :before failure is the recorded FIRST error")
+      (is (= :before (get-in final [:rf/interceptor-error :phase]))
+          "the FIRST error is the upstream :before throw")
+      (is (= 1 (count errs))
+          "exactly one error — path's :after did NOT synthesise a spurious
+           second error from (pop [])")
+      (is (= [:path-short/boom] (mapv :id errs))
+          "no error attributed to :path — its :after no-opped cleanly")
+      (is (not (contains? (:effects final) :db))
+          "path's no-op :after produced no :db effect when its :before
+           never ran"))))
+
 ;; ---- unwrap ---------------------------------------------------------------
 
 (deftest unwrap-interceptor

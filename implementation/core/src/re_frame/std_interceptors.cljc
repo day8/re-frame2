@@ -43,24 +43,34 @@
                       (get-in (:db (:coeffects ctx)) path-vec))))
       :after
       (fn [ctx]
-        ;; The splice-back only fires when the handler actually emitted
-        ;; a `:db` effect. If the handler returned no `:db`, the slice
-        ;; didn't change and we MUST NOT synthesise a `:db` effect —
-        ;; downstream tools rely on "no `:db` effect = no DB write" (the
-        ;; docstring contract). Synthesising would be idempotent at the
-        ;; value level (same `original-db` re-spliced with the same
-        ;; pre-handler slice) but allocated a fresh map per path-walk-
-        ;; step and produced a spurious `:db` effect from a no-`:db`
-        ;; handler.
-        (let [stack       (:rf/path-stack ctx [])
-              original-db (peek stack)
-              new-stack   (pop stack)
-              handler-emitted-db? (contains? (:effects ctx) :db)]
-          (cond-> (assoc ctx :rf/path-stack new-stack)
-            handler-emitted-db?
-            (assoc-in [:effects :db]
-                      (assoc-in original-db path-vec
-                                (get-in ctx [:effects :db])))))))))
+        ;; Guard: only unwind when our `:before` actually pushed. When an
+        ;; EARLIER interceptor's `:before` throws, `execute-chain`
+        ;; short-circuits all downstream `:before` stages (including
+        ;; ours) yet still runs every `:after` in reverse (Spec 002
+        ;; §rule 2). With no push, `:rf/path-stack` is absent — `(pop [])`
+        ;; would throw a SPURIOUS second error masking the original. The
+        ;; sibling `unwrap` interceptor mirrors this guard via its
+        ;; `:rf/unwrap-stash` presence check. No stack → no-op teardown.
+        (let [stack (:rf/path-stack ctx)]
+          (if (empty? stack)
+            ctx
+            ;; The splice-back only fires when the handler actually
+            ;; emitted a `:db` effect. If the handler returned no `:db`,
+            ;; the slice didn't change and we MUST NOT synthesise a `:db`
+            ;; effect — downstream tools rely on "no `:db` effect = no DB
+            ;; write" (the docstring contract). Synthesising would be
+            ;; idempotent at the value level (same `original-db`
+            ;; re-spliced with the same pre-handler slice) but allocated a
+            ;; fresh map per path-walk-step and produced a spurious `:db`
+            ;; effect from a no-`:db` handler.
+            (let [original-db (peek stack)
+                  new-stack   (pop stack)
+                  handler-emitted-db? (contains? (:effects ctx) :db)]
+              (cond-> (assoc ctx :rf/path-stack new-stack)
+                handler-emitted-db?
+                (assoc-in [:effects :db]
+                          (assoc-in original-db path-vec
+                                    (get-in ctx [:effects :db])))))))))))
 
 ;; ---- unwrap ---------------------------------------------------------------
 ;;

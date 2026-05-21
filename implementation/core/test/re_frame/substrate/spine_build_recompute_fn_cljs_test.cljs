@@ -126,7 +126,7 @@
     ;; rf2-eoy63 wiring: spine's IDeref body MUST route through
     ;; build-recompute-fn, not its old naive (apply compute-fn (map
     ;; deref ...)) shape.
-    (let [make-derived (spine/make-derived-value-fn "rf-test-")
+    (let [make-derived (spine/make-derived-value-fn "rf-test-" (spine/make-scheduler))
           s0           (atom 5)
           derived      (make-derived [s0] (fn [a] (* a 10)))]
       (is (= 50 @derived) "1-arity recompute fires through the spine")
