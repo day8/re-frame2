@@ -1839,6 +1839,19 @@ After this action, `(:pending-request data)` *is* the actor's id. Subsequent tra
 
 The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` — the runtime owns the location, the spawn-spec only declares the id-prefix. See [§Where snapshots live](#where-snapshots-live) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#standard-fx-args-schemas).
 
+### Spawn-id allocator — counter location
+
+Spawn-id allocation is **pure** (no global counter atom, no `gensym`), and the integer counter the allocator increments lives in a **different location depending on the spawn surface**. Both locations are pattern contract — a conformant port MUST mirror the split, because it is what keeps [Goal 3 — frame-state revertibility](000-Vision.md#frame-state-revertibility) intact across the two surfaces.
+
+| spawn surface | counter location | revert behaviour |
+|---|---|---|
+| Declarative `:spawn` / `:spawn-all` from a parent state | inside the parent machine's snapshot at `[:rf/spawn-counter <id-prefix>]` — i.e. **snapshot-local** to the parent | a frame revert that restores the parent's snapshot also restores the parent's counter; re-running the same cascade allocates the same ids |
+| Hand-emitted `:rf.machine/spawn` fx (from an event handler's `:fx`, no parent machine) | at frame-app-db root `[:rf/spawn-counter <id-prefix>]` — i.e. **frame-app-db-local** | a frame revert that restores app-db restores the counter; re-running the same drain allocates the same ids |
+
+The two-tier split is not implementation discretion. It falls out of the requirement that **revertibility round-trips through the same allocation site that produced the ids in the first place** — declarative spawns are part of a parent's transition reducer (so their counter belongs to the parent's snapshot, which is what reverts atomically with the cascade), whereas hand-emitted spawns are part of a top-level drain (so their counter belongs to frame-app-db, which is what reverts atomically with the drain). Putting either counter outside the snapshot it composes with — e.g. a global counter, or an out-of-band atom — would break the round-trip: a revert would restore the snapshot but leave the counter at its post-revert value, and the next spawn would allocate a **different** id than the original, drifting the trace stream and the spawn-registry slot.
+
+Per-prefix integer counts are stamped as `{}` at snapshot synthesis and at frame-app-db construction; both maps persist across `pr-str` / `read-string` so the allocator survives a full snapshot round-trip. The id form (`<id-prefix>#<n>` keyword) is fixed per [§Spawn id format](#spawn-id-format---keyword-resolved). See also [Conventions §Reserved app-db keys — `:rf/spawn-counter`](Conventions.md#reserved-app-db-keys) and [Cross-Spec-Interactions §1 — Frame disposal](Cross-Spec-Interactions.md).
+
 ### Runtime stamps on the spawned actor's `:data` (rf2-ijm7)
 
 Per [rf2-ijm7](#) the runtime stamps three framework-reserved keys into every spawned actor's initial `:data` map so the actor can address its parent and itself at action-call time without the parent having to thread that information through manually:

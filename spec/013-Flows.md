@@ -152,6 +152,16 @@ Four properties this gives:
 3. **Run-to-completion is preserved.** Views never observe an intermediate state where some flows have updated and others haven't.
 4. **Frame isolation.** An event dispatched on frame `:left` only walks flows registered against `:left`. Flows on frame `:right` are dormant from `:left`'s perspective — they walk only when `:right`'s drain calls its own `run-flows!`. This is what makes multi-tenant frames safe to colocate without cross-talk in derived state.
 
+### Trace stream ordering on a flow throw
+
+When a flow's `:output` fn throws during step 4 of the drain integration pseudocode above, the runtime emits a strict three-event trace sequence — observable contract for off-box monitors, Causa, Story, and any consumer that lifts a flow failure off the trace stream. A conformant port MUST emit these three events in this order:
+
+1. **`:event/db-changed`** (post-handler commit) — fires from step 3 as usual, BEFORE any flow runs. The post-handler `app-db` is the value flows are about to evaluate against; the trace publishes that value before the failure window opens. (Successful flows that ran before the throwing one also emit their `:rf.flow/computed` traces between this commit and the failure — see §Failure semantics for the per-flow detail.)
+2. **`:rf.error/flow-eval-exception`** — the cascade-level error, emitted onto the **always-on production error-emit substrate** per [§Failure semantics rule 4](#failure-semantics). Carries `:where :flow-eval` (distinguishing this path from `:rf.error/handler-exception`), the originating event under `:event`, and `:flow-id` / `:flow` attribution stamped from the throwing flow's wrapped `ex-data`. The dev-only trace surface emits the same op concurrently; the production-substrate path survives CLJS `:advanced` + `goog.DEBUG=false` elision.
+3. **`:fx` is skipped — no further trace event from this drain.** The cascade halts at the failing flow (per [§Failure semantics rule 3](#failure-semantics)); no `:fx` entry runs, no `:dispatch`-issued child events queue, no `:event/run-end` fires for skipped-fx work. The drain proceeds to the **next** event in the router queue on its normal cycle.
+
+The contract is the ordering AND the gap — consumers can rely on "if `:rf.error/flow-eval-exception` fires, the immediately preceding `:event/db-changed` is the snapshot the failing flow saw, and no `:fx` of this drain reached the outside world." Cascading work that *would* have run via `:fx` re-attempts naturally on a later drain.
+
 ## Topological sort and cycle detection
 
 Flows form a static dependency graph derivable from their `:path` and `:inputs` declarations. The graph is **per-frame** — flows in different frames cannot depend on each other (their inputs read different `app-db`s). Each frame's topsort is computed independently over `(get @flows frame-id)`.
