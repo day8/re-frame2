@@ -69,8 +69,8 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   **Causa**, the re-frame2 in-app devtools panel. Answers how to *launch*
   Causa (true-inline panel, pop-out, programmatic `init!`, wired hotkeys,
   the Dynamic ↔ Static mode toggle) and *which tab shows X* — across the
-  8 Dynamic event-spine tabs (Event / App DB / View / Trace / Machines /
-  Machines Canvas / Routing / Issues) and the 5 Static registry-browse
+  7 Dynamic event-spine tabs (Event / App DB / View / Trace / Machines /
+  Routing / Issues) and the 5 Static registry-browse
   tabs (Machines / Routes / Schemas / Flows / Interceptors). Causa owns
   the *seeing*; `re-frame2-pair` owns the *driving*.
 

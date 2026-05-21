@@ -14,7 +14,6 @@ event**:
 | **View** (`v`) | "Why did these views re-render?" — sub invalidation chain + hover-to-highlight on rendered DOM. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §3. The tab was named `Views` (pre-rf2-wyvf2), then `Reactive` (rf2-wyvf2 / 021 §11.5), and is now `View` per rf2-e33ad (Mike-direction 2026-05-21).) |
 | **Trace** (`t`) | "What raw events fired in this cascade?" — wall-clock axis grows future. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §5.) |
 | **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §6.) |
-| **Machines Canvas** (`c`) | "What does this machine LOOK like?" — spine-INDEPENDENT canvas browser. Picker on the left, interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). No focused-event lens — the canvas always shows the picked machine's full topology. Earned its own tab per the cohesive-sub-domain rule (rf2-mkpnb). (No dedicated § in [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) — spine-independent surface scoped here; see 021 §6.0 for the shared xyflow rendering substrate it reuses, and 021 §7 for the sibling Routing panel.) |
 | **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8.) |
 
 (rf2-4v67l — the Chrome A11y dogfood tab was removed. A11y
@@ -66,7 +65,7 @@ the left because normal layout owns the relationship.
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 8 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -87,7 +86,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App DB ○Views ○Trace ○Machines ○Canvas ○Routes ○Issues          │              L3 — 8 tabs
+│ ◉Event ○App DB ○Views ○Trace ○Machines ○Routes ○Issues                  │              L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -106,13 +105,15 @@ The four layers, top to bottom:
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
    `🌐` `🤖`) + trailing redaction marker (`[● REDACTED N]`). The
    spine sub `:rf.causa/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Eight tabs: Event / App DB / Views / Trace /
-   Machines / Machines Canvas / Routes / Issues. Letter mnemonics:
-   `e` `a` `v` `t` `m` `c` `r` `i`. Each tab renders glyph (`◉`
+3. **L3 — Tab bar (40px).** Seven tabs: Event / App DB / Views / Trace /
+   Machines / Routes / Issues. Letter mnemonics:
+   `e` `a` `v` `t` `m` `r` `i`. Each tab renders glyph (`◉`
    active / `○` inactive) + label only. Routes was promoted to its
-   own L3 tab in rf2-nrbs9; Machines Canvas was promoted in rf2-mkpnb
-   — both follow the cohesive-sub-domain rule (sub-domains earn their
-   own lens tab).
+   own L3 tab in rf2-nrbs9 — it follows the cohesive-sub-domain rule
+   (sub-domains earn their own lens tab). The spine-INDEPENDENT
+   browse-all canvas relocated to the Static Machines sub-tab in
+   rf2-ga16q (the Runtime Machines tab is the event-driven lens per
+   rf2-y9xmf).
    (rf2-4v67l — the Chrome A11y dogfood tab was removed in favour of
    Story's already-shipped chrome-a11y panel per rf2-18t6p.)
 4. **L4 — Detail panel.** Fills remaining canvas (60% default;
@@ -1173,7 +1174,7 @@ on `Esc`, click-outside, or invocation of any item.
 - Frames
 - Machines with current state
 - L4 tab jumps — Dynamic: Event / App DB / Views / Trace / Machines
-  / Machines Canvas / Routes / Issues; Static: Machines / Routes /
+  / Routes / Issues; Static: Machines / Routes /
   Schemas / Flows / Interceptors (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
@@ -1644,8 +1645,8 @@ with L2; Static is 3-layer without). The composer (`surface-composer`
 in `shell.cljs`) `case`-dispatches between the two on `[:rf.causa/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
-Dynamic ships 8 tabs (Event / App DB / Views / Trace / Machines /
-Machines Canvas / Routes / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+Dynamic ships 7 tabs (Event / App DB / Views / Trace / Machines /
+Routes / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id

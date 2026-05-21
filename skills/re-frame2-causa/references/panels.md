@@ -26,14 +26,15 @@ on the one focused event:
 ┌──────────────────────────────────────────────────────────────────────┐
 │ L1 ribbon · L2 event timeline ← MOVING BETWEEN events│
 ├──────────────────────────────────────────────────────────────────────┤
-│ L3 tab bar (8 tabs) · L4 detail (lens on focused event) ← DEPTH IN  │
+│ L3 tab bar (7 tabs) · L4 detail (lens on focused event) ← DEPTH IN  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 **Top** carries the only cross-epoch signal. Every Dynamic L4 tab answers
-"what happened in this epoch?" through its own lens — the one exception is
-**Machines Canvas**, which is spine-INDEPENDENT (§007 §Layout). **No third
-axis. No other cross-epoch L4 panels** (§021 §1.2 — binding).
+"what happened in this epoch?" through its own lens. **No third
+axis. No other cross-epoch L4 panels** (§021 §1.2 — binding). (The
+spine-INDEPENDENT browse-all machine canvas lives under **Static mode**'s
+Machines tab, not on the Dynamic spine — §007 §Layout.)
 
 **Static** — event-INDEPENDENT registry browse. Three layers (no L2
 spine); every tab is a catalogue of what's registered in the picked
@@ -77,16 +78,14 @@ affordance in the focused-epoch header (`002-Time-Travel.md`).
 
 ## Panel-by-panel (Dynamic mode)
 
-Eight Dynamic tabs, in their fixed L3-tab order (§018 §5; mnemonics
-`e a v t m c r i`): **Event · App DB · View · Trace · Machines ·
-Machines Canvas · Routing · Issues.**
+Seven Dynamic tabs, in their fixed L3-tab order (§018 §5; mnemonics
+`e a v t m r i`): **Event · App DB · View · Trace · Machines ·
+Routing · Issues.**
 
 Each tab shares the same chrome: panel icon (left of stripe) · panel
 title · focused-event id · `[◀ Prev] [Next ▶]` film-strip walking the
 L2 spine chronologically (per §021 §17.1.5; shared component at
 [`panels/shared/film_strip/header.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/shared/film_strip/header.cljc)).
-(Machines Canvas is the one spine-independent tab — no film-strip; it has
-its own machine picker instead.)
 
 ### Event — `⚡` · stripe `:accent-violet` · mnem `e`
 
@@ -220,7 +219,8 @@ per-machine section (topology + transition highlight + guards + actions +
 cancellation cascade + `:after` rings) when it does. Per-machine
 prev/next nav walks the spine to the next event that touched that
 machine. (To browse a machine's *full* topology regardless of the focused
-event, use the spine-independent **Machines Canvas** tab below.)
+event, flip to **Static mode** and open its Machines tab — its Topology
+sub-mode is the spine-INDEPENDENT canvas browser.)
 
 Topology-plus-overlay (§021 §6 + §17.4). Each machine renders as an
 xyflow canvas (path B locked per §021 §6.0 — xyflow with Causa-palette
@@ -257,31 +257,18 @@ implementation at
 [`panels/machine_inspector.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/machine_inspector.cljs)
 + `panels/machines/`.
 
-### Machines Canvas — `◆` · stripe `:green` · mnem `c`
-
-Question: **What does this machine LOOK like — overall?**
-
-**Spine-INDEPENDENT.** Unlike the event-driven Machines tab,
-this one ignores the focused event entirely. It's a master-detail
-browser: a **picker on the left** (one row per registered machine, sorted
-by name) and an **interactive Chart adapter on the right** (zoom / pan /
-fit + keyboard shortcuts). The canvas always shows the picked machine's
-*full* topology, so it answers "what does my checkout machine look like?"
-even when no event has touched it.
-
-It earned its own L4 tab per the cohesive-sub-domain rule — a sibling to
-the event-driven Machines Inspector, reusing the shared xyflow rendering
-substrate (§021 §6.0).
-
-**Open when:** "show me the whole state chart for machine X", "browse my
-machines' topology without picking an event", "zoom into my checkout
-machine's diagram."
-
-Spec: [`007-UX-IA.md` §Layout](../../../tools/causa/spec/007-UX-IA.md)
-(spine-independent surface) + [`003-Machine-Inspector.md` §Interactive
-Machines canvas](../../../tools/causa/spec/003-Machine-Inspector.md);
-implementation at
-[`panels/machines_canvas/panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/machines_canvas/panel.cljs).
+> **Browse-all machine canvas → Static mode.** The spine-INDEPENDENT
+> "what does this machine LOOK like overall?" canvas (picker on the left,
+> interactive Chart adapter on the right — zoom / pan / fit + keyboard
+> shortcuts; always shows the picked machine's *full* topology regardless
+> of the focused event) is **not a Dynamic tab**. It lives under **Static
+> mode**'s Machines tab (its Topology sub-mode). The Dynamic Machines tab
+> above is purely the event-driven lens (rf2-ga16q removed the standalone
+> Dynamic "Machines Canvas" tab; rf2-y9xmf is the event-driven rewrite).
+> Spec: [`007-UX-IA.md` §Static mode](../../../tools/causa/spec/007-UX-IA.md)
+> + [`003-Machine-Inspector.md`](../../../tools/causa/spec/003-Machine-Inspector.md);
+> implementation at
+> [`static/machines/topology.cljs`](../../../tools/causa/src/day8/re_frame2_causa/static/machines/topology.cljs).
 
 ### Routing — `🌐` · stripe `:yellow` · mnem `r`
 
@@ -454,7 +441,6 @@ signal, colour is never alone):
 | View | `v` | `◉` | `:cyan` |
 | Trace | `t` | `⬢` | `:orange` |
 | Machines | `m` | `◆` | `:green` |
-| Machines Canvas | `c` | `◆` | `:green` |
 | Routing | `r` | `🌐` | `:yellow` |
 | Issues | `i` | `⚠` | `:red` |
 
@@ -469,21 +455,23 @@ inline state transition (`:text-primary`, mono).
 
 Per §021 §15 (Dynamic mode) + §007 §Static mode:
 
-- **No extra Dynamic L4 lens.** The 8-tab Dynamic set is the contract;
+- **No extra Dynamic L4 lens.** The 7-tab Dynamic set is the contract;
  sub-layer surfaces inline in View + the App DB hover popover (no peer
  Subs panel).
 - **No Chrome A11y tab.** Removed; a11y dogfooding is Story's domain.
+- **No standalone Dynamic "Machines Canvas" tab.** Removed (rf2-ga16q);
+ the spine-INDEPENDENT browse-all machine canvas lives under Static
+ mode's Machines tab (Topology sub-mode). The Dynamic Machines tab is
+ purely the event-driven lens.
 - **No cross-epoch Dynamic L4 views.** Aggregate signals live on L2
- badges only. (The exception, Machines Canvas, is spine-INDEPENDENT
- rather than cross-epoch — it shows one picked machine, not an
- aggregate.)
+ badges only.
 - **No pattern-view.** Deferred.
 - **No master-detail Event-vs-View coupling.** Peers, bridged by App DB.
 - **No simultaneous multi-frame display.** Single-frame focus (§021
  §1.6); switch focus via the L1 frame picker.
 - **No legacy panels.** Subscriptions, Effects, Flows, Performance,
  Schemas, Hydration are NOT separate Dynamic tabs. Their content is
- surfaced through the Dynamic 8 above — and the registry catalogues live
+ surfaced through the Dynamic 7 above — and the registry catalogues live
  in Static mode:
  - Subscriptions → View (cascade tree) + App DB (hover popover)
  - Effects → Event step 4 (returned) + step 5 (applied) + Trace (raw `:rf.fx/*` ops)

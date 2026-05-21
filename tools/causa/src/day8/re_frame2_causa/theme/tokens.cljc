@@ -478,10 +478,6 @@
                                   perf scale)
     :machines  → :green          (machine state lands in green for
                                   'final' across the inspector)
-    :machines-canvas → :green    (rf2-mkpnb — sibling sub-domain tab
-                                  to Machines; shares the green
-                                  accent so the two machine tabs read
-                                  as one cohesive family)
     :routing   → :yellow         (routing is the side-channel
                                   attention tone — distinguishes
                                   from app-db's main colour)
@@ -498,7 +494,6 @@
    :views           :cyan
    :trace           :orange
    :machines        :green
-   :machines-canvas :green
    :routing         :yellow
    :issues          :red})
 
@@ -577,7 +572,6 @@
   | `:app-db`     | ◐    |
   | `:trace`      | ⬢    |
   | `:machines`   | ◆    |
-  | `:machines-canvas` | ◆ |
   | `:routing`    | 🌐    |
   | `:issues`     | ⚠    |
 
@@ -596,7 +590,6 @@
    :app-db          "◐"
    :trace           "⬢"
    :machines        "◆"
-   :machines-canvas "◆"
    :routing         "🌐"
    :issues          "⚠"})
 

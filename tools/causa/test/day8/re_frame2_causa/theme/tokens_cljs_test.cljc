@@ -178,14 +178,13 @@
 ;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
 
 (deftest panel-domain-map-covers-every-l4-tab
-  (testing "rf2-5kfxe.8 — the 8 L4 tabs each get a domain colour, so
+  (testing "rf2-5kfxe.8 — the 7 L4 tabs each get a domain colour, so
             panels are distinguishable at a glance via the 3px left
-            border on their header. Machines Canvas (rf2-mkpnb)
-            shares :green with Machines (the two are sibling
-            sub-domain tabs). (rf2-4v67l — Chrome A11y was removed in
-            favour of Story's already-shipped chrome-a11y dogfood per
-            rf2-18t6p.)"
-    (let [tabs #{:event :app-db :views :trace :machines :machines-canvas
+            border on their header. (rf2-4v67l — Chrome A11y was removed
+            in favour of Story's already-shipped chrome-a11y dogfood per
+            rf2-18t6p. rf2-ga16q — Machines Canvas removed; its
+            browse-all canvas relocated to the Static Machines sub-tab.)"
+    (let [tabs #{:event :app-db :views :trace :machines
                  :routing :issues}]
       (is (= tabs (set (keys t/panel-domain->token)))))))
 
@@ -537,7 +536,7 @@
             (rf2-4v67l — Chrome A11y removed in favour of Story's
             already-shipped chrome-a11y dogfood per rf2-18t6p.)"
     (let [tabs #{:event :reactive :views :app-db :trace :machines
-                 :machines-canvas :routing :issues}]
+                 :routing :issues}]
       (is (= tabs (set (keys t/panel-icon)))))))
 
 (deftest panel-icon-glyphs-are-strings
@@ -556,7 +555,6 @@
     (is (= "◐" (:app-db          t/panel-icon)))
     (is (= "⬢" (:trace           t/panel-icon)))
     (is (= "◆" (:machines        t/panel-icon)))
-    (is (= "◆" (:machines-canvas t/panel-icon)))
     (is (= "🌐" (:routing         t/panel-icon)))
     (is (= "⚠" (:issues          t/panel-icon)))))
 

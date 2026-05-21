@@ -47,7 +47,7 @@ The chapters:
 - [5. Click-to-source](05-click-to-source.md) — the hero gesture: any DOM element back to its line.
 - [6. Schema-violation timeline](06-schema-timeline.md) — Malli failures, surfaced on the Issues tab.
 - [7. Hydration debugger](07-hydration.md) — server vs client render diff.
-- [8. Machine inspector](08-machine-inspector.md) — the Machines tab + the spine-independent Machines Canvas.
+- [8. Machine inspector](08-machine-inspector.md) — the event-driven Machines tab + the spine-independent browse-all canvas under Static mode.
 - [9. App-DB diff](09-app-db-diff.md) — the App DB tab: slice-centric diff per epoch.
 
 ---
@@ -61,7 +61,7 @@ Causa is one tool with two reading postures. The same trace bus and the same reg
 | Question | "What just happened?" | "What is registered?" |
 | Coupled to | one focused event (the spine sub `:rf.causa/focus`) | nothing — event-independent |
 | Layers | 4 (L1 ribbon · L2 event list · L3 tabs · L4 detail) | 3 (L1 ribbon · L3 tabs · L4 detail — no spine) |
-| Tabs | 8: Event · App DB · View · Trace · Machines · Machines Canvas · Routing · Issues | 5: Machines · Routes · Schemas · Flows · Interceptors |
+| Tabs | 7: Event · App DB · View · Trace · Machines · Routing · Issues | 5: Machines · Routes · Schemas · Flows · Interceptors |
 | Edge stripe | violet | cyan |
 | Motion | LIVE pulse + tab fade | dampened — pulses off, instant tab swaps |
 
@@ -69,7 +69,7 @@ Causa is one tool with two reading postures. The same trace bus and the same reg
 
 - **L1 — ribbon.** Scope controls: the nav cluster (`◀ ▶ ⏭` — back / forward / snap-to-head), the frame picker, the IN/OUT filter pills, and the right-icons (settings `⚙`, close `✕`).
 - **L2 — event list.** The spine. Single-line rows, latest-on-bottom, eight visible by default and user-resizable. This *is* the timeline — clicking a row focuses it (flips to RETRO) and rebinds every tab below; pressing `⏭` snaps focus back to the live head. Time-travel is reached here, not on a bottom rail (see [chapter 3](03-time-travel.md)).
-- **L3 — tab bar.** Eight tabs, each a lens on the one focused event. Mnemonic letters: Event `e` · App DB `a` · View `v` · Trace `t` · Machines `m` · Machines Canvas `c` · Routing `r` · Issues `i`. Count badges (`View 8`, `Trace 47`) update as focus moves.
+- **L3 — tab bar.** Seven tabs, each a lens on the one focused event. Mnemonic letters: Event `e` · App DB `a` · View `v` · Trace `t` · Machines `m` · Routing `r` · Issues `i`. Count badges (`View 8`, `Trace 47`) update as focus moves.
 - **L4 — detail panel.** The active tab's projection of the focused event, filling the remaining canvas.
 
 **Static is Causa-in-a-quieter-key.** It drops the L2 spine — there is no "focused event" to couple to — and renders the same ribbon and tab-bar over five registry-browse tabs: Machines (default), Routes, Schemas, Flows, Interceptors. Use it to answer "what machines exist and what do they look like?", "which routes are registered and how do they rank?", "what schemas guard which slots?" — questions about the *shape* of the app, not a particular cascade.

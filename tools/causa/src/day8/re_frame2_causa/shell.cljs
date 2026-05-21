@@ -57,24 +57,22 @@
 
   ## Tab bar (L3)
 
-  Eight tabs, mnemonic letters per spec/018 §11:
+  Seven tabs, mnemonic letters per spec/018 §11:
 
-      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Machines Canvas (c) · Routing (r) · Issues (i)
+      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Routing (r) · Issues (i)
 
   Selection lives on `:rf.causa/selected-tab` and drives the L4
   detail panel's case switch. Routing was promoted to its own tab
-  per rf2-nrbs9 (Mike's design call, 2026-05-18); Machines Canvas
-  was promoted per rf2-mkpnb — both follow the cohesive-sub-domain
-  rule (sub-domains earn their own lens tab rather than overloading
-  the parent tab).
+  per rf2-nrbs9 (Mike's design call, 2026-05-18) — it follows the
+  cohesive-sub-domain rule (sub-domains earn their own lens tab
+  rather than overloading the parent tab).
 
   ## Detail panel (L4)
 
   Renders the active tab's projection of the focused event. Tabs
   reuse the existing per-panel views where possible (Event tab →
   `event-detail/Panel`, App-db → `app-db-diff/Panel`, Trace →
-  `trace/Panel`, Machines → `machine-inspector/Panel`, Machines
-  Canvas → `panels.machines-canvas.panel/Panel`, Routing →
+  `trace/Panel`, Machines → `machine-inspector/Panel`, Routing →
   `routing/Panel`, Issues → `issues-ribbon/Panel`). The Views tab
   is a stub pending the §5.3 per-view content design.
 
@@ -1483,9 +1481,8 @@
      label]))
 
 (rf/reg-view tab-bar
-  "L3 tab bar — eight tabs per spec/018 §5 The 8 tabs (Routing
-  promoted per rf2-nrbs9; Machines Canvas promoted per rf2-mkpnb —
-  both follow the cohesive-sub-domain rule).
+  "L3 tab bar — seven tabs per spec/018 §5 The 7 tabs (Routing
+  promoted per rf2-nrbs9 — follows the cohesive-sub-domain rule).
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`.

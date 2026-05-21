@@ -26,8 +26,7 @@
     - **Reactive**        → `reactive-panel/Panel`
     - **Trace**           → `trace/Panel`
     - **Machines**        → `machine-inspector/Panel`
-    - **Machines Canvas** → `machines-canvas-panel/Panel` (rf2-mkpnb — 6th tab)
-    - **Routing**         → `routing/Panel` (rf2-nrbs9 — 7th tab)
+    - **Routing**         → `routing/Panel` (rf2-nrbs9)
     - **Issues**          → `issues-ribbon/Panel`
 
   ## The chrome (rf2-xy4yb / spec/018)
