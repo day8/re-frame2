@@ -48,13 +48,23 @@
      :cljs (js/encodeURIComponent (str s))))
 
 (defn params->query
-  "Encode a `:params` map as a query string (no leading `?`)."
+  "Encode a `:params` map as a query string (no leading `?`).
+
+  Scalar values (string / number / keyword / boolean) encode to a single
+  `k=v` pair. A sequential value (vector / seq / list) encodes as one
+  repeated `k=v` pair per element — `{:tag [\"a\" \"b\"]}` → `tag=a&tag=b`
+  (rf2-mag59). Repeat-key is the conventional HTTP-client idiom for
+  multi-valued query params; Spec 012 §Query strings and fragments does
+  not normatively pin a multi-valued shape, so the client picks the most
+  interoperable one. An empty sequential value contributes no pair. A
+  `nil` value still emits a bare `k=` pair (the key carries no value)."
   [params]
   (->> params
-       (map (fn [[k v]]
-              (str (url-encode (if (keyword? k) (name k) (str k)))
-                   "="
-                   (url-encode v))))
+       (mapcat (fn [[k v]]
+                 (let [k-enc (url-encode (if (keyword? k) (name k) (str k)))]
+                   (if (sequential? v)
+                     (map #(str k-enc "=" (url-encode %)) v)
+                     [(str k-enc "=" (url-encode v))]))))
        (str/join "&")))
 
 (defn merge-params
@@ -110,13 +120,21 @@
 
   Per rf2-5ijhk + audit finding 3.3 the default-accept shape is
   inlined here (the earlier `default-accept-fn` allocated a fresh
-  closure per response even when the user didn't supply `:accept`)."
-  [accept-fn-or-nil decoded {:keys [status]}]
+  closure per response even when the user didn't supply `:accept`).
+
+  Per rf2-7iji6 the default is unconditionally `{:ok decoded}`. The only
+  call site (`http-transport/handle-response!`) reaches `run-accept`
+  exclusively inside the 2xx branch — status classification (4xx / 5xx /
+  non-2xx-else) runs BEFORE decode per Spec 014 §Failure categories, so
+  the default never sees a non-2xx status. The earlier non-2xx arm was
+  dead on the live cascade and emitted an off-taxonomy `:kind
+  :http-status` (not a member of the closed `:rf.http/*` failure set);
+  it has been removed. `:accept` runs only against a successfully
+  decoded 2xx body, so it needs no status."
+  [accept-fn-or-nil decoded]
   (if accept-fn-or-nil
     (accept-fn-or-nil decoded)
-    (if (and (>= status 200) (< status 300))
-      {:ok decoded}
-      {:failure {:kind :http-status :status status :body decoded}})))
+    {:ok decoded}))
 
 ;; ---- reply addressing -----------------------------------------------------
 
