@@ -6,11 +6,35 @@ There's also a small inspection surface for "what's currently installed?" — `c
 
 ## Adapter selection
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `init!` | Fn | `(init! adapter-map)` | v1 | The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile / load time — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime. Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. Ensures `:rf/default` frame is present. |
-| `install-adapter!` | Fn | `(install-adapter! adapter-map)` | v1 | Must be called before any frame is created. **Lower-level than `init!`**; most consumers call `init!` instead. Use it when you're writing a custom boot pipeline that has additional steps between adapter-install and first-frame creation. |
-| `destroy-adapter!` | Fn | `(destroy-adapter!)` | v2 | Tear down the installed adapter. Calls the adapter spec's `:dispose-adapter!` fn (if present), clears the install slot so a new adapter can install, and flips the `adapter-disposed?` breadcrumb. Symmetric with `install-adapter!` and with `destroy-frame!` — same `destroy-` verb-cluster (lifecycle boundary). |
+### `init!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (init! adapter-map)
+  ```
+- **Status**: v1
+- **Description**: The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile / load time — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime. Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. Ensures `:rf/default` frame is present.
+
+### `install-adapter!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (install-adapter! adapter-map)
+  ```
+- **Status**: v1
+- **Description**: Must be called before any frame is created. **Lower-level than `init!`**; most consumers call `init!` instead. Use it when you're writing a custom boot pipeline that has additional steps between adapter-install and first-frame creation.
+
+### `destroy-adapter!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (destroy-adapter!)
+  ```
+- **Status**: v2
+- **Description**: Tear down the installed adapter. Calls the adapter spec's `:dispose-adapter!` fn (if present), clears the install slot so a new adapter can install, and flips the `adapter-disposed?` breadcrumb. Symmetric with `install-adapter!` and with `destroy-frame!` — same `destroy-` verb-cluster (lifecycle boundary).
 
 The adapter-spec **map key** `:dispose-adapter!` is an internal contract slot adapters implement; ignore it unless you're authoring an adapter.
 
@@ -28,11 +52,35 @@ Most app code never sees the spec map — you just pass the adapter's `adapter` 
 
 ## Inspection
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `current-adapter` | Fn | `(current-adapter)` → discriminator keyword | v1 | "What substrate am I on?" Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. For predicate / branch code. |
-| `current-adapter-spec` | Fn | `(current-adapter-spec)` → installed adapter spec map | v1 | "Give me the adapter fns to call." The value passed to `(rf/init! ...)`, or `nil` when no adapter is installed. Use for tools / routing / identity checks across the install / dispose lifecycle. For the discriminator keyword, use `current-adapter`. |
-| `adapter-disposed?` | Fn | `(adapter-disposed?)` → boolean | v1 | "Was the adapter torn down?" Returns `true` iff the most recent lifecycle event was a successful `destroy-adapter!` and no subsequent `install-adapter!` has fired. `false` for never-installed (fresh process) AND after a fresh install. Read-only — the breadcrumb is owned by the install / destroy pair. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down). |
+### `current-adapter`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (current-adapter) → discriminator keyword
+  ```
+- **Status**: v1
+- **Description**: "What substrate am I on?" Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. For predicate / branch code.
+
+### `current-adapter-spec`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (current-adapter-spec) → installed adapter spec map
+  ```
+- **Status**: v1
+- **Description**: "Give me the adapter fns to call." The value passed to `(rf/init! ...)`, or `nil` when no adapter is installed. Use for tools / routing / identity checks across the install / dispose lifecycle. For the discriminator keyword, use `current-adapter`.
+
+### `adapter-disposed?`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (adapter-disposed?) → boolean
+  ```
+- **Status**: v1
+- **Description**: "Was the adapter torn down?" Returns `true` iff the most recent lifecycle event was a successful `destroy-adapter!` and no subsequent `install-adapter!` has fired. `false` for never-installed (fresh process) AND after a fresh install. Read-only — the breadcrumb is owned by the install / destroy pair. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down).
 
 The split between `current-adapter` (keyword) and `current-adapter-spec` (map) is principled. The keyword is for switch-like code that branches on substrate identity. The spec map is for code that needs to call adapter fns or compare adapter identity across reinstalls.
 
@@ -51,9 +99,15 @@ The two states share the "no current adapter" surface but answer different quest
 
 The `configure` fn is the lifecycle's adjacent surface — process-level data knobs that you typically set once at boot, possibly tweak in tests, and rarely touch in app code.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `configure` | Fn | `(configure key opts)` | v1 | Runtime config. One of three orthogonal configuration surfaces — `configure` for process-level data knobs; `set-!` / `install-!` for adapter-pluggable hooks; per-frame metadata for frame-scoped overrides. The vocabulary of keys lives in [01 — Core §Configure keys](01-core.md#runtime-configuration-configure). |
+### `configure`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (configure key opts)
+  ```
+- **Status**: v1
+- **Description**: Runtime config. One of three orthogonal configuration surfaces — `configure` for process-level data knobs; `set-!` / `install-!` for adapter-pluggable hooks; per-frame metadata for frame-scoped overrides. The vocabulary of keys lives in [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
 The three configuration surfaces — `configure`, the `set-!` / `install-!` setters (`set-schema-validator!`, etc.), and per-frame metadata — are deliberately separate. Each answers a different question: `configure` for data knobs (depth, threshold, grace period); the setters for hook-shaped pluggability (which validator to use, which printer); per-frame metadata for frame-scoped overrides (which projector, which `:fx-overrides`).
 

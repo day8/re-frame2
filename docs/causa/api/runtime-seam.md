@@ -40,10 +40,20 @@ Every mutation the runtime performs on behalf of a tool client carries `:tags :o
   :causa-mcp)
 ```
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `*current-origin*` | `^:dynamic` Var | v1 (dev-only) | Default `:causa-mcp`. The tool client wraps each eval'd form in `(binding [runtime/*current-origin* :my-tool] ...)` for the synchronous extent. |
-| `current-origin` | `(current-origin)` → keyword | v1 (dev-only) | Read accessor — answers "what's the current `:origin` tag?". Public so tests can pin the rebind contract without `#'`-piercing the dynamic var. |
+### `*current-origin*`
+
+- **Kind**: `^:dynamic` Var
+- **Status**: v1 (dev-only)
+- **Description**: Default `:causa-mcp`. The tool client wraps each eval'd form in `(binding [runtime/*current-origin* :my-tool] ...)` for the synchronous extent.
+
+### `current-origin`
+
+- **Signature**:
+  ```clojure
+  (current-origin) → keyword
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Read accessor — answers "what's the current `:origin` tag?". Public so tests can pin the rebind contract without `#'`-piercing the dynamic var.
 
 The async-tagging gap: a dispatched event's downstream cascade carries the origin only through the synchronous handler frame. Later cascades pick up the framework's natural origin tagging.
 
@@ -67,27 +77,118 @@ Callers pass plain `:include-sensitive?` / `:include-large?` opts; the runtime t
 
 Nine read-only accessors. Every one returns a map; success is `:ok? true`; failure is `:ok? false :reason <kw> :hint <str>`.
 
-| Accessor | Signature | Status | Intuition |
-|---|---|---|---|
-| `get-trace-buffer` | `(get-trace-buffer opts)` → `{:ok? true :events <vec> :count <n>}` | v1 (dev-only) | Filtered slice of the framework's trace stream. Filter keys are the canonical Spec 009 vocabulary — `:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`. |
-| `get-epoch-history` | `(get-epoch-history opts)` → `{:ok? true :frame <id> :epochs <vec> :count <n>}` | v1 (dev-only) | The per-frame epoch ring buffer. Each epoch is a `:rf/epoch-record` (drain-completion snapshot with `:db-before` / `:db-after`). Default depth 50. |
-| `get-app-db` | `(get-app-db opts)` → `{:ok? true :frame <id> :path <vec> :value <edn>}` | v1 (dev-only) | The live `app-db` for a frame, optionally scoped by `:path` for sub-tree reads. Reads through `elide-wire-value` so `:sensitive?` / `:large?`-marked paths egress as elision markers. |
-| `get-app-db-diff` | `(get-app-db-diff opts)` → `{:ok? true :frame <id> :epoch-id <uuid> :diff {:before … :after …}}` | v1 (dev-only) | Reads `:db-before` + `:db-after` off a named epoch record. Heavy nested-diff projection lives on the MCP server side; this accessor returns the raw before / after pair. |
-| `get-machine-state` | `(get-machine-state opts)` → `{:ok? true :frame <id> :machine-id <kw> :state <edn>}` | v1 (dev-only) | Per-machine state read. The Stately-grade state-chart inspector reads this; tools that want machine-state pinning for a record-replay assertion compose against it directly. |
-| `get-machine-list` | `(get-machine-list opts)` → `{:ok? true :machines <map> :count <n>}` | v1 (dev-only) | Map of every machine registered in the active frame, keyed by machine-id. Used by the machine-inspector dropdown and by tools enumerating the machine surface. |
-| `get-issues` | `(get-issues opts)` → `{:ok? true :issues <vec> :count <n>}` | v1 (dev-only) | Projection over the trace buffer filtered to issue-tier op-types — `:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`. The Issues ribbon paints this; tools that want "what's broken right now?" reach for it. |
-| `get-handlers` | `(get-handlers opts)` → `{:ok? true :handlers <vec> :count <n>}` | v1 (dev-only) | Registrar listing, optionally narrowed by `:kind ∈ #{:event :sub :fx :cofx :machine :flow :reg-machine :frame :view}`. Source-coord metadata travels with each row. |
-| `get-source-coord` | `(get-source-coord opts)` → `{:ok? true :kind <kw> :id <any> :source-coord <map>}` | v1 (dev-only) | Per-registration source-coord projection. Resolves an event-id / sub-id / handler-id back to the `{:ns :file :line :column}` of where it was registered. The "click anywhere, walk to the line" backbone. |
+### `get-trace-buffer`
+
+- **Signature**:
+  ```clojure
+  (get-trace-buffer opts) → {:ok? true :events <vec> :count <n>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Filtered slice of the framework's trace stream. Filter keys are the canonical Spec 009 vocabulary — `:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`.
+
+### `get-epoch-history`
+
+- **Signature**:
+  ```clojure
+  (get-epoch-history opts) → {:ok? true :frame <id> :epochs <vec> :count <n>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The per-frame epoch ring buffer. Each epoch is a `:rf/epoch-record` (drain-completion snapshot with `:db-before` / `:db-after`). Default depth 50.
+
+### `get-app-db`
+
+- **Signature**:
+  ```clojure
+  (get-app-db opts) → {:ok? true :frame <id> :path <vec> :value <edn>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The live `app-db` for a frame, optionally scoped by `:path` for sub-tree reads. Reads through `elide-wire-value` so `:sensitive?` / `:large?`-marked paths egress as elision markers.
+
+### `get-app-db-diff`
+
+- **Signature**:
+  ```clojure
+  (get-app-db-diff opts) → {:ok? true :frame <id> :epoch-id <uuid> :diff {:before … :after …}}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Reads `:db-before` + `:db-after` off a named epoch record. Heavy nested-diff projection lives on the MCP server side; this accessor returns the raw before / after pair.
+
+### `get-machine-state`
+
+- **Signature**:
+  ```clojure
+  (get-machine-state opts) → {:ok? true :frame <id> :machine-id <kw> :state <edn>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Per-machine state read. The Stately-grade state-chart inspector reads this; tools that want machine-state pinning for a record-replay assertion compose against it directly.
+
+### `get-machine-list`
+
+- **Signature**:
+  ```clojure
+  (get-machine-list opts) → {:ok? true :machines <map> :count <n>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Map of every machine registered in the active frame, keyed by machine-id. Used by the machine-inspector dropdown and by tools enumerating the machine surface.
+
+### `get-issues`
+
+- **Signature**:
+  ```clojure
+  (get-issues opts) → {:ok? true :issues <vec> :count <n>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Projection over the trace buffer filtered to issue-tier op-types — `:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`. The Issues ribbon paints this; tools that want "what's broken right now?" reach for it.
+
+### `get-handlers`
+
+- **Signature**:
+  ```clojure
+  (get-handlers opts) → {:ok? true :handlers <vec> :count <n>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Registrar listing, optionally narrowed by `:kind ∈ #{:event :sub :fx :cofx :machine :flow :reg-machine :frame :view}`. Source-coord metadata travels with each row.
+
+### `get-source-coord`
+
+- **Signature**:
+  ```clojure
+  (get-source-coord opts) → {:ok? true :kind <kw> :id <any> :source-coord <map>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Per-registration source-coord projection. Resolves an event-id / sub-id / handler-id back to the `{:ns :file :line :column}` of where it was registered. The "click anywhere, walk to the line" backbone.
 
 ## Mutation band
 
 Three write accessors. Every mutation tags the runtime cascade with `:tags :origin *current-origin*` so the action surfaces in the trace stream and downstream tool consumers can distinguish tool-driven cascades from app-driven ones.
 
-| Accessor | Signature | Status | Intuition |
-|---|---|---|---|
-| `dispatch!` | `(dispatch! event-vec opts)` → `{:ok? true :event-id <kw> :frame <id> :origin <kw> :mode :queued/:sync}` | v1 (dev-only) | Fire an event tagged with the current origin. Modes: `:queued` (default — non-blocking `rf/dispatch`) or `:sync` (`rf/dispatch-sync`). Frame resolution mirrors the read-side accessors. |
-| `restore-epoch!` | `(restore-epoch! opts)` → `{:ok? true/false :frame <id> :epoch-id <uuid> :origin <kw>}` | v1 (dev-only) | Rewind a frame's `app-db` to the named epoch's `:db-after` via `rf/restore-epoch`. Failures (six documented modes — see [Tool-Pair §Time-travel — Restore](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)) emit a structured `:rf.epoch/*` trace and leave `app-db` unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus. |
-| `reset-frame-db!` | `(reset-frame-db! opts)` → `{:ok? true/false :frame <id> :origin <kw>}` | v1 (dev-only) | Inject `:value` into a frame's `app-db`. Schema-validates via `rf/reset-frame-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/reset-frame-db-during-drain` / `:rf.epoch/reset-frame-db-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint. |
+### `dispatch!`
+
+- **Signature**:
+  ```clojure
+  (dispatch! event-vec opts)
+    → {:ok? true :event-id <kw> :frame <id> :origin <kw> :mode :queued/:sync}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Fire an event tagged with the current origin. Modes: `:queued` (default — non-blocking `rf/dispatch`) or `:sync` (`rf/dispatch-sync`). Frame resolution mirrors the read-side accessors.
+
+### `restore-epoch!`
+
+- **Signature**:
+  ```clojure
+  (restore-epoch! opts) → {:ok? true/false :frame <id> :epoch-id <uuid> :origin <kw>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Rewind a frame's `app-db` to the named epoch's `:db-after` via `rf/restore-epoch`. Failures (six documented modes — see [Tool-Pair §Time-travel — Restore](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)) emit a structured `:rf.epoch/*` trace and leave `app-db` unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus.
+
+### `reset-frame-db!`
+
+- **Signature**:
+  ```clojure
+  (reset-frame-db! opts) → {:ok? true/false :frame <id> :origin <kw>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Inject `:value` into a frame's `app-db`. Schema-validates via `rf/reset-frame-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/reset-frame-db-during-drain` / `:rf.epoch/reset-frame-db-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint.
 
 The three together compose the Tool-Pair time-travel surface: read an epoch, restore to that epoch, or directly inject a known-good state for "try anyway" recovery.
 
@@ -95,45 +196,104 @@ The three together compose the Tool-Pair time-travel surface: read an epoch, res
 
 Three subscription-bookkeeping accessors. The runtime records metadata for in-flight subscriptions; per-tick drain pumps and queue-overflow bookkeeping live on the MCP server side.
 
-| Accessor | Signature | Status | Intuition |
-|---|---|---|---|
-| `subscribe!` | `(subscribe! opts)` → `{:ok? true :sub-id <uuid> :topic <kw> :filter <map>}` | v1 (dev-only) | Open a streaming subscription for `:topic ∈ #{:trace :epoch :fx :error}` with `:filter`. The runtime records metadata; the MCP server's tick loop drains and forwards. |
-| `unsubscribe!` | `(unsubscribe! opts)` → `{:ok? true :sub-id <id> :existed? <bool>}` | v1 (dev-only) | Idempotent close. `:existed? false` for an unknown id. |
-| `list-subscriptions` | `(list-subscriptions)` → `{:ok? true :subs <vec> :count <n>}` | v1 (dev-only) | Diagnostic enumerating active runtime-side subscription metadata. Per-tick `:queue-depth` / `:queue-bytes` / `:dropped-events` fields live on the MCP server side. |
+### `subscribe!`
+
+- **Signature**:
+  ```clojure
+  (subscribe! opts) → {:ok? true :sub-id <uuid> :topic <kw> :filter <map>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Open a streaming subscription for `:topic ∈ #{:trace :epoch :fx :error}` with `:filter`. The runtime records metadata; the MCP server's tick loop drains and forwards.
+
+### `unsubscribe!`
+
+- **Signature**:
+  ```clojure
+  (unsubscribe! opts) → {:ok? true :sub-id <id> :existed? <bool>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Idempotent close. `:existed? false` for an unknown id.
+
+### `list-subscriptions`
+
+- **Signature**:
+  ```clojure
+  (list-subscriptions) → {:ok? true :subs <vec> :count <n>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Diagnostic enumerating active runtime-side subscription metadata. Per-tick `:queue-depth` / `:queue-bytes` / `:dropped-events` fields live on the MCP server side.
 
 ## Escape hatch
 
 One accessor handles arbitrary CLJS forms — the MCP server's `eval-cljs` channel renders the user-supplied form inside the runtime's `binding` wrapper.
 
-| Accessor | Signature | Status | Intuition |
-|---|---|---|---|
-| `eval-form-result` | `(eval-form-result value opts)` → `{:ok? true :value <elided>}` | v1 (dev-only) | The runtime-side result shaper. The MCP server renders the user's form inside a `(binding [*current-origin* …] …)` wrapper, `cljs-eval`s the wrapped form directly, and the result passes through `eval-form-result` for privacy + size scrubbing. Caller's `:include-sensitive?` / `:include-large?` opts gate the egress. |
+### `eval-form-result`
+
+- **Signature**:
+  ```clojure
+  (eval-form-result value opts) → {:ok? true :value <elided>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The runtime-side result shaper. The MCP server renders the user's form inside a `(binding [*current-origin* …] …)` wrapper, `cljs-eval`s the wrapped form directly, and the result passes through `eval-form-result` for privacy + size scrubbing. Caller's `:include-sensitive?` / `:include-large?` opts gate the egress.
 
 ## Meta band
 
 Two introspection accessors used by the tool client's discovery + change-detect protocols.
 
-| Accessor | Signature | Status | Intuition |
-|---|---|---|---|
-| `health` | `(health)` → `{:ok? true :session-id <uuid> :debug-enabled? <bool> :frames <vec> :ambiguous-frame? <bool> :coord-annotation-enabled? <bool> :origin <kw>}` | v1 (dev-only) | One-call summary of the runtime's view of the world. Side-effect-free — Causa-the-panel's preload owns the trace + epoch listeners; this accessor installs no listeners of its own. Used by `discover-app` tools. |
-| `tail-build-probe` | `(tail-build-probe)` → `{:ok? true :probe <int> :session-id <uuid> :build-tick <int>}` | v1 (dev-only) | Returns a fresh monotonic counter every call. MCP servers poll until the value changes — proving a hot-reload landed and the runtime re-evaluated. The counter survives `:after-load` (`defonce`) and resets only on full page refresh (same lifetime as `session-id`). Change-detect lives MCP-side. |
+### `health`
+
+- **Signature**:
+  ```clojure
+  (health)
+    → {:ok? true :session-id <uuid> :debug-enabled? <bool> :frames <vec>
+       :ambiguous-frame? <bool> :coord-annotation-enabled? <bool> :origin <kw>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: One-call summary of the runtime's view of the world. Side-effect-free — Causa-the-panel's preload owns the trace + epoch listeners; this accessor installs no listeners of its own. Used by `discover-app` tools.
+
+### `tail-build-probe`
+
+- **Signature**:
+  ```clojure
+  (tail-build-probe) → {:ok? true :probe <int> :session-id <uuid> :build-tick <int>}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Returns a fresh monotonic counter every call. MCP servers poll until the value changes — proving a hot-reload landed and the runtime re-evaluated. The counter survives `:after-load` (`defonce`) and resets only on full page refresh (same lifetime as `session-id`). Change-detect lives MCP-side.
 
 ## Test support
 
 One test-fixture isolation helper. Production code never calls this.
 
-| Accessor | Signature | Status | Intuition |
-|---|---|---|---|
-| `reset-for-test!` | `(reset-for-test!)` → nil | v1 (test-only) | Clears `subscriptions` + `probe-counter` for fixture isolation. Does NOT touch `session-id` (per-preload constant by design) or the JS-global sentinel. Test-only — never call from production code. |
+### `reset-for-test!`
+
+- **Signature**:
+  ```clojure
+  (reset-for-test!) → nil
+  ```
+- **Status**: v1 (test-only)
+- **Description**: Clears `subscriptions` + `probe-counter` for fixture isolation. Does NOT touch `session-id` (per-preload constant by design) or the JS-global sentinel. Test-only — never call from production code.
 
 ## Keybinding lifecycle
 
 The keybinding lifecycle pair lives in a sibling namespace — `day8.re-frame2-causa.keybinding` — but its shape and intended audience put it closer to the runtime seam than to the mount facade. The pair is the embed-host escape hatch: hosts that mount Causa as a right-hand-side panel (Story, third-party tool surfaces) and want to take the `Ctrl+Shift+C` chord back reach for `detach!`.
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `attach!` | `(attach!)` → nil | v1 (dev-only) | Install the global `Ctrl+Shift+C` keydown listener once. No-op on second + subsequent calls (the `attached-state` sentinel survives reloads). Honours the `:rf.causa/keybinding-enabled?` config slot — when `false` the listener is NOT installed. |
-| `detach!` | `(detach!)` → nil | v1 (dev-only) | Remove the global keydown listener if one is currently attached. Idempotent — safe to call when nothing is attached (no-op), and safe to call twice in a row (the second call is a no-op). Symmetric with `attach!`. |
+### `attach!`
+
+- **Signature**:
+  ```clojure
+  (attach!) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Install the global `Ctrl+Shift+C` keydown listener once. No-op on second + subsequent calls (the `attached-state` sentinel survives reloads). Honours the `:rf.causa/keybinding-enabled?` config slot — when `false` the listener is NOT installed.
+
+### `detach!`
+
+- **Signature**:
+  ```clojure
+  (detach!) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Remove the global keydown listener if one is currently attached. Idempotent — safe to call when nothing is attached (no-op), and safe to call twice in a row (the second call is a no-op). Symmetric with `attach!`.
 
 The two surfaces compose: standalone Causa calls `attach!` from the preload's six side-effects; an embed host that loaded Causa first and wants to take the chord back from inside its own mount lifecycle calls `detach!` after Causa has already attached.
 

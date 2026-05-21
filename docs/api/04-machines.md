@@ -10,12 +10,45 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
 
 ## Registration
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `reg-machine` | M | `(reg-machine machine-id machine-spec)` | v1 | The canonical macro. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` — Causa uses these to navigate from a snapshot back to the state-node definition. Top-level call-site coords land on `handler-meta`. |
-| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` | v1 | Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data. |
-| `make-machine-handler` | Fn | `(make-machine-handler spec)` → event-handler fn | v1 | Compiles a transition table into the event-handler fn that `reg-machine` would register. Useful when you want to inspect the compiled fn or compose it manually. |
-| `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | The pure transition fn. Given a machine definition, a current snapshot, and an event, returns the next snapshot and the effect map. JVM-runnable; the conformance harness uses this as its primary test surface for machine behaviour. |
+### `reg-machine`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-machine machine-id machine-spec)
+  ```
+- **Status**: v1
+- **Description**: The canonical macro. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` — Causa uses these to navigate from a snapshot back to the state-node definition. Top-level call-site coords land on `handler-meta`.
+
+### `reg-machine*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-machine* machine-id machine-spec)
+  ```
+- **Status**: v1
+- **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data.
+
+### `make-machine-handler`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (make-machine-handler spec) → event-handler fn
+  ```
+- **Status**: v1
+- **Description**: Compiles a transition table into the event-handler fn that `reg-machine` would register. Useful when you want to inspect the compiled fn or compose it manually.
+
+### `machine-transition`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machine-transition definition snapshot event) → [next-snapshot effects]
+  ```
+- **Status**: v1
+- **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns the next snapshot and the effect map. JVM-runnable; the conformance harness uses this as its primary test surface for machine behaviour.
 
 ### A minimal machine
 
@@ -40,13 +73,56 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
 
 ## Inspection and subscription
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | Sugar over `(subscribe [:rf/machine machine-id])`. Use inside views — gives you a reaction over `{:state :data}`. |
-| `machines` | Fn | `(machines)` → seq of machine-ids | v1 | "What machines have been registered?" Derived view over `(registrations :event)` filtered by `:rf/machine? true`. |
-| `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map | v1 | "What did `reg-machine` stamp at this machine's id?" Returns the transition table, doc, schemas, and the per-element source-coords. Equivalent to `(handler-meta :event machine-id)`. |
-| `machine-by-system-id` | Fn | `(machine-by-system-id system-id)` <br> `(machine-by-system-id system-id frame-id)` | v1 | Reverse-lookup: given a `system-id`, what's the spawned machine bound to it? Returns the spawned-machine id or `nil`. |
-| `machine-has-tag?` | Fn | `(machine-has-tag? machine-id tag)` → reaction | v1 | Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Reactive predicate over the machine's snapshot's `:tags` set. Use in views to render conditionally on state-tag membership. |
+### `sub-machine`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sub-machine machine-id) → reaction over snapshot
+  ```
+- **Status**: v1
+- **Description**: Sugar over `(subscribe [:rf/machine machine-id])`. Use inside views — gives you a reaction over `{:state :data}`.
+
+### `machines`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machines) → seq of machine-ids
+  ```
+- **Status**: v1
+- **Description**: "What machines have been registered?" Derived view over `(registrations :event)` filtered by `:rf/machine? true`.
+
+### `machine-meta`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machine-meta machine-id) → registration-metadata map
+  ```
+- **Status**: v1
+- **Description**: "What did `reg-machine` stamp at this machine's id?" Returns the transition table, doc, schemas, and the per-element source-coords. Equivalent to `(handler-meta :event machine-id)`.
+
+### `machine-by-system-id`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machine-by-system-id system-id)
+  (machine-by-system-id system-id frame-id)
+  ```
+- **Status**: v1
+- **Description**: Reverse-lookup: given a `system-id`, what's the spawned machine bound to it? Returns the spawned-machine id or `nil`.
+
+### `machine-has-tag?`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machine-has-tag? machine-id tag) → reaction
+  ```
+- **Status**: v1
+- **Description**: Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Reactive predicate over the machine's snapshot's `:tags` set. Use in views to render conditionally on state-tag membership.
 
 ### Standard registered subs (machines)
 
@@ -58,9 +134,16 @@ The snapshot lives at `[:rf/machines :session]` in `app-db`. The shape is `{:sta
 
 ## Cross-machine messaging
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `dispatch-to-system` | Fn | `(dispatch-to-system system-id event)` <br> `(dispatch-to-system system-id event frame-id)` | v1 | Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`. No-op when the `system-id` is unbound. The third-arity targets a non-default frame. |
+### `dispatch-to-system`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (dispatch-to-system system-id event)
+  (dispatch-to-system system-id event frame-id)
+  ```
+- **Status**: v1
+- **Description**: Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`. No-op when the `system-id` is unbound. The third-arity targets a non-default frame.
 
 When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`. `dispatch-to-system` lets the parent name the child by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. The per-frame `[:rf/system-ids]` reverse index resolves the name. See [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
 
@@ -107,11 +190,31 @@ See [005 §Final states](../../spec/005-StateMachines.md#final-states-final--on-
 
 ## Post-v1 tooling exports
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `machine->xstate-json` | Fn | `(machine->xstate-json definition)` → JSON string | post-v1 lib | Export a machine definition to XState JSON. The XState visualiser consumes it; useful for design review and documentation. |
-| `machine->mermaid` | Fn | `(machine->mermaid definition)` → string | post-v1 lib | Export to Mermaid state-diagram syntax. Drops cleanly into Markdown docs that render Mermaid (this site does). |
-| `:child-machine` (transition-table key) | — | Declarative state-scoped child-machine binding. | post-v1 lib | A state node can declare a child machine that lives only while the parent is in that state. Symmetric with the imperative `:spawn` / `:destroy` cycle. |
+### `machine->xstate-json`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machine->xstate-json definition) → JSON string
+  ```
+- **Status**: post-v1 lib
+- **Description**: Export a machine definition to XState JSON. The XState visualiser consumes it; useful for design review and documentation.
+
+### `machine->mermaid`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (machine->mermaid definition) → string
+  ```
+- **Status**: post-v1 lib
+- **Description**: Export to Mermaid state-diagram syntax. Drops cleanly into Markdown docs that render Mermaid (this site does).
+
+### `:child-machine`
+
+- **Kind**: transition-table key (declarative)
+- **Status**: post-v1 lib
+- **Description**: Declarative state-scoped child-machine binding. A state node can declare a child machine that lives only while the parent is in that state. Symmetric with the imperative `:spawn` / `:destroy` cycle.
 
 The post-v1 surfaces live in `day8/re-frame2-machines` (the scaffolding library). The v1 foundation in `re-frame.core` covers the machine-as-event-handler primitive; the scaffolding library layers the higher-level features on top.
 

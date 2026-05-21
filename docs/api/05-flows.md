@@ -8,10 +8,27 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
 
 ## The flow surface
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `reg-flow` | Fn | `(reg-flow flow)` <br> `(reg-flow flow opts)` | v1 | Register a flow. The flow map carries `:id`, `:inputs`, `:output`, `:path`. `opts` is a map (currently `{:frame frame-id}`) selecting the owning frame. Returns the flow's `:id` (per the `reg-*` return-value convention). |
-| `clear-flow` | Fn | `(clear-flow id)` <br> `(clear-flow id opts)` | v1 | Deregister the flow from the named frame and `dissoc-in` its `:path` from that frame's `app-db` only. Sibling frames' state is preserved. |
+### `reg-flow`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-flow flow)
+  (reg-flow flow opts)
+  ```
+- **Status**: v1
+- **Description**: Register a flow. The flow map carries `:id`, `:inputs`, `:output`, `:path`. `opts` is a map (currently `{:frame frame-id}`) selecting the owning frame. Returns the flow's `:id` (per the `reg-*` return-value convention).
+
+### `clear-flow`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (clear-flow id)
+  (clear-flow id opts)
+  ```
+- **Status**: v1
+- **Description**: Deregister the flow from the named frame and `dissoc-in` its `:path` from that frame's `app-db` only. Sibling frames' state is preserved.
 
 ### A minimal flow
 

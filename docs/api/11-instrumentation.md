@@ -12,10 +12,25 @@ A minimal always-on listener surface that survives `:advanced` + `goog.DEBUG=fal
 
 Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:event` slot is passed through `elide-wire-value` (see below) once before fan-out, so schema-marked `:sensitive?` paths land as `:rf/redacted` and `:large?` paths land as `:rf.size/large-elided`.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `register-event-listener!` | Fn | `(register-event-listener! id listener-fn)` | v1 | Receive one event-record per processed event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. |
-| `unregister-event-listener!` | Fn | `(unregister-event-listener! id)` → nil | v1 | The inverse. |
+### `register-event-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (register-event-listener! id listener-fn)
+  ```
+- **Status**: v1
+- **Description**: Receive one event-record per processed event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
+
+### `unregister-event-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unregister-event-listener! id) → nil
+  ```
+- **Status**: v1
+- **Description**: The inverse.
 
 ## Error-emit (always-on, production-survivable)
 
@@ -23,27 +38,122 @@ Sibling of the event-emit surface above. Runs through the SAME always-on error-e
 
 Record shape: `{:error :event :event-id :frame :time :exception :elapsed-ms}`. The `:event` slot is passed through `elide-wire-value` once before fan-out (same redaction posture as event-emit). The two paths from the substrate (corpus-wide listeners AND the per-frame `:on-error` policy fn) are mutually isolated; either may throw without affecting the other.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `register-error-listener!` | Fn | `(register-error-listener! id listener-fn)` | v1 | Receive one error-record per `:rf.error/*` event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. |
-| `unregister-error-listener!` | Fn | `(unregister-error-listener! id)` → nil | v1 | The inverse. |
+### `register-error-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (register-error-listener! id listener-fn)
+  ```
+- **Status**: v1
+- **Description**: Receive one error-record per `:rf.error/*` event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
+
+### `unregister-error-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unregister-error-listener! id) → nil
+  ```
+- **Status**: v1
+- **Description**: The inverse.
 
 ## Tracing (dev-only)
 
 The rich-detail trace surface. **Dev-only — elided in production via Closure DCE under `:advanced` + `goog.DEBUG=false`.** See [009 §Tracing](../../spec/009-Instrumentation.md) for emit semantics and synchronous listener delivery.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `register-listener!` | Fn | `(register-listener! key callback-fn)` | v1 (dev-only) | "Receive every trace event the runtime emits." Synchronous delivery; the callback returns before the next trace event is processed. |
-| `unregister-listener!` | Fn | `(unregister-listener! key)` → nil | v1 (dev-only) | The inverse. |
-| `emit-trace-event!` | Fn | `(emit-trace-event! op-type operation tags)` → nil | v1 (dev-only) | "Emit a custom trace event." Use sparingly — the framework emits the load-bearing events; custom emission is for app-specific cross-cutting concerns the framework can't know about. |
-| `re-frame.interop/debug-enabled?` | Var | `^boolean` | v1 | **CLJS:** alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM:** a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly. |
-| `re-frame.performance/enabled?` | Var | `^boolean` | v1 | `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. |
-| `trace-buffer` | Fn | `(trace-buffer)` / `(trace-buffer opts)` → vector of trace events, oldest-first | v1 (dev-only) | "What's in the ring right now?" Reads the buffer non-destructively. Pair tools and Causa use this for post-mortem inspection. |
-| `clear-trace-buffer!` | Fn | `(clear-trace-buffer!)` → nil | v1 (dev-only) | Empty the ring. |
-| `(rf/configure :trace-buffer {:depth N})` | — | | v1 (dev-only) | Buffer depth knob. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure). |
-| `group-cascades` | Fn | `(group-cascades events)` → vector of cascade records | v1 (dev-only) | Pure data projection of a list of trace events into per-cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. JVM-runnable. Re-exported from `re-frame.trace.projection`. |
-| `domino-bucket` | Fn | `(domino-bucket trace-event)` → `#{:event :handler :fx :effect :sub :render :other}` | v1 (dev-only) | Classify a raw trace event into the six-domino slot used by `group-cascades`. Pure. |
+### `register-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (register-listener! key callback-fn)
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: "Receive every trace event the runtime emits." Synchronous delivery; the callback returns before the next trace event is processed.
+
+### `unregister-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unregister-listener! key) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The inverse.
+
+### `emit-trace-event!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (emit-trace-event! op-type operation tags) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: "Emit a custom trace event." Use sparingly — the framework emits the load-bearing events; custom emission is for app-specific cross-cutting concerns the framework can't know about.
+
+### `re-frame.interop/debug-enabled?`
+
+- **Kind**: Var (`^boolean`)
+- **Status**: v1
+- **Description**: **CLJS:** alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM:** a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly.
+
+### `re-frame.performance/enabled?`
+
+- **Kind**: Var (`^boolean`)
+- **Status**: v1
+- **Description**: `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op.
+
+### `trace-buffer`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (trace-buffer) → vector of trace events, oldest-first
+  (trace-buffer opts) → vector of trace events, oldest-first
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: "What's in the ring right now?" Reads the buffer non-destructively. Pair tools and Causa use this for post-mortem inspection.
+
+### `clear-trace-buffer!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (clear-trace-buffer!) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Empty the ring.
+
+### `(rf/configure :trace-buffer …)`
+
+- **Kind**: config key
+- **Signature**:
+  ```clojure
+  (rf/configure :trace-buffer {:depth N})
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Buffer depth knob. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
+
+### `group-cascades`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (group-cascades events) → vector of cascade records
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Pure data projection of a list of trace events into per-cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. JVM-runnable. Re-exported from `re-frame.trace.projection`.
+
+### `domino-bucket`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (domino-bucket trace-event) → #{:event :handler :fx :effect :sub :render :other}
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Classify a raw trace event into the six-domino slot used by `group-cascades`. Pure.
 
 ### Trace-emission opt-out
 
@@ -59,14 +169,65 @@ Used by framework-internal bookkeeping handlers (Causa, Story, re-frame2-pair-mc
 
 Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used by pair-shaped tools for time-travel and post-mortem analysis. **Production builds elide entirely.**
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `epoch-history` | Fn | `(epoch-history frame-id)` → vector of epoch records | v1 (dev-only) | Returns `[]` for an unknown / destroyed frame. |
-| `restore-epoch` | Fn | `(restore-epoch frame-id epoch-id)` → boolean | v1 (dev-only) | Restore the frame's `app-db` to the named epoch. Returns `true` on success; `false` for an unknown / destroyed frame (and emits `:rf.error/no-such-handler` of kind `:frame`). |
-| `reset-frame-db!` | Fn | `(reset-frame-db! frame-id new-db)` → boolean | v1 (dev-only) | Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the cascade. Returns `true` on success. |
-| `register-epoch-listener!` | Fn | `(register-epoch-listener! key callback-fn)` | v1 (dev-only) | Process-global assembled-epoch listener. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace. |
-| `unregister-epoch-listener!` | Fn | `(unregister-epoch-listener! key)` | v1 (dev-only) | The inverse. |
-| `(rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})` | — | | v1 (dev-only) | Buffer-depth and redactor knobs. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure). |
+### `epoch-history`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (epoch-history frame-id) → vector of epoch records
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Returns `[]` for an unknown / destroyed frame.
+
+### `restore-epoch`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (restore-epoch frame-id epoch-id) → boolean
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Restore the frame's `app-db` to the named epoch. Returns `true` on success; `false` for an unknown / destroyed frame (and emits `:rf.error/no-such-handler` of kind `:frame`).
+
+### `reset-frame-db!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reset-frame-db! frame-id new-db) → boolean
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the cascade. Returns `true` on success.
+
+### `register-epoch-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (register-epoch-listener! key callback-fn)
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Process-global assembled-epoch listener. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
+
+### `unregister-epoch-listener!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unregister-epoch-listener! key)
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The inverse.
+
+### `(rf/configure :epoch-history …)`
+
+- **Kind**: config key
+- **Signature**:
+  ```clojure
+  (rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Buffer-depth and redactor knobs. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
 ### Trace events emitted by epoch-history machinery
 
@@ -89,11 +250,37 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 
 `elide-wire-value` is the framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. **This walker is the single normative emission site for the `:rf/redacted` sensitive sentinel and the `:rf.size/large-elided` size marker.** Per-tool reimplementation is prohibited.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `elide-wire-value` | Fn | `(elide-wire-value v opts)` → `v` or an elision-marker substitution | v1 | Walk `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. |
-| `elision-declarations` | Fn | `(elision-declarations)` / `(elision-declarations frame-id)` | v1 | Read the current `[:rf/elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader. |
-| `populate-elision-from-schemas!` | Fn | `(populate-elision-from-schemas!)` / `(populate-elision-from-schemas! frame-id)` → vector of paths populated | v1 | Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent. |
+### `elide-wire-value`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (elide-wire-value v opts) → v or an elision-marker substitution
+  ```
+- **Status**: v1
+- **Description**: Walk `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots.
+
+### `elision-declarations`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (elision-declarations)
+  (elision-declarations frame-id)
+  ```
+- **Status**: v1
+- **Description**: Read the current `[:rf/elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader.
+
+### `populate-elision-from-schemas!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (populate-elision-from-schemas!) → vector of paths populated
+  (populate-elision-from-schemas! frame-id) → vector of paths populated
+  ```
+- **Status**: v1
+- **Description**: Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent.
 
 Composition rule: when both predicates match (sensitive AND large for the same path), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` from a sensitive slot.
 
@@ -101,10 +288,25 @@ See [08 — Schemas](08-schemas.md) for the registration side (`add-marks`, `set
 
 ## Privacy predicate
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `sensitive?` | Fn | `(sensitive? trace-event)` → `boolean` | v1 | True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check. |
-| `redact-interceptor` | Fn | `(redact-interceptor paths)` → interceptor | post-v1 (planned) | Positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. |
+### `sensitive?`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sensitive? trace-event) → boolean
+  ```
+- **Status**: v1
+- **Description**: True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check.
+
+### `redact-interceptor`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (redact-interceptor paths) → interceptor
+  ```
+- **Status**: post-v1 (planned)
+- **Description**: Positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only.
 
 ## DOM source-coord annotations
 

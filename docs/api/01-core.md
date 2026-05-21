@@ -10,42 +10,280 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 
 **Return value.** Every `reg-*` returns its **primary id** — the keyword (or path, for `reg-app-schema`) you registered with. This lets you write `(let [sub-id (rf/reg-sub ::foo ...)] ...)` to thread the id through your code without retyping it. The convention is uniform across the surface.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `reg-event-db` | M | `(reg-event-db id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | "When this event arrives, transform `app-db` and return the new one." The simplest handler shape — pure `(fn [db event-vec] new-db)`. Use it for the 80% of handlers that just update state. |
-| `reg-event-fx` | M | `(reg-event-fx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | "When this event arrives, return an effect map." The richer shape — `(fn [cofx event-vec] {:db ... :fx [...]})`. Use it when you need to dispatch follow-up events, fire HTTP, navigate, or read cofx. |
-| `reg-event-ctx` | M | `(reg-event-ctx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | The escape hatch — you get the raw interceptor context and return a modified context. Almost no app needs this; reach for it when you're writing infrastructure. |
-| `reg-sub` | M | `(reg-sub id ?metadata signal-fn? computation-fn)` | v1 (preserved + extended) | "Computed view over `app-db` and other subs." The `:<-` sugar form for declaring upstream subs is preserved from v1. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [16 — Removed](16-removed.md) for the replacement guidance). |
-| `reg-fx` | M | `(reg-fx id ?metadata handler)` | v1 (preserved + extended) | "Define a named side effect." The handler runs against the args the effect map carries; unary `(fn [args] ...)` is the canonical shape, binary `(fn [args ctx] ...)` is available when you need the originating context. |
-| `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | "Inject something into the handler's coeffect map." A `:now` cofx hands the current time; an `:rf.server/request` cofx hands the active HTTP request. Reading a sub from a handler is also done by cofx-wrapping — see [Guide ch.06 §Reading a sub from a handler](../guide/06-coeffects.md#reading-a-sub-from-a-handler). |
-| `reg-frame` | M | `(reg-frame id metadata)` | v1 | Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. |
-| `make-frame` | Fn | `(make-frame opts) → :rf.frame/<id>` | v1 | Anonymous-frame shortcut. The id is gensym'd; useful for tests, transient sandboxes, and the SSR per-request frame pattern. |
-| `reg-view` | M | `(reg-view sym [args] body+)` and shape-variants | v1 | `defn`-shape view registration. Auto-defs the symbol; auto-derives an id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. See [02 — Views](02-views.md). |
-| `reg-view*` | Fn | `(reg-view* id render-fn)` / `(reg-view* id metadata render-fn)` | v1 | Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. |
-| `reg-machine` | M | `(reg-machine machine-id machine-spec)` | v1 | Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](04-machines.md). |
-| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` | v1 | Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines or REPL workflows. |
-| `reg-app-schema` | M | `(reg-app-schema path schema)` / `(reg-app-schema path schema opts)` | v1 | "Declare the Malli schema for this `app-db` path." **Path is the registration id** — the only `reg-*` keyed by path rather than keyword, because schemas-at-paths matches the dataflow grain. See [08 — Schemas](08-schemas.md). |
-| `reg-app-schemas` | M | `(reg-app-schemas {path-1 schema-1, ...})` | v1 | Bulk plural form for feature-modular apps that register 5–20 paths together. Each entry routes through the singular form and is stamped with this call's source-coords. |
-| `add-marks` | Fn | `(add-marks frame-id {path mark, ...})` | v1 | Frame-scoped path-marks for data classification — `:sensitive` paths render as `:rf/redacted` at egress; `:large` paths surface as `:rf/large` summaries. **Additively merges** with existing marks. See [08 — Schemas](08-schemas.md#data-classification). |
-| `set-marks` | Fn | `(set-marks frame-id {path mark, ...})` | v1 | Frame-scoped path-marks. **Wholesale replaces** the frame's prior mark-set (paths not mentioned are cleared). Schema-attached marks are preserved either way. |
-| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow flow opts)` | v1 | Register a derived flow — `{:id :inputs :output :path}` — that auto-recomputes when its inputs change and writes the result into `:path` in `app-db`. See [05 — Flows](05-flows.md). |
-| `reg-route` | M | `(reg-route id metadata)` | v1 | Register a route as data: `:path`, `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](06-routing.md). |
-| `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](09-ssr.md). |
-| `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | SSR: register a `(fn [trace-event] :rf/public-error)`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata. |
+### `reg-event-db`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-event-db id ?metadata-or-interceptors handler)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: "When this event arrives, transform `app-db` and return the new one." The simplest handler shape — pure `(fn [db event-vec] new-db)`. Use it for the 80% of handlers that just update state.
+
+### `reg-event-fx`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-event-fx id ?metadata-or-interceptors handler)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: "When this event arrives, return an effect map." The richer shape — `(fn [cofx event-vec] {:db ... :fx [...]})`. Use it when you need to dispatch follow-up events, fire HTTP, navigate, or read cofx.
+
+### `reg-event-ctx`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-event-ctx id ?metadata-or-interceptors handler)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: The escape hatch — you get the raw interceptor context and return a modified context. Almost no app needs this; reach for it when you're writing infrastructure.
+
+### `reg-sub`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-sub id ?metadata signal-fn? computation-fn)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: "Computed view over `app-db` and other subs." The `:<-` sugar form for declaring upstream subs is preserved from v1. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [16 — Removed](16-removed.md) for the replacement guidance).
+
+### `reg-fx`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-fx id ?metadata handler)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: "Define a named side effect." The handler runs against the args the effect map carries; unary `(fn [args] ...)` is the canonical shape, binary `(fn [args ctx] ...)` is available when you need the originating context.
+
+### `reg-cofx`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-cofx id ?metadata handler)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Inject something into the handler's coeffect map." A `:now` cofx hands the current time; an `:rf.server/request` cofx hands the active HTTP request. Reading a sub from a handler is also done by cofx-wrapping — see [Guide ch.06 §Reading a sub from a handler](../guide/06-coeffects.md#reading-a-sub-from-a-handler).
+
+### `reg-frame`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-frame id metadata)
+  ```
+- **Status**: v1
+- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`.
+
+### `make-frame`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (make-frame opts) → :rf.frame/<id>
+  ```
+- **Status**: v1
+- **Description**: Anonymous-frame shortcut. The id is gensym'd; useful for tests, transient sandboxes, and the SSR per-request frame pattern.
+
+### `reg-view`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-view sym [args] body+)
+  ```
+  (plus shape-variants — see [02 — Views](02-views.md))
+- **Status**: v1
+- **Description**: `defn`-shape view registration. Auto-defs the symbol; auto-derives an id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. See [02 — Views](02-views.md).
+
+### `reg-view*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-view* id render-fn)
+  (reg-view* id metadata render-fn)
+  ```
+- **Status**: v1
+- **Description**: Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var.
+
+### `reg-machine`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-machine machine-id machine-spec)
+  ```
+- **Status**: v1
+- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](04-machines.md).
+
+### `reg-machine*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-machine* machine-id machine-spec)
+  ```
+- **Status**: v1
+- **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines or REPL workflows.
+
+### `reg-app-schema`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-app-schema path schema)
+  (reg-app-schema path schema opts)
+  ```
+- **Status**: v1
+- **Description**: "Declare the Malli schema for this `app-db` path." **Path is the registration id** — the only `reg-*` keyed by path rather than keyword, because schemas-at-paths matches the dataflow grain. See [08 — Schemas](08-schemas.md).
+
+### `reg-app-schemas`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-app-schemas {path-1 schema-1, ...})
+  ```
+- **Status**: v1
+- **Description**: Bulk plural form for feature-modular apps that register 5–20 paths together. Each entry routes through the singular form and is stamped with this call's source-coords.
+
+### `add-marks`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (add-marks frame-id {path mark, ...})
+  ```
+- **Status**: v1
+- **Description**: Frame-scoped path-marks for data classification — `:sensitive` paths render as `:rf/redacted` at egress; `:large` paths surface as `:rf/large` summaries. **Additively merges** with existing marks. See [08 — Schemas](08-schemas.md#data-classification).
+
+### `set-marks`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (set-marks frame-id {path mark, ...})
+  ```
+- **Status**: v1
+- **Description**: Frame-scoped path-marks. **Wholesale replaces** the frame's prior mark-set (paths not mentioned are cleared). Schema-attached marks are preserved either way.
+
+### `reg-flow`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-flow flow)
+  (reg-flow flow opts)
+  ```
+- **Status**: v1
+- **Description**: Register a derived flow — `{:id :inputs :output :path}` — that auto-recomputes when its inputs change and writes the result into `:path` in `app-db`. See [05 — Flows](05-flows.md).
+
+### `reg-route`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-route id metadata)
+  ```
+- **Status**: v1
+- **Description**: Register a route as data: `:path`, `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](06-routing.md).
+
+### `reg-head`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-head id ?metadata head-fn)
+  ```
+- **Status**: v1
+- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](09-ssr.md).
+
+### `reg-error-projector`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-error-projector id ?metadata projector-fn)
+  ```
+- **Status**: v1
+- **Description**: SSR: register a `(fn [trace-event] :rf/public-error)`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata.
 
 ### Clearing registrations
 
 The inverse surface. Each `clear-*` removes an entry from the registrar; the no-arg form clears the whole kind. Use clearing in tests (the `with-fresh-registrar` fixture relies on these), in REPL workflows, and during teardown.
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `clear-event` | `(clear-event)` / `(clear-event id)` | v1 (preserved) | "Forget this event-handler." No-arg clears the whole `:event` registry. |
-| `clear-sub` | `(clear-sub)` / `(clear-sub id)` | v1 (preserved) | "Forget this sub." Note: this is the registrar-side clear (the inverse of `reg-sub`). The runtime cache decrement is `unsubscribe` (see below). |
-| `clear-fx` | `(clear-fx)` / `(clear-fx id)` | v1 (preserved) | "Forget this fx." |
-| `clear-flow` | `(clear-flow id)` / `(clear-flow id opts)` | v1 | Deregisters the flow from the named frame and `dissoc-in`s its `:path` from that frame's `app-db` only. See [05 — Flows](05-flows.md). |
-| `destroy-frame!` | `(destroy-frame! frame-id)` | v1 | The normative teardown boundary. Per-feature artefacts (flows, machines, schemas, SSR, epoch) hang their frame-scoped cleanup off this single call. |
-| `reset-frame!` | `(reset-frame! frame-id)` | v1 | Reset the frame's `app-db` to its initial value without destroying the frame itself. |
-| `clear-sub-cache!` | `(clear-sub-cache! frame-id?)` | v1 (preserved) | Force-clear the sub-cache for a frame (or all frames). Tests; rarely needed in app code. |
+#### `clear-event`
+
+- **Signature**:
+  ```clojure
+  (clear-event)
+  (clear-event id)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Forget this event-handler." No-arg clears the whole `:event` registry.
+
+#### `clear-sub`
+
+- **Signature**:
+  ```clojure
+  (clear-sub)
+  (clear-sub id)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Forget this sub." Note: this is the registrar-side clear (the inverse of `reg-sub`). The runtime cache decrement is `unsubscribe` (see below).
+
+#### `clear-fx`
+
+- **Signature**:
+  ```clojure
+  (clear-fx)
+  (clear-fx id)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: "Forget this fx."
+
+#### `clear-flow`
+
+- **Signature**:
+  ```clojure
+  (clear-flow id)
+  (clear-flow id opts)
+  ```
+- **Status**: v1
+- **Description**: Deregisters the flow from the named frame and `dissoc-in`s its `:path` from that frame's `app-db` only. See [05 — Flows](05-flows.md).
+
+#### `destroy-frame!`
+
+- **Signature**:
+  ```clojure
+  (destroy-frame! frame-id)
+  ```
+- **Status**: v1
+- **Description**: The normative teardown boundary. Per-feature artefacts (flows, machines, schemas, SSR, epoch) hang their frame-scoped cleanup off this single call.
+
+#### `reset-frame!`
+
+- **Signature**:
+  ```clojure
+  (reset-frame! frame-id)
+  ```
+- **Status**: v1
+- **Description**: Reset the frame's `app-db` to its initial value without destroying the frame itself.
+
+#### `clear-sub-cache!`
+
+- **Signature**:
+  ```clojure
+  (clear-sub-cache! frame-id?)
+  ```
+- **Status**: v1 (preserved)
+- **Description**: Force-clear the sub-cache for a frame (or all frames). Tests; rarely needed in app code.
 
 ### See also
 
@@ -59,17 +297,103 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
 
 Both come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, `subscribe`) captures the call-site source coords so tools like re-frame-10x and Causa can navigate from a trace event back to the originating expression. The **`*` fn** form (`dispatch*`, `dispatch-sync*`, `subscribe*`) skips the stamping — needed when you compose dispatch through a higher-order function (`(map dispatch* events)`) where a macro can't sit. Both route through the same dispatcher; only the trace stamping differs.
 
-| API | M/Fn | Signature | Status | Intuition |
-|---|---|---|---|---|
-| `dispatch` | M | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended); macro | Async dispatch — drops the event onto the frame's queue, returns immediately. The default; use it for everything that isn't a synchronous test setup. |
-| `dispatch*` | Fn | `(dispatch* event)` / `(dispatch* event opts)` | v1 (extended) | Fn variant of `dispatch`. Compose through `map` / `comp` / `partial`; skips call-site stamping. |
-| `dispatch-sync` | M | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended); macro | Synchronous dispatch — runs the cascade to completion before returning. Tests, REPL workflows, and one-shot app-boot events live here. Do not use in handlers (it'll deadlock the queue). |
-| `dispatch-sync*` | Fn | `(dispatch-sync* event)` / `(dispatch-sync* event opts)` | v1 (extended) | Fn variant of `dispatch-sync`. |
-| `subscribe` | M | `(subscribe query-v)` / `(subscribe frame-id query-v)` | v1 (preserved + extended); macro | The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Use inside views, inside other subs, and (carefully) inside event handlers via the cofx wrapper. |
-| `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | v1 (extended) | Fn variant of `subscribe`. |
-| `subscribe-once` | Fn | `(subscribe-once query-v)` / `(subscribe-once frame-id query-v)` → value | v1 | One-shot read: subscribe, deref, immediately unsubscribe. Use in handler bodies, machine actions, REPL — anywhere you want the *current* value without the reactive plumbing. Not for views. |
-| `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil | v1 | Decrement the cache ref-count for a query. When the count hits zero, disposal is scheduled after the configured `:sub-cache` grace-period. Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount. |
-| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | Sugar over `(subscribe [:rf/machine machine-id])`. See [04 — Machines](04-machines.md). |
+### `dispatch`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (dispatch event)
+  (dispatch event opts)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: Async dispatch — drops the event onto the frame's queue, returns immediately. The default; use it for everything that isn't a synchronous test setup.
+
+### `dispatch*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (dispatch* event)
+  (dispatch* event opts)
+  ```
+- **Status**: v1 (extended)
+- **Description**: Fn variant of `dispatch`. Compose through `map` / `comp` / `partial`; skips call-site stamping.
+
+### `dispatch-sync`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (dispatch-sync event)
+  (dispatch-sync event opts)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: Synchronous dispatch — runs the cascade to completion before returning. Tests, REPL workflows, and one-shot app-boot events live here. Do not use in handlers (it'll deadlock the queue).
+
+### `dispatch-sync*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (dispatch-sync* event)
+  (dispatch-sync* event opts)
+  ```
+- **Status**: v1 (extended)
+- **Description**: Fn variant of `dispatch-sync`.
+
+### `subscribe`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (subscribe query-v)
+  (subscribe frame-id query-v)
+  ```
+- **Status**: v1 (preserved + extended)
+- **Description**: The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Use inside views, inside other subs, and (carefully) inside event handlers via the cofx wrapper.
+
+### `subscribe*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (subscribe* query-v)
+  (subscribe* frame-id query-v)
+  ```
+- **Status**: v1 (extended)
+- **Description**: Fn variant of `subscribe`.
+
+### `subscribe-once`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (subscribe-once query-v) → value
+  (subscribe-once frame-id query-v) → value
+  ```
+- **Status**: v1
+- **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Use in handler bodies, machine actions, REPL — anywhere you want the *current* value without the reactive plumbing. Not for views.
+
+### `unsubscribe`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unsubscribe query-v) → nil
+  (unsubscribe frame-id query-v) → nil
+  ```
+- **Status**: v1
+- **Description**: Decrement the cache ref-count for a query. When the count hits zero, disposal is scheduled after the configured `:sub-cache` grace-period. Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount.
+
+### `sub-machine`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sub-machine machine-id) → reaction over snapshot
+  ```
+- **Status**: v1
+- **Description**: Sugar over `(subscribe [:rf/machine machine-id])`. See [04 — Machines](04-machines.md).
 
 **The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics live in [002 §Routing: the dispatch envelope](../../spec/002-Frames.md#routing-the-dispatch-envelope). The most common pattern is `(rf/dispatch [::save x] {:frame :todo})` to target a non-default frame.
 
@@ -104,10 +428,24 @@ A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most
 
 `reg-frame` and `make-frame` are rowed in **Registration** above. The two read-side surfaces:
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `frame-ids` | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | "What frames currently exist?" Returns the set of registered ids. The optional prefix filters by namespace — `(rf/frame-ids :rf.story/)` for tool-owned frames. |
-| `frame-meta` | `(frame-meta frame-id)` | v1 | "What did the frame declare at registration?" Returns the metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings. |
+### `frame-ids`
+
+- **Signature**:
+  ```clojure
+  (frame-ids)
+  (frame-ids ns-prefix)
+  ```
+- **Status**: v1
+- **Description**: "What frames currently exist?" Returns the set of registered ids. The optional prefix filters by namespace — `(rf/frame-ids :rf.story/)` for tool-owned frames.
+
+### `frame-meta`
+
+- **Signature**:
+  ```clojure
+  (frame-meta frame-id)
+  ```
+- **Status**: v1
+- **Description**: "What did the frame declare at registration?" Returns the metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings.
 
 See [12 — Registrar](12-registrar.md) for the rest of the registrar-query surface.
 

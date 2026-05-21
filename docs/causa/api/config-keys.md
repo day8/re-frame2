@@ -6,9 +6,14 @@ Boot-time configuration is **process-global**: the setters write to `defonce` at
 
 ## The bulk-set entry point
 
-| API | Signature | Status | Intuition |
-|---|---|---|---|
-| `configure!` | `(configure! opts)` → nil | v1 (dev-only) | Top-level Causa configuration. Accepts a map keyed by `:rf.causa/*` (Causa-specific) and `:rf.privacy/*` (cross-tool) keys. Unknown keys are silently ignored (forward-compat — newer hosts passing older-Causa-unaware keys MUST NOT break). Hosts typically call once at boot, before Causa auto-opens. |
+### `configure!`
+
+- **Signature**:
+  ```clojure
+  (configure! opts) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Top-level Causa configuration. Accepts a map keyed by `:rf.causa/*` (Causa-specific) and `:rf.privacy/*` (cross-tool) keys. Unknown keys are silently ignored (forward-compat — newer hosts passing older-Causa-unaware keys MUST NOT break). Hosts typically call once at boot, before Causa auto-opens.
 
 `configure!` is re-exported from `core` for boot-time ergonomics. The two require paths are interchangeable:
 
@@ -54,10 +59,23 @@ Every key lives under a reserved namespace — `:rf.causa/*` for Causa-specific 
 
 Every panel that surfaces a source-coord wraps the coord in a clickable `open` chip. Clicking sets `window.location.href` to a URI-scheme handler the OS dispatches to the configured editor.
 
-| Setter | Signature | Status | Intuition |
-|---|---|---|---|
-| `set-editor!` | `(set-editor! editor)` → nil | v1 (dev-only) | Set the editor preference. Accepts `:vscode` (default), `:cursor`, `:windsurf`, `:zed`, `:idea`, `{:custom <uri-template>}`. `nil` resets to `:vscode`. Re-exported from `core`. |
-| `set-project-root!` | `(set-project-root! path)` → nil | v1 (dev-only) | On-disk root prepended to the source-coord's classpath-relative `:file` slot before the editor URI ships. Default `nil` — hosts whose source paths are already absolute leave this unset. Nil / blank clears the slot; an absent key in `configure!` leaves the current value untouched. |
+### `set-editor!`
+
+- **Signature**:
+  ```clojure
+  (set-editor! editor) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Set the editor preference. Accepts `:vscode` (default), `:cursor`, `:windsurf`, `:zed`, `:idea`, `{:custom <uri-template>}`. `nil` resets to `:vscode`. Re-exported from `core`.
+
+### `set-project-root!`
+
+- **Signature**:
+  ```clojure
+  (set-project-root! path) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: On-disk root prepended to the source-coord's classpath-relative `:file` slot before the editor URI ships. Default `nil` — hosts whose source paths are already absolute leave this unset. Nil / blank clears the slot; an absent key in `configure!` leaves the current value untouched.
 
 The URI schemes:
 
@@ -78,10 +96,23 @@ Causa's editor preference is **independent** of Story's `:rf.story/editor` (host
 
 The launch cluster controls the auto-open posture and the layout-host wiring. Set these *before* the preload runs (before `rf/init!` returns) so the first auto-open path reads the right values.
 
-| Setter | Signature | Status | Intuition |
-|---|---|---|---|
-| `set-auto-open!` | `(set-auto-open! bool)` → nil | v1 (dev-only) | Whether the preload auto-opens the shell into the inline host on adapter readiness. Default `true`. Set `false` from tool-owned pages that deliberately don't reserve app real estate for Causa (Story-only canvases, internal dev tools whose layout can't host a right column). Explicit `(causa/open!)` calls still mount after suppression. Re-exported from `core`. |
-| `set-layout-host-selector!` | `(set-layout-host-selector! css-selector)` → nil | v1 (dev-only) | The CSS selector the auto-open path queries on adapter readiness. Default `[data-rf-causa-host]`. Override when your host's preferred selector differs (e.g. `#devtools-causa`). |
+### `set-auto-open!`
+
+- **Signature**:
+  ```clojure
+  (set-auto-open! bool) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Whether the preload auto-opens the shell into the inline host on adapter readiness. Default `true`. Set `false` from tool-owned pages that deliberately don't reserve app real estate for Causa (Story-only canvases, internal dev tools whose layout can't host a right column). Explicit `(causa/open!)` calls still mount after suppression. Re-exported from `core`.
+
+### `set-layout-host-selector!`
+
+- **Signature**:
+  ```clojure
+  (set-layout-host-selector! css-selector) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The CSS selector the auto-open path queries on adapter readiness. Default `[data-rf-causa-host]`. Override when your host's preferred selector differs (e.g. `#devtools-causa`).
 
 The default selector `[data-rf-causa-host]` is published as a CLJS constant — `day8.re-frame2-causa.config/default-layout-host-selector` — so docs generators and tool chrome can re-emit the canonical spelling without forking the string.
 
@@ -99,9 +130,14 @@ Three more published constants name the inline-host CSS contract. These are cons
 
 Causa installs a global `Ctrl+Shift+C` keydown listener as one of the preload's six side-effects. Standalone Causa always needs the listener; embed hosts (Story mounts Causa as a right-hand-side panel) sometimes need to take the chord back.
 
-| Setter | Signature | Status | Intuition |
-|---|---|---|---|
-| `set-keybinding-enabled!` | `(set-keybinding-enabled! bool)` → nil | v1 (dev-only) | Whether `keybinding/attach!` installs the global window-level keydown listener. Default `true` — standalone Causa needs the listener. Embed hosts set `false` so their own global keybindings (typically `Cmd/Ctrl+K` for the host's command palette) are not swallowed by Causa's capture-phase listener. MUST be set BEFORE the Causa preload runs. |
+### `set-keybinding-enabled!`
+
+- **Signature**:
+  ```clojure
+  (set-keybinding-enabled! bool) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Whether `keybinding/attach!` installs the global window-level keydown listener. Default `true` — standalone Causa needs the listener. Embed hosts set `false` so their own global keybindings (typically `Cmd/Ctrl+K` for the host's command palette) are not swallowed by Causa's capture-phase listener. MUST be set BEFORE the Causa preload runs.
 
 The setter suppresses the install at attach time; embed hosts whose mount lifecycle runs AFTER Causa's preload has already attached use the imperative escape hatch instead:
 
@@ -118,9 +154,14 @@ The setter suppresses the install at attach time; embed hosts whose mount lifecy
 
 The privacy cluster carries one cross-tool gate that Causa, Story, and any other re-frame2 tool consuming the trace bus all read. The key lives under `:rf.privacy/*` (not `:rf.causa/*`) because the slot is shared.
 
-| Setter | Signature | Status | Intuition |
-|---|---|---|---|
-| `set-show-sensitive!` | `(set-show-sensitive! bool)` → nil | v1 (dev-only) | The cross-tool `:rf.privacy/show-sensitive?` flag. When `false` (default), Causa's trace collector drops `:sensitive? true` events and the bottom rail surfaces a `[● REDACTED N]` hint. Set to `true` while debugging redaction policy to see the raw cascade. `nil` resets to the default. Re-exported from `core`. |
+### `set-show-sensitive!`
+
+- **Signature**:
+  ```clojure
+  (set-show-sensitive! bool) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The cross-tool `:rf.privacy/show-sensitive?` flag. When `false` (default), Causa's trace collector drops `:sensitive? true` events and the bottom rail surfaces a `[● REDACTED N]` hint. Set to `true` while debugging redaction policy to see the raw cascade. `nil` resets to the default. Re-exported from `core`.
 
 The single normative emission site for `:sensitive?` redaction is the framework's `elide-wire-value` (see [framework API instrumentation §The wire-boundary walker](../../api/11-instrumentation.md#the-wire-boundary-walker)). Causa's gate just decides whether the redacted-out events reach the buffer at all.
 
@@ -128,11 +169,32 @@ The single normative emission site for `:sensitive?` redaction is the framework'
 
 The Settings popup carries the user-mutable knobs — theme, density, buffer depths, AI provider config, filter persistence settings. The bulk-set escape hatch lets a host ship its own default Settings shape; the per-knob writes flow through the popup's normal `:rf.causa/settings-update` event.
 
-| Setter | Signature | Status | Intuition |
-|---|---|---|---|
-| `update-setting!` | `(update-setting! path value)` → nil | v1 (dev-only) | Set one Settings slot. `path` is a vector into the settings map (e.g. `[:general :density]`); `value` is the new value. Persists through localStorage. The popup's event surface is the canonical write path; reach for this only from REPL / test contexts. |
-| `reset-settings!` | `(reset-settings!)` → nil | v1 (dev-only) | Reset every Settings slot to its default shape. Wipes the localStorage slot. Mostly a test-isolation helper; hosts that want to ship a non-default shape use `configure! {:rf.causa/settings ...}` instead. |
-| `reset-suppressed-count!` | `(reset-suppressed-count!)` → nil | v1 (dev-only) | Clear the `[● REDACTED N]` bottom-rail counter that surfaces when filters elide events. Reach for this when wiring a Settings-popup "Clear suppression counter" button or a test-harness fixture-reset. |
+### `update-setting!`
+
+- **Signature**:
+  ```clojure
+  (update-setting! path value) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Set one Settings slot. `path` is a vector into the settings map (e.g. `[:general :density]`); `value` is the new value. Persists through localStorage. The popup's event surface is the canonical write path; reach for this only from REPL / test contexts.
+
+### `reset-settings!`
+
+- **Signature**:
+  ```clojure
+  (reset-settings!) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Reset every Settings slot to its default shape. Wipes the localStorage slot. Mostly a test-isolation helper; hosts that want to ship a non-default shape use `configure! {:rf.causa/settings ...}` instead.
+
+### `reset-suppressed-count!`
+
+- **Signature**:
+  ```clojure
+  (reset-suppressed-count!) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Clear the `[● REDACTED N]` bottom-rail counter that surfaces when filters elide events. Reach for this when wiring a Settings-popup "Clear suppression counter" button or a test-harness fixture-reset.
 
 The Settings shape (validated by Malli):
 
@@ -160,10 +222,23 @@ The settings persist under the localStorage key `day8.re-frame2-causa/settings/v
 
 The Trace panel ships filter pills (`+ pattern`, `- pattern`, `+ :origin`, `+ frame`) that drive in / out filtering of the displayed events. Filter state persists in localStorage across reloads; hosts that want to seed a starting filter set on first install reach for the filters cluster.
 
-| Setter | Signature | Status | Intuition |
-|---|---|---|---|
-| `set-filter-seed!` | `(set-filter-seed! seed-map)` → nil | v1 (dev-only) | Host-supplied seed pill set the registry hydrates `:active-filters` with on FIRST install (when localStorage is empty). Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — first session boots with no filters (first-session honesty beats first-session quietness). Story testbeds use this to inject a known starting point for reproducibility. |
-| `set-filters-storage-key!` | `(set-filters-storage-key! key)` → nil | v1 (dev-only) | The localStorage key the filter persistence layer reads / writes. Default `"re-frame2.causa.filters.v1"`. Hosts that run multiple Causa instances (Story testbeds, multi-mode tool pages) override for isolation between instances. |
+### `set-filter-seed!`
+
+- **Signature**:
+  ```clojure
+  (set-filter-seed! seed-map) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: Host-supplied seed pill set the registry hydrates `:active-filters` with on FIRST install (when localStorage is empty). Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — first session boots with no filters (first-session honesty beats first-session quietness). Story testbeds use this to inject a known starting point for reproducibility.
+
+### `set-filters-storage-key!`
+
+- **Signature**:
+  ```clojure
+  (set-filters-storage-key! key) → nil
+  ```
+- **Status**: v1 (dev-only)
+- **Description**: The localStorage key the filter persistence layer reads / writes. Default `"re-frame2.causa.filters.v1"`. Hosts that run multiple Causa instances (Story testbeds, multi-mode tool pages) override for isolation between instances.
 
 Set both *before* the preload runs so the first registry-handlers registration reads the right values.
 
