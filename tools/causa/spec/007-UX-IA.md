@@ -87,7 +87,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App DB ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routes ⚠Issues 1 │              L3 — 8 tabs
+│ ◉Event ○App DB ○Views ○Trace ○Machines ○Canvas ○Routes ○Issues          │              L3 — 8 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -108,10 +108,11 @@ The four layers, top to bottom:
    spine sub `:rf.causa/focus` reads from this layer.
 3. **L3 — Tab bar (40px).** Eight tabs: Event / App DB / Views / Trace /
    Machines / Machines Canvas / Routes / Issues. Letter mnemonics:
-   `e` `a` `v` `t` `m` `c` `r` `i`. Count badges (`Views 8`) update
-   with focused cascade. Routes was promoted to its own L3 tab in
-   rf2-nrbs9; Machines Canvas was promoted in rf2-mkpnb — both follow
-   the cohesive-sub-domain rule (sub-domains earn their own lens tab).
+   `e` `a` `v` `t` `m` `c` `r` `i`. Each tab renders glyph (`◉`
+   active / `○` inactive) + label only. Routes was promoted to its
+   own L3 tab in rf2-nrbs9; Machines Canvas was promoted in rf2-mkpnb
+   — both follow the cohesive-sub-domain rule (sub-domains earn their
+   own lens tab).
    (rf2-4v67l — the Chrome A11y dogfood tab was removed in favour of
    Story's already-shipped chrome-a11y panel per rf2-18t6p.)
 4. **L4 — Detail panel.** Fills remaining canvas (60% default;
@@ -897,7 +898,6 @@ Specific motions:
 - L2 head-row LIVE pulse: 2s gentle 600ms expand-fade on the head
   row's `●` gutter glyph (continuous while LIVE; stops in RETRO).
   Replaces the dropped Mode pill widget as the LIVE/RETRO cue.
-- Tab count badge flash: 200ms violet → settle on LIVE update.
 
 ### `prefers-reduced-motion`
 
