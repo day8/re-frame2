@@ -5,6 +5,7 @@
   structural data-testid hooks ship: panel root, header, the two
   step sections, and the unchanged-subs toggle when applicable."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
@@ -62,24 +63,78 @@
       (is (= "Views" (:label registered))
           "L4 tab label renders as `Views`"))))
 
-(deftest reactive-panel-renders-four-cascade-sections
-  (testing "rf2-e33ad — the View panel renders four pipeline sections
-            (SUBS RAN · SUBS WHOSE VALUE CHANGED · SUBS THAT CASCADED ·
-            VIEWS RE-RENDERED) wrapped in a left-rail container with
-            chevrons between adjacent sections. Empty states are
-            ALWAYS visible per Mike-direction 2026-05-21."
+(deftest reactive-panel-renders-two-cascade-sections
+  (testing "rf2-isun6 — the View panel renders TWO pipeline sections
+            (SUBS THIS CASCADE · VIEWS RE-RENDERED) wrapped in a left-
+            rail container with a chevron between them. The prior three
+            overlapping subs sections (SUBS RAN / SUBS WHOSE VALUE
+            CHANGED / SUBS THAT CASCADED) collapsed into one table whose
+            `changed?` / `cascaded?` columns carry those dimensions, so
+            each sub appears exactly once. Empty states are ALWAYS
+            visible per Mike-direction 2026-05-21."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
-    ;; The empty-state path doesn't render the sections; we exercise the
-    ;; section names directly via a synthetic cascade injection through
-    ;; the standard install + a fixture-shaped data map. The
-    ;; pipeline-shape test asserts the labels render only when a
-    ;; cascade is focused; we cannot drive that here without a full
-    ;; spine/epoch dispatch. Instead, the labels are pure-data — the
-    ;; section-label keys map 1:1 to the testid pattern, so we assert
-    ;; the helper produces the expected testids by calling the panel
-    ;; directly with a synthetic data map via the namespace fn.
+    ;; The empty-state path doesn't render the sections; the table
+    ;; shape is exercised directly in the focused-cascade test below
+    ;; (which seeds `:rf.causa/reactive-data`). Here we confirm the
+    ;; empty branch holds when no cascade fires.
     (let [tree (view/reactive-panel)]
-      ;; Confirm the empty-state branch is taken when no cascade fires.
       (is (has-testid? tree "rf-causa-reactive-empty")
           "empty branch holds when no cascade is focused"))))
+
+(defn- seed-reactive-data!
+  "Re-register the composite `:rf.causa/reactive-data` to return a
+  literal so the panel view renders its focused-cascade body. The view
+  is the unit under test here — the composite's projection logic is
+  covered by reactive-panel-subs-cljs-test."
+  [data]
+  (rf/reg-sub :rf.causa/reactive-data (fn [_db _q] data)))
+
+(deftest reactive-panel-subs-table-one-row-per-sub
+  (testing "rf2-isun6 — one row per sub that RAN; changed? / cascaded?
+            are columns (each sub appears exactly once). A sub that ran
+            AND changed AND cascaded yields a SINGLE row carrying both
+            ✓ flags, not three rows across three sections."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true
+       :frame        :rf/app
+       :focus        {:current :ep-1}
+       :counts       {:subs-ran 3 :subs-skipped 0 :views-rendered 0}
+       ;; :a ran only · :b ran + changed · :c ran + changed + cascaded
+       :subs-ran     [{:sub-id :a/plain}
+                      {:sub-id :b/changed :value-changed? true
+                       :prev-value 1 :value 2}
+                      {:sub-id :c/cascaded :value-changed? true
+                       :prev-value 3 :value 4 :cascade? true
+                       :cause-sub [:b/changed]}]
+       :views-rendered []})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-causa-reactive-subs-table")
+          "the single subs table renders")
+      ;; Exactly one row per sub — no triple-repeat across sections.
+      (is (has-testid? tree "rf-causa-reactive-sub-row-_a_plain"))
+      (is (has-testid? tree "rf-causa-reactive-sub-row-_b_changed"))
+      (is (has-testid? tree "rf-causa-reactive-sub-row-_c_cascaded"))
+      ;; The legacy per-section row testid is gone (collapsed into rows).
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-sub-ran"))
+          "the old per-section row testid no longer ships"))))
+
+(deftest reactive-panel-subs-table-empty-when-no-subs
+  (testing "rf2-isun6 — empty subs placeholder when a cascade is focused
+            but no subs ran."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true
+       :frame        :rf/app
+       :focus        {:current :ep-1}
+       :counts       {:subs-ran 0 :subs-skipped 0 :views-rendered 0}
+       :subs-ran     []
+       :views-rendered []})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-causa-reactive-subs-empty")
+          "empty subs placeholder renders")
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-subs-table"))
+          "no table when no subs ran"))))

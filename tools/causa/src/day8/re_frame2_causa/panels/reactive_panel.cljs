@@ -9,11 +9,13 @@
 
   The internal panel-registry key stays `:views` (it was always the
   internal id, never a user contract). The panel renders the full
-  reactive cascade per spec/021 §3 reorganised into four sections:
+  reactive cascade per spec/021 §3 reorganised into two sections:
 
-      Subs ran (count)            entries with [code] chip
-      Subs whose value changed    entries
-      Subs that cascaded          entries
+      Subs this cascade (count)   ONE table — one row per sub that ran,
+                                  columns sub-id | changed? | cascaded?
+                                  | code. Each sub appears exactly once
+                                  (rf2-isun6 · replaced the prior three
+                                  overlapping ran/changed/cascaded lists)
       Views re-rendered           entries named via `reg-view :name`,
                                   `[code] chip` + hover-highlight
 
