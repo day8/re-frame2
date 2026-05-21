@@ -100,11 +100,14 @@
 (def Message
   "Wire-shape of one message — either a server push (no :request-id) or
    a correlated reply. The example uses a tiny ad-hoc envelope; the
-   pattern is wire-format-agnostic."
+   pattern is wire-format-agnostic. `:rx-seq` is a UI-assigned monotonic
+   receive-sequence stamped by :ws/handle-message so the inbox can give
+   each row a stable React :key (it is not part of the wire body)."
   [:map
    [:type :keyword]
    [:body {:optional true} :any]
-   [:request-id {:optional true} :any]])
+   [:request-id {:optional true} :any]
+   [:rx-seq {:optional true} :int]])
 
 (def MessagesSlice
   [:map
@@ -113,7 +116,9 @@
    [:received [:vector Message]]
    ;; Last correlated reply landed via :ws/reply — handy for the
    ;; request-reply round-trip view + the Playwright smoke assertion.
-   [:last-reply [:maybe :any]]])
+   [:last-reply [:maybe :any]]
+   ;; Monotonic counter feeding each message's stable :rx-seq.
+   [:rx-count :int]])
 
 (defn register-all!
   "Idempotent re-registration of every schema attached in this ns.

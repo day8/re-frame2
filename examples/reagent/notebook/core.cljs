@@ -185,13 +185,16 @@
    block-shape, runs inline rules. Sufficient for the example's seed
    content. Returns a vector of block hiccup that the caller splices
    into a parent container (Reagent renders this as a seq of children;
-   each block gets a stable :key keyed off its index)."
+   each block gets a content-derived :key so React preserves block
+   identity across edits that insert/remove/reorder blocks — an index
+   :key would re-key every block below an edit). Identical blocks are
+   disambiguated by their position so the keys stay unique."
   [s]
   (let [blocks (->> (str/split (or s "") #"\r?\n\r?\n")
                     (remove str/blank?))]
     (vec
       (map-indexed
-        (fn [i b] (with-meta (render-block b) {:key i}))
+        (fn [i b] (with-meta (render-block b) {:key (str (hash b) "-" i)}))
         blocks))))
 
 (rf/reg-sub :notebook/selected-hiccup

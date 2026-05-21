@@ -344,13 +344,19 @@
     {:doc "Translate an inbound `:ws/received` body into an app-db write.
            Records the message in the [:messages :received] log + stashes
            the latest correlated reply at [:messages :last-reply] when
-           applicable."}
+           applicable. Each message is stamped with a monotonic `:rx-seq`
+           so the inbox view can give every <li> a stable React :key —
+           server pushes carry no `:request-id`, so position can't be used
+           as identity once the newest-first list grows."}
     (fn handler-ws-handle-message [db [_ body]]
-      (-> db
-          (update-in [:messages :received]
-                     (fn [received] (vec (cons body (or received [])))))
-          (cond-> (:request-id body)
-            (assoc-in [:messages :last-reply] body)))))
+      (let [rx-seq (get-in db [:messages :rx-count] 0)]
+        (-> db
+            (update-in [:messages :received]
+                       (fn [received]
+                         (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
+            (assoc-in [:messages :rx-count] (inc rx-seq))
+            (cond-> (:request-id body)
+              (assoc-in [:messages :last-reply] body))))))
 
   ;; --- app-level events ---------------------------------------------
   (rf/reg-event-fx :ws.app/send
@@ -391,7 +397,7 @@
 
   (rf/reg-event-fx :ws.messages/initialise
     (fn handler-messages-initialise [{:keys [db]} _]
-      {:db (assoc db :messages {:draft "" :received [] :last-reply nil})}))
+      {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
 
   ;; --- subs ---------------------------------------------------------
   (rf/reg-sub :messages
