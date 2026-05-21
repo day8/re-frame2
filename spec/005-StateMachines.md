@@ -3171,7 +3171,7 @@ re-frame2's declarative child-actor key is **`:spawn`**, not xstate's `:invoke`.
 
 The rename also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn` — one verb for "make a child actor", whether declarative-via-state-node or imperative-via-fx. The runtime-stamped reserved keys follow suit: `:rf/spawn-id` (the prefix-path of the `:spawn`-bearing state node), `:rf/spawn-all-id`, `:rf/spawn-all-child-id`. Trace ops follow: `:rf.machine.spawn-all/started`, `:rf.machine.spawn-all/all-completed`, `:rf.machine.spawn/cancelled-on-join-resolution`, …
 
-See [§Declarative `:spawn`](#declarative-spawn), [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all), and [migration/from-re-frame-v1/README.md §M-56](../migration/from-re-frame-v1/README.md#m-56-machine-vocabulary-divergence--invoke--spawn--invoke-all--spawn-all-rf2-5r4q2).
+See [§Declarative `:spawn`](#declarative-spawn), [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all), and [migration/from-re-frame-v1/README.md §M-56](../migration/from-re-frame-v1/README.md#m-56-machine-vocabulary-divergence--invoke--spawn--invoke-all--spawn-all).
 
 ## Future
 
