@@ -105,8 +105,14 @@ jobs:
           rm -rf docs/migration
           cp -r migration docs/migration
 
-      - name: Build site
-        run: mkdocs build
+      # --strict escalates MkDocs WARNINGs to a non-zero exit (rf2-eq90w):
+      # nav entries pointing at missing files (nav.not_found), unresolved
+      # internal links MkDocs can see, and plugin warnings now fail the
+      # build instead of slipping through. This is complementary to the
+      # check_doc_slugs.py gate above, which validates markdown-link
+      # target+anchor drift the WARNING set does not cover.
+      - name: Build site (strict)
+        run: mkdocs build --strict
 
       - name: Upload Pages artifact
         # v5 (transitively pins actions/upload-artifact to a SHA, which v3 did not — see rf2-xmmh).
