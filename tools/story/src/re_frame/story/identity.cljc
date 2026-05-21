@@ -264,6 +264,17 @@
       :story                 story
       :effective-args        effective
       :view-schema-digest    schema-digest
+      ;; rf2-z86vu — `:active-modes` already perturbs identity via
+      ;; `:effective-args` (mode args are merged in by `resolve-args`),
+      ;; so this top-level slot is intentionally belt-and-braces: it
+      ;; keeps the mode-id SET part of the identity so two distinct modes
+      ;; that happen to register identical args (and therefore identical
+      ;; `:effective-args`) still produce DIFFERENT snapshot hashes. The
+      ;; visual-regression baseline is keyed per active-mode context, so
+      ;; the mode id — not just its resolved args — is identity-bearing.
+      ;; Do not "simplify" this away. (Contrast `:cell-overrides`, which
+      ;; perturbs identity only via `:effective-args` — overrides carry
+      ;; no id, so there is no analogous collision risk.)
       :active-modes          (vec (or active-modes []))
       :substrate             substrate})))
 
