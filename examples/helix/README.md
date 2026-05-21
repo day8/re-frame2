@@ -2,14 +2,15 @@
 
 The Helix adapter (see [Spec 006 §CLJS reference: Helix as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate-rf2-2qit)). Helix is the third canonical browser substrate alongside Reagent and UIx; the eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model. The adapter consumes the same `re-frame.adapter.context` React Context object the Reagent and UIx adapters expose (Decision 2), so a single app can in principle mix-and-match — though the canonical pattern is to choose one substrate per app.
 
-This directory holds the **smoke-test subset** for the Helix adapter, not a 1:1 mirror of the Reagent set. Per [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy): non-canonical adapters ship a representative subset; the standard trio is **counter + login + realworld**, and for Helix that is reduced to **counter + login** — realworld is heavy with Reagent-flavoured idioms and is deferred until a Helix user wants it.
+This directory holds the **smoke-test subset** for the Helix adapter, not a 1:1 mirror of the Reagent set. Per [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy): non-canonical adapters ship a representative subset. For Helix the subset is **counter + login + process-monitor** — the counter and login pair share their dataflow with the Reagent siblings (substrate-agnostic events, subs, schemas, machine, managed-HTTP stub); the process-monitor is a design-led example proving Helix can drive a polished multi-pane layout. The Reagent realworld scaffold is heavy with Reagent-flavoured idioms and is deferred until a Helix user wants it.
 
 ## Layout
 
 ```
 helix/
-  counter_helix/   <-- the Reagent counter dataflow rendered through Helix
-  login_helix/     <-- the Reagent login example through Helix
+  counter_helix/          <-- the Reagent counter dataflow rendered through Helix
+  login_helix/            <-- the Reagent login example through Helix
+  process_monitor_helix/  <-- design-led example proving multi-pane layout on Helix
 ```
 
 Each example sits in its own folder with the CLJS source (`core.cljs`), a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The on-disk folder names carry the `_helix` suffix because the CLJS namespaces (`counter-helix.core`, `login-helix.core`) are deliberately distinct from their Reagent siblings (`counter.core`, `login.core`) and UIx siblings (`counter-uix.core`, `login-uix.core`) — every substrate tree ends up on the same shadow-cljs classpath, so the namespaces have to be unique. The folder name follows the namespace convention (`-` becomes `_` on disk).
@@ -26,6 +27,9 @@ Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc
 - **`helix/login_helix/`** ([build id `examples/login-helix`](../../implementation/shadow-cljs.edn))
   Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`/`:locked-out`), same Malli schemas, same `:rf.http/managed.login-demo` stub fx as the Reagent and UIx login examples. The view layer is a Helix `defnc` form using `helix.hooks/use-state` for local input state. Smoke-spec drives credentials → submit → asserts the welcome banner appears on success.
 
+- **`helix/process_monitor_helix/`** ([build id `examples/process-monitor-helix`](../../implementation/shadow-cljs.edn))
+  Design-led example proving Helix can drive a substantive multi-pane layout. Shares the `_shared/css/style.css` "Editorial Warm" identity with the Reagent notebook and UIx dashboard counterparts. No state machines, no HTTP — design-led examples exist to prove polished visuals + interaction, not to replay platform features other examples already cover.
+
 ## Running
 
 The Helix examples are wired into the same orchestrator as the Reagent and UIx sets. From `implementation/`:
@@ -34,7 +38,7 @@ The Helix examples are wired into the same orchestrator as the Reagent and UIx s
 npm run test:examples
 ```
 
-That compiles `examples/counter-helix` and `examples/login-helix` alongside every Reagent and UIx example, stages each `index.html`, serves the lot, and drives the per-example smoke specs. The bundle-isolation grep at [`implementation/scripts/check-bundle-isolation.cjs`](../../implementation/scripts/check-bundle-isolation.cjs) runs against the Reagent counter; the per-substrate-per-example shadow-cljs builds let CI verify a Reagent example's `main.js` carries no Helix code and vice versa (and likewise for UIx ↔ Helix).
+That compiles `examples/counter-helix`, `examples/login-helix`, and `examples/process-monitor-helix` alongside every Reagent and UIx example, stages each `index.html`, serves the lot, and drives the adapter-level smoke specs. The bundle-isolation grep at [`implementation/scripts/check-bundle-isolation.cjs`](../../implementation/scripts/check-bundle-isolation.cjs) runs against the Reagent counter; the per-substrate-per-example shadow-cljs builds let CI verify a Reagent example's `main.js` carries no Helix code and vice versa (and likewise for UIx ↔ Helix).
 
 To iterate on one Helix example interactively, from `implementation/`:
 
@@ -50,3 +54,4 @@ shadow-cljs watch examples/counter-helix
 - [`spec/Conventions.md` §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) — adapter test matrix policy: Reagent canonical, UIx and Helix smoke-tested.
 - [`examples/reagent/counter/`](../reagent/counter/) and [`examples/reagent/login/`](../reagent/login/) — the canonical Reagent counterparts (same dataflow; different view layer; namespace prefix without the `_helix` suffix).
 - [`examples/uix/counter_uix/`](../uix/counter_uix/) and [`examples/uix/login_uix/`](../uix/login_uix/) — the UIx siblings; the dataflow is identical, the view layer uses `defui` + `use-subscribe` rather than `defnc` + `use-subscribe`.
+- [`examples/reagent/notebook/`](../reagent/notebook/) and [`examples/uix/dashboard_uix/`](../uix/dashboard_uix/) — the Reagent and UIx design-led siblings of `process_monitor_helix`; same "Editorial Warm" identity, different substrate.

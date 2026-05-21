@@ -34,9 +34,11 @@ examples/
     nine_states/
     routing/
     ssr/
+    ssr_streaming/                      <-- streaming SSR worked example (Spec 011 §Streaming)
     managed_http_counter/
     long_running_work/                  <-- Pattern-LongRunningWork worked example
     websocket/                          <-- Pattern-WebSocket worked example
+    notebook/                           <-- design-led example (Editorial Warm identity)
     login/
   uix/                                  <-- UIx adapter examples (counter + login + dashboard)
     counter_uix/                        <-- folder name carries the namespace suffix so it
@@ -54,7 +56,7 @@ The orchestrator and the runner consume `playwright` and `http-server` out of `i
 
 ## Reagent
 
-The full set of worked examples — nineteen in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. Per rf2-8cevm there is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:causa-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
+The full set of worked examples — twenty-one in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. There is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:causa-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
 
 Build any example directly via shadow-cljs:
 
@@ -84,6 +86,8 @@ shadow-cljs watch examples/counter
 | 17 | [`reagent/7Guis/circle_drawer/`](reagent/7Guis/circle_drawer/circle_drawer.cljs) | Benchmark | `examples/circle-drawer` | [004 Views](../spec/004-Views.md), [002 Frames](../spec/002-Frames.md) | 7GUIs #6 — Circle drawer. Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state. |
 | 18 | [`reagent/7Guis/cells/`](reagent/7Guis/cells/cells.cljs) | Benchmark | `examples/cells` | [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [004 Views](../spec/004-Views.md) | 7GUIs #7 — Cells. Formula evaluation; subscription-graph propagation; cycle detection; pure parser+evaluator. |
 | 19 | [`reagent/realworld/`](reagent/realworld/README.md) | Worked scaffold | `examples/realworld` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [012 Routing](../spec/012-Routing.md), [005 StateMachines](../spec/005-StateMachines.md), [011 SSR](../spec/011-SSR.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md) | [RealWorld (Conduit)](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark. Auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue are all sketched on the current API surface. |
+| 20 | [`reagent/ssr_streaming/`](reagent/ssr_streaming/) | Pedagogical sketch | `examples/ssr-streaming` | [011 SSR §Streaming](../spec/011-SSR.md#streaming-ssr), [004 Views](../spec/004-Views.md) | Streaming SSR walkthrough. A dashboard with three slow cards: the page's shell + header render immediately on the server, then each card streams its content as its data fetch resolves. Demonstrates the `:rf/suspense-boundary` hiccup marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. |
+| 21 | [`reagent/notebook/`](reagent/notebook/) | Design-led | `examples/notebook` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md) | Three-pane editorial layout (documents tree · markdown editor · live preview). The design-led Reagent counterpart to `uix/dashboard_uix/` and `helix/process_monitor_helix/` — all three substrates share the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css). Tiny pure-CLJS markdown parser keeps the bundle small. |
 
 > Story Stage 8 (`tools/story` end-to-end on the canonical counter — seven `reg-*` macros, four variants, two workspaces, plus the privacy + size elision demo) lives as a **tool-owned testbed** at [`tools/story/testbeds/counter_with_stories/`](../tools/story/testbeds/counter_with_stories/). It builds under `:examples/counter-with-stories` and is exercised by `npm run test:story-feature-load` — but it's catalogued with the tool that owns it rather than with the tutorial examples. Same for [`tools/causa/testbeds/`](../tools/causa/) (the canonical multi-frame `parallel_frames` demo, the deterministic `feature_matrix` sweep, the Panel-view `panel_gallery`, and the perf-instrumented `perf_counter`).
 
@@ -97,6 +101,7 @@ The UIx adapter ships a curated subset rather than a 1:1 mirror of the Reagent s
 |---|---|---|---|---|
 | 1 | [`uix/counter_uix/`](uix/counter_uix/) | Pedagogical sketch | `examples/counter-uix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the UIx adapter — same events, subs, and `app-db` shape; the view layer is `defui` components consuming subs via the `use-subscribe` hook. |
 | 2 | [`uix/login_uix/`](uix/login_uix/) | Pedagogical sketch | `examples/login-uix` | The Reagent [`login/`](reagent/login/) example through UIx — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
+| 3 | [`uix/dashboard_uix/`](uix/dashboard_uix/) | Design-led | `examples/dashboard-uix` | Design-led example proving UIx can drive a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css) with the Reagent `notebook/` and Helix `process_monitor_helix/` siblings. |
 
 ## Helix
 
@@ -106,6 +111,7 @@ The Helix adapter ships the same subset shape as UIx — counter + login (plus t
 |---|---|---|---|---|
 | 1 | [`helix/counter_helix/`](helix/counter_helix/) | Pedagogical sketch | `examples/counter-helix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the Helix adapter — same events, subs, and `app-db` shape; the view layer is `defnc` components consuming subs via the `use-subscribe` hook. |
 | 2 | [`helix/login_helix/`](helix/login_helix/) | Pedagogical sketch | `examples/login-helix` | The Reagent [`login/`](reagent/login/) example through Helix — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
+| 3 | [`helix/process_monitor_helix/`](helix/process_monitor_helix/) | Design-led | `examples/process-monitor-helix` | Design-led example proving Helix can drive a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css) with the Reagent `notebook/` and UIx `dashboard_uix/` siblings. |
 
 The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle — separate per-example shadow-cljs builds per substrate let CI verify a Reagent-substrate example carries no UIx or Helix code, a UIx-substrate example carries no Reagent or Helix code, and a Helix-substrate example carries no Reagent or UIx code.
 
