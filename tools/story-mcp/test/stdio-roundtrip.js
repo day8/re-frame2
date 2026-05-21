@@ -5,7 +5,7 @@
 //
 //   - initialize                  (negotiate protocolVersion 2025-06-18)
 //   - notifications/initialized   (notification, no response)
-//   - tools/list                  (expect all 17 tools per spec/002)
+//   - tools/list                  (expect all 19 tools per spec/002)
 //   - tools/call list-tags        (read-side smoke; canonical seven present)
 //   - tools/call list-substrates  (returns a vector, possibly empty on JVM)
 //   - tools/call get-story-instructions (text content)
