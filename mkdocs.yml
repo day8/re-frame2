@@ -91,6 +91,28 @@ theme:
 # in the list, otherwise search silently disappears.
 plugins:
   - search
+  # OpenGraph / Twitter social preview cards (rf2-orxjj). Material's `social`
+  # plugin auto-generates one branded card image per page from the site
+  # metadata + the brand palette below, then injects the `og:image` /
+  # `twitter:image` meta tags — so shared docs URLs render a professional
+  # preview on Slack/Twitter/etc. `site_url` (set at the top of this file) is
+  # required for the absolute image URLs the cards emit.
+  #
+  # Card generation needs the `imaging` extra's system libraries (Cairo +
+  # Pango via material[imaging]). CI installs them (see .github/workflows/
+  # docs.yml) and sets CI=true, so `enabled: !ENV [CI, false]` turns the
+  # plugin on there. A LOCAL `mkdocs build --strict` (where Cairo/Pango may
+  # be absent) sees CI unset → `enabled` is false → the plugin returns from
+  # on_config BEFORE its hard cairosvg dependency check (plugin.py: `cards =
+  # enabled`, then `if not cards: return` precedes the import probe), so the
+  # strict build still passes. Gating on `enabled` (not `cards`) is required:
+  # the plugin overwrites `cards` with `enabled` at on_config time, so a
+  # `cards:`-only gate is ignored and the dependency check still fires.
+  - social:
+      enabled: !ENV [CI, false]
+      cards_layout_options:
+        background_color: "#1976d2"  # Material `blue` primary
+        color: "#ffffff"
 
 # Klipse live-code bootstrap (rf2-zr5r5). Small, site-wide loader that does
 # NOTHING unless the page actually has ```klipse cells (only docs/cljs/index.md
