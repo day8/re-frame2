@@ -55,7 +55,8 @@
              :as overlay-spawn-all]
             [day8.re-frame2-machines-viz.chart.overlays.cancellation-cascade
              :as overlay-cascade]
-            [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
+            [day8.re-frame2-machines-viz.theme.tokens :as tokens]
+            [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- xyflow React-class adapters ----------------------------------------
 
@@ -235,6 +236,19 @@
     :read-only?        — when true all `:on-*` callbacks are no-op'd.
                          The viewer page sets this.
     :direction         — `:tb` (top-to-bottom, default) or `:lr`.
+    :density           — rf2-k647w. `:compact` / `:regular` (default) /
+                         `:cosy`. Resolves the geometry + typography
+                         map via `visual-constants/chart-for-density`;
+                         the resolved map is threaded through the
+                         projector onto every node/edge `:data` so the
+                         xyflow node/edge components render at the
+                         chosen density. The chart root surfaces the
+                         resolved density as `data-density`. nil ≡
+                         `:regular` (pixel-identical to the historical
+                         render). An unknown density throws at render
+                         time (per `spec/API.md` §Density resolution
+                         rules) — picking outside the closed set is a
+                         programmer error, not a runtime fallback.
     :layout-options    — host-side elk.js `layoutOptions` overrides
                          merged on top of `default-elk-options`.
     :height            — outer wrapper height (CSS string; default
@@ -295,7 +309,7 @@
         layout-key    (r/atom nil)]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
                  sim? on-state-click read-only?
-                 direction layout-options
+                 direction layout-options density
                  height show-minimap? show-controls? show-background?
                  after-ring-specs after-ring-tick
                  on-after-ring-hover on-after-ring-leave
@@ -358,7 +372,16 @@
            "Machine has no states to render."]
 
           :else
-          (let [highlight-id      (layout/highlight-id current-state)
+          ;; rf2-k647w — resolve the `:density` prop ONCE per render to
+          ;; its visual-constants map. `chart-for-density` throws on an
+          ;; unknown density (per spec/API.md §Density), maps nil →
+          ;; regular, and returns the closed-set map otherwise. The
+          ;; resolved map threads through the projector onto every
+          ;; node/edge `:data`; the resolved density name surfaces on
+          ;; the root as `data-density`.
+          (let [chart-vc          (vc/chart-for-density density)
+                density-name      (name (or density :regular))
+                highlight-id      (layout/highlight-id current-state)
                 from-highlight-id (layout/highlight-id from-highlight)
                 to-highlight-id   (layout/highlight-id to-highlight)
                 callback          (when-not read-only? on-state-click)
@@ -369,7 +392,8 @@
                                :from-highlight-id from-highlight-id
                                :to-highlight-id   to-highlight-id
                                :sim?              sim?
-                               :on-state-click    callback})
+                               :on-state-click    callback
+                               :chart             chart-vc})
                 aria-label (str "State machine"
                                 (when machine-id
                                   (str ": " (name machine-id)))
@@ -386,6 +410,11 @@
                    :data-node-count (str n-states)
                    :data-region-count (str n-regions)
                    :data-edge-count (str n-trans)
+                   ;; rf2-k647w — the resolved density surfaces here so
+                   ;; hosts + tests read the active density without
+                   ;; re-reading the bound prop (per spec/API.md
+                   ;; §Density resolution rules).
+                   :data-density density-name
                    :data-highlight-id (or highlight-id "")
                    :data-from-highlight-id (or from-highlight-id "")
                    :data-to-highlight-id (or to-highlight-id "")
@@ -417,9 +446,13 @@
                :maxZoom             4.0
                :proOptions          #js {:hideAttribution true}}
               (when show-background?
+                ;; rf2-k647w — dot-grid spacing + radius track the
+                ;; resolved density (`:dot-grid-spacing-px` /
+                ;; `:dot-grid-radius-px`); regular = 16 / 1.0, the
+                ;; historical hardcoded pair.
                 [:> Background {:variant (.-Dots BackgroundVariant)
-                                :gap 16
-                                :size 1
+                                :gap (:dot-grid-spacing-px chart-vc)
+                                :size (:dot-grid-radius-px chart-vc)
                                 :color (tokens/with-alpha :accent-violet 0.4)}])
               (when show-controls?
                 [:> Controls {:showZoom true

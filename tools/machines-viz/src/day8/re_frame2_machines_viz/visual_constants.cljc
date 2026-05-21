@@ -40,7 +40,21 @@
   active state's static affordance (cyan tint + emphasised stroke)
   carries the 'currently here' signal without a continuous loop;
   the transition glow on event-fire remains for moment-of-cause
-  cueing. `:pulse-stroke-width-add` retired with the animation."
+  cueing. `:pulse-stroke-width-add` retired with the animation.
+
+  rf2-k647w — this ns is now the SINGLE SOURCE of the chart's render
+  geometry/typography. The xyflow `MachineChart` (`chart.nodes` /
+  `chart.edges` / `chart.cljs`) used to HARDCODE the regular-density
+  numbers and had DRIFTED from `chart-regular` (tag-pill height 16 vs.
+  spec'd 12, pad-x 6 vs. 5, px 9 vs. 8, row-gap 3 vs. 4). The
+  reconciliation moves `chart-regular` to the SHIPPED renderer numbers
+  (so wiring `:density` introduces no visual regression at the default)
+  and adds `:compound-radius` + `:tag-pill-radius` — two render
+  constants the renderer hardcoded but `visual-constants` did not yet
+  carry. The renderer now READS every one of these off the resolved
+  density map (threaded through the projector's per-node/per-edge
+  `:data`); switching `:density` changes the render for real and the
+  chart root emits `data-density`."
   {:no-doc true})
 
 (def chart-regular
@@ -73,9 +87,17 @@
     :caption-strip-px         — chart-level caption strip height
                                 (rf2-3zdzw)
     :caption-text-px          — caption strip text font-size
+    :compound-radius          — compound container corner radius
+                                (rf2-k647w — distinct from the
+                                state-node `:corner-radius` lock; the
+                                compound chrome reads as a looser box)
     :tag-pill-height          — state-tag pill height (rf2-m1b88)
     :tag-pill-pad-x           — state-tag pill horizontal padding
     :tag-pill-px              — state-tag pill text font-size
+    :tag-pill-radius          — state-tag pill corner radius
+                                (rf2-k647w — the pill's own rounding;
+                                tracks density, unlike the state-node
+                                `:corner-radius` lock)
     :tag-pill-gap             — horizontal gap between adjacent
                                 pills
     :tag-pill-row-gap         — vertical gap from pill row to
@@ -91,6 +113,7 @@
    :compound-pad-x         16
    :compound-pad-y         24
    :compound-stroke-dash   "4 3"
+   :compound-radius        10
 
    ;; ── typography (rf2-gg7ws — chart-regular floor 13/11) ───────
    :state-label-px         13
@@ -101,12 +124,16 @@
    :caption-strip-px       28
    :caption-text-px        11
 
-   ;; ── state-tag pills (rf2-m1b88) ──────────────────────────────
-   :tag-pill-height        12
-   :tag-pill-pad-x         5
-   :tag-pill-px            8
+   ;; ── state-tag pills (rf2-m1b88; rf2-k647w drift reconciled to
+   ;;    the SHIPPED renderer numbers — height 16 / pad-x 6 / px 9 /
+   ;;    radius 8 / row-gap 3 — so wiring :density introduces NO
+   ;;    visual regression at the regular default) ─────────────────
+   :tag-pill-height        16
+   :tag-pill-pad-x         6
+   :tag-pill-px            9
+   :tag-pill-radius        8
    :tag-pill-gap           3
-   :tag-pill-row-gap       4
+   :tag-pill-row-gap       3
 
    ;; ── dot-grid background (rf2-m4nj4) ──────────────────────────
    :dot-grid-spacing-px    16
@@ -138,6 +165,7 @@
    :compound-pad-x         10
    :compound-pad-y         18
    :compound-stroke-dash   "3 2"
+   :compound-radius        8           ;; ~25% tighter than regular's 10
 
    ;; ── typography (rf2-gg7ws refused-floor revisited for thumbnails)
    :state-label-px         11
@@ -148,12 +176,13 @@
    :caption-strip-px       22
    :caption-text-px        9
 
-   ;; ── state-tag pills ──────────────────────────────────────────
-   :tag-pill-height        10
-   :tag-pill-pad-x         4
+   ;; ── state-tag pills (tighter than the regular 16/6/9/8) ──────
+   :tag-pill-height        13
+   :tag-pill-pad-x         5
    :tag-pill-px            7
+   :tag-pill-radius        6
    :tag-pill-gap           2
-   :tag-pill-row-gap       3
+   :tag-pill-row-gap       2
 
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    12
@@ -183,6 +212,7 @@
    :compound-pad-x         20
    :compound-pad-y         30
    :compound-stroke-dash   "5 4"
+   :compound-radius        12          ;; ~25% looser than regular's 10
 
    ;; ── typography (walked up one notch from the regular floor) ──
    :state-label-px         15
@@ -193,12 +223,13 @@
    :caption-strip-px       34
    :caption-text-px        13
 
-   ;; ── state-tag pills ──────────────────────────────────────────
-   :tag-pill-height        14
-   :tag-pill-pad-x         6
-   :tag-pill-px            10
+   ;; ── state-tag pills (looser than the regular 16/6/9/8) ───────
+   :tag-pill-height        19
+   :tag-pill-pad-x         7
+   :tag-pill-px            11
+   :tag-pill-radius        10
    :tag-pill-gap           4
-   :tag-pill-row-gap       5
+   :tag-pill-row-gap       4
 
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    20

@@ -43,13 +43,30 @@
             [reagent.core :as r]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
-             :refer [mono-stack]]))
+             :refer [mono-stack]]
+            [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 (def ^:private get-bezier-path (.-getBezierPath xyflow))
 (def ^:private BaseEdge        (.-BaseEdge xyflow))
 (def ^:private EdgeLabelRenderer (.-EdgeLabelRenderer xyflow))
 
 ;; ---- helpers ------------------------------------------------------------
+;;
+;; rf2-k647w — edge typography (label font-size + backplate opacity)
+;; reads off the resolved density's `visual-constants` map, threaded
+;; onto the edge `:data` by the projector. xyflow `clj->js`-es the edge
+;; array, so `chart-constants` recovers the kebab-keyword CLJS map and
+;; falls back to `vc/chart-regular` when absent.
+
+(defn- chart-constants
+  "Recover the resolved visual-constants map off an edge's `:data`
+  (`(.-chart d)`); `vc/chart-regular` when absent so the regular
+  density stays pixel-identical to the pre-rf2-k647w hardcoded values."
+  [^js d]
+  (let [c (.-chart d)]
+    (if (some? c)
+      (js->clj c :keywordize-keys true)
+      vc/chart-regular)))
 
 (defn- edge-stroke
   [{:keys [active? focused?]}]
@@ -59,11 +76,17 @@
     :else    (:border-default tokens/tokens)))
 
 (defn- edge-stroke-width
-  [{:keys [active? focused?]}]
-  (cond
-    focused? 2.5
-    active?  2.0
-    :else    1.5))
+  "rf2-k647w — edge stroke widths read off the resolved density. The
+  active stroke sits midway between default + emphasis; the focused
+  stroke is the emphasis width (preserving the shipped regular
+  relationship 1.5 / 2.0 / 2.5)."
+  [{:keys [active? focused? chart]
+    :or   {chart vc/chart-regular}}]
+  (let [{:keys [stroke-width stroke-width-emphasis]} chart]
+    (cond
+      focused? stroke-width-emphasis
+      active?  (/ (+ stroke-width stroke-width-emphasis) 2.0)
+      :else    stroke-width)))
 
 ;; ---- transition-edge ----------------------------------------------------
 
@@ -81,10 +104,12 @@
         tgt-pos    (.-targetPosition props)
         marker-end (.-markerEnd props)
         d          (.-data props)
+        vc         (chart-constants d)
         label      (or (.-eventLabel d) "")
         active?    (boolean (.-active d))
         focused?   (boolean (.-focused d))
         after-ms   (.-afterMs d)
+        {:keys [edge-label-px edge-label-backplate-opacity]} vc
         ;; xyflow's getBezierPath returns [path-string label-x label-y
         ;; offset-x offset-y]. Use a JS-side destructure via aget.
         bz (get-bezier-path
@@ -98,7 +123,7 @@
         label-x (aget bz 1)
         label-y (aget bz 2)
         stroke  (edge-stroke {:active? active? :focused? focused?})
-        stroke-w (edge-stroke-width {:active? active? :focused? focused?})]
+        stroke-w (edge-stroke-width {:active? active? :focused? focused? :chart vc})]
     (r/as-element
       [:<>
        [:> BaseEdge {:id (.-id props)
@@ -119,10 +144,10 @@
                                             label-x "px," label-y "px)")
                        :pointer-events "auto"
                        :font-family    mono-stack
-                       :font-size      "11px"
+                       :font-size      (str edge-label-px "px")
                        :font-weight    400
                        :color          (:bg-0 tokens/tokens)
-                       :background     (tokens/with-alpha :white 0.85)
+                       :background     (tokens/with-alpha :white edge-label-backplate-opacity)
                        :padding        "1px 5px"
                        :border-radius  "3px"
                        :border         (str "1px solid " (tokens/with-alpha :border-subtle 0.4))

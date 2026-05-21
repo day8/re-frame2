@@ -17,7 +17,8 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-machines-viz.chart.layout :as layout]
-            [day8.re-frame2-machines-viz.chart.projection :as projection]))
+            [day8.re-frame2-machines-viz.chart.projection :as projection]
+            [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- fixtures ----------------------------------------------------------
 
@@ -311,6 +312,59 @@
       (is (= 0 (:regionIndex (:data audio))))
       (is (= 1 (:regionIndex (:data video))))
       (is (not (contains? (:data muted) :regionId))))))
+
+;; ---- :density → threaded visual-constants (rf2-k647w) ------------------
+;;
+;; The xyflow node/edge components render OUTSIDE the chart's render
+;; binding scope (React invokes them lazily), so the projector threads
+;; the resolved density's visual-constants map onto every node/edge
+;; `:data {:chart {...}}`. These pins guard that threading at the cheap
+;; JVM layer — the DOM suite (chart_dom) then pins the rendered effect.
+
+(deftest xyflow-graph-threads-chart-constants-onto-nodes
+  (testing "rf2-k647w — the resolved `:chart` map rides on EVERY node's
+            `:data` so the xyflow node component reads geometry off the
+            payload (it is invoked outside the render binding scope)"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {:chart vc/chart-compact})]
+      (is (seq (:nodes graph)))
+      (is (every? #(= vc/chart-compact (:chart (:data %))) (:nodes graph))
+          "compact density threads chart-compact onto every node"))))
+
+(deftest xyflow-graph-threads-chart-constants-onto-edges
+  (testing "rf2-k647w — the resolved `:chart` map rides on EVERY edge's
+            `:data` so the edge label typography tracks the density"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {:chart vc/chart-cosy})]
+      (is (seq (:edges graph)))
+      (is (every? #(= vc/chart-cosy (:chart (:data %))) (:edges graph))
+          "cosy density threads chart-cosy onto every edge"))))
+
+(deftest xyflow-graph-chart-defaults-to-regular
+  (testing "rf2-k647w — omitting `:chart` (the JVM tests, a density-less
+            caller) defaults to `chart-regular` so the regular density
+            stays pixel-identical to pre-rf2-k647w"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          idle   (node-by-id graph (layout/node-id [:idle]))]
+      (is (= vc/chart-regular (:chart (:data idle)))))))
+
+(deftest xyflow-graph-density-changes-threaded-constants
+  (testing "rf2-k647w — switching the density threads a DIFFERENT
+            constants map: the regular projection's tag-pill height
+            differs from the compact projection's, proving `:density`
+            actually changes what the renderer paints"
+    (let [parsed   (layout/parse-definition idle-loading)
+          idle-id  (layout/node-id [:idle])
+          regular  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-regular})
+                       (node-by-id idle-id) :data :chart)
+          compact  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-compact})
+                       (node-by-id idle-id) :data :chart)]
+      (is (not= (:tag-pill-height regular) (:tag-pill-height compact)))
+      (is (= 16 (:tag-pill-height regular)))
+      (is (= 13 (:tag-pill-height compact)))
+      ;; corner-radius is the locked invariant — identical across both
+      (is (= (:corner-radius regular) (:corner-radius compact) 6)))))
 
 ;; ---- ->elk-children (G3) -----------------------------------------------
 
