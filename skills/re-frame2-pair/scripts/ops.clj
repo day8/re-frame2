@@ -265,8 +265,13 @@
            :hint "Start your shadow-cljs dev build (`shadow-cljs watch <build>`).")))
 
 (defn- build-id-from-args [args]
+  ;; --build=:app -or- --build=app — both yield :app. We strip a leading
+  ;; colon before `keyword` so the documented `:app` form doesn't produce
+  ;; the malformed `::app` (a namespaced keyword in the `user` ns) and
+  ;; probe a build that doesn't exist (false :runtime-not-preloaded).
   (or (some-> (some #(when (str/starts-with? % "--build=") %) args)
               (str/replace-first "--build=" "")
+              (str/replace-first #"^:" "")
               keyword)
       default-build-id))
 
@@ -356,7 +361,7 @@
 
 (defn- eval-op [args]
   (ensure-port!)
-  (when (empty? args) (die :missing-form :hint "usage: eval '<form>' [--build :app]"))
+  (when (empty? args) (die :missing-form :hint "usage: eval '<form>' [--build=app]"))
   (let [form     (first args)
         build-id (build-id-from-args (rest args))]
     (try
