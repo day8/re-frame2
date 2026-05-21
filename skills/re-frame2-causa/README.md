@@ -4,8 +4,8 @@
 
 `re-frame2-causa` is a Claude Code **tour skill** for [Causa](https://github.com/day8/re-frame2/tree/main/tools/causa) — the re-frame2 in-app devtools panel. It answers two questions, and only two:
 
-1. **How do I launch Causa?** — the inline panel, the pop-out, the programmatic `init!`, and the wired hotkeys.
-2. **Which panel shows X?** — a one-line purpose for each of Causa's 13 panels.
+1. **How do I launch Causa?** — the inline panel, the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
+2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 8 Dynamic event-spine tabs and the 5 Static registry-browse tabs.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-indicator semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
 
@@ -18,9 +18,9 @@ Causa is the **human-facing** panel; for an AI agent surface against the running
 ## Repo contents
 
 - `SKILL.md` — the skill itself
-- `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.causa/layout-host-selector`, host-CSS-variable resize, pop-out lifecycle)
-- `references/panels.md` — the 13-panel tour in depth (group membership, dormant state, activity badges, deeper "open it when…" guidance)
-- `evals/evals.json` — trigger-eval fixtures (8 should-trigger + 8 should-not-trigger entries, per skill-creator's description-optimisation contract)
+- `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.causa/layout-host-selector`, host-CSS-variable resize, pop-out lifecycle, wired hotkeys)
+- `references/panels.md` — the full tab tour in depth (8 Dynamic event-spine tabs + 5 Static registry-browse tabs, shared components, iconography, deeper "open it when…" guidance)
+- `evals/evals.json` — trigger-eval fixtures (should-trigger + should-not-trigger entries, per skill-creator's description-optimisation contract)
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
 - `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill)
 
@@ -34,7 +34,7 @@ This skill does **not** depend on or reference `re-frame-10x`. Causa is the stru
 
 ## Status
 
-Pre-alpha. The Causa surface itself is pre-alpha (some panels are partial — the Machines panel embeds `tools/machines-viz/` which is a placeholder; Schemas / Hydration only render when the relevant feature is wired into the host). The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
+Pre-alpha. The Causa surface itself is pre-alpha (some tabs are partial — the Machines tabs render through the shared xyflow styling under `panels/machines/` + `panels/machines_canvas/`, still stabilising; Schemas / Hydration only render when the relevant feature is wired into the host; several Static tabs carry placeholder beads). The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
 
 A future `re-frame2-causa-implementor` sibling skill is deferred to post-alpha until the Causa surface stabilises.
 

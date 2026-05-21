@@ -10,12 +10,12 @@ re-frame2 surfaces it consumes, so the spec, implementation, and tooling
 travel together.
 
 The docs-site landing page mirrors this index at
-[`docs/skills/index.md`](../docs/skills/index.md) — same seven skills, same
+[`docs/skills/index.md`](../docs/skills/index.md) — same eight skills, same
 picking-the-right-one decision flow, hosted on the mkdocs site.
 
 ## Current skills
 
-re-frame2 ships **seven** skills, grouped by the situation they cover:
+re-frame2 ships **eight** skills, grouped by the situation they cover:
 
 ### Authoring on the CLJS reference
 
@@ -63,7 +63,16 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
   substrate, scope, and primitive decisions; Phase 2 walks the EP corpus
   in dependency order with `spec/conformance/` as the acceptance test.
 
-### Live-runtime pair programming
+### Live-runtime devtools & pair programming
+
+- **[`re-frame2-causa/`](./re-frame2-causa/)** — read-only tour of
+  **Causa**, the re-frame2 in-app devtools panel. Answers how to *launch*
+  Causa (true-inline panel, pop-out, programmatic `init!`, wired hotkeys,
+  the Dynamic ↔ Static mode toggle) and *which tab shows X* — across the
+  8 Dynamic event-spine tabs (Event / App DB / View / Trace / Machines /
+  Machines Canvas / Routing / Issues) and the 5 Static registry-browse
+  tabs (Machines / Routes / Schemas / Flows / Interceptors). Causa owns
+  the *seeing*; `re-frame2-pair` owns the *driving*.
 
 - **[`re-frame2-pair/`](./re-frame2-pair/)** — pair-program with a live
   re-frame2 application. Attach to a running shadow-cljs build via nREPL,
@@ -94,6 +103,8 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
   "any improvements?")?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in a different host language
   or substrate?** → `re-frame2-implementor`.
+- **Touring the Causa devtools panel — how to launch it, or which tab /
+  mode shows X?** → `re-frame2-causa`.
 - **Debugging or pairing with a running v2 app?** → `re-frame2-pair`.
 - **Just finished a pairing session and noticed friction (or hit an
   error mid-session and want a post-mortem)?** → `re-frame2-pair-retro`.
@@ -101,8 +112,8 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
 ## Skill routing — single source
 
 Each per-skill `SKILL.md` formerly carried its own "When NOT to use this
-skill" table mapping the other six skills' triggers to a route. Those
-40+ cross-referenced cells drift in lockstep. **This section is the
+skill" table mapping the other skills' triggers to a route. Those
+cross-referenced cells drift in lockstep. **This section is the
 single source of truth**; per-skill `SKILL.md` files point here instead
 of duplicating.
 
@@ -113,6 +124,7 @@ of duplicating.
 | Bootstrap a brand-new re-frame2 ClojureScript project from nothing (or an empty CLJS project with shadow-cljs/Clojure but zero re-frame2 wiring) | "start a re-frame2 project", "scaffold re-frame2", "hello-world re-frame2 app", "new re-frame2 app", build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring | [`re-frame2-setup/`](./re-frame2-setup/) |
 | Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event-*`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](./re-frame2/) |
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](./re-frame-migration/) |
+| Tour the **Causa** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Causa", "where is X in Causa", "which Causa panel/tab shows…", "Causa Static mode", "browse registered machines/routes/schemas in Causa", "Ctrl+Shift+C", "Causa hotkey", "Causa popout", "Causa machine inspector / issues feed" — the user wants to *read* the panel, not drive a runtime | [`re-frame2-causa/`](./re-frame2-causa/) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](./re-frame2-pair/) |
 | Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft a bead about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](./re-frame2-pair-retro/) |
 | Build a **new re-frame2 implementation** in a different host language or substrate (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, ReScript, Python, Rust, native UI, terminal, …) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](./re-frame2-implementor/) |
@@ -126,6 +138,7 @@ of duplicating.
 - Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope for `re-frame2-pair-retro` — there is no pair-tool surface to improve.
 - Mid-session pair work stays in `re-frame2-pair`; switch to `re-frame2-pair-retro` only when the user explicitly asks for a retro, or for a post-error post-mortem within the re-frame2-pair session — not as a default mode during routine pair work.
 - "Adding re-frame2 to an existing app with other state management or non-trivial code" is an authoring task — route to `re-frame2/`, not `re-frame2-setup/`. Setup is greenfield-only and exits once the counter mounts.
+- **Causa vs re-frame2-pair: read vs drive.** `re-frame2-causa` is a *read-only tour of the panel* — how to launch it and which tab/mode shows X. The moment the user wants to *operate* on a running runtime (dispatch an event, mutate `app-db`, hot-swap a handler, time-travel), that is `re-frame2-pair`, even if the word "Causa" appears in the prompt.
 
 ### Routing for friction found mid-pair retro
 

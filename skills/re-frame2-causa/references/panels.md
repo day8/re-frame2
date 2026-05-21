@@ -1,30 +1,54 @@
-# panels — the 8 L4 lenses on one epoch
+# panels — Dynamic lenses on one event + Static registry browse
 
-Sources of truth: per-panel content design lives in
+Sources of truth: the live tab inventory is the set of
+`panel-registry/reg-l4-tab!` calls under
+`tools/causa/src/day8/re_frame2_causa/panels/` (Dynamic) and
+`.../static/` (Static); the normative tab list is
+[`018-Event-Spine.md` §5](../../../tools/causa/spec/018-Event-Spine.md)
+(Dynamic) + [`007-UX-IA.md` §Static mode](../../../tools/causa/spec/007-UX-IA.md)
+(Static). Per-panel content design lives in
 [`021-Dynamic-Panel-Designs.md`](../../../tools/causa/spec/021-Dynamic-Panel-Designs.md)
-(the canonical Dynamic-panel doc; per-panel content layout, locked
-decisions, palette / iconography / animation specs);
+(per-panel layout, locked decisions, palette / iconography / animation);
 [`007-UX-IA.md`](../../../tools/causa/spec/007-UX-IA.md) for chrome,
-palette tokens, density; the per-panel scaffolds at
-`tools/causa/spec/00N-*.md` cover surface-specific contracts that
-predate §021. Panel order is set in `panel_registry.cljc` and rendered
-by `shell.cljs`.
+palette tokens, density. Tab order is set declaratively via `reg-l4-tab!`
+`:order` and rendered by `shell.cljs` (Dynamic) / `static/shell.cljs`
+(Static).
 
-## The two-zone shape — L2 timeline above, L4 panels below
+## Two modes, two chrome shapes
 
-Causa's chrome is two zones, one purpose each (per §021 §1):
+Causa runs in one mode at a time — flip with the L1 mode pill or
+`Cmd/Ctrl+Shift+M` (per §007 §Static mode).
+
+**Dynamic** — the event-coupled spine. Four layers; every tab is a lens
+on the one focused event:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ L1 ribbon · L2 epoch timeline ← MOVING BETWEEN epochs│
+│ L1 ribbon · L2 event timeline ← MOVING BETWEEN events│
 ├──────────────────────────────────────────────────────────────────────┤
-│ L4 panels (8 lenses on the focused epoch) ← DEPTH INTO one epoch │
+│ L3 tab bar (8 tabs) · L4 detail (lens on focused event) ← DEPTH IN  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Top** carries the only cross-epoch signal. **Bottom** is 8 L4 panels,
-each answering "what happened in this epoch?" through its own lens.
-**No third axis. No cross-epoch L4 panels** (§021 §1.2 — binding).
+**Top** carries the only cross-epoch signal. Every Dynamic L4 tab answers
+"what happened in this epoch?" through its own lens — the one exception is
+**Machines Canvas**, which is spine-INDEPENDENT (§007 §Layout). **No third
+axis. No other cross-epoch L4 panels** (§021 §1.2 — binding).
+
+**Static** — event-INDEPENDENT registry browse. Three layers (no L2
+spine); every tab is a catalogue of what's registered in the picked
+frame:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ L1 ribbon (mode pill · frame picker · icons)                          │
+├──────────────────────────────────────────────────────────────────────┤
+│ L3 tab bar (5 tabs) · L4 detail (registry catalogue) ← WHAT EXISTS   │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+The 8 Dynamic tabs are covered in §Panel-by-panel below; the 5 Static
+tabs in §Static mode — registry browse.
 
 ### L2 timeline grammar
 
@@ -51,17 +75,20 @@ Clicking an L2 row is **INSPECTION** — L4 panels rebind to that epoch's
 captured snapshots; app-db is NOT rolled back. Rewind is a separate
 affordance in the focused-epoch header (`002-Time-Travel.md`).
 
-## Panel-by-panel
+## Panel-by-panel (Dynamic mode)
 
-Eight panels, in their fixed L3-tab order (§021 §11.4): **Event ·
-App-db · Reactive · Trace · Machines · Routing · Issues · Chrome A11y.**
+Eight Dynamic tabs, in their fixed L3-tab order (§018 §5; mnemonics
+`e a v t m c r i`): **Event · App DB · View · Trace · Machines ·
+Machines Canvas · Routing · Issues.**
 
-Each panel shares the same chrome: panel icon (left of stripe) · panel
-title · focused-epoch id · `[◀ Prev] [Next ▶]` film-strip walking the
+Each tab shares the same chrome: panel icon (left of stripe) · panel
+title · focused-event id · `[◀ Prev] [Next ▶]` film-strip walking the
 L2 spine chronologically (per §021 §17.1.5; shared component at
 [`panels/shared/film_strip/header.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/shared/film_strip/header.cljc)).
+(Machines Canvas is the one spine-independent tab — no film-strip; it has
+its own machine picker instead.)
 
-### Event — `⚡` · stripe `:accent-violet`
+### Event — `⚡` · stripe `:accent-violet` · mnem `e`
 
 Question: **What did this event DO?** — the handling pipeline.
 
@@ -77,7 +104,7 @@ Six-step linear pipeline rendered top-to-bottom with explicit arrows
 
 All six steps default-expanded (the pipeline IS the punch, §021 §2 +
 §17.3). Ends with the `db committed for epoch #N` marker — the pivot
-to the Reactive panel. Header film-strip walks the L2 spine
+to the View panel. Header film-strip walks the L2 spine
 chronologically.
 
 **Open when:** "what did this event do?", "what fx fired?", "what did
@@ -88,7 +115,7 @@ implementation at
 [`panels/event_detail.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/event_detail.cljs)
 + `panels/event/`.
 
-### App-db — `◐` · stripe `:cyan`
+### App DB — `◐` · stripe `:cyan` · mnem `a`
 
 Question: **What does state LOOK LIKE — and what just changed?**
 
@@ -102,7 +129,7 @@ Two-zone layout (§021 §4.2):
 
 **Downstream-subs hover popover** (§021 §4.4) — hover any changed path
 to surface the subs depending on it + the views rendered + an inline
-`⤴` to jump to the Reactive panel scrolled to those subs. Popover is
+`⤴` to jump to the View panel scrolled to those subs. Popover is
 Causa-owned (not a browser title), keyboard-dismissable. Walks subs
 from the registry's `:input-paths` — see
 [`panels/shared/sub_input_paths.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/shared/sub_input_paths.cljc).
@@ -121,13 +148,14 @@ implementation at
 + siblings under `panels/app_db_diff_*.cljs` +
 [`panels/app_db_diff_downstream.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/app_db_diff_downstream.cljs).
 
-### Reactive — `◉` · stripe `:cyan`
+### View — `◉` · stripe `:cyan` · mnem `v`
 
 Question: **What RENDERED as a result?**
 
-Renamed from `Views` → `Reactive` per §021 §11.5. **The L3 tab key
-stays `:views`** (it's an internal id, not a user contract — share URLs
-are local-only dev surface). Only the display label rebases.
+The display label is **View** — it was `Views` (pre-rebuild), then
+`Reactive` (§021 §11.5), and is now `View`
+(`reactive_panel.cljs:53-57`). **The L3 tab key stays `:views`** — it's an
+internal id, not a user contract, so only the display label rebases.
 
 The reactive cascade (Spec 009 ops 7-8) rendered as a depth-first DAG
 with explicit indentation showing sub-of-sub layering:
@@ -156,11 +184,11 @@ implementation at
 [`panels/reactive_panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/reactive_panel.cljs)
 + siblings under `panels/reactive_panel_*.cljs`.
 
-### Trace — `⬢` · stripe `:orange`
+### Trace — `⬢` · stripe `:orange` · mnem `t`
 
 Question: **What raw trace events fired during this epoch?**
 
-The underlying stream that Event + Reactive summarise. **Focused-epoch
+The underlying stream that Event + View summarise. **Focused-epoch
 scoped** (per §021 §1.2 — no aggregate-across-epochs view) — each row
 is a single mono line `#id +Xms op-kw inline-summary`, filterable
 by `[op-type ▾] [tag ▾]` chips (panel-local; do not affect L1 ribbon).
@@ -182,16 +210,24 @@ Spec: [`021-Dynamic-Panel-Designs.md` §5](../../../tools/causa/spec/021-Dynamic
 implementation at
 [`panels/trace.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/trace.cljs).
 
-### Machines — `◆` · stripe `:green`
+### Machines — `◆` · stripe `:green` · mnem `m`
 
 Question: **What did this event do to my machines?**
 
-Topology-plus-overlay (§021 §6 + §17.4). Each registered machine
-renders as an xyflow canvas (path B locked per §021 §6.0 — xyflow with
-Causa-palette styling; not Stately Inspect, not native Reagent). Nodes,
-edges, current-state pulse, parallel-region containers, final-state
-double-rings all render through
-[`machines/xyflow_style.cljs`](../../../tools/causa/src/day8/re_frame2_causa/machines)
+**Event-driven** (no picker, no Mode A/B/C): the panel is
+BLANK when the focused event had no machine activity, and renders one
+per-machine section (topology + transition highlight + guards + actions +
+cancellation cascade + `:after` rings) when it does. Per-machine
+prev/next nav walks the spine to the next event that touched that
+machine. (To browse a machine's *full* topology regardless of the focused
+event, use the spine-independent **Machines Canvas** tab below.)
+
+Topology-plus-overlay (§021 §6 + §17.4). Each machine renders as an
+xyflow canvas (path B locked per §021 §6.0 — xyflow with Causa-palette
+styling; not Stately Inspect, not native Reagent). Nodes, edges,
+current-state pulse, parallel-region containers, final-state double-rings
+all render through
+[`panels/machines/xyflow_style.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/machines/xyflow_style.cljs)
 (per §021 §17.4.5).
 
 **Current-state precedence** — a 4-source walk-back resolves the
@@ -219,10 +255,35 @@ Spec: [`021-Dynamic-Panel-Designs.md` §6 + §17.4](../../../tools/causa/spec/02
 + [`003-Machine-Inspector.md`](../../../tools/causa/spec/003-Machine-Inspector.md);
 implementation at
 [`panels/machine_inspector.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/machine_inspector.cljs)
-+ `panels/machines/` + `panels/machines_canvas/` +
-[`panels/machine_canvas.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/machine_canvas.cljs).
++ `panels/machines/`.
 
-### Routing — `🌐` · stripe `:yellow`
+### Machines Canvas — `◆` · stripe `:green` · mnem `c`
+
+Question: **What does this machine LOOK like — overall?**
+
+**Spine-INDEPENDENT.** Unlike the event-driven Machines tab,
+this one ignores the focused event entirely. It's a master-detail
+browser: a **picker on the left** (one row per registered machine, sorted
+by name) and an **interactive Chart adapter on the right** (zoom / pan /
+fit + keyboard shortcuts). The canvas always shows the picked machine's
+*full* topology, so it answers "what does my checkout machine look like?"
+even when no event has touched it.
+
+It earned its own L4 tab per the cohesive-sub-domain rule — a sibling to
+the event-driven Machines Inspector, reusing the shared xyflow rendering
+substrate (§021 §6.0).
+
+**Open when:** "show me the whole state chart for machine X", "browse my
+machines' topology without picking an event", "zoom into my checkout
+machine's diagram."
+
+Spec: [`007-UX-IA.md` §Layout](../../../tools/causa/spec/007-UX-IA.md)
+(spine-independent surface) + [`003-Machine-Inspector.md` §Interactive
+Machines canvas](../../../tools/causa/spec/003-Machine-Inspector.md);
+implementation at
+[`panels/machines_canvas/panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/machines_canvas/panel.cljs).
+
+### Routing — `🌐` · stripe `:yellow` · mnem `r`
 
 Question: **What did this event do to my routes?**
 
@@ -252,11 +313,12 @@ Spec: [`021-Dynamic-Panel-Designs.md` §7](../../../tools/causa/spec/021-Dynamic
 implementation at
 [`panels/routing.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/routing.cljs).
 
-### Issues — `⚠` · stripe `:red`
+### Issues — `⚠` · stripe `:red` · mnem `i`
 
 Question: **What's wrong in this epoch?**
 
-Per-epoch errors + warnings + schema violations + a11y violations.
+Per-epoch errors + warnings + schema violations + hydration mismatches +
+perf-budget overruns + app console errors/warns, unified.
 **Focused-epoch scoped** (§021 §8.1). Each issue renders as a 4-6 row
 block (severity · op-key · handler / schema · message · path / ex-data)
 with the ex-data laid out via the shared data-display renderer at
@@ -279,9 +341,47 @@ Spec: [`021-Dynamic-Panel-Designs.md` §8](../../../tools/causa/spec/021-Dynamic
 + [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md);
 implementation at
 [`panels/issues_ribbon.cljs`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon.cljs)
-+ [`panels/issues_ribbon_helpers.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon_helpers.cljc).)
-— a sibling to the variant a11y scanner `re-frame.story.ui.a11y`. A duplicate Causa panel was noise that flagged the
-Causa events-list as a problem.)
++ [`panels/issues_ribbon_helpers.cljc`](../../../tools/causa/src/day8/re_frame2_causa/panels/issues_ribbon_helpers.cljc).
+
+> **Accessibility note.** A11y dogfooding is **not** a Causa tab — the
+> pre-rebuild "Chrome A11y" tab was removed. A11y scanning lives in Story
+> (`re-frame.story.ui.chrome-a11y` + the variant scanner
+> `re-frame.story.ui.a11y`). Route a11y questions there, not to Causa.
+
+## Static mode — registry browse
+
+Static mode answers a different question from Dynamic:
+**what is registered**, not **what just happened**. It drops the L2 event
+spine (3-layer chrome) and renders 5 catalogue tabs over the picked
+frame's registries. Flip into it with the L1 mode pill or
+`Cmd/Ctrl+Shift+M`. Source of truth:
+[`007-UX-IA.md` §Static mode](../../../tools/causa/spec/007-UX-IA.md);
+sources under
+[`tools/causa/src/day8/re_frame2_causa/static/`](../../../tools/causa/src/day8/re_frame2_causa/static).
+
+Mnemonics are **mode-scoped** — the same letter dispatches the active
+mode's tab (`m` in Dynamic opens the Machines instance-inspector; `m` in
+Static opens the Machines registry browse).
+
+| Tab | Mnem | Question it answers | Implementation |
+|---|---|---|---|
+| **Machines** *(default)* | `m` | "What machines are registered, and what do they look like?" Registry browse + topology + a 4-mode sub-strip (incl. the Sim engine). | [`static/machines/panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/static/machines/panel.cljs) |
+| **Routes** | `r` | "What routes are registered, and which would `/x/y` match?" Registered routes + Simulate-URL (promoted from the Dynamic Routing lens). | [`static/routes/panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/static/routes/panel.cljs) |
+| **Schemas** | `c` | "What schemas are registered, and what shape do they expect?" Registered schemas + sample data + jump-to-source. | [`static/schemas/panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/static/schemas/panel.cljs) |
+| **Flows** | `f` | "What flows are registered?" The flows catalogue. | [`static/flows/panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/static/flows/panel.cljs) |
+| **Interceptors** | `i` | "What interceptors run, and in what order?" Pure-browse lens over the interceptor chains. | [`static/interceptors/panel.cljs`](../../../tools/causa/src/day8/re_frame2_causa/static/interceptors/panel.cljs) |
+
+The L1 frame picker is mode-independent — registries are frame-scoped, so
+pick the frame whether you're in Dynamic or Static. The mode choice lives
+at `[:rf.causa/mode]` (`:dynamic | :static`, persisted to localStorage);
+the Static-scoped tab choice lives at
+`[:rf.causa.static/selected-tab]` (default `:machines`), independent of
+Dynamic's `[:rf.causa/selected-tab]` so flipping modes preserves both.
+
+**Open when:** "where do I see all my registered machines / routes /
+schemas / flows / interceptors?", "browse the whole registry", "what's
+registered in this frame?" — anything that is about the *registry* rather
+than a single dispatch.
 
 ## Shared components
 
@@ -294,8 +394,8 @@ behaviour from each panel's perspective.
 The single canonical data renderer — lazy collapsible tree + inline
 diff highlighting + keyword accent + clickable paths. Lives at
 [`tools/causa/src/day8/re_frame2_causa/data_display/render.cljs`](../../../tools/causa/src/day8/re_frame2_causa/data_display/render.cljs)
-per §021 §10. Every panel that shows data — App-db, Event coeffects /
-returned effects, Reactive sub values, Trace expanded payloads, Issues
+per §021 §10. Every panel that shows data — App DB, Event coeffects /
+returned effects, View sub values, Trace expanded payloads, Issues
 `ex-data` — goes through this renderer (§021 §10.6 — binding).
 
 Locked capabilities (§021 §10.1): lazy collapsible tree · inline diff
@@ -323,7 +423,7 @@ Keyboard `←` / `→` global binding. Disabled state at spine ends.
 
 Per-panel stretch filters (e.g. "next epoch with ⚠" for Issues, "next
 route activity" for Routing, "next epoch that touched THIS machine"
-for Machines per) slot into the header's filter slot.
+for Machines) slot into the header's filter slot.
 
 ### `focus_resolver` + `find-epoch-record`
 
@@ -333,8 +433,8 @@ Resolves the focused epoch's record from `:rf.causa/focus` (per
 [`018-Event-Spine.md`](../../../tools/causa/spec/018-Event-Spine.md))
 with the **head-fallback contract** — when no historical epoch is
 focused, every L4 panel scopes to the most-recent epoch in the buffer
-(not "no data" — head IS a valid focus). Used by Issues, Reactive,
-App-db, Trace, Machines, Routing for symmetric "spine at head" empty
+(not "no data" — head IS a valid focus). Used by Issues, View,
+App DB, Trace, Machines, Routing for symmetric "spine at head" empty
 states.
 
 The evicted-epoch placeholder (§021 §10.7 — `"Epoch evicted from
@@ -347,16 +447,16 @@ past an evicted row.
 Per §021 §17.1.5 (binding; HCM-safe because glyph alone carries
 signal, colour is never alone):
 
-| Panel | Icon | Stripe token |
-|---|---|---|
-| Event | `⚡` | `:accent-violet` |
-| App-db | `◐` | `:cyan` |
-| Reactive | `◉` | `:cyan` |
-| Trace | `⬢` | `:orange` |
-| Machines | `◆` | `:green` |
-| Routing | `🌐` | `:yellow` |
-| Issues | `⚠` | `:red` |
-| Chrome A11y | `✦` | `:red` |
+| Tab (Dynamic) | Mnem | Icon | Stripe token |
+|---|---|---|---|
+| Event | `e` | `⚡` | `:accent-violet` |
+| App DB | `a` | `◐` | `:cyan` |
+| View | `v` | `◉` | `:cyan` |
+| Trace | `t` | `⬢` | `:orange` |
+| Machines | `m` | `◆` | `:green` |
+| Machines Canvas | `c` | `◆` | `:green` |
+| Routing | `r` | `🌐` | `:yellow` |
+| Issues | `i` | `⚠` | `:red` |
 
 L2 row badges: `⚠` issue · `◆` machine transition · `🌐` route nav ·
 `⚡` HTTP lifecycle · `⏲` timer dispatch.
@@ -367,28 +467,30 @@ inline state transition (`:text-primary`, mono).
 
 ## What's deliberately NOT here
 
-Per §021 §15:
+Per §021 §15 (Dynamic mode) + §007 §Static mode:
 
-- **No 4th L4 panel.** The 8-panel set is the contract; sub-layer
- surfaces inline in Reactive + the App-db hover popover (no peer Subs
- panel).
-- **No cross-epoch L4 views.** Aggregate signals live on L2 badges only.
-- **No pattern-view (4th lens).** Deferred.
-- **No master-detail Event-vs-Reactive coupling.** Peers, bridged by
- App-db.
+- **No extra Dynamic L4 lens.** The 8-tab Dynamic set is the contract;
+ sub-layer surfaces inline in View + the App DB hover popover (no peer
+ Subs panel).
+- **No Chrome A11y tab.** Removed; a11y dogfooding is Story's domain.
+- **No cross-epoch Dynamic L4 views.** Aggregate signals live on L2
+ badges only. (The exception, Machines Canvas, is spine-INDEPENDENT
+ rather than cross-epoch — it shows one picked machine, not an
+ aggregate.)
+- **No pattern-view.** Deferred.
+- **No master-detail Event-vs-View coupling.** Peers, bridged by App DB.
 - **No simultaneous multi-frame display.** Single-frame focus (§021
  §1.6); switch focus via the L1 frame picker.
 - **No legacy panels.** Subscriptions, Effects, Flows, Performance,
- Schemas, Hydration are NOT separate L4 panels. Their content is
- surfaced through the 8 above:
- - Subscriptions → Reactive (cascade tree) + App-db (hover popover)
+ Schemas, Hydration are NOT separate Dynamic tabs. Their content is
+ surfaced through the Dynamic 8 above — and the registry catalogues live
+ in Static mode:
+ - Subscriptions → View (cascade tree) + App DB (hover popover)
  - Effects → Event step 4 (returned) + step 5 (applied) + Trace (raw `:rf.fx/*` ops)
- - Flows → Event step 6
+ - Flows → Event step 6 (per event) · Static → Flows (registry)
  - Performance → L2 row stripe colours + per-step `:time` in Trace
- - Schemas / Hydration / a11y → Issues (unified feed)
+ - Schemas → Issues (per event) · Static → Schemas (registry)
+ - Hydration → Issues (unified feed)
 
-For the user-question → panel routing table, see
-[`SKILL.md` §The 13 panels — what each surfaces](../SKILL.md#the-13-panels--what-each-surfaces)
-(table label is still its pre-rebuild form; the table itself routes
-into the 8 panels described here via the post-rebuild surface — a
-follow-on sweep retires the legacy rows).
+For the user-question → tab routing tables, see
+[`SKILL.md` §The tabs — what each surfaces](../SKILL.md#the-tabs--what-each-surfaces).

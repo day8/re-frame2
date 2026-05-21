@@ -1,7 +1,7 @@
 {
   "name": "re-frame2-causa",
   "version": "0.1.0-alpha.1",
-  "description": "Read-only tour skill for Causa — the re-frame2 in-app devtools panel. Teaches launch modes and the 13-panel inventory; defers driving / implementing Causa to sibling skills.",
+  "description": "Read-only tour skill for Causa — the re-frame2 in-app devtools panel. Teaches launch modes, the Dynamic ↔ Static mode toggle, and the tab inventory (8 Dynamic event-spine tabs + 5 Static registry-browse tabs); defers driving / implementing Causa to sibling skills.",
   "skills": [
     "./SKILL.md"
   ],
