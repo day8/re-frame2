@@ -71,6 +71,20 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
+      # Cairo + Pango system libraries for Material's `social` plugin (rf2-orxjj).
+      # The plugin's image backend (CairoSVG, pulled in by material[imaging] in
+      # requirements.txt) links against these native libs to rasterise the
+      # OpenGraph/Twitter cards. Without them card generation throws at build
+      # time. This is the load-bearing CI change — it is what lets `CI=true`
+      # actually generate cards (the `social.cards: !ENV [CI, false]` gate in
+      # mkdocs.yml). Package list per Material's "Setting up social cards" docs.
+      - name: Install imaging system libraries (Cairo + Pango)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev \
+            libpng-dev libz-dev libpango-1.0-0 libpangocairo-1.0-0
+
       - name: Install MkDocs + plugins
         run: pip install -r requirements.txt
 

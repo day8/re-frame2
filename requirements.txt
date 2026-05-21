@@ -3,7 +3,11 @@
 # Pinned for reproducibility. Bump deliberately and verify the build still
 # resolves the cross-tree nav (docs/guide + spec/) cleanly.
 mkdocs==1.6.1
-mkdocs-material==9.5.44
+# The [imaging] extra pulls in Pillow + CairoSVG, which the Material `social`
+# plugin (mkdocs.yml) needs to render OpenGraph/Twitter cards (rf2-orxjj).
+# CairoSVG additionally needs the Cairo + Pango *system* libraries — CI
+# apt-get installs those before this pip step (see .github/workflows/docs.yml).
+mkdocs-material[imaging]==9.5.44
 pymdown-extensions==10.11.2
 # Pin pygments below 2.20 (rf2-4jaz). Pygments 2.20.0 added an html.escape()
 # call around the HtmlFormatter `filename` option, which crashes when
