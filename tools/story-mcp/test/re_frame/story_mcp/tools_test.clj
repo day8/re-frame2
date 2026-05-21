@@ -267,6 +267,98 @@
                " registry-only=" (set/difference (set reg-names) (set tool-names-fixture)))))))
 
 ;; ---------------------------------------------------------------------------
+;; Code ↔ skill drift guard (rf2-dxh2s)
+;;
+;; The `tool-names.json` net above guards code↔test↔conformance (JVM
+;; corpus, `stdio-roundtrip.js`, `end-to-end-story.cjs`). The CONSUMING
+;; skill leaf — `skills/re-frame2/references/tooling/story-mcp-loop.md` —
+;; names tools in PROSE: a count claim ("nineteen tools") and a per-step
+;; catalogue table. Nothing asserted those prose-named tools still exist
+;; in the registry, so a tool rename/removal left the leaf silently
+;; stale. (`scripts/check_skill_mcp_drift.py` covers a DIFFERENT axis:
+;; the SKILL.md YAML `allowed-tools:` front-matter, not this reference
+;; leaf's prose catalogue.) This deftest closes that arm.
+;; ---------------------------------------------------------------------------
+
+(def ^:private story-mcp-loop-leaf
+  "The consuming skill leaf, read relative to the test JVM cwd
+  (`tools/story-mcp/`; see CI `working-directory`). Read once at
+  ns-load — if the path drifts, `slurp` throws and the drift test
+  errors loudly rather than silently passing on an empty string."
+  (delay (slurp (io/file ".." ".." "skills" "re-frame2" "references"
+                         "tooling" "story-mcp-loop.md"))))
+
+(def ^:private number-words
+  "Spelled-out integers the leaf's tool-count claim may use. Keyed wide
+  enough that a registry that grows/shrinks by a couple of tools still
+  resolves the new count word — the assertion then bites on the mismatch
+  rather than erroring on an unknown word."
+  {"sixteen" 16 "seventeen" 17 "eighteen" 18 "nineteen" 19
+   "twenty" 20 "twenty-one" 21 "twenty-two" 22 "twenty-three" 23})
+
+(defn- skill-named-tools
+  "Tool names the leaf's per-step catalogue table references. The table
+  rows have the shape `| <step> | `<tool-name>` | <category> | <desc> |`
+  — pull the backtick-wrapped token from the second cell. Plus the two
+  tools named only in surrounding prose (`get-story-instructions`,
+  `snapshot-identity`). Returns a set of strings.
+
+  Deliberately table-anchored rather than scanning every backtick span:
+  the leaf also backticks non-tool tokens (`reg-variant`, the
+  deliberately-omitted `register-story`, `:rf.assert/*`, CLI flags) which
+  must NOT be asserted into the registry."
+  [leaf]
+  (let [table-names (->> (re-seq #"(?m)^\|[^|]*\|\s*`([a-z][a-z0-9-]+(?:->[a-z]+)?)`\s*\|"
+                                 leaf)
+                         (map second)
+                         set)]
+    (into table-names ["get-story-instructions" "snapshot-identity"])))
+
+(deftest skill-leaf-tool-names-match-registry
+  ;; rf2-dxh2s — code↔skill drift ratchet for the reference leaf prose.
+  (let [leaf       @story-mcp-loop-leaf
+        reg-names  (set (map :name registry/tool-registry))
+        named      (skill-named-tools leaf)]
+    (testing "the catalogue actually parsed some tool names (regex didn't silently miss)"
+      (is (seq named)
+          "skill-named-tools returned empty — the leaf's table shape changed; fix the parser")
+      ;; The seven loop tools the leaf's table enumerates by step. Pinned
+      ;; explicitly so a table row silently dropping a tool is caught even
+      ;; if the registry still carries it.
+      (doseq [t ["register-variant" "unregister-variant" "run-variant"
+                 "preview-variant" "read-failures" "get-variant"]]
+        (is (contains? named t)
+            (str "skill leaf catalogue no longer names loop tool '" t
+                 "' — table row removed or renamed in the prose"))))
+    (testing "every tool the skill leaf names exists in the registry (rename/removal ratchet)"
+      (doseq [t (sort named)]
+        (is (contains? reg-names t)
+            (str "skill leaf names tool '" t "' but the registry has no such tool — "
+                 "a rename/removal left "
+                 "skills/re-frame2/references/tooling/story-mcp-loop.md stale. "
+                 "Update the leaf (and re-verify the count claim).")))) )
+  ;; Count-claim ratchet: the leaf's "<count> tools" prose must equal the
+  ;; live registry size. Catches an add/remove that updates the table but
+  ;; leaves the headline count word stale (or vice-versa).
+  (testing "the leaf's spelled-out tool-count claim matches the registry size"
+    (let [leaf  @story-mcp-loop-leaf
+          n     (count registry/tool-registry)
+          ;; Match `<number-word> tools across` — the leaf reads "nineteen
+          ;; tools across four categories". The `across` anchor pins this
+          ;; to the headline count sentence rather than incidental "the
+          ;; story-mcp tools" / "the tools" prose elsewhere in the leaf.
+          m     (re-find #"(?i)\b([a-z]+(?:-[a-z]+)?)\s+tools\s+across\b" leaf)
+          word  (some-> m second clojure.string/lower-case)
+          claimed (get number-words word)]
+      (is (some? m) "leaf no longer carries an '<n> tools across' count claim — prose shape changed")
+      (is (some? claimed)
+          (str "leaf count word '" word "' is not in number-words; "
+               "the registry is " n " tools — extend number-words or fix the leaf"))
+      (is (= n claimed)
+          (str "leaf claims " word " (" claimed ") tools but the registry has " n
+               " — update story-mcp-loop.md's count claim")))))
+
+;; ---------------------------------------------------------------------------
 ;; Dev tools
 ;; ---------------------------------------------------------------------------
 
@@ -1242,6 +1334,39 @@
                {:jsonrpc "2.0" :id 7 :method "ping"})]
     (is (= {} (:result resp)))))
 
+(deftest dispatch-shutdown-empty-result
+  ;; `handle-shutdown` (server.cljc:110-115) — some agent hosts emit a
+  ;; `shutdown` request before closing stdin (it's not in the 2025-06-18
+  ;; spec, but the server accepts + responds so a well-behaved client
+  ;; doesn't see a timeout). Pins the empty-result happy arm + that the
+  ;; id is echoed back per JSON-RPC.
+  (let [resp (server/dispatch
+               {:jsonrpc "2.0" :id 8 :method "shutdown"})]
+    (is (= 8 (:id resp)) "shutdown echoes the request id")
+    (is (= {} (:result resp)) "shutdown returns an empty success result")
+    (is (nil? (:error resp)) "shutdown is a success, not an error")))
+
+(deftest dispatch-tools-call-non-string-name-invalid-params
+  ;; `handle-tools-call` (server.cljc:95-96) — the dispatcher's ONLY
+  ;; protocol-level invalid-params emit. A `tools/call` whose `:name` is
+  ;; not a string (numeric, or omitted entirely) must yield -32602
+  ;; invalid-params, distinct from the method-not-found path that an
+  ;; unknown *string* tool name takes (dispatch-tools-call-unknown-tool).
+  (testing "numeric :name → invalid-params"
+    (let [resp (server/dispatch
+                 {:jsonrpc "2.0" :id 9 :method "tools/call"
+                  :params {:name 42 :arguments {}}})]
+      (is (= 9 (:id resp)))
+      (is (= vocab/code-invalid-params (-> resp :error :code))
+          "a non-string tool name is a protocol-level invalid-params, not method-not-found")
+      (is (re-find #"name" (-> resp :error :message)))))
+  (testing "omitted :name → invalid-params"
+    (let [resp (server/dispatch
+                 {:jsonrpc "2.0" :id 10 :method "tools/call"
+                  :params {:arguments {}}})]
+      (is (= vocab/code-invalid-params (-> resp :error :code))
+          "a missing tool name is invalid-params (nil is not a string)"))))
+
 ;; ---------------------------------------------------------------------------
 ;; Run-loop end-to-end (in-memory)
 ;; ---------------------------------------------------------------------------
@@ -1301,6 +1426,53 @@
   (testing "--allow-writes flips the gate"
     (let [cfg (#'server/parse-args ["--allow-writes"])]
       (is (true? (:allow-writes? cfg))))))
+
+(deftest boot-config-unknown-flag-logged-and-ignored
+  ;; `parse-args` (server.cljc:236-237) — the log-and-ignore branch for
+  ;; an unrecognised flag. The MCP spec doesn't define CLI conventions,
+  ;; so the parser is deliberately permissive: an unknown flag is logged
+  ;; to *err* and skipped, leaving the config map untouched. Surrounding
+  ;; recognised flags must still parse.
+  (testing "an unknown flag leaves the config map empty"
+    ;; Silent-on-success (rf2-try1x): the log line goes to *err*; capture
+    ;; it so the green run keeps the canonical reporter shape.
+    (let [err (java.io.StringWriter.)]
+      (binding [*err* err]
+        (is (= {} (#'server/parse-args ["--no-such-flag"]))
+            "unknown flag is ignored — cfg stays empty"))
+      (is (re-find #"unknown CLI flag" (.toString err))
+          "unknown flag is logged to *err*")))
+  (testing "an unknown flag does not swallow an adjacent recognised flag"
+    (let [err (java.io.StringWriter.)]
+      (binding [*err* err]
+        (let [cfg (#'server/parse-args ["--bogus" "--allow-writes" "--also-bogus"])]
+          (is (true? (:allow-writes? cfg))
+              "recognised flag still parses around the ignored ones"))))))
+
+(deftest read-version-contract
+  ;; `read-version` (config.cljc:60-70) — feeds `:serverInfo :version` in
+  ;; the `initialize` handshake. Best-effort: reads `VERSION` off the
+  ;; classpath, falling back to "dev" when the resource is absent
+  ;; (uberjar deploys, REPL hosts). The story-mcp test classpath carries
+  ;; no `VERSION` resource (`:paths ["src"]` + test `:extra-paths ["test"]`,
+  ;; neither of which ship one), so this run exercises the "dev" fallback.
+  (testing "returns a non-blank trimmed string"
+    (let [v (config/read-version)]
+      (is (string? v))
+      (is (not (clojure.string/blank? v)))
+      (is (= v (clojure.string/trim v)) "result is already trimmed")))
+  (testing "falls back to \"dev\" when no VERSION resource is on the classpath"
+    (is (nil? (io/resource "VERSION"))
+        "precondition: the test classpath ships no VERSION resource")
+    (is (= "dev" (config/read-version))
+        "absent-resource path returns the documented \"dev\" fallback"))
+  (testing "the handshake's :serverInfo :version is fed by read-version"
+    (let [resp (server/dispatch
+                 {:jsonrpc "2.0" :id 11 :method "initialize"
+                  :params {:protocolVersion config/protocol-version}})]
+      (is (= (config/read-version)
+             (-> resp :result :serverInfo :version))
+          "initialize echoes read-version into :serverInfo :version"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-boundary token-budget cap (rf2-rvyzy / rf2-zavp5).
