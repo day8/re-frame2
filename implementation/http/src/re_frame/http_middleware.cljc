@@ -169,13 +169,19 @@
             (let [out (before acc)]
               (if (map? out)
                 out
-                ;; rf2-m32t9 — include the interceptor id in the cause
-                ;; string so a chain failure printed via the outer
-                ;; ex-info's :cause is locatable without reaching for
-                ;; ex-data. The :id key in ex-data is kept for
-                ;; programmatic consumers.
-                (throw (ex-info (str "interceptor " id " :before did not return a ctx map")
-                                {:id id :returned out}))))
+                ;; Canonical thrown-error shape (Spec 009): message is
+                ;; the stringified discriminator kw; the descriptive
+                ;; sentence (naming the offending interceptor id) rides
+                ;; on :reason. The outer wrapper carries :interceptor-id
+                ;; so a chain failure is locatable via ex-data; the :id
+                ;; key here is kept for programmatic consumers.
+                (throw (ex-info ":rf.error/http-interceptor-bad-return"
+                                {:rf.error/id :rf.error/http-interceptor-bad-return
+                                 :where       'rf/reg-http-interceptor
+                                 :recovery    :no-recovery
+                                 :reason      (str "interceptor " id " :before did not return a ctx map")
+                                 :id          id
+                                 :returned    out}))))
             (catch #?(:clj Throwable :cljs :default) t
               (let [data (ex-info ":rf.error/http-interceptor-failed"
                                   {:where    'run-http-interceptor-chain!
@@ -183,8 +189,15 @@
                                    :frame    frame-id
                                    :interceptor-id id
                                    :url      (get-in acc [:request :url])
-                                   :cause    #?(:clj  (.getMessage ^Throwable t)
-                                                :cljs (.-message t))})]
+                                   ;; Prefer the inner throw's :reason
+                                   ;; (a human sentence naming the
+                                   ;; offending interceptor) over the
+                                   ;; raw message — canonical throws
+                                   ;; stringify the discriminator kw as
+                                   ;; their message.
+                                   :cause    (or (:reason (ex-data t))
+                                                 #?(:clj  (.getMessage ^Throwable t)
+                                                    :cljs (.-message t)))})]
                 (when interop/debug-enabled?
                   ;; rf2-1jcpm — route through the privacy composer so a
                   ;; denylisted query param (`?api_key=…`) is scrubbed

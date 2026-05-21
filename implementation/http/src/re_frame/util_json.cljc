@@ -33,9 +33,9 @@
   worst case. Both readers enforce a per-call cap on the number of
   unique keys decoded (default `default-max-decoded-keys` = 10000;
   overridable per request via `(json-parse s {:max-decoded-keys N})`).
-  Overflow throws `:rf.error/malformed-json :reason :too-many-keys` —
-  the `:rf.http/managed` cascade classifies this as
-  `:rf.http/decode-failure`."
+  Overflow throws `:rf.error/id :rf.error/malformed-json` with
+  `:cause :too-many-keys` — the `:rf.http/managed` cascade classifies
+  this as `:rf.http/decode-failure`."
   #?(:clj  (:require [cheshire.core :as cheshire])))
 
 (def ^:const default-max-decoded-keys
@@ -61,7 +61,7 @@
   `opts` (optional) — currently a single key:
    - `:max-decoded-keys` — cap on unique object keys (rf2-wu1n5).
      Default: `default-max-decoded-keys`. Overflow throws
-     `:rf.error/malformed-json :reason :too-many-keys`.
+     `:rf.error/id :rf.error/malformed-json` with `:cause :too-many-keys`.
 
   Per rf2-wu1n5, both branches enforce the keyword-cap. The JVM
   Cheshire branch installs a `:key-fn` callback that counts distinct
@@ -77,10 +77,13 @@
                                (when-not (.contains seen k)
                                  (.add seen k)
                                  (when (> (.size seen) max-keys)
-                                   (throw (ex-info "json: too many unique keys"
-                                                   {:kind   :rf.error/malformed-json
-                                                    :reason :too-many-keys
-                                                    :limit  max-keys}))))
+                                   (throw (ex-info ":rf.error/malformed-json"
+                                                   {:rf.error/id :rf.error/malformed-json
+                                                    :where       'rf.http/json-parse
+                                                    :recovery    :no-recovery
+                                                    :reason      (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")
+                                                    :cause       :too-many-keys
+                                                    :limit       max-keys}))))
                                (keyword k))]
                   (cheshire/parse-string s key-fn)))
         :cljs (let [parsed (js/JSON.parse s)
@@ -104,10 +107,13 @@
                                            (when-not (contains? @seen k)
                                              (vswap! seen conj k)
                                              (when (> (count @seen) max-keys)
-                                               (throw (ex-info "json: too many unique keys"
-                                                               {:kind   :rf.error/malformed-json
-                                                                :reason :too-many-keys
-                                                                :limit  max-keys})))))
+                                               (throw (ex-info ":rf.error/malformed-json"
+                                                               {:rf.error/id :rf.error/malformed-json
+                                                                :where       'rf.http/json-parse
+                                                                :recovery    :no-recovery
+                                                                :reason      (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")
+                                                                :cause       :too-many-keys
+                                                                :limit       max-keys})))))
                                          (doseq [k ks] (walk (aget v k))))))]
                              (walk parsed))]
                 (js->clj parsed :keywordize-keys true))))))
