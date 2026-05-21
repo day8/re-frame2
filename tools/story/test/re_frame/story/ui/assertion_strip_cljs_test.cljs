@@ -11,6 +11,8 @@
   Surface covered (pure + rendered):
 
   - `truncate`        — clamp with ellipsis
+  - `value-display`   — clamp a detail :expected / :actual value with a
+                        :long? flag for the click-to-reveal chord
   - `summary-line`    — fail → reason/expected vs actual; pass → blank;
                         skip → reason
   - `group-by-event`  — cluster records by dispatching :event, preserve
@@ -308,3 +310,69 @@
         (walk hiccup))
       (is (= 2 (count @heads))
           "one head per dispatching event"))))
+
+;; ---- pure: value-display -------------------------------------------------
+
+(deftest value-display-short-no-clamp
+  (testing "a short value's :clamped equals :full and :long? is false —
+            no click-to-reveal chord needed"
+    (let [out (strip/value-display 42)]
+      (is (= "42" (:full out)))
+      (is (= "42" (:clamped out)))
+      (is (false? (:long? out)))))
+  (testing "a moderate map under the cap also passes through unclamped"
+    (let [out (strip/value-display {:a 1 :b 2})]
+      (is (false? (:long? out)))
+      (is (= (:full out) (:clamped out))))))
+
+(deftest value-display-long-clamps
+  (testing "a value whose pr-str exceeds the detail cap clamps with an
+            ellipsis and flags :long? so the renderer attaches the
+            click-to-reveal chord"
+    (let [big {:k (apply str (repeat 300 "x"))}
+          out (strip/value-display big)]
+      (is (true? (:long? out)))
+      (is (re-find #"…$" (:clamped out))
+          ":clamped ends in an ellipsis")
+      (is (< (count (:clamped out)) (count (:full out)))
+          ":clamped is shorter than the full pr-str")
+      (is (= (pr-str big) (:full out))
+          ":full carries the complete pr-str for the revealed view"))))
+
+(deftest value-display-respects-explicit-cap
+  (testing "the 2-arity form clamps at the caller-supplied length"
+    (let [out (strip/value-display "abcdefghij" 5)]
+      (is (true? (:long? out)))
+      (is (= 5 (count (:clamped out)))))))
+
+;; ---- rendered: detail-value ----------------------------------------------
+;;
+;; detail-value is a reagent component (closure-with-state). Invoke the
+;; outer fn to get the inner render fn, then invoke that to get hiccup —
+;; same shape as render-strip above.
+
+(defn- render-detail-value
+  [label v]
+  (let [inner (strip/detail-value label v)]
+    (inner label v)))
+
+(deftest detail-value-short-no-reveal-chord
+  (testing "a short value renders inline with NO reveal chord —
+            click-to-reveal only attaches when the value is long"
+    (let [hiccup (render-detail-value "expected" 7)]
+      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail-value"))
+          "the value line carries the canonical data-test")
+      (is (nil? (find-prop hiccup :data-test "story-canvas-assertion-detail-reveal"))
+          "no reveal chord for a short value"))))
+
+(deftest detail-value-long-renders-reveal-chord-collapsed
+  (testing "a long value renders the reveal chord and starts collapsed —
+            data-revealed is false on first paint so the panel stays
+            compact — avoid blowing the panel height"
+    (let [big    {:k (apply str (repeat 300 "x"))}
+          hiccup (render-detail-value "actual" big)
+          line   (find-prop hiccup :data-test "story-canvas-assertion-detail-value")]
+      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail-reveal"))
+          "reveal chord present for a long value")
+      (is (= "false" (:data-revealed line))
+          "starts collapsed — full value hidden until the chord is clicked"))))
