@@ -46,7 +46,8 @@
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
              :as t
-             :refer [tokens type-scale mono-stack sans-stack]]))
+             :refer [tokens type-scale mono-stack sans-stack]]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -182,8 +183,14 @@
 
 (defn- flow-row
   [{:keys [flow-id frame inputs path doc] :as _row}]
+  ;; rf2-mq8wk — list semantics. Flow rows are non-interactive (no
+  ;; row-level dispatch), so `role=listitem` is the right shape — they
+  ;; are catalogue entries, not buttons. The interactive Static surface
+  ;; that earns keyboard activation is the Routes list (whose rows
+  ;; toggle an expand surface — see static/routes/browse_list.cljs).
   [:li {:data-testid (str "rf-causa-static-flows-row-"
                           (subs (pr-str flow-id) 1))
+        :role        "listitem"
         :style       {:display       "block"
                       :padding       "6px 12px"
                       :font-family   mono-stack
@@ -205,31 +212,41 @@
             :style {:color     (:text-tertiary tokens)
                     :font-size "10px"}}
      (pr-str frame)]]
-   [:div {:style {:margin-left  "12px"
-                  :color        (:text-secondary tokens)
-                  :font-size    "11px"
-                  :line-height  1.4}}
-    [:div
-     [:span {:style {:color (:text-tertiary tokens)
-                     :margin-right "6px"}}
-      "inputs:"]
-     (for [[i input-path] (map-indexed vector inputs)]
-       ^{:key (str "in-" i)}
-       [:code {:style {:color (:cyan tokens)
-                       :margin-right "6px"}}
-        (pr-str input-path)])]
-    [:div
-     [:span {:style {:color (:text-tertiary tokens)
-                     :margin-right "6px"}}
-      "output →"]
-     [:code {:style {:color (:yellow tokens)}}
-      (pr-str path)]]
-    (when doc
-      [:div {:style {:margin-top  "4px"
-                     :color       (:text-secondary tokens)
-                     :font-family sans-stack
-                     :font-style  "italic"}}
-       doc])]])
+   ;; rf2-2kwhw — input + output path values render through the shared
+   ;; cljs-devtools EDN widget (spec 007:119 — "all values rendered via
+   ;; the cljs-devtools-shaped renderer") rather than raw `pr-str` +
+   ;; `[:code]`. `edn/inspect` is the canonical L4 renderer (same call
+   ;; the App-DB segment-inspector uses); each value gets a stable
+   ;; per-flow `node-key` so the widget's per-node expand state + copy
+   ;; affordance (rf2-f026h) ride the same way they do in the App-DB /
+   ;; Trace / Event surfaces.
+   (let [flow-key (subs (pr-str flow-id) 1)]
+     [:div {:style {:margin-left  "12px"
+                    :color        (:text-secondary tokens)
+                    :font-size    "11px"
+                    :line-height  1.4}}
+      [:div {:style {:display "flex" :align-items "baseline" :gap "6px"}}
+       [:span {:style {:color (:text-tertiary tokens)
+                       :flex  "0 0 auto"}}
+        "inputs:"]
+       (into [:span {:style {:display     "inline-flex"
+                             :flex-wrap   "wrap"
+                             :gap         "6px"}}]
+             (for [[i input-path] (map-indexed vector inputs)]
+               ^{:key (str "in-" i)}
+               (edn/inspect input-path
+                            (str "static-flows/" flow-key "/input/" i))))]
+      [:div {:style {:display "flex" :align-items "baseline" :gap "6px"}}
+       [:span {:style {:color (:text-tertiary tokens)
+                       :flex  "0 0 auto"}}
+        "output →"]
+       (edn/inspect path (str "static-flows/" flow-key "/output"))]
+      (when doc
+        [:div {:style {:margin-top  "4px"
+                       :color       (:text-secondary tokens)
+                       :font-family sans-stack
+                       :font-style  "italic"}}
+         doc])])])
 
 ;; ---- empty states --------------------------------------------------------
 
@@ -284,6 +301,7 @@
         (if (empty? flows)
           (empty-filtered query)
           (into [:ul {:data-testid "rf-causa-static-flows-list"
+                      :role        "list"
                       :style       {:list-style     "none"
                                     :margin         "8px 0 0 0"
                                     :padding        "0 8px"

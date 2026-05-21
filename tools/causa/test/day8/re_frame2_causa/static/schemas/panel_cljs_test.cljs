@@ -259,3 +259,46 @@
       ;; have an open chip resolved through the editor config.
       (is (pos? (count chips))
           "at least one jump-to-source chip rendered"))))
+
+;; -------------------------------------------------------------------------
+;; (4) a11y list semantics (rf2-mq8wk)
+;; -------------------------------------------------------------------------
+
+(deftest panel-list-carries-list-semantics
+  (testing "rf2-mq8wk — the schemas <ul> is role=list, rows role=listitem"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.schemas/set-registry-override-for-test
+         sample-registry])
+      (let [tree (panel/Panel)
+            list-node (find-by-testid tree "rf-causa-static-schemas-list")
+            rows (find-all-by-testid-prefix tree "rf-causa-static-schemas-row-")]
+        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
+        (is (seq rows) "rows rendered")
+        (is (every? #(= "listitem" (:role (second %))) rows)
+            "every row carries role=listitem")))))
+
+;; -------------------------------------------------------------------------
+;; (5) schema EDN renders through the shared widget (rf2-2kwhw + rf2-f026h)
+;; -------------------------------------------------------------------------
+
+(deftest schema-edn-renders-through-widget-with-copy
+  (testing "rf2-2kwhw + rf2-f026h — the Malli schema renders via the shared
+            cljs-devtools EDN widget and carries the universal copy button"
+    (setup-causa!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync
+        [:rf.causa.static.schemas/set-registry-override-for-test
+         sample-registry])
+      (let [tree (panel/Panel)
+            widget (find-all-by-testid-prefix
+                     tree "rf-causa-edn-widget-browse-")
+            copy   (filterv (fn [node]
+                              (and (vector? node)
+                                   (map? (second node))
+                                   (= "rf-causa-edn-widget-copy"
+                                      (:class (second node)))))
+                            (hiccup-seq tree))]
+        (is (seq widget) "schema values render through the browse widget")
+        (is (seq copy) "each schema value carries the copy affordance")))))

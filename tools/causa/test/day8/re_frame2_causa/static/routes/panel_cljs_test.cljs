@@ -344,3 +344,110 @@
             "Static Routes panel mounted via the shell's :routes branch")
         (is (nil? (find-by-testid tree "rf-causa-static-placeholder-routes"))
             "the :routes placeholder card is no longer rendered")))))
+
+;; ---- (10) a11y list semantics + keyboard operability (rf2-mq8wk) -------
+
+(defn- find-by-role [tree role]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= role (:role (second node))))
+            node))
+        (hiccup-seq tree)))
+
+(defn- find-all-by-role [tree role]
+  (filter (fn [node]
+            (and (vector? node)
+                 (map? (second node))
+                 (= role (:role (second node)))))
+          (hiccup-seq tree)))
+
+(deftest routes-list-rows-keyboard-operable
+  (testing "rf2-mq8wk — the routes <ul> is role=list, rows are
+            role=listitem, and the clickable body is a keyboard-operable
+            role=button (tab-index 0 + aria-expanded + Enter/Space)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/causa})
+      (let [tree      (panel/Panel)
+            list-node (find-by-testid tree "rf-causa-static-routes-list")
+            listitems (find-all-by-role tree "listitem")
+            buttons   (find-all-by-role tree "button")]
+        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
+        (is (= (count cart-routes) (count listitems))
+            "one role=listitem per route row")
+        ;; Each interactive row body is a role=button with the keyboard
+        ;; contract — tab-index 0, aria-expanded, on-key-down handler.
+        (let [row-buttons (filter #(= "0" (:tab-index (second %))) buttons)]
+          (is (= (count cart-routes) (count row-buttons))
+              "one keyboard-focusable button body per row")
+          (is (every? #(contains? (second %) :aria-expanded) row-buttons)
+              "row buttons expose aria-expanded")
+          (is (every? #(fn? (:on-key-down (second %))) row-buttons)
+              "row buttons handle keyboard activation"))))))
+
+(deftest routes-row-enter-key-activates-toggle
+  (testing "rf2-mq8wk — Enter / Space on a row body consume the key and fire
+            the row toggle; other keys are ignored (bubble through)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/causa})
+      (let [tree     (panel/Panel)
+            ;; the cart row's clickable body is the role=button whose
+            ;; aria-label mentions the cart route.
+            row-body (some (fn [node]
+                             (when (and (vector? node)
+                                        (map? (second node))
+                                        (= "button" (:role (second node)))
+                                        (let [al (:aria-label (second node))]
+                                          (and al (.includes al ":route/cart"))))
+                               node))
+                           (hiccup-seq tree))
+            on-key   (:on-key-down (second row-body))
+            mk-ev    (fn [k prevented?]
+                       #js {:key k
+                            :preventDefault (fn [] (reset! prevented? true))})]
+        (is (some? on-key) "row body has a keydown handler")
+        (testing "Enter is consumed (preventDefault called)"
+          (let [prevented (atom false)]
+            (on-key (mk-ev "Enter" prevented))
+            (is (true? @prevented))))
+        (testing "Space is consumed (preventDefault called)"
+          (let [prevented (atom false)]
+            (on-key (mk-ev " " prevented))
+            (is (true? @prevented))))
+        (testing "an unrelated key is NOT consumed (bubbles for global keys)"
+          (let [prevented (atom false)]
+            (on-key (mk-ev "a" prevented))
+            (is (false? @prevented))))))))
+
+;; ---- (11) expand-surface EDN renders via the shared widget (2kwhw+f026h) --
+
+(deftest expand-meta-renders-through-edn-widget-with-copy
+  (testing "rf2-2kwhw + rf2-f026h — the registrar-meta block routes through
+            the shared cljs-devtools EDN widget and carries a copy button"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/causa})
+      (rf/dispatch-sync [:rf.causa.static.routes/toggle-row :route/cart]
+                        {:frame :rf/causa})
+      (let [tree (panel/Panel)
+            ;; the meta block wrapper still carries its legacy testid;
+            ;; inside it the widget's browse container + copy button ride.
+            widget (find-all-by-testid-prefix
+                     tree "rf-causa-edn-widget-browse-")
+            copy   (filter (fn [node]
+                             (and (vector? node)
+                                  (map? (second node))
+                                  (= "rf-causa-edn-widget-copy"
+                                     (:class (second node)))))
+                           (hiccup-seq tree))]
+        (is (some? (find-by-testid tree "rf-causa-static-routes-meta-route/cart"))
+            "meta block wrapper preserved")
+        (is (seq widget)
+            "registrar meta renders through the cljs-devtools browse widget")
+        (is (seq copy)
+            "the meta value carries the universal copy affordance")))))
