@@ -606,7 +606,10 @@
 ;;                               validation fails (per Spec 010 §Per-step
 ;;                               recovery step 1)
 ;;   commit-and-flow!            handler-exception emit (if any), :db commit,
-;;                               flows, then walk :fx in source order
+;;                               flows, then walk :fx in source order; returns
+;;                               the dispatch outcome keyword (:ok / :error /
+;;                               :rolled-back / :flow-error) for the event-emit
+;;                               record
 ;;   emit-cascade-trailers!      :run-end trace + always-on event-emit fan-out
 ;;   run-handler-cascade!        sequence prepare → run → commit → trailers
 ;;                               under `trace/with-handler-scope`
@@ -729,7 +732,28 @@
 
   Per Spec 002 §Cascade propagation: `envelope` is threaded into
   `run-fx-effects!` so reserved-fx defmethods can propagate
-  inheritable keys onto child dispatches."
+  inheritable keys onto child dispatches.
+
+  Returns the dispatch OUTCOME keyword for the always-on event-emit
+  record (Spec 009 §Event-emit listener §Record shape):
+
+    :ok          — clean settle (db committed, flows ran, :fx walked).
+    :error       — the interceptor chain (handler or interceptor)
+                   threw; `emit-handler-exception!` has already fired.
+    :rolled-back — post-commit `:db` schema validation rejected the
+                   new state and the container was restored to its
+                   pre-handler value (Spec 010 row 4); flows + :fx
+                   were skipped.
+    :flow-error  — a flow's `:output` threw (Spec 013 §Failure
+                   semantics rule 3); :fx was skipped.
+
+  All three non-`:ok` values surface to off-box observability shippers
+  (Datadog / Sentry / Honeycomb) so a dispatch that rolled back its
+  whole `:db` write or aborted on a flow throw is NOT mis-reported as
+  a clean `:ok`. A chain exception is reported as `:error` regardless
+  of any downstream rollback — it is the proximate, most-actionable
+  signal, and `commit-db-effect!` short-circuits the schema commit
+  when the handler errored (no `:db` effect to validate)."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [effects   (:effects final-ctx)
         coeffects (:coeffects final-ctx)
@@ -737,7 +761,14 @@
         db-before (get-in final-ctx [:coeffects :db])]
     (when error
       (emit-handler-exception! error event-id event frame final-ctx start-ms))
-    (when (commit-db-effect! effects event-id event frame final-ctx db-before)
+    (cond
+      error :error
+      ;; Per Spec 010 §Per-step recovery row 4: `commit-db-effect!`
+      ;; returns false when post-commit schema validation rejected the
+      ;; new state and rolled the container back to its pre-handler
+      ;; value. Flows + :fx are skipped; the dispatch failed.
+      (not (commit-db-effect! effects event-id event frame final-ctx db-before))
+      :rolled-back
       ;; Per rf2-fslx0 — Spec 013 §Failure semantics rule 3: when a
       ;; flow throws, halt the cascade. `run-flows!` returns false on
       ;; flow throw (after fanning out
@@ -746,9 +777,12 @@
       ;; an `:fx [[:dispatch [:react-to-area-change]]]` would fire its
       ;; child dispatch on stale derived state — side effects (HTTP /
       ;; navigation / analytics) would escape.
-      (when (run-flows! frame event event-id start-ms)
-        (run-fx-effects! effects coeffects frame frame-record fx-overrides envelope)))
-    error))
+      (not (run-flows! frame event event-id start-ms))
+      :flow-error
+      :else
+      (do
+        (run-fx-effects! effects coeffects frame frame-record fx-overrides envelope)
+        :ok))))
 
 (defn- emit-cascade-trailers!
   "Cascade-tail emissions: the dev-only `:run-end` trace then the
@@ -765,8 +799,12 @@
   `interop/now-ms` returns a long on the JVM (`System/currentTimeMillis`)
   but a float on CLJS (`js/performance.now()` carries sub-millisecond
   precision). Round once at the substrate boundary so the record's
-  contract holds on both platforms."
-  [event-id event emit-event frame error start-ms]
+  contract holds on both platforms.
+
+  `outcome` is the keyword `commit-and-flow!` returns — `:ok`,
+  `:error`, `:rolled-back`, or `:flow-error` — and rides straight onto
+  the event-emit record's `:outcome` slot (Spec 009 §Record shape)."
+  [event-id event emit-event frame outcome start-ms]
   (trace/emit! :event :event
                {:event-id event-id
                 :event    emit-event
@@ -781,7 +819,7 @@
                    event-id
                    frame
                    end-ms
-                   (if error :error :ok)
+                   outcome
                    elapsed-ms))))
 
 (defn- run-handler-cascade!
@@ -828,9 +866,13 @@
                                     :phase    :run-start})
             event-ok? (validate-event! event-id event handler-meta)
             final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
-            error     (commit-and-flow! final-ctx event-id event frame
+            ;; `commit-and-flow!` returns the dispatch outcome keyword
+            ;; (:ok / :error / :rolled-back / :flow-error) so the always-on
+            ;; event-emit record reflects schema-rollback and flow-throw
+            ;; failures, not just the chain exception.
+            outcome   (commit-and-flow! final-ctx event-id event frame
                                         frame-record fx-overrides envelope start-ms)]
-        (emit-cascade-trailers! event-id event emit-event frame error start-ms)))))
+        (emit-cascade-trailers! event-id event emit-event frame outcome start-ms)))))
 
 (defn- process-event*
   "Per-event drain body. Resolve handler, then sequence the four cascade

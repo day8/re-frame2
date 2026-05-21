@@ -12,8 +12,23 @@
      :event-id    <kw>          ;; (first event)
      :frame       <kw>          ;; resolved frame-id
      :time        <millis>      ;; emit timestamp (host clock, ms)
-     :outcome     :ok | :error  ;; handler exception → :error
+     :outcome     <kw>          ;; dispatch outcome (see below)
      :elapsed-ms  <int>}        ;; wall-clock from queue → settle
+
+  `:outcome` is one of — it covers every cascade-failure path, not
+  just the interceptor-chain exception:
+
+    :ok          — clean settle (db committed, flows ran, :fx walked).
+    :error       — the interceptor chain (handler or interceptor) threw.
+    :rolled-back — post-commit `:db` schema validation rejected the new
+                   state and the container was restored to its pre-
+                   handler value (Spec 010 §Per-step recovery row 4).
+    :flow-error  — a flow's `:output` threw (Spec 013 §Failure
+                   semantics rule 3); the cascade halted before `:fx`.
+
+  Every non-`:ok` value surfaces a failed dispatch to off-box shippers
+  so a rolled-back / flow-aborted dispatch is never mis-reported as a
+  clean `:ok`.
 
   Listener REGISTRATION sites SHOULD use `goog.DEBUG=false` as a
   belt-and-braces gate alongside an explicit config flag. The

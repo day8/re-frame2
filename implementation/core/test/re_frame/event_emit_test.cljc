@@ -12,18 +12,38 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.event-emit :as event-emit]
+            [re-frame.flows :as flows]
             [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
+;; The schema-validation and flow-run hooks are published by the optional
+;; `re-frame.schemas` / `re-frame.flows` artefacts (on the core test
+;; classpath). The cascade-failure tests below stub those hooks through
+;; the late-bind table to drive the router's rollback / flow-throw
+;; branches. The fixture snapshots and restores the hook table so a stub
+;; never leaks across tests, and resets the artefacts' global registries
+;; (`schemas-by-frame`, `flows`) so a schema / flow registered by an
+;; earlier namespace cannot roll back this namespace's clean dispatches —
+;; the same isolation `smoke_test`'s fixture performs.
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
+  (reset! schemas/schemas-by-frame {})
+  (reset! flows/flows {})
   (trace/clear-listeners!)
   (event-emit/clear-event-listeners!)
   (rf/init! plain-atom/adapter)
-  (test-fn))
+  (let [hooks-before @late-bind/hooks]
+    (try
+      (test-fn)
+      (finally
+        (reset! late-bind/hooks hooks-before)
+        (late-bind/invalidate-cache! :schemas/validate-app-schema!)
+        (late-bind/invalidate-cache! :flows/run-flows!)))))
 
 (use-fixtures :each reset-runtime)
 
@@ -70,6 +90,83 @@
       (rf/dispatch-sync [:evt/throw])
       (is (= 1 (count @seen)))
       (is (= :error (:outcome (first @seen)))))))
+
+;; ---- 1b. Cascade-failure outcomes ----------------------------------------
+;;
+;; A dispatch can fail AFTER the interceptor chain settled cleanly: a
+;; post-commit app-db schema validation can roll the :db effect back
+;; (Spec 010 §Per-step recovery row 4), or a flow's :output can throw
+;; (Spec 013 §Failure semantics rule 3). Both are detected inside the
+;; commit-and-flow! body; both MUST surface a non-:ok :outcome to off-box
+;; observability shippers rather than mis-report a clean :ok.
+
+(deftest listener-marks-schema-rollback-as-non-ok-outcome
+  (testing "When a post-commit app-db schema validation rejects the new
+            state — the runtime rolls :db back to the pre-handler value
+            and skips flows + :fx — the event-emit record's :outcome is
+            NON-:ok (the dispatch failed, even though the handler did not
+            throw)."
+    (let [seen (atom [])]
+      ;; Stub the schema-validate hook to reject every commit, driving
+      ;; commit-db-effect! down its rollback branch.
+      (late-bind/set-fn! :schemas/validate-app-schema!
+                         (fn [_db-after _event-id _frame] false))
+      (rf/register-event-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :evt/writes
+                       (fn [db _] (assoc db :n 1)))
+      (rf/dispatch-sync [:evt/writes])
+      (is (= 1 (count @seen)) "listener fired once for the dispatch")
+      (let [outcome (:outcome (first @seen))]
+        (is (not= :ok outcome)
+            "a rolled-back dispatch is NOT reported as a clean :ok")
+        (is (= :rolled-back outcome)
+            "schema rollback surfaces as the distinct :rolled-back outcome")))))
+
+(deftest listener-marks-flow-throw-as-non-ok-outcome
+  (testing "When a flow's :output throws during the post-commit flow walk
+            — the runtime halts the cascade before :fx — the event-emit
+            record's :outcome is NON-:ok."
+    (let [seen (atom [])]
+      ;; Stub the flow-run hook to throw, driving run-flows! down its
+      ;; catch branch (which returns false → cascade halt).
+      (late-bind/set-fn! :flows/run-flows!
+                         (fn [_frame]
+                           (throw (ex-info "flow output blew up"
+                                           {:rf.flow/failed-id :flow/derived}))))
+      (rf/register-event-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :evt/writes
+                       (fn [db _] (assoc db :n 1)))
+      (rf/dispatch-sync [:evt/writes])
+      (is (= 1 (count @seen)) "listener fired once for the dispatch")
+      (let [outcome (:outcome (first @seen))]
+        (is (not= :ok outcome)
+            "a flow-aborted dispatch is NOT reported as a clean :ok")
+        (is (= :flow-error outcome)
+            "a flow-output throw surfaces as the distinct :flow-error outcome")))))
+
+(deftest listener-marks-clean-dispatch-as-ok-with-failure-hooks-installed
+  (testing "With BOTH cascade-failure hooks installed but PASSING (schema
+            conforms, flows run cleanly) a normal dispatch is still
+            reported :ok — the widened outcome contract does not regress
+            the success path."
+    (let [seen (atom [])]
+      (late-bind/set-fn! :schemas/validate-app-schema!
+                         (fn [_db-after _event-id _frame] true))
+      (late-bind/set-fn! :flows/run-flows!
+                         (fn [_frame] nil))
+      (rf/register-event-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :evt/writes
+                       (fn [db _] (assoc db :n 1)))
+      (rf/dispatch-sync [:evt/writes])
+      (is (= 1 (count @seen)))
+      (is (= :ok (:outcome (first @seen)))
+          "a clean settle is :ok even with the failure hooks present"))))
 
 ;; ---- 2. Listener exceptions are swallowed --------------------------------
 
