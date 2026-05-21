@@ -60,6 +60,10 @@ The rest — look these up when you hit the matching shape:
 
 If you have an existing re-frame v1 app to bring across, [chapter 20](20-migration.md) is the narrative version of the story. The mechanical version is an AI-driven migration prompt, currently 40+ rules, designed to be fed to an agent that does the rewrite. Read 18 first to know what's coming.
 
+## Watch your app from the inside
+
+You've learned the framework; now meet the devtools. **Causa** is re-frame2's in-app inspection panel — the cascade you can see. It renders the framework's own trace bus and epoch buffer into a stack of live panels: every event, sub-run, effect, render, machine transition, app-db diff, and time-travel scrub, scoped per frame. It's a peer to this guide, with its own section in the top menu: start at [Causa — Welcome](../causa/index.md) and read top-to-bottom.
+
 ## Where re-frame came from
 
 re-frame didn't appear out of nowhere. The original v1 was Mike Thompson and the day8 team's answer, in mid-2014, to a question ClojureScript SPAs kept raising: Reagent gave you a beautiful V, but where does the rest of the app go? The answer was assembled from the ideas that were in the air at the time —
