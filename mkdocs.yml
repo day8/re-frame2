@@ -144,6 +144,7 @@ nav:
     - guide/README.md
     - "02 — app-db": guide/02-app-db.md
     - "03 — First app": guide/03-first-app.md
+    - "Interactive: the counter": guide/interactive-counter.md
     - "04 — Events": guide/04-events.md
     - "05 — Schemas": guide/05-schemas.md
     - "06 — Coeffects": guide/06-coeffects.md
