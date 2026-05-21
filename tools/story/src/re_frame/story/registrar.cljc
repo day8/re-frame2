@@ -203,12 +203,16 @@
   on a miss. Returns the body unchanged on success."
   [kind id body]
   (when-let [explain (schemas/validate kind body)]
-    (throw (ex-info (str "re-frame2-story: " (name kind) " body for "
-                         id " does not match " (name kind) " schema")
-                    {:rf.error (keyword "rf.error" (str (name kind) "-shape"))
-                     :kind     kind
-                     :id       id
-                     :explain  explain})))
+    (let [error-kw (keyword "rf.error" (str (name kind) "-shape"))]
+      (throw (ex-info (str error-kw)
+                      {:rf.error/id error-kw
+                       :where    'rf.story/reg-story
+                       :recovery :fix-registration
+                       :reason   (str "re-frame2-story: " (name kind) " body for "
+                                      id " does not match " (name kind) " schema")
+                       :kind     kind
+                       :id       id
+                       :explain  explain}))))
   body)
 
 (defn- validate-tag-membership!
@@ -233,9 +237,12 @@
                                   (not (contains? registered-tag-ids base))))
                               tags)]
       (when (seq unknown)
-        (throw (ex-info (str "re-frame2-story: unregistered tag(s) on " id
-                             ": " (pr-str unknown))
-                        {:rf.error :rf.error/unknown-tag
+        (throw (ex-info ":rf.error/unknown-tag"
+                        {:rf.error/id :rf.error/unknown-tag
+                         :where    'rf.story/reg-story
+                         :recovery :fix-registration
+                         :reason   (str "re-frame2-story: unregistered tag(s) on " id
+                                        ": " (pr-str unknown))
                          :id       id
                          :unknown  unknown}))))))
 
@@ -256,11 +263,15 @@
               :tag         keyword?
               keyword?)]
     (when-not (ok? id)
-      (throw (ex-info (str "re-frame2-story: " (name kind) " id " (pr-str id)
-                           " does not match the canonical id grammar")
-                      {:rf.error (keyword "rf.error" (str (name kind) "-id-shape"))
-                       :kind     kind
-                       :id       id})))))
+      (let [error-kw (keyword "rf.error" (str (name kind) "-id-shape"))]
+        (throw (ex-info (str error-kw)
+                        {:rf.error/id error-kw
+                         :where    'rf.story/reg-story
+                         :recovery :fix-registration
+                         :reason   (str "re-frame2-story: " (name kind) " id " (pr-str id)
+                                        " does not match the canonical id grammar")
+                         :kind     kind
+                         :id       id}))))))
 
 ;; ---- auto-install hook (rf2-p1ydc) ---------------------------------------
 ;;

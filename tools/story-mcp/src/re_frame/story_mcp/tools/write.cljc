@@ -123,8 +123,11 @@
         (let [parsed (edn/read-string
                        {:readers {}
                         :default (fn [tag _]
-                                   (throw (ex-info "tagged literals not permitted"
-                                                   {:rf.error :rf.story-mcp/edn-tagged-literal
+                                   (throw (ex-info ":rf.error/story-mcp-tagged-literal-rejected"
+                                                   {:rf.error/id :rf.error/story-mcp-tagged-literal-rejected
+                                                    :where    'story-mcp/parse-edn-body
+                                                    :recovery :no-recovery
+                                                    :reason   "tagged literals are not permitted in EDN write bodies"
                                                     :tag      tag})))}
                        body)]
           (if (> (value-depth parsed) max-edn-depth)

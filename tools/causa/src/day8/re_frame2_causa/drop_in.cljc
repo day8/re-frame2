@@ -337,14 +337,23 @@
      (detach!)
      (let [state (case mode
                    :push  (attach-push!)
-                   :atom  #?(:clj  (throw (ex-info ":atom mode requires a CLJS runtime"
-                                                   {:mode :atom}))
+                   :atom  #?(:clj  (throw (ex-info ":rf.error/causa-atom-mode-requires-cljs"
+                                                   {:rf.error/id :rf.error/causa-atom-mode-requires-cljs
+                                                    :where    'causa/attach!
+                                                    :recovery :no-recovery
+                                                    :reason   ":atom drop-in mode requires a CLJS runtime"
+                                                    :mode     :atom}))
                              :cljs (attach-atom! trace-source))
                    :sub   (attach-subscribe! trace-source)
                    ;; Unknown mode — pre-alpha posture says no
                    ;; silent fallback; raise so a misconfigured
                    ;; attach fails loudly at the call site.
-                   (throw (ex-info "Unknown drop-in mode" {:mode mode})))]
+                   (throw (ex-info ":rf.error/causa-unknown-drop-in-mode"
+                                   {:rf.error/id :rf.error/causa-unknown-drop-in-mode
+                                    :where    'causa/attach!
+                                    :recovery :no-recovery
+                                    :reason   (str "unknown drop-in mode " (pr-str mode) " — expected :push, :atom, or :sub")
+                                    :mode     mode})))]
        (reset! attached-state state)))
    nil))
 

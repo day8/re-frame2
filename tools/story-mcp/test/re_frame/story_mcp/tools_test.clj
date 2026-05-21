@@ -1975,8 +1975,8 @@
         (proto/read-frame reader)
         (is false "should have thrown")
         (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/frame-too-large (:rf.error (ex-data e)))
-              "ex-data carries the rf.error tag the run-loop dispatches on"))))))
+          (is (= :rf.error/story-mcp-frame-too-large (:rf.error/id (ex-data e)))
+              "ex-data carries the canonical :rf.error/id the run-loop dispatches on"))))))
 
 (deftest read-frame-survives-after-oversize-frame
   (testing "the next frame after an oversize one is still readable"

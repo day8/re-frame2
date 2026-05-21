@@ -149,7 +149,16 @@
     :else
     (try
       (let [edn (b64-decode s)
-            v   (edn/read-string {:default (fn [_t _v] (throw (ex-info "bad tag" {})))} edn)]
+            v   (edn/read-string {:default (fn [_t _v]
+                                             ;; Caught by the surrounding try
+                                             ;; → ::malformed; the canonical
+                                             ;; :rf.error/id rides on ex-data
+                                             ;; for any consumer that inspects.
+                                             (throw (ex-info ":rf.error/story-mcp-bad-edn-tag"
+                                                             {:rf.error/id :rf.error/story-mcp-bad-edn-tag
+                                                              :where    'story-mcp/decode-cursor
+                                                              :recovery :no-recovery
+                                                              :reason   "EDN cursor carried a tagged literal — none are permitted"})))} edn)]
         (if (and (map? v)
                  (= 1 (:v v))
                  (integer? (:offset v))

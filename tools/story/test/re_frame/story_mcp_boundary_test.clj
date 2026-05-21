@@ -239,7 +239,7 @@
                (:placement (story/handler-meta :story-panel pid))))))
     (testing "an off-vocab placement is rejected"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"story-panel schema"
+                            #":rf\.error/story-panel-shape"
                             (story/reg-story-panel :rf.story.test/bad-placement
                               {:title     "bad"
                                :placement :nowhere

@@ -60,16 +60,21 @@
         (vec (reverse acc))
 
         (contains? visited parent-id)
-        (throw (ex-info (str "re-frame2-story: :extends cycle through "
-                             parent-id)
-                        {:rf.error :rf.error/extends-cycle
+        (throw (ex-info ":rf.error/story-extends-cycle"
+                        {:rf.error/id :rf.error/story-extends-cycle
+                         :where    'rf.story/reg-variant
+                         :recovery :fix-registration
+                         :reason   (str "re-frame2-story: :extends cycle through " parent-id)
                          :chain    (conj (vec visited) parent-id)
                          :id       parent-id}))
 
         (>= depth *max-extends-depth*)
-        (throw (ex-info (str "re-frame2-story: :extends chain exceeds "
-                             *max-extends-depth* " levels at " parent-id)
-                        {:rf.error :rf.error/extends-cycle
+        (throw (ex-info ":rf.error/story-extends-chain-too-long"
+                        {:rf.error/id :rf.error/story-extends-chain-too-long
+                         :where    'rf.story/reg-variant
+                         :recovery :fix-registration
+                         :reason   (str "re-frame2-story: :extends chain exceeds "
+                                        *max-extends-depth* " levels at " parent-id)
                          :chain    (conj (vec visited) parent-id)
                          :id       parent-id}))
 
@@ -79,9 +84,12 @@
                  parent
                  (conj visited parent-id)
                  (inc depth))
-          (throw (ex-info (str "re-frame2-story: :extends references "
-                               "unregistered variant " parent-id)
-                          {:rf.error :rf.error/extends-unknown
+          (throw (ex-info ":rf.error/story-extends-unknown"
+                          {:rf.error/id :rf.error/story-extends-unknown
+                           :where    'rf.story/reg-variant
+                           :recovery :fix-registration
+                           :reason   (str "re-frame2-story: :extends references "
+                                          "unregistered variant " parent-id)
                            :parent   parent-id})))))))
 
 (defn resolve-extends

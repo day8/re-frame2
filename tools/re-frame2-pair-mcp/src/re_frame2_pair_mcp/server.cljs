@@ -54,10 +54,13 @@
   "Look up the nREPL port. Returns an integer or throws with a hint."
   []
   (or (nrepl/read-port-from-fs)
-      (throw (ex-info "nREPL port not found"
-                      {:hint (str "Start your shadow-cljs dev build "
-                                  "(`shadow-cljs watch <build>`), or set "
-                                  "SHADOW_CLJS_NREPL_PORT explicitly.")}))))
+      (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
+                      {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
+                       :where    'pair-mcp/resolve-port
+                       :recovery :no-recovery
+                       :reason   (str "nREPL port not found. Start your shadow-cljs dev build "
+                                      "(`shadow-cljs watch <build>`), or set "
+                                      "SHADOW_CLJS_NREPL_PORT explicitly.")}))))
 
 (defn- new-conn []
   (let [port (resolve-port)]

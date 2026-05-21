@@ -132,8 +132,11 @@
   (try
     (json/parse-string s true)
     (catch Throwable e
-      (throw (ex-info "re-frame2-story-mcp: JSON parse failure"
-                      {:rf.error :rf.error/parse-error
+      (throw (ex-info ":rf.error/story-mcp-json-parse-failure"
+                      {:rf.error/id :rf.error/story-mcp-json-parse-failure
+                       :where    'story-mcp/parse-json
+                       :recovery :no-recovery
+                       :reason   "re-frame2-story-mcp: JSON parse failure"
                        :raw      (when s (subs s 0 (min 200 (count s))))}
                       e)))))
 
@@ -207,8 +210,11 @@
       (cond
         (nil? line)                   eof-sentinel
         (= ::frame-too-large line)    (throw (ex-info
-                                               "re-frame2-story-mcp: frame exceeds cap"
-                                               {:rf.error :rf.error/frame-too-large
+                                               ":rf.error/story-mcp-frame-too-large"
+                                               {:rf.error/id :rf.error/story-mcp-frame-too-large
+                                                :where     'story-mcp/read-frame
+                                                :recovery  :no-recovery
+                                                :reason    "re-frame2-story-mcp: frame exceeds cap"
                                                 :max-bytes max-frame-bytes}))
         (str/blank? line)             (recur)
         :else                         (parse-json line)))))

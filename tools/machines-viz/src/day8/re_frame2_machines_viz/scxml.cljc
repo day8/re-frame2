@@ -259,8 +259,12 @@
     (= :parallel (:type machine-spec))
     (let [{:keys [regions]} machine-spec]
       (when-not (and (map? regions) (seq regions))
-        (throw (ex-info "parallel spec requires non-empty :regions"
-                        {:reason :scxml/invalid-spec :spec machine-spec})))
+        (throw (ex-info ":scxml/invalid-spec"
+                        {:rf.error/id :scxml/invalid-spec
+                         :where    'machines-viz/spec->scxml
+                         :recovery :no-recovery
+                         :reason   "parallel spec requires non-empty :regions"
+                         :spec     machine-spec})))
       (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            (str/join "\n" (emit-parallel machine-spec 0))))
 
@@ -269,8 +273,12 @@
          (str/join "\n" (emit-flat-or-compound machine-spec 0)))
 
     :else
-    (throw (ex-info "spec must carry :initial + non-empty :states, or :type :parallel + :regions"
-                    {:reason :scxml/invalid-spec :spec machine-spec}))))
+    (throw (ex-info ":scxml/invalid-spec"
+                    {:rf.error/id :scxml/invalid-spec
+                     :where    'machines-viz/spec->scxml
+                     :recovery :no-recovery
+                     :reason   "spec must carry :initial + non-empty :states, or :type :parallel + :regions"
+                     :spec     machine-spec}))))
 
 ;; ---------------------------------------------------------------------------
 ;; XML parse — minimal regex-based reader for the SCXML subset we
@@ -504,9 +512,12 @@
                                           rs (rest remaining)]
                                      (cond
                                        (empty? rs)
-                                       (throw (ex-info (str "unclosed <" tag ">")
-                                                       {:reason :scxml/parse-error
-                                                        :tag    tag}))
+                                       (throw (ex-info ":scxml/parse-error"
+                                                       {:rf.error/id :scxml/parse-error
+                                                        :where    'machines-viz/scxml->spec
+                                                        :recovery :no-recovery
+                                                        :reason   (str "unclosed <" tag ">")
+                                                        :tag      tag}))
 
                                        (and (= :end (:kind (first rs)))
                                             (= tag (:tag (first rs)))
@@ -588,13 +599,20 @@
   `:states`)."
   [scxml-string]
   (when-not (string? scxml-string)
-    (throw (ex-info "scxml->spec expects a string"
-                    {:reason :scxml/parse-error :input scxml-string})))
+    (throw (ex-info ":scxml/parse-error"
+                    {:rf.error/id :scxml/parse-error
+                     :where    'machines-viz/scxml->spec
+                     :recovery :no-recovery
+                     :reason   "scxml->spec expects a string"
+                     :input    scxml-string})))
   (let [tokens (-> scxml-string strip-prolog strip-comments tokenize vec)
         root-start (first (filter #(= "scxml" (:tag %)) tokens))]
     (when-not root-start
-      (throw (ex-info "no <scxml> root element found"
-                      {:reason :scxml/parse-error})))
+      (throw (ex-info ":scxml/parse-error"
+                      {:rf.error/id :scxml/parse-error
+                       :where    'machines-viz/scxml->spec
+                       :recovery :no-recovery
+                       :reason   "no <scxml> root element found"})))
     (let [token-vec (vec tokens)
           start-idx (some (fn [i] (when (identical? (nth token-vec i) root-start) i))
                           (range (count token-vec)))
@@ -604,8 +622,11 @@
                 end-idx (loop [i 0 depth 1]
                           (cond
                             (>= i (count tail))
-                            (throw (ex-info "unclosed <scxml>"
-                                            {:reason :scxml/parse-error}))
+                            (throw (ex-info ":scxml/parse-error"
+                                            {:rf.error/id :scxml/parse-error
+                                             :where    'machines-viz/scxml->spec
+                                             :recovery :no-recovery
+                                             :reason   "unclosed <scxml>"}))
 
                             (and (= :start (:kind (nth tail i)))
                                  (= "scxml" (:tag (nth tail i))))
@@ -633,8 +654,11 @@
               end-idx (loop [i 0 depth 1]
                         (cond
                           (>= i (count tail))
-                          (throw (ex-info "unclosed <parallel>"
-                                          {:reason :scxml/parse-error}))
+                          (throw (ex-info ":scxml/parse-error"
+                                          {:rf.error/id :scxml/parse-error
+                                           :where    'machines-viz/scxml->spec
+                                           :recovery :no-recovery
+                                           :reason   "unclosed <parallel>"}))
 
                           (and (= :start (:kind (nth tail i)))
                                (= "parallel" (:tag (nth tail i))))
@@ -664,7 +688,10 @@
               states (into {}
                            (map parse-state-block top-state-blocks))]
           (when (empty? states)
-            (throw (ex-info "scxml document has no <state> or <final> elements"
-                            {:reason :scxml/invalid-spec})))
+            (throw (ex-info ":scxml/invalid-spec"
+                            {:rf.error/id :scxml/invalid-spec
+                             :where    'machines-viz/scxml->spec
+                             :recovery :no-recovery
+                             :reason   "scxml document has no <state> or <final> elements"})))
           (cond-> {:states states}
             initial-str (assoc :initial (unescape-id-string initial-str))))))))

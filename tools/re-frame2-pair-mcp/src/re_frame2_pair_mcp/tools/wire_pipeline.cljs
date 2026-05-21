@@ -244,7 +244,11 @@
           :snapshot-map (run-snapshot-map payload opts)
           :epoch-vector (run-epoch-vector payload opts)
           :scalar-value (run-scalar-value payload opts)
-          (throw (ex-info "run-wire-pipeline: unknown :kind"
-                          {:kind  kind
-                           :valid #{:snapshot-map :epoch-vector :scalar-value}})))]
+          (throw (ex-info ":rf.error/pair-mcp-unknown-wire-pipeline-kind"
+                          {:rf.error/id :rf.error/pair-mcp-unknown-wire-pipeline-kind
+                           :where    'pair-mcp/run-wire-pipeline
+                           :recovery :no-recovery
+                           :reason   (str "run-wire-pipeline got an unknown :kind " (pr-str kind))
+                           :kind     kind
+                           :valid    #{:snapshot-map :epoch-vector :scalar-value}})))]
     (assoc out :value (source-uri/decorate value (config/get-editor)))))
