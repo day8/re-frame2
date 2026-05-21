@@ -21,16 +21,20 @@
 
   ## Data sources
 
-  Three input registries:
+  Three input registries, all read through public surfaces:
 
-    - `re-frame.schemas/schemas-by-frame` — per-frame app-db schema
-      entries shaped `{frame-id {path schema-meta}}` where
-      `schema-meta` carries `:schema` (the Malli EDN), `:doc`, and
-      source-coord slots.
-    - `re-frame.registrar/registrations :event` — events whose
-      metadata carries a `:spec` slot.
-    - `re-frame.registrar/registrations :sub` — subs whose metadata
-      carries a `:spec` slot.
+    - app-db schemas — assembled from the public `re-frame.schemas`
+      façade: `rf/frame-ids` enumerates the live frames, then per
+      frame `schemas/app-schemas` lists the registered paths and
+      `schemas/app-schema-meta-at` returns each path's full meta map
+      (`:schema` Malli EDN, `:doc`, `:file`/`:line`/`:ns` source
+      coords). This yields the `{frame-id {path schema-meta}}` shape
+      the per-frame projection consumes — without reaching the private
+      `re-frame.schemas.storage/schemas-by-frame` atom.
+    - `(rf/registrations :event)` — events whose metadata carries a
+      `:spec` slot.
+    - `(rf/registrations :sub)` — subs whose metadata carries a `:spec`
+      slot.
 
   ## Jump-to-source
 
@@ -50,8 +54,7 @@
   in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas.storage :as schemas-storage]
+            [re-frame.schemas :as schemas]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
@@ -64,8 +67,8 @@
 (defn scope-app-schemas-to-frame
   "Narrow a `{frame-id {path schema-meta}}` app-db-schema snapshot to a
   single `frame-id`. App-db schemas are genuinely per-frame (the
-  `re-frame.schemas.storage/schemas-by-frame` side-table is keyed by
-  frame-id), so the L1 frame picker scopes the app-db-schema rows.
+  schemas registry is keyed by frame-id — see `rf/app-schemas`), so the
+  L1 frame picker scopes the app-db-schema rows.
 
   A nil `frame-id` (no frame resolved yet) returns the snapshot
   verbatim. Pure data — JVM-runnable.
@@ -363,6 +366,38 @@
                               (pr-str (:id row)))}
                   [schema-row row])))])]))
 
+;; ---- public-surface registry read ----------------------------------------
+
+(defn read-app-schemas-by-frame
+  "Assemble the `{frame-id {path schema-meta}}` app-db-schema snapshot
+  the per-frame projection consumes, using only public `re-frame.schemas`
+  / `re-frame.core` surfaces (Tool-Pair.md §public APIs) — never the
+  private `re-frame.schemas.storage/schemas-by-frame` atom.
+
+  For each live frame (`rf/frame-ids`), `schemas/app-schemas` enumerates
+  the registered `{path → schema}` and `schemas/app-schema-meta-at`
+  returns each path's full meta map (`:schema`, `:doc`, `:file` /
+  `:line` / `:ns` source coords). Frames with no app-db schemas are
+  dropped so the snapshot mirrors the storage atom's shape (absent
+  rather than empty-mapped). Returns `{}` when the schemas artefact is
+  not on the classpath (`app-schemas` then yields `{}` per frame)."
+  []
+  (reduce
+    (fn [acc frame-id]
+      (let [paths (keys (schemas/app-schemas frame-id))
+            by-path (reduce
+                      (fn [m path]
+                        (if-let [meta (schemas/app-schema-meta-at path frame-id)]
+                          (assoc m path meta)
+                          m))
+                      {}
+                      paths)]
+        (if (seq by-path)
+          (assoc acc frame-id by-path)
+          acc)))
+    {}
+    (rf/frame-ids)))
+
 ;; ---- registrations -------------------------------------------------------
 
 (defn install!
@@ -410,23 +445,26 @@
 
   ;; ---- production data sub ---------------------------------------------
 
-  ;; Reads the schemas storage atom + walks the registrar's `:event` /
-  ;; `:sub` slots once per re-fire. `:<-`-composes against the trace
-  ;; buffer so the sub is reactive against the same "something
-  ;; changed" pulse the other Static-mode subs ride.
+  ;; Assembles the three input registries from public surfaces once per
+  ;; re-fire: app-db schemas via the `re-frame.schemas` façade
+  ;; (`rf/frame-ids` + `schemas/app-schemas` + `schemas/app-schema-meta-
+  ;; at`) and event / sub specs via `(rf/registrations <kind>)`.
+  ;; `:<-`-composes against the trace buffer so the sub is reactive
+  ;; against the same "something changed" pulse the other Static-mode
+  ;; subs ride.
   (rf/reg-sub :rf.causa.static.schemas/registry
     :<- [:rf.causa/trace-buffer]
     :<- [:rf.causa.static.schemas/registry-override]
     (fn [[_buffer override] _query]
       (or override
           {:schemas-by-frame
-           (try @schemas-storage/schemas-by-frame
+           (try (read-app-schemas-by-frame)
                 (catch :default _ {}))
            :events
-           (try (registrar/registrations :event)
+           (try (rf/registrations :event)
                 (catch :default _ {}))
            :subs
-           (try (registrar/registrations :sub)
+           (try (rf/registrations :sub)
                 (catch :default _ {}))})))
 
   ;; ---- view-facing composite -------------------------------------------

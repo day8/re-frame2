@@ -20,7 +20,7 @@
 
   ## Data source
 
-  Walks `(re-frame.registrar/registrations :event)` and harvests the
+  Walks `(rf/registrations :event)` and harvests the
   `:interceptors` chain from each entry; collapses by `:id` so an
   interceptor that appears on many chains shows up once with the count
   of chains it appears on. Interceptors with no `:id` (rare —
@@ -38,7 +38,6 @@
     - `:rf.causa.static.interceptors/query`    — search input value."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -337,7 +336,7 @@
     :<- [:rf.causa.static.interceptors/registry-override]
     (fn [[_buffer override] _query]
       (or override
-          (try (registrar/registrations :event)
+          (try (rf/registrations :event)
                (catch :default _ {})))))
 
   ;; ---- view-facing composite -------------------------------------------
