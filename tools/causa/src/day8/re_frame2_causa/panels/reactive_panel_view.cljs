@@ -3,13 +3,24 @@
   prior bead: rf2-wyvf2).
 
   Renders the canonical sub-cascade + view-re-render visualisation as
-  four bare-label pipeline sections, mirroring the rf2-n4ad0 Event
+  two bare-label pipeline sections, mirroring the rf2-n4ad0 Event
   panel rhythm (thin left rail + downward chevrons):
 
-      Subs ran (count)            entries with [code] chip
-      Subs whose value changed    entries with [code] chip
-      Subs that cascaded          entries
-      Views re-rendered           entries — named via reg-view :name
+      Subs this cascade (count)   ONE table — one row per sub that RAN
+                                  this cascade. Columns:
+                                    sub-id | changed? | cascaded? | code
+                                  `changed?` ✓ via `sub-changed?`,
+                                  `cascaded?` ✓ via `sub-cascaded?`
+                                  (the upstream `:cause-sub` rides as
+                                  secondary text on the cascaded ✓).
+                                  Each sub appears EXACTLY once — the
+                                  changed/cascaded dimensions are
+                                  columns, not separate lists
+                                  (rf2-isun6 · replaces the prior three
+                                  overlapping SUBS RAN / SUBS WHOSE
+                                  VALUE CHANGED / SUBS THAT CASCADED
+                                  sections that repeated each sub).
+      Views re-rendered (count)   entries — named via reg-view :name
                                   slot (fallback: var name) +
                                   [code] chip + hover-highlight
 
@@ -72,6 +83,48 @@
    :line-height  1
    :user-select  "none"
    :opacity      "0.6"})
+
+;; ---- single subs-table styling (rf2-isun6) ----------------------------
+
+(def ^:private subs-table-style
+  {:width          "100%"
+   :border-collapse "collapse"
+   :margin         "2px 12px 4px 24px"
+   :font-family    mono-stack
+   :font-size      "12px"})
+
+(def ^:private subs-th-style
+  "Column header cell. Muted sans label echoing the section-label
+  primitive so the table reads as part of the pipeline rhythm."
+  {:text-align     "left"
+   :padding        "2px 12px 4px 0"
+   :font-family    sans-stack
+   :font-size      "10px"
+   :font-weight    600
+   :letter-spacing "0.4px"
+   :text-transform "uppercase"
+   :color          (:text-tertiary tokens)
+   :white-space    "nowrap"})
+
+(def ^:private subs-td-style
+  {:padding     "3px 12px 3px 0"
+   :color       (:text-primary tokens)
+   :vertical-align "top"})
+
+(def ^:private flag-yes-style
+  "The ✓ cell when a dimension is set."
+  {:color (:cyan tokens) :font-weight 600})
+
+(def ^:private flag-no-style
+  "The · placeholder when a dimension is unset — dim so the eye skips it."
+  {:color (:text-tertiary tokens) :opacity "0.5"})
+
+(def ^:private cause-sub-style
+  "Secondary text rendered next to the cascaded ✓ — the upstream
+  `:cause-sub` that triggered the cascade. Dim so the ✓ stays primary."
+  {:color (:text-tertiary tokens)
+   :font-size "10px"
+   :margin-left "6px"})
 
 ;; ---- pure formatters ---------------------------------------------------
 
@@ -246,34 +299,12 @@
             (or (:subs-skipped counts) 0) " skipped · "
             (or (:views-rendered counts) 0) " views rendered"))]))
 
-;; ---- subs ran section -------------------------------------------------
-
-(defn- sub-ran-row
-  [payload]
-  (let [sub-id (or (:sub-id payload) (:id payload))
-        coord  (when sub-id (sub-coord sub-id))]
-    [:div {:data-testid "rf-causa-reactive-sub-ran"
-           :style row-style}
-     [:span {:style {:color (:accent-violet tokens)
-                     :font-weight 600}}
-      (format-id sub-id)]
-     (code-chip coord
-                (str "rf-causa-reactive-sub-ran-code-"
-                     (when sub-id (string/replace (str sub-id) #"[^a-zA-Z0-9_]" "_"))))]))
-
-(defn- subs-ran-section
-  [data]
-  (let [subs-ran (:subs-ran data)
-        n        (count subs-ran)]
-    [:<>
-     (section-label "subs-ran" (str "SUBS RAN (" n ")"))
-     (if (seq subs-ran)
-       (into [:div]
-             (for [[i p] (map-indexed vector subs-ran)]
-               (with-meta (sub-ran-row p) {:key i})))
-       (empty-row "rf-causa-reactive-subs-ran-empty" "(none ran)"))]))
-
-;; ---- subs whose value changed section --------------------------------
+;; ---- subs-this-cascade dimension predicates ---------------------------
+;;
+;; rf2-isun6: a sub that ran may ALSO have changed value and/or cascaded.
+;; These two predicates no longer split the run-set into separate lists
+;; — they drive the `changed?` / `cascaded?` columns of the single
+;; subs table, so each sub appears exactly once.
 
 (defn- sub-changed?
   "True when a `:rf.sub/computed` payload represents a value change
@@ -287,21 +318,6 @@
         (and (contains? payload :prev-value)
              (not= (:prev-value payload) (:value payload))))))
 
-(defn- subs-changed-section
-  [data]
-  (let [subs-ran     (:subs-ran data)
-        changed-subs (filterv sub-changed? subs-ran)
-        n            (count changed-subs)]
-    [:<>
-     (section-label "subs-changed" (str "SUBS WHOSE VALUE CHANGED (" n ")"))
-     (if (seq changed-subs)
-       (into [:div]
-             (for [[i p] (map-indexed vector changed-subs)]
-               (with-meta (sub-ran-row p) {:key i})))
-       (empty-row "rf-causa-reactive-subs-changed-empty" "(none changed)"))]))
-
-;; ---- subs that cascaded section --------------------------------------
-
 (defn- sub-cascaded?
   "True when a `:rf.sub/computed` payload represents a cascade (a sub
   that was triggered by another sub's value change rather than by an
@@ -312,18 +328,75 @@
       (some? (:cause-sub payload))
       (= :sub-cascade (:reason payload))))
 
-(defn- subs-cascaded-section
+;; ---- single subs-this-cascade table (rf2-isun6) -----------------------
+
+(defn- sub-id-slug
+  "Stable testid suffix for a sub-id — kw/symbol punctuation flattened
+  to `_` so the row + code-chip testids are CSS-selector safe."
+  [sub-id]
+  (when sub-id (string/replace (str sub-id) #"[^a-zA-Z0-9_]" "_")))
+
+(defn- flag-cell
+  "A ✓ / · column cell. Renders the cyan ✓ when `on?`; otherwise a dim
+  placeholder. `secondary` (optional) rides as muted text after the ✓
+  (used to surface the upstream `:cause-sub` on the cascaded column)."
+  [on? secondary]
+  [:td {:style subs-td-style}
+   (if on?
+     [:span
+      [:span {:style flag-yes-style} "✓"]
+      (when (seq secondary)
+        [:span {:style cause-sub-style} secondary])]
+     [:span {:style flag-no-style} "·"])])
+
+(defn- subs-table-row
+  "One row per sub that ran this cascade. `changed?` / `cascaded?`
+  columns carry the dimensions; the sub appears exactly once.
+
+  testids:
+    row       `rf-causa-reactive-sub-row-<slug>`
+    code chip `rf-causa-reactive-sub-code-<slug>`"
+  [payload]
+  (let [sub-id   (or (:sub-id payload) (:id payload))
+        slug     (sub-id-slug sub-id)
+        coord    (when sub-id (sub-coord sub-id))
+        changed? (sub-changed? payload)
+        cause    (when (sub-cascaded? payload)
+                   (let [c (:cause-sub payload)]
+                     (when c (str "← " (format-id c)))))]
+    [:tr {:data-testid (str "rf-causa-reactive-sub-row-" slug)
+          :style       {:border-top (str "1px solid " (:border-subtle tokens))}}
+     [:td {:style (assoc subs-td-style :color (:accent-violet tokens)
+                         :font-weight 600)}
+      (format-id sub-id)]
+     (flag-cell changed? nil)
+     (flag-cell (sub-cascaded? payload) cause)
+     [:td {:style subs-td-style}
+      (code-chip coord (str "rf-causa-reactive-sub-code-" slug))]]))
+
+(defn- subs-table-section
+  "ONE 'SUBS THIS CASCADE' table replacing the prior three overlapping
+  SUBS RAN / SUBS WHOSE VALUE CHANGED / SUBS THAT CASCADED sections.
+  One row per sub that RAN (the union); `changed?` / `cascaded?` are
+  columns, so each sub appears exactly once (rf2-isun6)."
   [data]
-  (let [subs-ran      (:subs-ran data)
-        cascaded-subs (filterv sub-cascaded? subs-ran)
-        n             (count cascaded-subs)]
+  (let [subs-ran (:subs-ran data)
+        n        (count subs-ran)]
     [:<>
-     (section-label "subs-cascaded" (str "SUBS THAT CASCADED (" n ")"))
-     (if (seq cascaded-subs)
-       (into [:div]
-             (for [[i p] (map-indexed vector cascaded-subs)]
-               (with-meta (sub-ran-row p) {:key i})))
-       (empty-row "rf-causa-reactive-subs-cascaded-empty" "(none cascaded)"))]))
+     (section-label "subs" (str "SUBS THIS CASCADE (" n ")"))
+     (if (seq subs-ran)
+       [:table {:data-testid "rf-causa-reactive-subs-table"
+                :style       subs-table-style}
+        [:thead
+         [:tr
+          [:th {:style subs-th-style} "sub-id"]
+          [:th {:style subs-th-style} "changed?"]
+          [:th {:style subs-th-style} "cascaded?"]
+          [:th {:style subs-th-style} "code"]]]
+        (into [:tbody]
+              (for [[i p] (map-indexed vector subs-ran)]
+                (with-meta (subs-table-row p) {:key i})))]
+       (empty-row "rf-causa-reactive-subs-empty" "(no subs ran)"))]))
 
 ;; ---- views re-rendered section ---------------------------------------
 
@@ -407,10 +480,6 @@
                        :padding-left  "12px"
                        :padding-top   "8px"
                        :padding-bottom "8px"}}
-         (subs-ran-section data)
-         (pipeline-chevron "subs-ran")
-         (subs-changed-section data)
-         (pipeline-chevron "subs-changed")
-         (subs-cascaded-section data)
-         (pipeline-chevron "subs-cascaded")
+         (subs-table-section data)
+         (pipeline-chevron "subs")
          (views-rendered-section data)])]]))

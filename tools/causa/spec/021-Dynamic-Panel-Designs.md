@@ -328,18 +328,43 @@ the rendered DOM highlights), with the sub cascade as supporting
 context. The internal panel-registry key stays `:views` (never a
 user contract). The L4 tab label renders as `View`.
 
-### §3.1.1 Layout (rf2-e33ad)
+### §3.1.1 Layout (rf2-e33ad · rf2-isun6)
 
-Per Mike-direction 2026-05-21 the panel renders the cascade as four
+Per Mike-direction 2026-05-21 the panel renders the cascade as two
 bare-label pipeline sections (mirroring the rf2-n4ad0 Event panel
 rhythm — thin left rail + downward chevrons):
 
-  1. **SUBS RAN (count)** — entries with `[code]` chip
-  2. **SUBS WHOSE VALUE CHANGED (count)** — entries with `[code]` chip
-  3. **SUBS THAT CASCADED (count)** — entries
-  4. **VIEWS RE-RENDERED (count)** — entries named via the
+  1. **SUBS THIS CASCADE (count)** — **one table**, one row per sub
+     that *ran* this cascade (the union — formerly the "SUBS RAN"
+     set). Columns:
+
+     | column | meaning |
+     | --- | --- |
+     | `sub-id` | the sub's query-id (violet) |
+     | `changed?` | ✓ when the sub's value changed (`sub-changed?` — `:value-changed?` / `:prev-value` ≠ `:value`) |
+     | `cascaded?` | ✓ when an upstream sub drove the recompute (`sub-cascaded?` — `:cascade?` / `:cause-sub`); the upstream `:cause-sub` rides as muted `← :s/foo` secondary text on the ✓ |
+     | `code` | the `[code]` source-coord chip — opens the sub's registration in the editor |
+
+     **Each sub appears EXACTLY once.** The `changed?` / `cascaded?`
+     dimensions are *columns*, not separate lists (rf2-isun6). This
+     replaces the prior three overlapping sections — **SUBS RAN**,
+     **SUBS WHOSE VALUE CHANGED**, **SUBS THAT CASCADED** — in which a
+     sub that ran *and* changed *and* cascaded was repeated in all
+     three (redundant). The dirty-check predicates (`sub-changed?` /
+     `sub-cascaded?`) survive — they now drive the two flag columns
+     rather than `filterv`-splitting the run-set into three lists.
+
+  2. **VIEWS RE-RENDERED (count)** — entries named via the
      `reg-view :name` slot (fallback: var name) + `[code]` chip +
      hover-highlight on the rendered view's root DOM node
+
+**testids.** The table carries `rf-causa-reactive-subs-table`; each
+row is `rf-causa-reactive-sub-row-<slug>` and its code chip
+`rf-causa-reactive-sub-code-<slug>` (slug = sub-id with non-alnum
+flattened to `_`). The empty-but-focused placeholder is
+`rf-causa-reactive-subs-empty`. (The prior per-section
+`rf-causa-reactive-sub-ran` / `…-subs-{ran,changed,cascaded}-empty`
+testids are retired with the three-list layout.)
 
 **Hover-highlight contract.** Hovering a view-row stamps a subtle
 background-only highlight (`var(--bg-3)`) on the rendered view's
