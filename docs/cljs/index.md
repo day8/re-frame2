@@ -1,35 +1,8 @@
 # ClojureScript for non-Clojurians
 
-Are you new to ClojureScript?  This page will teach you to ***read Clojure*** in 40 minutes.
+New to **ClojureScript**? This page will teach you to ***read ClojureScript*** in 30 minutes.
 
-The goal is to teach you just enough ClojureScript to read `Reagent` and `re-frame2` code. The next step is learning to *write ClojureScript* but that's a larger skill, which will require more than 40 mins.
-
-The cells below are **live**. Click inside one, edit the code, press `Ctrl-Enter` (or `Cmd-Enter`), and the result re-evaluates in your browser. No build step, no REPL, no install — your browser is running a ClojureScript compiler. If a cell shows an error, change something and re-evaluate. There is nothing you can break.
-
-## Why?
-
-Clojure is a modern LISP.
-
-Alan Kay once described LISP as "Maxwell's equations of software".
-Paul Graham believes LISP was a competitive advantage for his startup.
-Eric Raymond said that learning LISP was profoundly enlightening and that knowing it would make you a better programmer for the rest of your days.
-
-In the 70s, 80s and 90s, the LISP community went through a washing machine phase of evolutionary churn.
-Innovation flourished, experiments happened, prototype ideas were tested and knowledge foliated.
-Later, in about 2010, Rich Hickey took that knowledge and created Clojure, introducing key innovations.
-He did this well away from academia (LISP's traditional home) because he wanted to create a pragmatic language for commercial developers.
-
-So, Clojure has had a long gestation period, and it comes with a hard practical edge.
-
-As the owner of a company that develops software products, I believe ClojureScript gives us a
-competitive edge. As an experienced programmer, I feel like it has provided me with excellent,
-nourishing brain food. It is a stable, productive place.
-
-If you'll allow me some momentary negativity: in contrast, I'm scared of the javascript landscape, which still appears to be a churning
-washing machine full of steep learning curves, premature obsolescence and sharp edges, which teach me little of substance
-and certainly won't make me productive.
-
-Enough of a sermon? Yes. Okay, 40 mins ...
+And, specifically, how to read `re-frame2` code. Learning to *write ClojureScript* will require a few hours of your time.
 
 ---
 
