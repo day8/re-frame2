@@ -27,10 +27,28 @@
             [re-frame.frame :as frame]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.filters.edit-popup :as edit-popup]
+            [day8.re-frame2-causa.filters.hidden :as hidden]
             [day8.re-frame2-causa.filters.matcher :as matcher]
             [day8.re-frame2-causa.filters.persistence :as persistence]
             [day8.re-frame2-causa.filters.typed-predicates :as typed]
             [day8.re-frame2-causa.spine-filters :as spine-filters]))
+
+;; ---- L2 visible-row predicate (rf2-jvghz) -------------------------------
+;;
+;; Mirrors `shell/l2-cascade-visible?` — kept local so the
+;; `:rf.causa/hidden-by-filters` sub below can count over the SAME
+;; visible-row set the L2 list renders without a shell ↔ filters require
+;; cycle (the shell already requires this ns transitively). The
+;; `:ungrouped` bucket carries `:dispatch-id :ungrouped`; it only renders
+;; in L2 when the rf2-r9lyy power-user opt-in is on, so it is excluded
+;; from the hidden-count's visible set by default — keeping N consistent
+;; with the rows the user sees.
+
+(defn- l2-visible?
+  [cascade show-ungrouped?]
+  (if (= :ungrouped (:dispatch-id cascade))
+    (boolean show-ungrouped?)
+    true))
 
 ;; ---- Modal --------------------------------------------------------------
 
@@ -184,6 +202,28 @@
           (typed/filter-cascades filters)
           (spine-filters/filter-cascades muted))))
 
+  ;; rf2-jvghz defect #1 — the 'N events hidden by filters' indicator
+  ;; model. Composes the raw + filtered cascade lists and the active
+  ;; filter state into the pure `hidden/summary` record the L2 list's
+  ;; indicator renders against. Counts over the L2 visible-row set
+  ;; (`l2-visible?`) so N matches the rows the user sees. This is the
+  ;; affordance that makes persisted filters/frame-pin a VISIBLE cause
+  ;; rather than a silently-broken-looking list.
+  (rf/reg-sub :rf.causa/hidden-by-filters
+    :<- [:rf.causa/cascades]
+    :<- [:rf.causa/filtered-cascades]
+    :<- [:rf.causa/active-filters]
+    :<- [:rf.causa/focus-slot]
+    :<- [:rf.causa/muted-event-ids]
+    :<- [:rf.causa/show-ungrouped?]
+    (fn [[raw filtered filters focus-slot muted show-ungrouped?] _query]
+      (let [raw-n      (count (filterv #(l2-visible? % show-ungrouped?) raw))
+            filtered-n (count (filterv #(l2-visible? % show-ungrouped?) filtered))]
+        (hidden/summary raw-n filtered-n
+                        {:filters filters
+                         :frame   (:frame focus-slot)
+                         :muted   muted}))))
+
   ;; Popup state — three slots so the open / trigger / draft tiers
   ;; are individually subscribable.
   (rf/reg-sub :rf.causa/edit-popup-open?
@@ -311,6 +351,31 @@
             {:db next-db
              :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})
           {:db (close-popup db)}))))
+
+  ;; ---- clear-all (rf2-jvghz) ------------------------------------------
+  ;;
+  ;; One-click reset behind the L2 'N hidden by filters' indicator.
+  ;; Resets EVERY suppressing surface so the filtered list snaps back to
+  ;; the raw list:
+  ;;
+  ;;   1. IN/OUT pills        → `{:in [] :out []}` (+ persist)
+  ;;   2. frame pin           → `:rf.causa/select-frame nil` (the
+  ;;      canonical write surface — re-seeds the spine + clears the
+  ;;      frame-switcher localStorage so the unpin survives reload)
+  ;;   3. muted event-ids     → `:rf.causa/clear-muted-event-ids` (+ its
+  ;;      own persist fx)
+  ;;
+  ;; Pills are reset inline (this handler already owns the
+  ;; `:active-filters` slot + persist fx); the frame-pin and mute resets
+  ;; route through their owning events via `:dispatch` so each surface's
+  ;; persistence / instrumentation stays in one place.
+  (rf/reg-event-fx :rf.causa/clear-all-filters
+    (fn [{:keys [db]} _event]
+      (let [cleared {:in [] :out []}]
+        {:db (assoc db :active-filters cleared)
+         :fx [[:rf.causa.filters/persist cleared]
+              [:dispatch [:rf.causa/select-frame nil]]
+              [:dispatch [:rf.causa/clear-muted-event-ids]]]})))
 
   ;; ---- right-click row → OUT filter shortcut --------------------------
   ;;

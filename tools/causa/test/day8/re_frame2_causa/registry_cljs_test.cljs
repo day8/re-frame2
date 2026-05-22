@@ -143,6 +143,9 @@
    :rf.causa/epoch-history
    :rf.causa/event-detail
    :rf.causa/filtered-cascades
+   ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
+   ;; (raw vs filtered visible counts + the active filter cause).
+   :rf.causa/hidden-by-filters
    :rf.causa/focus
    ;; rf2-70tkv — App-DB diff subs pivot off the spine's focus
    ;; `:epoch-id` (which auto-tracks head in LIVE mode) instead of
@@ -361,6 +364,9 @@
    :rf.causa/cancellation-cascade-open
    :rf.causa/cancellation-cascade-set-expanded
    :rf.causa/cancellation-cascade-toggle-expand
+   ;; rf2-jvghz — one-click reset behind the L2 'N hidden by filters'
+   ;; indicator (resets IN/OUT pills + frame pin + mutes).
+   :rf.causa/clear-all-filters
    :rf.causa/clear-machine-selection
    ;; rf2-a1z3b — focus-navigation primitive (gutter click on L2 row sets a
    ;; focus-set; `[◀][▶]` step within the in-focus subset).
