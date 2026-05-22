@@ -445,34 +445,57 @@
   "Nav cluster — `◀ ▶ ⏭` per spec/018 §3. Buttons dispatch
   `:rf.causa/focus-cascade-prev` / `-next` / `:rf.causa/follow-head`.
 
-  `at-head?` (focus = most recent event) and `at-tail?` (focus = first
-  event in buffer) come from the spine sub so the buttons can disable
-  themselves at the boundary:
+  `at-head?` (focus = most recent event), `at-tail?` (focus = first
+  event in buffer) and `live?` (spine is `:live` + unpaused, already
+  auto-tracking head) come from the spine sub so the buttons can
+  disable themselves at the boundary:
 
   - `◀` (back / prev) — disabled when `at-tail?` (no older event to
     step to).
   - `▶` (forward / next) — disabled when `at-head?` (already at the
     most recent event).
-  - `⏭` (live / fast-forward) — never disabled; pressing it always
-    snaps focus to head + resumes LIVE.
+  - `⏭` (live / fast-forward) — disabled when `at-head? AND live?`
+    (rf2-x5tro): already tracking head live, so the snap is a true
+    no-op. When at head but PAUSED (frozen inspection) `⏭` stays
+    enabled — pressing it resumes LIVE, which is not a no-op.
+
+  ## Disabled appearance (rf2-x5tro)
+
+  A disabled button must READ as inert, not merely block clicks. The
+  earlier wiring set only `cursor: not-allowed` + a faint text colour,
+  leaving the border + background unchanged so the button still read
+  as clickable. `disabled-style` now dims the background and border,
+  drops the ink to `:text-tertiary`, and reduces opacity — an
+  unmistakable inert state. The native `:disabled` attribute (plus the
+  dropped `:on-click` per rf2-fzbrw) blocks interaction; the inline
+  style + `aria-disabled` carry the visual + a11y signal.
 
   (rf2-htik0 P1 — earlier wiring had the head/tail boundaries flipped
   so the disabled glyph dimmed the wrong button.)"
-  [{:keys [at-head? at-tail?]}]
-  (let [btn-style {:background     "transparent"
+  [{:keys [at-head? at-tail? live?]}]
+  (let [head-disabled? (boolean (and at-head? live?))
+        btn-style {:background     "transparent"
                    :border         (str "1px solid " (:border-default tokens))
                    :color          (:text-primary tokens)
                    :cursor         "pointer"
+                   :opacity        1
                    :padding        "2px 8px"
                    :border-radius  "4px"
                    :font-family    sans-stack
                    :font-size      (:body type-scale)}
-        ;; Per rf2-fzbrw the visual + a11y signal must match the
-        ;; functional signal: `cursor: not-allowed` so the mouse
-        ;; pointer telegraphs the no-op, plus `aria-disabled` for
-        ;; screen readers (the native `:disabled` attribute already
-        ;; blocks click events at the DOM layer).
-        dim       {:color (:text-tertiary tokens) :cursor "not-allowed"}]
+        ;; rf2-x5tro — proper inert appearance, not just a cursor
+        ;; change: dim recessed background (`:bg-1`, one step below the
+        ;; events ribbon's `:bg-2`), a dim `:border-subtle` edge, the
+        ;; muted `:text-tertiary` ink, and reduced opacity so the
+        ;; button visibly recedes. `cursor: not-allowed` telegraphs the
+        ;; no-op on hover; the native `:disabled` attribute already
+        ;; blocks clicks at the DOM layer (rf2-fzbrw) and there is no
+        ;; inline hover affordance to suppress.
+        disabled-style {:background (:bg-1 tokens)
+                        :border     (str "1px solid " (:border-subtle tokens))
+                        :color      (:text-tertiary tokens)
+                        :opacity    0.5
+                        :cursor     "not-allowed"}]
     [:div {:data-testid "rf-causa-ribbon-nav"
            :style {:display "flex" :align-items "center" :gap "4px"}}
      [:button {:data-testid   "rf-causa-nav-prev"
@@ -481,7 +504,7 @@
                :disabled      (boolean at-tail?)
                :aria-disabled (boolean at-tail?)
                :title         "Step to previous event (j)"
-               :style         (merge btn-style (when at-tail? dim))}
+               :style         (merge btn-style (when at-tail? disabled-style))}
       "◀"]
      [:button {:data-testid   "rf-causa-nav-next"
                :on-click      (when-not at-head?
@@ -489,12 +512,15 @@
                :disabled      (boolean at-head?)
                :aria-disabled (boolean at-head?)
                :title         "Step to next event (k)"
-               :style         (merge btn-style (when at-head? dim))}
+               :style         (merge btn-style (when at-head? disabled-style))}
       "▶"]
-     [:button {:data-testid "rf-causa-nav-head"
-               :on-click    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
-               :title       "Fast-forward to latest (G)"
-               :style       btn-style}
+     [:button {:data-testid   "rf-causa-nav-head"
+               :on-click      (when-not head-disabled?
+                                #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa}))
+               :disabled      head-disabled?
+               :aria-disabled head-disabled?
+               :title         "Fast-forward to latest (G)"
+               :style         (merge btn-style (when head-disabled? disabled-style))}
       "⏭"]]))
 
 ;; The L1 frame-switcher slot lives in `frame_switcher.cljs` per rf2-iwwou
@@ -1446,6 +1472,11 @@
                             (and (nil? focused-id) (not focus-set)))
         at-tail?        (or (empty? ids)
                             (= focused-id (first ids)))
+        ;; rf2-x5tro — `⏭` is a true no-op only when the spine is
+        ;; already tracking head LIVE (`:live` mode + unpaused). At
+        ;; head but PAUSED, `⏭` resumes LIVE, so it stays enabled.
+        live?           (and (= :live (:mode focus))
+                             (not (:paused? focus)))
         any-active?     (:any-active? hidden-summary)]
     [:div {:data-testid "rf-causa-events-ribbon"
            :role        "toolbar"
@@ -1470,7 +1501,7 @@
                       :font-size   (:body-tight type-scale)
                       :white-space "nowrap"}}
        "Events:"]
-      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
+      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
       [ribbon-focus-chip {:focus-set focus-set}]
       [ribbon-filter-pills {:filters filters}]]
      ;; RIGHT cluster — hidden-count message + Clear Filters. Both
