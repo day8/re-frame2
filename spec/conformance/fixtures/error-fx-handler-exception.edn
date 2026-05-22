@@ -33,8 +33,8 @@
  {:final-app-db {:log [{:msg "save attempted"}]}    ;; :log still ran even though :persist threw
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :user/init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :user/save}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :user/init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :user/save}}
    ;; :persist throws — structured trace, then :log fires.
    {:operation :rf.error/fx-handler-exception
     :op-type   :error

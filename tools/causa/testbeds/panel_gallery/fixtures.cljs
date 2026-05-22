@@ -14,7 +14,7 @@
 
       {:id <int>
        :op-type   :rf.event | :fx | :rf.sub/run | :view | :error | :warning | ...
-       :operation :rf.event/dispatched | :event | :rf.fx/do-fx | :rf.fx/handled | ...
+       :operation :rf.event/dispatched | :rf.event/run-start | :rf.event/run-end | :rf.fx/do-fx | :rf.fx/handled | ...
        :tags      {:rf.trace/dispatch-id <int>
                    :rf.event/v       <event-vec>     ;; on :rf.event/dispatched
                    :rf.trace/phase       :run-start | :run-end
@@ -52,9 +52,9 @@
                frame-id (assoc :frame frame-id))]
      [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
        :tags (assoc tag :rf.event/v event-vec)}
-      {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
        :tags (assoc tag :rf.trace/phase :run-start)}
-      {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+      {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
        :tags (assoc tag :rf.trace/phase :run-end :duration-ms 4)}
       {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
        :tags tag}
@@ -84,9 +84,9 @@
               frame-id (assoc :frame frame-id))
         spine [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
                 :tags (assoc tag :rf.event/v event-vec)}
-               {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+               {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
                 :tags (assoc tag :rf.trace/phase :run-start)}
-               {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+               {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
                 :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7)}
                {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
                 :tags tag}]
@@ -126,9 +126,9 @@
   (let [tag {:dispatch-id dispatch-id}]
     [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
       :tags (assoc tag :rf.event/v [:user/save-profile {:id 7}])}
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag :rf.trace/phase :run-start)}
-     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 12)}
      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
@@ -211,9 +211,9 @@
       :tags (assoc tag :rf.event/v [:user/sign-in {:email "ada@example.com"
                                               :password :rf/redacted
                                               :totp     :rf/redacted}])}
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag :rf.trace/phase :run-start)}
-     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 9)}
      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
@@ -235,9 +235,9 @@
                                  :handle :report/payload-1234
                                  :original-size 4218543
                                  :truncated-preview "{\"rows\": [{...} ...]"}}])}
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag :rf.trace/phase :run-start)}
-     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 23)}
      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
@@ -282,9 +282,9 @@
         tag         {:dispatch-id dispatch-id}]
     [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
       :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}])}
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag :rf.trace/phase :run-start)}
-     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 5)}
      {:id (+ id-base 4) :op-type :error :operation :rf.error/handler-threw
       :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}]
@@ -304,9 +304,9 @@
     [;; Root cascade — :cart/refresh dispatches an :http/request fx.
      {:id 51 :op-type :rf.event :operation :rf.event/dispatched
       :tags (assoc tag1 :rf.event/v [:cart/refresh])}
-     {:id 52 :op-type :rf.event :operation :rf.event
+     {:id 52 :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag1 :rf.trace/phase :run-start)}
-     {:id 53 :op-type :rf.event :operation :rf.event
+     {:id 53 :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag1 :rf.trace/phase :run-end :duration-ms 3)}
      {:id 54 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag1}
@@ -318,9 +318,9 @@
      ;; Follow-up cascade — :cart/loaded re-dispatched by the http callback.
      {:id 101 :op-type :rf.event :operation :rf.event/dispatched
       :tags (assoc tag2 :rf.event/v [:cart/loaded {:items 6 :total 24}])}
-     {:id 102 :op-type :rf.event :operation :rf.event
+     {:id 102 :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag2 :rf.trace/phase :run-start)}
-     {:id 103 :op-type :rf.event :operation :rf.event
+     {:id 103 :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag2 :rf.trace/phase :run-end :duration-ms 4)}
      {:id 104 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag2}
@@ -340,9 +340,9 @@
     [;; Root — :user/save triggers the :user/save machine to :saving.
      {:id 51 :op-type :rf.event :operation :rf.event/dispatched
       :tags (assoc tag1 :rf.event/v [:user/save {:id 7 :name "Ada"}])}
-     {:id 52 :op-type :rf.event :operation :rf.event
+     {:id 52 :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag1 :rf.trace/phase :run-start)}
-     {:id 53 :op-type :rf.event :operation :rf.event
+     {:id 53 :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag1 :rf.trace/phase :run-end :duration-ms 6)}
      {:id 54 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag1}
@@ -354,9 +354,9 @@
      ;; Follow-up — :user/save-success transitions :user/save to :saved.
      {:id 101 :op-type :rf.event :operation :rf.event/dispatched
       :tags (assoc tag2 :rf.event/v [:user/save-success {:id 7}])}
-     {:id 102 :op-type :rf.event :operation :rf.event
+     {:id 102 :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag2 :rf.trace/phase :run-start)}
-     {:id 103 :op-type :rf.event :operation :rf.event
+     {:id 103 :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag2 :rf.trace/phase :run-end :duration-ms 2)}
      {:id 104 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag2}
@@ -413,9 +413,9 @@
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/cart/views.cljs" :line 127})
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag :rf.trace/phase :run-start)}
-     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 11)}
      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags (assoc tag :rf.event/fx [[:dispatch [:notify "added"]]]
@@ -447,7 +447,7 @@
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/cart/events.cljs" :line 211})
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7)}
      {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags (assoc tag :rf.event/fx [[:db nil]]
@@ -471,7 +471,7 @@
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/dashboard/views.cljs" :line 88})
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 47)}
      {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags (assoc tag :rf.event/fx [[:db nil] [:rf.http/get {:url "/api/stats"}]
@@ -506,7 +506,7 @@
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/checkout/views.cljs" :line 203})
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
       :tags (assoc tag :rf.trace/phase :run-start)}
      {:id (+ id-base 3) :op-type :error :operation :rf.error/handler-exception
       :tags (assoc tag :rf.trace/event-id :checkout/submit
@@ -526,7 +526,7 @@
                                                   :subs-ran 142
                                                   :mismatches 0}])
       :source :ssr :origin :app}
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 87)}
      {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
@@ -543,7 +543,7 @@
     [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
       :tags (assoc tag :rf.event/v [:rf.ssr/hydrated {:duration-ms 91 :mismatches 3}])
       :source :ssr :origin :app}
-     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 91)}
      {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}

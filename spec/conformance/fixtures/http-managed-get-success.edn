@@ -59,10 +59,10 @@
                :value {:title "hello" :id 42}}}
 
   :trace-emissions
-  [{:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :article/load}}
+  [{:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/load}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
                                               :rf.fx/to   :rf.http/managed-canned-success}}
-   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :article/loaded}}]
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/loaded}}]
 
   :effects-routed
   [{:fx-id :rf.http/managed-canned-success

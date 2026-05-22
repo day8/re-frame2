@@ -1018,7 +1018,7 @@
             vocabulary."
     (let [evs       [{:op-type :rf.event :operation :rf.event/dispatched
                       :id 1 :tags {:rf.trace/dispatch-id 100 :rf.event/v [:foo]}}
-                     {:op-type :rf.event :operation :rf.event
+                     {:op-type :rf.event :operation :rf.event/run-end
                       :id 2 :tags {:rf.trace/dispatch-id 100 :rf.trace/phase :run-end}}
                      {:op-type :rf.fx :operation :rf.fx/do-fx
                       :id 3 :tags {:rf.trace/dispatch-id 100}}

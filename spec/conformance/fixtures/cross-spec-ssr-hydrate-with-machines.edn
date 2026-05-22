@@ -78,5 +78,5 @@
    [:auth-user]  {:id "u-1" :name "Server-Settled"}}
 
   :trace-emissions
-  [{:operation :rf.event :source :ssr-hydration :tags {:rf.trace/event-id :rf/hydrate}}
-   {:operation :rf.event :tags {:rf.trace/event-id :auth/poll-status}}]}}
+  [{:operation :rf.event/run-start :source :ssr-hydration :tags {:rf.trace/event-id :rf/hydrate}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/poll-status}}]}}

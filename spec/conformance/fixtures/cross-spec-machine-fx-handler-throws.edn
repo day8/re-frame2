@@ -62,7 +62,7 @@
    :fx-log      [{:tag :will-record}]}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :test/m}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :test/m}}
    ;; Machine transition succeeded — snapshot committed.
    {:operation :rf.machine/transition
     :tags      {:machine-id :test/m}}

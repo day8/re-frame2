@@ -732,7 +732,7 @@
           ;; Hand-craft a buffer: an orphan with no :rf.trace/dispatch-id, then a
           ;; run-start + a body trace for dispatch-id 42.
           orphan    {:op-type :rf.frame :operation :rf.frame/created :tags {}}
-          run-start {:op-type :rf.event :operation :rf.event
+          run-start {:op-type :rf.event :operation :rf.event/run-start
                      :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 42 :rf.trace/event-id :inc}}
           body      {:op-type :rf.event :operation :rf.event/db-changed
                      :tags {:rf.trace/dispatch-id 42}}]

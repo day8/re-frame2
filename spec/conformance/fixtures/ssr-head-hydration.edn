@@ -61,7 +61,7 @@
   ;; :source is a TOP-LEVEL field per Spec 009 §Required top-level fields,
   ;; not a key inside :tags.
   :trace-emissions
-  [{:operation :rf.event :source :ssr-hydration :tags {:rf.trace/event-id :rf/hydrate}}]
+  [{:operation :rf.event/run-start :source :ssr-hydration :tags {:rf.trace/event-id :rf/hydrate}}]
 
   :trace-not-emitted
   [{:operation :rf.ssr/hydration-mismatch

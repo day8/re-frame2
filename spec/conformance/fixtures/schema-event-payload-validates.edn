@@ -55,8 +55,8 @@
   :sub-values   {[:users] [{:email "alice@example.com" :age 30}]}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :user/init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :user/register}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :user/init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :user/register}}
    ;; Second dispatch attempts :user/register with a bad payload —
    ;; the runtime emits the schema-validation-failure trace and skips the
    ;; handler. Note: the :event trace event still fires (the dispatch was

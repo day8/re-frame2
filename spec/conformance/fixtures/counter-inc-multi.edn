@@ -27,7 +27,7 @@
  :fixture/expect
  {:final-app-db    {:count 3}
   :sub-values      {[:count] 3}
-  :trace-emissions [{:operation :rf.event :tags {:rf.trace/event-id :counter/initialise}}
-                    {:operation :rf.event :tags {:rf.trace/event-id :counter/inc}}
-                    {:operation :rf.event :tags {:rf.trace/event-id :counter/inc}}
-                    {:operation :rf.event :tags {:rf.trace/event-id :counter/inc}}]}}
+  :trace-emissions [{:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/initialise}}
+                    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc}}
+                    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc}}
+                    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc}}]}}

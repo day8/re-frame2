@@ -88,7 +88,7 @@
   {:outer-ran? true}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :outer/trigger}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :outer/trigger}}
    {:operation :rf.error/dispatch-sync-in-handler
     :op-type   :error
     :recovery  :no-recovery}]}}

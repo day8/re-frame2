@@ -62,10 +62,10 @@
                                :decoded {:meta {:status "ok"}}}}}}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :article/load}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
                                               :rf.fx/to   :rf.http/managed-canned-failure}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/load-error}}]
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load-error}}]
 
   :effects-routed
   [{:fx-id :rf.http/managed-canned-failure

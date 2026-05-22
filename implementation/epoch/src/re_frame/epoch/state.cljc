@@ -578,13 +578,11 @@
 
 (defn- settling-dispatch-id
   "The `:dispatch-id` of the event being settled, read off the FIRST
-  `:event/run-start` emit in the buffer. nil when no run-start fired (a
+  `:rf.event/run-start` emit in the buffer. nil when no run-start fired (a
   rejected / aborted dispatch, or a halt path whose event never ran)."
   [events]
   (some (fn [ev]
-          (when (and (= :rf.event (:op-type ev))
-                     (= :rf.event (:operation ev))
-                     (= :run-start (-> ev :tags :rf.trace/phase)))
+          (when (= :rf.event/run-start (:operation ev))
             (-> ev :tags :rf.trace/dispatch-id)))
         events))
 

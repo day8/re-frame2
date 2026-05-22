@@ -55,7 +55,7 @@
   (rf/reg-fx :sensitive/noop (fn [_ _] nil))
   (let [evs (record-traces #(rf/dispatch-sync
                                [:sensitive/cross-cutting {:token "secret"}]))]
-    (doseq [op #{:rf.event/dispatched :rf.event :rf.event/db-changed :rf.fx/do-fx}]
+    (doseq [op #{:rf.event/dispatched :rf.event/run-start :rf.event/run-end :rf.event/db-changed :rf.fx/do-fx}]
       (let [matches (filterv #(= op (:operation %)) evs)]
         (is (seq matches) (str op " was emitted"))
         (doseq [ev matches]
@@ -78,10 +78,7 @@
       (let [evs (record-traces
                   #(rf/dispatch-sync
                      [:auth/login {:username "ada" :password "shh"}]))
-            [run-start]  (filterv #(and (= :rf.event (:operation %))
-                                        (= :run-start
-                                           (get-in % [:tags :rf.trace/phase])))
-                                  evs)
+            [run-start]  (filterv #(= :rf.event/run-start (:operation %)) evs)
             [db-changed] (events-of evs :rf.event/db-changed)]
         (is (= {:username "ada" :password "shh"} @seen)
             "handler body receives the unredacted event payload")

@@ -25,7 +25,7 @@
 
  :fixture/expect
  {:trace-emissions
-  [{:operation :rf.event
+  [{:operation :rf.event/run-start
     :tags     {:rf.trace/event-id :storage/save}}
    ;; The fx was skipped because :server is not in :platforms.
    {:operation :rf.fx/skipped-on-platform

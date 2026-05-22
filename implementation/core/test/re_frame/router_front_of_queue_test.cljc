@@ -108,14 +108,12 @@
 ;;          full handler cascade (its own :run-start), not collapsed --------
 
 (defn- run-starts-of
-  "Filter recorded trace events down to per-event :run-start markers,
-  returning their event-ids in order. The `trace/emit!` payload (the
-  `{:event-id … :phase :run-start}` map) rides under `:tags`; only
-  `:operation` is top-level."
+  "Filter recorded trace events down to per-event :rf.event/run-start
+  markers, returning their event-ids in order. The marker's `:operation`
+  is top-level; the correlated event-id rides under `:tags`."
   [evs]
   (->> evs
-       (filter #(and (= :rf.event (:operation %))
-                     (= :run-start (:rf.trace/phase (:tags %)))))
+       (filter #(= :rf.event/run-start (:operation %)))
        (mapv #(:rf.trace/event-id (:tags %)))))
 
 (deftest each-leapfrogged-event-is-its-own-epoch

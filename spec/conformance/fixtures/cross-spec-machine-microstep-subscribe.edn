@@ -105,8 +105,8 @@
   ;; + reactive surfaces filter on; pinning it here catches any future
   ;; envelope-level regression.
   :trace-emissions
-  [{:op-type :rf.event :operation :rf.event :tags {:rf.trace/event-id :boot/init}}
-   {:op-type :rf.event :operation :rf.event :tags {:rf.trace/event-id :quiz}}
+  [{:op-type :rf.event :operation :rf.event/run-start :tags {:rf.trace/event-id :boot/init}}
+   {:op-type :rf.event :operation :rf.event/run-start :tags {:rf.trace/event-id :quiz}}
    ;; Outer macrostep trace — ONE per dispatch. The op-type is the
    ;; machine FAMILY discriminator `:rf.machine` (NOT the slashed
    ;; operation `:rf.machine/transition`); pinning op-type here is the

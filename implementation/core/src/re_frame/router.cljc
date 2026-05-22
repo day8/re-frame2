@@ -822,7 +822,7 @@
   `:error`, `:rolled-back`, or `:flow-error` — and rides straight onto
   the event-emit record's `:outcome` slot (Spec 009 §Record shape)."
   [event-id event emit-event frame outcome start-ms]
-  (trace/emit! :rf.event :rf.event
+  (trace/emit! :rf.event :rf.event/run-end
                {:rf.trace/event-id event-id
                 :rf.event/v        emit-event
                 :frame             frame
@@ -890,7 +890,7 @@
     (trace/with-handler-scope
       (trace/handler-scope-from-meta :event event-id scope-meta)
       (let [start-ms  (interop/now-ms)
-            _         (trace/emit! :rf.event :rf.event
+            _         (trace/emit! :rf.event :rf.event/run-start
                                    {:rf.trace/event-id event-id
                                     :rf.event/v        emit-event
                                     :frame             frame

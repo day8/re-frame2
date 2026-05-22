@@ -50,10 +50,10 @@
           :value {:token "tok-1" :user-id "u-1"}}}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :auth/login}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/login}}
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
                                               :rf.fx/to   :rf.http/managed-canned-success}}
-   {:operation :rf.event :tags {:rf.trace/event-id :auth/login-success}}]
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/login-success}}]
 
   :effects-routed
   [{:fx-id :rf.http/managed-canned-success

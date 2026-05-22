@@ -91,9 +91,9 @@
   :trace-emissions
   [{:operation :rf.http.interceptor/registered
     :tags      {:frame :rf/default :id :counter}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/load}}
-   {:operation :rf.event :tags {:rf.trace/event-id :fixture/interceptor-fired}}
-   {:operation :rf.event :tags {:rf.trace/event-id :fixture/clear-interceptor}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :fixture/interceptor-fired}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :fixture/clear-interceptor}}
    {:operation :rf.http.interceptor/cleared
     :tags      {:frame :rf/default :id :counter}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/load}}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load}}]}}

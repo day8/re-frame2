@@ -74,13 +74,13 @@
   ;; We assert the per-frame :event traces and the override-applied
   ;; pair without :frame.
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :article/load   :frame :tab.left}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load   :frame :tab.left}}
    {:operation :rf.fx/override-applied
     :tags {:rf.fx/from :rf.http/managed
            :rf.fx/to   :rf.http/managed-canned-success}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/loaded :frame :tab.left}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/load   :frame :tab.right}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/loaded :frame :tab.left}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load   :frame :tab.right}}
    {:operation :rf.fx/override-applied
     :tags {:rf.fx/from :rf.http/managed
            :rf.fx/to   :rf.http/managed-canned-success}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/loaded :frame :tab.right}}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/loaded :frame :tab.right}}]}}

@@ -56,7 +56,7 @@
    ;; :counter/initialise is the first hit; the explicit :rf.event matcher
    ;; covers the canonical lifecycle emit point (Spec 009 §:rf.event
    ;; trace-event vocabulary).
-   {:operation :rf.event
+   {:operation :rf.event/run-start
     :op-type   :rf.event
     :tags      {:rf.trace/event-id :counter/initialise}}
 

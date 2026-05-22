@@ -1474,13 +1474,12 @@
    epochs whose `:trace-events` slot was elided for ring-buffer age —
    see Spec-Schemas §`:rf/epoch-record`)."
   [{:keys [trace-events]}]
-  (let [run-event? (fn [phase ev]
+  (let [run-event? (fn [op ev]
                      (and (= :rf.event (:op-type ev))
-                          (= :rf.event (:operation ev))
-                          (= phase (get-in ev [:tags :rf.trace/phase]))))
-        first-time (some (fn [ev] (when (run-event? :run-start ev) (:time ev))) trace-events)
+                          (= op (:operation ev))))
+        first-time (some (fn [ev] (when (run-event? :rf.event/run-start ev) (:time ev))) trace-events)
         last-time  (reduce (fn [acc ev]
-                             (if (run-event? :run-end ev)
+                             (if (run-event? :rf.event/run-end ev)
                                (let [t (:time ev)] (if (and (number? t) (or (nil? acc) (> t acc))) t acc))
                                acc))
                            nil

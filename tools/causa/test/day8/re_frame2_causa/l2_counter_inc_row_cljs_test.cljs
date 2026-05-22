@@ -67,9 +67,9 @@
   []
   [{:id 50 :op-type :rf.event :operation :rf.event/dispatched
     :tags {:rf.trace/dispatch-id dispatch-id-8 :rf.event/v [:counter/inc] :frame frame-below}}
-   {:id 51 :op-type :rf.event :operation :event
+   {:id 51 :op-type :rf.event :operation :rf.event/run-start
     :tags {:rf.trace/dispatch-id dispatch-id-8 :rf.trace/phase :run-start :frame frame-below}}
-   {:id 52 :op-type :rf.event :operation :event
+   {:id 52 :op-type :rf.event :operation :rf.event/run-end
     :tags {:rf.trace/dispatch-id dispatch-id-8 :rf.trace/phase :run-end :frame frame-below}}
    {:id 53 :op-type :rf.fx :operation :rf.fx/do-fx
     :tags {:rf.trace/dispatch-id dispatch-id-8 :frame frame-below}}

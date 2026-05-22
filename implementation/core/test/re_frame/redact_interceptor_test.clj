@@ -53,9 +53,7 @@
   (filterv #(= op (:operation %)) evs))
 
 (defn- run-start-of [evs]
-  (first (filterv #(and (= :rf.event (:operation %))
-                        (= :run-start (get-in % [:tags :rf.trace/phase])))
-                  evs)))
+  (first (filterv #(= :rf.event/run-start (:operation %)) evs)))
 
 ;; ---- public-API + interceptor-shape sanity --------------------------------
 
