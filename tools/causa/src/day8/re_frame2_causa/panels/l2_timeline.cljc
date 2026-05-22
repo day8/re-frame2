@@ -32,12 +32,12 @@
 
       {:dispatch-id <id>
        :event       <event-vector>
-       :dispatched  <:event/dispatched trace event>  ;; carries :tags :rf/dispatch-origin
-       :handler     <:event/run-end trace event>
-       :fx          <:event/do-fx trace event>
-       :effects     [...]                            ;; :op-type :fx
-       :subs        [...]                            ;; :sub/run + :sub/create
-       :renders     [...]                            ;; :view/render
+       :dispatched  <:rf.event/dispatched trace event>  ;; carries :tags :rf/dispatch-origin
+       :handler     <:rf.event/run-end trace event>
+       :fx          <:rf.fx/do-fx trace event>
+       :effects     [...]                            ;; :op-type :rf.fx
+       :subs        [...]                            ;; :rf.sub/run + :rf.sub/create
+       :renders     [...]                            ;; :rf.view/render
        :other       [...]                            ;; errors, warnings,
        :errors      [...]}                           ;; existing :errors slot
 

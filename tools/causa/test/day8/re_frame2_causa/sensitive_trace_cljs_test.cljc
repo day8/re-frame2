@@ -43,11 +43,11 @@
   (testing "events with :sensitive? true are sensitive"
     (is (true? (config/sensitive-event? {:sensitive? true})))
     (is (true? (config/sensitive-event?
-                 {:op-type :event :operation :event/dispatched
-                  :sensitive? true :tags {:event-id :user/login}}))))
+                 {:op-type :rf.event :operation :rf.event/dispatched
+                  :sensitive? true :tags {:rf.trace/event-id :user/login}}))))
   (testing "events without :sensitive? are non-sensitive"
     (is (false? (config/sensitive-event? {})))
-    (is (false? (config/sensitive-event? {:op-type :event})))
+    (is (false? (config/sensitive-event? {:op-type :rf.event})))
     (is (false? (config/sensitive-event? {:sensitive? false})))
     (is (false? (config/sensitive-event? {:sensitive? nil}))))
   (testing "non-map inputs are non-sensitive (no NPE)"
@@ -154,13 +154,13 @@
 ;; ---- (4) collect-trace! default-suppress + opt-in pass-through ----------
 
 (defn- non-sensitive-event []
-  {:op-type :event :operation :event/dispatched
-   :tags {:event-id :user/click :frame :rf/default}})
+  {:op-type :rf.event :operation :rf.event/dispatched
+   :tags {:rf.trace/event-id :user/click :frame :rf/default}})
 
 (defn- sensitive-event []
-  {:op-type :event :operation :event/dispatched
+  {:op-type :rf.event :operation :rf.event/dispatched
    :sensitive? true
-   :tags {:event-id :user/login :frame :rf/default}})
+   :tags {:rf.trace/event-id :user/login :frame :rf/default}})
 
 ;; The collect-trace! tests run only on CLJS — the side-effect path
 ;; reads `re-frame.interop/debug-enabled?`, which is true under the

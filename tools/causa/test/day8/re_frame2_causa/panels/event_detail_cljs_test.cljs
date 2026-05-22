@@ -56,11 +56,11 @@
   id + event vector. Mirrors v1 `cascade-evs` but additionally:
 
     - Hoists `:rf.trace/call-site` to the top level of the
-      `:event/dispatched` trace (rf2-twt7m Change 1) so the DISPATCH
+      `:rf.event/dispatched` trace (rf2-twt7m Change 1) so the DISPATCH
       SITE section has data.
     - Stamps `:source` + `:origin` (also top-level — `build-event`'s
       success-path hoist).
-    - Stamps `:fx` + `:db-present?` on the `:event/do-fx` trace's
+    - Stamps `:fx` + `:db-present?` on the `:rf.fx/do-fx` trace's
       `:tags` (rf2-twt7m Change 2) so EFFECTS RETURNED has data."
   ([dispatch-id event-vec id-base]
    (cascade-evs dispatch-id event-vec id-base nil))
@@ -69,29 +69,29 @@
                                            db-present? true
                                            source      :ui
                                            origin      :app}}]
-   [(cond-> {:id (+ id-base 1) :op-type :event :operation :event/dispatched
-             :tags (cond-> {:dispatch-id dispatch-id :event event-vec}
+   [(cond-> {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.event/v event-vec}
                      frame-id (assoc :frame frame-id))}
       call-site (assoc :rf.trace/call-site call-site)
       source    (assoc :source source)
       origin    (assoc :origin origin))
-    {:id (+ id-base 2) :op-type :event :operation :event
-     :tags (cond-> {:dispatch-id dispatch-id :phase :run-start}
+    {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-start}
              frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 3) :op-type :event :operation :event
-     :tags (cond-> {:dispatch-id dispatch-id :phase :run-end :duration-ms 11}
+    {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-end :duration-ms 11}
              frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 4) :op-type :event :operation :event/do-fx
-     :tags (cond-> {:dispatch-id dispatch-id}
+    {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+     :tags (cond-> {:rf.trace/dispatch-id dispatch-id}
              frame-id    (assoc :frame frame-id)
-             fx          (assoc :fx fx)
-             db-present? (assoc :db-present? true)
-             (seq coeffects) (assoc :coeffects coeffects))}
-    {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
-     :tags (cond-> {:dispatch-id dispatch-id :fx-id :db :duration-ms 1}
+             fx          (assoc :rf.event/fx fx)
+             db-present? (assoc :rf.event/db-present? true)
+             (seq coeffects) (assoc :rf.event/coeffects coeffects))}
+    {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.fx/id :db :duration-ms 1}
              frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 6) :op-type :fx :operation :rf.fx/handled
-     :tags (cond-> {:dispatch-id dispatch-id :fx-id :dispatch :fx-args [[:bar]]
+    {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.fx/id :dispatch :rf.fx/args [[:bar]]
                     :duration-ms 0}
              frame-id (assoc :frame frame-id))}]))
 
@@ -328,7 +328,7 @@
     (seed-buffer!
       (conj (cascade-evs 100 [:foo] 0)
             {:id 99 :op-type :error :operation :rf.error/handler-exception
-             :tags {:dispatch-id 100 :event-id :foo}}))
+             :tags {:rf.trace/dispatch-id 100 :rf.trace/event-id :foo}}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
@@ -340,7 +340,7 @@
     (seed-buffer!
       (conj (cascade-evs 100 [:foo] 0)
             {:id 99 :op-type :warning :operation :rf.warning/depth-exceeded
-             :tags {:dispatch-id 100}}))
+             :tags {:rf.trace/dispatch-id 100}}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
@@ -367,7 +367,7 @@
 
 (deftest dispatch-site-renders-call-site-coord-and-open-chip
   (testing "the DISPATCH SITE section reads :rf.trace/call-site off the
-            :event/dispatched trace (rf2-twt7m Change 1) and renders
+            :rf.event/dispatched trace (rf2-twt7m Change 1) and renders
             both the coord display + the open-in-editor chip"
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0
                                 {:call-site {:file "src/views.cljs" :line 127}
@@ -459,7 +459,7 @@
 
 (deftest effects-returned-renders-db-marker-and-fx-vector
   (testing "rf2-twt7m Change 2 stamps :fx + :db-present? on
-            :event/do-fx — EFFECTS RETURNED surfaces both rows"
+            :rf.fx/do-fx — EFFECTS RETURNED surfaces both rows"
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0
                                 {:fx [[:dispatch [:bar]]]
                                  :db-present? true}))
@@ -488,8 +488,8 @@
                             [:rf.ssr/hydrated {:duration-ms 87 :subs-ran 142 :mismatches 0}]
                             0
                             {:fx nil :db-present? false})
-              [{:id 50 :op-type :event :operation :rf.ssr/hydration-outcome
-                :tags {:dispatch-id 100 :duration-ms 87 :subs-ran 142 :mismatches 0}}]))
+              [{:id 50 :op-type :rf.event :operation :rf.ssr/hydration-outcome
+                :tags {:rf.trace/dispatch-id 100 :duration-ms 87 :subs-ran 142 :mismatches 0}}]))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
@@ -504,8 +504,8 @@
     (seed-buffer!
       (concat (cascade-evs 100 [:rf.ssr/hydrated {:mismatches 3}] 0
                             {:fx nil :db-present? false})
-              [{:id 50 :op-type :event :operation :rf.ssr/hydration-outcome
-                :tags {:dispatch-id 100 :duration-ms 91 :mismatches 3}}]))
+              [{:id 50 :op-type :rf.event :operation :rf.ssr/hydration-outcome
+                :tags {:rf.trace/dispatch-id 100 :duration-ms 91 :mismatches 3}}]))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
@@ -539,15 +539,15 @@
             (:rf.http/* etc.) the managed-fx record-panel mounts
             INLINE beneath its causing row, not in a trailing block"
     (seed-buffer!
-      [{:id 1 :op-type :event :operation :event/dispatched
-        :tags {:dispatch-id 100 :event [:cart/refresh]}}
-       {:id 2 :op-type :event :operation :event
-        :tags {:dispatch-id 100 :phase :run-end :duration-ms 3}}
-       {:id 3 :op-type :event :operation :event/do-fx
-        :tags {:dispatch-id 100}}
-       {:id 4 :op-type :fx :operation :rf.fx/handled
-        :tags {:dispatch-id 100 :fx-id :rf.http/get :duration-ms 87
-               :source :http :origin :app}}])
+      [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+        :tags {:rf.trace/dispatch-id 100 :rf.event/v [:cart/refresh]}}
+       {:id 2 :op-type :rf.event :operation :event
+        :tags {:rf.trace/dispatch-id 100 :rf.trace/phase :run-end :duration-ms 3}}
+       {:id 3 :op-type :rf.fx :operation :rf.fx/do-fx
+        :tags {:rf.trace/dispatch-id 100}}
+       {:id 4 :op-type :rf.fx :operation :rf.fx/handled
+        :tags {:rf.trace/dispatch-id 100 :rf.fx/id :rf.http/get :duration-ms 87
+               :source :http :rf.event/origin :app}}])
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)
@@ -567,7 +567,7 @@
   {:id        id-base
    :op-type   :flow
    :operation :rf.flow/computed
-   :tags      {:dispatch-id  dispatch-id
+   :tags      {:rf.trace/dispatch-id  dispatch-id
                :flow-id      flow-id
                :path         write-path
                :input-values input-values
@@ -798,7 +798,7 @@
       (concat (cascade-evs 100 [:checkout/submit] 0
                             {:fx nil :db-present? false})
               [{:id 50 :op-type :error :operation :rf.error/handler-exception
-                :tags {:dispatch-id 100 :event-id :checkout/submit
+                :tags {:rf.trace/dispatch-id 100 :rf.trace/event-id :checkout/submit
                        :exception-message "NullPointerException"}}]))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
@@ -873,7 +873,7 @@
             "COEFFECTS section absent when zero user coeffects stamped")))))
 
 (deftest coeffects-section-renders-one-row-per-user-injected-cofx
-  (testing "with `:now` + `:local-storage` stamped on :event/do-fx, the
+  (testing "with `:now` + `:local-storage` stamped on :rf.fx/do-fx, the
             COEFFECTS section renders one row per id with the value
             surfaced via the data-inspector"
     (seed-buffer!
@@ -908,10 +908,10 @@
             (do-fx) trace; returns nil when the stamp is absent / empty"
     (is (= {:now "2026-05-18"}
            (event-detail/user-coeffects
-             {:fx {:tags {:coeffects {:now "2026-05-18"}}}})))
+             {:fx {:tags {:rf.event/coeffects {:now "2026-05-18"}}}})))
     (is (nil? (event-detail/user-coeffects {:fx {:tags {}}}))
         "absent stamp → nil")
-    (is (nil? (event-detail/user-coeffects {:fx {:tags {:coeffects {}}}}))
+    (is (nil? (event-detail/user-coeffects {:fx {:tags {:rf.event/coeffects {}}}}))
         "empty stamp → nil (silent-by-default)")
     (is (nil? (event-detail/user-coeffects {:fx nil}))
         "no do-fx trace → nil")))
@@ -925,7 +925,7 @@
       (concat (cascade-evs 100 [:checkout/submit] 0
                             {:fx nil :db-present? false})
               [{:id 50 :op-type :error :operation :rf.error/handler-exception
-                :tags {:dispatch-id 100 :event-id :checkout/submit
+                :tags {:rf.trace/dispatch-id 100 :rf.trace/event-id :checkout/submit
                        :exception-message "NullPointerException"}}]))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
@@ -977,9 +977,9 @@
   (testing "effects-handlers-ran reads cascade :effects directly"
     (let [rows (event-detail/effects-handlers-ran
                  {:effects [{:id 5 :operation :rf.fx/handled
-                             :tags {:fx-id :db}}
+                             :tags {:rf.fx/id :db}}
                             {:id 6 :operation :rf.fx/handled
-                             :tags {:fx-id :dispatch :fx-args [[:foo]]}}]})]
+                             :tags {:rf.fx/id :dispatch :rf.fx/args [[:foo]]}}]})]
       (is (= [:db :dispatch] (mapv :fx-id rows)))
       (is (= [:rf.fx/handled :rf.fx/handled] (mapv :operation rows)))
       (is (= [5 6] (mapv :id rows))))))
@@ -1225,7 +1225,7 @@
     (seed-buffer!
       (conj (cascade-evs 100 [:foo] 0)
             {:id 99 :op-type :error :operation :rf.error/handler-exception
-             :tags {:dispatch-id 100 :event-id :foo}}))
+             :tags {:rf.trace/dispatch-id 100 :rf.trace/event-id :foo}}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]

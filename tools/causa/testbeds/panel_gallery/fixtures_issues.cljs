@@ -28,9 +28,9 @@
        :op-type   <:error :warning :info>
        :operation <kw under one of the Spec 009 catalogue prefixes>
        :recovery  <kw-or-nil>
-       :tags      {:dispatch-id   <int>
+       :tags      {:rf.trace/dispatch-id   <int>
                    :reason        <string>
-                   :event         <event-vec>
+                   :rf.event/v         <event-vec>
                    :exception-message <string>
                    :failing-id    <kw-or-nil>
                    :path          <vec-or-nil>}}")
@@ -53,8 +53,8 @@
              :operation operation
              :tags      (cond-> {}
                           reason            (assoc :reason reason)
-                          event             (assoc :event event)
-                          dispatch-id       (assoc :dispatch-id dispatch-id)
+                          event             (assoc :rf.event/v event)
+                          dispatch-id       (assoc :rf.trace/dispatch-id dispatch-id)
                           failing-id        (assoc :failing-id failing-id)
                           path              (assoc :path path)
                           exception-message (assoc :exception-message exception-message))}
@@ -65,8 +65,8 @@
   silently drops). Useful for mixing into a buffer to demonstrate
   that the panel projection is filter-correct."
   [id]
-  {:id id :time (+ 500 id) :op-type :event :operation :event/dispatched
-   :tags {:dispatch-id (+ 100 id) :event [:demo/event id]}})
+  {:id id :time (+ 500 id) :op-type :rf.event :operation :rf.event/dispatched
+   :tags {:rf.trace/dispatch-id (+ 100 id) :rf.event/v [:demo/event id]}})
 
 ;; ---- buffer builders ----------------------------------------------------
 

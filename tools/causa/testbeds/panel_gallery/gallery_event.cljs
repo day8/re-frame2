@@ -276,7 +276,7 @@
   (story/reg-variant :story.causa.event/lens-with-coeffects
     {:doc        "Event lens with the §3 COEFFECTS section populated by
                  two user-injected coeffects (`:now` + `:local-storage`)
-                 stamped on `:event/do-fx :tags :coeffects`. The
+                 stamped on `:rf.fx/do-fx :tags :coeffects`. The
                  substrate has already filtered the framework defaults
                  (`:db` `:event` `:frame` `:source` `:trace-id`) so the
                  panel just renders what arrived."

@@ -43,14 +43,14 @@
   fx args carry the standard Spec 014 shape so the helper can extract
   request / handler / correlation-id."
   [dispatch-id id-base]
-  [{:id (+ id-base 1) :op-type :event    :operation :event/dispatched
-    :tags {:dispatch-id dispatch-id :event [:user/load]}}
-   {:id (+ id-base 2) :op-type :event    :operation :event/do-fx
-    :tags {:dispatch-id dispatch-id}}
-   {:id (+ id-base 3) :op-type :fx       :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id
-           :fx-id :rf.http/managed
-           :fx-args {:request {:method :get :url "/api/users/42"}
+  [{:id (+ id-base 1) :op-type :rf.event    :operation :rf.event/dispatched
+    :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v [:user/load]}}
+   {:id (+ id-base 2) :op-type :rf.fx    :operation :rf.fx/do-fx
+    :tags {:rf.trace/dispatch-id dispatch-id}}
+   {:id (+ id-base 3) :op-type :rf.fx       :operation :rf.fx/handled
+    :tags {:rf.trace/dispatch-id dispatch-id
+           :rf.fx/id :rf.http/managed
+           :rf.fx/args {:request {:method :get :url "/api/users/42"}
                      :request-id :req-abc
                      :on-success [:user/loaded]}}}])
 
@@ -58,12 +58,12 @@
   "A cascade with only `:db` / `:dispatch` fxs — should produce zero
   managed-fx records."
   [dispatch-id id-base]
-  [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-    :tags {:dispatch-id dispatch-id :event [:counter/inc]}}
-   {:id (+ id-base 2) :op-type :event :operation :event/do-fx
-    :tags {:dispatch-id dispatch-id}}
-   {:id (+ id-base 3) :op-type :fx    :operation :rf.fx/handled
-    :tags {:dispatch-id dispatch-id :fx-id :db}}])
+  [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+    :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v [:counter/inc]}}
+   {:id (+ id-base 2) :op-type :rf.fx :operation :rf.fx/do-fx
+    :tags {:rf.trace/dispatch-id dispatch-id}}
+   {:id (+ id-base 3) :op-type :rf.fx    :operation :rf.fx/handled
+    :tags {:rf.trace/dispatch-id dispatch-id :rf.fx/id :db}}])
 
 ;; ---- tests --------------------------------------------------------------
 

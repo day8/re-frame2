@@ -32,7 +32,7 @@
     right-click affordance on managed-fx HTTP records fires
     `:rf.causa/filter-by-http-correlation`.
   - `:fx` — match cascades that triggered the fx with this `fx-id`.
-    Walks the trace-events for any event whose `:tags :fx-id` equals
+    Walks the trace-events for any event whose `:tags :rf.fx/id` equals
     `<params :fx-id>`. The right-click affordance on managed-fx
     records' surface badge fires `:rf.causa/filter-by-fx`.
 
@@ -193,7 +193,7 @@
               (cascade-trace-events cascade))))))
 
 (defmethod cascade-matches-by-kind? :fx
-  ;; True iff any trace event in the cascade carries a `:tags :fx-id`
+  ;; True iff any trace event in the cascade carries a `:tags :rf.fx/id`
   ;; equal to the pill's `:fx-id`. Surfaces `:rf.fx/handled` +
   ;; `:rf.fx/override-applied` + `:rf.fx/skipped` events so an `:fx`
   ;; pill captures every cascade that triggered the registered fx
@@ -203,7 +203,7 @@
     (boolean
       (when (some? target)
         (some (fn [ev]
-                (= target (tag-of ev :fx-id)))
+                (= target (tag-of ev :rf.fx/id)))
               (cascade-trace-events cascade))))))
 
 ;; ---- cascade-level composition ------------------------------------------

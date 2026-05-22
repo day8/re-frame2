@@ -154,12 +154,12 @@
   rf2-9hoos fields."
   [view-id mount? deref-subs]
   {:operation :rf.view/rendered
-   :tags (cond-> {:view-id view-id :render-key [view-id 0] :mount? mount?}
-           (some? deref-subs) (assoc :deref-subs deref-subs))})
+   :tags (cond-> {:rf.view/id view-id :rf.view/render-key [view-id 0] :rf.view/mount? mount?}
+           (some? deref-subs) (assoc :rf.view/deref-subs deref-subs))})
 
 (defn- unmounted-ev [view-id]
   {:operation :rf.view/unmounted
-   :tags {:view-id view-id :render-key [view-id 0]}})
+   :tags {:rf.view/id view-id :rf.view/render-key [view-id 0]}})
 
 ;; ---- changed-vs-structural classifier ---------------------------------
 
@@ -225,8 +225,8 @@
 (deftest view-rows-skips-events-without-view-id-and-non-view-ops
   (testing "rf2-8ve8z — nil-safe: events without a :view-id and non-view
             ops are skipped, never crash."
-    (let [events [{:operation :rf.view/rendered :tags {:mount? true}} ; no view-id
-                  {:operation :sub/run :tags {:sub-id :s1}}           ; not a view op
+    (let [events [{:operation :rf.view/rendered :tags {:rf.view/mount? true}} ; no view-id
+                  {:operation :rf.sub/run :tags {:rf.sub/id :s1}}           ; not a view op
                   (rendered-ev :v/ok true nil)]
           rows   (subs/view-rows events #{})]
       (is (= 1 (count rows)))

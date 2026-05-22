@@ -85,7 +85,7 @@
   Spec 005 machine traces carry `:machine-id` (or `:actor-id` for
   spawned actors) on their tags. Looks first at the cascade's `:other`
   bucket where machine traces land, then the `:event` tags (a
-  machine-routed dispatch tags `:machine-id` on the `:event/dispatched`
+  machine-routed dispatch tags `:machine-id` on the `:rf.event/dispatched`
   trace)."
   [cascade]
   (let [all (concat (:other cascade)

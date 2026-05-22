@@ -442,15 +442,15 @@
   ;; Build a minimal trace-buffer that re-projects to the desired
   ;; cascade vector. Each cascade needs one trace event carrying the
   ;; cascade's id so group-cascades' frame-index pairs the right
-  ;; events. The simplest shape: one :event/dispatched per cascade.
+  ;; events. The simplest shape: one :rf.event/dispatched per cascade.
   (let [events (map-indexed
                  (fn [i {:keys [dispatch-id frame]}]
                    {:id        (inc i)
-                    :op-type   :event
-                    :operation :event/dispatched
-                    :tags      {:dispatch-id dispatch-id
+                    :op-type   :rf.event
+                    :operation :rf.event/dispatched
+                    :tags      {:rf.trace/dispatch-id dispatch-id
                                 :frame       frame
-                                :event       [(keyword "evt" (str (name dispatch-id)))]}})
+                                :rf.event/v       [(keyword "evt" (str (name dispatch-id)))]}})
                  cascades-vec)]
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/sync-trace-buffer (vec events)]))))
@@ -727,8 +727,8 @@
   [epoch-id dispatch-id]
   {:epoch-id     epoch-id
    :dispatch-id  dispatch-id
-   :trace-events [{:id 1 :op-type :event :operation :event/dispatched
-                   :tags {:dispatch-id dispatch-id}}]})
+   :trace-events [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                   :tags {:rf.trace/dispatch-id dispatch-id}}]})
 
 (deftest epoch-id-for-cascade-walks-trace-events
   (testing "resolves :epoch-id from an epoch's :trace-events :dispatch-id tag"

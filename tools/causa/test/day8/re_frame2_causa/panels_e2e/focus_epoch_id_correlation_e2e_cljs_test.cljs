@@ -26,7 +26,7 @@
   ## Fix
 
   `build-record` now pins the settling cascade `:dispatch-id` as a
-  first-class record slot (from the `:event/run-start` tag, surfaced by
+  first-class record slot (from the `:rf.event/run-start` tag, surfaced by
   `find-trigger-event`); `dispatch-id-of-epoch` reads the slot directly,
   falling back to the legacy `:trace-events` walk. The slot survives
   elision + back-fill, so the correlation is stable for every retained

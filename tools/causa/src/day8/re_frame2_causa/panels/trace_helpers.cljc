@@ -20,7 +20,7 @@
   slice — `re-frame.epoch/epoch-history` keeps oldest-first records,
   each carrying the complete domino trail for one event: the
   synchronous event-side dispatch-id-N events AND the async
-  nil-dispatch-id reactive events — `:sub/run` / `:view/render` —
+  nil-dispatch-id reactive events — `:rf.sub/run` / `:rf.view/render` —
   that fire post-cascade for that settling). The prior shape scoped
   the global trace bus by `:dispatch-id`, which DROPPED those async
   reactive rows (they carry a nil dispatch-id), so the rendered trail
@@ -45,28 +45,28 @@
 (defn short-description
   "Build a one-line per-row description. Reads (in priority order):
 
-    1. `[:tags :event]`             — dispatched event vector
+    1. `[:tags :rf.event/v]`        — dispatched event vector
     2. `[:tags :reason]`            — most error categories carry this
     3. `[:tags :exception-message]` — handler / fx exceptions
-    4. `[:tags :sub-id]`            — sub-run / sub-create
-    5. `[:tags :fx-id]`             — fx invocations
-    6. `[:tags :render-key]`        — view renders
+    4. `[:tags :rf.sub/id]`         — sub-run / sub-create
+    5. `[:tags :rf.fx/id]`          — fx invocations
+    6. `[:tags :rf.view/render-key]` — view renders
     7. `(str operation)` only       — fallback
 
   Pure data → string; JVM-testable."
   [{:keys [operation tags] :as _ev}]
   (let [op-str (if operation (str operation) "(unknown)")
-        detail (or (when (vector? (:event tags))
-                     (try (pr-str (:event tags))
+        detail (or (when (vector? (:rf.event/v tags))
+                     (try (pr-str (:rf.event/v tags))
                           (catch #?(:clj Throwable :cljs :default) _ nil)))
                    (:reason tags)
                    (:exception-message tags)
-                   (when (some? (:sub-id tags))
-                     (str (:sub-id tags)))
-                   (when (some? (:fx-id tags))
-                     (str (:fx-id tags)))
-                   (when (some? (:render-key tags))
-                     (try (pr-str (:render-key tags))
+                   (when (some? (:rf.sub/id tags))
+                     (str (:rf.sub/id tags)))
+                   (when (some? (:rf.fx/id tags))
+                     (str (:rf.fx/id tags)))
+                   (when (some? (:rf.view/render-key tags))
+                     (try (pr-str (:rf.view/render-key tags))
                           (catch #?(:clj Throwable :cljs :default) _ nil))))]
     (if (and detail (not (str/blank? (str detail))))
       (str op-str " — " detail)
@@ -100,9 +100,9 @@
 
 (defn origin-of
   "Project the dispatch-origin slot per Spec 009 §Origin tagging
-  (`:tags :origin`). Defensive against absence — returns nil."
+  (`:tags :rf.event/origin`). Defensive against absence — returns nil."
   [ev]
-  (get-in ev [:tags :origin]))
+  (get-in ev [:tags :rf.event/origin]))
 
 (defn project-row
   "Project one raw trace event into the panel's row shape:
@@ -139,9 +139,9 @@
    :source          (or source (get-in ev [:tags :source]))
    :origin          (origin-of ev)
    :frame           (frame-of ev)
-   :event-id        (get-in ev [:tags :event-id])
+   :event-id        (get-in ev [:tags :rf.trace/event-id])
    :handler-id      (get-in ev [:tags :handler-id])
-   :dispatch-id     (get-in ev [:tags :dispatch-id])
+   :dispatch-id     (get-in ev [:tags :rf.trace/dispatch-id])
    :description     (short-description ev)
    :source-coord    (source-coord ev)
    :tags            tags
@@ -166,7 +166,7 @@
   `panels.shared.focus-resolver`). Its `:trace-events` slot carries
   the complete domino trail for one settling — both the synchronous
   event-side rows (dispatch-id N) and the async reactive rows
-  (`:sub/run` / `:view/render`, nil dispatch-id) — oldest-first.
+  (`:rf.sub/run` / `:rf.view/render`, nil dispatch-id) — oldest-first.
 
   `focus-status` is the discriminator from
   `focus-resolver/resolve-focus-status`:
@@ -261,16 +261,16 @@
   resolution happens via `op-type-colour`, which looks up
   `theme/tokens`. Splitting the semantic mapping from the hex lookup
   keeps the map pure-data + tokens consolidated (rf2-5kfxe.4)."
-  {:error              :red
-   :warning            :yellow
-   :info               :cyan
-   :event              :accent-violet
-   :event/db-changed   :accent-violet
-   :fx                 :green
-   :sub/run            :cyan
-   :sub/create         :cyan
-   :view/render        :magenta
-   :frame              :text-secondary})
+  {:error                :red
+   :warning              :yellow
+   :info                 :cyan
+   :rf.event             :accent-violet
+   :rf.event/db-changed  :accent-violet
+   :rf.fx                :green
+   :rf.sub/run           :cyan
+   :rf.sub/create        :cyan
+   :rf.view/render       :magenta
+   :rf.frame             :text-secondary})
 
 (defn op-type-colour
   "Colour swatch for an op-type. Drives the per-row dot styling.

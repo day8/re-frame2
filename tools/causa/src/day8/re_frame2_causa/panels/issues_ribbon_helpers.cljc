@@ -21,7 +21,7 @@
 
       {:id        <int>           ;; stable per-process
        :time      <ms>
-       :op-type   <:error :warning :info :fx :frame :event ...>
+       :op-type   <:error :warning :info :rf.fx :rf.frame :rf.event ...>
        :operation <keyword namespaced under one of the catalogue prefixes>
        :recovery  <keyword or :no-recovery>
        :tags      {...category-specific...}}
@@ -45,8 +45,8 @@
       :warning  — `:op-type :warning`
       :advisory — `:op-type :info`
 
-  Lifecycle / success-path traces (`:op-type` `:event`, `:fx`,
-  `:frame`, `:sub/*`, `:view/*`, etc.) are NOT issues and never reach
+  Lifecycle / success-path traces (`:op-type` `:rf.event`, `:rf.fx`,
+  `:rf.frame`, `:rf.sub/*`, `:rf.view/*`, etc.) are NOT issues and never reach
   the panel.
 
   ## Category prefix
@@ -111,7 +111,7 @@
 (defn op-type->severity
   "Map a trace event's `:op-type` onto the panel's three severity
   buckets. Returns nil for `:op-type` values that are not issues
-  (`:event`, `:fx`, `:frame`, `:sub/run`, `:view/render`, etc.).
+  (`:rf.event`, `:rf.fx`, `:rf.frame`, `:rf.sub/run`, `:rf.view/render`, etc.).
   Pure data → keyword-or-nil; JVM-testable."
   [op-type]
   (case op-type
@@ -194,7 +194,7 @@
   Reads (in priority order):
     1. `[:tags :reason]`           — most categories carry this
     2. `[:tags :exception-message]` — handler / fx exceptions
-    3. `[:tags :event]`             — dispatched event vector
+    3. `[:tags :rf.event/v]`        — dispatched event vector
     4. `[:tags :failing-id]`        — registrar miss / effect-map shape
     5. `[:tags :path]`              — schema validation
     6. `(str operation)` only — fallback
@@ -204,8 +204,8 @@
   (let [op-str (if operation (str operation) "(unknown)")
         detail (or (:reason tags)
                    (:exception-message tags)
-                   (when (vector? (:event tags))
-                     (pr-str (:event tags)))
+                   (when (vector? (:rf.event/v tags))
+                     (pr-str (:rf.event/v tags)))
                    (when (some? (:failing-id tags))
                      (str (:failing-id tags)))
                    (when (some? (:path tags))

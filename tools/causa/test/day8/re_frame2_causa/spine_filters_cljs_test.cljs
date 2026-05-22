@@ -51,11 +51,11 @@
 
 (defn- dispatch-trace-ev [id event-vec]
   {:id           id
-   :op-type      :event
-   :operation    :event/dispatched
-   :tags         {:event       event-vec
+   :op-type      :rf.event
+   :operation    :rf.event/dispatched
+   :tags         {:rf.event/v       event-vec
                   :frame       :rf/default
-                  :dispatch-id id}})
+                  :rf.trace/dispatch-id id}})
 
 ;; ---- hiccup helpers (copied from existing right-click integration test) --
 

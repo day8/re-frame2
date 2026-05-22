@@ -275,11 +275,11 @@
   ;; right frame ids without dispatching real events.
   (trace-bus/collect-trace!
     {:id          dispatch-id
-     :op-type     :event
-     :operation   :event/dispatched
-     :tags        {:event       [:app/touch]
+     :op-type     :rf.event
+     :operation   :rf.event/dispatched
+     :tags        {:rf.event/v       [:app/touch]
                    :frame       frame-id
-                   :dispatch-id dispatch-id}}))
+                   :rf.trace/dispatch-id dispatch-id}}))
 
 (deftest frame-switcher-select-has-aria-label
   (testing "rf2-lbutp — the native <select> picker has an aria-label

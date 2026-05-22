@@ -114,7 +114,7 @@
 
 (defn- nav-allocated [route-id]
   {:id        99
-   :op-type   :event
+   :op-type   :rf.event
    :operation :rf.route.nav-token/allocated
    :tags      {:route-id route-id :nav-token "nav-1"}})
 
@@ -244,11 +244,11 @@
                           :query  {:source "cart"}}]
                         {:frame :rf/causa})
       (let [nav-event (nav-allocated :route/confirm)
-            buffer [{:id 99 :op-type :event :operation :event/dispatched
-                     :tags {:dispatch-id 99
-                            :event [:rf.route/navigate :route/confirm]}}
+            buffer [{:id 99 :op-type :rf.event :operation :rf.event/dispatched
+                     :tags {:rf.trace/dispatch-id 99
+                            :rf.event/v [:rf.route/navigate :route/confirm]}}
                     (assoc nav-event :tags
-                           (assoc (:tags nav-event) :dispatch-id 99))]]
+                           (assoc (:tags nav-event) :rf.trace/dispatch-id 99))]]
         (rf/dispatch-sync [:rf.causa/sync-trace-buffer buffer]
                           {:frame :rf/causa})
         (rf/dispatch-sync [:rf.causa/focus-cascade 99 nil] {:frame :rf/causa}))
@@ -280,11 +280,11 @@
                          {:id :route/cart :params {} :query {}}]
                         {:frame :rf/causa})
       (let [nav-event (nav-allocated :route/confirm)
-            buffer [{:id 99 :op-type :event :operation :event/dispatched
-                     :tags {:dispatch-id 99
-                            :event [:rf.route/navigate :route/confirm]}}
+            buffer [{:id 99 :op-type :rf.event :operation :rf.event/dispatched
+                     :tags {:rf.trace/dispatch-id 99
+                            :rf.event/v [:rf.route/navigate :route/confirm]}}
                     (assoc nav-event :tags
-                           (assoc (:tags nav-event) :dispatch-id 99))]]
+                           (assoc (:tags nav-event) :rf.trace/dispatch-id 99))]]
         (rf/dispatch-sync [:rf.causa/sync-trace-buffer buffer]
                           {:frame :rf/causa})
         (rf/dispatch-sync [:rf.causa/focus-cascade 99 nil] {:frame :rf/causa}))

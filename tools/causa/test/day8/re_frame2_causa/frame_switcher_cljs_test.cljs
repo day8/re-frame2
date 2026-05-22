@@ -127,7 +127,7 @@
 ;; -------------------------------------------------------------------------
 
 (defn- dispatch-trace
-  "Seed the trace-bus with a single `:event/dispatched` cascade row so
+  "Seed the trace-bus with a single `:rf.event/dispatched` cascade row so
   the spine projection produces a cascade entry for the picker subs.
   Mirrors `shell_cljs_test.cljs`'s `dispatch-trace-ev` shape — the
   cascade key is `[frame dispatch-id]` and both must live under
@@ -135,11 +135,11 @@
   [dispatch-id frame-id]
   (trace-bus/collect-trace!
     {:id          dispatch-id
-     :op-type     :event
-     :operation   :event/dispatched
-     :tags        {:event       [:app/touch]
+     :op-type     :rf.event
+     :operation   :rf.event/dispatched
+     :tags        {:rf.event/v       [:app/touch]
                    :frame       frame-id
-                   :dispatch-id dispatch-id}}))
+                   :rf.trace/dispatch-id dispatch-id}}))
 
 (deftest current-frame-sub-resolves-the-spine-slot
   (testing "the sub reads through `:rf.causa/focus-slot` so it re-fires

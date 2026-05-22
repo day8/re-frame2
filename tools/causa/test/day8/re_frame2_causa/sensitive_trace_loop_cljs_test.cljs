@@ -13,7 +13,7 @@
   app-db-write path (rf2-0vxdn).
 
   Pre-fix that dispatch was the root of an infinite loop because the
-  bookkeeping handler's `:event/dispatched` trace would re-enter the
+  bookkeeping handler's `:rf.event/dispatched` trace would re-enter the
   collector. The fix landed `:rf.trace/no-emit? true` on the
   bookkeeping handlers' registration metadata; the framework's
   trace-emit fns short-circuit on the flag (Spec 009 §Trace-emission

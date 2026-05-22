@@ -88,21 +88,21 @@
 
 (def ^:private cancel-cascade-buffer
   "One decision + one cancellation-anchor + two HTTP aborts."
-  [{:id 1 :operation :event/dispatched :op-type :event
+  [{:id 1 :operation :rf.event/dispatched :op-type :rf.event
     :time 1000
-    :tags {:event [:auth/logout] :dispatch-id 7 :frame :rf/default}}
+    :tags {:rf.event/v [:auth/logout] :rf.trace/dispatch-id 7 :frame :rf/default}}
    {:id 2 :operation :rf.machine/destroyed :op-type :rf.machine
     :time 1010
     :tags {:machine-id :user-session :reason :explicit
-           :dispatch-id 7 :frame :rf/default}}
+           :rf.trace/dispatch-id 7 :frame :rf/default}}
    {:id 3 :operation :rf.http/aborted-on-actor-destroy :op-type :rf.http
     :severity :info :time 1020
     :tags {:request-id :r1 :url "/api/profile" :actor-id :user-session
-           :dispatch-id 7 :frame :rf/default}}
+           :rf.trace/dispatch-id 7 :frame :rf/default}}
    {:id 4 :operation :rf.http/aborted-on-actor-destroy :op-type :rf.http
     :severity :info :time 1021
     :tags {:request-id :r2 :url "/api/log" :actor-id :user-session
-           :dispatch-id 7 :frame :rf/default}}])
+           :rf.trace/dispatch-id 7 :frame :rf/default}}])
 
 ;; ---- (1) registry wires the composite subs + events --------------------
 
@@ -229,14 +229,14 @@
             appears under the abort list"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [decision    {:id 1 :operation :event/dispatched :op-type :event
+      (let [decision    {:id 1 :operation :rf.event/dispatched :op-type :rf.event
                          :time 1000
-                         :tags {:event [:checkout/cancel]
-                                :dispatch-id 9 :frame :rf/default}}
+                         :tags {:rf.event/v [:checkout/cancel]
+                                :rf.trace/dispatch-id 9 :frame :rf/default}}
             destroy     {:id 2 :operation :rf.machine/destroyed
                          :op-type :rf.machine :time 1010
                          :tags {:machine-id :checkout :reason :explicit
-                                :dispatch-id 9 :frame :rf/default}}
+                                :rf.trace/dispatch-id 9 :frame :rf/default}}
             many-aborts (for [n (range 15)]
                           {:id        (+ 100 n)
                            :operation :rf.http/aborted-on-actor-destroy
@@ -245,7 +245,7 @@
                            :tags      {:request-id (keyword (str "r" n))
                                        :url        (str "/api/x" n)
                                        :actor-id   :checkout
-                                       :dispatch-id 9
+                                       :rf.trace/dispatch-id 9
                                        :frame      :rf/default}})]
         (seed-trace! (concat [decision destroy] many-aborts))
         (rf/dispatch-sync [:rf.causa/cancellation-cascade-open

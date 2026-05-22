@@ -20,12 +20,12 @@
                  {:trace-events
                   [{:id 1 :op-type :error
                     :operation :rf.error/handler-threw
-                    :tags {:dispatch-id :c1}}]})
+                    :tags {:rf.trace/dispatch-id :c1}}]})
    (h/mock-epoch :e2 :c2 {:counter 1} {:counter 2}
                  {:trace-events
                   [{:id 2 :op-type :warning
                     :operation :rf.warning/recoverable
-                    :tags {:dispatch-id :c2}}]})])
+                    :tags {:rf.trace/dispatch-id :c2}}]})])
 
 (deftest issues-ribbon-sub-tracks-focus-flip
   (testing "`:rf.causa/issues-ribbon` is focused-epoch-scoped via

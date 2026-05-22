@@ -99,8 +99,8 @@
     panel-entries))
 
 (defn recent-event-items
-  "Indexed from Causa's `:trace-buffer` snapshot. Only `:event/handled`
-  + `:event/dispatched` rows are surfaced — the buffer carries every
+  "Indexed from Causa's `:trace-buffer` snapshot. Only `:rf.event/handled`
+  + `:rf.event/dispatched` rows are surfaced — the buffer carries every
   trace kind but a recent-events palette source means recent
   dispatches, not every internal trace event.
 
@@ -114,8 +114,8 @@
    (let [event-rows (->> buffer
                          (filter (fn [t]
                                    (contains?
-                                     #{:event/handled :event/dispatched}
-                                     (:op t))))
+                                     #{:rf.event/handled :rf.event/dispatched}
+                                     (or (:operation t) (:op t)))))
                          vec)
          total      (count event-rows)
          taken      (cond-> event-rows
@@ -128,7 +128,7 @@
            ;; Last row of `taken` is the most recent — recency-rank 0.
            (let [rank   (- (dec taken-cnt) i)
                  ev-id  (or (:event-id t)
-                            (get-in t [:tags :event])
+                            (get-in t [:tags :rf.event/v])
                             (:id t))
                  label  (str (pr-str ev-id))]
              {:source       :recent-event

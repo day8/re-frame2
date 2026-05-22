@@ -88,11 +88,11 @@
    :operation operation
    :source    source
    :tags      (cond-> {}
-                origin      (assoc :origin origin)
+                origin      (assoc :rf.event/origin origin)
                 frame       (assoc :frame frame)
-                event-id    (assoc :event-id event-id)
+                event-id    (assoc :rf.trace/event-id event-id)
                 handler-id  (assoc :handler-id handler-id)
-                dispatch-id (assoc :dispatch-id dispatch-id)
+                dispatch-id (assoc :rf.trace/dispatch-id dispatch-id)
                 source      (assoc :source source)
                 reason      (assoc :reason reason))})
 
@@ -173,7 +173,7 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 42
-                   [(mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 42 :event-id :cart/add})
                     (mk-trace {:id 2 :op-type :error :operation :rf.error/handler-threw
                                :dispatch-id 42 :reason "boom"})])])
@@ -202,7 +202,7 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 42
-                   [(mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 42})])])
       (focus! 42)
       (let [tree (trace/Panel)]
@@ -224,7 +224,7 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 42
-                   [(mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 42 :source :ui})
                     (mk-trace {:id 2 :op-type :error :operation :rf.error/x
                                :dispatch-id 42 :source :timer})])])
@@ -248,11 +248,11 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 1
-                   [(mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 1})
-                    (mk-trace {:id 2 :op-type :fx :operation :rf.fx/handled
+                    (mk-trace {:id 2 :op-type :rf.fx :operation :rf.fx/handled
                                :dispatch-id 1})
-                    (mk-trace {:id 3 :op-type :sub/run :operation :sub/run})])])  ; nil dispatch-id
+                    (mk-trace {:id 3 :op-type :rf.sub :operation :rf.sub/run})])])  ; nil dispatch-id
       (focus! 1)
       (let [tree (trace/Panel)
             rows (find-all-by-testid-prefix tree "rf-causa-trace-row-")]
@@ -317,14 +317,14 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 100
-                   [(mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 100})
-                    (mk-trace {:id 2 :op-type :fx :operation :rf.fx/handled})])  ; nil dispatch-id reactive
+                    (mk-trace {:id 2 :op-type :rf.fx :operation :rf.fx/handled})])  ; nil dispatch-id reactive
          (mk-epoch 2 200
-                   [(mk-trace {:id 3 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 3 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 200})
-                    (mk-trace {:id 4 :op-type :sub/run :operation :sub/run})
-                    (mk-trace {:id 5 :op-type :view/render :operation :view/render})])])
+                    (mk-trace {:id 4 :op-type :rf.sub :operation :rf.sub/run})
+                    (mk-trace {:id 5 :op-type :rf.view :operation :rf.view/render})])])
       ;; Focus epoch 1 (cascade 100).
       (focus! 100)
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
@@ -349,7 +349,7 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 42
-                   [(mk-trace {:id 7 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 7 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 42 :frame :rf/default})])])
       (focus! 42)
       (let [dispatches (atom [])]
@@ -395,7 +395,7 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 1
-                   [(mk-trace {:id 13 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 13 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 1 :source :ui :origin :app})])])
       (focus! 1)
       ;; Pre-expansion — no payload.
@@ -420,8 +420,8 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 1
-                   [(-> (mk-trace {:id 9 :op-type :event
-                                   :operation :event/dispatched :dispatch-id 1})
+                   [(-> (mk-trace {:id 9 :op-type :rf.event
+                                   :operation :rf.event/dispatched :dispatch-id 1})
                         (assoc :rf.trace/trigger-handler
                                {:source-coord {:file "core.cljs" :line 42}}))])])
       (focus! 1)
@@ -487,11 +487,11 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 1
-                   [(mk-trace {:id 11 :op-type :event :operation :event/dispatched
+                   [(mk-trace {:id 11 :op-type :rf.event :operation :rf.event/dispatched
                                :time 100 :dispatch-id 1})
-                    (mk-trace {:id 22 :op-type :fx :operation :rf.fx/handled
+                    (mk-trace {:id 22 :op-type :rf.fx :operation :rf.fx/handled
                                :time 200 :dispatch-id 1})
-                    (mk-trace {:id 33 :op-type :sub/run :operation :sub/run
+                    (mk-trace {:id 33 :op-type :rf.sub :operation :rf.sub/run
                                :time 300})])])
       (focus! 1)
       (let [tree (trace/Panel)

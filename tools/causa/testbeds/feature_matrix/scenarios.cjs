@@ -582,8 +582,8 @@ async function setCausaTargetFrame(page, frame) {
 }
 
 /**
- * Find the `:dispatch-id` of the bus trace event matching the given
- * (`frame`, `eventId`) pair (an `:event/dispatched` record) and
+ * Find the `:rf.trace/dispatch-id` of the bus trace event matching the given
+ * (`frame`, `eventId`) pair (an `:rf.event/dispatched` record) and
  * dispatch `:rf.causa/focus-cascade` to focus that cascade.
  *
  * Replaces the old `clickTraceRowByFrame` helper: post rf2-ycoct the
@@ -625,18 +625,18 @@ async function focusCascadeByFrameEvent(page, { frame, eventId }) {
         : cljs.keyword(trimmed);
     }
     const kFrame      = keyword(':frame');
-    const kEvent      = keyword(':event');
+    const kEvent      = keyword(':rf.event/v');
     const kTags       = keyword(':tags');
     const kOperation  = keyword(':operation');
-    const kDispatchId = keyword(':dispatch-id');
-    const opDispatched   = keyword(':event/dispatched');
+    const kDispatchId = keyword(':rf.trace/dispatch-id');
+    const opDispatched   = keyword(':rf.event/dispatched');
     const targetFrameKw  = keyword(targetFrame);
     const targetEventKw  = keyword(targetEventId);
     // Walk bus buffer; first match wins (events are append-ordered so
-    // this is the originating `:event/dispatched` record). The raw
+    // this is the originating `:rf.event/dispatched` record). The raw
     // framework trace puts the dispatched event vector under
-    // `:tags :event`; the event-id is `(first event-vector)`. We do
-    // NOT read `:tags :event-id` — Causa's projection materialises
+    // `:tags :rf.event/v`; the event-id is `(first event-vector)`. We do
+    // NOT read `:tags :rf.trace/event-id` — Causa's projection materialises
     // that field but the trace-bus's stored events do not carry it.
     let s = cljs.seq(bus.buffer());
     let match = null;
@@ -667,7 +667,7 @@ async function focusCascadeByFrameEvent(page, { frame, eventId }) {
     if (!match) {
       return {
         ok: false,
-        reason: `No bus :event/dispatched record matched frame=${targetFrame} event-id=${targetEventId}`,
+        reason: `No bus :rf.event/dispatched record matched frame=${targetFrame} event-id=${targetEventId}`,
         candidates: candidates.slice(0, 20),
       };
     }
@@ -759,16 +759,16 @@ async function pushSyntheticTraceEvents(page, count) {
       const eventId = sharedDispatchId + i;
       const tags = cljs.hash_map(
         keyword(':frame'), keyword(':rf/default'),
-        keyword(':event-id'), keyword(':causa.synthetic/load'),
-        keyword(':event'), cljs.PersistentVector.fromArray([keyword(':causa.synthetic/load'), i], true),
-        keyword(':dispatch-id'), sharedDispatchId,
-        keyword(':origin'), keyword(':app'),
+        keyword(':rf.trace/event-id'), keyword(':causa.synthetic/load'),
+        keyword(':rf.event/v'), cljs.PersistentVector.fromArray([keyword(':causa.synthetic/load'), i], true),
+        keyword(':rf.trace/dispatch-id'), sharedDispatchId,
+        keyword(':rf.event/origin'), keyword(':app'),
         keyword(':source'), keyword(':synthetic'),
       );
       const ev = cljs.hash_map(
         keyword(':id'), eventId,
         keyword(':time'), now + i,
-        keyword(':operation'), keyword(':event/dispatched'),
+        keyword(':operation'), keyword(':rf.event/dispatched'),
         keyword(':op-type'), keyword(':info'),
         keyword(':source'), keyword(':synthetic'),
         keyword(':tags'), tags,
@@ -853,7 +853,7 @@ async function readLaunchModeProjection(page) {
     }
     const trace = traceEvents();
     const hostDispatches = trace.events.filter((event) =>
-      event.includes(':event/dispatched') &&
+      event.includes(':rf.event/dispatched') &&
       (event.includes(':counter/inc') || event.includes(':counter/dec')));
     const popoutWin = window.open('', 'rf-causa-popout');
     const popoutDoc = popoutWin && popoutWin.document;
@@ -1189,9 +1189,9 @@ async function runMultiFrame(page, state) {
     { timeoutMs: 10000, description: 'cross-frame fan-out into B and log' },
   );
   const traceChecks = [
-    ['parent A cross-bump dispatch', [':event/dispatched', ':frame :counter/a', ':multi-frame.core/cross-bump']],
-    ['child B inc dispatch', [':event/dispatched', ':frame :counter/b', ':multi-frame.core/inc']],
-    ['child log append dispatch', [':event/dispatched', ':frame :log', ':multi-frame.core/log-append']],
+    ['parent A cross-bump dispatch', [':rf.event/dispatched', ':frame :counter/a', ':multi-frame.core/cross-bump']],
+    ['child B inc dispatch', [':rf.event/dispatched', ':frame :counter/b', ':multi-frame.core/inc']],
+    ['child log append dispatch', [':rf.event/dispatched', ':frame :log', ':multi-frame.core/log-append']],
   ];
   const events = await waitForValue(
     async () => readTrace(page),
@@ -1356,7 +1356,7 @@ async function runDeepMachine(page, state) {
                                           kw('data'),  cljs.hash_map()),
         kw('event'),       cljs.PersistentVector.fromArray(
                              [kw('rf.machine', 'spawned')], true),
-        kw('dispatch-id'), 'rf2-bz72m-synthetic-1',
+        kw('rf.trace', 'dispatch-id'), 'rf2-bz72m-synthetic-1',
       ),
     );
     const epochRecord = cljs.hash_map(

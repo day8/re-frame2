@@ -31,10 +31,10 @@
   [origin]
   {:dispatch-id 42
    :event       [:cart/add-item {:id 99}]
-   :dispatched  {:operation :event/dispatched
-                 :op-type   :event
+   :dispatched  {:operation :rf.event/dispatched
+                 :op-type   :rf.event
                  :tags      {:rf/dispatch-origin origin
-                             :dispatch-id        42}}
+                             :rf.trace/dispatch-id        42}}
    :other       []
    :errors      []})
 

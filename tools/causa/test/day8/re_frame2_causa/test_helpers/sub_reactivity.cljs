@@ -146,7 +146,7 @@
   `:rf.causa/cascades` sub.
 
   Each entry in `cascades-vec` is a cascade record (typically built via
-  `cascade`). The function constructs ONE `:event/dispatched` event per
+  `cascade`). The function constructs ONE `:rf.event/dispatched` event per
   cascade with the cascade's `:dispatch-id` and `:frame` tags so
   `projection/group-cascades` pairs the right events.
 
@@ -155,11 +155,11 @@
   (let [events (map-indexed
                  (fn [i {:keys [dispatch-id frame]}]
                    {:id        (inc i)
-                    :op-type   :event
-                    :operation :event/dispatched
-                    :tags      {:dispatch-id dispatch-id
+                    :op-type   :rf.event
+                    :operation :rf.event/dispatched
+                    :tags      {:rf.trace/dispatch-id dispatch-id
                                 :frame       frame
-                                :event       [(keyword "evt"
+                                :rf.event/v       [(keyword "evt"
                                                        (str (name dispatch-id)))]}})
                  cascades-vec)]
     (rf/with-frame :rf/causa
@@ -178,7 +178,7 @@
   Optional opts map:
     `:trace-events`  — vector of trace events (Machine Inspector reads
                         `:rf.machine/transition` entries here). Defaults
-                        to a single `:event/dispatched` event.
+                        to a single `:rf.event/dispatched` event.
     `:frame`         — the epoch's frame. Defaults to `:rf/default`.
     `:event-id`      — the trigger event id. Defaults to the
                         dispatch-id keyword.
@@ -201,11 +201,11 @@
       :db-after      db-after
       :trace-events  (or trace-events
                          [{:id        1
-                           :op-type   :event
-                           :operation :event/dispatched
-                           :tags      {:dispatch-id dispatch-id
+                           :op-type   :rf.event
+                           :operation :rf.event/dispatched
+                           :tags      {:rf.trace/dispatch-id dispatch-id
                                        :frame       frame
-                                       :event       ev}}])})))
+                                       :rf.event/v       ev}}])})))
 
 (defn machine-transition-event
   "Build a `:rf.machine/transition` trace event for `mock-epoch`'s
@@ -229,14 +229,14 @@
   ([id machine-id from-state to-state event-v
     {:keys [frame dispatch-id] :or {frame :rf/default}}]
    {:id        id
-    :op-type   :machine
+    :op-type   :rf.machine
     :operation :rf.machine/transition
     :tags      (cond-> {:machine-id  machine-id
                         :before      {:state from-state}
                         :after       {:state to-state}
                         :event       event-v
                         :frame       frame}
-                 dispatch-id (assoc :dispatch-id dispatch-id))}))
+                 dispatch-id (assoc :rf.trace/dispatch-id dispatch-id))}))
 
 ;; ---- direct slot seeders ------------------------------------------------
 

@@ -24,17 +24,17 @@
 
   Four substrate changes supply the data this lens needs:
 
-    Change 1 — `:event/dispatched` traces carry `:rf.trace/call-site`
+    Change 1 — `:rf.event/dispatched` traces carry `:rf.trace/call-site`
                on success-path emits (previously error-only). DISPATCH
                SITE section reads it.
-    Change 2 — `:event/do-fx` traces carry `:fx` (the returned vector)
-               and `:db-present?` (boolean) on their `:tags`. EFFECTS
-               RETURNED section reads them.
+    Change 2 — `:rf.fx/do-fx` traces carry `:rf.event/fx` (the returned
+               vector) and `:rf.event/db-present?` (boolean) on their
+               `:tags`. EFFECTS RETURNED section reads them.
     Change 3 — Framework-auto-wrapped interceptors carry
                `:rf/default? true` so INTERCEPTORS can filter them out
                without an allowlist.
-    Change 4 — (rf2-jhhqt) `:event/do-fx` traces additionally carry
-               `:coeffects` on their `:tags` — the USER-INJECTED subset
+    Change 4 — (rf2-jhhqt) `:rf.fx/do-fx` traces additionally carry
+               `:rf.event/coeffects` on their `:tags` — the USER-INJECTED subset
                of the handler's final coeffects map (framework defaults
                filtered out at the substrate). COEFFECTS section reads
                it.
@@ -122,16 +122,16 @@
       line (str ":" line))))
 
 (defn- dispatched-event-trace
-  "The `:event/dispatched` trace event for the cascade. Carries
-  `:rf.trace/call-site` per rf2-twt7m Change 1 + `:source` / `:origin`
+  "The `:rf.event/dispatched` trace event for the cascade. Carries
+  `:rf.trace/call-site` per rf2-twt7m Change 1 + `:source` / `:rf.event/origin`
   hoisted by `trace.cljc/build-event`. The projection keeps it on
   the `:dispatched` slot per `group-cascades`' contract."
   [{:keys [dispatched]}]
   dispatched)
 
 (defn- do-fx-trace
-  "The `:event/do-fx` trace event for the cascade — supplies
-  `:fx` + `:db-present?` per rf2-twt7m Change 2. Lives on the
+  "The `:rf.fx/do-fx` trace event for the cascade — supplies
+  `:rf.event/fx` + `:rf.event/db-present?` per rf2-twt7m Change 2. Lives on the
   cascade's `:fx` slot per `group-cascades`."
   [{:keys [fx]}]
   fx)
@@ -229,8 +229,8 @@
   [{:keys [effects]}]
   (vec
     (for [ev (or effects [])]
-      {:fx-id       (get-in ev [:tags :fx-id])
-       :fx-args     (get-in ev [:tags :fx-args])
+      {:fx-id       (get-in ev [:tags :rf.fx/id])
+       :fx-args     (get-in ev [:tags :rf.fx/args])
        :operation   (:operation ev)
        :id          (:id ev)
        :duration-ms (get-in ev [:tags :duration-ms])
@@ -265,7 +265,7 @@
 
   Reads the outcome data off the cascade's `:other` bucket — the
   substrate emits `:rf.ssr/hydration-outcome` (or carries it on the
-  `:event/dispatched`'s tags); we look in both places to be tolerant."
+  `:rf.event/dispatched`'s tags); we look in both places to be tolerant."
   [{:keys [event other] :as _cascade}]
   (let [event-id (when (vector? event) (first event))]
     (when (or (= :rf.ssr/hydrated event-id)
@@ -282,7 +282,7 @@
           (second event))))))
 
 (defn- dispatch-call-site
-  "Pluck the dispatch-site coord off the cascade's `:event/dispatched`
+  "Pluck the dispatch-site coord off the cascade's `:rf.event/dispatched`
   trace. Per rf2-twt7m Change 1 the coord rides as
   `:rf.trace/call-site` on the success-path emit. Returns the
   structured source-coord map (`{:file :line :column :ns}`) or nil."
@@ -296,10 +296,10 @@
   [cascade]
   (let [ev (dispatched-event-trace cascade)]
     [(or (:source ev) (get-in ev [:tags :source]))
-     (or (:origin ev) (get-in ev [:tags :origin]))]))
+     (or (:origin ev) (get-in ev [:tags :rf.event/origin]))]))
 
 (defn- effects-returned
-  "Project the §5 EFFECTS RETURNED rows from the cascade's `:event/do-fx`
+  "Project the §5 EFFECTS RETURNED rows from the cascade's `:rf.fx/do-fx`
   trace. Per rf2-twt7m Change 2 the trace carries `:fx` (the vector
   returned) and `:db-present?` (boolean). Returns
   `{:fx [...] :db-present? <bool> :present? <bool>}`. `:present?` is
@@ -307,8 +307,8 @@
   to decide whether to render §5 at all (silent-by-default)."
   [cascade]
   (let [tags        (some-> (do-fx-trace cascade) :tags)
-        fx          (:fx tags)
-        db-present? (boolean (:db-present? tags))]
+        fx          (:rf.event/fx tags)
+        db-present? (boolean (:rf.event/db-present? tags))]
     {:fx          fx
      :db-present? db-present?
      :present?    (or db-present? (seq fx))}))
@@ -534,7 +534,7 @@
 (defn user-coeffects
   "Project the user-injected coeffects map off the cascade's
   `:event/do-fx` trace (rf2-jhhqt — substrate Change 4 stamps the
-  user-injected subset on `:tags :coeffects`). Pure fn; JVM-testable.
+  user-injected subset on `:tags :rf.event/coeffects`). Pure fn; JVM-testable.
 
   Returns the map (preserving id → value pairs) or nil when the
   cascade carries no coeffects stamp / the stamp is empty. The
@@ -542,7 +542,7 @@
   `:source` `:trace-id`) at emit-time so this fn is a thin reader —
   it does NOT re-filter."
   [cascade]
-  (let [m (some-> (do-fx-trace cascade) :tags :coeffects)]
+  (let [m (some-> (do-fx-trace cascade) :tags :rf.event/coeffects)]
     (when (and (map? m) (seq m))
       m)))
 

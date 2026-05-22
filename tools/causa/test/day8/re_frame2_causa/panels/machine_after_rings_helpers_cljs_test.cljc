@@ -72,7 +72,7 @@
           :state      state
           :epoch      epoch
           :reason     :sub-changed
-          :sub-id     sub-id}})
+          :rf.sub/id     sub-id}})
 
 (defn- skipped-on-server
   [id machine-id state delay epoch]

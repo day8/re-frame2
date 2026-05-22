@@ -88,19 +88,19 @@
 (defn- nav-allocated-trace
   [id dispatch-id route-id nav-token]
   {:id        id
-   :op-type   :event
+   :op-type   :rf.event
    :operation :rf.route.nav-token/allocated
-   :tags      {:dispatch-id dispatch-id
+   :tags      {:rf.trace/dispatch-id dispatch-id
                :route-id    route-id
                :nav-token   nav-token}})
 
 (defn- event-dispatched-trace
   [id dispatch-id event-vec]
   {:id        id
-   :op-type   :event
-   :operation :event/dispatched
-   :tags      {:dispatch-id dispatch-id
-               :event       event-vec}})
+   :op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      {:rf.trace/dispatch-id dispatch-id
+               :rf.event/v       event-vec}})
 
 (defn nav-buffer
   "Trace buffer carrying one cascade that navigates to `to-route`."

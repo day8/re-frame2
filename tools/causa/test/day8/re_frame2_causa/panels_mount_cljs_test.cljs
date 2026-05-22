@@ -275,11 +275,11 @@
   with `:frame` set so `spine/focusable-head-frame-id` resolves."
   [id dispatch-id frame-id event-id]
   {:id        id
-   :op-type   :event
-   :operation :event/dispatched
-   :tags      {:dispatch-id dispatch-id
+   :op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      {:rf.trace/dispatch-id dispatch-id
                :frame       frame-id
-               :event       [event-id]}})
+               :rf.event/v       [event-id]}})
 
 (deftest mount-panel-seeds-trace-buffer-from-pre-mount-bus
   (testing "Mounting a panel before the user has opened the full shell
