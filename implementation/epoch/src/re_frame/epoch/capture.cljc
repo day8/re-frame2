@@ -78,7 +78,7 @@
 ;; buffered into the next cascade — see `re-frame.epoch.state/back-fill-
 ;; render!` and `re-frame.epoch.listeners/record-render!`.
 (def ^:private render-ops
-  #{:view/render
+  #{:rf.view/render
     :rf.view/rendered
     :rf.view/rendered-cap-reached})
 
@@ -97,7 +97,7 @@
 ;; handler that subscribes, an SSR render) — genuinely belongs to that
 ;; cascade and is buffered normally.
 (def ^:private sub-run-ops
-  #{:sub/run
+  #{:rf.sub/run
     :rf.sub/skip})
 
 (defn- in-flight-cascade?
@@ -112,9 +112,9 @@
   and is back-filled to the cascade that caused it."
   [frame-id]
   (some (fn [ev]
-          (and (= :event (:op-type ev))
-               (= :event (:operation ev))
-               (= :run-start (-> ev :tags :phase))))
+          (and (= :rf.event (:op-type ev))
+               (= :rf.event (:operation ev))
+               (= :run-start (-> ev :tags :rf.trace/phase))))
         (state/buffer-for frame-id)))
 
 (defn capture-event!
@@ -169,9 +169,9 @@
       ;; uses the read-set to tell a view's genuine re-render from a
       ;; mount-burst tail. Fires regardless of the routing branch below.
       (when frame-id
-        (when-let [reader-rk (:reader-render-key tags)]
-          (when (= :sub/run op)
-            (state/record-render-deps! frame-id reader-rk (:sub-id tags)))))
+        (when-let [reader-rk (:rf.sub/reader-render-key tags)]
+          (when (= :rf.sub/run op)
+            (state/record-render-deps! frame-id reader-rk (:rf.sub/id tags)))))
       (when (and frame-id (not (contains? skip-ops op)))
         (cond
           ;; Post-settle render — attribute to the causing cascade.
@@ -221,7 +221,7 @@
           ;; do-fx carrying the child's id, and rides the child's later
           ;; `harvest-buffer-for-event!` settle.
           (and (not (in-flight-cascade? frame-id))
-               (nil? (:dispatch-id tags)))
+               (nil? (:rf.trace/dispatch-id tags)))
           nil
 
           :else
@@ -282,17 +282,17 @@
                              tags (:tags ev)]
                          (cond-> acc
                            (and (nil? (:cause-event-id acc))
-                                (= :event (:op-type ev))
-                                (= :event op)
-                                (= :run-start (:phase tags)))
-                           (assoc :cause-event-id (:event-id tags))
+                                (= :rf.event (:op-type ev))
+                                (= :rf.event op)
+                                (= :run-start (:rf.trace/phase tags)))
+                           (assoc :cause-event-id (:rf.trace/event-id tags))
 
-                           (and (= :sub/run op)
-                                (some? (:sub-id tags))
-                                (not (contains? (:seen acc) (:sub-id tags)))
+                           (and (= :rf.sub/run op)
+                                (some? (:rf.sub/id tags))
+                                (not (contains? (:seen acc) (:rf.sub/id tags)))
                                 (< (count (:subs acc)) sub-cap))
-                           (-> (update :subs conj (:sub-id tags))
-                               (update :seen conj (:sub-id tags)))
+                           (-> (update :subs conj (:rf.sub/id tags))
+                               (update :seen conj (:rf.sub/id tags)))
 
                            ;; Count both :rf.view/rendered AND the one-shot
                            ;; :rf.view/rendered-cap-reached marker: once
@@ -363,7 +363,7 @@
                 (let [op (:operation ev)
                       t  (:tags ev)]
                   (cond
-                    (= :sub/run op)
+                    (= :rf.sub/run op)
                     (assoc! acc :s
                             (conj! (get acc :s)
                                    ;; Per rf2-l1jz8 — the reactive recompute
@@ -385,19 +385,19 @@
                                    ;; already carry the `:rf/redacted`
                                    ;; sentinel — they ride elide-wire-value
                                    ;; at the emit site.
-                                   {:sub-id         (:sub-id t)
-                                    :query-v        (:query-v t)
+                                   {:sub-id         (:rf.sub/id t)
+                                    :query-v        (:rf.sub/query-v t)
                                     :recomputed?    true
-                                    :value-changed? (:value-changed? t)
-                                    :prev-value     (:prev-value t)
-                                    :value          (:value t)
-                                    :cascade?       (:cascade? t)
-                                    :cause-sub      (:cause-sub t)}))
+                                    :value-changed? (:rf.sub/value-changed? t)
+                                    :prev-value     (:rf.sub/prev-value t)
+                                    :value          (:rf.sub/value t)
+                                    :cascade?       (:rf.sub/cascade? t)
+                                    :cause-sub      (:rf.sub/cause-sub t)}))
 
-                    (= :view/render op)
+                    (= :rf.view/render op)
                     (assoc! acc :r
                             (conj! (get acc :r)
-                                   {:render-key   (or (:render-key t)
+                                   {:render-key   (or (:rf.view/render-key t)
                                                       [:rf.view/anonymous nil])
                                     :triggered-by (:triggered-by t)
                                     :elapsed-ms   (:elapsed-ms t)}))
@@ -405,30 +405,30 @@
                     (= :rf.fx/handled op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id   (:fx-id t)
-                                    :args    (:fx-args t)
+                                   {:fx-id   (:rf.fx/id t)
+                                    :args    (:rf.fx/args t)
                                     :outcome :ok}))
 
                     (= :rf.fx/skipped-on-platform op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id   (:fx-id t)
-                                    :args    (:fx-args t)
+                                   {:fx-id   (:rf.fx/id t)
+                                    :args    (:rf.fx/args t)
                                     :outcome :skipped-on-platform}))
 
                     (= :rf.error/fx-handler-exception op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id       (:fx-id t)
-                                    :args        (:fx-args t)
+                                   {:fx-id       (:rf.fx/id t)
+                                    :args        (:rf.fx/args t)
                                     :outcome     :error
                                     :error-trace (:id ev)}))
 
                     (= :rf.error/no-such-fx op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id       (:fx-id t)
-                                    :args        (:fx-args t)
+                                   {:fx-id       (:rf.fx/id t)
+                                    :args        (:rf.fx/args t)
                                     :outcome     :error
                                     :error-trace (:id ev)}))
 
@@ -480,27 +480,30 @@
         (reduce
           (fn [acc ev]
             (let [tags (:tags ev)]
-              (if (and (= :event (:op-type ev))
-                       (= :event (:operation ev))
-                       (= :run-start (:phase tags)))
+              (if (and (= :rf.event (:op-type ev))
+                       (= :rf.event (:operation ev))
+                       (= :run-start (:rf.trace/phase tags)))
                 ;; run-start beats the fallback; short-circuit.
-                (reduced {:run-start {:event-id    (:event-id tags)
-                                      :event       (:event tags)
-                                      :dispatch-id (:dispatch-id tags)}})
+                ;; Tag-key reads use the :rf.* namespaced scheme
+                ;; (rf2-y4qpy.2); the run-start's :dispatch-id is surfaced
+                ;; as a first-class return slot (rf2-rly4a) read off the
+                ;; namespaced :rf.trace/dispatch-id tag.
+                (reduced {:run-start {:event-id    (:rf.trace/event-id tags)
+                                      :event       (:rf.event/v tags)
+                                      :dispatch-id (:rf.trace/dispatch-id tags)}})
                 ;; Capture the first :event-id we see as the fallback.
                 ;; Per rf2-7kxxx: do NOT fabricate `:event` — when the
                 ;; tag is absent we leave the field nil, and downstream
-                ;; `build-record` (rf2-kl5p1) omits the
-                ;; `:trigger-event` slot entirely rather than emit a
                 ;; misleading synthesised vector. The fallback also
                 ;; carries its `:dispatch-id` (rf2-rly4a) so a no-run-
                 ;; start cascade still pins the slot when its trace
-                ;; carried an id.
-                (if (or (:fallback acc) (nil? (:event-id tags)))
+                ;; carried an id — read off the namespaced :rf.* tags
+                ;; (rf2-y4qpy.2).
+                (if (or (:fallback acc) (nil? (:rf.trace/event-id tags)))
                   acc
-                  (assoc acc :fallback {:event-id    (:event-id tags)
-                                        :event       (:event tags)
-                                        :dispatch-id (:dispatch-id tags)})))))
+                  (assoc acc :fallback {:event-id    (:rf.trace/event-id tags)
+                                        :event       (:rf.event/v tags)
+                                        :dispatch-id (:rf.trace/dispatch-id tags)})))))
           {}
           events)]
     (or (:run-start result) (:fallback result))))

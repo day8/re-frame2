@@ -228,28 +228,28 @@
                 reader-rk (when-let [f (late-bind/get-fn-cached
                                          :views/reading-render-key)]
                             (f))]
-            (trace/emit! :sub/run :sub/run
-                         (cond-> {:sub-id         query-id
-                                  :query-v        query-v
-                                  :frame          frame-id
-                                  :value-changed? (not= prev-value validated)
-                                  :prev-value     (when-not (= unset prev-value)
-                                                    prev-value)
-                                  :value          validated
-                                  :cascade?       cascade?
-                                  :cause-sub      cause-sub}
-                           reader-rk (assoc :reader-render-key reader-rk))))
-          (trace/emit! :sub/run :sub/run
-                       {:sub-id  query-id
-                        :query-v query-v
-                        :frame   frame-id}))
+            (trace/emit! :rf.sub :rf.sub/run
+                         (cond-> {:rf.sub/id             query-id
+                                  :rf.sub/query-v        query-v
+                                  :frame                 frame-id
+                                  :rf.sub/value-changed? (not= prev-value validated)
+                                  :rf.sub/prev-value     (when-not (= unset prev-value)
+                                                           prev-value)
+                                  :rf.sub/value          validated
+                                  :rf.sub/cascade?       cascade?
+                                  :rf.sub/cause-sub      cause-sub}
+                           reader-rk (assoc :rf.sub/reader-render-key reader-rk))))
+          (trace/emit! :rf.sub :rf.sub/run
+                       {:rf.sub/id      query-id
+                        :rf.sub/query-v query-v
+                        :frame          frame-id}))
         validated)
       (catch #?(:clj Throwable :cljs :default) e
         (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
           (trace/emit-error!
             :rf.error/sub-exception
             {:failing-id        query-id
-             :sub-id            query-id
+             :rf.sub/id         query-id
              :sub-query         query-v
              :exception         e
              :exception-message msg
@@ -290,12 +290,12 @@
             (when interop/debug-enabled?
               (trace/with-handler-scope
                 (trace/handler-scope-from-meta :sub query-id sub-meta)
-                (trace/emit! :sub/skip :rf.sub/skip
-                             {:frame                  frame-id
-                              :sub-id                 query-id
-                              :query-v                query-v
-                              :reason                 :input-value-equal
-                              :input-paths-unchanged  []})))
+                (trace/emit! :rf.sub :rf.sub/skip
+                             {:frame                        frame-id
+                              :rf.sub/id                    query-id
+                              :rf.sub/query-v               query-v
+                              :rf.sub/reason                :input-value-equal
+                              :rf.sub/input-paths-unchanged []})))
             @last-result)
           ;; Capture the prior cells BEFORE the recompute so the
           ;; `:sub/run` attribution (rf2-l1jz8) can report value-change
@@ -345,12 +345,12 @@
             (when interop/debug-enabled?
               (trace/with-handler-scope
                 (trace/handler-scope-from-meta :sub query-id sub-meta)
-                (trace/emit! :sub/skip :rf.sub/skip
-                             {:frame                  frame-id
-                              :sub-id                 query-id
-                              :query-v                query-v
-                              :reason                 :input-value-equal
-                              :input-paths-unchanged  (vec input-signals)})))
+                (trace/emit! :rf.sub :rf.sub/skip
+                             {:frame                        frame-id
+                              :rf.sub/id                    query-id
+                              :rf.sub/query-v               query-v
+                              :rf.sub/reason                :input-value-equal
+                              :rf.sub/input-paths-unchanged (vec input-signals)})))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:sub/run`
           ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen
@@ -398,12 +398,12 @@
             (when interop/debug-enabled?
               (trace/with-handler-scope
                 (trace/handler-scope-from-meta :sub query-id sub-meta)
-                (trace/emit! :sub/skip :rf.sub/skip
-                             {:frame                  frame-id
-                              :sub-id                 query-id
-                              :query-v                query-v
-                              :reason                 :input-value-equal
-                              :input-paths-unchanged  (vec input-signals)})))
+                (trace/emit! :rf.sub :rf.sub/skip
+                             {:frame                        frame-id
+                              :rf.sub/id                    query-id
+                              :rf.sub/query-v               query-v
+                              :rf.sub/reason                :input-value-equal
+                              :rf.sub/input-paths-unchanged (vec input-signals)})))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:sub/run`
           ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen

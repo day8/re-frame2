@@ -466,12 +466,12 @@ async function assertToolbarRecorder(page, phase) {
 
   // toolbar/recorder/redacts-sensitive-events step removed per rf2-hjs2d:
   // the reverse of rf2-pisq6 dropped the handler-meta `:sensitive?`
-  // annotation and the `:event/dispatched` queue-time emit no longer
+  // annotation and the `:rf.event/dispatched` queue-time emit no longer
   // stamps `:sensitive?` from any source (the schema-overlap path stamps
   // only AFTER handler-scope binding, which is established AFTER the
   // queue-time emit fires). The recorder's redaction substrate is still
   // present and gates on `(privacy/sensitive? ev)`, but there is no
-  // longer a mechanism that flips that bit on the `:event/dispatched`
+  // longer a mechanism that flips that bit on the `:rf.event/dispatched`
   // trace event the recorder listens for. The replacement classification
   // surface (add-marks / set-marks) lands in a separate impl PR; the
   // browser-side assertion will be rewritten there once a triggering

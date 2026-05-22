@@ -31,12 +31,12 @@
  {:final-app-db   {:count 0 :logged-init? true}
   :sub-values     {[:count] 0}
   :trace-emissions
-  [{:operation :event :tags {:event-id :counter/init}}
-   {:operation :frame/created :tags {:frame :rf/default}}]
+  [{:operation :rf.event :tags {:rf.trace/event-id :counter/init}}
+   {:operation :rf.frame/created :tags {:frame :rf/default}}]
 
   ;; What happens on destroy:
   :on-destroy-emissions
-  [{:operation :event :tags {:event-id :counter/destroy}}
-   {:operation :frame/destroyed :tags {:frame :rf/default}}]
+  [{:operation :rf.event :tags {:rf.trace/event-id :counter/destroy}}
+   {:operation :rf.frame/destroyed :tags {:frame :rf/default}}]
   :on-destroy-effects
   [{:fx-id :log :args {:msg "destroyed"}}]}}

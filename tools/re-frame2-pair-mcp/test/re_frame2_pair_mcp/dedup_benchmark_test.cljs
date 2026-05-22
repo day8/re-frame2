@@ -118,13 +118,13 @@
     (vec
       (for [i (range cascade-width)]
         {:id                        (+ starting-id i)
-         :operation                 (if (zero? i) :event/dispatched :rf.fx/handled)
-         :op-type                   (if (zero? i) :event :fx)
+         :operation                 (if (zero? i) :rf.event/dispatched :rf.fx/handled)
+         :op-type                   (if (zero? i) :rf.event :rf.fx)
          :time                      (+ 1700000000000 (* cascade-id 100) i)
-         :tags                      {:frame        frame
-                                     :dispatch-id  dispatch-id
-                                     :event-id     handler-id
-                                     :effect-key   (keyword (str "fx-" i))}
+         :tags                      {:frame                 frame
+                                     :rf.trace/dispatch-id  dispatch-id
+                                     :rf.trace/event-id     handler-id
+                                     :effect-key            (keyword (str "fx-" i))}
          :rf.trace/trigger-handler  trigger-handler}))))
 
 (defn- mk-trace-burst
@@ -179,11 +179,11 @@
         ;; references against only `cascade-width` distinct subtrees.
         canonical       (vec
                           (for [i (range cascade-width)]
-                            {:operation                (if (zero? i) :event/dispatched :rf.fx/handled)
-                             :op-type                  (if (zero? i) :event :fx)
-                             :tags                     {:frame      frame
-                                                        :event-id   handler-id
-                                                        :effect-key (keyword (str "fx-" i))}
+                            {:operation                (if (zero? i) :rf.event/dispatched :rf.fx/handled)
+                             :op-type                  (if (zero? i) :rf.event :rf.fx)
+                             :tags                     {:frame             frame
+                                                        :rf.trace/event-id handler-id
+                                                        :effect-key        (keyword (str "fx-" i))}
                              :rf.trace/trigger-handler trigger-handler}))]
     (vec
       (mapcat (fn [_replay-idx] canonical)

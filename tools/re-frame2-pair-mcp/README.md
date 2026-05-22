@@ -250,7 +250,7 @@ Server: {:ok? true
                                  :sub-cache {[:cart/total] {:value 42 ...}}
                                  :machines {:ids [:auth] :state {:auth {...}}}
                                  :epochs [{:epoch-id "..." ...} ...]
-                                 :traces [{:operation :event/dispatched ...}]}}}
+                                 :traces [{:operation :rf.event/dispatched ...}]}}}
 ```
 
 Subset what you need with `include`:

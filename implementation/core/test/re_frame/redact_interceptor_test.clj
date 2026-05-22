@@ -5,7 +5,7 @@
   §Behavioural MUSTs across the privacy surface](spec/Security.md)):
 
     1. Handler body sees the UNREDACTED payload via `:event` coeffect.
-    2. Trace surface (`:run-start` / `:run-end` / `:event/db-changed` /
+    2. Trace surface (`:run-start` / `:run-end` / `:rf.event/db-changed` /
        `:rf.error/handler-exception`) sees `:rf/redacted` at the named
        payload keys.
     3. Composes orthogonally with registration-meta `:sensitive? true`
@@ -53,8 +53,8 @@
   (filterv #(= op (:operation %)) evs))
 
 (defn- run-start-of [evs]
-  (first (filterv #(and (= :event (:operation %))
-                        (= :run-start (get-in % [:tags :phase])))
+  (first (filterv #(and (= :rf.event (:operation %))
+                        (= :run-start (get-in % [:tags :rf.trace/phase])))
                   evs)))
 
 ;; ---- public-API + interceptor-shape sanity --------------------------------
@@ -90,17 +90,17 @@
                                           :password "shh"
                                           :token    "abc123"}]))
             run-start  (run-start-of evs)
-            db-changed (first (events-of evs :event/db-changed))]
+            db-changed (first (events-of evs :rf.event/db-changed))]
         (is (= {:username "ada" :password "shh" :token "abc123"} @seen)
             "handler body sees the raw payload — `redact-interceptor` is a
              trace-surface scrub, not a handler-input rewrite")
-        (is (= :rf/redacted (get-in run-start [:tags :event 1 :password])))
-        (is (= :rf/redacted (get-in run-start [:tags :event 1 :token])))
-        (is (= "ada" (get-in run-start [:tags :event 1 :username]))
+        (is (= :rf/redacted (get-in run-start [:tags :rf.event/v 1 :password])))
+        (is (= :rf/redacted (get-in run-start [:tags :rf.event/v 1 :token])))
+        (is (= "ada" (get-in run-start [:tags :rf.event/v 1 :username]))
             "non-declared keys pass through to the trace surface")
-        (is (= :rf/redacted (get-in db-changed [:tags :event 1 :password])))
-        (is (= :rf/redacted (get-in db-changed [:tags :event 1 :token])))
-        (is (= "ada" (get-in db-changed [:tags :event 1 :username])))))))
+        (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :password])))
+        (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :token])))
+        (is (= "ada" (get-in db-changed [:tags :rf.event/v 1 :username])))))))
 
 (deftest declared-key-is-sentineled-even-when-absent
   (testing "the redaction is explicit: a top-level declared key is always
@@ -112,12 +112,12 @@
       (fn [db [_ payload]] (assoc db :saved payload)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:neutral/save {:keep "me"}]))
-          db-changed (first (events-of evs :event/db-changed))]
-      (is (= "me" (get-in db-changed [:tags :event 1 :keep]))
+          db-changed (first (events-of evs :rf.event/db-changed))]
+      (is (= "me" (get-in db-changed [:tags :rf.event/v 1 :keep]))
           "unrelated keys flow through to the trace surface")
-      (is (= :rf/redacted (get-in db-changed [:tags :event 1 :declared]))
+      (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :declared]))
           "declared key is sentineled even when absent in the source map")
-      (is (not (contains? (get-in db-changed [:tags :event 1]) :other))
+      (is (not (contains? (get-in db-changed [:tags :rf.event/v 1]) :other))
           "keys neither declared nor in the source remain absent"))))
 
 (deftest handler-without-redact-interceptor-sees-no-redaction
@@ -126,8 +126,8 @@
       (fn [db [_ payload]] (assoc db :saved payload)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:plain/save {:password "shh"}]))
-          db-changed (first (events-of evs :event/db-changed))]
-      (is (= "shh" (get-in db-changed [:tags :event 1 :password]))
+          db-changed (first (events-of evs :rf.event/db-changed))]
+      (is (= "shh" (get-in db-changed [:tags :rf.event/v 1 :password]))
           "no `:redact-interceptor` → trace surface carries the raw value"))))
 
 (deftest empty-path-scrubs-entire-payload
@@ -137,8 +137,8 @@
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:whole/payload {:any "thing"}]))
-          db-changed (first (events-of evs :event/db-changed))]
-      (is (= :rf/redacted (get-in db-changed [:tags :event 1]))))))
+          db-changed (first (events-of evs :rf.event/db-changed))]
+      (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1]))))))
 
 (deftest non-map-payload-passes-through
   (testing "non-map payload shapes are out of scope (the canonical M-19 form
@@ -149,8 +149,8 @@
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:raw/vec-payload "scalar"]))
-          db-changed (first (events-of evs :event/db-changed))]
-      (is (= "scalar" (get-in db-changed [:tags :event 1]))))))
+          db-changed (first (events-of evs :rf.event/db-changed))]
+      (is (= "scalar" (get-in db-changed [:tags :rf.event/v 1]))))))
 
 ;; ---- (removed) composition with handler-meta `:sensitive?` ---------------
 ;;
@@ -186,24 +186,24 @@
                                                 :password "shh"
                                                 :token    "abc"}]))
             run-start  (run-start-of evs)
-            db-changed (first (events-of evs :event/db-changed))]
+            db-changed (first (events-of evs :rf.event/db-changed))]
         (is (= {:username "ada" :password "shh" :token "abc"} @seen)
             "handler still receives the raw payload")
         ;; Both keys scrubbed on the trace surface (union):
-        (is (= :rf/redacted (get-in run-start [:tags :event 1 :password]))
+        (is (= :rf/redacted (get-in run-start [:tags :rf.event/v 1 :password]))
             "schema-declared key scrubbed")
-        (is (= :rf/redacted (get-in run-start [:tags :event 1 :token]))
+        (is (= :rf/redacted (get-in run-start [:tags :rf.event/v 1 :token]))
             "user-declared key scrubbed")
-        (is (= "ada" (get-in run-start [:tags :event 1 :username]))
+        (is (= "ada" (get-in run-start [:tags :rf.event/v 1 :username]))
             "unrelated key flows through")
         ;; And the schema-sensitive scope-stamp still fires (the schema
         ;; path drove it; the user interceptor does NOT stamp):
         (is (true? (:sensitive? run-start))
             "schema-sensitive scope-stamp still fires (driven by the
              schema-declared sensitive slot, not by `redact-interceptor`)")
-        ;; And the in-chain `:event/db-changed` also carries both:
-        (is (= :rf/redacted (get-in db-changed [:tags :event 1 :password])))
-        (is (= :rf/redacted (get-in db-changed [:tags :event 1 :token])))))))
+        ;; And the in-chain `:rf.event/db-changed` also carries both:
+        (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :password])))
+        (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :token])))))))
 
 (deftest redact-interceptor-alone-does-not-stamp-sensitive-scope
   (testing "regression — `redact-interceptor` is a payload-scrub, NOT a scope
@@ -255,7 +255,7 @@
                           [:auth/dual {:username "ada"
                                        :password "shh"
                                        :token    "abc"}]))
-          db-changed (first (events-of evs :event/db-changed))]
-      (is (= :rf/redacted (get-in db-changed [:tags :event 1 :password])))
-      (is (= :rf/redacted (get-in db-changed [:tags :event 1 :token])))
-      (is (= "ada" (get-in db-changed [:tags :event 1 :username]))))))
+          db-changed (first (events-of evs :rf.event/db-changed))]
+      (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :password])))
+      (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :token])))
+      (is (= "ada" (get-in db-changed [:tags :rf.event/v 1 :username]))))))

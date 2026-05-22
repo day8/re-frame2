@@ -37,8 +37,8 @@
  ;; consumers see both signals (the trace fires; the bad commit does
  ;; not stand).
  {:trace-emissions
-  [{:operation :event :tags {:event-id :counter/init}}
-   {:operation :event :tags {:event-id :counter/set-bad}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :counter/init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/set-bad}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
     :tags      {:category   :rf.error/schema-validation-failure

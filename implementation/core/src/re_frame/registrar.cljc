@@ -103,7 +103,7 @@
 ;; elision-probe sentinels.
 
 (defn- emit!
-  "Invoke `:trace/emit!` with the `:registry` op-type, memoising the
+  "Invoke `:trace/emit!` with the `:rf.registry` op-type, memoising the
   late-bind resolution through `late-bind/get-fn-cached` (rf2-f72pd —
   this fn previously held its own per-key `emit!-cache` atom; that
   pattern is now generalised in `re-frame.late-bind`). Callers MUST
@@ -112,11 +112,11 @@
   goog.DEBUG=false`."
   [operation tags]
   (when-let [f (late-bind/get-fn-cached :trace/emit!)]
-    (f :registry operation tags)))
+    (f :rf.registry operation tags)))
 
 (defn- emit-warning!
   "Invoke `:trace/emit!` with the `:warning` op-type. Sibling to
-  `emit!` (which uses `:registry`). Callers MUST wrap invocations in
+  `emit!` (which uses `:rf.registry`). Callers MUST wrap invocations in
   `(when interop/debug-enabled? ...)` so Closure DCE elides the call
   and its literal args under `:advanced + goog.DEBUG=false`."
   [operation tags]

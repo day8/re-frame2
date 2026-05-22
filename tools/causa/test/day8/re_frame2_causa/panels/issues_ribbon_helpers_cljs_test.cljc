@@ -71,8 +71,8 @@
   "A success-path trace event — should never reach the panel."
   [id]
   {:id        id
-   :op-type   :event
-   :operation :event/dispatched
+   :op-type   :rf.event
+   :operation :rf.event/dispatched
    :time      1000
    :tags      {}})
 
@@ -96,8 +96,8 @@
     (is (nil? (h/op-type->severity :event)))
     (is (nil? (h/op-type->severity :fx)))
     (is (nil? (h/op-type->severity :frame)))
-    (is (nil? (h/op-type->severity :sub/run)))
-    (is (nil? (h/op-type->severity :view/render)))
+    (is (nil? (h/op-type->severity :rf.sub/run)))
+    (is (nil? (h/op-type->severity :rf.view/render)))
     (is (nil? (h/op-type->severity nil)))))
 
 (deftest severity-colour-mapping-honours-tokens
@@ -129,9 +129,9 @@
     (is (true? (h/issue-event? (advisory-ev 3 :rf.info/note)))))
   (testing "non-issue op-types are NOT issues"
     (is (false? (h/issue-event? (non-issue-ev 1))))
-    (is (false? (h/issue-event? {:id 1 :op-type :fx})))
-    (is (false? (h/issue-event? {:id 1 :op-type :frame})))
-    (is (false? (h/issue-event? {:id 1 :op-type :sub/run})))))
+    (is (false? (h/issue-event? {:id 1 :op-type :rf.fx})))
+    (is (false? (h/issue-event? {:id 1 :op-type :rf.frame})))
+    (is (false? (h/issue-event? {:id 1 :op-type :rf.sub})))))
 
 ;; ---- (3) category-prefix ----------------------------------------------
 
@@ -533,7 +533,7 @@
     (is (re-find #"specific because"
                  (h/short-description
                    (error-ev 1 :rf.error/no-such-handler
-                             {:tags {:reason "specific because" :event [:x]}})))))
+                             {:tags {:reason "specific because" :rf.event/v [:x]}})))))
   (testing "exception-message is used when no reason"
     (is (re-find #"boom"
                  (h/short-description
@@ -543,7 +543,7 @@
     (is (re-find #"counter/inc"
                  (h/short-description
                    (error-ev 1 :rf.error/no-such-handler
-                             {:tags {:event [:counter/inc]}})))))
+                             {:tags {:rf.event/v [:counter/inc]}})))))
   (testing "fallback is the operation keyword alone"
     (is (= ":rf.error/handler-exception"
            (h/short-description

@@ -75,10 +75,10 @@
     :args  {:method :get :url "/api/me" :on-success [:user/loaded]}}]
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :user/load}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :user/load}}
    ;; The override-applied trace fires regardless of the host context —
    ;; this is what makes the override observably the same in stories and
    ;; tests.
    {:operation :rf.fx/override-applied
-    :tags      {:from :http :to :http.canned-200}}
-   {:operation :event :tags {:event-id :user/loaded}}]}}
+    :tags      {:rf.fx/from :http :rf.fx/to :http.canned-200}}
+   {:operation :rf.event :tags {:rf.trace/event-id :user/loaded}}]}}

@@ -253,7 +253,7 @@ analogues. Listed here for reference:
 | `re-frame2-pair.runtime/subscribe!` / `drain-subscription!` / `unsubscribe!` | preload/re_frame2_pair/runtime.cljs | Per-subscription filtered queue on the trace + epoch bus; backs the `subscribe` MCP tool (rf2-hq49). |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
-| `:origin :pair` (in event tags) | framework | Pair2's dispatches surface in the trace stream distinguishably. |
+| `:rf.event/origin :pair` (in event tags) | framework | Pair2's dispatches surface in the trace stream distinguishably. |
 
 ## Back-compat: the bash shims
 

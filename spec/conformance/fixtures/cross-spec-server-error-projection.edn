@@ -83,11 +83,11 @@
   ;;      the trace surface is allowed (and required) to preserve PII;
   ;;      sanitisation happens at the projector boundary.
   :trace-emissions
-  [{:operation :event :tags {:event-id :rf/server-init}}
-   {:operation :event :tags {:event-id :load/start}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :rf/server-init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :load/start}}
    {:operation :rf.error/fx-handler-exception
     :op-type   :error
-    :tags      {:fx-id             :user.fx/db-call
+    :tags      {:rf.fx/id             :user.fx/db-call
                 :exception-message "Postgres unreachable: PASSWORD=hunter2"}}]
 
   ;; Public-error shape — the projector's sanitised output. The PII

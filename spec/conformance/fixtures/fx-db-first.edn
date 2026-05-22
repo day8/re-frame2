@@ -45,9 +45,9 @@
                    [:observed] 1}                       ;; observer saw the post-:db state.
 
   :trace-emissions
-  [{:operation :event :op-type :event :tags {:event-id :counter/initialise}}
-   {:operation :event :op-type :event :tags {:event-id :counter/inc-and-observe}}
+  [{:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :counter/initialise}}
+   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :counter/inc-and-observe}}
    ;; :db committed; then :fx [[:dispatch [:counter/observed]]] queued.
-   {:operation :event :op-type :event :tags {:event-id :counter/observed}}]
+   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :counter/observed}}]
 
   :effects-routed []}}

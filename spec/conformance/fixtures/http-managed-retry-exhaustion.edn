@@ -65,13 +65,13 @@
                              :headers     {}}}}}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :flaky/load}}
-   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
-                                              :to   :rf.http/managed-canned-failure}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :flaky/load}}
+   {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
+                                              :rf.fx/to   :rf.http/managed-canned-failure}}
    ;; Only one :on-failure dispatch for the final exhausted attempt;
    ;; intermediate :rf.http/retry-attempt traces ride the live fx, not the
    ;; canned-failure stub (which short-circuits to the final outcome).
-   {:operation :event :tags {:event-id :flaky/load-error}}]
+   {:operation :rf.event :tags {:rf.trace/event-id :flaky/load-error}}]
 
   :effects-routed
   [{:fx-id :rf.http/managed-canned-failure

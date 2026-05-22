@@ -81,7 +81,7 @@ Schema-attached marks. Apps that already register rich app-schemas via `rf/reg-a
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on an app-schema slot. Boot-time `populate-sensitive-from-schemas!` walks every registered schema and writes the slot's path into `[:rf/elision :sensitive-declarations]`. Schema-validation error traces also consult the prop (`:value` / `:received` / `:explain` / `:fx-args` / `:query-v` redaction per rf2-kj51z / rf2-adtp2). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) |
+| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on an app-schema slot. Boot-time `populate-sensitive-from-schemas!` walks every registered schema and writes the slot's path into `[:rf/elision :sensitive-declarations]`. Schema-validation error traces also consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction per rf2-kj51z / rf2-adtp2). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) |
 | `:large? true` | schema slot prop | Symmetric — boot-time `populate-elision-from-schemas!` writes the slot's path into `[:rf/elision :declarations]`. The wire-elision walker substitutes `:rf.size/large-elided` for matching slots at off-box egress. | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination-rf2-nwv63) |
 
 ### `re-frame.epoch`
@@ -177,7 +177,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 │     - User-installed `redact-interceptor` interceptors extend (union, not        │
 │       replace) the stashed copy with their declared payload paths.          │
 │     - Trace assembly reads :rf/redacted-event (not :event) when building    │
-│       :event/* and :event/db-changed tag shapes.                            │
+│       :rf.event/* and :rf.event/db-changed tag shapes.                      │
 └─────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -413,12 +413,12 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | Surface | Observation |
 |---|---|
 | Handler body (`:auth/log-in`) | Real password value in `:event` coeffect (via the regular handler arg) |
-| Trace bus `:event/dispatched` | `[:auth/log-in {:email "..." :password :rf/redacted :totp-code :rf/redacted}]`, top-level `:sensitive? true` |
-| Trace bus `:rf.fx/handled` for `:rf.http/managed` | `:fx-args` body and params scrubbed (per-call `:sensitive? true`); `:headers` `X-MyApp-Session` value `:rf/redacted` (denylist hit) |
-| Trace bus `:event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (set-marks + schema path-mark, plus event-arg propagation from `:auth/log-in-success`) |
+| Trace bus `:rf.event/dispatched` | `[:auth/log-in {:email "..." :password :rf/redacted :totp-code :rf/redacted}]`, top-level `:sensitive? true` |
+| Trace bus `:rf.fx/handled` for `:rf.http/managed` | `:rf.fx/args` body and params scrubbed (per-call `:sensitive? true`); `:headers` `X-MyApp-Session` value `:rf/redacted` (denylist hit) |
+| Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (set-marks + schema path-mark, plus event-arg propagation from `:auth/log-in-success`) |
 | Causa App-DB Diff panel | Same as above (Causa consults the same registry) |
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots; `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
-| Off-box log shipper (Datadog/Sentry) | Drops the whole `:event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
+| Off-box log shipper (Datadog/Sentry) | Drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
 | Always-on error-emit substrate (production survives) | The error record carries `:sensitive? true` and the listener-side scrub honours it before egress to Sentry |
 | Epoch `projected-record` | All of the above redactions plus the `:redact-fn`'s extra scrub; ring-append + listener fan-out see the same shape |
 

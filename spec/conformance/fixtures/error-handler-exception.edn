@@ -44,10 +44,10 @@
  {:final-app-db {:fired [:should-not-fire]}            ;; second dispatch DID fire (separate cascade); the test below verifies the trace from the first
 
   :trace-emissions
-  [{:operation :event
-    :tags     {:event-id :counter/initialise}}
-   {:operation :event
-    :tags     {:event-id :will-throw}}
+  [{:operation :rf.event
+    :tags     {:rf.trace/event-id :counter/initialise}}
+   {:operation :rf.event
+    :tags     {:rf.trace/event-id :will-throw}}
    ;; The error trace immediately after.
    {:operation :rf.error/handler-exception
     :op-type   :error
@@ -57,8 +57,8 @@
                :exception-message "boom"
                :reason            "Event handler threw."}
     :recovery :no-recovery}
-   {:operation :event
-    :tags     {:event-id :should-not-fire}}]
+   {:operation :rf.event
+    :tags     {:rf.trace/event-id :should-not-fire}}]
 
   ;; Per rf2-v0jwt: each dispatch is its own drain (dispatch-sync runs
   ;; to settle). All three drains settle cleanly — :outcome :ok. The

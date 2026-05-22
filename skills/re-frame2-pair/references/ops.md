@@ -49,7 +49,7 @@ To target one op at a non-operating frame without pinning the session, pass the 
 
 | Op | Invocation | Notes |
 |---|---|---|
-| `dispatch` | `mcp__re-frame2-pair__dispatch {event: "[:cart/apply-coupon \"SPRING25\"]"}` | Queued by default; pass `sync: true` to force `dispatch-sync`. Skill-issued dispatches carry `:origin :pair` (Spec 002 §Dispatch origin tagging) so `:event/dispatched` traces can be filtered by who fired them. |
+| `dispatch` | `mcp__re-frame2-pair__dispatch {event: "[:cart/apply-coupon \"SPRING25\"]"}` | Queued by default; pass `sync: true` to force `dispatch-sync`. Skill-issued dispatches carry `:origin :pair` (Spec 002 §Dispatch origin tagging) so `:rf.event/dispatched` traces can be filtered by who fired them. |
 | `dispatch --frame` | `mcp__re-frame2-pair__dispatch {event: "[:foo]", frame: ":stories"}` | Targets a specific frame via the `:frame` opt on `rf/dispatch`. |
 | `reg-event` / `reg-sub` / `reg-fx` | `mcp__re-frame2-pair__eval-cljs {form: "<full reg-* form>"}` | Re-registration replaces; emits `:rf.registry/handler-replaced` trace (Spec 001 §Hot-reload semantics). Ephemeral. |
 | `app-db/reset` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/app-db-reset! ...)"}` | Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) — replaces app-db, records a synthetic `:rf.epoch/db-replaced` epoch, validates against schema, refuses during a drain. Logged explicitly via `tap>` so the user sees what the agent changed. Use sparingly. |

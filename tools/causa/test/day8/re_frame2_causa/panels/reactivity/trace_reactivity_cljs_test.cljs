@@ -24,15 +24,15 @@
   (h/seed-epoch-history!
     [(h/mock-epoch 1 :c1 {} {:counter 1}
                    {:trace-events
-                    [{:id 1 :op-type :event :operation :event/dispatched
-                      :tags {:dispatch-id :c1 :frame :rf/default}}
-                     {:id 2 :op-type :sub/run :operation :sub/run :tags {}}]})
+                    [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                      :tags {:rf.trace/dispatch-id :c1 :frame :rf/default}}
+                     {:id 2 :op-type :rf.sub :operation :rf.sub/run :tags {}}]})
      (h/mock-epoch 2 :c2 {:counter 1} {:counter 2}
                    {:trace-events
-                    [{:id 3 :op-type :event :operation :event/dispatched
-                      :tags {:dispatch-id :c2 :frame :rf/default}}
-                     {:id 4 :op-type :view/render :operation :view/render :tags {}}
-                     {:id 5 :op-type :fx :operation :rf.fx/handled :tags {}}]})]))
+                    [{:id 3 :op-type :rf.event :operation :rf.event/dispatched
+                      :tags {:rf.trace/dispatch-id :c2 :frame :rf/default}}
+                     {:id 4 :op-type :rf.view :operation :rf.view/render :tags {}}
+                     {:id 5 :op-type :rf.fx :operation :rf.fx/handled :tags {}}]})]))
 
 (deftest trace-feed-tracks-focus-flip
   (testing "rf2-td380 — the trace-feed projection is epoch-scoped: it
@@ -60,7 +60,7 @@
     (h/focus-cascade! :c1)
     (let [feed-c1 (h/read-sub :rf.causa/trace-feed)]
       (is (= #{1 2} (set (map :id (:rows feed-c1))))
-          "epoch 1's whole trail — event + the nil-dispatch-id :sub/run")
+          "epoch 1's whole trail — event + the nil-dispatch-id :rf.sub/run")
       (h/focus-cascade! :c2)
       (let [feed-c2 (h/read-sub :rf.causa/trace-feed)]
         (is (= #{3 4 5} (set (map :id (:rows feed-c2))))

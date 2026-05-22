@@ -870,9 +870,9 @@
             ;; `mirror-into-causa!` guard skips the dispatch — atom
             ;; still accumulates.
             (trace-bus/collect-trace!
-              {:id 1 :op-type :event :operation :rf.test/pre-mount :tags {}})
+              {:id 1 :op-type :rf.event :operation :rf.test/pre-mount :tags {}})
             (trace-bus/collect-trace!
-              {:id 2 :op-type :event :operation :rf.test/pre-mount :tags {}})
+              {:id 2 :op-type :rf.event :operation :rf.test/pre-mount :tags {}})
             (mount/open!)
             ;; After open! the slot reflects the pre-mount atom contents.
             (rf/with-frame :rf/causa
@@ -910,11 +910,11 @@
   bucket the event into its dispatch-id-keyed cascade with `:frame`."
   [id dispatch-id frame-id event-id]
   {:id        id
-   :op-type   :event
-   :operation :event/dispatched
-   :tags      {:dispatch-id dispatch-id
+   :op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      {:rf.trace/dispatch-id dispatch-id
                :frame       frame-id
-               :event       [event-id]}})
+               :rf.event/v       [event-id]}})
 
 (deftest first-open!-seeds-target-frame-from-head-focusable-cascade-frame
   (testing "rf2-boyc2 — first open! reads the trace-bus buffer, projects

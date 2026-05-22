@@ -89,7 +89,7 @@
 (deftest trace-id-origin-source-propagate-through-cascade
   (testing ":trace-id, :origin, :source all ride the child envelope"
     ;; Capture parent and child envelopes via the trace stream — every
-    ;; :event/dispatched event surfaces :origin / :source on :tags.
+    ;; :rf.event/dispatched event surfaces :origin / :source on :tags.
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
@@ -104,16 +104,16 @@
                            :source   :unit-test})
 
         (let [dispatched   (->> @seen
-                                 (filter #(= :event/dispatched (:operation %))))
-              parent-ev    (first (filter #(= [:test/parent] (get-in % [:tags :event])) dispatched))
-              child-ev     (first (filter #(= [:test/child]  (get-in % [:tags :event])) dispatched))]
-          (is (some? parent-ev) "parent's :event/dispatched is captured")
-          (is (some? child-ev)  "child's :event/dispatched is captured")
+                                 (filter #(= :rf.event/dispatched (:operation %))))
+              parent-ev    (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
+              child-ev     (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
+          (is (some? parent-ev) "parent's :rf.event/dispatched is captured")
+          (is (some? child-ev)  "child's :rf.event/dispatched is captured")
           ;; :origin rides :tags; :source is hoisted to top-level by
           ;; trace/emit! per Spec 009 §Core fields (line 367/388).
-          (is (= :test      (get-in parent-ev [:tags :origin])) "parent carries :origin :test")
+          (is (= :test      (get-in parent-ev [:tags :rf.event/origin])) "parent carries :origin :test")
           (is (= :unit-test (:source parent-ev))             "parent carries :source :unit-test")
-          (is (= :test      (get-in child-ev  [:tags :origin]))
+          (is (= :test      (get-in child-ev  [:tags :rf.event/origin]))
               ":origin :test propagated through the cascade")
           (is (= :unit-test (:source child-ev))
               ":source :unit-test propagated through the cascade"))

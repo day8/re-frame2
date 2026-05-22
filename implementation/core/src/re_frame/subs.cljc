@@ -153,9 +153,9 @@
     ;; Per Spec 009 §:op-type vocabulary: :sub/create marks subscription
     ;; materialisation — emitted at registration time so tools see when
     ;; the sub becomes available in the registry.
-    (trace/emit! :sub/create :sub/create
-                 {:sub-id        id
-                  :input-signals input-signals})
+    (trace/emit! :rf.sub :rf.sub/create
+                 {:rf.sub/id            id
+                  :rf.sub/input-signals input-signals})
     id))
 
 (defn clear-sub
@@ -226,7 +226,7 @@
         sub-meta      (registrar/lookup :sub query-id)
         _             (when (nil? sub-meta)
                         (trace/emit-error! :rf.error/no-such-sub
-                                           {:query-v query-v :frame frame-id}))
+                                           {:rf.sub/query-v query-v :frame frame-id}))
         body-fn       (:handler-fn sub-meta)
         input-signals (:input-signals sub-meta)
         layer-1?      (empty? input-signals)
@@ -479,9 +479,9 @@
       ;; It therefore emits the BASE `:sub/run` shape only; attribution is
       ;; a reactive-path concern. Consumers (Causa) read attribution off
       ;; the reactive epoch records, never off compute-sub emissions.
-      (trace/emit! :sub/run :sub/run
-                   {:sub-id  query-id
-                    :query-v query-v})
+      (trace/emit! :rf.sub :rf.sub/run
+                   {:rf.sub/id      query-id
+                    :rf.sub/query-v query-v})
       (let [body-fn (:handler-fn meta)
             inputs  (:input-signals meta)
             ;; Bind n once — `(empty? inputs)` then `(= 1 (count inputs))`
@@ -511,7 +511,7 @@
               (trace/emit-error!
                 :rf.error/sub-exception
                 {:failing-id        query-id
-                 :sub-id            query-id
+                 :rf.sub/id         query-id
                  :sub-query         query-v
                  :where             :compute-sub
                  :exception         e

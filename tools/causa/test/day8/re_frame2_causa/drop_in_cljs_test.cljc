@@ -31,8 +31,8 @@
 
 (deftest normalise-event-fills-missing-id
   (testing "normalise-event assigns a monotonic :id when the host omits it"
-    (let [e1 (drop-in/normalise-event {:operation :host/foo :op-type :event})
-          e2 (drop-in/normalise-event {:operation :host/bar :op-type :event})]
+    (let [e1 (drop-in/normalise-event {:operation :host/foo :op-type :rf.event})
+          e2 (drop-in/normalise-event {:operation :host/bar :op-type :rf.event})]
       (is (number? (:id e1)) ":id is a number")
       (is (number? (:id e2)))
       (is (< (:id e1) (:id e2))
@@ -40,17 +40,17 @@
 
 (deftest normalise-event-preserves-host-id
   (testing "host-supplied :id wins over the drop-in counter"
-    (let [e (drop-in/normalise-event {:id 42 :operation :host/foo :op-type :event})]
+    (let [e (drop-in/normalise-event {:id 42 :operation :host/foo :op-type :rf.event})]
       (is (= 42 (:id e)) "host :id is preserved"))))
 
 (deftest normalise-event-fills-missing-time
   (testing "normalise-event assigns a wall-clock :time when the host omits it"
-    (let [e (drop-in/normalise-event {:operation :host/foo :op-type :event})]
+    (let [e (drop-in/normalise-event {:operation :host/foo :op-type :rf.event})]
       (is (number? (:time e)) ":time is a number (host clock)"))))
 
 (deftest normalise-event-preserves-host-time
   (testing "host-supplied :time wins over the drop-in default"
-    (let [e (drop-in/normalise-event {:time 12345 :operation :host/foo :op-type :event})]
+    (let [e (drop-in/normalise-event {:time 12345 :operation :host/foo :op-type :rf.event})]
       (is (= 12345 (:time e)) "host :time is preserved"))))
 
 (deftest normalise-event-does-not-default-operation
@@ -65,18 +65,18 @@
   (testing "emit! lands a host event in the Causa trace buffer"
     (drop-in/attach! {:mode :push})
     (drop-in/emit! {:operation :host/login
-                    :op-type   :event
-                    :tags      {:event-id :user/login}})
+                    :op-type   :rf.event
+                    :tags      {:rf.trace/event-id :user/login}})
     (let [buf (trace-bus/buffer)]
       (is (= 1 (count buf)) "one event in the buffer after one emit!")
       (is (= :host/login (:operation (first buf))))
-      (is (= :event      (:op-type   (first buf))))
+      (is (= :rf.event   (:op-type   (first buf))))
       (is (number?       (:id        (first buf))) ":id filled by drop-in")
       (is (number?       (:time      (first buf))) ":time filled by drop-in"))))
 
 (deftest emit!-without-attach-still-pushes
   (testing "push-mode emit! does NOT require a prior attach! (per ns docstring)"
-    (drop-in/emit! {:operation :host/foo :op-type :event})
+    (drop-in/emit! {:operation :host/foo :op-type :rf.event})
     (is (= 1 (count (trace-bus/buffer)))
         "emit! is callable independently of attach! — push mode has no subscription to gate on")))
 
@@ -93,9 +93,9 @@
 (deftest multiple-emits-preserve-order
   (testing "buffer ordering tracks emit order"
     (drop-in/attach! {:mode :push})
-    (drop-in/emit! {:operation :host/a :op-type :event})
-    (drop-in/emit! {:operation :host/b :op-type :event})
-    (drop-in/emit! {:operation :host/c :op-type :event})
+    (drop-in/emit! {:operation :host/a :op-type :rf.event})
+    (drop-in/emit! {:operation :host/b :op-type :rf.event})
+    (drop-in/emit! {:operation :host/c :op-type :rf.event})
     (let [ops (mapv :operation (trace-bus/buffer))]
       (is (= [:host/a :host/b :host/c] ops)
           "events land in the buffer in the order emit! was called"))))
@@ -145,7 +145,7 @@
       (is (fn? @captured-cb)
           "register-fn received the drop-in's collector callback")
       ;; Host fires the cb as if its source had emitted an event.
-      (@captured-cb {:operation :sub-mode/event :op-type :event})
+      (@captured-cb {:operation :sub-mode/event :op-type :rf.event})
       (is (= 1 (count (trace-bus/buffer))))
       (is (= :sub-mode/event (:operation (first (trace-bus/buffer))))))))
 
@@ -177,8 +177,8 @@
 #?(:cljs
    (deftest atom-mode-pumps-current-contents-on-attach
      (testing ":atom mode: seed contents pump into the buffer on attach!"
-       (let [host-log (atom [{:operation :seed/a :op-type :event}
-                             {:operation :seed/b :op-type :event}])]
+       (let [host-log (atom [{:operation :seed/a :op-type :rf.event}
+                             {:operation :seed/b :op-type :rf.event}])]
          (drop-in/attach! {:mode :atom :trace-source host-log})
          (is (= [:seed/a :seed/b]
                 (mapv :operation (trace-bus/buffer)))
@@ -189,9 +189,9 @@
      (testing ":atom mode: subsequent conjs pump only the new tail entries"
        (let [host-log (atom [])]
          (drop-in/attach! {:mode :atom :trace-source host-log})
-         (swap! host-log conj {:operation :tick/one :op-type :event})
-         (swap! host-log conj {:operation :tick/two :op-type :event})
-         (swap! host-log conj {:operation :tick/three :op-type :event})
+         (swap! host-log conj {:operation :tick/one :op-type :rf.event})
+         (swap! host-log conj {:operation :tick/two :op-type :rf.event})
+         (swap! host-log conj {:operation :tick/three :op-type :rf.event})
          (is (= [:tick/one :tick/two :tick/three]
                 (mapv :operation (trace-bus/buffer)))
              "every conj appended one event to the buffer")))))
@@ -201,9 +201,9 @@
      (testing ":atom mode: detach! removes the watch so subsequent conjs are ignored"
        (let [host-log (atom [])]
          (drop-in/attach! {:mode :atom :trace-source host-log})
-         (swap! host-log conj {:operation :before-detach :op-type :event})
+         (swap! host-log conj {:operation :before-detach :op-type :rf.event})
          (drop-in/detach!)
-         (swap! host-log conj {:operation :after-detach :op-type :event})
+         (swap! host-log conj {:operation :after-detach :op-type :rf.event})
          (let [ops (mapv :operation (trace-bus/buffer))]
            (is (= [:before-detach] ops)
                "only the pre-detach event reached the buffer"))))))
@@ -213,9 +213,9 @@
      (testing ":atom mode: a swap! that grows the log by N pumps all N events"
        (let [host-log (atom [])]
          (drop-in/attach! {:mode :atom :trace-source host-log})
-         (swap! host-log into [{:operation :batch/a :op-type :event}
-                               {:operation :batch/b :op-type :event}
-                               {:operation :batch/c :op-type :event}])
+         (swap! host-log into [{:operation :batch/a :op-type :rf.event}
+                               {:operation :batch/b :op-type :rf.event}
+                               {:operation :batch/c :op-type :rf.event}])
          (is (= 3 (count (trace-bus/buffer)))
              "all three events pumped from the batch swap!")))))
 
@@ -225,15 +225,15 @@
   (testing "host events are filterable by the same vocabulary the framework uses"
     (drop-in/attach! {:mode :push})
     (drop-in/emit! {:operation :host/login
-                    :op-type   :event
-                    :tags      {:frame :host/main :event-id :user/login}})
+                    :op-type   :rf.event
+                    :tags      {:frame :host/main :rf.trace/event-id :user/login}})
     (drop-in/emit! {:operation :host/transition
-                    :op-type   :machine
-                    :tags      {:frame :host/main :event-id :state/changed}})
+                    :op-type   :rf.machine
+                    :tags      {:frame :host/main :rf.trace/event-id :state/changed}})
     (let [evs-by-event-type   (trace-bus/filter-events (trace-bus/buffer)
-                                                        {:op-type :event})
+                                                        {:op-type :rf.event})
           evs-by-machine-type (trace-bus/filter-events (trace-bus/buffer)
-                                                        {:op-type :machine})
+                                                        {:op-type :rf.machine})
           evs-by-event-id     (trace-bus/filter-events (trace-bus/buffer)
                                                         {:event-id :user/login})]
       (is (= 1 (count evs-by-event-type)))

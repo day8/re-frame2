@@ -119,7 +119,7 @@
 
 (deftest machine-kind-matches-via-effects-tag
   (let [cascade (mk-cascade {:event   [:user/click]
-                             :effects [(tagged {:fx-id    :rf.machine/transition
+                             :effects [(tagged {:rf.fx/id    :rf.machine/transition
                                                 :machine-id :form})]})
         pill    {:kind :machine :params {:machine-id :form}}]
     (is (typed/cascade-matches-pill? cascade pill))))
@@ -132,7 +132,7 @@
 
 (deftest machine-kind-no-match-no-machine-events
   (let [cascade (mk-cascade {:event   [:user/click]
-                             :effects [(tagged {:fx-id :db})]})
+                             :effects [(tagged {:rf.fx/id :db})]})
         pill    {:kind :machine :params {:machine-id :form}}]
     (is (not (typed/cascade-matches-pill? cascade pill)))))
 
@@ -148,7 +148,7 @@
 
 (deftest http-correlation-matches-issuing-effect
   (let [cascade (mk-cascade {:event   [:user/load]
-                             :effects [(tagged {:fx-id          :rf.http/managed
+                             :effects [(tagged {:rf.fx/id          :rf.http/managed
                                                 :correlation-id "abc-123"})]})
         pill    {:kind :http-correlation
                  :params {:correlation-id "abc-123"}}]
@@ -175,19 +175,19 @@
 
 (deftest fx-kind-matches-by-fx-id
   (let [cascade (mk-cascade {:event   [:user/load]
-                             :effects [(tagged {:fx-id :rf.http/managed})]})
+                             :effects [(tagged {:rf.fx/id :rf.http/managed})]})
         pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
     (is (typed/cascade-matches-pill? cascade pill))))
 
 (deftest fx-kind-matches-via-fx-bucket
   (let [cascade (mk-cascade {:event [:user/load]
-                             :fx    (tagged {:fx-id :rf.http/managed})})
+                             :fx    (tagged {:rf.fx/id :rf.http/managed})})
         pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
     (is (typed/cascade-matches-pill? cascade pill))))
 
 (deftest fx-kind-no-match-different-fx
   (let [cascade (mk-cascade {:event   [:user/load]
-                             :effects [(tagged {:fx-id :db})]})
+                             :effects [(tagged {:rf.fx/id :db})]})
         pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
     (is (not (typed/cascade-matches-pill? cascade pill)))))
 
@@ -198,7 +198,7 @@
     (let [cascade-a (mk-cascade {:event   [:user/click]
                                  :effects [(tagged {:machine-id :form})]})
           cascade-b (mk-cascade {:event   [:user/load]
-                                 :effects [(tagged {:fx-id :rf.http/managed
+                                 :effects [(tagged {:rf.fx/id :rf.http/managed
                                                     :correlation-id "abc"})]})
           filters   {:in [{:kind :machine :params {:machine-id :form}}
                           {:kind :http-correlation :params {:correlation-id "abc"}}]
@@ -221,7 +221,7 @@
   (testing "typed pills and legacy keyword-pattern pills compose inside
             the same bucket — the canonicaliser handles both shapes"
     (let [cascade-a (mk-cascade {:event   [:auth/login]
-                                 :effects [(tagged {:fx-id :rf.fx/handled})]})
+                                 :effects [(tagged {:rf.fx/id :rf.fx/handled})]})
           cascade-b (mk-cascade {:event   [:user/click]
                                  :effects [(tagged {:machine-id :form})]})
           ;; IN: legacy pattern OR typed machine. Both cascades survive.
@@ -237,12 +237,12 @@
 
 (deftest filter-cascades-preserves-order
   (let [c1 (assoc (mk-cascade {:event   [:user/load]
-                               :effects [(tagged {:fx-id :rf.http/managed})]})
+                               :effects [(tagged {:rf.fx/id :rf.http/managed})]})
                   :dispatch-id 1)
         c2 (assoc (mk-cascade {:event [:other]})
                   :dispatch-id 2)
         c3 (assoc (mk-cascade {:event   [:user/load2]
-                               :effects [(tagged {:fx-id :rf.http/managed})]})
+                               :effects [(tagged {:rf.fx/id :rf.http/managed})]})
                   :dispatch-id 3)
         filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
                  :out []}]

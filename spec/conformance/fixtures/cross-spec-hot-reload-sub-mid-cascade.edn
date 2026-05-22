@@ -92,7 +92,7 @@
   ;; surface contract for the :sub kind. :different-fn? must be true
   ;; because the v2 body is a different fn from v1.
   :trace-emissions
-  [{:operation :event :tags {:event-id :set-n}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :set-n}}
    {:operation :rf.registry/handler-replaced
     :tags      {:kind          :sub
                 :id            :sub-id/doubled

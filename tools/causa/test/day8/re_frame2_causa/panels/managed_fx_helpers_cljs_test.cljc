@@ -20,13 +20,13 @@
   ([fx-id args] (fx-handled fx-id args {}))
   ([fx-id args extra-tags]
    {:operation :rf.fx/handled
-    :op-type   :fx
+    :op-type   :rf.fx
     :id        (rand-int 1000000)
     :time      1000
-    :tags      (merge {:fx-id fx-id
-                       :fx-args args
+    :tags      (merge {:rf.fx/id fx-id
+                       :rf.fx/args args
                        :frame :rf/default
-                       :dispatch-id 7}
+                       :rf.trace/dispatch-id 7}
                       extra-tags)}))
 
 (defn- surface-ev
@@ -77,8 +77,8 @@
     (is (nil? (h/classify-fx-id "not-a-keyword")))))
 
 (deftest managed-fx-effect?-uses-classifier
-  (is (true?  (h/managed-fx-effect? {:tags {:fx-id :rf.http/managed}})))
-  (is (false? (h/managed-fx-effect? {:tags {:fx-id :user/x}}))))
+  (is (true?  (h/managed-fx-effect? {:tags {:rf.fx/id :rf.http/managed}})))
+  (is (false? (h/managed-fx-effect? {:tags {:rf.fx/id :user/x}}))))
 
 ;; ---- (2a) HTTP adapter on success --------------------------------------
 

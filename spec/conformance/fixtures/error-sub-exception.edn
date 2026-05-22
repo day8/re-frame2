@@ -41,14 +41,14 @@
    [:cart/count] nil}                               ;; :replaced-with-default — sub resolves to nil
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :cart/init}}
-   {:operation :event :tags {:event-id :cart/break}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :cart/init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :cart/break}}
    ;; The sub-exception trace fires when compute-sub is invoked for [:cart/count].
    {:operation :rf.error/sub-exception
     :op-type   :error
     :tags      {:category          :rf.error/sub-exception
                 :failing-id        :cart/count
-                :sub-id            :cart/count
+                :rf.sub/id            :cart/count
                 :sub-query         [:cart/count]
                 :exception-message "cannot count a string"
                 :reason            "Subscription `:cart/count` threw while computing: cannot count a string. Returning nil."}

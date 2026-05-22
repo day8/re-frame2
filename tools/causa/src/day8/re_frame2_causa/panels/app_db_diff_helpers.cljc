@@ -418,9 +418,9 @@
   [epoch-record]
   (or (:trigger-event epoch-record)
       (some (fn [ev]
-              (when (and (= :event (:op-type ev))
-                         (= :event/dispatched (:operation ev)))
-                (get-in ev [:tags :event])))
+              (when (and (= :rf.event (:op-type ev))
+                         (= :rf.event/dispatched (:operation ev)))
+                (get-in ev [:tags :rf.event/v])))
             (:trace-events epoch-record))))
 
 (defn epochs-touching-path

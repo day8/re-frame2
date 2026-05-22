@@ -271,7 +271,7 @@
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= "nav-1" (-> ev :tags :carried-token))
                        (= "nav-2" (-> ev :tags :current-token))
-                       (= :article/loaded (-> ev :tags :event-id))))
+                       (= :article/loaded (-> ev :tags :rf.trace/event-id))))
                 @traces)
           "expected :rf.route.nav-token/stale-suppressed trace for the A response"))))
 
@@ -349,7 +349,7 @@
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= "nav-1" (-> ev :tags :carried-token))
                        (= "nav-2" (-> ev :tags :current-token))
-                       (= :article/loaded (-> ev :tags :event-id))))
+                       (= :article/loaded (-> ev :tags :rf.trace/event-id))))
                 @traces)
           "stale :do produced :rf.route.nav-token/stale-suppressed with the inner dispatch's event-id")
 

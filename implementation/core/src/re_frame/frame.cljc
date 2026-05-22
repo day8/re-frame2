@@ -333,7 +333,7 @@
               ;; Top-level (no in-flight cascade): synchronous, as before.
               (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
                 (dispatch-sync on-create {:frame id}))))
-          (trace/emit! :frame :frame/created
+          (trace/emit! :rf.frame :rf.frame/created
                        {:frame id :config config})
           id)
 
@@ -342,7 +342,7 @@
         :else
         (do
           (swap! frames update id assoc :config config)
-          (trace/emit! :frame :frame/re-registered
+          (trace/emit! :rf.frame :rf.frame/re-registered
                        {:frame id :config config})
           id)))))
 
@@ -489,7 +489,7 @@
 
 (defn- emit-frame-destroyed-trace!
   [id]
-  (trace/emit! :frame :frame/destroyed
+  (trace/emit! :rf.frame :rf.frame/destroyed
                {:frame id}))
 
 (defn- dissoc-frame!

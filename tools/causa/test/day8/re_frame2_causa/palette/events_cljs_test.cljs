@@ -166,7 +166,7 @@
 (deftest invoke-clear-trace-buffer-empties-buffer
   (setup!)
   ;; Seed the buffer first so we can observe the clear.
-  (trace-bus/seed-buffer-for-test! {:id 1 :op :event/handled :event-id [:foo]})
+  (trace-bus/seed-buffer-for-test! {:id 1 :op :rf.event/handled :event-id [:foo]})
   (is (pos? (count (trace-bus/buffer))))
   (rf/with-frame :rf/causa
     (rf/dispatch-sync [:rf.causa/palette-open])

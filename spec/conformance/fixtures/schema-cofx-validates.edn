@@ -56,11 +56,11 @@
  {:final-app-db {}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :cap/seed}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :cap/seed}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
     :tags      {:category   :rf.error/schema-validation-failure
                 :failing-id :cap/seed
                 :where      :cofx
-                :cofx-id    :app-version/bad}
+                :rf.cofx/id    :app-version/bad}
     :recovery  :no-recovery}]}}

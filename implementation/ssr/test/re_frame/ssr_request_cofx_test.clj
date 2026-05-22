@@ -154,12 +154,12 @@
         (is (= 1 (count skips))
             "exactly one :rf.cofx/skipped-on-platform trace was emitted")
         (let [t (first skips)]
-          (is (= :rf.server/request (get-in t [:tags :cofx-id]))
-              ":cofx-id identifies the gated cofx")
-          (is (= :client (get-in t [:tags :platform]))
-              ":platform carries the active platform that excluded the cofx")
-          (is (= #{:server} (get-in t [:tags :registered-platforms]))
-              ":registered-platforms surfaces the cofx's declared set")
+          (is (= :rf.server/request (get-in t [:tags :rf.cofx/id]))
+              ":rf.cofx/id identifies the gated cofx")
+          (is (= :client (get-in t [:tags :rf.cofx/platform]))
+              ":rf.cofx/platform carries the active platform that excluded the cofx")
+          (is (= #{:server} (get-in t [:tags :rf.cofx/registered-platforms]))
+              ":rf.cofx/registered-platforms surfaces the cofx's declared set")
           (is (= :skipped (:recovery t))
               ":recovery is :skipped — the runtime declined to act"))))))
 

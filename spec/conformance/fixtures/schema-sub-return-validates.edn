@@ -47,12 +47,12 @@
   :sub-values   {[:items] nil}                 ;; :replaced-with-default
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :items/init}}
-   {:operation :event :tags {:event-id :items/break}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :items/init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :items/break}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
     :tags      {:category   :rf.error/schema-validation-failure
                 :failing-id :items
                 :where      :sub-return
-                :sub-id     :items}
+                :rf.sub/id     :items}
     :recovery  :replaced-with-default}]}}

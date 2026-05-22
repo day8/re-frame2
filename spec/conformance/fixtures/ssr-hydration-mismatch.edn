@@ -51,8 +51,8 @@
                  [:greeting] "Hello, server!"}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :counter/init}}
-   {:operation :event :tags {:event-id :rf/hydrate}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :counter/init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :rf/hydrate}}
    ;; Mismatch detected after the first client render.
    {:operation :rf.ssr/hydration-mismatch
     :op-type   :error

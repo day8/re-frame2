@@ -77,7 +77,7 @@ The contract therefore: **structure is serialisable; behaviour (functions) is no
 
 ### Render-tree primitives
 
-Render-tree activity surfaces in the trace stream via `:view/render` events and in `:rf/epoch-record`'s `:renders` projection (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)). The identity carried on each entry is the `:render-key` — the tuple shape every conformant view contract emits.
+Render-tree activity surfaces in the trace stream via `:rf.view/render` events (the tuple rides under the `:rf.view/render-key` trace `:tags` key per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)) and in `:rf/epoch-record`'s `:renders` projection (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)). The identity carried on each entry is the `:render-key` — the tuple shape every conformant view contract emits.
 
 #### `:render-key` is the tuple `[<view-id> <instance-token>]`
 
@@ -119,7 +119,7 @@ If the runtime can derive a cheap function-name hint (e.g. via `(.-displayName f
 
 #### Production elision
 
-`:render-key` is part of the trace surface; per [Spec 009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code), trace emission elides entirely under `^boolean ^:goog-define re-frame.interop.debug-enabled?`. The instance-token mint, the `*render-key*` binding, and the `:view/render` emission all sit behind that gate — production builds incur zero allocation, zero counter activity, zero binding-frame overhead.
+The `:render-key` tuple is part of the trace surface; per [Spec 009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code), trace emission elides entirely under `^boolean ^:goog-define re-frame.interop.debug-enabled?`. The instance-token mint, the `*render-key*` binding, and the `:rf.view/render` emission all sit behind that gate — production builds incur zero allocation, zero counter activity, zero binding-frame overhead.
 
 ### Loading state is explicit, not implicit
 

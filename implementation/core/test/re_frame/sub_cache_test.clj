@@ -762,7 +762,7 @@
           "after re-registration the new sub body is used")
       (is (some (fn [ev]
                   (and (= :rf.registry/handler-replaced (:operation ev))
-                       (= :registry (:op-type ev))
+                       (= :rf.registry (:op-type ev))
                        (= :sub (:kind (:tags ev)))
                        (= :answer (:id (:tags ev)))))
                 @traces)

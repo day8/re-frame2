@@ -249,7 +249,7 @@
           (rf/reg-event-db :coex/id {:doc "2"} (fn [db _] (assoc db :v 2)))
           (rf/reg-event-db :coex/id {:doc "3"} (fn [db _] (assoc db :v 3)))))
       (let [replaced (filterv (fn [ev]
-                                (and (= :registry (:op-type ev))
+                                (and (= :rf.registry (:op-type ev))
                                      (= :rf.registry/handler-replaced
                                         (:operation ev))))
                               @recorded)

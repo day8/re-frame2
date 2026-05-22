@@ -4,7 +4,7 @@
   Causa's own panels render INSIDE the host app, so every host
   dispatch reactively re-fires the Causa-side subs they read and
   triggers Causa-side view re-renders. Those self-induced
-  `:sub/run` + `:view/render` trace emits all carry
+  `:rf.sub/run` + `:rf.view/render` trace emits all carry
   `:frame :rf/causa` (the panels mount under `(rf/with-frame
   :rf/causa ...)`), but they fire OUTSIDE any host dispatch — so
   without a filter they'd bucket as `:ungrouped :ungrounded` in
@@ -62,27 +62,27 @@
                   {:frame :rf/default :tags {:frame :rf/causa}})))))
 
 (deftest causa-internal-event?-realistic-shapes
-  (testing "shapes mirroring real :sub/run + :view/render envelopes"
+  (testing "shapes mirroring real :rf.sub/run + :rf.view/render envelopes"
     ;; Layer-1 sub-read inside Causa's panel — :frame lives under :tags
     ;; per re-frame.subs/validate-and-trace.
     (is (true?  (trace-bus/causa-internal-event?
-                  {:operation :sub/run :op-type :sub/run
+                  {:operation :rf.sub/run :op-type :rf.sub
                    :id 17 :time 1000
-                   :tags {:sub-id  :rf.causa/trace-buffer
-                          :query-v [:rf.causa/trace-buffer]
+                   :tags {:rf.sub/id  :rf.causa/trace-buffer
+                          :rf.sub/query-v [:rf.causa/trace-buffer]
                           :frame   :rf/causa}})))
     ;; View re-render from a Causa panel — :frame at top level per
     ;; re-frame.views/emit-render-trace!.
     (is (true?  (trace-bus/causa-internal-event?
-                  {:operation :view/render :op-type :view
+                  {:operation :rf.view/render :op-type :rf.view
                    :id 18 :time 1001
                    :frame :rf/causa
-                   :tags  {:render-key 42 :frame :rf/causa}})))
+                   :tags  {:rf.view/render-key 42 :frame :rf/causa}})))
     ;; Host event — must not be filtered.
     (is (false? (trace-bus/causa-internal-event?
-                  {:operation :event/dispatched :op-type :event
+                  {:operation :rf.event/dispatched :op-type :rf.event
                    :id 19 :time 1002
-                   :tags {:event-id :user/click :frame :rf/default}})))))
+                   :tags {:rf.trace/event-id :user/click :frame :rf/default}})))))
 
 ;; ---- collect-trace! end-to-end wiring (CLJS only) -----------------------
 ;;
@@ -94,31 +94,31 @@
 ;; assertions).
 
 (defn- host-event []
-  ;; Realistic host `:event/dispatched` envelope — the user clicks a
+  ;; Realistic host `:rf.event/dispatched` envelope — the user clicks a
   ;; button, `:user/click` dispatches into the host's `:rf/default`
   ;; frame, the framework emits this trace event.
-  {:operation :event/dispatched :op-type :event
+  {:operation :rf.event/dispatched :op-type :rf.event
    :id 1 :time 1000
-   :tags {:event-id :user/click :frame :rf/default}})
+   :tags {:rf.trace/event-id :user/click :frame :rf/default}})
 
 (defn- causa-sub-read-event []
-  ;; Realistic `:sub/run` emit from a Causa panel re-rendering in
+  ;; Realistic `:rf.sub/run` emit from a Causa panel re-rendering in
   ;; response to host activity. The sub fires under
   ;; `(rf/with-frame :rf/causa ...)` so its trace envelope carries
   ;; `:frame :rf/causa`. This is the noise rf2-xs8vu eliminates.
-  {:operation :sub/run :op-type :sub/run
+  {:operation :rf.sub/run :op-type :rf.sub
    :id 2 :time 1001
-   :tags {:sub-id  :rf.causa/trace-buffer
-          :query-v [:rf.causa/trace-buffer]
+   :tags {:rf.sub/id  :rf.causa/trace-buffer
+          :rf.sub/query-v [:rf.causa/trace-buffer]
           :frame   :rf/causa}})
 
 (defn- causa-view-render-event []
-  ;; Realistic `:view/render` emit from a Causa panel re-rendering.
+  ;; Realistic `:rf.view/render` emit from a Causa panel re-rendering.
   ;; `:frame` is hoisted top-level per re-frame.views/emit-render-trace!.
-  {:operation :view/render :op-type :view
+  {:operation :rf.view/render :op-type :rf.view
    :id 3 :time 1002
    :frame :rf/causa
-   :tags  {:render-key 42 :frame :rf/causa}})
+   :tags  {:rf.view/render-key 42 :frame :rf/causa}})
 
 #?(:cljs
    (deftest collect-trace-records-host-events
@@ -130,7 +130,7 @@
 
 #?(:cljs
    (deftest collect-trace-drops-causa-sub-reads
-     (testing "Causa-frame :sub/run events MUST NOT enter the buffer"
+     (testing "Causa-frame :rf.sub/run events MUST NOT enter the buffer"
        (trace-bus/collect-trace! (causa-sub-read-event))
        (is (= 0 (count (trace-bus/buffer)))
            "the self-induced sub-read drowns the host event under :ungrouped if recorded")
@@ -139,7 +139,7 @@
 
 #?(:cljs
    (deftest collect-trace-drops-causa-view-renders
-     (testing "Causa-frame :view/render events MUST NOT enter the buffer"
+     (testing "Causa-frame :rf.view/render events MUST NOT enter the buffer"
        (trace-bus/collect-trace! (causa-view-render-event))
        (is (= 0 (count (trace-bus/buffer)))
            "self-induced view re-renders are dropped")
@@ -160,7 +160,7 @@
        (let [buf (trace-bus/buffer)]
          (is (= 1 (count buf))
              "exactly one event — the host click — survives the filter")
-         (is (= :user/click (get-in (first buf) [:tags :event-id]))
+         (is (= :user/click (get-in (first buf) [:tags :rf.trace/event-id]))
              "the surviving event IS the host click, not a self-noise impostor")
          (is (= :rf/default (get-in (first buf) [:tags :frame]))
              "the surviving event targets the host frame")))))
@@ -169,12 +169,12 @@
    (deftest collect-trace-filter-applies-to-tags-frame
      (testing "Causa-internal events with :frame under :tags only are also dropped"
        ;; Some emit sites leave :frame under :tags rather than hoisting
-       ;; top-level (e.g. :sub/run via re-frame.subs/validate-and-trace).
+       ;; top-level (e.g. :rf.sub/run via re-frame.subs/validate-and-trace).
        ;; The filter MUST cover both shapes.
        (trace-bus/collect-trace!
-         {:operation :sub/run :op-type :sub/run
+         {:operation :rf.sub/run :op-type :rf.sub
           :id 4 :time 1003
-          :tags {:sub-id :rf.causa/cascades :frame :rf/causa}})
+          :tags {:rf.sub/id :rf.causa/cascades :frame :rf/causa}})
        (is (= 0 (count (trace-bus/buffer)))))))
 
 #?(:cljs
@@ -183,11 +183,11 @@
        ;; Symmetry guard — the filter is narrow (only :rf/causa), not a
        ;; blanket rejection of any event with a :tags :frame slot.
        (trace-bus/collect-trace!
-         {:operation :sub/run :op-type :sub/run
+         {:operation :rf.sub/run :op-type :rf.sub
           :id 5 :time 1004
-          :tags {:sub-id :user/some-sub :frame :rf/default}})
+          :tags {:rf.sub/id :user/some-sub :frame :rf/default}})
        (is (= 1 (count (trace-bus/buffer)))
-           "non-Causa :sub/run events flow through normally"))))
+           "non-Causa :rf.sub/run events flow through normally"))))
 
 ;; ---- causa-internal event-id guard (rf2-g1pt8) --------------------------
 ;;

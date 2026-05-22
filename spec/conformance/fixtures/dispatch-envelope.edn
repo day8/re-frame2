@@ -31,7 +31,7 @@
               :trace-id "t-1"}}
 
   :trace-emissions
-  [{:operation :event
+  [{:operation :rf.event
     :source    :ui                          ;; top-level per 009 — origin of the trigger
-    :tags     {:event-id :probe/echo
-               :trace-id "t-1"}}]}}
+    :tags     {:rf.trace/event-id :probe/echo
+               :rf.trace/trace-id "t-1"}}]}}

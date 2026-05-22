@@ -270,13 +270,14 @@
       :else                  (true? (some-> scope :sensitive?)))))
 
 (defn- stamp-cascade-id
-  "Merge the cascade's `:dispatch-id` into `base-tags` so consumers
-  can group raw trace events by cascade without inferring from
-  sequence. Caller-supplied `:dispatch-id` wins. Per Spec 009
-  §Dispatch correlation."
+  "Merge the cascade's `:rf.trace/dispatch-id` into `base-tags` so
+  consumers can group raw trace events by cascade without inferring
+  from sequence. Caller-supplied `:rf.trace/dispatch-id` wins. Per
+  Spec 009 §Dispatch correlation — the cross-cutting correlation spine
+  lives under `:rf.trace/*` (Conventions §`:rf.trace/*`)."
   [base-tags cascade-id]
-  (if (and cascade-id (not (contains? base-tags :dispatch-id)))
-    (assoc base-tags :dispatch-id cascade-id)
+  (if (and cascade-id (not (contains? base-tags :rf.trace/dispatch-id)))
+    (assoc base-tags :rf.trace/dispatch-id cascade-id)
     base-tags))
 
 (defn- build-event

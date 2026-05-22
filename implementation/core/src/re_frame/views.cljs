@@ -221,9 +221,9 @@
     ;; re-frame.trace load and never withdrawn; this fires per render
     ;; under dev builds.
     (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
-      (emit! :view :view/render
-             {:render-key render-key
-              :frame      frame-id}))))
+      (emit! :rf.view :rf.view/render
+             {:rf.view/render-key render-key
+              :frame              frame-id}))))
 
 (defn- emit-view-rendered-trace!
   "Emit the `:rf.view/rendered` cascade-attribution marker (rf2-25zo2,
@@ -268,22 +268,22 @@
           ;; cross. The marker rides the same per-cascade buffer so
           ;; consumers can detect truncation without inspecting state.
           (= n-so-far view-rendered-cap)
-          (emit! :view :rf.view/rendered-cap-reached
-                 {:frame         frame-id
-                  :dropped-after view-rendered-cap})
+          (emit! :rf.view :rf.view/rendered-cap-reached
+                 {:frame                 frame-id
+                  :rf.view/dropped-after view-rendered-cap})
 
           (< n-so-far view-rendered-cap)
-          (emit! :view :rf.view/rendered
-                 (cond-> {:render-key render-key
-                          :view-id    view-id
-                          :frame      frame-id
-                          :mount?     mount?}
+          (emit! :rf.view :rf.view/rendered
+                 (cond-> {:rf.view/render-key render-key
+                          :rf.view/id         view-id
+                          :frame              frame-id
+                          :rf.view/mount?     mount?}
                    (seq deref-subs)
-                   (assoc :deref-subs deref-subs)
+                   (assoc :rf.view/deref-subs deref-subs)
                    (:cause-event-id cause)
-                   (assoc :cause-event-id (:cause-event-id cause))
+                   (assoc :rf.view/cause-event-id (:cause-event-id cause))
                    (:cause-subs cause)
-                   (assoc :cause-subs (:cause-subs cause))))
+                   (assoc :rf.view/cause-subs (:cause-subs cause))))
 
           ;; n-so-far > cap — silent skip (the cap-reached marker
           ;; fired already on the threshold cross).
@@ -317,10 +317,10 @@
   [view-id render-key frame-id]
   (when interop/debug-enabled?
     (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
-      (emit! :view :rf.view/unmounted
-             {:render-key render-key
-              :view-id    view-id
-              :frame      frame-id}))))
+      (emit! :rf.view :rf.view/unmounted
+             {:rf.view/render-key render-key
+              :rf.view/id         view-id
+              :frame              frame-id}))))
 
 (defn install-unmount-hook!
   "Wire `:rf.view/unmounted` emission to the teardown of the view

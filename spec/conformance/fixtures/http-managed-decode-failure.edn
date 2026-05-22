@@ -56,10 +56,10 @@
                                 :schema-validation-failure? false}}}}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :articles/list}}
-   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
-                                              :to   :rf.http/managed-canned-failure}}
-   {:operation :event :tags {:event-id :articles/list-error}}]
+  [{:operation :rf.event :tags {:rf.trace/event-id :articles/list}}
+   {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
+                                              :rf.fx/to   :rf.http/managed-canned-failure}}
+   {:operation :rf.event :tags {:rf.trace/event-id :articles/list-error}}]
 
   :effects-routed
   [{:fx-id :rf.http/managed-canned-failure

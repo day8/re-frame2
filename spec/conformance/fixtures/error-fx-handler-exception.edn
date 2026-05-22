@@ -33,19 +33,19 @@
  {:final-app-db {:log [{:msg "save attempted"}]}    ;; :log still ran even though :persist threw
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :user/init}}
-   {:operation :event :tags {:event-id :user/save}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :user/init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :user/save}}
    ;; :persist throws — structured trace, then :log fires.
    {:operation :rf.error/fx-handler-exception
     :op-type   :error
     :tags      {:category          :rf.error/fx-handler-exception
                 :failing-id        :persist
-                :fx-id             :persist
-                :fx-args           {:user "alice"}
+                :rf.fx/id             :persist
+                :rf.fx/args           {:user "alice"}
                 :exception-message "persist exploded"
                 :reason            "Effect handler `:persist` threw: persist exploded."}
     :recovery  :no-recovery}
-   {:operation :event/do-fx :tags {}}]              ;; the remaining fx (:log) was processed
+   {:operation :rf.fx/do-fx :tags {}}]              ;; the remaining fx (:log) was processed
 
   :effects-routed
   [{:fx-id :persist :args {:user "alice"}}          ;; attempted (then threw)

@@ -38,29 +38,29 @@
            :operation operation
            :time      time
            :tags      (cond-> tags
-                       origin       (assoc :origin origin)
+                       origin       (assoc :rf.event/origin origin)
                        frame        (assoc :frame frame)
-                       event-id     (assoc :event-id event-id)
+                       event-id     (assoc :rf.trace/event-id event-id)
                        handler-id   (assoc :handler-id handler-id)
-                       dispatch-id  (assoc :dispatch-id dispatch-id))}
+                       dispatch-id  (assoc :rf.trace/dispatch-id dispatch-id))}
     source (assoc :source source)
     coord  (assoc :rf.trace/trigger-handler {:source-coord coord})))
 
 ;; ---- (1) per-row projection --------------------------------------------
 
 (deftest project-row-populates-every-axis-slot
-  (let [e (ev {:id 7 :op-type :event :operation :event/dispatched
+  (let [e (ev {:id 7 :op-type :rf.event :operation :rf.event/dispatched
                :time 500 :source :ui :origin :app
                :frame :rf/default :event-id :counter/inc
                :handler-id :counter/inc-handler
                :dispatch-id 42
-               :tags {:event [:counter/inc]}
+               :tags {:rf.event/v [:counter/inc]}
                :coord {:file "src/foo.cljs" :line 12}})
         row (h/project-row e)]
     (is (= 7 (:id row)))
     (is (= 500 (:time row)))
-    (is (= :event (:op-type row)))
-    (is (= :event/dispatched (:operation row)))
+    (is (= :rf.event (:op-type row)))
+    (is (= :rf.event/dispatched (:operation row)))
     (is (= :ui (:source row)))
     (is (= :app (:origin row)))
     (is (= :rf/default (:frame row)))
@@ -82,13 +82,13 @@
                                   (ev {:id 1 :op-type :info
                                        :operation :rf.http/x})))))
     (is (nil? (:severity (h/project-row
-                           (ev {:id 1 :op-type :event
-                                :operation :event/dispatched})))))))
+                           (ev {:id 1 :op-type :rf.event
+                                :operation :rf.event/dispatched})))))))
 
 (deftest project-rows-preserves-chronological-order
-  (let [evs  [(ev {:id 1 :op-type :event :operation :event/dispatched :time 100})
-              (ev {:id 2 :op-type :fx    :operation :rf.fx/handled    :time 200})
-              (ev {:id 3 :op-type :sub/run :operation :sub/run        :time 300})]
+  (let [evs  [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched :time 100})
+              (ev {:id 2 :op-type :rf.fx    :operation :rf.fx/handled    :time 200})
+              (ev {:id 3 :op-type :rf.sub :operation :rf.sub/run        :time 300})]
         rows (h/project-rows evs)]
     (is (= [1 2 3] (mapv :id rows))
         "project-rows keeps the events' oldest-first order")))
@@ -105,29 +105,29 @@
 (defn- domino-trail-epoch
   "A fixture `:rf/epoch-record` whose `:trace-events` carry the COMPLETE
   domino trail for one event — folding both the synchronous event-side
-  rows (dispatch-id N) AND the async reactive rows (`:sub/run` /
-  `:view/render`, nil dispatch-id) that fire post-cascade. This is the
+  rows (dispatch-id N) AND the async reactive rows (`:rf.sub/run` /
+  `:rf.view/render`, nil dispatch-id) that fire post-cascade. This is the
   exact shape the OLD dispatch-id-scoped feed dropped (it filtered to
   the dispatch-id, losing the nil-dispatch-id reactive tail)."
   []
   {:epoch-id 17
    :trace-events
    [;; ---- synchronous event side (dispatch-id 42) ----
-    (ev {:id 1 :op-type :event :operation :event/dispatched
+    (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
          :time 100 :dispatch-id 42 :event-id :counter/inc
-         :tags {:event [:counter/inc]}})
-    (ev {:id 2 :op-type :event :operation :event/run-end
+         :tags {:rf.event/v [:counter/inc]}})
+    (ev {:id 2 :op-type :rf.event :operation :rf.event/run-end
          :time 101 :dispatch-id 42})
-    (ev {:id 3 :op-type :event/db-changed :operation :event/db-changed
+    (ev {:id 3 :op-type :rf.event :operation :rf.event/db-changed
          :time 102 :dispatch-id 42})
-    (ev {:id 4 :op-type :fx :operation :rf.fx/handled
+    (ev {:id 4 :op-type :rf.fx :operation :rf.fx/handled
          :time 103 :dispatch-id 42})
     ;; ---- async reactive tail (nil dispatch-id) ----
-    (ev {:id 5 :op-type :sub/run :operation :sub/run
-         :time 110 :tags {:sub-id :app/counter}})
-    (ev {:id 6 :op-type :sub/run :operation :sub/run
-         :time 111 :tags {:sub-id :app/derived}})
-    (ev {:id 7 :op-type :view/render :operation :view/render
+    (ev {:id 5 :op-type :rf.sub :operation :rf.sub/run
+         :time 110 :tags {:rf.sub/id :app/counter}})
+    (ev {:id 6 :op-type :rf.sub :operation :rf.sub/run
+         :time 111 :tags {:rf.sub/id :app/derived}})
+    (ev {:id 7 :op-type :rf.view :operation :rf.view/render
          :time 120})]})
 
 (deftest project-feed-from-epoch-folds-the-complete-domino-trail
@@ -146,11 +146,11 @@
       (is (= #{1 2 3 4 5 6 7} (set (map :id (:rows feed))))
           "rows are the WHOLE trail — including the nil-dispatch-id
            reactive rows the dispatch-id scope would have dropped")
-      (is (some #(and (nil? (:dispatch-id %)) (= :sub/run (:op-type %)))
+      (is (some #(and (nil? (:dispatch-id %)) (= :rf.sub (:op-type %)))
                 (:rows feed))
-          "the async :sub/run rows (nil dispatch-id) are present")
-      (is (some #(= :view/render (:op-type %)) (:rows feed))
-          "the async :view/render row is present")
+          "the async :rf.sub/run rows (nil dispatch-id) are present")
+      (is (some #(= :rf.view (:op-type %)) (:rows feed))
+          "the async :rf.view/render row is present")
       (is (= 17 (:epoch-id feed)))
       (is (nil? (:empty-kind feed))))))
 
@@ -243,9 +243,9 @@
   (is (= (:red    tokens/tokens)  (h/op-type-colour :error)))
   (is (= (:yellow tokens/tokens)  (h/op-type-colour :warning)))
   (is (= (:cyan   tokens/tokens)  (h/op-type-colour :info)))
-  (is (= (:accent-violet tokens/tokens) (h/op-type-colour :event)))
-  (is (= (:green  tokens/tokens)  (h/op-type-colour :fx)))
-  (is (= (:magenta tokens/tokens) (h/op-type-colour :view/render)))
+  (is (= (:accent-violet tokens/tokens) (h/op-type-colour :rf.event)))
+  (is (= (:green  tokens/tokens)  (h/op-type-colour :rf.fx)))
+  (is (= (:magenta tokens/tokens) (h/op-type-colour :rf.view/render)))
   ;; Defensive fallback.
   (is (= (:text-secondary tokens/tokens) (h/op-type-colour :totally-unknown))))
 
@@ -255,15 +255,15 @@
   (testing "source-coord pulls file:line from :rf.trace/trigger-handler"
     (is (= "src/foo.cljs:42"
            (h/source-coord
-             {:id 1 :op-type :event
+             {:id 1 :op-type :rf.event
               :rf.trace/trigger-handler {:source-coord {:file "src/foo.cljs"
                                                         :line 42}}}))))
   (testing "missing trigger-handler returns nil"
-    (is (nil? (h/source-coord {:id 1 :op-type :event}))))
+    (is (nil? (h/source-coord {:id 1 :op-type :rf.event}))))
   (testing "missing :line returns just the file"
     (is (= "src/foo.cljs"
            (h/source-coord
-             {:id 1 :op-type :event
+             {:id 1 :op-type :rf.event
               :rf.trace/trigger-handler {:source-coord {:file "src/foo.cljs"}}})))))
 
 ;; ---- (7) short-description --------------------------------------------
@@ -272,8 +272,8 @@
   (testing "event vector is preferred"
     (is (re-find #"counter/inc"
                  (h/short-description
-                   (ev {:id 1 :op-type :event :operation :event/dispatched
-                        :tags {:event [:counter/inc]}})))))
+                   (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                        :tags {:rf.event/v [:counter/inc]}})))))
   (testing "reason is used when no event vec"
     (is (re-find #"because"
                  (h/short-description
@@ -287,12 +287,12 @@
   (testing "sub-id is used for sub events"
     (is (re-find #"app/counter"
                  (h/short-description
-                   (ev {:id 1 :op-type :sub/run :operation :sub/run
-                        :tags {:sub-id :app/counter}})))))
+                   (ev {:id 1 :op-type :rf.sub :operation :rf.sub/run
+                        :tags {:rf.sub/id :app/counter}})))))
   (testing "fallback is the operation keyword alone"
-    (is (= ":event/dispatched"
+    (is (= ":rf.event/dispatched"
            (h/short-description
-             (ev {:id 1 :op-type :event :operation :event/dispatched
+             (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                   :tags {}}))))))
 
 ;; ---- (8) row-key — rf2-z4fza (sibling of rf2-kgn0c) -------------------
@@ -320,7 +320,7 @@
   (testing "rf2-z4fza acceptance: row-key MUST NOT consume :row-index
             (the slot is gone from rows; any future regression that
             re-adds it would silently destabilise keys)"
-    (let [row-a (h/project-row {:id 5 :op-type :event :operation :event/dispatched
+    (let [row-a (h/project-row {:id 5 :op-type :rf.event :operation :rf.event/dispatched
                                 :time 100})
           row-b (assoc row-a :row-index 0)
           row-c (assoc row-a :row-index 99)]

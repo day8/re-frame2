@@ -196,8 +196,8 @@
 ;; Causa's own panels render INSIDE the host app. Every host dispatch
 ;; dirties the host app-db → the layer-1 `:rf.causa/trace-buffer` sub
 ;; re-fires → every Causa panel that derefs it re-renders → every
-;; `:rf/causa`-frame sub it reads emits `:sub/run` → every re-render
-;; emits `:view/render`. Without a guard, those self-induced trace
+;; `:rf/causa`-frame sub it reads emits `:rf.sub/run` → every re-render
+;; emits `:rf.view/render`. Without a guard, those self-induced trace
 ;; events flow back through the framework's trace-cb fan-out, through
 ;; THIS collector, into the buffer, and (because they fire outside a
 ;; host dispatch) bucket as `:ungrouped :ungrounded` — drowning the
@@ -208,7 +208,7 @@
 ;; know about internals). Any trace event whose `:frame` slot resolves
 ;; to `:rf/causa` is Causa's own machinery; we drop it before it ever
 ;; enters the buffer. The framework's `:rf.trace/no-emit?` flag on
-;; Causa's registry handlers already silences `:event/dispatched` etc.
+;; Causa's registry handlers already silences `:rf.event/dispatched` etc.
 ;; from Causa's bookkeeping cascade — this filter handles the
 ;; remaining sub-read + view-render emits that fire reactively from
 ;; panel re-renders.
@@ -239,7 +239,7 @@
 ;; The ingest-side `causa-internal-event?` predicate above filters trace
 ;; events by `:frame`. It catches every emit that originates inside a
 ;; `(rf/with-frame :rf/causa ...)` scope — the dominant self-noise case
-;; (panel re-render `:sub/run` + `:view/render` floods).
+;; (panel re-render `:rf.sub/run` + `:rf.view/render` floods).
 ;;
 ;; But it misses one cleanup pattern: Causa-internal events (`:rf.causa/
 ;; focus-cascade`, `:rf.causa/select-tab`, `:rf.causa/open-settings`,
@@ -310,7 +310,7 @@
   dropped at ingest — Causa's own panels render inside the host app,
   so every host dispatch reactively re-fires Causa's subs and re-
   renders Causa's views; without the filter, those self-induced
-  `:sub/run` + `:view/render` emits would land in Causa's own trace
+  `:rf.sub/run` + `:rf.view/render` emits would land in Causa's own trace
   buffer as `:ungrouped :ungrounded` (they fire outside a host
   dispatch) and drown the host event the user clicked. See
   `causa-internal-event?`. Pre-alpha — no opt-out toggle; Causa-
@@ -461,16 +461,16 @@
                               (get-in ev [:tags :frame]))))
              (or (nil? severity) (= severity (:op-type ev)))
              (or (nil? event-id)
-                 (= event-id (get-in ev [:tags :event-id])))
+                 (= event-id (get-in ev [:tags :rf.trace/event-id])))
              (or (nil? handler-id)
                  (= handler-id (get-in ev [:tags :handler-id])))
              (or (nil? source)
                  (= source (or (:source ev)
                                (get-in ev [:tags :source]))))
              (or (nil? origin)
-                 (= origin (get-in ev [:tags :origin])))
+                 (= origin (get-in ev [:tags :rf.event/origin])))
              (or (nil? dispatch-id)
-                 (= dispatch-id (get-in ev [:tags :dispatch-id])))
+                 (= dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])))
              (or (nil? since-ms)
                  (and (number? (:time ev))
                       (> (:time ev) since-ms)))
@@ -497,12 +497,12 @@
       :severity      — keep events whose :op-type matches the tier
                        (:error / :warning / :info). Synonym for :op-type
                        restricted to those three values.
-      :event-id      — keep events whose :tags :event-id matches.
+      :event-id      — keep events whose :tags :rf.trace/event-id matches.
       :handler-id    — keep events whose :tags :handler-id matches.
       :source        — keep events whose :source (top-level, hoisted
                        from :tags by emit!) matches.
-      :origin        — keep events whose :tags :origin matches.
-      :dispatch-id   — keep events whose :tags :dispatch-id matches
+      :origin        — keep events whose :tags :rf.event/origin matches.
+      :dispatch-id   — keep events whose :tags :rf.trace/dispatch-id matches
                        (cascade-wide).
       :since-ms      — keep events whose :time is strictly greater than
                        this host-clock timestamp.

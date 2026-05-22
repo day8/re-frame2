@@ -67,10 +67,10 @@
 (defn- nav-allocated-trace
   [route-id nav-token & [dispatch-id]]
   {:id        1
-   :op-type   :event
+   :op-type   :rf.event
    :operation :rf.route.nav-token/allocated
    :tags      (cond-> {:route-id route-id :nav-token nav-token}
-                dispatch-id (assoc :dispatch-id dispatch-id))})
+                dispatch-id (assoc :rf.trace/dispatch-id dispatch-id))})
 
 (defn- cascade
   [dispatch-id event-vec & {:keys [other effects fx handler]
@@ -573,8 +573,8 @@
 
 (deftest epoch-routing-activity-events-test
   (testing "events list carries root event vector + downstream dispatches"
-    (let [downstream {:id 8 :op-type :event :operation :event/dispatched
-                      :tags {:event [:cart/route-entered]}}
+    (let [downstream {:id 8 :op-type :rf.event :operation :rf.event/dispatched
+                      :tags {:rf.event/v [:cart/route-entered]}}
           c (cascade 7 [:rf.route/navigate :route/cart]
               :other [(nav-allocated-trace :route/cart "nav-1")
                       downstream])
@@ -585,7 +585,7 @@
 
 (deftest epoch-routing-activity-navigation-blocked-test
   (testing "navigation-blocked emit → phase :navigation-blocked + nil match"
-    (let [blocked-ev {:id 1 :op-type :event
+    (let [blocked-ev {:id 1 :op-type :rf.event
                       :operation :rf.route/navigation-blocked
                       :tags {:route-id :route/admin}}
           c (cascade 1 [:rf.route/navigate :route/admin]
@@ -597,7 +597,7 @@
 
 (deftest epoch-routing-activity-fragment-changed-test
   (testing "fragment-changed emit → phase :fragment-changed"
-    (let [frag-ev {:id 1 :op-type :event
+    (let [frag-ev {:id 1 :op-type :rf.event
                    :operation :rf.route/fragment-changed
                    :tags {:fragment "step-2"}}
           c (cascade 1 [:foo] :other [frag-ev])

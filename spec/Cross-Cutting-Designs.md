@@ -76,7 +76,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Canonical homes.**
 - [002-Frames.md §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) — the `:origin` opt accepted on the dispatch envelope; open-vocabulary default `:app`; framework-reserved values (`:rf/router`, `:rf/ssr`, etc.); the distinction from `:source` (trigger-kind axis).
-- [009-Instrumentation.md §Origin tagging: `:origin`](009-Instrumentation.md) — the trace lift: the runtime promotes the dispatch opt onto every `:event/dispatched` event under `:tags :origin`; example values (`:pair`, `:claude`, `:story`, `:test`); the filter axis it enables.
+- [009-Instrumentation.md §Origin tagging: `:rf.event/origin`](009-Instrumentation.md#origin-tagging-rfeventorigin) — the trace lift: the runtime promotes the dispatch opt onto every `:rf.event/dispatched` event under `:tags :rf.event/origin`; example values (`:pair`, `:claude`, `:story`, `:test`); the filter axis it enables.
 
 **Consumers.**
 - `tools/re-frame2-pair-mcp/` — tags every dispatch / eval-cljs / restore-epoch / reset-frame-db with `:origin :re-frame2-pair-mcp` (per its NAMING.md row).
@@ -84,7 +84,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - `tools/causa/` — trace panel filter axis.
 - Framework boot paths (router, SSR, machine timer) — set `:origin` to a runtime-reserved `:rf/*` value where the post-mortem distinction is useful.
 
-**The result.** One `:origin` keyword, one default (`:app`), one open vocabulary. Every dispatching surface — application, framework, tool — picks a value; every consuming surface filters on `(get-in trace-event [:tags :origin])`. Adding a sixth dispatching actor is one keyword choice and zero framework changes. The pair- and story-mcp catalogues both explicitly call out their `:origin` value so post-mortem "who dispatched this?" filters are one-key lookups.
+**The result.** One `:origin` keyword, one default (`:app`), one open vocabulary. Every dispatching surface — application, framework, tool — picks a value; every consuming surface filters on `(get-in trace-event [:tags :rf.event/origin])` (the dispatch *opt* is `:origin`; the trace *tag* it lifts onto is `:rf.event/origin`). Adding a sixth dispatching actor is one keyword choice and zero framework changes. The pair- and story-mcp catalogues both explicitly call out their `:origin` value so post-mortem "who dispatched this?" filters are one-key lookups.
 
 ## Process
 

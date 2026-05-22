@@ -652,10 +652,11 @@
   "Derive the actual list of fx routings from the trace stream.
 
   Per `re-frame.fx/handle-one-fx`: every successful routing emits a
-  `:rf.fx/handled` trace with `:fx-id` (post-override) and `:fx-args`. A
-  handler-throw emits `:rf.error/fx-handler-exception` with the same
-  `:fx-id`/`:fx-args` shape — that's still a routing for the purposes of
-  the fixture contract (the runtime did attempt the handler).
+  `:rf.fx/handled` trace with `:rf.fx/id` (post-override) and
+  `:rf.fx/args`. A handler-throw emits `:rf.error/fx-handler-exception`
+  with the same `:rf.fx/id`/`:rf.fx/args` shape — that's still a routing
+  for the purposes of the fixture contract (the runtime did attempt the
+  handler).
 
   The order in this returned vector is the order the runtime attempted
   to process the effects, which is what `:effects-routed` asserts (per
@@ -668,8 +669,8 @@
                    (or (= op :rf.fx/handled)
                        (= op :rf.error/fx-handler-exception)))))
        (mapv (fn [t]
-               {:fx-id   (get-in t [:tags :fx-id])
-                :fx-args (get-in t [:tags :fx-args])}))))
+               {:fx-id   (get-in t [:tags :rf.fx/id])
+                :fx-args (get-in t [:tags :rf.fx/args])}))))
 
 (defn- check-effects-routed
   "Order-preserving subset match — every expected entry must appear in

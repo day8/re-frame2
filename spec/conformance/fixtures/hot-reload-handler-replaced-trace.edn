@@ -99,13 +99,13 @@
   ;;     so subscribers don't double-count).
   ;;   :flow/poke 2 — flow re-evaluates against v2 body.
   :trace-emissions
-  [{:operation :event :tags {:event-id :flow/reg-v1}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :flow/reg-v1}}
    {:operation :rf.flow/registered
     :tags      {:flow-id :doubled/value :frame :rf/default}}
-   {:operation :event :tags {:event-id :flow/poke}}
-   {:operation :event :tags {:event-id :flow/reg-v2}}
+   {:operation :rf.event :tags {:rf.trace/event-id :flow/poke}}
+   {:operation :rf.event :tags {:rf.trace/event-id :flow/reg-v2}}
    {:operation :rf.registry/handler-replaced
     :tags      {:kind          :flow
                 :id            :doubled/value
                 :different-fn? true}}
-   {:operation :event :tags {:event-id :flow/poke}}]}}
+   {:operation :rf.event :tags {:rf.trace/event-id :flow/poke}}]}}

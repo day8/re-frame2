@@ -26,7 +26,7 @@
 
   ## Recording boundary
 
-  - Only `:event/dispatched` trace events whose `:frame` matches the
+  - Only `:rf.event/dispatched` trace events whose `:frame` matches the
     active recording target qualify.
   - `:rf.assert/*` events are skipped — assertions are authored
     deliberately, not recorded.
@@ -718,7 +718,7 @@
 (defn record-event!
   "Append `event` to the recorder's captured trace iff a recording is
   in flight. Called by the trace-bus listener for every
-  `:event/dispatched` event whose `:frame` matches the recording
+  `:rf.event/dispatched` event whose `:frame` matches the recording
   target. Idempotent against non-recordable events (assertion events,
   internal helpers) — the predicate filter is in `append`."
   [event]
@@ -768,7 +768,7 @@
 ;; Trace-bus listener
 ;;
 ;; One listener per process — registered by the shell at mount, torn
-;; down at unmount. Filters every emit down to `:event/dispatched`
+;; down at unmount. Filters every emit down to `:rf.event/dispatched`
 ;; events targeting the recorder's `:variant-id` slot. The listener
 ;; is idempotent (re-registering replaces).
 ;;
@@ -783,10 +783,10 @@
   "Trace-bus callback. Routes a single trace event through the
   recorder's filter chain:
 
-    1. Must be a `:event/dispatched` emission.
+    1. Must be a `:rf.event/dispatched` emission.
     2. Must target the recorder's `:variant-id` (skip cross-frame
        traffic — interactions in another canvas shouldn't show up).
-    3. Must carry an event vector on `:tags :event`.
+    3. Must carry an event vector on `:tags :rf.event/v`.
 
   Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED per
   rf2-hdadz: the placeholder `redacted-event` vector replaces the
@@ -813,10 +813,10 @@
   [ev]
   (when (recording?)
     (let [{:keys [op-type operation tags]} ev]
-      (when (and (= op-type :event)
-                 (= operation :event/dispatched)
+      (when (and (= op-type :rf.event)
+                 (= operation :rf.event/dispatched)
                  (= (:frame tags) (recording-variant))
-                 (vector? (:event tags)))
+                 (vector? (:rf.event/v tags)))
         (if (config/suppress-sensitive? ev)
           (do
             ;; Record-but-redact (rf2-hdadz): append the redacted
@@ -827,7 +827,7 @@
             ;; event id; no payload survives.
             (config/note-suppressed! (:frame tags))
             (record-event! redacted-event))
-          (record-event! (:event tags)))))))
+          (record-event! (:rf.event/v tags)))))))
 
 (defn install-trace-listener!
   "Install the recorder's trace-bus listener. Idempotent — re-installing

@@ -36,43 +36,43 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (def sample-dispatched
-  {:op-type :event :operation :event/dispatched
+  {:op-type :rf.event :operation :rf.event/dispatched
    :id 10 :time 100
-   :tags {:event [:cart/add-item :sku-1]
-          :dispatch-id 7 :frame :rf/default}})
+   :tags {:rf.event/v [:cart/add-item :sku-1]
+          :rf.trace/dispatch-id 7 :frame :rf/default}})
 
 (def sample-handler
-  {:op-type :event :operation :event/run-end
+  {:op-type :rf.event :operation :rf.event/run-end
    :id 11 :time 110
-   :coeffects {:event [:cart/add-item :sku-1]
-               :db {:cart {:items []}}}
-   :tags {:event-id :cart/add-item :handler-id :cart/add-item-handler}})
+   :tags {:rf.trace/event-id :cart/add-item :handler-id :cart/add-item-handler
+          :rf.event/coeffects {:event [:cart/add-item :sku-1]
+                               :db {:cart {:items []}}}}})
 
 (def sample-fx
-  {:op-type :event :operation :event/do-fx
+  {:op-type :rf.fx :operation :rf.fx/do-fx
    :id 12 :time 115
-   :tags {:dispatch-id 7}})
+   :tags {:rf.trace/dispatch-id 7}})
 
 (def sample-effect
-  {:op-type :fx :operation :db
+  {:op-type :rf.fx :operation :db
    :id 13 :time 116
-   :tags {:fx-id :db :dispatch-id 7}})
+   :tags {:rf.fx/id :db :rf.trace/dispatch-id 7}})
 
 (def sample-sub
-  {:op-type :sub :operation :sub/run
+  {:op-type :rf.sub :operation :rf.sub/run
    :id 14 :time 120
-   :tags {:query [:cart/total] :dispatch-id 7}})
+   :tags {:query [:cart/total] :rf.trace/dispatch-id 7}})
 
 (def sample-render
-  {:op-type :view :operation :view/render
+  {:op-type :rf.view :operation :rf.view/render
    :id 15 :time 122
-   :tags {:component :cart/Item :dispatch-id 7}})
+   :tags {:component :cart/Item :rf.trace/dispatch-id 7}})
 
 (def sample-error
   {:op-type :error :operation :handler/threw
    :id 16 :time 125
    :message "boom"
-   :tags {:dispatch-id 7}})
+   :tags {:rf.trace/dispatch-id 7}})
 
 (def sample-cascade
   {:dispatch-id 7
@@ -219,7 +219,7 @@
 
 (deftest issues-surface-errors-and-warnings
   (let [warn  {:op-type :warning :operation :flow/circular
-               :id 20 :message "circular" :tags {:dispatch-id 7}}
+               :id 20 :message "circular" :tags {:rf.trace/dispatch-id 7}}
         cascade (assoc sample-cascade :other [sample-error warn])
         out (export/project-cascade cascade)
         issues (:issues out)]

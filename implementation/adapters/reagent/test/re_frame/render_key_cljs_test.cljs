@@ -1,6 +1,6 @@
 (ns re-frame.render-key-cljs-test
   "Per Spec 004 §Render-tree primitives (rf2-piag / rf2-t5tx Option C):
-  `:render-key` in the `:view/render` trace and the
+  `:rf.view/render-key` in the `:rf.view/render` trace and the
   `:rf/epoch-record`'s `:renders` projection is the tuple
   `[<view-id> <instance-token>]`.
 
@@ -9,8 +9,8 @@
     - reg-view'd component, two direct invocations through the wrapper
       (no Reagent component context) → distinct instance-tokens, same
       view-id (mirrors per-mount-fresh semantics for headless tests).
-    - The `:view/render` trace is emitted with the tuple-shaped
-      `:render-key`.
+    - The `:rf.view/render` trace is emitted with the tuple-shaped
+      `:rf.view/render-key`.
     - The `*render-key*` dynamic var is bound during render-fn
       invocation and unbound outside.
     - Plain Reagent fns (no reg-view wrapper) — `current-render-key`
@@ -35,7 +35,7 @@
   (let [recorded (atom [])]
     (trace-tooling/register-listener! ::recorder
       (fn [ev]
-        (when (= :view/render (:operation ev))
+        (when (= :rf.view/render (:operation ev))
           (swap! recorded conj ev))))
     recorded))
 
@@ -52,8 +52,8 @@
       (let [wrapper (rf/view :rf.test/probe)]
         (wrapper)
         (let [k @observed]
-          (is (vector? k) ":render-key is a vector")
-          (is (= 2 (count k)) ":render-key is a 2-element tuple")
+          (is (vector? k) ":rf.view/render-key is a vector")
+          (is (= 2 (count k)) ":rf.view/render-key is a 2-element tuple")
           (is (= :rf.test/probe (first k))
               "first slot is the registered view-id")
           (is (int? (second k))
@@ -91,8 +91,8 @@
 ;; ---- view/render trace event ----------------------------------------------
 
 (deftest view-render-trace-carries-tuple-render-key
-  (testing "the wrapper emits a :view/render trace tagged with the tuple
-            :render-key"
+  (testing "the wrapper emits a :rf.view/render trace tagged with the tuple
+            :rf.view/render-key"
     (let [traces (record-render-traces!)]
       (rf/reg-view* :rf.test/traced
         (fn [n] [:span "n-" n]))
@@ -101,10 +101,10 @@
         (wrapper 8)
         (is (= 2 (count @traces)) "one trace per invocation")
         (let [[ev1 ev2] @traces
-              k1        (get-in ev1 [:tags :render-key])
-              k2        (get-in ev2 [:tags :render-key])]
-          (is (= :view/render (:operation ev1)))
-          (is (= :view/render (:operation ev2)))
+              k1        (get-in ev1 [:tags :rf.view/render-key])
+              k2        (get-in ev2 [:tags :rf.view/render-key])]
+          (is (= :rf.view/render (:operation ev1)))
+          (is (= :rf.view/render (:operation ev2)))
           (is (vector? k1))
           (is (vector? k2))
           (is (= :rf.test/traced (first k1) (first k2)))
@@ -126,7 +126,7 @@
 
 (deftest plain-reagent-fn-falls-back-to-anonymous
   (testing "a plain Reagent fn (no reg-view wrapper) reads the anonymous
-            fallback :render-key — current-render-key returns
+            fallback :rf.view/render-key — current-render-key returns
             [:rf.view/anonymous nil] when *render-key* is unbound"
     (let [observed (atom nil)
           plain-fn (fn []
@@ -139,7 +139,7 @@
 ;; ---- conformance: render-key tuple shape ----------------------------------
 
 (deftest render-key-tuple-conformance
-  (testing "every emitted :view/render trace has a 2-tuple :render-key
+  (testing "every emitted :rf.view/render trace has a 2-tuple :rf.view/render-key
             with a keyword view-id and (int OR nil) instance-token"
     (let [traces (record-render-traces!)]
       (rf/reg-view* :rf.test/conform-a (fn [] [:p "a"]))
@@ -148,7 +148,7 @@
       ((rf/view :rf.test/conform-b))
       ((rf/view :rf.test/conform-a))
       (doseq [ev @traces]
-        (let [k (get-in ev [:tags :render-key])]
+        (let [k (get-in ev [:tags :rf.view/render-key])]
           (is (vector? k))
           (is (= 2 (count k)))
           (is (keyword? (first k)) "view-id slot is a keyword")

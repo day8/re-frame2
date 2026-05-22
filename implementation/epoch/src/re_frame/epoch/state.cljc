@@ -359,11 +359,11 @@
   applies."
   [r render-key deps]
   (some (fn [ev]
-          (and (= :sub/run (:operation ev))
-               (true? (-> ev :tags :value-changed?))
+          (and (= :rf.sub/run (:operation ev))
+               (true? (-> ev :tags :rf.sub/value-changed?))
                (let [t (:tags ev)]
-                 (or (= render-key (:reader-render-key t))
-                     (and deps (contains? deps (:sub-id t)))))))
+                 (or (= render-key (:rf.sub/reader-render-key t))
+                     (and deps (contains? deps (:rf.sub/id t)))))))
         (:trace-events r)))
 
 (defn- value-changed-epoch-for
@@ -582,10 +582,10 @@
   rejected / aborted dispatch, or a halt path whose event never ran)."
   [events]
   (some (fn [ev]
-          (when (and (= :event (:op-type ev))
-                     (= :event (:operation ev))
-                     (= :run-start (-> ev :tags :phase)))
-            (-> ev :tags :dispatch-id)))
+          (when (and (= :rf.event (:op-type ev))
+                     (= :rf.event (:operation ev))
+                     (= :run-start (-> ev :tags :rf.trace/phase)))
+            (-> ev :tags :rf.trace/dispatch-id)))
         events))
 
 (defn harvest-buffer-for-event!
@@ -630,7 +630,7 @@
                         ;; into the settling epoch). Pre-fix `(or (nil? did)
                         ;; (= did sid))` swept an orphan in as the cascade's
                         ;; first :trace-events entry — the regression closed.
-                        (= (-> ev :tags :dispatch-id) sid))
+                        (= (-> ev :tags :rf.trace/dispatch-id) sid))
                       b)]
         ;; Leave the other-event traces (non-nil, non-matching id) in the
         ;; buffer for their own event's settle; take ours.

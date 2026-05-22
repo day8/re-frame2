@@ -57,22 +57,22 @@
 
       {:id          <int>
        :time        <ms>
-       :op-type     <kw>            ;; :event / :fx / :sub/run / :view /
+       :op-type     <kw>            ;; :rf.event / :rf.fx / :rf.sub / :rf.view /
                                    ;;  :error / :warning / :info / ...
        :operation   <kw>
        :source      <kw-or-nil>
-       :tags        {:dispatch-id  <int>
-                     :event        <event-vec>
-                     :origin       <kw>
-                     :frame        <kw>
-                     :event-id     <kw>
-                     :handler-id   <kw>
-                     :source       <kw>
-                     :severity     <kw>
-                     :sub-id       <kw>
-                     :fx-id        <kw>
-                     :render-key   <[view-id args]>
-                     :reason       <string>
+       :tags        {:rf.trace/dispatch-id  <int>
+                     :rf.event/v            <event-vec>
+                     :rf.event/origin       <kw>
+                     :frame                 <kw>
+                     :rf.trace/event-id     <kw>
+                     :handler-id            <kw>
+                     :source                <kw>
+                     :severity              <kw>
+                     :rf.sub/id             <kw>
+                     :rf.fx/id              <kw>
+                     :rf.view/render-key    <[view-id args]>
+                     :reason                <string>
                      ...}}
 
   The fixtures here keep the shape minimal but exercise all 9 filter
@@ -94,18 +94,18 @@
    :operation operation
    :source    source
    :tags      (cond-> {}
-                origin      (assoc :origin origin)
+                origin      (assoc :rf.event/origin origin)
                 frame       (assoc :frame frame)
-                event-id    (assoc :event-id event-id)
+                event-id    (assoc :rf.trace/event-id event-id)
                 handler-id  (assoc :handler-id handler-id)
-                dispatch-id (assoc :dispatch-id dispatch-id)
+                dispatch-id (assoc :rf.trace/dispatch-id dispatch-id)
                 source      (assoc :source source)
                 severity    (assoc :severity severity)
-                event-vec   (assoc :event event-vec)
-                sub-id      (assoc :sub-id sub-id)
-                fx-id       (assoc :fx-id fx-id)
+                event-vec   (assoc :rf.event/v event-vec)
+                sub-id      (assoc :rf.sub/id sub-id)
+                fx-id       (assoc :rf.fx/id fx-id)
                 reason      (assoc :reason reason)
-                render-key  (assoc :render-key render-key))})
+                render-key  (assoc :rf.view/render-key render-key))})
 
 ;; ---- buffer builders ----------------------------------------------------
 
@@ -122,31 +122,31 @@
   (vec
     (concat
       ;; Three dispatch + run events for cascade 100 (default frame).
-      [(ev {:id 1 :time 1000 :op-type :event :operation :event/dispatched
+      [(ev {:id 1 :time 1000 :op-type :rf.event :operation :rf.event/dispatched
             :source :ui :origin :app :frame :rf/default
             :event-id :cart/add :dispatch-id 100
             :event-vec [:cart/add :apple]})
-       (ev {:id 2 :time 1001 :op-type :event :operation :event
+       (ev {:id 2 :time 1001 :op-type :rf.event :operation :rf.event/run-end
             :source :ui :origin :app :frame :rf/default
             :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100})
-       (ev {:id 3 :time 1002 :op-type :fx :operation :rf.fx/handled
+       (ev {:id 3 :time 1002 :op-type :rf.fx :operation :rf.fx/handled
             :source :ui :origin :app :frame :rf/default
             :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100
             :fx-id :db})
-       (ev {:id 4 :time 1003 :op-type :sub/run :operation :sub/run
+       (ev {:id 4 :time 1003 :op-type :rf.sub :operation :rf.sub/run
             :source :ui :origin :app :frame :rf/default :dispatch-id 100
             :sub-id :cart/items-count})
-       (ev {:id 5 :time 1004 :op-type :view :operation :view/render
+       (ev {:id 5 :time 1004 :op-type :rf.view :operation :rf.view/render
             :source :ui :origin :app :frame :rf/default :dispatch-id 100})]
       ;; Cross-origin / cross-frame second cascade.
-      [(ev {:id 6 :time 1100 :op-type :event :operation :event/dispatched
+      [(ev {:id 6 :time 1100 :op-type :rf.event :operation :rf.event/dispatched
             :source :timer :origin :story :frame :rf/causa
             :event-id :story/tick :dispatch-id 101
             :event-vec [:story/tick]})
-       (ev {:id 7 :time 1101 :op-type :event :operation :event
+       (ev {:id 7 :time 1101 :op-type :rf.event :operation :rf.event/run-end
             :source :timer :origin :story :frame :rf/causa
             :event-id :story/tick :handler-id :story/tick-h :dispatch-id 101})
-       (ev {:id 8 :time 1102 :op-type :fx :operation :rf.fx/handled
+       (ev {:id 8 :time 1102 :op-type :rf.fx :operation :rf.fx/handled
             :source :timer :origin :story :frame :rf/causa
             :event-id :story/tick :dispatch-id 101 :fx-id :dispatch})]
       ;; Warning + error rows surface the severity axis chip-row.
@@ -164,11 +164,11 @@
   3 origins, 3 frames, 4 sources. Useful for filling the buffer with
   realistic shape variety."
   [n]
-  (let [op-pool      [:event :fx :sub/run :view]
-        ops          {:event :event/dispatched
-                      :fx    :rf.fx/handled
-                      :sub/run :sub/run
-                      :view  :view/render}
+  (let [op-pool      [:rf.event :rf.fx :rf.sub :rf.view]
+        ops          {:rf.event :rf.event/dispatched
+                      :rf.fx    :rf.fx/handled
+                      :rf.sub   :rf.sub/run
+                      :rf.view  :rf.view/render}
         source-pool  [:ui :timer :http :devtools]
         origin-pool  [:app :pair :story :test]
         frame-pool   [:rf/default :rf/causa :tenant/alpha]
@@ -178,13 +178,13 @@
             (let [op    (nth op-pool (mod i (count op-pool)))
                   op-id (get ops op)
                   did   (+ 100 (quot i 4))
-                  tag   (cond-> {:dispatch-id did
-                                 :origin (nth origin-pool (mod i (count origin-pool)))
+                  tag   (cond-> {:rf.trace/dispatch-id did
+                                 :rf.event/origin (nth origin-pool (mod i (count origin-pool)))
                                  :frame  (nth frame-pool (mod i (count frame-pool)))
-                                 :event-id (keyword (str "demo-" (mod i 5))
+                                 :rf.trace/event-id (keyword (str "demo-" (mod i 5))
                                                     (str "event-" i))}
-                          (= op :sub/run) (assoc :sub-id (nth sub-pool (mod i (count sub-pool))))
-                          (= op :fx)      (assoc :fx-id (nth fx-pool (mod i (count fx-pool)))))]
+                          (= op :rf.sub) (assoc :rf.sub/id (nth sub-pool (mod i (count sub-pool))))
+                          (= op :rf.fx)  (assoc :rf.fx/id (nth fx-pool (mod i (count fx-pool)))))]
               {:id        (+ i 1)
                :time      (+ 10000 (* 10 i))
                :op-type   op
@@ -217,11 +217,11 @@
   (vec
     (concat
       (for [i (range 5)]
-        (ev {:id (+ i 1) :time (+ 1000 i) :op-type :event :operation :event/dispatched
+        (ev {:id (+ i 1) :time (+ 1000 i) :op-type :rf.event :operation :rf.event/dispatched
              :source :ui :origin :app :frame :rf/default :dispatch-id (+ 100 i)
              :event-id :cart/add :event-vec [:cart/add :apple]}))
       (for [i (range 5)]
-        (ev {:id (+ i 6) :time (+ 1500 i) :op-type :fx :operation :rf.fx/handled
+        (ev {:id (+ i 6) :time (+ 1500 i) :op-type :rf.fx :operation :rf.fx/handled
              :source :timer :origin :app :frame :rf/default :dispatch-id (+ 100 i)
              :fx-id :db})))))
 
@@ -231,16 +231,16 @@
   renders the marker verbatim — the upstream emit sets it; the panel
   surfaces it."
   []
-  [(ev {:id 1 :time 1000 :op-type :event :operation :event/dispatched
+  [(ev {:id 1 :time 1000 :op-type :rf.event :operation :rf.event/dispatched
         :source :ui :origin :app :frame :rf/default
         :event-id :auth/sign-in :dispatch-id 100
         :event-vec [:auth/sign-in {:email "ada@example.com"
                                    :password :rf/redacted
                                    :totp :rf/redacted}]})
-   (ev {:id 2 :time 1001 :op-type :event :operation :event
+   (ev {:id 2 :time 1001 :op-type :rf.event :operation :rf.event/run-end
         :source :ui :origin :app :frame :rf/default
         :event-id :auth/sign-in :handler-id :auth/sign-in-h :dispatch-id 100})
-   (ev {:id 3 :time 1002 :op-type :fx :operation :rf.fx/handled
+   (ev {:id 3 :time 1002 :op-type :rf.fx :operation :rf.fx/handled
         :source :ui :origin :app :frame :rf/default
         :event-id :auth/sign-in :dispatch-id 100 :fx-id :http})])
 
@@ -286,7 +286,7 @@
     (for [i (range 12)]
       (let [fid (nth [:rf/default :rf/causa :tenant/alpha] (mod i 3))]
         (ev {:id (+ i 1) :time (+ 2000 (* 5 i))
-             :op-type :event :operation :event/dispatched
+             :op-type :rf.event :operation :rf.event/dispatched
              :source :ui :origin :app :frame fid :dispatch-id (+ 200 i)
              :event-id :tenant/poke :event-vec [:tenant/poke i]})))))
 
@@ -298,7 +298,7 @@
   (vec
     (for [i (range 6)]
       (-> (ev {:id (+ i 1) :time (+ 3000 (* 5 i))
-               :op-type :event :operation :event/dispatched
+               :op-type :rf.event :operation :rf.event/dispatched
                :source :ui :origin :app :frame :rf/default :dispatch-id (+ 300 i)
                :event-id :counter/inc :event-vec [:counter/inc]})
           (assoc :rf.trace/trigger-handler
@@ -313,14 +313,14 @@
   (vec
     (concat
       ;; Cascade rooted on a flow-triggering event.
-      [(ev {:id 1 :time 1000 :op-type :event :operation :event/dispatched
+      [(ev {:id 1 :time 1000 :op-type :rf.event :operation :rf.event/dispatched
             :source :ui :origin :app :frame :rf/default
             :event-id :cart/add :dispatch-id 100
             :event-vec [:cart/add :apple]})
-       (ev {:id 2 :time 1001 :op-type :event :operation :event
+       (ev {:id 2 :time 1001 :op-type :rf.event :operation :rf.event/run-end
             :source :ui :origin :app :frame :rf/default
             :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100})
-       (ev {:id 3 :time 1002 :op-type :fx :operation :rf.fx/handled
+       (ev {:id 3 :time 1002 :op-type :rf.fx :operation :rf.fx/handled
             :source :ui :origin :app :frame :rf/default
             :event-id :cart/add :dispatch-id 100 :fx-id :db})]
       ;; Three flow-recomputed events — flow propagates downstream of
@@ -338,7 +338,7 @@
             :source :flow :origin :app :frame :rf/default
             :dispatch-id 100 :sub-id :cart/badge})
        ;; Downstream render driven by the flow.
-       (ev {:id 7 :time 1006 :op-type :view :operation :view/render
+       (ev {:id 7 :time 1006 :op-type :rf.view :operation :rf.view/render
             :source :ui :origin :app :frame :rf/default :dispatch-id 100
             :render-key [:cart/badge nil]})])))
 

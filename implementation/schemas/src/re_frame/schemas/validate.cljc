@@ -123,12 +123,12 @@
   return value the other clauses just scrubbed."
   [tags]
   (cond-> tags
-    (contains? tags :value)    (assoc :value     redacted-sentinel)
-    (contains? tags :received) (assoc :received  redacted-sentinel)
-    (contains? tags :explain)  (assoc :explain   redacted-sentinel)
-    (contains? tags :fx-args)  (assoc :fx-args   redacted-sentinel)
-    (contains? tags :query-v)  (assoc :query-v   redacted-sentinel)
-    true                       (assoc :sensitive? true)))
+    (contains? tags :value)         (assoc :value          redacted-sentinel)
+    (contains? tags :received)      (assoc :received       redacted-sentinel)
+    (contains? tags :explain)       (assoc :explain        redacted-sentinel)
+    (contains? tags :rf.fx/args)    (assoc :rf.fx/args     redacted-sentinel)
+    (contains? tags :rf.sub/query-v) (assoc :rf.sub/query-v redacted-sentinel)
+    true                            (assoc :sensitive? true)))
 
 (defn- common-prefix
   "Return the longest common prefix of two sequential collections (as a
@@ -443,12 +443,12 @@
       false  ;; handler-meta `:sensitive?` removed; rely on schema-walker
       true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
-        {:where      :sub-return
-         :sub-id     sub-id
-         :failing-id sub-id
-         :schema-id  sub-id
-         :query-v    query-v
-         :received   value
+        {:where          :sub-return
+         :rf.sub/id      sub-id
+         :failing-id     sub-id
+         :schema-id      sub-id
+         :rf.sub/query-v query-v
+         :received       value
          :value      value
          :explain    explanation
          :reason     (reason-string "Subscription " sub-id
@@ -473,7 +473,7 @@
       true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         {:where      :cofx
-         :cofx-id    cofx-id
+         :rf.cofx/id cofx-id
          :event-id   event-id
          :failing-id event-id
          :schema-id  cofx-id
@@ -510,8 +510,8 @@
       true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         (cond-> {:where      :fx-args
-                 :fx-id      fx-id
-                 :fx-args    args
+                 :rf.fx/id   fx-id
+                 :rf.fx/args args
                  :failing-id fx-id
                  :schema-id  fx-id
                  :received   args

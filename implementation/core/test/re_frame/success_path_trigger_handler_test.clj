@@ -8,7 +8,7 @@
   coord under the top-level `:rf.trace/trigger-handler` slot. Originally
   introduced (rf2-3nn8) for error events only; widened (rf2-lf84g) so
   success-path traces — `:rf.fx/handled`, `:rf.machine/transition`,
-  `:event/db-changed`, `:event/do-fx`, ... — also carry the coord, so
+  `:rf.event/db-changed`, `:rf.fx/do-fx`, ... — also carry the coord, so
   consumer tools (Story, Causa, re-frame-pair) can render
   jump-to-source links from every event in a cascade, not just errors.
 
@@ -134,7 +134,7 @@
     (rf/reg-event-db :rf2-lf84g/child (fn [db _] (assoc db :child? true)))
     (let [evs       (record-traces #(rf/dispatch-sync [:rf2-lf84g/parent]))
           handled   (events-of evs :rf.fx/handled)
-          parent-fx (first (filter #(= :dispatch (get-in % [:tags :fx-id])) handled))]
+          parent-fx (first (filter #(= :dispatch (get-in % [:tags :rf.fx/id])) handled))]
       (is (some? parent-fx) ":dispatch :rf.fx/handled fired")
       ;; The reserved-fx-id path runs inside the parent event's
       ;; *current-trigger-handler* binding (no inner fx binding kicks in
@@ -167,16 +167,16 @@
 ;; ---- the field rides on every event in the cascade -----------------------
 
 (deftest event-db-changed-and-do-fx-carry-event-handler-trigger
-  (testing "`:event/db-changed` and `:event/do-fx` fire inside the event
+  (testing "`:rf.event/db-changed` and `:rf.fx/do-fx` fire inside the event
    handler's *current-trigger-handler* binding — they carry the event
    handler's registration coord under :rf.trace/trigger-handler"
     (rf/reg-event-fx :rf2-lf84g/changes-db
                      (fn [_ _] {:db {:n 1} :fx []}))
     (let [evs   (record-traces #(rf/dispatch-sync [:rf2-lf84g/changes-db]))
-          [dbc] (events-of evs :event/db-changed)
-          [dof] (events-of evs :event/do-fx)]
-      (is (some? dbc) ":event/db-changed fired")
-      (is (some? dof) ":event/do-fx fired")
+          [dbc] (events-of evs :rf.event/db-changed)
+          [dof] (events-of evs :rf.fx/do-fx)]
+      (is (some? dbc) ":rf.event/db-changed fired")
+      (is (some? dof) ":rf.fx/do-fx fired")
       (assert-trigger-shape dbc :event :rf2-lf84g/changes-db)
       (assert-trigger-shape dof :event :rf2-lf84g/changes-db))))
 
@@ -199,10 +199,10 @@
         (finally
           (rf/unregister-listener! ::rec))))))
 
-;; ---- :sub/run carries the sub's registration coord (rf2-npm2p) ------------
+;; ---- :rf.sub/run carries the sub's registration coord (rf2-npm2p) ------------
 ;;
 ;; Spec 009 §:rf.trace/trigger-handler table — "Inside a sub recompute (body
-;; fn): the sub's coord". The `:sub/run` success-trace emits inside the
+;; fn): the sub's coord". The `:rf.sub/run` success-trace emits inside the
 ;; sub's recompute scope, so it carries the sub's own registration coord
 ;; (not the enclosing event handler's, even when the recompute fires
 ;; inside a dispatch's drain). Causa's event-detail panel + re-frame2-pair's
@@ -210,7 +210,7 @@
 ;; trace in a cascade, including sub recomputes.
 
 (deftest sub-run-carries-sub-trigger
-  (testing ":sub/run rides the sub's own registration coord — Causa /
+  (testing ":rf.sub/run rides the sub's own registration coord — Causa /
    re-frame2-pair want jump-to-source to land on the reg-sub site of the sub
    that recomputed, not the upstream event handler whose db change
    caused the recompute"
@@ -218,19 +218,19 @@
                 (fn [db _] (:n db)))
     (let [evs (record-traces
                 (fn [] (deref (rf/subscribe [:rf2-npm2p/n]))))
-          [run] (events-of evs :sub/run)]
-      (is (some? run) ":sub/run trace fired on recompute")
+          [run] (events-of evs :rf.sub/run)]
+      (is (some? run) ":rf.sub/run trace fired on recompute")
       (assert-trigger-shape run :sub :rf2-npm2p/n))))
 
 (deftest sub-run-trigger-rides-at-top-level
-  (testing ":rf.trace/trigger-handler on :sub/run is a top-level field,
+  (testing ":rf.trace/trigger-handler on :rf.sub/run is a top-level field,
    NOT nested under :tags — mirrors the error / fx-handled / machine-
    transition shapes"
     (rf/reg-sub :rf2-npm2p/top-level
                 (fn [db _] db))
     (let [evs   (record-traces
                   (fn [] (deref (rf/subscribe [:rf2-npm2p/top-level]))))
-          [run] (events-of evs :sub/run)]
+          [run] (events-of evs :rf.sub/run)]
       (is (some? run))
       (is (contains? run :rf.trace/trigger-handler)
           ":rf.trace/trigger-handler lives at top level")
@@ -238,7 +238,7 @@
           ":rf.trace/trigger-handler does NOT live under :tags"))))
 
 (deftest sub-run-trigger-matches-registrar-coord
-  (testing "the :source-coord under :rf.trace/trigger-handler on :sub/run
+  (testing "the :source-coord under :rf.trace/trigger-handler on :rf.sub/run
    equals what the registrar holds on the sub's slot — same comparison
    the other scope tests do (fx, machine, event)"
     (rf/reg-sub :rf2-npm2p/coord
@@ -246,7 +246,7 @@
     (let [sub-meta (rf/handler-meta :sub :rf2-npm2p/coord)
           evs      (record-traces
                      (fn [] (deref (rf/subscribe [:rf2-npm2p/coord]))))
-          [run]    (events-of evs :sub/run)
+          [run]    (events-of evs :rf.sub/run)
           coord    (-> run :rf.trace/trigger-handler :source-coord)]
       (is (some? run))
       (is (= (:ns     sub-meta) (:ns coord)))
@@ -256,7 +256,7 @@
 
 (deftest sub-run-trigger-is-sub-not-enclosing-event
   (testing "when a sub fires during a dispatch (the event handler's
-   db change is observed by a subsequent deref), :sub/run still carries
+   db change is observed by a subsequent deref), :rf.sub/run still carries
    the SUB's coord — not the enclosing event handler's. The runtime
    rebinds `*current-trigger-handler*` around the sub recompute for
    exactly this reason; otherwise tools would jump to the upstream
@@ -268,7 +268,7 @@
     ;; recompute fires inside the in-flight event handler's binding
     ;; scope, and the trigger-handler hoist contract is what's under
     ;; test: does the inner sub-binding override the outer event-
-    ;; handler-binding for the `:sub/run` emit? Per Spec 009 §:rf.trace
+    ;; handler-binding for the `:rf.sub/run` emit? Per Spec 009 §:rf.trace
     ;; /trigger-handler table, yes (the inner scope wins).
     (rf/reg-event-db :rf2-npm2p/changes-n
                      (fn [db _]
@@ -280,8 +280,8 @@
                          new-db)))
     (let [evs   (record-traces
                   (fn [] (rf/dispatch-sync [:rf2-npm2p/changes-n])))
-          [run] (events-of evs :sub/run)]
-      (is (some? run) ":sub/run fired inside the cascade")
+          [run] (events-of evs :rf.sub/run)]
+      (is (some? run) ":rf.sub/run fired inside the cascade")
       ;; The KIND under trigger-handler is :sub, not :event. Even
       ;; though the deref happens INSIDE the event handler's drain,
       ;; the sub-recompute body rebinds the trigger-handler. Same
@@ -290,7 +290,7 @@
 
 (deftest programmatic-sub-omits-trigger-on-run
   (testing "a sub registered without the macro path (no source-coord
-   stamp on the registrar slot) emits :sub/run with no
+   stamp on the registrar slot) emits :rf.sub/run with no
    :rf.trace/trigger-handler field — better no-data than poison-data
    (mirrors the fx-handled programmatic path)"
     (let [reg-fn (requiring-resolve 're-frame.subs/reg-sub)]
@@ -298,8 +298,8 @@
               (fn [db _] db)))
     (let [evs   (record-traces
                   (fn [] (deref (rf/subscribe [:rf2-npm2p/programmatic]))))
-          [run] (events-of evs :sub/run)]
-      (is (some? run) ":sub/run fired")
+          [run] (events-of evs :rf.sub/run)]
+      (is (some? run) ":rf.sub/run fired")
       (is (not (contains? run :rf.trace/trigger-handler))
           "programmatic sub-registration → no coord → field omitted"))))
 

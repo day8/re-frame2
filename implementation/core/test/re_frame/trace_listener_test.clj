@@ -59,8 +59,8 @@
 
 (defn- dispatched-events
   [evs]
-  (filterv #(and (= :event (:op-type %))
-                 (= :event/dispatched (:operation %)))
+  (filterv #(and (= :rf.event (:op-type %))
+                 (= :rf.event/dispatched (:operation %)))
            evs))
 
 (def ^:private span-shape-keys
@@ -97,10 +97,10 @@
       (rf/dispatch-sync [:sync/ping])
       (is (seq @seen)
           "listener was invoked synchronously, before dispatch-sync returned")
-      (is (some #(and (= :event (:op-type %))
-                      (= :event/dispatched (:operation %)))
+      (is (some #(and (= :rf.event (:op-type %))
+                      (= :rf.event/dispatched (:operation %)))
                 @seen)
-          "the :event/dispatched trace was delivered synchronously")
+          "the :rf.event/dispatched trace was delivered synchronously")
       (rf/unregister-listener! ::sync))))
 
 (deftest one-call-per-emitted-event
@@ -187,9 +187,9 @@
       (rf/dispatch-sync [:framed/ping] {:frame :frame/scoped})
       (let [dispatched (->> @seen
                             dispatched-events
-                            (filter #(= [:framed/ping] (get-in % [:tags :event])))
+                            (filter #(= [:framed/ping] (get-in % [:tags :rf.event/v])))
                             first)]
-        (is dispatched ":event/dispatched trace was delivered for the framed dispatch")
+        (is dispatched ":rf.event/dispatched trace was delivered for the framed dispatch")
         (is (= :frame/scoped (get-in dispatched [:tags :frame]))
             ":frame frame-id is carried under :tags per Spec 009 §The trace event model"))
       (rf/unregister-listener! ::framed))))
@@ -209,8 +209,8 @@
             b (->> @seen dispatched-events
                    (filter #(= :frame/b (get-in % [:tags :frame])))
                    first)]
-        (is a "frame :frame/a's :event/dispatched delivered with its frame tag")
-        (is b "frame :frame/b's :event/dispatched delivered with its frame tag"))
+        (is a "frame :frame/a's :rf.event/dispatched delivered with its frame tag")
+        (is b "frame :frame/b's :rf.event/dispatched delivered with its frame tag"))
       (rf/unregister-listener! ::multi))))
 
 ;; ---- 6. Production-elision contract (structural) -------------------------

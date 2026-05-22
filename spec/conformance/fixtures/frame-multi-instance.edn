@@ -40,9 +40,9 @@
    [:right [:count]] 100}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :counter/initialise :frame :left}}
-   {:operation :event :tags {:event-id :counter/initialise :frame :right}}
-   {:operation :event :tags {:event-id :counter/inc       :frame :left}}
-   {:operation :event :tags {:event-id :counter/inc       :frame :left}}
-   {:operation :event :tags {:event-id :counter/inc       :frame :left}}
-   {:operation :event :tags {:event-id :counter/set       :frame :right}}]}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :counter/initialise :frame :left}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/initialise :frame :right}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/inc       :frame :left}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/inc       :frame :left}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/inc       :frame :left}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/set       :frame :right}}]}}

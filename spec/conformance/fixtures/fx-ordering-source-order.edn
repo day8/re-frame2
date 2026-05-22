@@ -45,11 +45,11 @@
   :sub-values     {[:log] [:a :b :c]}
 
   :trace-emissions
-  [{:operation :event :op-type :event :tags {:event-id :fx-order/initialise}}
-   {:operation :event :op-type :event :tags {:event-id :fx-order/run}}
+  [{:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :fx-order/initialise}}
+   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :fx-order/run}}
    ;; Drained in source order — :a before :b before :c.
-   {:operation :event :op-type :event :tags {:event-id :fx-order/a}}
-   {:operation :event :op-type :event :tags {:event-id :fx-order/b}}
-   {:operation :event :op-type :event :tags {:event-id :fx-order/c}}]
+   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :fx-order/a}}
+   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :fx-order/b}}
+   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :fx-order/c}}]
 
   :effects-routed []}}

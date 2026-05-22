@@ -290,8 +290,8 @@
             ribbon's right-side action cluster (Clear Filters + N-hidden
             message) is absent (clean default state)."
     (causa-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :event :operation :event/dispatched
-                               :tags {:event [:a] :frame :rf/default :dispatch-id 1}})
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
         (is (nil? (find-by-testid tree "rf-causa-events-ribbon-actions"))
@@ -305,10 +305,10 @@
   (testing "rf2-4vp5j Decision 3 — when a filter is active, Clear Filters
             appears; the N-hidden message appears beside it only when N>0."
     (causa-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :event :operation :event/dispatched
-                               :tags {:event [:a] :frame :rf/default :dispatch-id 1}})
-    (trace-bus/collect-trace! {:id 2 :op-type :event :operation :event/dispatched
-                               :tags {:event [:noise/tick] :frame :rf/default :dispatch-id 2}})
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
+    (trace-bus/collect-trace! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:noise/tick] :frame :rf/default :rf.trace/dispatch-id 2}})
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/add-filter :out {:pattern :noise/tick}]))
     (rf/with-frame :rf/causa
@@ -559,17 +559,17 @@
 ;; -------------------------------------------------------------------------
 
 (defn- dispatch-trace-ev
-  "Minimal `:event/dispatched` trace event so the projection produces
+  "Minimal `:rf.event/dispatched` trace event so the projection produces
   a one-cascade list. The shape matches what
   `re-frame.trace.projection/group-cascades` consumes — the cascade
   key is `[frame dispatch-id]` and both must live under `:tags`."
   [id event-vec]
   {:id           id
-   :op-type      :event
-   :operation    :event/dispatched
-   :tags         {:event       event-vec
+   :op-type      :rf.event
+   :operation    :rf.event/dispatched
+   :tags         {:rf.event/v       event-vec
                   :frame       :rf/default
-                  :dispatch-id id}})
+                  :rf.trace/dispatch-id id}})
 
 (deftest event-list-renders-empty-state-on-cold-start
   (testing "empty cascade list shows the spec/018 §4 empty-state hint"
@@ -631,9 +631,9 @@
             carries the `<no event>` text."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! {:id 50 :op-type :registry
+    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
-                               :tags {:sub-id :foo/bar}})
+                               :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             rows (find-all-by-testid-prefix tree "rf-causa-event-row-")
@@ -649,9 +649,9 @@
             container — the `<no event>` placeholder is never the
             user's first impression of the L2 list."
     (causa-setup!)
-    (trace-bus/collect-trace! {:id 50 :op-type :registry
+    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
-                               :tags {:sub-id :foo/bar}})
+                               :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
         (is (some? (find-by-testid tree "rf-causa-event-list-empty"))
@@ -680,9 +680,9 @@
     (config/update-setting! :general :show-ungrouped? true)
     (try
       (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-      (trace-bus/collect-trace! {:id 50 :op-type :registry
+      (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
                                  :operation :sub/registered
-                                 :tags {:sub-id :foo/bar}})
+                                 :tags {:rf.sub/id :foo/bar}})
       (rf/with-frame :rf/causa
         (let [tree (shell/shell-view)
               rows (find-all-by-testid-prefix tree "rf-causa-event-row-")
@@ -705,9 +705,9 @@
     (is (false? (config/get-setting :general :show-ungrouped?))
         ":show-ungrouped? defaults OFF (silent-by-default)")
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! {:id 50 :op-type :registry
+    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
-                               :tags {:sub-id :foo/bar}})
+                               :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             rows (find-all-by-testid-prefix tree "rf-causa-event-row-")]
@@ -724,9 +724,9 @@
     (config/update-setting! :general :show-ungrouped? true)
     (try
       (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-      (trace-bus/collect-trace! {:id 50 :op-type :registry
+      (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
                                  :operation :sub/registered
-                                 :tags {:sub-id :foo/bar}})
+                                 :tags {:rf.sub/id :foo/bar}})
       (let [dispatches (atom [])]
         (with-redefs [rf/dispatch* (fn
                                      ([ev]       (swap! dispatches conj ev) nil)
@@ -1038,9 +1038,9 @@
     ;; one real cascade …
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     ;; … plus an :ungrouped trace event (no :dispatch-id tag)
-    (trace-bus/collect-trace! {:id 50 :op-type :registry
+    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
-                               :tags {:sub-id :foo/bar}})
+                               :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
         (is (nav-prev-disabled? tree)

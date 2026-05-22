@@ -398,7 +398,7 @@
   []
   ;; `:rf.trace/frame-no-emit? true` marks `:rf/causa` a tool / inspector
   ;; frame: the framework suppresses all trace emission tagged with this
-  ;; frame so Causa's own UI reactivity (`:sub/run` + `:view/render` on
+  ;; frame so Causa's own UI reactivity (`:rf.sub/run` + `:rf.view/render` on
   ;; every panel render) does NOT flood the shared trace ring it inspects
   ;; (rf2-2qaqh). Without this, Causa's self-instrumentation evicted every
   ;; application event from the process-global ring buffer — any other

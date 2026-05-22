@@ -470,7 +470,7 @@
     ;; Per rf2-qsjda + the matching `:rf.causa/note-sensitive-
     ;; suppressed` pattern: `:rf.trace/no-emit? true` opts every
     ;; handler in this group out of framework trace emission. Without
-    ;; it the dispatch would emit `:event/dispatched` etc. back
+    ;; it the dispatch would emit `:rf.event/dispatched` etc. back
     ;; through the trace-cb fan-out, the collector would see its own
     ;; self-emit, and the cascade would loop until `drain-depth-
     ;; default` terminated it.
@@ -547,7 +547,7 @@
     ;;
     ;; Per rf2-qsjda: `:rf.trace/no-emit? true` opts the handler out of
     ;; framework trace emission. Without this, the dispatch fired by
-    ;; `trace-bus/collect-trace!` would itself emit `:event/dispatched`
+    ;; `trace-bus/collect-trace!` would itself emit `:rf.event/dispatched`
     ;; etc. back through the trace-cb fan-out, the collector would see
     ;; its own self-emit, and the cascade would loop until
     ;; `drain-depth-default` terminated it. The framework now

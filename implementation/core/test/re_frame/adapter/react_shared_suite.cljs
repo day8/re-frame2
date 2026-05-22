@@ -1082,14 +1082,14 @@
       (let [ev (first @traces)
             t  (:tags ev)]
         (is (some? ev) "an :rf.view/rendered event fired")
-        (is (= id (:view-id t)) ":view-id matches")
+        (is (= id (:rf.view/id t)) ":rf.view/id matches")
         (is (some? (:frame t)) ":frame present")
-        (is (vector? (:render-key t)) ":render-key is a tuple"))
+        (is (vector? (:rf.view/render-key t)) ":rf.view/render-key is a tuple"))
       (trace-tooling/unregister-listener! ::view-rendered-recorder))))
 
 (defn assert-rf-view-rendered-attribution-in-cascade
-  ":rf.view/rendered emitted inside a cascade carries :cause-event-id +
-  :cause-subs sourced from the in-flight epoch capture buffer (rf2-25zo2)."
+  ":rf.view/rendered emitted inside a cascade carries :rf.view/cause-event-id +
+  :rf.view/cause-subs sourced from the in-flight epoch capture buffer (rf2-25zo2)."
   [{:keys [substrate-kw name]}]
   (testing (str name " — :rf.view/rendered in a cascade carries cause attribution")
     (let [n-sub      (mint-kw substrate-kw "view-rendered-n")
@@ -1105,12 +1105,12 @@
             (render)
             {}))
         (rf/dispatch-sync [cascade-ev]))
-      (let [ev (first (filter #(some? (get-in % [:tags :cause-event-id])) @traces))]
+      (let [ev (first (filter #(some? (get-in % [:tags :rf.view/cause-event-id])) @traces))]
         (is (some? ev) "at least one in-cascade :rf.view/rendered")
         (when ev
           (let [t (:tags ev)]
-            (is (= cascade-ev (:cause-event-id t)))
-            (is (some #{n-sub} (:cause-subs t))))))
+            (is (= cascade-ev (:rf.view/cause-event-id t)))
+            (is (some #{n-sub} (:rf.view/cause-subs t))))))
       (trace-tooling/unregister-listener! ::view-rendered-recorder))))
 
 ;; ===========================================================================
@@ -1421,7 +1421,7 @@
         (is (every? #(= :tenant-x (:frame (:tags %))) machine-traces) "each trace carries the destroyed frame's id")
         (is (= #{:authed :pending} (set (map #(:last-state (:tags %)) machine-traces))) "each trace records the machine's last state")
         (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces) "each trace carries :reason :parent-frame-destroyed")
-        (is (some #(= :frame/destroyed (:operation %)) @traces) ":frame/destroyed fires after the per-machine traces")))))
+        (is (some #(= :rf.frame/destroyed (:operation %)) @traces) ":rf.frame/destroyed fires after the per-machine traces")))))
 
 (defn assert-xspec-machine-microstep-subscribe
   "#2 Sub-cache hit inside a machine microstep."
@@ -1533,7 +1533,7 @@
           (rf/dispatch-sync [:test/m [:go]])
           (stop-traces ::xspec-12)
           (is (some #(and (= :rf.error/fx-handler-exception (:operation %))
-                          (= :throwy (get-in % [:tags :fx-id]))) @traces)
+                          (= :throwy (get-in % [:tags :rf.fx/id]))) @traces)
               "the throwing fx surfaces as :rf.error/fx-handler-exception")
           (is (= [:b] @seen) ":fx walk continued past the throwing fx — :record still ran")
           (is (= :done (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m :state]))
@@ -2182,7 +2182,7 @@
 (defn assert-view-unmount-emits-on-react-hook-teardown
   "rf2-te71r: mounting then unmounting a registered view under a
   React-hook substrate (UIx / Helix) emits exactly one :rf.view/unmounted
-  carrying the required :view-id + :frame tags (plus the :render-key
+  carrying the required :rf.view/id + :frame tags (plus the :rf.view/render-key
   instance tuple). The emit rides the spine wrap-view's React.useEffect
   empty-deps cleanup — the React-hook parity for the phase-A Reagent
   reaction-dispose unmount hook.
@@ -2222,11 +2222,11 @@
                 "exactly one :rf.view/unmounted fired on instance teardown")
             (when-let [ev (first @recorded)]
               (let [t (:tags ev)]
-                (is (= view-id (:view-id t)) ":view-id tag matches the registered view")
+                (is (= view-id (:rf.view/id t)) ":rf.view/id tag matches the registered view")
                 (is (some? (:frame t)) ":frame tag present")
-                (is (vector? (:render-key t)) ":render-key is a tuple")
-                (is (= view-id (first (:render-key t)))
-                    ":render-key's head is the view-id")))
+                (is (vector? (:rf.view/render-key t)) ":rf.view/render-key is a tuple")
+                (is (= view-id (first (:rf.view/render-key t)))
+                    ":rf.view/render-key's head is the view-id")))
             (finally
               (trace-tooling/unregister-listener! ::view-unmounted-recorder)
               (try (.unmount root) (catch :default _ nil))))))))))

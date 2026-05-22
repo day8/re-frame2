@@ -558,8 +558,8 @@ default `true` — see §Structural dedup at the top of this
 catalogue), `build`.
 
 `:timing-ms` (rf2-r3azh) — server-side wall-clock filter on the
-cascade's elapsed-ms (derived from the `:event/run-start` /
-`:event/run-end` trace pair on `:time`; spans first run-start to last
+cascade's elapsed-ms (derived from the `:rf.event/run-start` /
+`:rf.event/run-end` trace pair on `:time`; spans first run-start to last
 run-end so synchronously-dispatched same-cascade chains roll up). The
 filter rides server-side so non-matching epochs never cross the wire
 — `typicalTokens` is the worst case; narrowing on `:timing-ms` (e.g.
@@ -816,7 +816,7 @@ summary `{:ok? true :sub-id :delivered N :dropped-events N
 |----------|-------------------------------------------------------------------|
 | `trace`  | Every raw trace event matching `filter`.                          |
 | `epoch`  | Every assembled `:rf/epoch-record` matching `filter`.             |
-| `fx`     | Sugar — `topic :trace` with base filter `{:op-type :fx}`.         |
+| `fx`     | Sugar — `topic :trace` with base filter `{:op-type :rf.fx}`.      |
 | `error`  | Sugar — `topic :trace` with base filter `{:op-type :error}`.      |
 
 User-supplied filter keys win over the topic's base filter on conflict
@@ -837,11 +837,11 @@ that axis"):
 | `:op-type`       | `(= op-type (:op-type ev))`                                       |
 | `:severity`      | Alias for `:op-type`, restricted to `:error` / `:warning` / `:info`. |
 | `:frame`         | `(:frame ev)` or `(get-in ev [:tags :frame])`                     |
-| `:event-id`      | `(get-in ev [:tags :event-id])`                                   |
+| `:event-id`      | `(get-in ev [:tags :rf.trace/event-id])`                          |
 | `:handler-id`    | `(get-in ev [:tags :handler-id])`                                 |
 | `:source`        | `(:source ev)` or `(get-in ev [:tags :source])` — one of `:ui` / `:timer` / `:http` / `:repl` / `:machine` / `:ssr-hydration`. |
-| `:origin`        | `(get-in ev [:tags :origin])` — `:app` / `:pair` / `:story` / `:test`. |
-| `:dispatch-id`   | `(get-in ev [:tags :dispatch-id])`                                |
+| `:origin`        | `(get-in ev [:tags :rf.event/origin])` — `:app` / `:pair` / `:story` / `:test`. |
+| `:dispatch-id`   | `(get-in ev [:tags :rf.trace/dispatch-id])`                       |
 | `:since-ms`      | `(> (:time ev) since-ms)` — strict-greater-than host-clock ms.    |
 | `:between`       | `[t0 t1]` — `(<= t0 (:time ev) t1)` host-clock ms.                |
 | `:sensitive?`    | `(:sensitive? ev)` — boolean. **Default forwarder posture:** events with `:sensitive? true` are dropped at the MCP boundary before any data reaches the agent surface (per [spec/009 §Privacy / sensitive data](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The runtime stamps the flag on every trace event emitted inside a `:sensitive? true` registration's handler scope. Opt back in per-call with `include-sensitive true` (an MCP tool arg on `trace-window`, `watch-epochs`, `snapshot`, `subscribe`). Dropped count surfaces as `:dropped-sensitive` on the result / progress payload when non-zero. |
@@ -857,9 +857,9 @@ vocab `watch-epochs` already accepts):
 | `:touches-path`      | `(:db-before e)` or `(:db-after e)` carries something at path |
 | `:sub-ran`           | `(some #(or (= sub-ran (:sub-id %)) (= sub-ran (first (:query-v %)))) (:sub-runs e))` |
 | `:render`            | `(some #(= render (str (:render-key %))) (:renders e))`       |
-| `:origin`            | One of the `:event/dispatched` traces has `(:tags :origin)` = `origin`. |
+| `:origin`            | One of the `:rf.event/dispatched` traces has `(:tags :rf.event/origin)` = `origin`. |
 | `:frame`             | `(= frame (:frame e))`                                        |
-| `:timing-ms`         | Cascade elapsed-ms (first `:event/run-start` → last `:event/run-end` on `:time`) matches the threshold. Number `N` is sugar for `>= N`; strings `">N"` / `">=N"` / `"<N"` / `"<=N"` / `"=N"` set the comparator. Epochs with no derivable timing never match (rf2-r3azh). |
+| `:timing-ms`         | Cascade elapsed-ms (first `:rf.event/run-start` → last `:rf.event/run-end` on `:time`) matches the threshold. Number `N` is sugar for `>= N`; strings `">N"` / `">=N"` / `"<N"` / `"<=N"` / `"=N"` set the comparator. Epochs with no derivable timing never match (rf2-r3azh). |
 
 ### Args
 

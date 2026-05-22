@@ -513,9 +513,9 @@ Universal trace event shape, including error events.
                                                [:column {:optional true} :int]]]]]])
 ```
 
-The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` under `:tags` of **every** trace event emitted inside a cascade; `:parent-dispatch-id` rides under `:tags` of `:event/dispatched` events only (it documents inter-cascade lineage). Per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id). Per-event frame attribution rides under `[:tags :frame]`. Per-event handler attribution rides under the top-level `:rf.trace/trigger-handler` slot when a handler is in scope at emit time — `:rf.fx/handled` carries the fx handler's coord, `:rf.machine/transition` carries the machine's coord, every `:rf.error/*` carries the responsible handler's coord, every emit inside an event handler's chain carries the event handler's coord. Per [009 §`:rf.trace/trigger-handler` — naming the in-scope handler](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler).
+The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:rf.trace/dispatch-id` under `:tags` of **every** trace event emitted inside a cascade; `:rf.trace/parent-dispatch-id` rides under `:tags` of `:rf.event/dispatched` events only (it documents inter-cascade lineage). These cross-cutting correlation keys live under `:rf.trace/*` (per [Conventions §`:rf.trace/*`](Conventions.md#the-single-root-reserved-set)). Per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id). Per-event frame attribution rides under `[:tags :frame]` (the deliberate bare carve-out). Per-event handler attribution rides under the top-level `:rf.trace/trigger-handler` slot when a handler is in scope at emit time — `:rf.fx/handled` carries the fx handler's coord, `:rf.machine/transition` carries the machine's coord, every `:rf.error/*` carries the responsible handler's coord, every emit inside an event handler's chain carries the event handler's coord. Per [009 §`:rf.trace/trigger-handler` — naming the in-scope handler](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler).
 
-The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md#spec-ulation). The canonical reserved values used by the framework — the family-level discriminators a consumer branches on — are enumerated below. Per-emit-site `:operation` keywords (e.g. `:rf.machine/transition`, `:rf.machine.timer/scheduled`, `:rf.epoch/snapshotted`, `:rf.error/handler-exception`) ride under each op-type family; the authoritative cross-reference is [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) and the [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md#spec-ulation). The canonical reserved values used by the framework — the family-level discriminators a consumer branches on — are enumerated below; every framework op-type is `:rf.<family>` and every `:operation` is `:rf.<family>/<op>` (the severity discriminators `:error` / `:warning` / `:info` are the bare exception). Per-emit-site `:operation` keywords (e.g. `:rf.machine/transition`, `:rf.machine.timer/scheduled`, `:rf.epoch/snapshotted`, `:rf.error/handler-exception`) ride under each op-type family; the authoritative cross-reference is [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) and the [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
 **Severity discriminators** (every error / warning / advisory event carries one of these):
 
@@ -529,24 +529,22 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 
 | `:op-type` | Used for | Spec |
 |---|---|---|
-| `:event` | Top-level event-handler invocation (`:event/dispatched`, `:event/db-changed`, etc.) | 009 |
-| `:event/do-fx` | Effect-resolution pass after the handler returns | 009 |
-| `:sub/create` | Subscription created (first reference / registration into the reactive graph) | 009 |
-| `:sub/run` | Subscription computation ran (input changed; output recomputed) | 009 |
-| `:view/render` | View-substrate family (`:op-type :view`) — `:view/render` (per-render marker), plus the `:rf.view/rendered` per-render cascade-attribution / per-view ACTION+REASON marker (carries `:mount?` + `:deref-subs` per rf2-9hoos), its `:rf.view/rendered-cap-reached` truncation marker, and the `:rf.view/unmounted` instance-teardown marker (rf2-9hoos). Per [Spec 004 §Render-tree primitives](004-Views.md) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) | 004 / 009 |
-| `:fx` | Effect-substrate success-path / lifecycle events (e.g. `:rf.fx/handled`, `:rf.fx/override-applied`) — the universal discriminator for fx outcomes when not error/warning-shaped | 002 / 009 |
+| `:rf.event` | Top-level event-handler invocation (`:rf.event/dispatched`, `:rf.event/db-changed`, etc.) | 009 |
+| `:rf.sub` | Subscription family — `:rf.sub/create` (first reference / registration into the reactive graph), `:rf.sub/run` (input changed; output recomputed), `:rf.sub/skip` (memo-hit; body did not re-run) | 009 |
+| `:rf.view` | View-substrate family — `:rf.view/render` (per-render marker), plus the `:rf.view/rendered` per-render cascade-attribution / per-view ACTION+REASON marker (carries `:rf.view/mount?` + `:rf.view/deref-subs` per rf2-9hoos), its `:rf.view/rendered-cap-reached` truncation marker, and the `:rf.view/unmounted` instance-teardown marker (rf2-9hoos). Per [Spec 004 §Render-tree primitives](004-Views.md) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) | 004 / 009 |
+| `:rf.fx` | Effect-substrate success-path / lifecycle family — `:rf.fx/do-fx` (the effects-resolution pass after the handler returns — folded in here from the former standalone `:event/do-fx` op-type), `:rf.fx/handled`, `:rf.fx/override-applied`. The universal discriminator for fx outcomes when not error/warning-shaped | 002 / 009 |
 
 **Family-level discriminators** (umbrella `:op-type` values whose per-emit-site `:operation` varies; consumers filter the whole family with one key):
 
 | `:op-type` | Used for | Spec |
 |---|---|---|
-| `:frame` | Frame-lifecycle family — `:frame/created`, `:frame/re-registered`, `:frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
+| `:rf.frame` | Frame-lifecycle family — `:rf.frame/created`, `:rf.frame/re-registered`, `:rf.frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
 | `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason :rf.machine/finished` / `:explicit` / `:parent-unmount-cascade` (the non-frame-exit causes; `:parent-frame-destroyed` rides on the `:rf.machine.lifecycle/destroyed` family below). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
 | `:rf.machine.lifecycle/created` | Machine instance lifecycle — `created` half. Uniform create-emit shape used by lifecycle observers; `:tags {:frame <id> :machine-id <id>}` | 005 / 009 |
 | `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :machine-id <id> :last-state <state> :reason <:parent-frame-destroyed | :rf.machine/finished | :explicit | :parent-unmount-cascade>}`. Frame-exit cascade emits one per active machine snapshot carrying `:reason :parent-frame-destroyed` (see [009 §`:op-type` vocabulary — Frame-exit machine teardown](009-Instrumentation.md#op-type-vocabulary)) | 005 / 009 |
-| `:registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
+| `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
 | `:flow` | Flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)) — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed`. All five carry `:tags :flow-id` and `:tags :frame` so tools can attribute and route per-frame; consumers filter `:op-type :flow` to subscribe to the whole stream | 013 |
-| `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted`, `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the rf2-zq55 pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :epoch-id <id> :event-id <id>?}` | Tool-Pair |
+| `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted`, `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the rf2-zq55 pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :rf.epoch/id <id> :rf.trace/event-id <id>?}` | Tool-Pair |
 | `:rf.epoch.cb` | Epoch-callback listener-silencing notifications — `:rf.epoch.cb/silenced-on-frame-destroy`. Emitted once per `(frame, cb-id)` pair when a frame previously observed by a `register-epoch-listener!` callback is destroyed so a tool whose previously-firing cb has gone silent learns *why* without polling registry state. Per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames) and rf2-d656 | Tool-Pair |
 | `:ssr` | Generic SSR-context family — server-render boundary traces (per [011](011-SSR.md)). Distinct from `:rf.ssr/*` operations under `:op-type :warning` (`:rf.ssr/hydration-mismatch` etc.) which ride the severity channel | 011 |
 
@@ -554,7 +552,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 
 The error category schemas in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
 
-**Non-error refinements.** A small set of TraceEvent refinements describe frame-lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-interrupted` — emitted when a frame's drain loop detects the frame was destroyed mid-cycle and drops remaining queued events. The `:tags` schema is `DrainInterruptedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:category :rf.frame/drain-interrupted, :frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-interrupted` to filter; the `:op-type :frame` discriminator places it alongside the rest of the `:frame/*` lifecycle family (`:frame/created`, `:frame/destroyed`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
+**Non-error refinements.** A small set of TraceEvent refinements describe frame-lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-interrupted` — emitted when a frame's drain loop detects the frame was destroyed mid-cycle and drops remaining queued events. The `:tags` schema is `DrainInterruptedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:category :rf.frame/drain-interrupted, :frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-interrupted` to filter; the `:op-type :rf.frame` discriminator places it alongside the rest of the `:rf.frame/*` lifecycle family (`:rf.frame/created`, `:rf.frame/destroyed`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
 
 ### `:rf/error-event`
 
@@ -644,8 +642,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   [:map
    [:category          [:= :rf.error/fx-handler-exception]]
    [:failing-id        :keyword]
-   [:fx-id             :keyword]
-   [:fx-args           :any]
+   [:rf.fx/id          :keyword]
+   [:rf.fx/args        :any]
    [:frame             {:optional true} :keyword]
    [:exception-message :string]])
 
@@ -653,38 +651,38 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   [:map
    [:category          [:= :rf.error/sub-exception]]
    [:failing-id        :keyword]
-   [:sub-id            :keyword]
+   [:rf.sub/id         :keyword]
    [:sub-query         [:vector :any]]
    [:exception-message :string]])
 
 (def NoSuchSubTags
   [:map
-   [:category :keyword]            ;; [:= :rf.error/no-such-sub] in a closed schema
-   [:query-v  [:vector :any]]
-   [:frame    {:optional true} :keyword]])
+   [:category      :keyword]            ;; [:= :rf.error/no-such-sub] in a closed schema
+   [:rf.sub/query-v [:vector :any]]
+   [:frame         {:optional true} :keyword]])
 
 (def NoSuchHandlerTags
   [:map
-   [:category :keyword]
-   [:event-id {:optional true} :keyword]
-   [:event    {:optional true} [:vector :any]]
-   [:frame    {:optional true} :keyword]
-   [:url      {:optional true} :string]    ;; routing-side variant
-   [:kind     {:optional true} :keyword]])
+   [:category          :keyword]
+   [:rf.trace/event-id {:optional true} :keyword]
+   [:rf.event/v        {:optional true} [:vector :any]]
+   [:frame             {:optional true} :keyword]
+   [:url               {:optional true} :string]    ;; routing-side variant
+   [:kind              {:optional true} :keyword]])
 
 (def NoSuchFxTags
   [:map
-   [:category :keyword]
-   [:fx-id    :keyword]
-   [:fx-args  :any]
-   [:frame    {:optional true} :keyword]])
+   [:category  :keyword]
+   [:rf.fx/id  :keyword]
+   [:rf.fx/args :any]
+   [:frame     {:optional true} :keyword]])
 
 (def NoSuchCofxTags
   [:map
-   [:category   :keyword]            ;; [:= :rf.error/no-such-cofx] in a closed schema
-   [:cofx-id    :keyword]
-   [:cofx-value {:optional true} :any]   ;; only present when the 2-arity inject-cofx was used
-   [:event-id   {:optional true} :keyword]])
+   [:category          :keyword]            ;; [:= :rf.error/no-such-cofx] in a closed schema
+   [:rf.cofx/id        :keyword]
+   [:rf.cofx/value     {:optional true} :any]   ;; only present when the 2-arity inject-cofx was used
+   [:rf.trace/event-id {:optional true} :keyword]])
 
 (def OverrideFallthroughTags
   [:map
@@ -710,7 +708,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:path            {:optional true} [:vector :any]]
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
-   [:query-v         {:optional true} :any]            ;; (:where :sub-return only) caller-supplied query vector; redacted to :rf/redacted when sub is :sensitive? — see Spec/010
+   [:rf.sub/query-v  {:optional true} :any]            ;; (:where :sub-return only) caller-supplied query vector; redacted to :rf/redacted when sub is :sensitive? — see Spec/010
    [:rollback?       {:optional true} :boolean]        ;; (:where :app-db only) true when :db was rolled back to pre-handler value
    [:registered-path {:optional true} [:vector :any]]]) ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
 
@@ -725,27 +723,27 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def DispatchSyncInHandlerTags
   [:map
-   [:category :keyword]
-   [:frame    :keyword]
-   [:event    [:vector :any]]
-   [:reason   :string]])
+   [:category   :keyword]
+   [:frame      :keyword]
+   [:rf.event/v [:vector :any]]
+   [:reason     :string]])
 
 (def FrameDestroyedTags
   [:map
-   [:category :keyword]
-   [:frame    :keyword]
-   [:event    {:optional true} [:vector :any]]
-   [:query-v  {:optional true} [:vector :any]]])
+   [:category       :keyword]
+   [:frame          :keyword]
+   [:rf.event/v     {:optional true} [:vector :any]]
+   [:rf.sub/query-v {:optional true} [:vector :any]]])
 
 (def EffectMapShapeTags
   [:map
-   [:category      :keyword]
-   [:failing-id    :keyword]
-   [:event-id      :keyword]
-   [:event         [:vector :any]]
-   [:offending-key :keyword]
-   [:value         :any]
-   [:reason        :string]])
+   [:category          :keyword]
+   [:failing-id        :keyword]
+   [:rf.trace/event-id :keyword]
+   [:rf.event/v        [:vector :any]]
+   [:offending-key     :keyword]
+   [:value             :any]
+   [:reason            :string]])
 
 (def EffectHandlerBadReturnTags
   [:map
@@ -1064,39 +1062,39 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   [:map
    [:category     :keyword]
    [:frame        :keyword]
-   [:epoch-id     :any]
+   [:rf.epoch/id  :any]
    [:history-size :int]])
 
 (def RestoreSchemaMismatchTags
   [:map
    [:category               :keyword]
    [:frame                  :keyword]
-   [:epoch-id               :any]
+   [:rf.epoch/id            :any]
    [:schema-digest-recorded :any]
    [:schema-digest-current  :any]
    [:failing-paths          [:vector :any]]])
 
 (def RestoreMissingHandlerTags
   [:map
-   [:category :keyword]
-   [:frame    :keyword]
-   [:epoch-id :any]
-   [:missing  [:vector [:map [:kind :keyword] [:id :keyword]]]]])
+   [:category    :keyword]
+   [:frame       :keyword]
+   [:rf.epoch/id :any]
+   [:missing     [:vector [:map [:kind :keyword] [:id :keyword]]]]])
 
 (def RestoreVersionMismatchTags
   [:map
    [:category         :keyword]
    [:frame            :keyword]
-   [:epoch-id         :any]
+   [:rf.epoch/id      :any]
    [:machine-id       :keyword]
    [:version-recorded :any]
    [:version-current  :any]])
 
 (def RestoreDuringDrainTags
   [:map
-   [:category :keyword]
-   [:frame    :keyword]
-   [:epoch-id :any]])
+   [:category    :keyword]
+   [:frame       :keyword]
+   [:rf.epoch/id :any]])
 
 ;; --- rf2-zq55: Tool-Pair §Pair-tool writes — reset-frame-db! ---
 
@@ -1106,13 +1104,13 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; record's epoch-id so consumers can correlate the trace with the
   ;; recorded epoch in epoch-history.
   [:map
-   [:frame    :keyword]
-   [:epoch-id :any]])
+   [:frame       :keyword]
+   [:rf.epoch/id :any]])
 
 (def ResetFrameDbDuringDrainTags
   ;; :rf.epoch/reset-frame-db-during-drain — failure mode: caller
   ;; invoked reset-frame-db! while the frame's drain was in flight.
-  ;; Mirrors RestoreDuringDrainTags' shape (no :epoch-id slot — the
+  ;; Mirrors RestoreDuringDrainTags' shape (no :rf.epoch/id slot — the
   ;; injection was rejected before any synthetic record was assembled).
   [:map
    [:category :keyword]
@@ -2360,7 +2358,7 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
                                       [:query-v        [:vector :any]]
                                       [:recomputed?    :boolean]
                                       ;; (rf2-l1jz8) value-change + cascade attribution threaded from the
-                                      ;; reactive `:sub/run` trace tag. Present on reactive recompute
+                                      ;; reactive `:rf.sub/run` trace tag. Present on reactive recompute
                                       ;; entries; nil on entries derived from the pure `compute-sub`
                                       ;; emit (which omits the attribution). The wire-value slots are
                                       ;; redacted at the `marks/project-sub-tags` trace chokepoint
@@ -2389,9 +2387,9 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 
 **Structured slots are derived from `:trace-events`.** The `:sub-runs`, `:renders`, and `:effects` slots are pre-computed projections of the underlying `:trace-events` stream, surfacing the per-sub / per-render / per-effect activity of the cascade in a shape pair-shaped tools can route off without re-folding the raw trace each time. The legacy `:trace-events` slot remains the raw underpinning; the structured slots derive from it.
 
-- `:sub-runs` — every sub the cascade re-ran. `:recomputed?` is `true` for every entry: under the value-equality rule in [Spec 006 §Invalidation algorithm](006-ReactiveSubstrate.md#invalidation-algorithm) (rf2-719e), a sub whose inputs are value-equal to the prior call does not re-run its body and therefore does not emit `:sub/run`, so cache-hit subs are absent from this projection. The slot answers "which subs moved this cascade?" without re-deriving from the trace. Per rf2-l1jz8 each reactive recompute entry additionally carries **value-change + cascade attribution** threaded from the `:sub/run` trace tag (per [009 §`:sub/run`](009-Instrumentation.md#op-type-vocabulary)): `:value-changed?` (`(not= prev-value value)` — distinguishes a recompute that re-ran but produced a `=`-equal value from one whose value actually moved; the rf2-7e2y "always-true" gap is now a concrete signal), `:prev-value` / `:value` (the before/after values, redacted at the `marks/project-sub-tags` trace chokepoint so a schema-`:sensitive?` sub egresses them as `:rf/redacted`), `:cascade?` (`true` for a layer-2+ sub recomputed because an upstream sub changed; `false` for a layer-1 sub driven by an app-db path change), and `:cause-sub` (the upstream `:<-` query-vector that changed, for a cascade; `nil` for a layer-1 sub or a first recompute). These slots are absent on entries derived from the pure `compute-sub` emit, which has no prior cached value to diff and no reactive context to attribute against — consumers tolerate their absence (treat as no-attribution).
+- `:sub-runs` — every sub the cascade re-ran. `:recomputed?` is `true` for every entry: under the value-equality rule in [Spec 006 §Invalidation algorithm](006-ReactiveSubstrate.md#invalidation-algorithm) (rf2-719e), a sub whose inputs are value-equal to the prior call does not re-run its body and therefore does not emit `:rf.sub/run`, so cache-hit subs are absent from this projection. The slot answers "which subs moved this cascade?" without re-deriving from the trace. Per rf2-l1jz8 each reactive recompute entry additionally carries **value-change + cascade attribution** threaded from the `:rf.sub/run` trace tag (per [009 §`:rf.sub/run`](009-Instrumentation.md#op-type-vocabulary)): `:value-changed?` (`(not= prev-value value)` — distinguishes a recompute that re-ran but produced a `=`-equal value from one whose value actually moved; the rf2-7e2y "always-true" gap is now a concrete signal), `:prev-value` / `:value` (the before/after values, redacted at the `marks/project-sub-tags` trace chokepoint so a schema-`:sensitive?` sub egresses them as `:rf/redacted`), `:cascade?` (`true` for a layer-2+ sub recomputed because an upstream sub changed; `false` for a layer-1 sub driven by an app-db path change), and `:cause-sub` (the upstream `:<-` query-vector that changed, for a cascade; `nil` for a layer-1 sub or a first recompute). These slots are absent on entries derived from the pure `compute-sub` emit, which has no prior cached value to diff and no reactive context to attribute against — consumers tolerate their absence (treat as no-attribution).
 - `:renders` — every render that fired during the cascade. `:triggered-by` names the sub-id whose value-change triggered the render, or is `nil` for the initial mount / a render driven by something other than a sub change. `:elapsed-ms` is the render's wall-clock duration. `:render-key` is a **tuple** `[<view-id> <instance-token>]` (rf2-t5tx). The first slot is the `reg-view` registry id, or `:rf.view/anonymous` for plain Reagent fns (implementations may derive a tooling-friendly substitute from `(.-displayName fn)` when cheap); the second slot is an integer instance-token minted at mount time from a runtime counter atom. Tools that aggregate by view use the first slot; tools that distinguish per-mount activity use the second. Cross-run correlation (replay) is out of scope — instance-tokens regenerate per mount; alternative keys (positional path, parent context) are an open question if Tool-Pair replay grows that need.
-- `:effects` — every effect dispatched in the cascade's `:event/do-fx` step. **Every dispatched fx surfaces exactly one entry**, regardless of outcome — successes, warnings, and errors are all recorded so per-event fx attribution is available without re-folding the raw trace stream. `:outcome` is `:ok` on success, `:error` if the effect threw or returned a structured error, `:skipped-on-platform` when the effect is registered with `:platforms` that exclude the current host (per [011](011-SSR.md)). `:error-trace` (when present, on `:error` outcomes) references the corresponding error trace event by `:id`. The `:fx-id`s of reserved runtime fx (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.machine/spawn`, `:rf.machine/destroy`) appear in `:effects` alongside user-registered fx — one entry per dispatched pair, in source order.
+- `:effects` — every effect dispatched in the cascade's `:rf.fx/do-fx` step. **Every dispatched fx surfaces exactly one entry**, regardless of outcome — successes, warnings, and errors are all recorded so per-event fx attribution is available without re-folding the raw trace stream. `:outcome` is `:ok` on success, `:error` if the effect threw or returned a structured error, `:skipped-on-platform` when the effect is registered with `:platforms` that exclude the current host (per [011](011-SSR.md)). `:error-trace` (when present, on `:error` outcomes) references the corresponding error trace event by `:id`. The `:fx-id`s of reserved runtime fx (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.machine/spawn`, `:rf.machine/destroy`) appear in `:effects` alongside user-registered fx — one entry per dispatched pair, in source order.
 - `:schema-digest` (rf2-0z1z) — the canonical wire form (per [010 §Schema digest](010-Schemas.md#schema-digest)) of the frame's app-schema set at the moment this epoch was recorded. Pinned per-epoch so `restore-epoch`'s `:rf.epoch/restore-schema-mismatch` trace can carry both the **recorded** digest and the frame's **current** digest, letting pair tools attribute restore failures to schema drift. `nil` on hosts that ship no runtime schema layer (the slot is optional and tolerated absent).
 - `:rf.epoch/redacted-modified-paths-count` (rf2-dl3gx) — record-level integer count of **schema-declared sensitive paths** (`[:rf/elision :sensitive-declarations]`, populated from `{:sensitive? true}` per-slot schema props per [015 §The classification model](015-Data-Classification.md)) whose value differs between `:db-before` and `:db-after`. Computed from RAW values inside `build-record` BEFORE the `:redact-fn` substitutes the `:rf/redacted` sentinel — parallel to the `:rf.epoch/sensitive?` rollup pattern; consumers (Causa's redacted-paths-modified chip per `tools/causa/spec/004-App-DB-Diff.md`, MCP wire pipeline, story recorders) read the exact figure without re-deriving from the post-redaction shape. Closes the `:redact-fn` ⇒ "empty diff but something changed" gap: when the redact-fn substitutes the sentinel into both sides at a sensitive path, the structural diff sees `:rf/redacted` = `:rf/redacted` and emits no row; this counter surfaces the suppressed signal. `0` when no schema-declared sensitive path mutated this cascade. The slot is optional and tolerated absent — hosts that ship no runtime schema layer or builds with no `:sensitive?` declarations produce no count, and consumers treat absent as `0`. **Egress projection**: `projected-record` passes the count through unchanged (the integer is structurally non-sensitive bookkeeping).
 

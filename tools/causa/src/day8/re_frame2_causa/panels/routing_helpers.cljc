@@ -558,7 +558,7 @@
 (defn- cascade-event-vectors
   "Collect raw event vectors from a cascade. The cascade's top-level
   `:event` slot is the root event; the `:effects` and `:other` buckets
-  may carry `:event/dispatched` trace records whose `:tags :event`
+  may carry `:rf.event/dispatched` trace records whose `:tags :rf.event/v`
   carries downstream event vectors. Returns a vector of event vectors
   in insertion order, de-duplicated by identity."
   [cascade]
@@ -567,9 +567,9 @@
           downstream (->> (cascade-trace-events cascade)
                           (keep (fn [ev]
                                   (when (and (map? ev)
-                                             (= :event/dispatched
+                                             (= :rf.event/dispatched
                                                 (:operation ev)))
-                                    (get-in ev [:tags :event])))))
+                                    (get-in ev [:tags :rf.event/v])))))
           all        (cond->> downstream
                        root (cons root))]
       (->> all

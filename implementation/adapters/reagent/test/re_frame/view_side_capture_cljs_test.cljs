@@ -4,15 +4,15 @@
   per view, its mount/rerender/unmount ACTION and the per-view REASON it
   rendered:
 
-    1. view→sub edges — `:rf.view/rendered` carries `:deref-subs`, the
+    1. view→sub edges — `:rf.view/rendered` carries `:rf.view/deref-subs`, the
        vector of subscription query-vectors THIS view deref'd during the
        render (its own read-set), distinct from the cascade-wide
-       `:cause-subs` (which over-reports).
-    2. mount-vs-rerender — `:rf.view/rendered` carries `:mount?`, `true`
+       `:rf.view/cause-subs` (which over-reports).
+    2. mount-vs-rerender — `:rf.view/rendered` carries `:rf.view/mount?`, `true`
        on a component instance's first render and `false` thereafter.
     3. unmount — a NEW `:rf.view/unmounted` op fires when a registered
-       view instance tears down, carrying `:view-id` + `:frame` (+ the
-       `:render-key` instance tuple).
+       view instance tears down, carrying `:rf.view/id` + `:frame` (+ the
+       `:rf.view/render-key` instance tuple).
 
   Every capture gates behind `interop/debug-enabled?`; production absence
   is pinned by the elision probe (`npm run test:elision`).
@@ -55,11 +55,11 @@
     recorded))
 
 ;; ===========================================================================
-;; 1. view→sub edges — :deref-subs
+;; 1. view→sub edges — :rf.view/deref-subs
 ;; ===========================================================================
 
 (deftest rf-view-rendered-carries-deref-subs-the-view-reads
-  (testing ":rf.view/rendered carries :deref-subs — the query-vectors THIS
+  (testing ":rf.view/rendered carries :rf.view/deref-subs — the query-vectors THIS
    view deref'd during its render (its OWN read-set), so a consumer can
    filter the cascade-wide changed subs down to this view's reasons"
     (let [observed (record-op! #{:rf.view/rendered})]
@@ -71,17 +71,17 @@
         [:span "ok"])
       ((rf/view :rf2-9hoos/reader))
       (let [ev   (first (:rf.view/rendered @observed))
-            subs (get-in ev [:tags :deref-subs])]
+            subs (get-in ev [:tags :rf.view/deref-subs])]
         (is (some? ev) "an :rf.view/rendered event was emitted")
-        (is (vector? subs) ":deref-subs is a vector")
+        (is (vector? subs) ":rf.view/deref-subs is a vector")
         (is (= #{[:rf2-9hoos/a] [:rf2-9hoos/b]} (set subs))
-            ":deref-subs lists exactly the two subs the view deref'd"))
+            ":rf.view/deref-subs lists exactly the two subs the view deref'd"))
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest deref-subs-is-per-view-not-cascade-wide
-  (testing ":deref-subs is scoped to the view that read the sub — a sub a
+  (testing ":rf.view/deref-subs is scoped to the view that read the sub — a sub a
    sibling view (or the handler) reads does NOT bleed into this view's
-   read-set, unlike the cascade-wide :cause-subs"
+   read-set, unlike the cascade-wide :rf.view/cause-subs"
     (let [observed (record-op! #{:rf.view/rendered})]
       (rf/reg-sub :rf2-9hoos/mine    (fn [_ _] :mine))
       (rf/reg-sub :rf2-9hoos/sibling (fn [_ _] :sibling))
@@ -96,18 +96,18 @@
       ((rf/view :rf2-9hoos/only-sibling))
       (let [evs (:rf.view/rendered @observed)
             mine-ev (first (filter #(= :rf2-9hoos/only-mine
-                                       (get-in % [:tags :view-id])) evs))
+                                       (get-in % [:tags :rf.view/id])) evs))
             sib-ev  (first (filter #(= :rf2-9hoos/only-sibling
-                                       (get-in % [:tags :view-id])) evs))]
-        (is (= [[:rf2-9hoos/mine]] (get-in mine-ev [:tags :deref-subs]))
+                                       (get-in % [:tags :rf.view/id])) evs))]
+        (is (= [[:rf2-9hoos/mine]] (get-in mine-ev [:tags :rf.view/deref-subs]))
             "only-mine's read-set is exactly its own sub")
-        (is (= [[:rf2-9hoos/sibling]] (get-in sib-ev [:tags :deref-subs]))
+        (is (= [[:rf2-9hoos/sibling]] (get-in sib-ev [:tags :rf.view/deref-subs]))
             "only-sibling's read-set is exactly its own sub — no bleed"))
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest structural-render-has-no-deref-subs
   (testing "a view that reads no subs (a pure structural render) omits
-   :deref-subs — the consumer reads its absence as 'parent re-render',
+   :rf.view/deref-subs — the consumer reads its absence as 'parent re-render',
    the unnamed structural reason"
     (let [observed (record-op! #{:rf.view/rendered})]
       (rf/reg-view ^{:rf/id :rf2-9hoos/structural} structural-view []
@@ -115,30 +115,30 @@
       ((rf/view :rf2-9hoos/structural))
       (let [ev (first (:rf.view/rendered @observed))]
         (is (some? ev))
-        (is (not (contains? (:tags ev) :deref-subs))
-            ":deref-subs omitted when the view derefs no subs"))
+        (is (not (contains? (:tags ev) :rf.view/deref-subs))
+            ":rf.view/deref-subs omitted when the view derefs no subs"))
       (trace-tooling/unregister-listener! ::recorder))))
 
 ;; ===========================================================================
-;; 2. mount-vs-rerender — :mount?
+;; 2. mount-vs-rerender — :rf.view/mount?
 ;; ===========================================================================
 
 (deftest rf-view-rendered-carries-mount-flag
-  (testing ":rf.view/rendered carries a boolean :mount? on every emit"
+  (testing ":rf.view/rendered carries a boolean :rf.view/mount? on every emit"
     (let [observed (record-op! #{:rf.view/rendered})]
       (rf/reg-view ^{:rf/id :rf2-9hoos/flagged} flagged-view []
         [:span "x"])
       ((rf/view :rf2-9hoos/flagged))
       (let [ev (first (:rf.view/rendered @observed))]
         (is (some? ev))
-        (is (contains? (:tags ev) :mount?) ":mount? slot is present")
-        (is (boolean? (get-in ev [:tags :mount?])) ":mount? is a boolean"))
+        (is (contains? (:tags ev) :rf.view/mount?) ":rf.view/mount? slot is present")
+        (is (boolean? (get-in ev [:tags :rf.view/mount?])) ":rf.view/mount? is a boolean"))
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest first-render-of-an-instance-is-mount-rest-are-rerenders
   (testing "first-render?! returns true the first time a render-key is
    seen and false thereafter — the mount-vs-rerender discriminator that
-   backs :mount? (a real Reagent instance reuses its render-key across
+   backs :rf.view/mount? (a real Reagent instance reuses its render-key across
    re-renders, so the same key recurs)"
     (let [rk [:rf2-9hoos/instance 42]]
       (is (true? (views/first-render?! rk))
@@ -150,7 +150,7 @@
 
 (deftest distinct-instances-each-mount
   (testing "two distinct component instances (distinct instance-tokens)
-   each report :mount? true on their first render — headless direct
+   each report :rf.view/mount? true on their first render — headless direct
    invocation mints a fresh token per call, mirroring per-mount-fresh"
     (let [observed (record-op! #{:rf.view/rendered})]
       (rf/reg-view ^{:rf/id :rf2-9hoos/two-mounts} two-mounts-view []
@@ -160,8 +160,8 @@
         (render))  ;; instance B — fresh token → mount
       (let [evs (:rf.view/rendered @observed)]
         (is (= 2 (count evs)))
-        (is (every? #(true? (get-in % [:tags :mount?])) evs)
-            "both fresh instances report :mount? true"))
+        (is (every? #(true? (get-in % [:tags :rf.view/mount?])) evs)
+            "both fresh instances report :rf.view/mount? true"))
       (trace-tooling/unregister-listener! ::recorder))))
 
 ;; ===========================================================================
@@ -170,15 +170,15 @@
 
 (deftest emit-view-unmounted-fires-the-op-with-view-id-and-frame
   (testing "emit-view-unmounted! emits :rf.view/unmounted carrying
-   :view-id, :frame and the :render-key instance tuple"
+   :rf.view/id, :frame and the :rf.view/render-key instance tuple"
     (let [observed (record-op! #{:rf.view/unmounted})]
       (views/emit-view-unmounted! :rf2-9hoos/torn [:rf2-9hoos/torn 7] :rf/default)
       (let [ev (first (:rf.view/unmounted @observed))
             t  (:tags ev)]
         (is (some? ev) "an :rf.view/unmounted event was emitted")
-        (is (= :rf2-9hoos/torn (:view-id t)) ":view-id present")
+        (is (= :rf2-9hoos/torn (:rf.view/id t)) ":rf.view/id present")
         (is (= :rf/default (:frame t)) ":frame present")
-        (is (= [:rf2-9hoos/torn 7] (:render-key t)) ":render-key tuple present"))
+        (is (= [:rf2-9hoos/torn 7] (:rf.view/render-key t)) ":rf.view/render-key tuple present"))
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest install-unmount-hook-fires-emit-on-reaction-dispose
@@ -202,8 +202,8 @@
       (interop/dispose! rea)
       (let [ev (first (:rf.view/unmounted @observed))]
         (is (some? ev) ":rf.view/unmounted fired on reaction disposal")
-        (is (= :rf2-9hoos/lifecycle (get-in ev [:tags :view-id])))
-        (is (= [:rf2-9hoos/lifecycle 1] (get-in ev [:tags :render-key]))))
+        (is (= :rf2-9hoos/lifecycle (get-in ev [:tags :rf.view/id])))
+        (is (= [:rf2-9hoos/lifecycle 1] (get-in ev [:tags :rf.view/render-key]))))
       (trace-tooling/unregister-listener! ::recorder))))
 
 ;; ===========================================================================
@@ -211,17 +211,17 @@
 ;; ===========================================================================
 
 (deftest existing-rf-view-rendered-tags-still-present
-  (testing "the rf2-9hoos additions are additive — :view-id, :frame,
-   :render-key (rf2-25zo2) still ride every :rf.view/rendered emit
-   alongside the new :mount? / :deref-subs"
+  (testing "the rf2-9hoos additions are additive — :rf.view/id, :frame,
+   :rf.view/render-key (rf2-25zo2) still ride every :rf.view/rendered emit
+   alongside the new :rf.view/mount? / :rf.view/deref-subs"
     (let [observed (record-op! #{:rf.view/rendered})]
       (rf/reg-view ^{:rf/id :rf2-9hoos/coexist} coexist-view []
         [:span "x"])
       ((rf/view :rf2-9hoos/coexist))
       (let [ev (first (:rf.view/rendered @observed))
             t  (:tags ev)]
-        (is (= :rf2-9hoos/coexist (:view-id t)))
+        (is (= :rf2-9hoos/coexist (:rf.view/id t)))
         (is (some? (:frame t)))
-        (is (vector? (:render-key t)))
-        (is (contains? t :mount?)))
+        (is (vector? (:rf.view/render-key t)))
+        (is (contains? t :rf.view/mount?)))
       (trace-tooling/unregister-listener! ::recorder))))

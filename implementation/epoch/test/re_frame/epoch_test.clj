@@ -134,8 +134,8 @@
       (is (some? (:dispatch-id r))
           "record carries the pinned :dispatch-id slot")
       (is (= (:dispatch-id r)
-             (some #(get-in % [:tags :dispatch-id]) (:trace-events r)))
-          ":dispatch-id slot equals the cascade's trace :dispatch-id tag"))))
+             (some #(get-in % [:tags :rf.trace/dispatch-id]) (:trace-events r)))
+          ":dispatch-id slot equals the cascade's trace :rf.trace/dispatch-id tag"))))
 
 (deftest record-multi-event-cascade
   (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): each dequeued
@@ -180,24 +180,24 @@
              (mapv :db-after (rest history)))
           ":db-after of :outer / :inner-1 / :inner-2 chains per event")
       ;; Distinct correlation: each epoch has its own :epoch-id, and the
-      ;; per-event :dispatch-id rides the trace stream distinctly. Per
+      ;; per-event :rf.trace/dispatch-id rides the trace stream distinctly. Per
       ;; rf2-nj6p7 + Spec 009 §Dispatch correlation, each epoch's
-      ;; :trace-events carry EXACTLY ONE :dispatch-id (one dispatch-id =
-      ;; one epoch) — a child's :event/dispatched marker (fired during the
+      ;; :trace-events carry EXACTLY ONE :rf.trace/dispatch-id (one dispatch-id =
+      ;; one epoch) — a child's :rf.event/dispatched marker (fired during the
       ;; parent's do-fx) rides the CHILD's epoch, not the parent's.
       (is (apply distinct? (mapv :epoch-id history))
           "every dequeued event gets a distinct :epoch-id")
       (let [dispatch-ids-of
             (fn [r] (->> (:trace-events r)
-                         (keep #(-> % :tags :dispatch-id))
+                         (keep #(-> % :tags :rf.trace/dispatch-id))
                          distinct))
             outer-dids  (dispatch-ids-of (nth history 1))
             inner1-dids (dispatch-ids-of (nth history 2))]
         (is (= 1 (count outer-dids))
-            ":outer epoch's traces carry exactly ONE :dispatch-id — the
-             child's :event/dispatched marker does NOT leak in")
+            ":outer epoch's traces carry exactly ONE :rf.trace/dispatch-id — the
+             child's :rf.event/dispatched marker does NOT leak in")
         (is (= 1 (count inner1-dids))
-            ":inner-1 epoch's traces carry exactly ONE :dispatch-id")
+            ":inner-1 epoch's traces carry exactly ONE :rf.trace/dispatch-id")
         (is (not= (first outer-dids) (first inner1-dids))
             "parent and :fx-dispatched child have DISTINCT :dispatch-ids
              — the child is a separate dequeued event / epoch")))))
@@ -265,14 +265,14 @@
         (is (= :s3 (:state (get-in (:db-after r) [:rf/machines :mac/chain])))
             "the macrostep reached the terminal state — all three
              transitions committed inside this one epoch")
-        ;; Every trace in the epoch rides the SAME :dispatch-id — the
+        ;; Every trace in the epoch rides the SAME :rf.trace/dispatch-id — the
         ;; :raises did NOT mint a new correlation id (Spec 009).
         (let [dispatch-ids (->> (:trace-events r)
-                                (keep #(-> % :tags :dispatch-id))
+                                (keep #(-> % :tags :rf.trace/dispatch-id))
                                 distinct)]
           (is (= 1 (count dispatch-ids))
               "the macrostep's emits (incl. raised transitions) all carry
-               the triggering event's single :dispatch-id"))))))
+               the triggering event's single :rf.trace/dispatch-id"))))))
 
 ;; ---- per-frame isolation ---------------------------------------------------
 
@@ -829,16 +829,16 @@
 ;; ---- structured projections ------------------------------------------------
 
 (deftest sub-runs-projection
-  (testing ":sub-runs reflects each :sub/run trace under the cascade"
+  (testing ":sub-runs reflects each :rf.sub/run trace under the cascade"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :n*2   :<- [:n] (fn [n _] (* 2 (or n 0))))
 
-    ;; Force a sub-run inside a handler (subscribe-once emits :sub/run
+    ;; Force a sub-run inside a handler (subscribe-once emits :rf.sub/run
     ;; from compute-sub when no cache exists for the query, AND from the
     ;; reactive path when a fresh subscription materialises). Either
-    ;; way, the cascade contains :sub/run traces.
+    ;; way, the cascade contains :rf.sub/run traces.
     (rf/reg-event-fx :read-sub
       (fn [_ _]
         ;; Read both subs to exercise layer-1 and layer-2.
@@ -855,7 +855,7 @@
       (is (some #(= :n*2 (:sub-id %)) sub-runs))
       (is (every? :recomputed? sub-runs))
       ;; rf2-7e2y: :result-changed? was structurally always true (only
-      ;; recomputed subs emit :sub/run under rf2-719e value-equality
+      ;; recomputed subs emit :rf.sub/run under rf2-719e value-equality
       ;; suppression) and has been dropped — every entry must NOT carry
       ;; the slot.
       (is (every? #(not (contains? % :result-changed?)) sub-runs)))))
@@ -1141,7 +1141,7 @@
     (rf/reg-frame :test/main {})
     ;; Start from a known-empty capture buffer for this frame — the
     ;; post-discard state the router leaves on a rejected/aborted
-    ;; dispatch. (`reg-frame` emits a :frame/created trace that
+    ;; dispatch. (`reg-frame` emits a :rf.frame/created trace that
     ;; capture-event! would buffer; reset so the buffer is genuinely
     ;; empty, mirroring discard-buffer!.)
     (reset! @#'state/capture-buffers {})
@@ -1573,7 +1573,7 @@
       (is (some? ev) ":rf.epoch/db-replaced fired")
       (is (= :rf.epoch (:op-type ev)))
       (is (= :test/main (:frame (:tags ev))))
-      (is (number? (:epoch-id (:tags ev)))
+      (is (number? (:rf.epoch/id (:tags ev)))
           "trace carries the synthetic record's epoch-id"))))
 
 (deftest reset-frame-db!-fires-listeners
@@ -2259,7 +2259,7 @@
     ;; when the destroy lands; pin the contract by inserting a
     ;; synthetic entry.
     ;;
-    ;; (`rf/reg-frame` above emits a `:frame/created` trace which
+    ;; (`rf/reg-frame` above emits a `:rf.frame/created` trace which
     ;; capture-event! buffers since the tag carries `:frame`. Reset
     ;; explicitly so the test starts from a known-empty buffer
     ;; rather than relying on the reg-frame side-effect.)
@@ -2267,12 +2267,12 @@
       (reset! buffers-atom {})
 
       (swap! buffers-atom assoc :test/main
-             [{:op-type   :event
-               :operation :event
-               :tags      {:event    [:pre-destroy]
-                           :event-id :pre-destroy
-                           :frame    :test/main
-                           :phase    :run-start}}])
+             [{:op-type   :rf.event
+               :operation :rf.event
+               :tags      {:rf.event/v        [:pre-destroy]
+                           :rf.trace/event-id :pre-destroy
+                           :frame             :test/main
+                           :rf.trace/phase    :run-start}}])
 
       (is (some? (get @buffers-atom :test/main))
           "sanity: the synthetic capture-buffer entry is present pre-destroy")
@@ -2315,10 +2315,10 @@
     ;; tags carry no :event-id / :event, so find-trigger-event resolves
     ;; nothing. This mirrors the degenerate path the audit identified
     ;; on the :halted-destroy commit.
-    (let [tag-less-events [{:op-type   :event
-                            :operation :event
-                            :tags      {:frame :test/main
-                                        :phase :run-start}}]
+    (let [tag-less-events [{:op-type   :rf.event
+                            :operation :rf.event
+                            :tags      {:frame          :test/main
+                                        :rf.trace/phase :run-start}}]
           record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
                             :halted-destroy
@@ -2343,12 +2343,12 @@
             resolves both — the rf2-kl5p1 fix must not regress the
             happy-path record shape"
     (rf/reg-frame :test/main {})
-    (let [events [{:op-type   :event
-                   :operation :event
-                   :tags      {:frame    :test/main
-                               :phase    :run-start
-                               :event-id :seed
-                               :event    [:seed 1 2 3]}}]
+    (let [events [{:op-type   :rf.event
+                   :operation :rf.event
+                   :tags      {:frame             :test/main
+                               :rf.trace/phase    :run-start
+                               :rf.trace/event-id :seed
+                               :rf.event/v        [:seed 1 2 3]}}]
           record (#'assembly/build-record :test/main {} {:n 0} events)]
       (is (= :seed (:event-id record))
           ":event-id is the resolved event keyword")
@@ -2372,10 +2372,10 @@
   (testing "find-trigger-event's fallback arm — :event-id tag present,
             :event tag absent — returns :event nil rather than fabricating
             [eid]; the calling build-record then omits :trigger-event"
-    (let [tag-less-fallback [{:op-type   :event
-                              :operation :event
-                              :tags      {:frame    :test/main
-                                          :event-id :foo}}]
+    (let [tag-less-fallback [{:op-type   :rf.event
+                              :operation :rf.event
+                              :tags      {:frame             :test/main
+                                          :rf.trace/event-id :foo}}]
           trigger           (#'capture/find-trigger-event tag-less-fallback)]
       (is (= :foo (:event-id trigger))
           ":event-id is recovered from the fallback arm")
@@ -2387,10 +2387,10 @@
     ;; Build-record consumes the fallback's nil :event via its conditional
     ;; cond-> (rf2-kl5p1) and emits no :trigger-event slot.
     (rf/reg-frame :test/main {})
-    (let [tag-less-events [{:op-type   :event
-                            :operation :event
-                            :tags      {:frame    :test/main
-                                        :event-id :foo}}]
+    (let [tag-less-events [{:op-type   :rf.event
+                            :operation :rf.event
+                            :tags      {:frame             :test/main
+                                        :rf.trace/event-id :foo}}]
           record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
                             :halted-destroy
@@ -2406,11 +2406,11 @@
             vector when the buffered event DOES carry an :event tag —
             the rf2-7kxxx fix must not strip payload from the
             non-degenerate fallback path"
-    (let [events  [{:op-type   :event
-                    :operation :event
-                    :tags      {:frame    :test/main
-                                :event-id :foo
-                                :event    [:foo "bar" 42]}}]
+    (let [events  [{:op-type   :rf.event
+                    :operation :rf.event
+                    :tags      {:frame             :test/main
+                                :rf.trace/event-id :foo
+                                :rf.event/v        [:foo "bar" 42]}}]
           trigger (#'capture/find-trigger-event events)]
       (is (= :foo (:event-id trigger)))
       (is (= [:foo "bar" 42] (:event trigger))

@@ -286,16 +286,16 @@
         ;; (3) function value — CLJS-reference convenience.
         (fn? override-target)
         (do
-          (trace/emit! :fx :rf.fx/override-applied
-                       {:from original-fx-id :to ::fn-value})
+          (trace/emit! :rf.fx :rf.fx/override-applied
+                       {:rf.fx/from original-fx-id :rf.fx/to ::fn-value})
           original-fx-id)
 
         ;; (2) id-redirect to a registered fx.
         (keyword? override-target)
         (if (registrar/lookup :fx override-target)
           (do
-            (trace/emit! :fx :rf.fx/override-applied
-                         {:from original-fx-id :to override-target})
+            (trace/emit! :rf.fx :rf.fx/override-applied
+                         {:rf.fx/from original-fx-id :rf.fx/to override-target})
             override-target)
           (do
             (trace/emit-error! :rf.error/override-fallthrough
@@ -358,10 +358,10 @@
   right attribution for those — they don't have their own
   registration site."
   [fx-id args frame-id]
-  (trace/emit! :fx :rf.fx/handled
-               {:fx-id   fx-id
-                :fx-args args
-                :frame   frame-id}))
+  (trace/emit! :rf.fx :rf.fx/handled
+               {:rf.fx/id   fx-id
+                :rf.fx/args args
+                :frame      frame-id}))
 
 (defn handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
@@ -464,8 +464,8 @@
                      :tags      (merge {:event-id          origin-event-id
                                         :event             origin-event
                                         :frame             frame-id
-                                        :fx-id             fx-id
-                                        :fx-args           args
+                                        :rf.fx/id          fx-id
+                                        :rf.fx/args         args
                                         :handler-id        nil
                                         :exception         e
                                         :exception-message msg
@@ -475,8 +475,8 @@
                 ;; Trace path for dev consumers; DCE'd in CLJS prod.
                 (trace/emit-error! category
                                    (merge {:failing-id        fx-id
-                                           :fx-id             fx-id
-                                           :fx-args           args
+                                           :rf.fx/id          fx-id
+                                           :rf.fx/args        args
                                            :frame             frame-id
                                            :exception         e
                                            :exception-message msg
@@ -556,8 +556,8 @@
                           (let [msg (#?(:clj .getMessage :cljs .-message) e)]
                             (trace/emit-error! :rf.error/fx-handler-exception
                                                {:failing-id        fx-id
-                                                :fx-id             fx-id
-                                                :fx-args           args
+                                                :rf.fx/id          fx-id
+                                                :rf.fx/args        args
                                                 :frame             frame-id
                                                 :exception         e
                                                 :exception-message msg
@@ -567,17 +567,17 @@
               (when ok?
                 (emit-handled! fx-id args frame-id))))))
         (trace/emit! :warning :rf.fx/skipped-on-platform
-                     {:fx-id                fx-id
-                      :frame                frame-id
-                      :fx-args              args
-                      :platform             active-platform
-                      :registered-platforms (:platforms meta)
-                      :recovery             :skipped}))
+                     {:rf.fx/id                   fx-id
+                      :frame                      frame-id
+                      :rf.fx/args                 args
+                      :rf.fx/platform             active-platform
+                      :rf.fx/registered-platforms (:platforms meta)
+                      :recovery                   :skipped}))
       (trace/emit-error! :rf.error/no-such-fx
-                         {:fx-id    fx-id
-                          :fx-args  args
-                          :frame    frame-id
-                          :recovery :no-recovery})))))))
+                         {:rf.fx/id   fx-id
+                          :rf.fx/args args
+                          :frame      frame-id
+                          :recovery   :no-recovery})))))))
 
 (def ^:private framework-coeffect-keys
   "Coeffect keys populated by the runtime itself (not by user-registered
@@ -685,8 +685,8 @@
    ;; Stamp is absent entirely when zero user cofx — the Event lens
    ;; treats absent as 'no COEFFECTS section'.
    (let [user-cofx (user-injected-coeffects coeffects)]
-     (trace/emit! :event :event/do-fx
+     (trace/emit! :rf.fx :rf.fx/do-fx
                   (cond-> {:frame frame-id}
-                    (some? effects)  (assoc :fx          (:fx effects)
-                                            :db-present? (contains? effects :db))
-                    (some? user-cofx) (assoc :coeffects user-cofx))))))
+                    (some? effects)  (assoc :rf.event/fx          (:fx effects)
+                                            :rf.event/db-present? (contains? effects :db))
+                    (some? user-cofx) (assoc :rf.event/coeffects user-cofx))))))

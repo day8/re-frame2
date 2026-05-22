@@ -2,7 +2,7 @@
   "Per rf2-931pm — pins the three new substrate-level trace ops:
 
     1. `:rf.sub/skip` emitted by the memo wrappers on a memo-hit.
-    2. `:rf.flow/skip` carries `:input-paths-unchanged` (additive tag).
+    2. `:rf.flow/skip` carries `:rf.sub/input-paths-unchanged` (additive tag).
     3. `:rf.cascade/captured` aggregator fires end-of-epoch ONLY when
        the focus predicate matches; bounded at 50 subs / 100 views.
 
@@ -81,15 +81,15 @@
       (is (seq skips)
           "expected at least one :rf.sub/skip emit on memo-hit")
       (let [skip (first skips)]
-        (is (= :sub/skip (:op-type skip)))
-        (is (= :n (get-in skip [:tags :sub-id])))
-        (is (= [:n] (get-in skip [:tags :query-v])))
-        (is (= :input-value-equal (get-in skip [:tags :reason])))
-        (is (= [] (get-in skip [:tags :input-paths-unchanged]))
-            "layer-1 has no upstream subs so :input-paths-unchanged is empty")))))
+        (is (= :rf.sub (:op-type skip)))
+        (is (= :n (get-in skip [:tags :rf.sub/id])))
+        (is (= [:n] (get-in skip [:tags :rf.sub/query-v])))
+        (is (= :input-value-equal (get-in skip [:tags :rf.sub/reason])))
+        (is (= [] (get-in skip [:tags :rf.sub/input-paths-unchanged]))
+            "layer-1 has no upstream subs so :rf.sub/input-paths-unchanged is empty")))))
 
 (deftest layer-2-memo-hit-emits-sub-skip-with-upstream
-  (testing "layer-2 sub on memo-hit names its upstream input(s) in :input-paths-unchanged"
+  (testing "layer-2 sub on memo-hit names its upstream input(s) in :rf.sub/input-paths-unchanged"
     (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 3}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -102,18 +102,18 @@
                      (let [r (rf/subscribe [:doubled])]
                        @r @r)))
           skips  (filter #(and (= :rf.sub/skip (:operation %))
-                               (= :doubled (get-in % [:tags :sub-id])))
+                               (= :doubled (get-in % [:tags :rf.sub/id])))
                          events)]
       (is (seq skips)
           "expected at least one :rf.sub/skip emit for the layer-2 sub")
       (let [skip (first skips)]
-        (is (= [[:n]] (get-in skip [:tags :input-paths-unchanged]))
+        (is (= [[:n]] (get-in skip [:tags :rf.sub/input-paths-unchanged]))
             "input-paths-unchanged names the upstream sub vector")))))
 
-;; ---- :rf.flow/skip carries :input-paths-unchanged -------------------------
+;; ---- :rf.flow/skip carries :rf.sub/input-paths-unchanged -------------------------
 
 (deftest flow-skip-emits-input-paths-unchanged
-  (testing ":rf.flow/skip carries :input-paths-unchanged naming the flow's input paths"
+  (testing ":rf.flow/skip carries :rf.sub/input-paths-unchanged naming the flow's input paths"
     (rf/reg-event-db :seed   (fn [_ _]      {:x 0 :y 0}))
     (rf/reg-event-db :bump-z (fn [db _]     (assoc db :z (inc (or (:z db) 0)))))
     (rf/reg-flow {:id     :sum
@@ -170,7 +170,7 @@
       (let [cap (first caps)]
         (is (= :rf.cascade (:op-type cap)))
         (is (contains? (:tags cap) :frame))
-        (is (contains? (:tags cap) :epoch-id))
+        (is (contains? (:tags cap) :rf.epoch/id))
         (is (vector? (get-in cap [:tags :subs-recomputed])))
         (is (vector? (get-in cap [:tags :subs-skipped])))
         (is (vector? (get-in cap [:tags :flows-computed])))
@@ -184,10 +184,10 @@
 (deftest aggregate-cascade-honours-bounds
   (testing "aggregate-cascade caps subs at 50 and stamps :sub-cap-truncated?"
     (let [events (for [i (range 60)]
-                   {:operation :sub/run
-                    :op-type   :sub/run
-                    :tags      {:sub-id (keyword (str "s" i))
-                                :query-v [(keyword (str "s" i))]}})
+                   {:operation :rf.sub/run
+                    :op-type   :rf.sub/run
+                    :tags      {:rf.sub/id (keyword (str "s" i))
+                                :rf.sub/query-v [(keyword (str "s" i))]}})
           dag    (cascade/aggregate-cascade events)]
       (is (= 50 (count (:subs-recomputed dag))))
       (is (true? (:sub-cap-truncated? dag)))
@@ -195,33 +195,33 @@
 
   (testing "aggregate-cascade caps views at 100 and stamps :view-cap-truncated?"
     (let [events (for [i (range 120)]
-                   {:operation :view/render
-                    :op-type   :view
-                    :tags      {:render-key   [:v (str "k" i)]
+                   {:operation :rf.view/render
+                    :op-type   :rf.view
+                    :tags      {:rf.view/render-key   [:v (str "k" i)]
                                 :triggered-by :db-change}})
           dag    (cascade/aggregate-cascade events)]
       (is (= 100 (count (:views-rendered dag))))
       (is (true? (:view-cap-truncated? dag)))
       (is (false? (:sub-cap-truncated? dag))))))
 
-;; ---- :sub/run value-change + cascade attribution (rf2-l1jz8) --------------
+;; ---- :rf.sub/run value-change + cascade attribution (rf2-l1jz8) --------------
 ;;
 ;; The reactive recompute path (subs.memo/validate-and-trace) enriches the
-;; `:sub/run` tag with value-change + cascade attribution so Causa's
+;; `:rf.sub/run` tag with value-change + cascade attribution so Causa's
 ;; Reactive panel can populate "SUBS WHOSE VALUE CHANGED" / "SUBS THAT
 ;; CASCADED". These tests pin the emitted tags directly off the trace
 ;; stream (the structured projection threading is covered by the epoch +
 ;; aggregate-cascade pins).
 
 (defn- sub-runs
-  "Filter a captured trace stream to `:sub/run` events for `sub-id`."
+  "Filter a captured trace stream to `:rf.sub/run` events for `sub-id`."
   [events sub-id]
-  (filter #(and (= :sub/run (:operation %))
-                (= sub-id (get-in % [:tags :sub-id])))
+  (filter #(and (= :rf.sub/run (:operation %))
+                (= sub-id (get-in % [:tags :rf.sub/id])))
           events))
 
 (deftest sub-run-value-changed-attribution
-  (testing "a layer-1 recompute whose value CHANGED stamps :value-changed? true + :prev/:value, :cascade? false, :cause-sub nil"
+  (testing "a layer-1 recompute whose value CHANGED stamps :rf.sub/value-changed? true + :prev/:value, :rf.sub/cascade? false, :rf.sub/cause-sub nil"
     (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 1}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
@@ -234,16 +234,16 @@
                      (rf/dispatch-sync [:inc]) ;; n 1 -> 2, layer-1 recompute
                      @r))
           runs   (sub-runs events :n)]
-      (is (seq runs) "expected a :sub/run for :n on the value-changing recompute")
+      (is (seq runs) "expected a :rf.sub/run for :n on the value-changing recompute")
       (let [t (:tags (first runs))]
-        (is (true? (:value-changed? t)) "value changed 1 -> 2")
-        (is (= 1 (:prev-value t)) ":prev-value is the prior computed value")
-        (is (= 2 (:value t)) ":value is the freshly computed value")
-        (is (false? (:cascade? t)) "layer-1 sub is app-db-driven, not a cascade")
-        (is (nil? (:cause-sub t)) "layer-1 has no upstream sub to attribute")))))
+        (is (true? (:rf.sub/value-changed? t)) "value changed 1 -> 2")
+        (is (= 1 (:rf.sub/prev-value t)) ":rf.sub/prev-value is the prior computed value")
+        (is (= 2 (:rf.sub/value t)) ":value is the freshly computed value")
+        (is (false? (:rf.sub/cascade? t)) "layer-1 sub is app-db-driven, not a cascade")
+        (is (nil? (:rf.sub/cause-sub t)) "layer-1 has no upstream sub to attribute")))))
 
 (deftest sub-run-value-unchanged-attribution
-  (testing "a recompute whose value did NOT change stamps :value-changed? false"
+  (testing "a recompute whose value did NOT change stamps :rf.sub/value-changed? false"
     ;; Prove the false case genuinely exists: a layer-1 sub that projects
     ;; the SAME value out of a CHANGED db. The memo wrapper compares db
     ;; identity (layer-1 reads app-db directly), so a db write to an
@@ -263,14 +263,14 @@
                      (rf/dispatch-sync [:bump-other])
                      @r))
           runs   (sub-runs events :n)]
-      (is (seq runs) "expected a :sub/run for :n on the re-run (db identity changed)")
+      (is (seq runs) "expected a :rf.sub/run for :n on the re-run (db identity changed)")
       (let [t (:tags (first runs))]
-        (is (false? (:value-changed? t)) ":n re-ran but its value stayed 5")
-        (is (= 5 (:prev-value t)))
-        (is (= 5 (:value t)))))))
+        (is (false? (:rf.sub/value-changed? t)) ":n re-ran but its value stayed 5")
+        (is (= 5 (:rf.sub/prev-value t)))
+        (is (= 5 (:rf.sub/value t)))))))
 
 (deftest sub-run-cascade-attribution-layer-2
-  (testing "a layer-2 sub recomputed by an upstream sub change stamps :cascade? true + :cause-sub naming the upstream"
+  (testing "a layer-2 sub recomputed by an upstream sub change stamps :rf.sub/cascade? true + :rf.sub/cause-sub naming the upstream"
     (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 2}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
@@ -286,14 +286,14 @@
                      (rf/dispatch-sync [:inc]) ;; :n 2->3, :doubled cascades 4->6
                      @r))
           runs   (sub-runs events :doubled)]
-      (is (seq runs) "expected a :sub/run for :doubled on the cascade")
+      (is (seq runs) "expected a :rf.sub/run for :doubled on the cascade")
       (let [t (:tags (first runs))]
-        (is (true? (:value-changed? t)) ":doubled changed 4 -> 6")
-        (is (= 4 (:prev-value t)))
-        (is (= 6 (:value t)))
-        (is (true? (:cascade? t)) "layer-2 recompute is a cascade")
-        (is (= [:n] (:cause-sub t))
-            ":cause-sub names the upstream sub query-vector that changed")))))
+        (is (true? (:rf.sub/value-changed? t)) ":doubled changed 4 -> 6")
+        (is (= 4 (:rf.sub/prev-value t)))
+        (is (= 6 (:rf.sub/value t)))
+        (is (true? (:rf.sub/cascade? t)) "layer-2 recompute is a cascade")
+        (is (= [:n] (:rf.sub/cause-sub t))
+            ":rf.sub/cause-sub names the upstream sub query-vector that changed")))))
 
 (deftest sub-run-cascade-attribution-layer-2-multi-input
   (testing "a multi-input layer-2 sub names the SPECIFIC upstream that changed"
@@ -316,12 +316,12 @@
           runs   (sub-runs events :sum)]
       (is (seq runs))
       (let [t (:tags (first runs))]
-        (is (true? (:cascade? t)))
-        (is (= [:b] (:cause-sub t))
-            ":cause-sub names :b (the changed input), not :a (stable)")))))
+        (is (true? (:rf.sub/cascade? t)))
+        (is (= [:b] (:rf.sub/cause-sub t))
+            ":rf.sub/cause-sub names :b (the changed input), not :a (stable)")))))
 
 (deftest sub-run-layer-1-no-cause-sub
-  (testing "a layer-1 sub never carries a :cause-sub (app-db-driven, not a cascade)"
+  (testing "a layer-1 sub never carries a :rf.sub/cause-sub (app-db-driven, not a cascade)"
     (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
@@ -336,11 +336,11 @@
           runs   (sub-runs events :n)]
       (is (seq runs))
       (let [t (:tags (first runs))]
-        (is (false? (:cascade? t)))
-        (is (nil? (:cause-sub t)))))))
+        (is (false? (:rf.sub/cascade? t)))
+        (is (nil? (:rf.sub/cause-sub t)))))))
 
 (deftest sub-run-base-shape-still-emitted
-  (testing "the :sub/run op-type vocabulary is unchanged — the base tags still ride"
+  (testing "the :rf.sub/run op-type vocabulary is unchanged — the base tags still ride"
     (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 1}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
@@ -355,28 +355,29 @@
           runs   (sub-runs events :n)]
       (is (seq runs))
       (let [ev (first runs)]
-        (is (= :sub/run (:op-type ev)))
-        (is (= :n (get-in ev [:tags :sub-id])))
-        (is (= [:n] (get-in ev [:tags :query-v])))
+        (is (= :rf.sub (:op-type ev)))
+        (is (= :n (get-in ev [:tags :rf.sub/id])))
+        (is (= [:n] (get-in ev [:tags :rf.sub/query-v])))
         (is (contains? (:tags ev) :frame))))))
 
 (deftest aggregate-cascade-shape-pin
-  (testing "aggregate-cascade splits subs by :sub/run vs :rf.sub/skip"
-    (let [events [{:operation :sub/run :tags {:sub-id :a :query-v [:a]}}
+  (testing "aggregate-cascade splits subs by :rf.sub/run vs :rf.sub/skip"
+    (let [events [{:operation :rf.sub/run :tags {:rf.sub/id :a :rf.sub/query-v [:a]}}
                   {:operation :rf.sub/skip
-                   :tags {:sub-id :b :query-v [:b]
-                          :reason :input-value-equal
-                          :input-paths-unchanged [[:a]]}}
+                   :tags {:rf.sub/id :b :rf.sub/query-v [:b]
+                          :rf.sub/reason :input-value-equal
+                          :rf.sub/input-paths-unchanged [[:a]]}}
                   {:operation :rf.flow/computed
                    :tags {:flow-id :f :path [:p]}}
                   {:operation :rf.flow/skip
                    :tags {:flow-id :g :input-paths-unchanged [[:x]]}}
-                  {:operation :view/render
-                   :tags {:render-key [:v :k] :triggered-by :db-change}}]
+                  {:operation :rf.view/render
+                   :tags {:rf.view/render-key [:v :k] :triggered-by :db-change}}]
           dag    (cascade/aggregate-cascade events)]
       ;; Per rf2-l1jz8 the `:subs-recomputed` projection threads value-
       ;; change + cascade attribution; this fixture event carries no
-      ;; attribution tags so the slots are nil.
+      ;; attribution tags so the slots are nil. The projection RECORD keys
+      ;; stay bare (nested record-map carve-out — Spec 009 §`:tags`).
       (is (= [{:sub-id :a :query-v [:a]
                :value-changed? nil :prev-value nil :value nil
                :cascade? nil :cause-sub nil}]

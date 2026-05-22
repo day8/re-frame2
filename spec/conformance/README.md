@@ -55,8 +55,8 @@ The classic shape: a starting state (frame configuration plus initial `app-db`),
  :fixture/expect
  {:final-app-db        {:count 1}
   :sub-values          {[:count] 1}
-  :trace-emissions     [{:operation :event :tags {:event-id :counter/inc}}
-                        {:operation :event/do-fx :tags {}}]
+  :trace-emissions     [{:operation :rf.event :tags {:rf.trace/event-id :counter/inc}}
+                        {:operation :rf.fx/do-fx :tags {}}]
   :effects-routed      []}}
 ```
 
@@ -192,7 +192,7 @@ The conventions above describe the schema; the corpus itself shows what those ta
 | Fixture | `:fixture/capabilities` | What the tag set means |
 |---|---|---|
 | `counter-inc-once.edn` | `#{:core/event-handler :core/sub}` | The simplest pattern-required-only fixture: a single event handler, one sub. Every conformant port runs this. |
-| `frame-lifecycle.edn` | `#{:core/event-handler :core/frame :core/trace}` | The default frame's `:on-create` / `:on-destroy` events fire at frame creation and destruction; the runtime emits `:frame/created` / `:frame/destroyed` trace ops. Verifies both the frame-lifecycle contract and the trace-bus emission. |
+| `frame-lifecycle.edn` | `#{:core/event-handler :core/frame :core/trace}` | The default frame's `:on-create` / `:on-destroy` events fire at frame creation and destruction; the runtime emits `:rf.frame/created` / `:rf.frame/destroyed` trace ops. Verifies both the frame-lifecycle contract and the trace-bus emission. |
 | `frame-multi-instance.edn` | `#{:core/event-handler :core/sub :core/frame :core/trace}` | Two frames sharing one registrar with isolated app-db; each trace event carries a per-frame `:frame` tag so the bus is multi-frame addressable. |
 | `error-handler-exception.edn` | `#{:core/event-handler :core/error :core/trace}` | A handler throws; the runtime emits a structured `:rf.error/handler-exception` trace with `:op-type :error` and `:recovery :no-recovery`. The trace shape is the primary contract. |
 | `after-hierarchy.edn` | `#{:fsm/hierarchical :fsm/delayed-after}` | A parent compound state with an `:after` timer. Only ports that claim both hierarchical FSM and `:after` will run it. |
@@ -244,7 +244,7 @@ In addition, `:fixture/dispatches` accepts two harness-level map forms (alongsid
 
 | Form | Meaning |
 |---|---|
-| `{:destroy-frame <frame-id>}` | Call `destroy-frame!` on the named frame. The machine-cascade teardown hook fires (`:rf.machine.lifecycle/destroyed` per active machine), the sub-cache disposes, the substrate releases frame-scoped resources, and `:frame/destroyed` trace fires. Used by Cross-Spec Interaction §1's fixture. |
+| `{:destroy-frame <frame-id>}` | Call `destroy-frame!` on the named frame. The machine-cascade teardown hook fires (`:rf.machine.lifecycle/destroyed` per active machine), the sub-cache disposes, the substrate releases frame-scoped resources, and `:rf.frame/destroyed` trace fires. Used by Cross-Spec Interaction §1's fixture. |
 | `{:reg-sub <sub-id> :body <sub-body-dsl>}` | Re-register the sub with a new body realised via the conformance sub-DSL interpreter. The registrar's replacement hook fires (`:rf.registry/handler-replaced` with `:kind :sub`), invalidating the cache slot for that query-id. Used by Cross-Spec Interaction §18's fixture. |
 
 **Control / failure ops:**
@@ -386,14 +386,14 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `ssr-error-known-mapping.edn` | `:ssr/error-known-mapping` | Default projector maps `:rf.error/no-such-handler` (routing context) → `{:status 404 :code :not-found ...}` public-error |
 | `epoch-record-shape.edn` | `:epoch/record-shape` | Per-dispatch `:rf/epoch-record` carries `:event-id`, `:trigger-event`, `:db-before` / `:db-after` snapshot pair, and `:outcome :ok` — the Tool-Pair time-travel contract |
 | `epoch-ring-multi-dispatch.edn` | `:epoch/ring-multi-dispatch` | Multiple settled drains append to the epoch-history ring in oldest-first order; each record's `:db-before` chains from the previous `:db-after` |
-| `trace-buffer-filter-categories.edn` | `:trace-buffer/filter-categories` | One cascade reaches all four trace-bus categories — `:event` (lifecycle), `:rf.fx/handled`, `:sub/run`, `:rf.error/handler-exception` — so the trace-buffer's filter axes (`:op-type` / `:operation` / `:severity`) have reachable data per category |
+| `trace-buffer-filter-categories.edn` | `:trace-buffer/filter-categories` | One cascade reaches all four trace-bus categories — `:rf.event` (lifecycle), `:rf.fx/handled`, `:rf.sub/run`, `:rf.error/handler-exception` — so the trace-buffer's filter axes (`:op-type` / `:operation` / `:severity`) have reachable data per category |
 | `view-registration.edn` | `:view/registration` | `reg-view` registers a view body that consumes a sub; the registrar accepts the registration and the dependent sub returns the live post-drain value (the data a render-trigger would consume). Render-time observables remain out of scope per the §Render-time observables note below |
 | `http-interceptor-before-transforms.edn` | `:rf.http.interceptor/before-transforms` | `:rf.fx/reg-http-interceptor` registers a request-side `:before` interceptor (Spec 014 §Middleware, rf2-6y3q + rf2-yhfgf); the `:rf.http.interceptor/registered` trace fires at registration, and the body executes against the live ctx on a subsequent canned-success request — observable via a marker the body dispatches into app-db |
 | `http-interceptor-clear.edn` | `:rf.http.interceptor/clear` | `:rf.fx/clear-http-interceptor` unregisters an interceptor by id; the `:rf.http.interceptor/cleared` trace fires; a subsequent request runs WITHOUT the cleared body — the dispatched-marker counter advances on the pre-clear request and STAYS at one through the post-clear request |
 | `routing-history-popstate.edn` | `:routing/history-popstate` | Popstate-driven URL change (`[:rf.route/handle-url-change url]`): URL round-trips into `:rf/route` slice; `:rf.nav/scroll` fires with popstate-default `:restore` strategy; runtime does NOT push or replace the URL (it came from the browser) |
 | `routing-history-replace.edn` | `:routing/history-replace` | Programmatic navigation with `{:replace? true}` routes through `:rf.nav/replace-url` instead of `:rf.nav/push-url` — replaceState semantics so the back button skips the intermediate URL |
 | `hot-reload-handler-replaced-trace.edn` | `:hot-reload/handler-replaced-trace` | Per Spec 001 §Hot-reload trace surface: a re-registration emits `:rf.registry/handler-replaced` carrying `:kind` + `:id` + `:different-fn?`. Exercised through flow re-registration (the only pure-data surface today through which the corpus can re-register a slot mid-dispatch); the trace contract is cross-kind |
-| `cross-spec-frame-destroy-with-machines.edn` | `:cross-spec/frame-destroy-with-machines` | Cross-Spec #1 (Frames × Machines): `destroy-frame!` while a singleton machine snapshot is live emits `:rf.machine.lifecycle/destroyed` BEFORE `:frame/destroyed`, carrying `:reason :parent-frame-destroyed` |
+| `cross-spec-frame-destroy-with-machines.edn` | `:cross-spec/frame-destroy-with-machines` | Cross-Spec #1 (Frames × Machines): `destroy-frame!` while a singleton machine snapshot is live emits `:rf.machine.lifecycle/destroyed` BEFORE `:rf.frame/destroyed`, carrying `:reason :parent-frame-destroyed` |
 | `cross-spec-machine-microstep-subscribe.edn` | `:cross-spec/machine-microstep-subscribe` | Cross-Spec #2 (Frames × Machines): subs return the COMMITTED post-cascade snapshot, never an intermediate microstep value. The sub-cache invalidation fires once after macrostep commit, not per-microstep |
 | `cross-spec-machines-under-ssr.edn` | `:cross-spec/machines-under-ssr` | Cross-Spec #4 (Machines × SSR): under `:platform :server`, entering an `:after`-bearing state emits `:rf.machine.timer/skipped-on-server` in place of `/scheduled` — no host-clock timer is installed; the machine's snapshot still lands at the `:after`-bearing state |
 | `cross-spec-dispatch-sync-in-handler.edn` | `:cross-spec/dispatch-sync-in-handler` | Cross-Spec #14 (Drain loop × Substrate): a handler that triggers `dispatch-sync` mid-drain (directly or transitively via a naive fx-side chain) trips the router's `:in-drain?` guard and emits `:rf.error/dispatch-sync-in-handler` with `:no-recovery`; the would-be leaf handler does NOT run. Pins the substrate-level ban; render-time observables are out-of-scope so the fx path is the corpus's testable seam |

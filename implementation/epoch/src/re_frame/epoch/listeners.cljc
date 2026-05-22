@@ -81,9 +81,9 @@
   slot, exactly as `project-all` already treats them (it projects no
   `:renders` row for them)."
   [event]
-  (when (= :view/render (:operation event))
+  (when (= :rf.view/render (:operation event))
     (let [t (:tags event)]
-      {:render-key   (or (:render-key t) [:rf.view/anonymous nil])
+      {:render-key   (or (:rf.view/render-key t) [:rf.view/anonymous nil])
        :triggered-by (:triggered-by t)
        :elapsed-ms   (:elapsed-ms t)})))
 
@@ -126,7 +126,7 @@
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [default-epoch (state/last-settled-epoch-id frame-id)]
-      (let [render-key (-> event :tags :render-key)
+      (let [render-key (-> event :tags :rf.view/render-key)
             target     (state/resolve-render-epoch frame-id render-key
                                                     default-epoch)]
         ;; Record the mount anchor on first sighting; never overwrites.
@@ -162,16 +162,16 @@
   row for a memo hit, so a skip rides only the `:trace-events` slot
   (symmetric with `render-row` returning nil for `:rf.view/rendered`)."
   [event]
-  (when (= :sub/run (:operation event))
+  (when (= :rf.sub/run (:operation event))
     (let [t (:tags event)]
-      {:sub-id         (:sub-id t)
-       :query-v        (:query-v t)
+      {:sub-id         (:rf.sub/id t)
+       :query-v        (:rf.sub/query-v t)
        :recomputed?    true
-       :value-changed? (:value-changed? t)
-       :prev-value     (:prev-value t)
-       :value          (:value t)
-       :cascade?       (:cascade? t)
-       :cause-sub      (:cause-sub t)})))
+       :value-changed? (:rf.sub/value-changed? t)
+       :prev-value     (:rf.sub/prev-value t)
+       :value          (:rf.sub/value t)
+       :cascade?       (:rf.sub/cascade? t)
+       :cause-sub      (:rf.sub/cause-sub t)})))
 
 (defn record-sub-run!
   "Attribute a post-settle sub-run emit to the cascade that CAUSED it
@@ -249,9 +249,9 @@
     ;; buffer gets wiped in step 3.
     (let [buffered-events  (state/buffer-for frame-id)
           in-cascade?      (some (fn [ev]
-                                   (and (= :event (:op-type ev))
-                                        (= :event (:operation ev))
-                                        (= :run-start (-> ev :tags :phase))))
+                                   (and (= :rf.event (:op-type ev))
+                                        (= :rf.event (:operation ev))
+                                        (= :run-start (-> ev :tags :rf.trace/phase))))
                                  buffered-events)]
       (when in-cascade?
         ;; Per rf2-wp70d: even on the halted-destroy partial-record
@@ -263,10 +263,10 @@
                                               :halted-destroy
                                               {:operation :rf.frame/destroyed-mid-drain}))]
           (trace/emit! :rf.epoch :rf.epoch/snapshotted
-                       {:frame    frame-id
-                        :epoch-id (:epoch-id record)
-                        :event-id (:event-id record)
-                        :outcome  :halted-destroy})
+                       {:frame             frame-id
+                        :rf.epoch/id       (:epoch-id record)
+                        :rf.trace/event-id (:event-id record)
+                        :outcome           :halted-destroy})
           (notify-listeners! record))))
     (let [silenced-cbs (->> (state/observations-snapshot)
                             (keep (fn [[cb-id frames]]

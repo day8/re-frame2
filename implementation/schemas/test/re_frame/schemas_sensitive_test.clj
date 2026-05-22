@@ -313,8 +313,8 @@
         (is (= 42 (-> v :tags :received)))
         (is (= :cofx (-> v :tags :where))
             "structural :where slot survives")
-        (is (= :auth/credentials (-> v :tags :cofx-id))
-            "structural :cofx-id survives")))))
+        (is (= :auth/credentials (-> v :tags :rf.cofx/id))
+            "structural :rf.cofx/id survives")))))
 
 (deftest cofx-validation-redacts-when-schema-container-sensitive
   (testing "A container-level :sensitive? on the cofx :schema also triggers
@@ -369,13 +369,13 @@
           (is (= :rf/redacted (-> v :tags :explain)))
           ;; Structural slots survive.
           (is (= :sub-return (-> v :tags :where)))
-          (is (= :secrets (-> v :tags :sub-id)))
+          (is (= :secrets (-> v :tags :rf.sub/id)))
           (is (= :replaced-with-default (:recovery v))))))))
 
 (deftest sub-return-validation-redacts-query-v-when-sensitive
   (testing "Per Spec 010 §`:sensitive?` + rf2-adtp2 / rf2-p2adl Q2 —
-            the caller-supplied :query-v on a sensitive sub-return
-            failure is itself redacted. :query-v is a value-bearing
+            the caller-supplied :rf.sub/query-v on a sensitive sub-return
+            failure is itself redacted. :rf.sub/query-v is a value-bearing
             slot on this surface (the lookup key typically carries
             the same secret material the sub's return schema is
             gating — user ids, auth tokens, document ids); without
@@ -403,19 +403,19 @@
         (is (some? v) "a sub-return failure fired")
         (is (true? (:sensitive? v))
             "top-level :sensitive? stamp present")
-        (is (= :rf/redacted (-> v :tags :query-v))
-            ":query-v — the caller-supplied lookup key — is redacted")
+        (is (= :rf/redacted (-> v :tags :rf.sub/query-v))
+            ":rf.sub/query-v — the caller-supplied lookup key — is redacted")
         (is (= :rf/redacted (-> v :tags :value)))
         (is (= :rf/redacted (-> v :tags :received)))
         (is (= :rf/redacted (-> v :tags :explain)))
         ;; The structural slots still survive — consumers can still
         ;; route on the sub-id without seeing the lookup key.
         (is (= :sub-return (-> v :tags :where)))
-        (is (= :token-for  (-> v :tags :sub-id)))
+        (is (= :token-for  (-> v :tags :rf.sub/id)))
         (is (= :token-for  (-> v :tags :failing-id)))))))
 
 (deftest sub-return-validation-non-sensitive-rides-query-v-verbatim
-  (testing "Backward-compat — a sub without :sensitive? emits :query-v
+  (testing "Backward-compat — a sub without :sensitive? emits :rf.sub/query-v
             verbatim on the validation-failure trace (legacy behaviour
             preserved for non-sensitive subs). Redaction is opt-in."
     (rf/reg-event-db :widgets/init  (fn [_ _]   {:widgets {:w1 "ok"}}))
@@ -435,8 +435,8 @@
         (is (some? v))
         (is (not (contains? v :sensitive?))
             "no top-level :sensitive? stamp on non-sensitive sub")
-        (is (= [:widget :w1] (-> v :tags :query-v))
-            ":query-v rides verbatim — no redaction on non-sensitive subs")
+        (is (= [:widget :w1] (-> v :tags :rf.sub/query-v))
+            ":rf.sub/query-v rides verbatim — no redaction on non-sensitive subs")
         (is (= 99 (-> v :tags :value))
             ":value also rides verbatim — legacy backward-compat")))))
 

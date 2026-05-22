@@ -44,14 +44,14 @@
 
 ;; Canonical key-set that the destroyed-trace emission sites are
 ;; responsible for assembling. The trace framework auto-stamps
-;; envelope cascade keys (currently `:dispatch-id`) under `:tags` per
-;; Spec 009 §Cascade-id stamping; those keys are not part of the
-;; per-site contract.
+;; envelope cascade keys (currently `:rf.trace/dispatch-id`) under
+;; `:tags` per Spec 009 §Cascade-id stamping; those keys are not part
+;; of the per-site contract.
 (def ^:private canonical-site-keys
   #{:frame :actor-id :system-id :parent-id :spawn-id :child-id :reason})
 
 (def ^:private framework-stamped-keys
-  #{:dispatch-id})
+  #{:rf.trace/dispatch-id})
 
 (def ^:private permitted-keys
   (clojure.set/union canonical-site-keys framework-stamped-keys))
