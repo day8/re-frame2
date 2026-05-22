@@ -442,11 +442,13 @@
       (assoc db :active-filters
                 (or filters {:in [] :out []}))))
 
-  ;; Hydrate on install. The actual logic lives in `hydrate!` below
-  ;; so `ensure-causa-frame!` (in mount.cljs) can call it again on
-  ;; first open — the production order is preload-time install
-  ;; (`:rf/causa` frame not yet registered) then keypress-time
-  ;; `ensure-causa-frame!` (frame registered). Either call path
-  ;; converges on the same slot.
-  (hydrate!)
+  ;; NO hydrate on install (rf2-swclw). The IN/OUT pills are a TRANSIENT
+  ;; exploration filter — they reset to unfiltered on every page load so
+  ;; a fresh session never silently carries a stale filter. The slot
+  ;; starts at its registry default `{:in [] :out []}` and
+  ;; `mount.cljs`'s `::reset-transient-filters` first-mount hook clears
+  ;; the stale localStorage slot so storage matches. `hydrate!` / `load`
+  ;; remain as the data layer (exercised by the persistence round-trip
+  ;; tests + reachable by hosts that opt back in), but init does not
+  ;; restore.
   nil)

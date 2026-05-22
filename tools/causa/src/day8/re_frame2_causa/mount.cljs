@@ -49,7 +49,8 @@
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
-            [day8.re-frame2-causa.filters :as filters]
+            [day8.re-frame2-causa.filters.persistence :as filters-persistence]
+            [day8.re-frame2-causa.frame-switcher :as frame-switcher]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.spine :as spine]
@@ -447,23 +448,32 @@
         (rf/dispatch-sync [:rf.causa/set-target-frame seed-frame])))))
 
 (register-first-mount-hook!
-  ::hydrate-filters
-  ;; Hydrate the auto-filter pills (rf2-ak4ms). The preload-time
-  ;; `filters/install!` call ran BEFORE the `:rf/causa` frame was
-  ;; registered, so its hydrate attempt no-op'd; re-running here under
-  ;; the now-registered frame lifts the localStorage / seed value into
-  ;; the slot. Idempotent — re-running with an unchanged source
-  ;; produces the same slot.
-  filters/hydrate!)
-
-(register-first-mount-hook!
-  ::hydrate-spine-filters
-  ;; Hydrate the muted-event-ids set (rf2-ikuwt). Same rationale as
-  ;; `filters/hydrate!` above — the preload-time `spine-filters/
-  ;; install!` ran before `:rf/causa` was registered, so re-running
-  ;; here under the now-registered frame lifts the localStorage value
-  ;; into the slot.
-  spine-filters/hydrate!)
+  ::reset-transient-filters
+  ;; Reset the TRANSIENT exploration filters to unfiltered on every page
+  ;; load (rf2-swclw). Three suppressing surfaces — the IN/OUT pills
+  ;; (rf2-ak4ms), the muted-event-ids set (rf2-ikuwt), and the frame pin
+  ;; (rf2-iwwou) — are session-scoped: a fresh load must NOT silently
+  ;; carry a stale filter from a past session (the trap that hid events
+  ;; and made the inspector look broken — rf2-jvghz). An inspector's
+  ;; prime directive is to show the truth, so the first paint starts
+  ;; fully unfiltered.
+  ;;
+  ;; Mechanism: we do NOT hydrate these slots, so app-db starts at its
+  ;; registry default (empty pills / empty mute set / unpinned frame).
+  ;; We additionally CLEAR each slot's stale localStorage value so the
+  ;; storage matches what the user sees and a phantom value can never
+  ;; resurface — if we only ignored-on-read, the next mute / pin write
+  ;; would overwrite a slot that still held last session's ghost until
+  ;; then. Clearing keeps storage honest from the first frame.
+  ;;
+  ;; DURABLE view prefs (Dynamic/Static mode, density, panel layout)
+  ;; still hydrate via their own hooks below — only transient filters
+  ;; reset. The #1962 'N events hidden by filters' indicator stays as
+  ;; the in-session safety net once the user reaches for a filter.
+  (fn []
+    (filters-persistence/clear!)
+    (spine-filters/clear-raw!)
+    (frame-switcher/clear!)))
 
 (register-first-mount-hook!
   ::hydrate-static-mode
