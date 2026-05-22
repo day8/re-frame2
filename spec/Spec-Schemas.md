@@ -2345,7 +2345,7 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
    [:db-before     :any]                                                    ;; app-db before the cascade
    [:db-after      :any]                                                    ;; app-db the runtime settled to (see :outcome)
    [:outcome       [:enum :ok                                               ;; (rf2-v0jwt) the event's own cascade settled cleanly
-                          :halted-depth                                     ;; drain-depth limit tripped; atomic rollback
+                          :halted-depth                                     ;; drain-depth limit tripped; halting event never ran (no whole-drain rollback) — :db-before = :db-after = durable last-settled db
                           :halted-destroy                                   ;; frame destroyed mid-drain
                           :halted-handler-exception]]                       ;; reserved — current impl does not halt the drain on handler-exception, see §Outcomes below
    [:halt-reason   {:optional true} :any]                                   ;; structured descriptor of the halt (operation + key tags), absent on :ok
@@ -2405,7 +2405,7 @@ The runtime commits one epoch record per dequeued event (per [002 §Drain versus
 | `:outcome` | When the runtime commits | `:db-before` | `:db-after` |
 |---|---|---|---|
 | `:ok` | The dequeued event's own six-domino cascade settled cleanly. The traditional record — one per dequeued event. | Pre-cascade snapshot. | Post-cascade snapshot. |
-| `:halted-depth` | Drain hit the configured depth limit; the runtime performed an atomic rollback per [Spec 002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics). | Pre-cascade snapshot. | Equal to `:db-before` (the rolled-back state). |
+| `:halted-depth` | Drain hit the configured depth limit. Per [Spec 002 §Run-to-completion dispatch rule 3](002-Frames.md#run-to-completion-dispatch-drain-semantics) the atomicity unit is the **event**, not the drain: every already-settled event kept its own durable `:ok` epoch + db write (**no whole-drain rollback**), the remaining queued events are discarded, and this single trailing record marks the **halting event** — which never ran. | The durable last-settled `app-db` (the value after the final `:ok` event). | Equal to `:db-before` — the halting event made no write. |
 | `:halted-destroy` | A handler called `destroy-frame!` on its own frame mid-cascade; the drain interrupts and drops remaining queued events per [Spec 002 §Edge cases worth pinning §Frame disposal mid-drain](002-Frames.md). | Pre-cascade snapshot. | The state at destroy-time — the partial cascade's writes survive in the recorded value, but the frame is gone so the live container can no longer be read. |
 | `:halted-handler-exception` | **Reserved.** Spec 010 §Per-step recovery line 140 describes "cascade halts" on handler exception, but the reference runtime currently routes through the interceptor chain's error-capture seam: the failing handler's `:db` / `:fx` / flows do **not** apply (the chain caught the exception before `:effects` were populated), but the drain itself continues with the next queued event. No record carries this outcome under today's CLJS reference. Held for a future runtime path that aborts the drain on handler exception. | — | — |
 
