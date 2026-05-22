@@ -134,8 +134,8 @@
       (is (some? (:dispatch-id r))
           "record carries the pinned :dispatch-id slot")
       (is (= (:dispatch-id r)
-             (some #(get-in % [:tags :dispatch-id]) (:trace-events r)))
-          ":dispatch-id slot equals the cascade's trace :dispatch-id tag"))))
+             (some #(get-in % [:tags :rf.trace/dispatch-id]) (:trace-events r)))
+          ":dispatch-id slot equals the cascade's trace :rf.trace/dispatch-id tag"))))
 
 (deftest record-multi-event-cascade
   (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): each dequeued
