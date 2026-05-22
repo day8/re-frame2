@@ -848,10 +848,14 @@
       ;; Focus cascade A.
       (rf/dispatch-sync [:rf.causa/focus-cascade 100])
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
-        (is (= 5 (:total feed))
-            ":total reflects the ENTIRE buffer (unscoped count) —
-             cascade-scope narrows what RENDERS, not what's in the
-             buffer")
+        ;; rf2-r6d6u: the 'X / Y in view' denominator is cascade-scoped
+        ;; — :total is cascade A's 2 in-scope events, NOT the 5-event
+        ;; buffer. The raw ring is surfaced via :buffer-total.
+        (is (= 2 (:total feed))
+            ":total is the in-scope (cascade A) count — the per-cascade
+             lens denominator, not the whole buffer")
+        (is (= 5 (:buffer-total feed))
+            ":buffer-total carries the whole ring's size")
         (is (= 2 (:rendered feed))
             "only the two events in cascade A are rendered")
         (is (= #{1 2} (set (mapv :id (:rows feed))))
@@ -863,6 +867,9 @@
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
         (is (= 3 (:rendered feed))
             "rendered count flips to cascade B's three events")
+        (is (= 3 (:total feed))
+            ":total flips to cascade B's 3 in-scope events")
+        (is (= 5 (:buffer-total feed)))
         (is (= #{3 4 5} (set (mapv :id (:rows feed))))
             "rows are exactly cascade B's events")
         (is (= 200 (:cascade-dispatch-id feed)))))))
@@ -956,8 +963,12 @@
       (is (= :no-focus (:empty-kind feed)))
       (is (= 0 (:rendered feed))
           "no rows render in the no-focus defensive branch")
-      (is (= 1 (:total feed))
-          ":total still reflects the buffer (the state is broken,
+      ;; rf2-r6d6u: no focused cascade → nothing is in scope → :total 0.
+      ;; The raw ring is still surfaced via :buffer-total.
+      (is (= 0 (:total feed))
+          ":total is 0 — no focused cascade means nothing is in view")
+      (is (= 1 (:buffer-total feed))
+          ":buffer-total still reflects the buffer (the state is broken,
            not the data)"))))
 
 (deftest panel-spine-auto-snap-guards-against-no-focus-in-production

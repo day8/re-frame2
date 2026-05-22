@@ -764,6 +764,26 @@ async function readTraceDomBudget(page) {
   });
 }
 
+// rf2-r6d6u: the trace header's 'X / Y in view' denominator is now
+// cascade-scoped (Y = in-scope, pre-user-filter count), so it is NO
+// LONGER a proxy for the whole ring's depth. The buffer-cap invariant
+// ('still capped at 1000') is read straight from the trace bus — the
+// canonical source of truth for ring depth, independent of which
+// cascade the spine has in focus.
+async function readTraceBufferDepth(page) {
+  return page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const bus = window.day8 &&
+      window.day8.re_frame2_causa &&
+      window.day8.re_frame2_causa.trace_bus;
+    if (!cljs || !bus || typeof bus.buffer !== 'function') return null;
+    // `bus.buffer()` is the live ring; its count is the actual number of
+    // retained events (vs `current_depth`, which is only the configured
+    // capacity). The 1000-cap saturation invariant needs the live count.
+    return cljs.count(bus.buffer());
+  });
+}
+
 async function pushSyntheticTraceEvents(page, count) {
   const result = await page.evaluate((eventCount) => {
     const cljs = window.cljs && window.cljs.core;
@@ -1765,11 +1785,14 @@ async function runTraceBudgetSaturation(page, state) {
   await clearTrace(page);
   const start = Date.now();
   const pushed = await pushSyntheticTraceEvents(page, 1000);
-  const saturated = await waitForValue(
-    () => readTraceCounts(page),
-    (counts) => counts.total === 1000,
+  // rf2-r6d6u: assert ring saturation against the BUS depth, not the
+  // header denominator (the latter is now cascade-scoped, not the ring).
+  const saturatedDepth = await waitForValue(
+    () => readTraceBufferDepth(page),
+    (depth) => depth === 1000,
     { timeoutMs: 10000, description: 'trace buffer saturation at 1000 rows' },
   );
+  const saturated = await readTraceCounts(page);
   const saturatedDom = await waitForValue(
     () => readTraceDomBudget(page),
     (budget) => budget.rowCount === 200 && budget.overflowPresent,
@@ -1786,26 +1809,32 @@ async function runTraceBudgetSaturation(page, state) {
   for (let i = 0; i < 20; i += 1) {
     await clickHostButtonByLabel(page, i % 2 === 0 ? '+' : '-');
   }
+  // rf2-r6d6u: 'still capped' is a RING invariant — assert the bus depth
+  // stays at 1000 (host dispatches evict synthetic rows but never grow
+  // the ring) and the DOM budget stays ≤ 200. The header denominator is
+  // now cascade-scoped, so it no longer equals the ring depth.
   const after = await waitForValue(
     async () => ({
+      depth: await readTraceBufferDepth(page),
       counts: await readTraceCounts(page),
       dom: await readTraceDomBudget(page),
       events: await readTrace(page),
     }),
     (snapshot) =>
-      snapshot.counts.total === 1000 &&
+      snapshot.depth === 1000 &&
       snapshot.dom.rowCount <= 200 &&
       snapshot.events.some((event) => event.includes(':counter/inc')) &&
       snapshot.events.some((event) => event.includes(':counter/dec')),
     { timeoutMs: 10000, description: 'trace budget still capped after 20 host dispatches' },
   );
   state.loadStats = {
-    eventCountBefore: saturated.total,
-    eventCountAfter: after.counts.total,
-    traceBufferDepth: after.counts.total,
+    eventCountBefore: saturatedDepth,
+    eventCountAfter: after.depth,
+    traceBufferDepth: after.depth,
+    scopedDenominator: after.counts.total,
     visibleRowCount: after.dom.rowCount,
     renderDurationMs: Date.now() - start,
-    bufferEvictionCount: Math.max(0, saturated.total + 20 - after.counts.total),
+    bufferEvictionCount: Math.max(0, saturatedDepth + 20 - after.depth),
     overflowText: after.dom.overflowText,
     syntheticEventsPushed: pushed.pushed,
   };
