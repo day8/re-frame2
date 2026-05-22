@@ -769,6 +769,17 @@ re-frame2 dispatches **run to completion**: when an external event is processed,
 
 This is the dispatch semantics, not a mode. There is no opt-out. The guarantee gives actor-style machine composition determinism for free ([Spec 005](005-StateMachines.md), when drafted) and removes a class of "flash" intermediate renders that today's async dispatch can cause. It is also load-bearing for [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): every settled, between-event state of a frame is a snapshottable boundary, and no async mutation escapes the dispatch loop to leave the frame's value inconsistent with its registered handlers.
 
+### Drain versus event — the epoch unit
+
+A **drain** and an **event** are distinct units, and the distinction is normative:
+
+- A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — the originating event plus every event its handlers `:fx`-dispatch, and so on, until the queue is empty. A drain is a *scheduling* unit: it bounds when the host event loop gets time back and when views re-render (once, at settle).
+- An **event** is one dequeued envelope. Each dequeued event runs its **own full six-domino cascade** (event → effects → dispatch → handler → effects → view) end-to-end before the next event is dequeued, and **yields its own epoch** — one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event.
+
+**One epoch per dequeued event — every origin.** The epoch boundary is *per top-level dequeue*, irrespective of how the event arrived in the queue: a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or the frame-creation initial event (`:on-create`, dispatch-synced at `reg-frame` — see [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)). Each of these is its own dequeued event, so each is its own epoch with its own six-domino cascade and its own trace. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one — even though both settled inside the same drain.
+
+**Microsteps ride the triggering event's epoch.** A machine's `:raise` sub-events and `:always` microsteps are **not** dequeued events — they are in-memory microsteps inside a single machine **macrostep**, drained pre-commit within the triggering event's handler invocation and never routed through the per-frame queue (per [005 §`:raise`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) / [§Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)). They stay **inside the triggering event's epoch**; they do not start a new one. Only a separately *dequeued* event — including an `:fx [[:dispatch …]]` child that round-trips through the queue — opens a fresh epoch. (`:dispatch` to self goes to the back of the queue and is a separate dequeued event; `:raise` does not — see [§Edge cases worth pinning](#edge-cases-worth-pinning) #3.)
+
 ### Terminology
 
 - **Domain events** — dispatches whose source is the outside world (user input, timer fire, websocket message, REPL). These are the "external events" that drive re-frame.
@@ -1039,6 +1050,8 @@ For machine events, `process-event!` step 1 lands inside the machine handler, wh
 ```
 
 The handler returns its `{:db :fx}`; the outer `process-event!` then runs the `:fx` walk that ships the cascade's accumulated effects to `do-fx`. The whole macrostep — raise drain, microstep loop, snapshot commit — appears as one logical step to external observers. Sub-cache invalidation fires once (in `process-event!` step 2), not on every microstep.
+
+**`process-event!` is the epoch unit.** One run of `process-event!` — one dequeued event, its full six-domino cascade, and (for machine events) its entire macrostep — is exactly one epoch (per [§Drain versus event](#drain-versus-event--the-epoch-unit) above). The raise drain and microstep loop ride **inside** that single epoch; they are not separate dequeues and do not open new ones. The next iteration of the outer `drain!` loop dequeues the next event and opens the next epoch — even when that next event is an `:fx`-dispatched child of the one that just settled.
 
 #### Interaction map
 
