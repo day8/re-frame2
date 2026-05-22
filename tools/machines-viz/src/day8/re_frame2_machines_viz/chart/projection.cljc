@@ -76,30 +76,28 @@
 (defn ->elk-children
   "Project parsed nodes into elk.js's `children` shape.
 
-  Flat (non-parallel) machines emit one flat child per node. Parallel
-  machines (rf2-lkwev) nest each region's states UNDER their region
-  container node so elkjs lays the states out INSIDE the region's
-  bounding box (xyflow's parentNode sub-flow then renders them inside
-  the dashed region boundary). Region containers carry their own
-  `elk.algorithm`/`elk.padding` so each orthogonal zone gets a clean
-  internal layout, and the regions themselves are laid side-by-side at
+  Nesting is keyed on `:parent-id`: parallel-region states (rf2-lkwev)
+  AND compound substates carry it, so BOTH nest UNDER their container
+  and elkjs lays them out inside the container's bounding box (xyflow's
+  parentNode sub-flow then renders them inside the dashed boundary).
+  Nesting recurses — a compound inside a region, or a compound inside a
+  compound, lays out correctly. Each container (region OR compound) gets
+  its own `elk.algorithm`/`elk.padding` so the header strip has room and
+  the zone gets a clean internal layout; top-level nodes are laid out at
   the root."
-  [{:keys [nodes parallel?]}]
-  (if-not parallel?
-    (mapv elk-child nodes)
-    (let [region-nodes (filterv :region? nodes)
-          ;; Group the non-region (state) nodes by their parent region.
-          by-parent    (group-by :parent-id (remove :region? nodes))]
-      (mapv (fn [rn]
-              (let [children (get by-parent (:id rn) [])]
-                {:id    (:id rn)
-                 :labels [{:text (:label rn)}]
-                 ;; Each region lays out its own states internally;
-                 ;; padding leaves room for the region header strip.
-                 :layoutOptions {"elk.algorithm" "layered"
-                                 "elk.padding"   "[top=34,left=14,bottom=14,right=14]"}
-                 :children (mapv elk-child children)}))
-            region-nodes))))
+  [{:keys [nodes]}]
+  (let [by-parent (group-by :parent-id nodes)
+        build (fn build [n]
+                (let [kids (get by-parent (:id n))]
+                  (cond-> (elk-child n)
+                    (seq kids)
+                    (assoc :children (mapv build kids)
+                           ;; Container lays out its own children;
+                           ;; padding leaves top room for the header strip
+                           ;; (region label / compound title).
+                           :layoutOptions {"elk.algorithm" "layered"
+                                           "elk.padding"   "[top=34,left=14,bottom=14,right=14]"}))))]
+    (mapv build (get by-parent nil))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 
@@ -124,6 +122,18 @@
   (cond
     (:after edge) "after"
     :else         "transition"))
+
+(defn- safe-name
+  "Coerce a guard / action ref to a string WITHOUT throwing on fn
+  values. `cljs.core/name` blows up on fns (`Doesn't support name:
+  function …`), and re-frame2 machines may inline a fn guard / action,
+  so fns surface their `:name` meta (or `fn` when anonymous)."
+  [v]
+  (cond
+    (nil? v)     nil
+    (keyword? v) (name v)
+    (fn? v)      (or (some-> v meta :name str) "fn")
+    :else        (str v)))
 
 (defn xyflow-graph
   "Project the parsed graph + a `{node-id position}` map into the
@@ -170,112 +180,131 @@
    {:keys [highlight-id from-highlight-id to-highlight-id sim?
            on-state-click on-edge-click chart]
     :or   {chart vc/chart-regular}}]
-  {:nodes
-   ;; rf2-lkwev — region container nodes MUST precede their children in
-   ;; the xyflow nodes array (xyflow requires a parentNode to appear
-   ;; before any node that references it). Regions are already emitted
-   ;; before their states by `parse-parallel`, but sort defensively so
-   ;; the parent-before-child invariant holds regardless of upstream
-   ;; ordering.
-   (mapv (fn [n]
-           (let [pos     (get positions (:id n) {:x 0 :y 0})
-                 region? (boolean (:region? n))
-                 active? (= (:id n) highlight-id)
-                 from-hi? (= (:id n) from-highlight-id)
-                 to-hi?   (= (:id n) to-highlight-id)
-                 base
-                 {:id       (:id n)
-                  :type     (cond
-                              region?         "parallel-region"
-                              (:compound? n)  "compound"
-                              :else           "state")
-                  :position {:x (:x pos) :y (:y pos)}
-                  :data     (cond-> {:label          (:label n)
-                                     :path           (:path n)
-                                     :active         active?
-                                     :fromHighlight  from-hi?
-                                     :toHighlight    to-hi?
-                                     :sim            (boolean (and active? sim?))
-                                     :final          (boolean (:final? n))
-                                     :compound       (boolean (:compound? n))
-                                     :tags           (vec (:tags n))
-                                     ;; rf2-k647w — the resolved density's
-                                     ;; visual constants ride on every node
-                                     ;; payload so the xyflow node component
-                                     ;; reads geometry/typography off `:data`
-                                     ;; (it is invoked outside the render's
-                                     ;; binding scope, so a dynamic var would
-                                     ;; not be in effect).
-                                     :chart          chart
-                                     :onClick        on-state-click}
-                              region? (assoc :regionId    (:region n)
-                                             :regionIndex (:region-index n)))
-                  :draggable false
-                  :selectable false}]
-             (cond-> base
-               ;; Region containers carry an explicit measured size so
-               ;; xyflow draws the zone box at the elk-computed extent.
-               region? (assoc :style {:width  (:width pos)
-                                      :height (:height pos)})
-               ;; A state inside a region attaches to its parent region
-               ;; via xyflow's parentNode sub-flow; `:extent "parent"`
-               ;; clamps it inside the dashed boundary.
-               (and (not region?) (:parent-id n))
-               (assoc :parentNode (:parent-id n)
-                      :extent     "parent"))))
-         (sort-by #(if (:region? %) 0 1) nodes))
-   :edges
-   (mapv (fn [e]
-           (let [from-active? (or (= (:source e) highlight-id)
-                                  (= (:target e) highlight-id))
-                 focused?     (and (some? from-highlight-id)
-                                   (some? to-highlight-id)
-                                   (= (:source e) from-highlight-id)
-                                   (= (:target e) to-highlight-id))
-                 ;; rf2-5qsxo — arrowhead colour tracks the edge stroke
-                 ;; (focused/active edges glow cyan; the rest the default
-                 ;; border colour) so the marker reads as part of the same
-                 ;; line. xyflow renders a `<marker>` def per edge when
-                 ;; `:markerEnd` is present; the custom edge component
-                 ;; (`chart.edges/transition-edge`) forwards the resolved
-                 ;; url to its `<BaseEdge>`.
-                 marker-color (if (or focused? from-active?)
-                                (:cyan tokens/tokens)
-                                (:border-default tokens/tokens))
-                 ;; rf2-u422r — only plain `:on` transitions carry a
-                 ;; user-fireable event-id. `:after`-timer + `:always`
-                 ;; eventless edges fire automatically inside the engine,
-                 ;; so their click carries a nil `:eventId` (the host —
-                 ;; e.g. Causa's on-chart sim — filters those out).
-                 fireable?    (and (nil? (:after e))
-                                    (not (:always? e))
-                                    (keyword? (:event e)))
-                 event-id     (when fireable? (:event e))]
-             {:id     (:id e)
-              :source (:source e)
-              :target (:target e)
-              :type   (choose-edge-type e)
-              :markerEnd {:type "arrowclosed"
-                          :color marker-color
-                          :width 18
-                          :height 18}
-              :data   {:eventLabel (:event-label e)
-                       :active     from-active?
-                       :focused    focused?
-                       :afterMs    (:after e)
-                       :guard      (some-> (:guard e) name)
-                       :action     (some-> (:action e) name)
-                       ;; rf2-u422r — on-chart click wiring. `:eventId`
-                       ;; is the raw fireable event keyword (nil for
-                       ;; auto edges); `:fromPath` / `:toPath` give the
-                       ;; host the originating transition. `:onClick` is
-                       ;; the host callback (omitted when no wiring).
-                       :eventId    event-id
-                       :fromPath   (:from-path e)
-                       :toPath     (:to-path e)
-                       :onClick    on-edge-click
-                       ;; rf2-k647w — resolved density constants for the
-                       ;; edge-label typography (same rationale as the
-                       ;; node payload above).
-                       :chart      chart}}))
-         edges)})
+  (let [;; rf2-lkwev — container nodes (parallel regions AND compound
+        ;; parents) MUST precede their children in the xyflow nodes
+        ;; array (xyflow requires a parentNode to appear before any node
+        ;; that references it). The parse already emits parents first;
+        ;; sort defensively so the parent-before-child invariant holds.
+        proj-nodes
+        (mapv (fn [n]
+                (let [pos      (get positions (:id n) {:x 0 :y 0})
+                      region?  (boolean (:region? n))
+                      active?  (= (:id n) highlight-id)
+                      from-hi? (= (:id n) from-highlight-id)
+                      to-hi?   (= (:id n) to-highlight-id)
+                      base
+                      {:id       (:id n)
+                       :type     (cond
+                                   region?        "parallel-region"
+                                   (:compound? n) "compound"
+                                   :else          "state")
+                       :position {:x (:x pos) :y (:y pos)}
+                       :data     (cond-> {:label          (:label n)
+                                          :path           (:path n)
+                                          :active         active?
+                                          :fromHighlight  from-hi?
+                                          :toHighlight    to-hi?
+                                          :sim            (boolean (and active? sim?))
+                                          :initial        (boolean (:initial? n))
+                                          :final          (boolean (:final? n))
+                                          :compound       (boolean (:compound? n))
+                                          :tags           (vec (:tags n))
+                                          :chart          chart
+                                          :onClick        on-state-click}
+                                   region? (assoc :regionId    (:region n)
+                                                  :regionIndex (:region-index n)))
+                       :draggable false
+                       :selectable false}]
+                  (cond-> base
+                    region? (assoc :style {:width  (:width pos)
+                                           :height (:height pos)})
+                    (and (not region?) (:parent-id n))
+                    (assoc :parentNode (:parent-id n)
+                           :extent     "parent"))))
+              (sort-by #(if (or (:region? %) (:compound? %)) 0 1) nodes))
+
+        proj-edges
+        (mapv (fn [e]
+                (let [from-active? (or (= (:source e) highlight-id)
+                                       (= (:target e) highlight-id))
+                      focused?     (and (some? from-highlight-id)
+                                        (some? to-highlight-id)
+                                        (= (:source e) from-highlight-id)
+                                        (= (:target e) to-highlight-id))
+                      ;; A self-transition (source == target) renders as a
+                      ;; loop, not a degenerate near-zero bezier; the edge
+                      ;; component reads the `:selfLoop` flag.
+                      self-loop?   (= (:source e) (:target e))
+                      marker-color (if (or focused? from-active?)
+                                     (:cyan tokens/tokens)
+                                     (:border-default tokens/tokens))
+                      fireable?    (and (nil? (:after e))
+                                        (not (:always? e))
+                                        (keyword? (:event e)))
+                      event-id     (when fireable? (:event e))]
+                  {:id     (:id e)
+                   :source (:source e)
+                   :target (:target e)
+                   :type   (choose-edge-type e)
+                   :markerEnd {:type "arrowclosed"
+                               :color marker-color
+                               :width 18
+                               :height 18}
+                   :data   {:eventLabel (:event-label e)
+                            :active     from-active?
+                            :focused    focused?
+                            :afterMs    (:after e)
+                            :guard      (safe-name (:guard e))
+                            :action     (safe-name (:action e))
+                            :selfLoop   self-loop?
+                            :eventId    event-id
+                            :fromPath   (:from-path e)
+                            :toPath     (:to-path e)
+                            :onClick    on-edge-click
+                            :chart      chart}}))
+              edges)
+
+        ;; Initial-state markers — a small filled dot wired into each
+        ;; `:initial?` state via an unlabelled entry edge. xstate/SCXML
+        ;; semantics: every compound level shows its own initial marker.
+        ;; The marker shares the state's xyflow coordinate frame (same
+        ;; parentNode for region/compound children) so it sits just left
+        ;; of the state inside its container.
+        initial-nodes (filter :initial? nodes)
+        marker-nodes
+        (mapv (fn [n]
+                (let [sid (:id n)
+                      pos (get positions sid {:x 0 :y 0})]
+                  (cond-> {:id        (str "initial__" sid)
+                           :type      "initial-marker"
+                           :position  {:x (- (:x pos) 48)
+                                       :y (+ (:y pos) 14)}
+                           :data      {:targetPath (:path n) :chart chart}
+                           :draggable false
+                           :selectable false}
+                    (:parent-id n)
+                    (assoc :parentNode (:parent-id n)
+                           :extent     "parent"))))
+              initial-nodes)
+        entry-edges
+        (mapv (fn [n]
+                {:id          (str "initial__" (:id n) "__entry")
+                 :source      (str "initial__" (:id n))
+                 :target      (:id n)
+                 :targetHandle "left"
+                 :type        "transition"
+                 :markerEnd   {:type "arrowclosed"
+                               :color (:border-default tokens/tokens)
+                               :width 14
+                               :height 14}
+                 ;; Entry edges are non-interactive, but carry the full
+                 ;; edge `:data` shape (flags + threaded callback/chart)
+                 ;; so the "every edge has X" projection invariants hold.
+                 :data        {:eventLabel "" :entry true
+                               :active false :focused false :afterMs nil
+                               :guard nil :action nil :selfLoop false
+                               :eventId nil :fromPath nil :toPath nil
+                               :onClick on-edge-click :chart chart}})
+              initial-nodes)]
+    {:nodes (into proj-nodes marker-nodes)
+     :edges (into proj-edges entry-edges)}))

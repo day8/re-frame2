@@ -54,6 +54,13 @@
                      :states  {:hidden  {:on {:show :shown}}
                                :shown   {:on {:hide :hidden}}}}}})
 
+(def self-loop-machine
+  "A machine with a self-transition (:idle --ping--> :idle) so the
+  `:selfLoop` flag has a positive case."
+  {:initial :idle
+   :states  {:idle {:on {:ping :idle :go :busy}}
+             :busy {:on {:done :idle}}}})
+
 (defn- edge-by-id
   "Pluck an edge from a projected graph by xyflow id."
   [graph id]
@@ -513,3 +520,74 @@
                   children))
       (is (every? #(re-find #"top=" (get-in % [:layoutOptions "elk.padding"]))
                   children)))))
+
+;; ---- initial-state markers + self-loops (rf2-54s5a) --------------------
+
+(deftest xyflow-graph-emits-initial-marker-node-and-entry-edge
+  (testing "rf2-54s5a — the machine's initial state gets a synthetic
+            initial-marker node + an unlabelled entry edge into it"
+    (let [parsed   (layout/parse-definition idle-loading)
+          graph    (projection/xyflow-graph parsed {} {})
+          idle-id   (layout/node-id [:idle])
+          marker-id (str "initial__" idle-id)
+          marker   (node-by-id graph marker-id)
+          entry    (edge-by-id graph (str marker-id "__entry"))]
+      (is (some? marker) "initial-marker node emitted")
+      (is (= "initial-marker" (:type marker)))
+      (is (some? entry) "entry edge emitted")
+      (is (= marker-id (:source entry)))
+      (is (= idle-id (:target entry)))
+      (is (= "left" (:targetHandle entry)))
+      (is (= "" (:eventLabel (:data entry)))
+          "entry edge has no event label"))))
+
+(deftest xyflow-graph-threads-initial-flag-onto-node-data
+  (testing "rf2-54s5a — node :data carries :initial (true for the
+            machine's initial state, false otherwise)"
+    (let [parsed  (layout/parse-definition idle-loading)
+          graph   (projection/xyflow-graph parsed {} {})
+          idle    (node-by-id graph (layout/node-id [:idle]))
+          loading (node-by-id graph (layout/node-id [:loading]))]
+      (is (true?  (:initial (:data idle))))
+      (is (false? (:initial (:data loading)))))))
+
+(deftest xyflow-graph-emits-compound-substate-initial-marker
+  (testing "rf2-54s5a — a compound parent's :initial substate also
+            gets a marker (xstate per-level initial semantics) sharing
+            the compound's coordinate frame"
+    (let [parsed      (layout/parse-definition compound-machine)
+          graph       (projection/xyflow-graph parsed {} {})
+          browsing-id (layout/node-id [:authenticated :browsing])
+          marker      (node-by-id graph (str "initial__" browsing-id))]
+      (is (some? marker) "the compound's initial substate gets a marker")
+      (is (= (layout/node-id [:authenticated]) (:parentNode marker))))))
+
+(deftest xyflow-graph-flags-self-transition
+  (testing "rf2-54s5a — a source==target edge carries :data {:selfLoop true}"
+    (let [parsed   (layout/parse-definition self-loop-machine)
+          graph    (projection/xyflow-graph parsed {} {})
+          self     (first (filter #(= (:source %) (:target %)) (:edges graph)))
+          non-self (first (filter #(not= (:source %) (:target %)) (:edges graph)))]
+      (is (some? self) "fixture has a self-transition")
+      (is (true?  (:selfLoop (:data self))))
+      (is (false? (:selfLoop (:data non-self)))))))
+
+(deftest xyflow-graph-compound-children-wire-parent-node
+  (testing "rf2-54s5a — compound substates nest via xyflow parentNode
+            (same mechanic as parallel-region children)"
+    (let [parsed   (layout/parse-definition compound-machine)
+          graph    (projection/xyflow-graph parsed {} {})
+          browsing (node-by-id graph (layout/node-id [:authenticated :browsing]))]
+      (is (= (layout/node-id [:authenticated]) (:parentNode browsing)))
+      (is (= "parent" (:extent browsing))))))
+
+(deftest elk-children-nests-compound-substates
+  (testing "rf2-54s5a — a compound parent nests its substates as elk
+            :children (so they lay out inside the container)"
+    (let [parsed   (layout/parse-definition compound-machine)
+          children (projection/->elk-children parsed)
+          by-id    (into {} (map (juxt :id identity) children))
+          authed   (get by-id (layout/node-id [:authenticated]))]
+      (is (some? authed) "compound parent is a top-level elk child")
+      (is (= 2 (count (:children authed)))
+          "browsing + paying nest inside"))))

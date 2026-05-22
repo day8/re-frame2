@@ -165,19 +165,32 @@
 
 (defn- collect-nodes
   "Walk a state-map and return a flat seq of node-maps. Each map
-  carries the full path so compound nesting is preserved as data."
+  carries the full path so compound nesting is preserved as data.
+
+  A compound parent's `:initial` child is flagged `:initial? true` so
+  the initial-state marker surfaces at EVERY compound level (not just
+  the machine root) — xstate/SCXML semantics. The flag also feeds the
+  SCXML / Mermaid emitters' `<initial>` rendering."
   [parent-path state-map]
   (mapcat (fn [[state-id state-node]]
             (let [path (conj parent-path state-id)
                   self {:path     path
                         :label    (name state-id)
                         :depth    (count parent-path)
-                        :initial? (:initial? state-node)
+                        :initial? (boolean (:initial? state-node))
                         :final?   (:final? state-node)
                         :compound? (boolean (:states state-node))
                         :tags     (set (:tags state-node))}
-                  children (when (:states state-node)
-                             (collect-nodes path (:states state-node)))]
+                  init-key     (:initial state-node)
+                  raw-children (when (:states state-node)
+                                 (collect-nodes path (:states state-node)))
+                  children     (if init-key
+                                 (map (fn [c]
+                                        (if (= (:path c) (conj path init-key))
+                                          (assoc c :initial? true)
+                                          c))
+                                      raw-children)
+                                 raw-children)]
               (cons self children)))
           state-map))
 
@@ -220,6 +233,10 @@
     (keyword? v) (if-let [n (namespace v)]
                    (str n "/" (name v))
                    (name v))
+    ;; Inlined fn guards / actions surface their `:name` meta (named
+    ;; `(fn name [...] ...)` / `(defn ...)`) or `fn` when anonymous —
+    ;; so the xstate label reads cleanly instead of `#object[Function]`.
+    (fn? v)      (or (some-> v meta :name str) "fn")
     :else        (str v)))
 
 (defn event-segment
@@ -288,10 +305,18 @@
         base-nodes (vec (collect-nodes [] states))
         initial-path (when initial [initial])
         nodes (mapv (fn [n]
-                      (let [n' (if (= (:path n) initial-path)
-                                 (assoc n :initial? true)
-                                 n)]
-                        (assoc n' :id (node-id (:path n')))))
+                      (let [path (:path n)
+                            n'   (cond-> n
+                                   (= path initial-path) (assoc :initial? true)
+                                   ;; A node nested inside a compound parent
+                                   ;; carries `:parent-id` (the parent's
+                                   ;; node-id) so the projector wires xyflow's
+                                   ;; parentNode sub-flow — the SAME mechanic
+                                   ;; that nests parallel-region states. Top-
+                                   ;; level states (path length 1) carry none.
+                                   (> (count path) 1)
+                                   (assoc :parent-id (node-id (pop path))))]
+                        (assoc n' :id (node-id path))))
                     base-nodes)
         raw-edges (vec (mapcat (fn [[state-id state-node]]
                                  (collect-state-edges [state-id] state-node))

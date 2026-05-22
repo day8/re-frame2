@@ -94,51 +94,97 @@
        (#(str/replace % #"[^a-zA-Z0-9_]" "_"))))
 
 (defn- walk-states
-  "Walk a `{state-id state-node}` map under `parent-path`; emit
-  `[{:path :final? :label} ...]`. Compound + parallel states are NOT
-  recursively flattened in v1 (parent is emitted as a single node;
-  children stay invisible). Same posture as the existing
-  chart-layout's `:depth 0` slice."
-  [parent-path state-map]
-  (when (map? state-map)
-    (mapv (fn [[state-id state-node]]
-            (let [path (conj (vec parent-path) state-id)]
-              {:path     path
-               :label    (name state-id)
-               :final?   (boolean (:final? state-node))
-               :initial? (boolean (:initial? state-node))}))
-          state-map)))
-
-(defn- collect-edges
-  "Walk a `{state-id state-node}` map; emit edges. Each edge is
-  `{:from :to :label :id}`. v1 reads `:on` map (event-id → target-
-  spec) on the immediate children of `:states`. Targets are coerced
-  to `[target-state-id]` paths (single-level). Self-transitions
-  (target = source) are emitted; the renderer can decide to render
-  or suppress."
+  "Walk a `{state-id state-node}` map under `parent-path`; emit a flat
+  `[{:path :label :final? :initial? :compound?} ...]` seq. Compound
+  substates ARE recursively flattened (the parent emits as one node;
+  every nested child emits too). A compound parent's `:initial` child is
+  flagged `:initial? true` so the marker surfaces at every level."
   [parent-path state-map]
   (when (map? state-map)
     (vec
       (mapcat
         (fn [[state-id state-node]]
-          (let [from-path (conj (vec parent-path) state-id)]
-            (when-let [on (:on state-node)]
-              (for [[event-id target-spec] on
-                    :let [target-id (cond
-                                      (keyword? target-spec) target-spec
-                                      (map? target-spec)     (:target target-spec)
-                                      :else                  nil)
-                          to-path   (when target-id [target-id])]
-                    :when to-path]
-                {:id    (str (node-id-for-path from-path)
-                             "__"
-                             (node-id-for-path to-path)
-                             "__"
-                             (name event-id))
-                 :from  from-path
-                 :to    to-path
-                 :label (name event-id)
-                 :event event-id}))))
+          (let [path (conj (vec parent-path) state-id)
+                self {:path     path
+                      :label    (name state-id)
+                      :final?   (boolean (:final? state-node))
+                      :initial? (boolean (:initial? state-node))
+                      :compound? (boolean (:states state-node))}
+                init-key     (:initial state-node)
+                raw-children (when (:states state-node)
+                               (walk-states path (:states state-node)))
+                children     (if init-key
+                               (mapv (fn [c]
+                                       (if (= (:path c) (conj path init-key))
+                                         (assoc c :initial? true)
+                                         c))
+                                     raw-children)
+                               raw-children)]
+            (cons self children)))
+        state-map))))
+
+(defn- seg-name
+  "Render a guard / action / event label segment to a string WITHOUT
+  throwing on fn values. `cljs.core/name` blows up on fns
+  (`Doesn't support name: function …` — rf2-ujra6), and re-frame2
+  machines may inline a fn guard / action (`:guard (fn …)`), so coerce
+  defensively: namespaced keywords keep their namespace, fns surface
+  their `:name` meta (or `fn` when anonymous)."
+  [v]
+  (cond
+    (nil? v)     nil
+    (keyword? v) (if-let [n (namespace v)] (str n "/" (name v)) (name v))
+    (symbol? v)  (str v)
+    (string? v)  v
+    (fn? v)      (or (some-> v meta :name str) "fn")
+    :else        (str v)))
+
+(defn- edge-label-str
+  "Compose an xstate-stately edge label: `event [guard] / action`.
+  Brackets / slash appear ONLY when the segment is present, matching
+  `machines-viz`'s `chart.layout/edge-label` convention. Fn-safe via
+  `seg-name`."
+  [event-id guard action]
+  (str (seg-name event-id)
+       (when guard  (str " [" (seg-name guard) "]"))
+       (when action (str " / " (seg-name action)))))
+
+(defn- collect-edges
+  "Walk a `{state-id state-node}` map; emit edges. Each edge is
+  `{:from :to :label :id :event :guard :action}`. Reads the `:on` map
+  (event-id → target-spec) on every state INCLUDING compound substates
+  (recurses). Map target-specs surface their `:guard` / `:action` into
+  the xstate-style label. Targets resolve relative to the source's
+  parent path; self-transitions (target == source) are emitted."
+  [parent-path state-map]
+  (when (map? state-map)
+    (vec
+      (mapcat
+        (fn [[state-id state-node]]
+          (let [from-path (conj (vec parent-path) state-id)
+                own (when-let [on (:on state-node)]
+                      (for [[event-id target-spec] on
+                            :let [target-id (cond
+                                              (keyword? target-spec) target-spec
+                                              (map? target-spec)     (:target target-spec)
+                                              :else                  nil)
+                                  guard     (when (map? target-spec) (:guard target-spec))
+                                  action    (when (map? target-spec) (:action target-spec))
+                                  to-path   (when target-id
+                                              (conj (vec parent-path) target-id))]
+                            :when to-path]
+                        {:id    (str (node-id-for-path from-path) "__"
+                                     (node-id-for-path to-path) "__"
+                                     (name event-id))
+                         :from  from-path
+                         :to    to-path
+                         :label (edge-label-str event-id guard action)
+                         :event event-id
+                         :guard guard
+                         :action action}))
+                nested (when (:states state-node)
+                         (collect-edges from-path (:states state-node)))]
+            (concat own nested)))
         state-map))))
 
 ;; ---- definition → graph -------------------------------------------------
@@ -155,18 +201,26 @@
     {:nodes [] :edges [] :initial-path nil}
 
     (= :parallel (:type definition))
-    ;; v1: project the first region only — matches chart-layout's
-    ;; existing posture. A follow-on bead surfaces full parallel
-    ;; rendering using xyflow's group/parent-node mechanic.
-    (let [[_region-id region] (first (:regions definition))]
-      (parse-definition region))
+    ;; Project EVERY region's states + edges (concatenated, flat). Each
+    ;; region's own `:initial` flags survive; the parallel root has no
+    ;; single initial path.
+    (let [per (map (fn [[_region-id region]] (parse-definition region))
+                   (:regions definition))]
+      {:nodes        (vec (mapcat :nodes per))
+       :edges        (vec (mapcat :edges per))
+       :initial-path nil})
 
     :else
     (let [{:keys [initial states]} definition
-          nodes        (walk-states [] states)
+          base-nodes   (walk-states [] states)
           initial-path (when initial [initial])
+          nodes        (mapv (fn [n]
+                               (if (= (:path n) initial-path)
+                                 (assoc n :initial? true)
+                                 n))
+                             base-nodes)
           edges        (collect-edges [] states)]
-      {:nodes        (vec nodes)
+      {:nodes        nodes
        :edges        edges
        :initial-path initial-path})))
 
@@ -293,9 +347,10 @@
                {:id       id
                 :type     "default"
                 :position pos
-                :data     {:label (:label n)
-                           :kind  kind
-                           :path  (:path n)}
+                :data     {:label   (:label n)
+                           :kind    kind
+                           :initial (boolean (:initial? n))
+                           :path    (:path n)}
                 :style    (node-style-fn kind)
                 :draggable false
                 :selectable false}))

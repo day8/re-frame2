@@ -63,14 +63,41 @@
       (is (= [:a] (-> g :edges first :from)))
       (is (= [:b] (-> g :edges first :to))))))
 
-(deftest parse-definition-handles-parallel-by-first-region
-  (testing "parallel definitions project the first region only (v1)"
+(deftest parse-definition-projects-all-regions
+  (testing "parallel definitions project EVERY region (rf2-54s5a)"
     (let [par {:type    :parallel
                :regions {:r1 {:initial :a :states {:a {} :b {}}}
                          :r2 {:initial :c :states {:c {}}}}}
           g   (topology/parse-definition par)]
-      (is (= 2 (count (:nodes g)))
-          "first region's 2 states; second region not flattened"))))
+      (is (= 3 (count (:nodes g)))
+          "both regions' states flatten (a + b + c)"))))
+
+(deftest parse-definition-recurses-compound-substates
+  (testing "compound substates are flattened, not left invisible (rf2-54s5a)"
+    (let [def {:initial :unauth
+               :states  {:unauth {:on {:login :authed}}
+                         :authed {:initial :browsing
+                                  :states  {:browsing {:on {:checkout :paying}}
+                                            :paying   {:on {:done :browsing}}}}}}
+          g     (topology/parse-definition def)
+          paths (set (map :path (:nodes g)))]
+      (is (contains? paths [:authed :browsing]))
+      (is (contains? paths [:authed :paying]))
+      (is (= 4 (count (:nodes g)))
+          "unauth + authed + browsing + paying")
+      (is (true? (-> (filter #(= [:authed :browsing] (:path %)) (:nodes g))
+                     first :initial?))
+          "the compound's :initial substate is flagged"))))
+
+(deftest parse-definition-edge-label-includes-guard
+  (testing "map target-spec :guard surfaces into the xstate label (rf2-54s5a)"
+    (let [def {:initial :a
+               :states  {:a {:on {:go {:target :b :guard :ready?}}}
+                         :b {}}}
+          g   (topology/parse-definition def)
+          e   (first (:edges g))]
+      (is (= "go [ready?]" (:label e)))
+      (is (= :ready? (:guard e))))))
 
 ;; ---- node-kind ----------------------------------------------------------
 
@@ -138,6 +165,14 @@
         (is (string? (-> e :markerEnd :color))
             "marker colour resolves (falls back to currentColor when the
              style fn omits a stroke)")))))
+
+(deftest project-surfaces-initial-flag
+  (testing ":data :initial is true for the initial-state node (rf2-54s5a)"
+    (let [out      (topology/project {:definition (toy-definition)})
+          by-label (into {} (map (juxt #(-> % :data :label) identity)
+                                 (:nodes out)))]
+      (is (true?  (-> by-label (get "empty") :data :initial)))
+      (is (false? (-> by-label (get "populated") :data :initial))))))
 
 (deftest project-applies-current-state-overlay
   (testing "current-state-path marks the matching node as :current"

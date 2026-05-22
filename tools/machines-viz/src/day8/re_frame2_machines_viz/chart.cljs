@@ -106,9 +106,12 @@
         opts    (-> default-elk-options
                     (merge (or layout-options {}))
                     (assoc "elk.direction" dir-str)
-                    ;; Hierarchical layout must descend into region
-                    ;; children for the parallel case (rf2-lkwev).
-                    (cond-> (:parallel? parsed)
+                    ;; Hierarchical layout must descend into nested
+                    ;; children — parallel-region states (rf2-lkwev) AND
+                    ;; compound substates (rf2-54s5a). Enable whenever any
+                    ;; node nests (has :parent-id) or the graph is parallel.
+                    (cond-> (or (:parallel? parsed)
+                                (some :parent-id (:nodes parsed)))
                       (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN")))]
     #js {:id "root"
          :layoutOptions (clj->js opts)
