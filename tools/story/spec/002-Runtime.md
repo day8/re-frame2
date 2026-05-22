@@ -147,10 +147,14 @@ Strict order, per spec/007:
 3. **Phase 3 — Render.** The view renders against the post-events
    `app-db`, with the effective args (above) and decorator stack
    (above) applied.
-4. **Phase 4 — Play.** For each event in `:play`:
-   - `dispatch-sync` in order. Drain to completion.
-   - `:rf.assert/*` events record into `:assertions` (no throw — see
-     [`004-Assertions.md`](004-Assertions.md)).
+4. **Phase 4 — Play.** Drive the variant's `:play-script` (or each
+   entry in `:plays`) through the rich-DSL runner. `:dispatch` /
+   `:dispatch-sync` steps fire their event vectors into the variant's
+   frame, draining to completion between steps:
+   - `:rf.assert/*` events ride the `:dispatch-sync` rail; the
+     play-runner bridges them into the step result so the registered
+     assertion handlers record into `:rf.story/assertions` (no throw —
+     see [`004-Assertions.md`](004-Assertions.md)).
 
 Phase 1 and 4 are async-safe; phases 2 and 3 are sync (per re-frame's
 run-to-completion drain).
@@ -388,7 +392,7 @@ torn-down frame and may either no-op or surface as
    (story/reg-variant :story.feed/live
      {:loaders [[:feed/subscribe]]
       :loaders-complete-when [[:feed/first-tick-received]]
-      :play    [[:rf.assert/path-equals [:feed :latest] :some/expected]]})
+      :play-script [[:dispatch-sync [:rf.assert/path-equals [:feed :latest] :some/expected]]]})
    ```
 
    Reuses the framework's existing destroy contract; no new variant
@@ -569,7 +573,10 @@ Per
 the hash includes:
 
 - Variant id
-- `:events`, `:play`, `:loaders` (in order; canonicalised)
+- `:events`, `:play-script` / `:plays`, `:loaders` /
+  `:loaders-complete-when` / `:loaders-teardown`, and the
+  visual-chrome slots `:viewport` / `:background` (in order;
+  canonicalised — per `re-frame.story.identity/variant-body-slice`)
 - Effective `:args` (post-merge with story + mode)
 - Decorator id sequence and their args
 - Tag set
@@ -584,9 +591,10 @@ The hash is `sha-256` of a transit-serialised canonical form (keys
 sorted, vectors stable). The identity changes iff any input changes;
 otherwise visual-regression services skip the cell.
 
-`tools.story.runtime.snapshot-id/compute` implements this. The
-canonical form is keyed by `:rf/snapshot-canonical-v1` to allow future
-revisions without breaking baselines.
+`re-frame.story.identity/snapshot-identity` implements this (its
+`variant-body-slice` selects the hashed slots). The canonical form is
+keyed for versioning so future revisions can land without breaking
+baselines.
 
 ## Programmatic API
 
@@ -607,7 +615,8 @@ revisions without breaking baselines.
 2. Run `:loaders` (phase 1), wait for `:loaders-complete-when`
    predicate.
 3. Run `:events` (phase 2).
-4. Optionally render (phase 3) and run `:play` (phase 4).
+4. Optionally render (phase 3) and run `:play-script` / `:plays`
+   (phase 4).
 5. Tear down or persist per opts.
 
 `run-variant` returns synchronously when no loaders are present and
@@ -618,8 +627,9 @@ bridge if needed). Stage 3 picks one and locks it.
 
 ```clojure
 (reset-variant variant-id)                       ; tear down + re-run :loaders + :events
-(watch-variant variant-id)                       ; re-run on dep re-registration
-(unwatch-variant variant-id)
+(watch-variant variant-id callback)              ; subscribe to lifecycle transitions;
+                                                 ;   returns a 0-arity unsubscribe fn
+                                                 ;   (call it to stop watching)
 (variants-with-tags tags)                        ; query — returns coll of variant ids
 (variant->edn variant-id)                        ; canonical-form serialised body
 (workspace->edn workspace-id)                    ; same, for workspace layouts
@@ -641,14 +651,17 @@ bridge if needed). Stage 3 picks one and locks it.
 
 | Cofx id | Shape | Notes |
 |---|---|---|
-| `:story/mode` | `<mode-id>` | The active mode for the variant; useful in mode-aware events. |
-| `:story/substrate` | `:reagent`, `:uix`, ... | The active substrate. |
+| `:story/active-modes` | `[<mode-id> ...]` | The chrome toolbar's active mode-set (rf2-p0mv). Event-handler code reads it via this cofx; view code subscribes via `[:story/active-modes]`. See [`010-Toolbar.md`](010-Toolbar.md). |
+| `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. Subscribe via `[:story/active-args]`. See [`010-Toolbar.md`](010-Toolbar.md). |
 
 ## Substrate hooks
 
 ```clojure
-(rf/variant-substrates variant-id)
-;; => #{:reagent :uix :helix}  (or a subset, per :substrates on variant/story)
+(story/registered-substrates)
+;; => #{:reagent :uix :helix}  (CLJS-only; the substrate set as
+;;    registered via story/register-substrate!. A variant renders
+;;    against the intersection of this set and its own :substrates
+;;    opt-in.)
 ```
 
 The story tool's multi-substrate pane iterates this set, rendering

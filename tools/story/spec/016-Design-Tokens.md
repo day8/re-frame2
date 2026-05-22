@@ -510,7 +510,7 @@ The colour split is intentional:
   active selection's amber edge.
 
 Testable variants (those carrying `:test` in `:tags` or a non-empty
-`:play` sequence) replace the muted glyph with a **`status-dot`**
+`:play-script` sequence) replace the muted glyph with a **`status-dot`**
 that wears the semantic colour from the variant's last
 `run-variant` outcome (`:success` green pass · `:danger` red fail ·
 `:warning` yellow running · transparent ring pending).
