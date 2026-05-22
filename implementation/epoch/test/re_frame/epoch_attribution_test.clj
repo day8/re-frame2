@@ -59,6 +59,14 @@
            (rf2-wi900 / rf2-l1jz8).
     inv-5  a view re-render whose own subs did NOT change is NOT spuriously
            attributed (the rf2-vh1k3 value-change-per-view discriminator).
+    inv-6  an out-of-cascade ORPHAN emit (`:frame/created` and the general
+           class) stays UNCORRELATED — never a new epoch, never folded into
+           the NEXT dequeued event's `:trace-events` (rf2-avvwm, a P1
+           regression from #1952's per-event epoch boundary). The fourth
+           out-of-cascade-emit-attribution member:
+           unlike the post-settle render / sub-run / mount cases (back-filled
+           to their CAUSING cascade), an orphan belongs to NO cascade and is
+           dropped at the capture seam.
 
   Supporting cases pin the boundary behaviour each fix also relies on:
   in-flight emits ride their own cascade (not back-filled); the back-fill
@@ -641,3 +649,105 @@
             "the value-UNCHANGED view (sidebar, :open → :open) is NOT
              spuriously attributed to epoch 3 — its render anchors elsewhere
              (its mount epoch), not this cascade")))))
+
+;; ===========================================================================
+;; INVARIANT 6 — an out-of-cascade ORPHAN emit (:frame/created and the
+;;                general class) stays UNCORRELATED: not a new epoch, and not
+;;                folded into the next dequeued event's :trace-events
+;;                (rf2-avvwm — P1 regression from #1952 epoch-per-event)
+;; ===========================================================================
+;;
+;; The fourth member of this suite's "which epoch does an out-of-cascade emit
+;; belong to?" family. The first three (renders / sub-runs / mount renders)
+;; fire AFTER a cascade settled and are back-filled to their CAUSING cascade.
+;; This one is different: a `:frame/created` (or registry-time) emit belongs
+;; to NO cascade at all — `reg-frame` runs `:on-create` via dispatch-sync
+;; FIRST (which settles its own epoch), THEN emits `:frame/created` with no
+;; in-flight cascade and no `:dispatch-id`. Per Spec 009 §Dispatch correlation
+;; it must stay uncorrelated. Pre-rf2-avvwm it lingered in the capture buffer
+;; and the NEXT dequeued event's harvest vacuumed it in as that epoch's FIRST
+;; :trace-events entry (the per-event-epoch boundary stranded it).
+
+(defn- trace-ops
+  "The [op-type operation] pairs in an epoch record's :trace-events, in
+  order. nil-safe — a record whose :trace-events was elided returns []."
+  [record]
+  (mapv (juxt :op-type :operation) (:trace-events record)))
+
+(deftest inv-6-frame-created-not-folded-into-next-epoch
+  (testing "rf2-avvwm — :frame/created, emitted by reg-frame AFTER :on-create's
+            epoch already settled, must NOT appear in the NEXT dequeued event's
+            :trace-events. Mirrors the parallel-frames :below repro: boot the
+            frame with an :on-create, then dispatch a user event; that event's
+            :trace-events must begin with its OWN ops, not [:frame
+            :frame/created]."
+    (rf/reg-event-db :app/init (fn [_ _] {:booted true :n 0}))
+    (rf/reg-event-db :inc      (fn [db _] (update db :n inc)))
+    ;; reg-frame dispatch-syncs :on-create (settles epoch 1), THEN emits the
+    ;; orphan :frame/created.
+    (rf/reg-frame :test/main {:on-create [:app/init]})
+    ;; The next dequeued user event.
+    (rf/dispatch-sync [:inc] {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)]
+      (is (= [:app/init :inc] (mapv :event-id history))
+          "exactly two epochs — :on-create and the user :inc; :frame/created
+           is NOT a third epoch")
+      (doseq [r history]
+        (is (not-any? #(= [:frame :frame/created] %) (trace-ops r))
+            (str "no epoch's :trace-events carries the orphan :frame/created — "
+                 "epoch " (:event-id r))))
+      (let [inc-epoch (last history)
+            ops       (trace-ops inc-epoch)]
+        (is (seq ops) ":inc epoch retained its raw :trace-events")
+        (is (= :event (first (first ops)))
+            ":inc epoch's :trace-events BEGIN with its OWN event op
+             (:event/dispatched), not the stranded [:frame :frame/created]")
+        (is (every? (fn [ev] (= [:inc] (-> ev :tags :event)))
+                    (filter #(= :event (:op-type %)) (:trace-events inc-epoch)))
+            "every :event-op trace in the :inc epoch belongs to [:inc]")))))
+
+(deftest inv-6-orphan-not-correlated-on-the-record
+  (testing "rf2-avvwm — the orphan carries no :dispatch-id, so no epoch's
+            :trace-events should reference it. Belt-and-braces on the
+            correlation contract: walk every retained epoch's :trace-events
+            and assert none is a :frame op."
+    (rf/reg-event-db :app/init (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc      (fn [db _] (update db :n inc)))
+    (rf/reg-frame :test/main {:on-create [:app/init]})
+    (rf/dispatch-sync [:inc] {:frame :test/main})
+    (rf/dispatch-sync [:inc] {:frame :test/main})
+
+    (doseq [r (rf/epoch-history :test/main)]
+      (is (not-any? #(= :frame (:op-type %)) (:trace-events r))
+          (str "no :frame-op orphan in epoch " (:event-id r)
+               "'s :trace-events")))))
+
+(deftest inv-6-harvest-leaves-orphan-uncorrelated
+  (testing "rf2-avvwm — direct unit test on the harvest seam. An orphan event
+            (no :dispatch-id) that reaches the capture buffer is NOT folded
+            into the settling event's harvest; only the settling event's own
+            :dispatch-id traces are returned."
+    (let [frame :test/harvest
+          ;; Hand-craft a buffer: an orphan with no :dispatch-id, then a
+          ;; run-start + a body trace for dispatch-id 42.
+          orphan    {:op-type :frame :operation :frame/created :tags {}}
+          run-start {:op-type :event :operation :event
+                     :tags {:phase :run-start :dispatch-id 42 :event-id :inc}}
+          body      {:op-type :event :operation :event/db-changed
+                     :tags {:dispatch-id 42}}]
+      (state/buffer-event! frame orphan)
+      (state/buffer-event! frame run-start)
+      (state/buffer-event! frame body)
+      (let [harvested (state/harvest-buffer-for-event! frame)]
+        (is (= [run-start body] harvested)
+            "harvest returns ONLY the settling event's (:dispatch-id 42)
+             traces — the orphan is left uncorrelated, not vacuumed in")
+        (is (not-any? #(= :frame/created (:operation %)) harvested)
+            "the orphan :frame/created is not in the settling epoch's harvest")
+        ;; The orphan stays behind in the buffer (left, not swept forward).
+        (is (= [orphan] (state/buffer-for frame))
+            "the orphan remains in the buffer, uncorrelated — not folded into
+             any epoch's :trace-events")
+        ;; Clean up the hand-seeded buffer so it doesn't leak to siblings.
+        (state/drop-frame-buffer! frame)))))

@@ -594,9 +594,13 @@
 
     * RETURN the events that belong to the settling event — those whose
       `:tags :dispatch-id` matches the buffer's first `:event/run-start`
-      id, PLUS any events carrying NO `:dispatch-id` (pre-cascade tagalongs
-      such as a `:frame/created` emit that fired outside any cascade; they
-      ride the first settling event of the drain).
+      id. Per rf2-avvwm an out-of-cascade ORPHAN (no `:dispatch-id` — e.g.
+      a `:frame/created` emit fired between the last settled event and the
+      next dequeue) is NOT folded in: Spec 009 §Dispatch correlation keeps
+      an emit outside any cascade uncorrelated (neither a new epoch nor part
+      of another epoch's record). Orphans are dropped upstream at the capture
+      seam (`re-frame.epoch.capture/capture-event!`) so they never reach this
+      buffer; the `did = sid` predicate below is the matching guard.
     * LEAVE in the buffer the events that belong to a DIFFERENT dequeued
       event — a child's `:event/dispatched` marker fires during the
       PARENT's do-fx (so it lands in the parent's window) but carries the
@@ -614,8 +618,19 @@
     (if-let [sid (settling-dispatch-id b)]
       (let [{mine true theirs false}
             (group-by (fn [ev]
-                        (let [did (-> ev :tags :dispatch-id)]
-                          (or (nil? did) (= did sid))))
+                        ;; Per rf2-avvwm: ONLY the settling event's own
+                        ;; traces (matching :dispatch-id) ride this epoch.
+                        ;; A nil-:dispatch-id orphan (out-of-cascade emit
+                        ;; such as :frame/created) is no longer folded in —
+                        ;; orphans are dropped at the capture seam
+                        ;; (capture/capture-event! out-of-cascade branch) so
+                        ;; they never reach this buffer; this predicate is
+                        ;; the matching guard (any nil-did event that did
+                        ;; slip through is LEFT in the buffer, not vacuumed
+                        ;; into the settling epoch). Pre-fix `(or (nil? did)
+                        ;; (= did sid))` swept an orphan in as the cascade's
+                        ;; first :trace-events entry — the regression closed.
+                        (= (-> ev :tags :dispatch-id) sid))
                       b)]
         ;; Leave the other-event traces (non-nil, non-matching id) in the
         ;; buffer for their own event's settle; take ours.
