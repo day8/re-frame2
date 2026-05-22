@@ -42,9 +42,12 @@
     survives there for the Event tab's diff surface + the MCP exporter;
     this panel reads only `:rf.causa/app-db-state`.
   - `app-db-diff-downstream` — the downstream-subs hover popover
-    (spec/021 §4.4). Its subs/events stay installed; the trigger is no
-    longer injected here now that there are no diff section breadcrumbs
-    to host it (a current-state re-wire is follow-on)."
+    (spec/021 §4.4). Re-wired into the current-state inspector
+    (rf2-2lb7z): the trigger is mounted in each section header by
+    `app-db-diff-state` (one per top-level user-domain key, one per
+    reserved area `[:rf/area]`, one per fan-out instance `[:rf/area
+    id]`). rf2-okvit had dropped the diff breadcrumbs that previously
+    hosted it; this leaf re-injects it onto the section headers."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.app-db-diff-downstream
@@ -79,10 +82,10 @@
   []
   (subs/install!)
   (events/install!)
-  ;; rf2-op9v2 — downstream-subs overlay subs + events. Kept installed
-  ;; so the spec/021 §4.4 feature + its tests stay live; the hover
-  ;; trigger is no longer injected from this panel (rf2-okvit dropped
-  ;; the diff section breadcrumbs that hosted it).
+  ;; rf2-op9v2 — downstream-subs overlay subs + events. rf2-2lb7z
+  ;; re-wired the hover trigger into the current-state inspector's
+  ;; section headers (mounted by `app-db-diff-state`); install! here
+  ;; registers the subs/events those triggers + the popover read.
   (downstream/install!)
   ;; rf2-2moh1 — register the Dynamic app-db tab with the internal L4
   ;; tab registry. rf2-okvit — label is lowercase "app-db" to match the

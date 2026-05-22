@@ -15,6 +15,8 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [cljs.test :refer-macros [use-fixtures]]
+            [day8.re-frame2-causa.panels.app-db-diff-downstream
+             :as downstream]
             [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-causa.panels.app-db-diff-state :as state]))
 
@@ -36,6 +38,31 @@
 
 (defn- testids [tree]
   (->> (hiccup-seq tree)
+       (keep (fn [node]
+               (when (and (vector? node) (map? (second node)))
+                 (:data-testid (second node)))))
+       (remove nil?)
+       set))
+
+;; ---- fn-component-expanding walker (for the downstream-subs trigger) -----
+;;
+;; `app-db-diff-state` mounts the downstream-subs hover trigger as a
+;; Reagent fn-component vector `[downstream/hover-trigger path]`. The
+;; plain `hiccup-seq` above doesn't render fn-components, so these
+;; helpers expand them (calling the fn) so the trigger's own testid is
+;; reachable. Mirrors `app_db_diff_cljs_test.cljs`.
+
+(defn- expand-fn-component [node]
+  (if (and (vector? node) (fn? (first node)))
+    (apply (first node) (rest node))
+    node))
+
+(defn- expanded-hiccup-seq [tree]
+  (->> (tree-seq (some-fn vector? seq?) seq (expand-fn-component tree))
+       (map expand-fn-component)))
+
+(defn- expanded-testids [tree]
+  (->> (expanded-hiccup-seq tree)
        (keep (fn [node]
                (when (and (vector? node) (map? (second node)))
                  (:data-testid (second node)))))
@@ -137,3 +164,116 @@
       (let [tree (state/state-body (h/current-state-sections db))]
         (is (some? (find-by-testid tree "rf-causa-app-db-state-top")))
         (is (some? (find-by-testid tree "rf-causa-app-db-state-area-:rf/route")))))))
+
+;; ---- downstream-subs hover trigger re-wire (spec/021 §4.4, rf2-2lb7z) ---
+;;
+;; After rf2-okvit redesigned this tab into a current-state inspector,
+;; the §4.4 downstream-subs popover lost its host (the diff breadcrumbs).
+;; rf2-2lb7z re-wires the trigger into the current-state section headers:
+;; one trigger per top-level user-domain key in the TOP section, one per
+;; reserved area `[:rf/area]`, and one per fan-out instance `[:rf/area
+;; id]`. The popover subs/events/component are unchanged — these tests
+;; assert the trigger is now INJECTED, threading the section's path.
+
+(defn- trigger-testid
+  "The downstream-subs trigger's path-keyed testid (mirrors
+  `app-db-diff-downstream/hover-trigger`)."
+  [path]
+  (str "rf-causa-app-db-downstream-trigger-" (pr-str path)))
+
+(defn- find-expanded-by-testid
+  "Find the (fn-expanded) node carrying `testid`, walking through
+  fn-components so containers whose children are fn-component vectors
+  are reachable."
+  [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (expanded-hiccup-seq tree)))
+
+(deftest top-section-hosts-per-user-domain-key-trigger
+  (testing "the TOP section fans a downstream-subs trigger out per
+            top-level user-domain key (path `[:key]`) — the whole-db
+            root `[]` is a path-filter no-op so we key per top-level key"
+    (downstream/install!)
+    (let [model (h/current-state-sections {:counter 5 :user {:name "ada"}
+                                           :rf/route {:id :home}})
+          tree  (state/state-body model)
+          ids   (expanded-testids tree)
+          ;; Scope the negative assertion to the TOP-triggers container
+          ;; only — reserved-area sections DO host their own
+          ;; `[:rf/route]` trigger elsewhere in the tree (correct), so
+          ;; the whole-tree id set legitimately contains it.
+          top-triggers (find-expanded-by-testid
+                         tree "rf-causa-app-db-state-top-triggers")
+          top-ids      (expanded-testids top-triggers)]
+      (is (contains? ids "rf-causa-app-db-state-top-triggers")
+          "TOP section carries the trigger group container")
+      (is (contains? top-ids (trigger-testid [:counter]))
+          "a trigger keyed to the user-domain key [:counter]")
+      (is (contains? top-ids (trigger-testid [:user]))
+          "a trigger keyed to the user-domain key [:user]")
+      (is (not (contains? top-ids (trigger-testid [:rf/route])))
+          "reserved keys are NOT in the user-domain TOP triggers"))))
+
+(deftest top-section-no-triggers-when-no-user-domain-keys
+  (testing "a reserved-keys-only db → TOP section renders no triggers
+            (no user-domain keys to host one)"
+    (downstream/install!)
+    (let [model (h/current-state-sections {:rf/route {:id :home}})
+          tree  (state/state-body model)
+          ids   (expanded-testids tree)]
+      (is (not (contains? ids "rf-causa-app-db-state-top-triggers"))
+          "no trigger group when the user-domain app-db is empty"))))
+
+(deftest machine-instance-section-hosts-path-trigger
+  (testing "each machine fan-out section hosts a trigger keyed to its
+            `[:rf/machines id]` path"
+    (downstream/install!)
+    (let [model (h/current-state-sections
+                  {:rf/machines {:title/flow {:state :playing}
+                                 :auth       {:state :idle}}})
+          tree  (state/state-body model)
+          ids   (expanded-testids tree)]
+      (is (contains? ids (trigger-testid [:rf/machines :title/flow]))
+          "trigger keyed to [:rf/machines :title/flow]")
+      (is (contains? ids (trigger-testid [:rf/machines :auth]))
+          "trigger keyed to [:rf/machines :auth]"))))
+
+(deftest singleton-area-section-hosts-path-trigger
+  (testing ":rf/route singleton section hosts a trigger keyed to
+            `[:rf/route]`"
+    (downstream/install!)
+    (let [model (h/current-state-sections
+                  {:rf/route {:id :app/article :params {:id "A"}}})
+          tree  (state/state-body model)
+          ids   (expanded-testids tree)]
+      (is (contains? ids (trigger-testid [:rf/route]))
+          "trigger keyed to the [:rf/route] area path"))))
+
+(deftest empty-reserved-area-section-still-hosts-path-trigger
+  (testing "an absent/empty reserved area's empty-state section STILL
+            hosts its `[:rf/area]` trigger — the path is meaningful even
+            with no live value (the popover degrades to its empty-state)"
+    (downstream/install!)
+    (let [model (h/current-state-sections {:counter 1})
+          tree  (state/state-body model)
+          ids   (expanded-testids tree)]
+      (is (contains? ids (trigger-testid [:rf/machines]))
+          "empty :rf/machines area still hosts a [:rf/machines] trigger")
+      (is (contains? ids (trigger-testid [:rf/route]))
+          "empty :rf/route area still hosts a [:rf/route] trigger"))))
+
+(deftest trigger-rewire-nil-safe
+  (testing "nil / empty db still renders the triggers (where applicable)
+            without throwing"
+    (downstream/install!)
+    (doseq [db [nil {}]]
+      (let [tree (state/state-body (h/current-state-sections db))
+            ids  (expanded-testids tree)]
+        ;; No user-domain keys → no TOP triggers; reserved areas still
+        ;; host theirs.
+        (is (not (contains? ids "rf-causa-app-db-state-top-triggers")))
+        (is (contains? ids (trigger-testid [:rf/route])))))))
