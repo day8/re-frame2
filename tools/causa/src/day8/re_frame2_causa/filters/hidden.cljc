@@ -1,21 +1,29 @@
 (ns day8.re-frame2-causa.filters.hidden
-  "Pure derivation for the L2 'N events hidden by filters' indicator
-  (rf2-jvghz, defect #1).
+  "Pure derivation for the events-ribbon 'N events hidden by filters'
+  message (rf2-jvghz, defect #1; frame-decoupled per rf2-4vp5j).
 
   ## Why
 
   After the epoch-per-event merges, Causa's L2 event list could look
   broken on reload: persisted filters (a `:machine` IN-pill under
-  `re-frame2.causa.filters.v1`, a frame pin under
-  `re-frame2.causa.frame-switcher.v1`) survived in localStorage and
-  silently suppressed cascade rows with NO visible indicator. The L2
-  list reads `:rf.causa/filtered-cascades` (filtered) while the raw
-  stream lives on `:rf.causa/cascades`; when filters suppressed rows
-  the list was indistinguishable from a broken tool.
+  `re-frame2.causa.filters.v1`) survived in localStorage and silently
+  suppressed cascade rows with NO visible indicator. The L2 list reads
+  `:rf.causa/filtered-cascades` (filtered) while the raw stream lives on
+  `:rf.causa/cascades`; when filters suppressed rows the list was
+  indistinguishable from a broken tool.
 
   This ns is the pure data primitive behind the affordance: given the
   raw + filtered visible-cascade counts and the active filter state,
   it answers 'is anything hidden, how many, and what is the cause?'.
+
+  ## Frame is a view SCOPE, not a filter (rf2-4vp5j Workstream C)
+
+  The picker-selected frame is a single, defaulted VIEW SCOPE — it is
+  NOT part of the filter chain conceptually. It is therefore NEVER
+  counted as 'hidden', never listed as a cause, and never reset by
+  Clear Filters. The caller computes the raw/filtered counts WITHIN the
+  selected frame so switching frames does not inflate the count; this
+  ns only models pill + mute suppression.
 
   ## The count contract
 
@@ -23,7 +31,7 @@
   list renders — i.e. both the raw and filtered vectors must already be
   passed through the list's `l2-cascade-visible?` predicate by the
   caller (the `:rf.causa/hidden-by-filters` sub does this). That keeps
-  the indicator's N consistent with the rows the user actually sees:
+  the message's N consistent with the rows the user actually sees:
   the `:ungrouped` bucket never inflates the count, and the
   filtered-to-empty / filtered-to-one cases both report the true
   suppressed total.
@@ -49,29 +57,25 @@
   [{:keys [in out]}]
   (boolean (or (seq in) (seq out))))
 
-(defn frame-pinned?
-  "True iff a frame pin is active — i.e. the picker has selected a
-  specific frame so `:rf.causa/filtered-cascades` restricts to it.
-  nil means no frame filter."
-  [frame-id]
-  (some? frame-id))
-
 (defn mutes-present?
   "True iff at least one event-id is muted. nil / `#{}` → false."
   [muted]
   (boolean (seq muted)))
 
 (defn any-filter-active?
-  "True iff ANY suppressing surface is active: IN/OUT pills, a frame
-  pin, or a non-empty mute set. This is the predicate behind 'is there
-  anything a Clear-filters click would reset?'. It is independent of
-  the hidden COUNT — a pill can be active yet hide nothing (it happens
-  to match every current cascade); the count is what gates the
-  indicator's render, this predicate is what 'Clear filters' acts on."
-  [{:keys [filters frame muted]}]
+  "True iff ANY suppressing FILTER is active: IN/OUT pills or a non-empty
+  mute set. This is the predicate behind 'is there anything a Clear
+  Filters click would reset?'. It is independent of the hidden COUNT — a
+  pill can be active yet hide nothing (it happens to match every current
+  cascade); the count is what gates the message's render, this predicate
+  is what 'Clear Filters' acts on.
+
+  Per rf2-4vp5j the frame is a view SCOPE, not a filter — it is NOT part
+  of this predicate, so a frame selection alone never shows the events-
+  ribbon action cluster and Clear Filters never resets the frame."
+  [{:keys [filters muted]}]
   (boolean
     (or (pills-present? filters)
-        (frame-pinned? frame)
         (mutes-present? muted))))
 
 (defn indicator-visible?
@@ -102,20 +106,22 @@
           (or out []))))
 
 (defn summary
-  "The full indicator model for the L2 list. Pure — takes the raw +
-  filtered visible counts and the active filter state, returns the map
-  the view renders against:
+  "The full message model for the events ribbon. Pure — takes the raw +
+  filtered visible counts (both already scoped to the selected frame by
+  the caller) and the active filter state, returns the map the view
+  renders against:
 
       {:hidden          <int>     ; suppressed visible-row count
        :raw-count       <int>
        :filtered-count  <int>
-       :visible?        <bool>    ; should the indicator render?
-       :any-active?     <bool>    ; would Clear-filters reset anything?
+       :visible?        <bool>    ; should the N-hidden message render?
+       :any-active?     <bool>    ; would Clear Filters reset anything?
        :pills           [{…} …]   ; IN/OUT pill summaries
-       :frame           <kw|nil>  ; pinned frame, nil = unpinned
        :muted-count     <int>}    ; muted event-ids
 
-  `state` is `{:filters {:in [] :out []} :frame <kw|nil> :muted #{}}`."
+  `state` is `{:filters {:in [] :out []} :muted #{}}`. Per rf2-4vp5j the
+  frame is a view scope, NOT a filter — it is excluded from this model
+  entirely (no `:frame` key, never a cause, never counted as hidden)."
   [raw-visible-count filtered-visible-count state]
   (let [hidden (hidden-count raw-visible-count filtered-visible-count)]
     {:hidden         hidden
@@ -124,5 +130,4 @@
      :visible?       (indicator-visible? hidden)
      :any-active?    (any-filter-active? state)
      :pills          (pill-summaries (:filters state))
-     :frame          (:frame state)
      :muted-count    (count (or (:muted state) #{}))}))

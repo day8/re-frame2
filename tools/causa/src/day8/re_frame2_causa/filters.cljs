@@ -191,37 +191,63 @@
   ;; semantically, but the mute set is a separate slot so it persists
   ;; independently of the pill set and the unmute manager has a clean
   ;; surface to enumerate.)
+  ;; rf2-4vp5j Workstream C — the frame scope reads the dedicated
+  ;; `:rf.causa/view-scope-frame` slot (a single defaulted VIEW SCOPE),
+  ;; NOT the spine's `[:focus :frame]` (which epoch auto-alignment + the
+  ;; focus-step walk also write — reading it here silently re-scoped the
+  ;; list to whatever epoch the user stepped onto). The frame is applied
+  ;; as a view scope FIRST, then the pill chain + mutes (the actual
+  ;; filters) compose on top.
+  ;;
+  ;; The frameless `:ungrouped` pseudo-cascade is frame-agnostic: it is
+  ;; preserved through the view scope ONLY when the `show-ungrouped?`
+  ;; opt-in is on (so it can be REVEALED under a scope); with the opt-in
+  ;; off the strict frame filter drops it, matching the default
+  ;; silent-by-default L2 list (no frameless bucket leaks into the data
+  ;; layer when nobody asked for it).
   (rf/reg-sub :rf.causa/filtered-cascades
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/active-filters]
-    :<- [:rf.causa/focus-slot]
+    :<- [:rf.causa/view-scope-frame]
     :<- [:rf.causa/muted-event-ids]
-    (fn [[cascades filters focus-slot muted] _query]
+    :<- [:rf.causa/show-ungrouped?]
+    (fn [[cascades filters view-scope-frame muted show-ungrouped?] _query]
       (-> cascades
-          (matcher/filter-cascades-by-frame (:frame focus-slot))
+          (cond->
+            show-ungrouped?       (matcher/filter-cascades-by-view-scope view-scope-frame)
+            (not show-ungrouped?) (matcher/filter-cascades-by-frame view-scope-frame))
           (typed/filter-cascades filters)
           (spine-filters/filter-cascades muted))))
 
-  ;; rf2-jvghz defect #1 — the 'N events hidden by filters' indicator
-  ;; model. Composes the raw + filtered cascade lists and the active
-  ;; filter state into the pure `hidden/summary` record the L2 list's
-  ;; indicator renders against. Counts over the L2 visible-row set
-  ;; (`l2-visible?`) so N matches the rows the user sees. This is the
-  ;; affordance that makes persisted filters/frame-pin a VISIBLE cause
-  ;; rather than a silently-broken-looking list.
+  ;; rf2-jvghz defect #1 + rf2-4vp5j Workstream C — the 'N events hidden
+  ;; by filters' message model. Composes the raw + filtered cascade lists
+  ;; and the active filter state into the pure `hidden/summary` record
+  ;; the events ribbon renders against. Counts over the L2 visible-row
+  ;; set (`l2-visible?`) so N matches the rows the user sees.
+  ;;
+  ;; FRAME IS A VIEW SCOPE, NOT A FILTER (rf2-4vp5j Workstream C): the
+  ;; count BASELINE is computed WITHIN the selected frame — `raw` is
+  ;; first scoped to the view-scope frame, then pills/mutes are measured
+  ;; against that scope. This means switching frames NEVER inflates
+  ;; "hidden" (previously `raw` counted across all frames, so picking a
+  ;; frame made every other frame's events look "hidden by filters").
+  ;; The summary carries no `:frame` cause; only pill/mute suppression
+  ;; is the cause and the count.
   (rf/reg-sub :rf.causa/hidden-by-filters
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/filtered-cascades]
     :<- [:rf.causa/active-filters]
-    :<- [:rf.causa/focus-slot]
+    :<- [:rf.causa/view-scope-frame]
     :<- [:rf.causa/muted-event-ids]
     :<- [:rf.causa/show-ungrouped?]
-    (fn [[raw filtered filters focus-slot muted show-ungrouped?] _query]
-      (let [raw-n      (count (filterv #(l2-visible? % show-ungrouped?) raw))
-            filtered-n (count (filterv #(l2-visible? % show-ungrouped?) filtered))]
+    (fn [[raw filtered filters view-scope-frame muted show-ungrouped?] _query]
+      (let [;; Scope the raw baseline to the VIEW-SCOPE frame so frame
+            ;; selection is a view scope, not counted as suppression.
+            frame-scoped (matcher/filter-cascades-by-view-scope raw view-scope-frame)
+            raw-n        (count (filterv #(l2-visible? % show-ungrouped?) frame-scoped))
+            filtered-n   (count (filterv #(l2-visible? % show-ungrouped?) filtered))]
         (hidden/summary raw-n filtered-n
                         {:filters filters
-                         :frame   (:frame focus-slot)
                          :muted   muted}))))
 
   ;; Popup state — three slots so the open / trigger / draft tiers
@@ -352,29 +378,30 @@
              :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})
           {:db (close-popup db)}))))
 
-  ;; ---- clear-all (rf2-jvghz) ------------------------------------------
+  ;; ---- clear-all (rf2-jvghz + rf2-4vp5j) ------------------------------
   ;;
-  ;; One-click reset behind the L2 'N hidden by filters' indicator.
-  ;; Resets EVERY suppressing surface so the filtered list snaps back to
-  ;; the raw list:
+  ;; One-click reset behind the events ribbon's `Clear Filters` button.
+  ;; Resets every suppressing FILTER so the filtered list snaps back to
+  ;; the (frame-scoped) raw list:
   ;;
   ;;   1. IN/OUT pills        → `{:in [] :out []}` (+ persist)
-  ;;   2. frame pin           → `:rf.causa/select-frame nil` (the
-  ;;      canonical write surface — re-seeds the spine + clears the
-  ;;      frame-switcher localStorage so the unpin survives reload)
-  ;;   3. muted event-ids     → `:rf.causa/clear-muted-event-ids` (+ its
+  ;;   2. muted event-ids     → `:rf.causa/clear-muted-event-ids` (+ its
   ;;      own persist fx)
   ;;
+  ;; Per rf2-4vp5j Workstream C the FRAME is a view SCOPE, not a filter —
+  ;; Clear Filters must NOT change the frame. The previous
+  ;; `[:dispatch [:rf.causa/select-frame nil]]` was removed; the picker's
+  ;; selection survives a Clear Filters.
+  ;;
   ;; Pills are reset inline (this handler already owns the
-  ;; `:active-filters` slot + persist fx); the frame-pin and mute resets
-  ;; route through their owning events via `:dispatch` so each surface's
-  ;; persistence / instrumentation stays in one place.
+  ;; `:active-filters` slot + persist fx); the mute reset routes through
+  ;; its owning event via `:dispatch` so its persistence /
+  ;; instrumentation stays in one place.
   (rf/reg-event-fx :rf.causa/clear-all-filters
     (fn [{:keys [db]} _event]
       (let [cleared {:in [] :out []}]
         {:db (assoc db :active-filters cleared)
          :fx [[:rf.causa.filters/persist cleared]
-              [:dispatch [:rf.causa/select-frame nil]]
               [:dispatch [:rf.causa/clear-muted-event-ids]]]})))
 
   ;; ---- right-click row → OUT filter shortcut --------------------------

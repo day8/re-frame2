@@ -261,15 +261,18 @@
                  :border-left      (str "2px solid " (stripe-hex-for-mode :static))
                  :font-family      sans-stack
                  :font-size        (:body type-scale)}}
-   [mode-pill/mode-pill]
-   ;; L1 frame-switcher slot (rf2-iwwou) — same contract as Dynamic's
-   ;; ribbon (`shell.cljs/ribbon`). The view reads `:rf.causa/current-
-   ;; frame` + `:rf.causa/available-frames` and writes via
-   ;; `:rf.causa/select-frame`. Mode-independent: the picker persists
-   ;; across mode toggles so the user can keep browsing the same
-   ;; frame's registrations as they flip between event-coupled
+   ;; LEFT cluster — scope selectors (Frame + Dynamic/Static), mirroring
+   ;; the Dynamic chrome ribbon's left cluster (rf2-4vp5j). The frame
+   ;; picker is mode-INDEPENDENT — same contract as Dynamic's ribbon
+   ;; (`shell.cljs/ribbon`): reads `:rf.causa/current-frame` +
+   ;; `:rf.causa/available-frames`, writes via `:rf.causa/select-frame`.
+   ;; The picker persists across mode toggles so the user keeps browsing
+   ;; the same frame's registrations as they flip between event-coupled
    ;; (Dynamic) and event-independent (Static) lenses.
-   [frame-switcher/frame-switcher-view]
+   [:div {:data-testid "rf-causa-static-ribbon-selectors"
+          :style {:display "flex" :align-items "center" :gap "8px"}}
+    [frame-switcher/frame-switcher-view]
+    [mode-pill/mode-pill]]
    [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
     [ribbon-right-icons]]])
 

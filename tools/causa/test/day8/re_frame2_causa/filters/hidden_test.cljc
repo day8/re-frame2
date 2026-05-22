@@ -1,10 +1,15 @@
 (ns day8.re-frame2-causa.filters.hidden-test
-  "Pure-data tests for the L2 'N hidden by filters' indicator
-  derivation (rf2-jvghz, defect #1).
+  "Pure-data tests for the events-ribbon 'N hidden by filters' message
+  derivation (rf2-jvghz, defect #1; frame-decoupled per rf2-4vp5j).
 
   CLJC so the JVM corpus exercises the hidden-count derivation +
   visibility predicate without a CLJS runtime — the helper is pure
-  data, no atoms, no I/O."
+  data, no atoms, no I/O.
+
+  Per rf2-4vp5j Workstream C the FRAME is a view SCOPE, not a filter —
+  it is never counted as hidden, never a cause, never reset by Clear
+  Filters. The summary model carries no `:frame` key and
+  `any-filter-active?` ignores frame state entirely."
   (:require [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-causa.filters.hidden :as hidden]))
 
@@ -30,10 +35,6 @@
   (is (true?  (hidden/pills-present? {:in [{:pattern :a}] :out []})))
   (is (true?  (hidden/pills-present? {:in [] :out [{:pattern :b}]}))))
 
-(deftest frame-pinned?-is-some
-  (is (false? (hidden/frame-pinned? nil)))
-  (is (true?  (hidden/frame-pinned? :rf/cart-frame))))
-
 (deftest mutes-present?-detects-nonempty-set
   (is (false? (hidden/mutes-present? nil)))
   (is (false? (hidden/mutes-present? #{})))
@@ -41,27 +42,32 @@
 
 ;; ---- any-filter-active? -------------------------------------------------
 
-(deftest any-filter-active?-true-for-each-surface
+(deftest any-filter-active?-true-for-each-filter-surface
   (is (false? (hidden/any-filter-active?
-                {:filters {:in [] :out []} :frame nil :muted #{}})))
+                {:filters {:in [] :out []} :muted #{}})))
   (is (true?  (hidden/any-filter-active?
-                {:filters {:in [{:pattern :a}] :out []} :frame nil :muted #{}}))
+                {:filters {:in [{:pattern :a}] :out []} :muted #{}}))
       "an IN pill counts")
   (is (true?  (hidden/any-filter-active?
-                {:filters {:in [] :out []} :frame :rf/cart-frame :muted #{}}))
-      "a frame pin counts")
-  (is (true?  (hidden/any-filter-active?
-                {:filters {:in [] :out []} :frame nil :muted #{:noise}}))
+                {:filters {:in [] :out []} :muted #{:noise}}))
       "a mute counts"))
+
+(deftest any-filter-active?-ignores-frame-scope
+  (testing "rf2-4vp5j — the frame is a view SCOPE, not a filter; a frame
+            in the state map (even if a caller passes one) never makes
+            any-filter-active? true on its own"
+    (is (false? (hidden/any-filter-active?
+                  {:filters {:in [] :out []} :frame :rf/cart-frame :muted #{}}))
+        "a frame selection alone is NOT an active filter")))
 
 (deftest any-filter-active?-independent-of-hidden-count
   (testing "a filter can be active yet hide nothing (it matches every
             current cascade) — any-filter-active? is about whether a
-            Clear-filters click would reset anything, not about the
+            Clear Filters click would reset anything, not about the
             count"
     (is (true? (hidden/any-filter-active?
                  {:filters {:in [{:pattern :a}] :out []}
-                  :frame nil :muted #{}})))))
+                  :muted #{}})))))
 
 ;; ---- indicator-visible? -------------------------------------------------
 
@@ -105,7 +111,6 @@
                             {:filters {:in [{:kind :machine
                                              :params {:machine-id :checkout/fsm}}]
                                        :out []}
-                             :frame nil
                              :muted #{}})]
       (is (= 4 (:hidden s)))
       (is (true? (:visible? s)))
@@ -114,34 +119,41 @@
       (is (= 1 (:filtered-count s)))
       (is (= 1 (count (:pills s))))
       (is (= ":checkout/fsm" (:label (first (:pills s)))))
-      (is (nil? (:frame s)))
       (is (= 0 (:muted-count s))))))
 
+(deftest summary-carries-no-frame-key
+  (testing "rf2-4vp5j — the frame is a view scope, not a filter; the
+            summary model never carries a `:frame` key, even if a caller
+            leaks one into the state map"
+    (let [s (hidden/summary 6 4 {:filters {:in [] :out []}
+                                 :frame :rf/other-frame
+                                 :muted #{}})]
+      (is (not (contains? s :frame))
+          "no :frame in the message model — frame is a scope, not a cause"))))
+
 (deftest summary-filtered-to-empty-still-visible
-  (testing "the frame-pin-to-empty case — raw has rows, the pin leaves
-            zero; the banner MUST still render (this is the looked-broken
-            case)"
+  (testing "the filtered-to-empty case — raw has rows, the pill leaves
+            zero; the message MUST still render (this is the
+            looked-broken case)"
     (let [s (hidden/summary 6 0
-                            {:filters {:in [] :out []}
-                             :frame :rf/other-frame
+                            {:filters {:in [{:pattern :a}] :out []}
                              :muted #{}})]
       (is (= 6 (:hidden s)))
-      (is (true? (:visible? s)))
-      (is (= :rf/other-frame (:frame s))))))
+      (is (true? (:visible? s))))))
 
 (deftest summary-filtered-to-one-visible
   (testing "the filtered-to-one case — raw 4, filtered 1; reports 3
             hidden and renders"
     (let [s (hidden/summary 4 1
                             {:filters {:in [{:pattern :a}] :out []}
-                             :frame nil :muted #{}})]
+                             :muted #{}})]
       (is (= 3 (:hidden s)))
       (is (true? (:visible? s))))))
 
 (deftest summary-nothing-hidden-not-visible
-  (testing "no filter active, filtered == raw → no banner"
+  (testing "no filter active, filtered == raw → no message"
     (let [s (hidden/summary 7 7
-                            {:filters {:in [] :out []} :frame nil :muted #{}})]
+                            {:filters {:in [] :out []} :muted #{}})]
       (is (= 0 (:hidden s)))
       (is (false? (:visible? s)))
       (is (false? (:any-active? s))))))
@@ -149,7 +161,6 @@
 (deftest summary-counts-mutes
   (let [s (hidden/summary 5 3
                           {:filters {:in [] :out []}
-                           :frame nil
                            :muted #{:noise/tick :user/mouse-move}})]
     (is (= 2 (:hidden s)))
     (is (= 2 (:muted-count s)))
