@@ -48,20 +48,24 @@
     (is (= {:kind :machine :params {}}
            (typed/canonicalise-pill {:kind :machine})))))
 
-(deftest canonicalise-legacy-pattern-pill-becomes-event-id-pattern
-  (testing "rf2-ak4ms legacy shape `{:pattern <kw-or-str>}` hydrates as
-            `:event-id-pattern` so persisted pills round-trip cleanly"
+(deftest canonicalise-pattern-pill-becomes-event-id-pattern
+  (testing "`{:pattern <kw-or-str>}` (the dialog's only output shape)
+            hydrates as `:event-id-pattern` so persisted pills
+            round-trip cleanly. Event-id is the only scope — no :scope
+            slot is ever produced (rf2-o8pjv)."
     (is (= {:kind   :event-id-pattern
-            :params {:pattern :auth/login
-                     :scope   #{:event-id}}}
+            :params {:pattern :auth/login}}
            (typed/canonicalise-pill {:pattern :auth/login})))))
 
-(deftest canonicalise-legacy-pill-preserves-scope
-  (is (= {:kind   :event-id-pattern
-          :params {:pattern :auth/*
-                   :scope   #{:event-id :event-args}}}
-         (typed/canonicalise-pill {:pattern :auth/*
-                                   :scope   #{:event-id :event-args}}))))
+(deftest canonicalise-drops-stale-scope-key
+  (testing "a pill carrying a stale `:scope` key (persisted before
+            rf2-o8pjv) hydrates to the event-id-pattern shape WITHOUT
+            the :scope — the matcher honours event-id only, so the
+            stale slot is excised on the way through"
+    (is (= {:kind   :event-id-pattern
+            :params {:pattern :auth/*}}
+           (typed/canonicalise-pill {:pattern :auth/*
+                                     :scope   #{:event-id :event-args}})))))
 
 (deftest canonicalise-malformed-pill-is-never
   (is (= {:kind :never :params {}}

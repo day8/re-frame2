@@ -3,12 +3,13 @@
 
   Covers:
    - open-edit-popup hydrates the draft from the trigger payload
-   - set-mode / set-pattern / toggle-scope mutate the draft
+   - set-mode / set-pattern mutate the draft
    - save-edit-popup mutates :active-filters and closes the popup
    - delete-edit-popup drops the pill and closes
    - close-edit-popup discards the draft
    - hide-event-type (right-click row path) pre-populates OUT mode"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -60,27 +61,22 @@
   (is (= {:pattern nil}
          (edit-popup/draft->pill {:pattern "   "}))))
 
-(deftest draft-to-pill-attaches-non-default-scope
-  (testing "the default scope (#{:event-id}) is implicit and not
-            serialised; widened scopes are preserved verbatim"
+(deftest draft-to-pill-is-event-id-only
+  (testing "the pill shape carries the pattern only — event-id is the
+            implicit, only scope; no :scope key is ever serialised"
     (is (= {:pattern :auth/login}
-           (edit-popup/draft->pill {:pattern ":auth/login"
-                                    :scope   #{:event-id}}))
-        "default scope omitted")
-    (is (= {:pattern :auth/login
-            :scope   #{:event-id :event-args}}
-           (edit-popup/draft->pill {:pattern ":auth/login"
-                                    :scope   #{:event-id :event-args}}))
-        "widened scope preserved")))
+           (edit-popup/draft->pill {:pattern ":auth/login"}))
+        "pattern-only shape")
+    (is (= [:pattern]
+           (keys (edit-popup/draft->pill {:pattern ":auth/login"})))
+        "no :scope (or any other) key in the projected pill")))
 
 (deftest pill-to-draft-stringifies-keyword
-  (is (= {:pattern ":auth/*"
-          :scope   #{:event-id}}
+  (is (= {:pattern ":auth/*"}
          (edit-popup/pill->draft {:pattern :auth/*}))))
 
 (deftest pill-to-draft-empty-pill
-  (is (= {:pattern ""
-          :scope   #{:event-id}}
+  (is (= {:pattern ""}
          (edit-popup/pill->draft nil))))
 
 ;; -------------------------------------------------------------------------
@@ -126,17 +122,6 @@
   (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
   (frame-dispatch [:rf.causa/edit-popup-set-pattern ":auth/*"])
   (is (= ":auth/*" (:pattern (frame-sub [:rf.causa/edit-popup-draft])))))
-
-(deftest toggle-scope-flips-membership
-  (causa-setup!)
-  (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
-  (is (= #{:event-id} (:scope (frame-sub [:rf.causa/edit-popup-draft]))))
-  (frame-dispatch [:rf.causa/edit-popup-toggle-scope :event-args])
-  (is (= #{:event-id :event-args}
-         (:scope (frame-sub [:rf.causa/edit-popup-draft]))))
-  (frame-dispatch [:rf.causa/edit-popup-toggle-scope :event-args])
-  (is (= #{:event-id}
-         (:scope (frame-sub [:rf.causa/edit-popup-draft])))))
 
 ;; -------------------------------------------------------------------------
 ;; (4) Save round-trip
@@ -299,6 +284,14 @@
             node))
         (tree-seq (some-fn vector? seq?) seq (expand-tree tree))))
 
+(defn- testids-with-prefix [tree prefix]
+  (->> (tree-seq (some-fn vector? seq?) seq (expand-tree tree))
+       (keep (fn [node]
+               (when (and (vector? node) (map? (second node)))
+                 (:data-testid (second node)))))
+       (filter #(and (string? %) (str/starts-with? % prefix)))
+       (into #{})))
+
 (deftest backdrop-defaults-to-fixed-positioning
   (testing "with no :rf.causa/modal-positioning slot set, the edit
             popup backdrop renders position: fixed at the production
@@ -332,3 +325,60 @@
             "z-index drops to a sane in-cell value")
         (is (= "absolute"
                (:data-rf-causa-modal-positioning (second backdrop))))))))
+
+;; -------------------------------------------------------------------------
+;; (9) Dialog is event-id-only (rf2-o8pjv)
+;; -------------------------------------------------------------------------
+;;
+;; The Add-filter dialog reduces to exactly Mode (Only include /
+;; Filter out) + Pattern + footer. The Match-scope section
+;; (event-id / event-args / source-coord / tags checkboxes) and its
+;; `:rf.causa/edit-popup-toggle-scope` plumbing are excised — event-id
+;; is the implicit, only scope.
+
+(deftest dialog-renders-mode-and-pattern-only
+  (testing "the rendered dialog has Mode radios + the Pattern input +
+            footer, and NO match-scope checkboxes"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
+    (rf/with-frame :rf/causa
+      (let [rendered (filters/Modal)]
+        ;; Kept surfaces.
+        (is (some? (find-by-testid rendered "rf-causa-edit-popup-mode-in"))
+            "Mode IN radio present")
+        (is (some? (find-by-testid rendered "rf-causa-edit-popup-mode-out"))
+            "Mode OUT radio present")
+        (is (some? (find-by-testid rendered "rf-causa-edit-popup-pattern"))
+            "Pattern input present")
+        (is (some? (find-by-testid rendered "rf-causa-edit-popup-cancel"))
+            "Cancel button present")
+        (is (some? (find-by-testid rendered "rf-causa-edit-popup-save"))
+            "Add/Apply button present")
+        ;; Excised surface — no scope checkboxes of any key.
+        (is (= #{} (testids-with-prefix rendered "rf-causa-edit-popup-scope-"))
+            "no match-scope checkboxes render")))))
+
+(deftest toggle-scope-event-is-unregistered
+  (testing "the `:rf.causa/edit-popup-toggle-scope` event is fully
+            removed — dispatching it is a no-op (no scope slot appears)"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
+    ;; The handler is gone; an unhandled dispatch must not introduce a
+    ;; :scope slot into the draft.
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/edit-popup-toggle-scope :event-args]))
+    (is (nil? (:scope (frame-sub [:rf.causa/edit-popup-draft])))
+        "draft carries no :scope slot")))
+
+(deftest saved-pill-is-event-id-only
+  (testing "a saved pill carries :pattern only — no :scope (or any
+            other) key. The matcher honours event-id exclusively."
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
+    (frame-dispatch [:rf.causa/edit-popup-set-pattern ":auth/*"])
+    (frame-dispatch [:rf.causa/save-edit-popup])
+    (let [pill (-> (frame-sub [:rf.causa/active-filters]) :in first)]
+      (is (= {:pattern :auth/*} pill)
+          "stored pill is the event-id pattern shape only")
+      (is (= [:pattern] (keys pill))
+          "no :scope key persisted"))))

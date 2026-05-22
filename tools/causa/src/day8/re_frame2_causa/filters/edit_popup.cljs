@@ -11,24 +11,18 @@
       │   :auth/*                          │
       │   (keyword · glob · namespace)     │
       │                                    │
-      │ Match scope                        │
-      │   ☑ event-id                       │
-      │   ☐ event-args                     │
-      │   ☐ source-coord                   │
-      │   ☐ tags                           │
-      │                                    │
       │ ──────────────────────────────────  │
       │ [Delete]      [Cancel]    [Apply]  │
       └────────────────────────────────────┘
 
-  ## Pre-alpha scope
+  ## Scope
 
-  Pre-alpha the matcher (`filters/matcher.cljc`) operates on event-id
-  only — event-args / source-coord / tags scopes are surfaced in the
-  popup so the visual contract ships, but the checkboxes are stored
-  as data and consumed later when the matcher widens. The 'event-id'
-  scope is the default and always-on; widening the scope is a future
-  rev.
+  The matcher (`filters/matcher.cljc`) operates on event-id only —
+  event-id is the implicit, only scope. The dialog creates exactly
+  one pill shape: `{:pattern <kw-or-str>}` keyed off the cascade's
+  event-id. (Typed-predicate kinds — machine / http-correlation / fx
+  — arrive via right-click affordances on other panels, not this
+  dialog; see `filters/typed_predicates.cljc`.)
 
   ## Trigger sources (spec/018 §7)
 
@@ -155,18 +149,16 @@
 
 (defn draft->pill
   "Project the user-edited `draft` into the canonical pill record the
-  registry slot expects. Pre-alpha the canonical shape is `{:pattern
-  <str-or-kw>}` — the matcher only consults `:pattern`. A non-default
-  `:scope` is attached when present so the future widening pass has
-  the data; the default `#{:event-id}` scope (always-on per spec/018
-  §7) is NOT serialised because every pill carries it implicitly.
+  registry slot expects. The canonical shape is `{:pattern <str-or-kw>}`
+  — the matcher consults `:pattern` only; event-id is the implicit,
+  only scope.
 
   String patterns starting with `:` are normalised to keywords so the
   stored shape matches what spec/018 §7 catalogues (`:auth/*`,
   `:order/cart/*`). Whitespace-only / blank patterns survive as nil —
   the registry's save handler drops the pill rather than persisting
   an unmatchable one."
-  [{:keys [pattern scope]}]
+  [{:keys [pattern]}]
   (let [trimmed (when (string? pattern)
                   (clojure.string/trim pattern))
         p       (cond
@@ -177,26 +169,17 @@
                       (keyword (subs trimmed 1))
                       (catch :default _ trimmed))
                     trimmed)
-                  :else                      nil)
-        ;; Only attach :scope when the user widened past the default
-        ;; #{:event-id} — pre-alpha there is no widening surface but
-        ;; the data plumbing carries any non-default set through.
-        non-default-scope?
-        (and (set? scope)
-             (not= scope #{:event-id})
-             (seq scope))]
-    (cond-> {:pattern p}
-      non-default-scope? (assoc :scope scope))))
+                  :else                      nil)]
+    {:pattern p}))
 
 (defn pill->draft
   "Hydrate a stored pill into the user-editable draft shape. nil pill
   → empty draft."
-  [{:keys [pattern scope] :as _pill}]
+  [{:keys [pattern] :as _pill}]
   {:pattern (cond
               (nil? pattern)         ""
               (keyword? pattern)     (str pattern)
-              :else                  (str pattern))
-   :scope   (or scope #{:event-id})})
+              :else                  (str pattern))})
 
 ;; ---- view ----------------------------------------------------------------
 
@@ -221,39 +204,6 @@
                             {:frame :rf/causa})}]
      (case mode :in "IN (show only)" :out "OUT (hide)")]))
 
-(defn- scope-checkbox
-  [{:keys [scope-key label current-scope]}]
-  (let [checked? (boolean (and current-scope (contains? current-scope scope-key)))
-        ;; Pre-alpha the matcher only honours :event-id; the other
-        ;; scopes ship as data-only so the popup's visual contract is
-        ;; complete. event-id stays disabled — it's always on so a
-        ;; pattern always has somewhere to match.
-        always-on? (= scope-key :event-id)]
-    [:label {:data-testid (str "rf-causa-edit-popup-scope-" (name scope-key))
-             :style {:display     "flex"
-                     :align-items "center"
-                     :gap         "8px"
-                     :padding     "2px 0"
-                     :cursor      (if always-on? "default" "pointer")
-                     :color       (if always-on?
-                                    (:text-primary tokens)
-                                    (:text-secondary tokens))
-                     :font-family sans-stack
-                     :font-size   (:body type-scale)}}
-     [:input {:type      "checkbox"
-              :checked   (or always-on? checked?)
-              :disabled  always-on?
-              :on-change #(when-not always-on?
-                            (rf/dispatch
-                              [:rf.causa/edit-popup-toggle-scope scope-key]
-                              {:frame :rf/causa}))}]
-     label
-     (when (not always-on?)
-       [:span {:style {:margin-left "6px"
-                       :color (:text-tertiary tokens)
-                       :font-size (:caption type-scale)}}
-        "(pre-alpha: stored, not yet matched)"])]))
-
 (defn popup-view
   "The popup body. Caller (`filters/Modal`) gates the mount on
   `:rf.causa/edit-popup-open?`."
@@ -262,7 +212,6 @@
         draft       @(rf/subscribe [:rf.causa/edit-popup-draft])
         positioning @(rf/subscribe [:rf.causa/modal-positioning])
         mode        (or (:mode draft) :in)
-        scope       (or (:scope draft) #{:event-id})
         editing?    (= :pill (:source trigger))
         title       (case (:source trigger)
                       :pill    "Edit filter"
@@ -340,21 +289,6 @@
                       :font-family sans-stack
                       :font-size (:caption type-scale)}}
         "keyword · glob (:foo/*) · namespace (:foo) · substring"]]
-
-      [:div {:style (section-style)}
-       [:label {:style (label-style)} "Match scope"]
-       [scope-checkbox {:scope-key :event-id
-                        :label "event-id"
-                        :current-scope scope}]
-       [scope-checkbox {:scope-key :event-args
-                        :label "event-args"
-                        :current-scope scope}]
-       [scope-checkbox {:scope-key :source-coord
-                        :label "source-coord"
-                        :current-scope scope}]
-       [scope-checkbox {:scope-key :tags
-                        :label "tags"
-                        :current-scope scope}]]
 
       [:div {:style (footer-style)}
        (if editing?

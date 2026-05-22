@@ -398,7 +398,6 @@
    :rf.causa/delete-edit-popup
    :rf.causa/edit-popup-set-mode
    :rf.causa/edit-popup-set-pattern
-   :rf.causa/edit-popup-toggle-scope
    :rf.causa/epoch-recorded
    ;; rf2-piye4 — typed-predicate filter events. Each appends a
    ;; typed `{:kind <kw> :params {…}}` IN pill from a right-click

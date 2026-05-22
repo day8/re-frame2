@@ -1001,17 +1001,6 @@ Pill `✎` icon (pencil) = "click to edit." Whole pill is the clickable target.
 │   :auth/*                          │
 │   (keyword · glob · namespace)     │
 │                                    │
-│ Match scope                        │
-│   ☑ event-id                       │
-│   ☐ event-args                     │
-│   ☐ source-coord                   │
-│   ☐ tags                           │
-│                                    │
-│ Quick presets                      │
-│   ⚡ errors-only (IN)               │
-│   ⚡ http-only  (IN)                │
-│   ⚡ machine-only (IN)              │
-│                                    │
 │ ──────────────────────────────────  │
 │ [Delete]      [Cancel]    [Apply]  │
 └────────────────────────────────────┘
@@ -1019,8 +1008,7 @@ Pill `✎` icon (pencil) = "click to edit." Whole pill is the clickable target.
 
 - **Mode toggle** flips IN ↔ OUT without delete/recreate.
 - **Pattern field** accepts: exact keyword (`:auth/login`), glob (`:auth/*`, `:order.cart/*`), namespace (`:order/*` matches namespace `order`), substring (`/login`).
-- **Match scope** defaults to event-id; advanced users widen.
-- **Quick presets** = single-click pre-filled patterns.
+- **Event-id is the only scope.** The dialog produces exactly the `{:pattern <kw-or-str>}` shape keyed off the cascade's event-id (rf2-o8pjv). There is no match-scope selector — the matcher honours event-id exclusively.
 - **Trailing `+`** opens the same popup with empty pattern + default mode = IN.
 
 ### Right-click event-row → context menu
@@ -1078,13 +1066,13 @@ Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), th
 
 This section's earlier wording — that the right-click context menu's "Always hide this event-type" item silently appends to the OUT bucket — is **superseded by v1's actually-landed behaviour** (rf2-ak4ms).
 
-**v1 ships:** the right-click → "Always hide this event-type" item **opens the edit popup pre-populated** with the event-id as the pattern + mode = OUT, source = `:context`. The user sees what's about to land in the OUT bucket and can fine-tune the pattern, widen the match scope, or cancel before commit. No `[Delete]` button (the pill doesn't exist yet); `[Apply]` confirms.
+**v1 ships:** the right-click → "Always hide this event-type" item **opens the edit popup pre-populated** with the event-id as the pattern + mode = OUT, source = `:context`. The user sees what's about to land in the OUT bucket and can fine-tune the pattern or cancel before commit. No `[Delete]` button (the pill doesn't exist yet); `[Apply]` confirms.
 
 Rationale: pre-alpha posture (per the masterpiece principle). Silent mutation of the filter set on a right-click is the kind of surprise the visible-confirm flow trades a click to avoid. The popup's three trigger sources — `:pill` (edit existing), `:add` (trailing `+`), `:context` (right-click) — share the same modal so the edit-popup is the single mutation site for the IN/OUT slot.
 
-### Pre-alpha matcher scope
+### Matcher scope: event-id only (rf2-o8pjv)
 
-The popup's "Match scope" checkboxes — `event-id` / `event-args` / `source-coord` / `tags` — surface the visual contract for spec/018 §7 'Click-pill → edit popup'. **v1's matcher (`filters/matcher.cljc`) operates on `event-id` only**; the wider scopes are stored as data in the pill record and consumed when the matcher widens in a follow-on bead. The `event-id` scope is the default and always-on; widening it is the future rev.
+The dialog filters on **`event-id` only** — it is the implicit, only scope. The matcher (`filters/matcher.cljc`) consults the pill's `:pattern` against the cascade's event-id. Earlier drafts shipped a "Match scope" section (`event-id` / `event-args` / `source-coord` / `tags` checkboxes) as speculative scaffolding for a future widening pass; the three wider scopes were never matched, only stored. Per the pre-alpha masterpiece posture (no non-functional UI, no shims) that section and all its plumbing were removed: the pill shape reduces to `{:pattern <kw-or-str>}`. Surface-aware predicates (machine / http-correlation / fx) arrive as distinct typed-predicate **kinds** via right-click affordances on other panels (`filters/typed_predicates.cljc`), not as a scope-widening of this dialog.
 
 ### Filter persistence — write-through, reset-on-load (rf2-swclw)
 
@@ -1165,9 +1153,9 @@ Filter applied at DATA layer (`:rf.causa/filtered-cascades` sub), not render. Se
 ```clojure
 :rf.causa/active-filters
 ;; ->
-{:in  [{:pattern <kw-or-glob-or-ns> :scope #{:event-id :event-args :source-coord :tags}}
+{:in  [{:pattern <kw-or-glob-or-ns>}  ; event-id only (rf2-o8pjv)
        …]
- :out [{:pattern <…> :scope #{…}}
+ :out [{:pattern <…>}
        …]}
 ```
 
