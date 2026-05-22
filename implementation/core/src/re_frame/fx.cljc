@@ -183,11 +183,21 @@
   `:dispatch` / `:dispatch-later` fx-handler running in the do-fx
   phase). Lineage is preserved via `:parent-dispatch-id`; the origin
   tag answers \"who emitted THIS dispatch?\" not \"what initiated the
-  cascade?\"."
+  cascade?\".
+
+  Per rf2-j20a7 / Spec 005 §Level 4: when the parent envelope is tagged
+  `:rf.machine/internal? true` (the router stamps it in
+  `run-handler-cascade!` whenever the emitting handler is a machine),
+  the child is a machine-internal continuation event and inherits the
+  flag. `re-frame.router/dispatch!` reads it to insert the child at the
+  FRONT of the queue so the machine settles its macrostep to quiescence
+  before the next external event. Unlike the trace-only inheritable
+  keys, this is a runtime ordering flag — carried unconditionally."
   [frame-id parent-envelope]
   (if parent-envelope
-    (-> (select-keys parent-envelope inheritable-envelope-keys)
-        (assoc :rf/dispatch-origin :fx-emit))
+    (cond-> (select-keys parent-envelope inheritable-envelope-keys)
+      true                                     (assoc :rf/dispatch-origin :fx-emit)
+      (:rf.machine/internal? parent-envelope)  (assoc :rf.machine/internal? true))
     {:frame frame-id :rf/dispatch-origin :fx-emit}))
 
 (def ^:private reserved-fx-handlers
