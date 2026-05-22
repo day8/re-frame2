@@ -501,7 +501,12 @@
    ;; ---- re-frame.epoch (rf2-lt4e Tool-Pair surface) -------------------------
    {:key         :epoch/settle!
     :producer-ns 're-frame.epoch
-    :description "Settle the current in-flight epoch (commit to history)."}
+    :design-bead "rf2-nj6p7"
+    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. Skips an empty buffer (rejected/aborted dispatch)."}
+   {:key         :epoch/commit-halt-record!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-nj6p7"
+    :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback)."}
    {:key         :epoch/discard-buffer!
     :producer-ns 're-frame.epoch
     :description "Discard the in-flight epoch buffer without committing."}

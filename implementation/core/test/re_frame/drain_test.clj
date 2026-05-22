@@ -136,18 +136,20 @@
         (is (false? (:scheduled? @router))
             ":scheduled? is reset so future dispatches re-engage drain")))))
 
-(deftest drain-depth-exceeded-rolls-back-app-db
-  ;; Spec 002 §Run-to-completion §Rules rule 3 (atomic rollback): when
-  ;; the drain trips its depth limit, the runtime restores app-db to
-  ;; its pre-drain snapshot before emitting :rf.error/drain-depth-
-  ;; exceeded. Partial writes from the failed cascade are reverted —
-  ;; no caller observes a state no single completed event would
-  ;; produce. Discovered via rf2-8hi7.
-  (testing "a 4-deep chain that overflows leaves :db at the pre-drain value"
-    ;; Frame seeded via :on-create so the pre-drain snapshot is non-empty.
-    ;; If rollback regressed (partial writes preserved), :step would
-    ;; advance to whatever the bound caught — the assertion would fail
-    ;; loudly with the depth count so the regression is obvious.
+(deftest drain-depth-exceeded-keeps-durable-per-event-writes
+  ;; Per rf2-u6jsj/rf2-nj6p7 (Spec 002 §Drain versus event — the epoch
+  ;; unit): the epoch boundary is the dequeued EVENT, so each event that
+  ;; ran before the depth limit tripped settled its own durable epoch AND
+  ;; its own db write. There is NO whole-drain rollback under per-event
+  ;; epochs — each settled event is independently atomic. The depth limit
+  ;; stops the NEXT (halting) event; the work that already ran survives.
+  ;;
+  ;; SUPERSEDES the pre-rf2-u6jsj per-drain atomic-rollback behaviour
+  ;; (Spec 002 rule 3's "restore app-db to its pre-drain snapshot"), which
+  ;; was written for the per-drain epoch model. Rule 3 needs tightening to
+  ;; the per-event boundary — see rf2-nj6p7.
+  (testing "a chain that overflows leaves :db with the durable per-event writes"
+    ;; Frame seeded via :on-create so the baseline is non-empty.
     (rf/reg-event-db :seed/init
       (fn [_ _] {:step :pre-drain :counter 0}))
     (rf/reg-frame :drain.rollback/main
@@ -155,21 +157,23 @@
        :drain-depth 4})
     (let [traces (atom [])]
       (rf/register-listener! ::rollback (fn [ev] (swap! traces conj ev)))
-      ;; A handler that COMMITS a :db write (advancing :step and bumping
-      ;; :counter) AND re-dispatches itself. Without rollback, the final
-      ;; :db carries the partial writes from depth-1..depth-4. With
-      ;; rollback, the final :db is exactly what :seed/init produced.
+      ;; A handler that COMMITS a :db write (advancing :step, bumping
+      ;; :counter) AND re-dispatches itself. Each iteration is its own
+      ;; dequeued event = its own durable epoch + db write. After the
+      ;; 4-event limit, :counter == 4 and :step == :mid-drain survive.
       (rf/reg-event-fx :overflow
         (fn [{:keys [db]} _]
           {:db {:step :mid-drain :counter (inc (:counter db 0))}
            :fx [[:dispatch [:overflow]]]}))
       (rf/dispatch-sync [:overflow] {:frame :drain.rollback/main})
       (rf/unregister-listener! ::rollback)
-      ;; Atomic rollback: app-db is exactly what :seed/init produced.
-      (is (= {:step :pre-drain :counter 0}
+      ;; Per-event durability: the four completed events' writes survive —
+      ;; NO whole-drain rollback.
+      (is (= {:step :mid-drain :counter 4}
              (rf/get-frame-db :drain.rollback/main))
-          "app-db is restored to the pre-drain snapshot; partial writes are reverted")
-      ;; Sanity: the depth-exceeded trace did fire and tags :rollback? true.
+          "the durable per-event writes survive; there is no whole-drain rollback")
+      ;; Sanity: the depth-exceeded trace fired and tags :rollback? false
+      ;; (no rollback under per-event epochs).
       (let [hit (some (fn [ev]
                         (when (= :rf.error/drain-depth-exceeded
                                  (:operation ev))
@@ -177,36 +181,34 @@
                       @traces)]
         (is (some? hit) "drain-depth-exceeded trace was emitted")
         (when hit
-          (is (true? (get-in hit [:tags :rollback?]))
-              ":rollback? true tag flags the atomic rollback per Spec 002")))))
+          (is (false? (get-in hit [:tags :rollback?]))
+              ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback")))))
 
-  (testing "rollback target is the snapshot at drain entry, not :on-create"
-    ;; A drain that has already settled cleanly once and then is re-
-    ;; engaged with a self-dispatching event must roll back to the
-    ;; *post-first-drain* state, not all the way back to :on-create.
-    ;; This pins the contract: rollback boundary is the drain, not the
-    ;; lifetime of the frame.
-    (rf/reg-event-db :seed2/init (fn [_ _] {:phase :seeded}))
+  (testing "earlier clean drains stay durable; an overflow keeps prior-event writes"
+    ;; A drain that has already settled cleanly once, then is re-engaged
+    ;; with a self-dispatching event: the earlier clean drain stays
+    ;; durable AND the overflow drain's own per-event writes stay durable
+    ;; (no rollback).
+    (rf/reg-event-db :seed2/init (fn [_ _] {:phase :seeded :n 0}))
     (rf/reg-frame :drain.rollback/two
       {:on-create   [:seed2/init]
        :drain-depth 3})
-    ;; First drain: a clean settle that mutates :phase. After this, the
-    ;; pre-drain snapshot for any FUTURE drain is {:phase :first-settled}.
+    ;; First drain: a clean settle that mutates :phase.
     (rf/reg-event-db :advance (fn [db _] (assoc db :phase :first-settled)))
     (rf/dispatch-sync [:advance] {:frame :drain.rollback/two})
-    (is (= {:phase :first-settled}
+    (is (= {:phase :first-settled :n 0}
            (rf/get-frame-db :drain.rollback/two))
         "first drain settled cleanly; that's the new baseline")
-    ;; Second drain: trip the depth limit. Rollback target is the
-    ;; baseline above, not :seed2/init's output.
+    ;; Second drain: trip the depth limit. Per rf2-nj6p7 the three events
+    ;; that ran each made a durable :n write — no rollback.
     (rf/reg-event-fx :overflow2
-      (fn [_ _]
-        {:db {:phase :poisoned}
+      (fn [{:keys [db]} _]
+        {:db (assoc db :phase :poisoned :n (inc (:n db 0)))
          :fx [[:dispatch [:overflow2]]]}))
     (rf/dispatch-sync [:overflow2] {:frame :drain.rollback/two})
-    (is (= {:phase :first-settled}
+    (is (= {:phase :poisoned :n 3}
            (rf/get-frame-db :drain.rollback/two))
-        "rollback restored the *drain-entry* snapshot, not :on-create's output")))
+        "the overflow drain's per-event writes are durable — no whole-drain rollback")))
 
 ;; ---- 3. dispatch-sync-in-handler ------------------------------------------
 
@@ -403,11 +405,13 @@
 
 ;; ---- rf2-6guf: drain-depth-exceeded preserves OTHER frames' app-db --------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-25: the existing
-;; `drain-depth-exceeded-rolls-back-app-db` only exercises :rf/default. The
-;; broader contract is "rollback is scoped to the FRAME that exceeded the
-;; depth — other frames' app-dbs are untouched, and the depth-exceeded
-;; trace carries the right frame id".
+;; Per test-coverage-review-2026-05-12 P3-25: the companion
+;; `drain-depth-exceeded-keeps-durable-per-event-writes` only exercises
+;; :rf/default. The broader contract is "a depth-exceed is scoped to the
+;; FRAME that overflowed — other frames' app-dbs are untouched, and the
+;; depth-exceeded trace carries the right frame id". Per rf2-nj6p7
+;; (per-event epochs) the overflowing frame keeps its durable per-event
+;; writes (no whole-drain rollback); the isolation contract is unchanged.
 
 (deftest drain-depth-exceeded-isolated-to-the-overflowing-frame
   (testing "depth-exceed on frame :B rolls back :B's app-db only; :A's
@@ -438,14 +442,16 @@
                 :marker  :mid-cascade}
            :fx [[:dispatch [:loop/B]]]}))
 
-      ;; Dispatch the loop on :B. This trips the drain-depth limit; :B's
-      ;; app-db rolls back to the pre-drain snapshot.
+      ;; Dispatch the loop on :B. This trips :B's drain-depth limit. Per
+      ;; rf2-nj6p7 (per-event epochs) :B's completed events keep their
+      ;; durable writes — no whole-drain rollback — but the cascade stays
+      ;; isolated to :B; :A is untouched.
       (rf/dispatch-sync [:loop/B] {:frame :drain.iso/B})
 
-      ;; --- (a) :B's app-db is rolled back to its :on-create state.
-      (is (= {:where :B :counter 0 :marker :pristine}
+      ;; --- (a) :B's per-event writes are durable (4 events ran).
+      (is (= {:where :B :counter 4 :marker :mid-cascade}
              (rf/get-frame-db :drain.iso/B))
-          ":B's app-db is rolled back to the pre-drain snapshot")
+          ":B's durable per-event writes survive; no whole-drain rollback")
 
       ;; --- (b) :A's app-db is byte-identical to its pre-dispatch state.
       (is (= a-pre (rf/get-frame-db :drain.iso/A))
@@ -463,8 +469,8 @@
         (is (some? hit) "drain-depth-exceeded trace was emitted")
         (is (= :drain.iso/B (get-in hit [:tags :frame]))
             "the trace's :frame tag is :B (the overflowing frame), not :A")
-        (is (true? (get-in hit [:tags :rollback?]))
-            ":rollback? true tag flags the atomic rollback"))
+        (is (false? (get-in hit [:tags :rollback?]))
+            ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback"))
 
       (rf/unregister-listener! ::iso))))
 

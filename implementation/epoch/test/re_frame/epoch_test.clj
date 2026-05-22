@@ -3,8 +3,10 @@
 
   Bead rf2-shjf coverage:
 
-    1. Recording — drain-settle commits a record; multi-event cascades
-       commit one record (not one per event).
+    1. Recording — each DEQUEUED EVENT commits its own record; a
+       multi-event drain (an :fx-dispatched child) commits one record
+       PER EVENT, not one per drain (per rf2-nj6p7 / Spec 002 §Drain
+       versus event).
     2. Per-frame isolation — two frames, each gets its own ring.
     3. Ring depth cap — dispatch >depth events; oldest get evicted.
     4. Configurable depth — `(rf/configure :epoch-history {:depth N})`.
@@ -127,7 +129,10 @@
       (is (vector? (:effects r))))))
 
 (deftest record-multi-event-cascade
-  (testing "a multi-event cascade (run-to-completion) commits ONE record"
+  (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): each dequeued
+            event in a multi-event drain commits its OWN epoch — an
+            :fx [[:dispatch …]] child is a separate dequeued event, so it
+            yields a separate record, NOT folded into the parent's epoch"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:order []}))
     (rf/reg-event-fx :outer
@@ -139,19 +144,126 @@
     (rf/reg-event-db :inner-2 (fn [db _] (update db :order conj :inner-2)))
 
     (rf/dispatch-sync [:seed]  {:frame :test/main})
+    ;; ONE drain: :outer runs, then its two :fx-dispatched children
+    ;; (:inner-1, :inner-2) drain in the same turn — but each is its own
+    ;; dequeued event = its own epoch.
     (rf/dispatch-sync [:outer] {:frame :test/main})
 
-    (let [history (rf/epoch-history :test/main)
-          last-r  (last history)]
-      ;; Two cascades: :seed and :outer (which itself cascades inner-1 / inner-2).
+    (let [history (rf/epoch-history :test/main)]
+      ;; Four dequeued events: :seed (own drain), then :outer + :inner-1 +
+      ;; :inner-2 (one drain, three epochs).
+      (is (= 4 (count history))
+          "one epoch per dequeued event — the :fx-dispatched children are
+           NOT folded into :outer's epoch")
+      (is (= [:seed :outer :inner-1 :inner-2]
+             (mapv :event-id history))
+          "epochs land in dequeue order, oldest-first")
+      ;; Each event's db-before / db-after chains from the previous —
+      ;; per-event run-to-completion snapshots.
+      (is (= [{:order []}
+              {:order [:outer]}
+              {:order [:outer :inner-1]}]
+             (mapv :db-before (rest history)))
+          ":db-before of :outer / :inner-1 / :inner-2 chains per event")
+      (is (= [{:order [:outer]}
+              {:order [:outer :inner-1]}
+              {:order [:outer :inner-1 :inner-2]}]
+             (mapv :db-after (rest history)))
+          ":db-after of :outer / :inner-1 / :inner-2 chains per event")
+      ;; Distinct correlation: each epoch has its own :epoch-id, and the
+      ;; per-event :dispatch-id rides the trace stream distinctly. Per
+      ;; rf2-nj6p7 + Spec 009 §Dispatch correlation, each epoch's
+      ;; :trace-events carry EXACTLY ONE :dispatch-id (one dispatch-id =
+      ;; one epoch) — a child's :event/dispatched marker (fired during the
+      ;; parent's do-fx) rides the CHILD's epoch, not the parent's.
+      (is (apply distinct? (mapv :epoch-id history))
+          "every dequeued event gets a distinct :epoch-id")
+      (let [dispatch-ids-of
+            (fn [r] (->> (:trace-events r)
+                         (keep #(-> % :tags :dispatch-id))
+                         distinct))
+            outer-dids  (dispatch-ids-of (nth history 1))
+            inner1-dids (dispatch-ids-of (nth history 2))]
+        (is (= 1 (count outer-dids))
+            ":outer epoch's traces carry exactly ONE :dispatch-id — the
+             child's :event/dispatched marker does NOT leak in")
+        (is (= 1 (count inner1-dids))
+            ":inner-1 epoch's traces carry exactly ONE :dispatch-id")
+        (is (not= (first outer-dids) (first inner1-dids))
+            "parent and :fx-dispatched child have DISTINCT :dispatch-ids
+             — the child is a separate dequeued event / epoch")))))
+
+(deftest on-create-event-is-its-own-epoch
+  (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): the frame-creation
+            :on-create event is itself a dequeued event, so it commits its
+            OWN epoch — distinct from any later user dispatch's epoch"
+    (rf/reg-event-db :app/init (fn [_ _] {:booted true :n 0}))
+    (rf/reg-event-db :inc      (fn [db _] (update db :n inc)))
+    ;; reg-frame dispatch-syncs the :on-create event at registration.
+    (rf/reg-frame :test/main {:on-create [:app/init]})
+
+    (let [after-create (rf/epoch-history :test/main)]
+      (is (= 1 (count after-create))
+          "the :on-create cascade settled its own epoch at reg-frame time")
+      (let [r (first after-create)]
+        (is (= :app/init (:event-id r))
+            "the :on-create event is the trigger of its own epoch")
+        (is (= {} (:db-before r)))
+        (is (= {:booted true :n 0} (:db-after r))
+            ":on-create's epoch carries its own db-before / db-after pair")))
+
+    (rf/dispatch-sync [:inc] {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)]
       (is (= 2 (count history))
-          "the entire :outer cascade is one epoch, not three")
-      (is (= :outer (:event-id last-r))
-          "the outer event is the trigger of the cascade")
-      (is (= {:order []}
-             (:db-before last-r)))
-      (is (= {:order [:outer :inner-1 :inner-2]}
-             (:db-after last-r))))))
+          ":on-create epoch (pos 0) + the user :inc epoch (pos 1)")
+      (is (= [:app/init :inc] (mapv :event-id history))
+          ":on-create and the user dispatch are SEPARATE epochs")
+      (is (apply distinct? (mapv :epoch-id history))
+          "each has its own :epoch-id"))))
+
+;; ---- machine macrostep stays ONE epoch (rf2-nj6p7) ------------------------
+
+(deftest machine-raise-macrostep-is-one-epoch
+  (testing "per rf2-nj6p7 + Spec 005 §macrostep: a machine's :raise sub-events
+            are in-memory microsteps inside a SINGLE macrostep — they ride
+            the TRIGGERING event's epoch and do NOT allocate new epochs.
+            Only separately-dequeued events get their own epoch."
+    (rf/reg-frame :test/main {})
+    ;; A 2-deep :raise chain: one [:e1] dispatch drives three transitions
+    ;; (s0 → s1 → s2 → s3) in one macrostep via two pre-commit :raises.
+    (rf/reg-machine :mac/chain
+      {:initial :s0
+       :actions {:a1 (fn [_] {:fx [[:raise [:e2]]]})
+                 :a2 (fn [_] {:fx [[:raise [:e3]]]})
+                 :a3 (fn [_] {})}
+       :states  {:s0 {:on {:e1 {:target :s1 :action :a1}}}
+                 :s1 {:on {:e2 {:target :s2 :action :a2}}}
+                 :s2 {:on {:e3 {:target :s3 :action :a3}}}
+                 :s3 {}}})
+
+    (rf/dispatch-sync [:mac/chain [:e1]] {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)]
+      ;; ONE dequeued event ([:mac/chain [:e1]]) → ONE epoch, even though
+      ;; the macrostep ran three transitions via two :raises.
+      (is (= 1 (count history))
+          "the whole :raise chain rides ONE epoch — :raises are microsteps,
+           not separate dequeued events")
+      (let [r (first history)]
+        (is (= :mac/chain (:event-id r))
+            "the triggering machine event is the epoch's trigger")
+        (is (= :s3 (:state (get-in (:db-after r) [:rf/machines :mac/chain])))
+            "the macrostep reached the terminal state — all three
+             transitions committed inside this one epoch")
+        ;; Every trace in the epoch rides the SAME :dispatch-id — the
+        ;; :raises did NOT mint a new correlation id (Spec 009).
+        (let [dispatch-ids (->> (:trace-events r)
+                                (keep #(-> % :tags :dispatch-id))
+                                distinct)]
+          (is (= 1 (count dispatch-ids))
+              "the macrostep's emits (incl. raised transitions) all carry
+               the triggering event's single :dispatch-id"))))))
 
 ;; ---- per-frame isolation ---------------------------------------------------
 
@@ -817,11 +929,15 @@
     (rf/dispatch-sync [:seed]  {:frame :test/main})
     (rf/dispatch-sync [:outer] {:frame :test/main})
 
-    (let [r       (last (rf/epoch-history :test/main))
+    ;; Per rf2-nj6p7: per-event epochs — the two `:dispatch` fx fire
+    ;; during :outer's own do-fx, so they project onto :outer's record
+    ;; (NOT the last record, which is now the second :inc child epoch).
+    (let [history (rf/epoch-history :test/main)
+          r       (first (filter #(= :outer (:event-id %)) history))
           effects (:effects r)
           dispatches (filterv #(= :dispatch (:fx-id %)) effects)]
       (is (= 2 (count dispatches))
-          "two :dispatch fx → two :effects entries")
+          "two :dispatch fx → two :effects entries on the :outer epoch")
       (is (every? #(= :ok (:outcome %)) dispatches)))))
 
 (deftest effects-projection-one-entry-per-fx
@@ -854,39 +970,53 @@
 ;; ---- partial-drain semantics (rf2-v0jwt) ---------------------------------
 
 (deftest depth-exceeded-commits-halted-record
-  (testing "a depth-exceeded drain commits a :halted-depth epoch record so
-            devtools (Causa, re-frame2-pair) receive cascade context for
-            the failing cascade. :db-after equals :db-before (atomic
-            rollback per Spec 002 §Run-to-completion §Rules rule 3) and
-            :halt-reason carries the depth-exceeded descriptor."
+  (testing "per rf2-nj6p7 (per-event epochs): a depth-exceeded drain leaves
+            the events that already ran as DURABLE :ok epochs (no whole-
+            drain rollback — each settled event is independently atomic),
+            and commits a single trailing :halted-depth record marking the
+            halt boundary. The halting event (next in queue) never ran, so
+            its record's :db-before / :db-after both equal the durable
+            last-settled db. NOTE: this changes Spec 002 rule 3's pre-
+            rf2-u6jsj whole-drain-rollback semantics — see report."
     (rf/reg-frame :test/main {:drain-depth 5})
     (rf/reg-event-fx :loop
-      (fn [_ _] {:fx [[:dispatch [:loop]]]}))
+      (fn [{:keys [db]} _]
+        {:db (update (or db {}) :n (fnil inc 0))
+         :fx [[:dispatch [:loop]]]}))
 
     (rf/dispatch-sync [:loop] {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)]
-      (is (= 1 (count history))
-          "exactly one halted-cascade record committed")
-      (let [r (first history)]
+      ;; Five :loop events ran (the depth limit), each a durable :ok
+      ;; epoch, then a trailing :halted-depth marker.
+      (is (= 6 (count history))
+          "five durable :ok epochs + one trailing :halted-depth marker")
+      (is (= (repeat 5 :ok) (mapv :outcome (take 5 history)))
+          "the events that ran are durable :ok epochs — NOT rolled back")
+      (is (= {:n 5} (:db-after (nth history 4)))
+          "the durable db reflects the five completed events' writes")
+      (let [r (last history)]
         (is (= :halted-depth (:outcome r))
-            ":outcome :halted-depth pins the depth-exceed path")
-        (is (= (:db-before r) (:db-after r))
-            ":db-after equals :db-before — atomic rollback semantics")
+            "the trailing record pins the depth-exceed halt boundary")
+        (is (= {:n 5} (:db-before r) (:db-after r))
+            "the halting event never ran — :db-before = :db-after = the
+             durable last-settled db (no rollback)")
         (is (= :rf.error/drain-depth-exceeded
                (-> r :halt-reason :operation))
             ":halt-reason carries the structured halt descriptor")
         (is (= 5 (-> r :halt-reason :depth))
             ":halt-reason carries the depth at which the drain tripped")
         (is (= :loop (:event-id r))
-            "the cascade's trigger-event survives in the partial record")
-        (is (seq (:trace-events r))
-            "the partial record carries the cascade's trace events
-             so devtools can render the cascade-up-to-halt")))))
+            "the halting event's trigger pins the :halted-depth record")
+        (is (= [:loop] (:trigger-event r))
+            "the synthesised trigger-event is the halting event vector")))))
 
 (deftest halted-record-fires-listeners
   (testing "register-epoch-listener! listeners receive halted records too —
-            devtools route off :outcome to render failure shapes"
+            devtools route off :outcome to render failure shapes. Per
+            rf2-nj6p7 (per-event epochs) the listener observes each durable
+            :ok event epoch as it settles, then the trailing :halted-depth
+            marker."
     (rf/reg-frame :test/main {:drain-depth 5})
     (rf/reg-event-fx :loop
       (fn [_ _] {:fx [[:dispatch [:loop]]]}))
@@ -896,10 +1026,13 @@
                              (fn [record] (swap! received conj record)))
       (rf/dispatch-sync [:loop] {:frame :test/main})
 
-      (is (= 1 (count @received))
-          "exactly one record delivered to the listener")
-      (is (= :halted-depth (:outcome (first @received)))
-          "listener observed the :halted-depth outcome"))))
+      (is (= 6 (count @received))
+          "five durable :ok records + the trailing :halted-depth marker
+           delivered to the listener")
+      (is (= (repeat 5 :ok) (mapv :outcome (take 5 @received)))
+          "the events that ran surface as durable :ok records")
+      (is (= :halted-depth (:outcome (last @received)))
+          "listener observed the trailing :halted-depth outcome"))))
 
 (deftest restore-non-ok-record-refused
   (testing "restore-epoch refuses non-:ok records — halted records are
@@ -913,12 +1046,14 @@
     ;; Drive the halted cascade to land a non-:ok record in history.
     (rf/dispatch-sync [:loop] {:frame :test/main})
 
+    ;; Per rf2-nj6p7: per-event epochs — the :halted-depth marker is the
+    ;; trailing record (the durable :ok event epochs precede it).
     (let [history     (rf/epoch-history :test/main)
-          halted      (first history)
+          halted      (last history)
           recorded    (record-trace!)
           result      (rf/restore-epoch :test/main (:epoch-id halted))]
       (is (= :halted-depth (:outcome halted))
-          "sanity — the only record in history is the halted one")
+          "sanity — the trailing record in history is the halted one")
       (is (false? result)
           "restore-epoch returned false — refusal is observable to callers")
       (is (has-error-op? @recorded :rf.epoch/restore-non-ok-record)

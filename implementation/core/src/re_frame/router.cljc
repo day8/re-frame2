@@ -949,57 +949,92 @@
   100)
 
 (defn- handle-depth-exceeded!
-  "Tail-path for the depth-limit branch of `drain!`. Atomic rollback per
-  Spec 002 §Run-to-completion §Rules rule 3: restore the pre-drain
-  `:db` BEFORE emitting the error so any trace listener that reads
-  app-db sees the rolled-back value, not a misleading partial cascade.
+  "Tail-path for the depth-limit branch of `drain!`. Per Spec 002
+  §Drain versus event — the epoch unit (rf2-u6jsj/rf2-nj6p7): the epoch
+  boundary is the dequeued EVENT, so the events that already ran in this
+  drain each settled their own DURABLE `:ok` epoch (and their own db
+  write) as they completed — there is NO whole-drain rollback under
+  per-event epochs. The depth limit stops processing the NEXT event (the
+  halting event, still at the head of the queue); the work that already
+  ran is a sequence of complete, individually-atomic events.
 
-  Per rf2-v0jwt §Outcomes: a depth-exceeded drain is a *partial*
-  drain — commit a `:halted-depth` epoch record so devtools (Causa,
-  re-frame2-pair) receive the cascade context. The record's `:db-after`
-  equals `db-before` (the rolled-back state) and `:halt-reason` carries
-  the structured descriptor of the depth-exceed. Listeners receive the
-  record like any other; `restore-epoch` refuses non-`:ok` targets."
-  [frame-id router db-before depth last-event]
+  Per rf2-v0jwt §Outcomes: commit a `:halted-depth` epoch record so
+  devtools (Causa, re-frame2-pair) get a clear 'drain halted here'
+  marker following the runaway `:ok` epochs. The halting event never ran,
+  so its record's `:db-before` / `:db-after` both equal the current
+  (last-settled) db value and its buffer is empty — `commit-halt-record!`
+  synthesises the record from the halting event's trigger. Listeners
+  receive it like any other; `restore-epoch` refuses non-`:ok` targets.
+
+  ## Reconcile with Spec 002 rule 3 (NOTED for spec-tightening, rf2-nj6p7)
+
+  Rule 3 (and the `drain-depth-limit.edn` conformance fixture) describe
+  WHOLE-DRAIN atomic rollback to a pre-drain snapshot, written for the
+  pre-rf2-u6jsj per-drain epoch model. The merged spec PR #1948 redefined
+  the epoch as per-event but did NOT update rule 3 / the fixture
+  (\"impl follow-up rf2-nj6p7\"). Under per-event epochs, whole-drain
+  rollback is incoherent — each settled event is independently atomic and
+  durable. This impl follows the per-event model the merged spec defines:
+  already-settled siblings are durable; only the halting event (which
+  never ran) gets a `:halted-depth` marker. Rule 3's pre-drain-rollback
+  text and the fixture need tightening to the per-event boundary."
+  [frame-id router depth last-event]
   (let [{:keys [queue]} @router
         queue-size      (count queue)
-        container       (frame/get-frame-db frame-id)
+        ;; The halting event — the next one that would have been dequeued.
+        ;; It never runs; its event vector pins the `:halted-depth` marker.
+        ;; The queue holds ENVELOPES (`build-envelope` maps), so reach the
+        ;; raw `[event-id …]` vector through `:event`. Falls back to
+        ;; `last-event` (the most-recently-run event) if the queue is empty
+        ;; at the halt seam (defensive — the depth-exceed path always has a
+        ;; pending child under the runaway-cascade pattern that trips it).
+        halting-event   (or (:event (peek queue)) last-event)
+        ;; Current durable db value — the state the last-settled event
+        ;; left behind. The halting event makes no write, so :db-before
+        ;; equals :db-after on its record.
+        db-now          (frame/frame-app-db-value frame-id)
         halt-reason     {:operation  :rf.error/drain-depth-exceeded
                          :depth      depth
                          :queue-size queue-size
                          :last-event last-event}]
-    (when container
-      (adapter/replace-container! container db-before))
     (trace/emit-error! :rf.error/drain-depth-exceeded
                        {:frame      frame-id
                         :depth      depth
                         :queue-size queue-size
                         :last-event last-event
-                        :rollback?  true
+                        ;; Per rf2-nj6p7: no whole-drain rollback under
+                        ;; per-event epochs — the already-settled events
+                        ;; are durable. `:rollback? false` reflects that.
+                        :rollback?  false
                         :recovery   :no-recovery})
     (swap! router assoc :queue interop/empty-queue :scheduled? false)
-    (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
-      ;; :db-after equals :db-before — atomic rollback semantics. The
-      ;; record carries the cascade's :trace-events / :sub-runs /
-      ;; :renders / :effects up to the halt point so devtools can
-      ;; render the partial cascade with the failure highlighted.
-      (settle! frame-id db-before db-before :halted-depth halt-reason))))
+    (when-let [commit-halt! (late-bind/get-fn-cached :epoch/commit-halt-record!)]
+      ;; The halting event never ran, so the capture buffer is empty and
+      ;; `settle!` would skip; `commit-halt-record!` commits regardless,
+      ;; pinning the halting event's trigger. :db-before equals :db-after
+      ;; — the halting event made no write.
+      (commit-halt! frame-id db-now db-now :halted-depth halt-reason
+                    halting-event))))
 
-(defn- handle-drain-settled!
-  "Tail-path for the empty-queue branch of `drain!`. If at least one event
-  was processed, commit the epoch record per Tool-Pair §Time-travel.
+(defn- settle-event-epoch!
+  "Commit the just-completed event's epoch (Tool-Pair §Time-travel). Per
+  Spec 002 §Drain versus event — the epoch unit (rf2-u6jsj/rf2-nj6p7):
+  the epoch boundary is the dequeued EVENT, not the drain-settle. Called
+  by `run-one-pass!` after each `process-event!` returns, with that one
+  event's own pre-/post-cascade db snapshot pair. The epoch surface
+  harvests the in-flight capture buffer — which, within a frame's
+  single-threaded run-to-completion drain, holds exactly this event's
+  six-domino cascade (the previous event already harvested its own at its
+  settle). A machine macrostep ran inside `process-event!` and rides this
+  one event's buffer / epoch (Spec 005 §macrostep), so `:raise` /
+  `:always` microsteps do not allocate a new epoch.
 
-  Per rf2-ynk7 §single-drainer invariant: `:scheduled?` is no longer
-  cleared here. The drain loop's outer `finally` clears `:scheduled?`
-  AND releases `:drain-lock` under a single `locking router` block so
-  any concurrent submitter's `ensure-drain-scheduled!` check serializes
-  against the release. Splitting the two would re-open the
-  enqueue-after-empty-check race that motivated this bead."
-  [frame-id _router db-before depth]
-  (when (pos? depth)
-    (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
-      (let [db-after (frame/frame-app-db-value frame-id)]
-        (settle! frame-id db-before db-after)))))
+  `settle!` itself skips an empty buffer (a rejected/aborted dispatch that
+  never fired `:event/run-start`), so a no-handler / frame-destroyed early
+  exit commits no misleading record."
+  [frame-id db-before db-after]
+  (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
+    (settle! frame-id db-before db-after)))
 
 ;; ---- drain-loop! phases ---------------------------------------------------
 ;;
@@ -1113,15 +1148,22 @@
   `:rf.frame/drain-interrupted` lifecycle trace emitted carrying the
   dropped count.
 
-  Each pass takes its pre-cascade `db-before` snapshot from the caller
-  so the epoch settle callback (Tool-Pair §Time-travel) sees the right
-  state for THIS pass."
-  [frame-id router db-before drain-depth]
+  Per rf2-u6jsj/rf2-nj6p7 §Drain versus event — the epoch unit: the epoch
+  boundary is the dequeued EVENT, not the drain. Each event takes its OWN
+  pre-cascade `db-before` snapshot immediately before `process-event!` and
+  its OWN post-cascade `db-after` immediately after; `settle-event-epoch!`
+  commits one `:rf/epoch-record` per event. A drain that processes a
+  parent and an `:fx [[:dispatch …]]` child it queued therefore commits
+  TWO records — one per event — even though both settled in the same
+  drain. (The frame-level `db-before` the caller passes is retained only
+  for the destroy-interrupt path, which reads it as a fallback when the
+  destroyed frame's container is no longer readable.)"
+  [frame-id router drain-db-before drain-depth]
   (loop [depth      0
          last-event nil]
     (cond
       (>= depth drain-depth)
-      (do (handle-depth-exceeded! frame-id router db-before depth last-event)
+      (do (handle-depth-exceeded! frame-id router depth last-event)
           ::halt)
 
       ;; Per rf2-68kok: destroyed-frame check fires BEFORE the next
@@ -1132,24 +1174,28 @@
       ;; lifecycle event, halt.
       ;;
       ;; Per rf2-v0jwt: the just-completed event already ran in full
-      ;; (run-to-completion), so the partial-cascade record commits
-      ;; with `:outcome :halted-destroy`. Devtools (Causa, re-frame-
-      ;; re-frame2-pair) need the cascade context for the failing/interrupted
-      ;; drain — silently discarding the record (the pre-rf2-v0jwt
-      ;; behaviour) hid exactly the cascades developers most need to
-      ;; inspect. `restore-epoch` refuses these records, preserving
+      ;; (run-to-completion) AND already settled its own per-event epoch
+      ;; (rf2-nj6p7) — that record is durable. Devtools (Causa, re-frame-
+      ;; re-frame2-pair) also receive a `:halted-destroy` record for the
+      ;; interrupted drain from the destroy hook / `handle-drain-
+      ;; interrupted!`. `restore-epoch` refuses these records, preserving
       ;; the original "time-travel never lands in a misleading state"
       ;; invariant.
       (frame/frame-disposed-for-drain? frame-id)
-      (do (handle-drain-interrupted! frame-id router db-before)
+      (do (handle-drain-interrupted! frame-id router drain-db-before)
           ::halt)
 
       :else
       (if-let [envelope (take-event! router)]
-        (do (process-event! envelope)
-            (recur (inc depth) (:event envelope)))
-        (do (handle-drain-settled! frame-id router db-before depth)
-            ::settled)))))
+        ;; Per rf2-nj6p7: per-event epoch boundary. Snapshot this event's
+        ;; OWN db-before, run it to completion, snapshot its db-after, and
+        ;; settle its epoch — before the next event is dequeued.
+        (let [db-before (frame/frame-app-db-value frame-id)]
+          (process-event! envelope)
+          (let [db-after (frame/frame-app-db-value frame-id)]
+            (settle-event-epoch! frame-id db-before db-after))
+          (recur (inc depth) (:event envelope)))
+        ::settled))))
 
 (defn- force-release-on-halt!
   "Release the drain-lock after a `::halt` outcome. The depth-exceeded
@@ -1196,8 +1242,10 @@
 
   Outer loop re-enters whenever `try-release-on-empty!` reports a
   submitter raced in between the inner empty-check and the lock-protected
-  release window. Each pass takes a fresh `db-before` snapshot so the
-  epoch settle callback sees the right pre-cascade state for that pass."
+  release window. Each pass snapshots a frame-level `db-before` that the
+  destroy-interrupt path uses as a fallback; per-event epoch snapshots
+  (rf2-nj6p7) are taken inside `run-one-pass!` per dequeued event, not
+  here."
   [frame-id router drain-lock drain-depth]
   (loop []
     (let [db-before (frame/frame-app-db-value frame-id)

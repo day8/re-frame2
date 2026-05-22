@@ -6,8 +6,10 @@
   Three responsibilities live here:
 
     1. `build-record`   — produces the record (one allocation per
-                          drain-settle). Delegates the cascade-buffer
-                          walks to `re-frame.epoch.capture`.
+                          DEQUEUED EVENT — per rf2-nj6p7 the epoch
+                          boundary is the event, not the drain).
+                          Delegates the cascade-buffer walks to
+                          `re-frame.epoch.capture`.
     2. `sensitive-rollup` — computes `:rf.epoch/sensitive?` from raw
                           signals (trace-event stamps + schema-declared
                           sensitive paths).
@@ -56,7 +58,7 @@
   — the whole epoch surface shares that gate; this helper carries no
   separate production gate.
 
-  HOT PATH: fires once per drain-settle. Hot-path cost when no fn is
+  HOT PATH: fires once per dequeued event (rf2-nj6p7). Hot-path cost when no fn is
   installed is a single keyword lookup on the config map and an
   identity return."
   [record]
@@ -149,7 +151,7 @@
   recorded db. Returns `false` otherwise (always a strict boolean —
   consumers branch on `(true? ...)` / `(false? ...)`).
 
-  HOT PATH: fires once per drain-settle. `sensitive-paths-for` derefs
+  HOT PATH: fires once per dequeued event (rf2-nj6p7). `sensitive-paths-for` derefs
   the elision registry once; the leaf check short-circuits at the
   first non-nil hit; the trace-event check short-circuits at the first
   stamped event. For the common case (no schema-declared sensitive
@@ -228,7 +230,7 @@
   schema-declared sensitive paths whose value differs between
   `db-before` and `db-after` (per rf2-dl3gx).
 
-  HOT PATH: fires once per drain-settle. `sensitive-paths-for` derefs
+  HOT PATH: fires once per dequeued event (rf2-nj6p7). `sensitive-paths-for` derefs
   the elision registry once and the walk is O(P) where P is the
   declared-sensitive-path count for the frame — typically a small
   constant (apps declare a handful of `[:auth :password]`-shaped

@@ -576,6 +576,57 @@
     (swap! capture-buffers dissoc frame-id)
     b))
 
+(defn- settling-dispatch-id
+  "The `:dispatch-id` of the event being settled, read off the FIRST
+  `:event/run-start` emit in the buffer. nil when no run-start fired (a
+  rejected / aborted dispatch, or a halt path whose event never ran)."
+  [events]
+  (some (fn [ev]
+          (when (and (= :event (:op-type ev))
+                     (= :event (:operation ev))
+                     (= :run-start (-> ev :tags :phase)))
+            (-> ev :tags :dispatch-id)))
+        events))
+
+(defn harvest-buffer-for-event!
+  "Per rf2-nj6p7 — per-event harvest. Atomically read the frame's in-flight
+  buffer and split it by the settling event's `:dispatch-id`:
+
+    * RETURN the events that belong to the settling event — those whose
+      `:tags :dispatch-id` matches the buffer's first `:event/run-start`
+      id, PLUS any events carrying NO `:dispatch-id` (pre-cascade tagalongs
+      such as a `:frame/created` emit that fired outside any cascade; they
+      ride the first settling event of the drain).
+    * LEAVE in the buffer the events that belong to a DIFFERENT dequeued
+      event — a child's `:event/dispatched` marker fires during the
+      PARENT's do-fx (so it lands in the parent's window) but carries the
+      CHILD's `:dispatch-id`; under per-event epochs it must ride the
+      child's epoch, not the parent's (Spec 009 §Dispatch correlation:
+      one `:dispatch-id` = one epoch). It stays buffered for the child's
+      own `harvest-buffer-for-event!` at the child's settle.
+
+  Falls back to a full read-and-clear when the buffer carries no
+  `:event/run-start` (a rejected / aborted dispatch) — there is no
+  settling id to scope by, and `settle!`'s empty-buffer / no-trigger
+  policy handles the degenerate record."
+  [frame-id]
+  (let [b (get @capture-buffers frame-id [])]
+    (if-let [sid (settling-dispatch-id b)]
+      (let [{mine true theirs false}
+            (group-by (fn [ev]
+                        (let [did (-> ev :tags :dispatch-id)]
+                          (or (nil? did) (= did sid))))
+                      b)]
+        ;; Leave the other-event traces (non-nil, non-matching id) in the
+        ;; buffer for their own event's settle; take ours.
+        (if (seq theirs)
+          (swap! capture-buffers assoc frame-id (vec theirs))
+          (swap! capture-buffers dissoc frame-id))
+        (vec mine))
+      ;; No run-start — rejected/aborted dispatch. Clear and return all.
+      (do (swap! capture-buffers dissoc frame-id)
+          b))))
+
 (defn drop-frame-buffer!
   "Drop the frame's in-flight capture buffer."
   [frame-id]

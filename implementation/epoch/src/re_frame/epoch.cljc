@@ -2,8 +2,13 @@
   "Per-frame epoch history. Per Tool-Pair §Time-travel and Spec-Schemas
   §`:rf/epoch-record`.
 
-  Every event-cascade settle (drain reaching empty queue) marks an epoch
-  boundary. The runtime records, per frame, an `:rf/epoch-record` with:
+  Every DEQUEUED EVENT's run-to-completion marks an epoch boundary — one
+  `:rf/epoch-record` per event, NOT per drain (per Spec 002 §Drain versus
+  event, rf2-u6jsj/rf2-nj6p7). A drain that processes a parent event and
+  the `:fx [[:dispatch …]]` child it queued commits TWO records. A machine
+  macrostep (`:raise` / `:always` microsteps) runs inside one event and
+  stays ONE epoch. The runtime records, per frame, an `:rf/epoch-record`
+  with:
 
     :epoch-id       opaque, unique within a frame's history
     :frame          frame keyword
@@ -250,15 +255,85 @@
 ;; `find-trigger-event`) live in `re-frame.epoch.capture` (Phase-2
 ;; seam B, rf2-0wi86).
 
-;; ---- drain-settle hook ----------------------------------------------------
+;; ---- per-event settle hook ------------------------------------------------
+
+(defn- commit-record!
+  "Build, redact, ring-append, and fan out one `:rf/epoch-record`. Shared
+  by the per-event clean settle (`settle!`) and the per-event halt commit
+  (`commit-halt-record!`). `events` is the harvested cascade buffer (may
+  be empty for a halt whose event never ran); `trigger-event` is an
+  explicit `[event-id …]` vector to pin the record's trigger when the
+  buffer carries no `:event/run-start` (the depth-exceed halting event,
+  per rf2-nj6p7), or nil to let `build-record` derive the trigger from
+  the buffer (the normal `:ok` path)."
+  [frame-id db-before db-after events outcome halt-reason trigger-event]
+  ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook:
+  ;; `maybe-redact` runs ONCE per record between `build-record` and
+  ;; ring-append / listener fan-out so the ring and listeners see the
+  ;; SAME redacted shape. The `:rf.epoch/sensitive?` rollup inside
+  ;; `build-record` runs FIRST — the rollup reflects raw signals even
+  ;; when the redact-fn erases the leaves it keyed on.
+  (let [base   (assembly/build-record frame-id db-before db-after
+                                      events outcome halt-reason)
+        ;; Pin the explicit trigger when supplied AND the buffer didn't
+        ;; already resolve one (the halting event never ran, so no
+        ;; `:event/run-start` was buffered). Per Spec-Schemas
+        ;; §:rf/epoch-record the slots are :keyword / vector — never nil.
+        base   (cond-> base
+                 (and trigger-event (not (:event-id base)))
+                 (assoc :event-id      (first trigger-event)
+                        :trigger-event trigger-event))
+        record (assembly/maybe-redact base)]
+    (state/record! record)
+    ;; Per rf2-qs6dl: mark this as the frame's most-recently-settled
+    ;; epoch so post-settle async render emits (which fire at React
+    ;; commit time, after this event settled) are attributed back to
+    ;; THIS event rather than buffered into the next one. Set after
+    ;; `record!` so the record is in the ring before any render can
+    ;; back-fill into it.
+    (state/set-last-settled-epoch! frame-id (:epoch-id record))
+    ;; Per rf2-931pm — focused-event-only cascade-DAG capture. Sticky
+    ;; hook (rf2-f72pd) published by `re-frame.trace.cascade` at ns-load;
+    ;; when the trace.cascade ns has not been loaded (e.g. tooling-
+    ;; stripped JVM consumers) the lookup returns nil and the call
+    ;; short-circuits. The aggregator's own focus-predicate gate decides
+    ;; whether to emit `:rf.cascade/captured` — off-focus epochs pay just
+    ;; the predicate call (default predicate returns false).
+    (when-let [capture (late-bind/get-fn-cached
+                         :trace.cascade/capture-for-epoch!)]
+      (try
+        (capture frame-id (:epoch-id record) (:event-id record) events)
+        (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (trace/emit! :rf.epoch :rf.epoch/snapshotted
+                 {:frame    frame-id
+                  :epoch-id (:epoch-id record)
+                  :event-id (:event-id record)
+                  :outcome  outcome})
+    (listeners/notify-listeners! record)
+    record))
 
 (defn settle!
-  "Hook called by the router on every drain boundary — clean settle AND
-  halts. Per Tool-Pair §Time-travel and rf2-v0jwt §Outcomes.
+  "Hook called by the router once per DEQUEUED EVENT — at each event's
+  run-to-completion boundary, NOT once per drain. Per Spec 002
+  §Drain versus event — the epoch unit (rf2-u6jsj/rf2-nj6p7) and
+  Tool-Pair §Time-travel and rf2-v0jwt §Outcomes.
+
+  Per rf2-nj6p7: the epoch boundary is the dequeued event, not the
+  drain-settle. A drain that processes a parent event and an
+  `:fx [[:dispatch …]]` child it queued therefore produces TWO records
+  (one per event), each with its OWN `:db-before` / `:db-after` snapshot
+  pair and its own harvested trace buffer. The router calls this after
+  each `process-event!` returns, so the capture buffer it harvests holds
+  exactly that one event's six-domino cascade (within a frame, execution
+  is single-threaded run-to-completion, so the buffer is cleanly the
+  in-flight event's). A machine macrostep — `:raise` sub-events and
+  `:always` microsteps — runs INSIDE a single `process-event!`, so its
+  emits ride the triggering event's buffer and settle as ONE epoch (per
+  Spec 005 §macrostep); they do not allocate a new epoch.
 
   Arities:
     (settle! frame-id db-before db-after)
-      Clean drain-settle. `:outcome` is `:ok`. Equivalent to passing
+      Clean per-event settle. `:outcome` is `:ok`. Equivalent to passing
       `:ok` as `outcome` explicitly. Skips recording when the captured
       buffer is empty (a truly empty cascade — likely a rejected
       dispatch — is degenerate and would emit a misleading record).
@@ -292,56 +367,52 @@
    (settle! frame-id db-before db-after :ok nil))
   ([frame-id db-before db-after outcome halt-reason]
    (when interop/debug-enabled?
-     (let [events (state/harvest-buffer! frame-id)]
+     ;; Per rf2-nj6p7: scoped harvest — take only the settling event's
+     ;; traces (its `:dispatch-id` + pre-cascade tagalongs), LEAVING any
+     ;; child's `:event/dispatched` marker (emitted during THIS event's
+     ;; do-fx, carrying the child's id) in the buffer for the child's own
+     ;; settle. Keeps each epoch's `:trace-events` to one `:dispatch-id`
+     ;; (Spec 009 §Dispatch correlation: one dispatch-id = one epoch).
+     (let [events (state/harvest-buffer-for-event! frame-id)]
        ;; Empty-buffer policy (consistent across outcomes): an empty
        ;; capture buffer means no cascade context was recorded for
-       ;; this frame — skip emission rather than commit a record with
-       ;; no :event-id / :trigger-event. For halt outcomes, the
-       ;; cooperating seam (e.g. on-frame-destroyed harvesting events
-       ;; in the mid-drain-destroy path) emits the partial record;
-       ;; this seam fires when a router-only halt path (e.g. depth-
-       ;; exceeded with an in-flight cascade) holds the events.
+       ;; this event — skip emission rather than commit a record with
+       ;; no :event-id / :trigger-event. A rejected/aborted dispatch
+       ;; (no `:event/run-start` ever fired) reaches this seam with an
+       ;; empty buffer and is correctly suppressed. Halt paths whose
+       ;; halting event never ran (the per-event depth-exceed boundary,
+       ;; per rf2-nj6p7) use `commit-halt-record!` instead, which
+       ;; synthesises the halting event's trigger explicitly.
        (when (seq events)
-         ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook:
-         ;; `maybe-redact` runs ONCE per record between
-         ;; `build-record` and ring-append / listener fan-out so the
-         ;; ring and listeners see the SAME redacted shape. The
-         ;; `:rf.epoch/sensitive?` rollup inside `build-record` runs
-         ;; FIRST — the rollup reflects raw signals even when the
-         ;; redact-fn erases the leaves it keyed on.
-         (let [record (assembly/maybe-redact
-                        (assembly/build-record frame-id db-before db-after
-                                               events outcome halt-reason))]
-           (state/record! record)
-           ;; Per rf2-qs6dl: mark this as the frame's most-recently-
-           ;; settled epoch so post-settle async render emits (which
-           ;; fire at React commit time, after this cascade settled) are
-           ;; attributed back to THIS cascade rather than buffered into
-           ;; the next one. Set after `record!` so the record is in the
-           ;; ring before any render can back-fill into it.
-           (state/set-last-settled-epoch! frame-id (:epoch-id record))
-           ;; Per rf2-931pm — focused-event-only cascade-DAG capture.
-           ;; Sticky hook (rf2-f72pd) published by `re-frame.trace.cascade`
-           ;; at ns-load; when the trace.cascade ns has not been loaded
-           ;; (e.g. tooling-stripped JVM consumers) the lookup returns
-           ;; nil and the call short-circuits. The aggregator's own
-           ;; focus-predicate gate decides whether to emit
-           ;; `:rf.cascade/captured` — off-focus epochs pay just the
-           ;; predicate call (default predicate returns false).
-           (when-let [capture (late-bind/get-fn-cached
-                                :trace.cascade/capture-for-epoch!)]
-             (try
-               (capture frame-id
-                        (:epoch-id record)
-                        (:event-id record)
-                        events)
-               (catch #?(:clj Throwable :cljs :default) _ nil)))
-           (trace/emit! :rf.epoch :rf.epoch/snapshotted
-                        {:frame    frame-id
-                         :epoch-id (:epoch-id record)
-                         :event-id (:event-id record)
-                         :outcome  outcome})
-           (listeners/notify-listeners! record)))))))
+         (commit-record! frame-id db-before db-after events outcome
+                         halt-reason nil))))))
+
+(defn commit-halt-record!
+  "Commit a `:halted-*` epoch record for a drain halt whose halting event
+  never ran to completion — the per-event depth-exceed boundary
+  (rf2-nj6p7). Unlike `settle!`, this does NOT skip on an empty capture
+  buffer: under per-event epochs the events that ALREADY ran each
+  harvested their own buffer and committed their own `:ok` epoch, so the
+  buffer is empty when the depth limit trips. The halting event (the next
+  one that would have been dequeued) never ran, so it has no cascade
+  trace; this seam synthesises its `:halted-depth` record from the
+  explicit `trigger-event` so devtools (Causa, re-frame2-pair) get a
+  clear 'drain halted here' marker following the runaway `:ok` epochs.
+
+  `db-before` / `db-after` are equal — the halting event made no db write
+  (it never ran). Per rf2-nj6p7 the already-settled sibling events are
+  DURABLE (their `:ok` epochs and db writes survive); there is no
+  whole-drain rollback under per-event epochs — see the router's
+  `handle-depth-exceeded!` and the report note on the rule-3 reconcile.
+
+  Harvests-and-clears any residual buffer first so a stray pre-halt emit
+  (there should be none under per-event settling) can't leak into the
+  next cascade for this frame."
+  [frame-id db-before db-after outcome halt-reason trigger-event]
+  (when interop/debug-enabled?
+    (let [events (state/harvest-buffer! frame-id)]
+      (commit-record! frame-id db-before db-after events outcome
+                      halt-reason trigger-event))))
 
 (defn- discard-buffer!
   "Drop the in-flight capture buffer for frame-id WITHOUT committing a
@@ -547,6 +618,10 @@
 ;; rather than throwing.
 
 (late-bind/set-fn! :epoch/settle!             settle!)
+;; rf2-nj6p7: per-event halt commit — the depth-exceed boundary whose
+;; halting event never ran (so the buffer is empty and `settle!` would
+;; skip). Synthesises the halting event's `:halted-depth` record.
+(late-bind/set-fn! :epoch/commit-halt-record! commit-halt-record!)
 (late-bind/set-fn! :epoch/discard-buffer!     discard-buffer!)
 (late-bind/set-fn! :epoch/capture-event       capture/capture-event!)
 ;; rf2-25zo2: in-flight cascade-cause lookup for :rf.view/rendered. Views
