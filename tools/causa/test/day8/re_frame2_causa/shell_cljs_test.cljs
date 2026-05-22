@@ -51,6 +51,7 @@
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.shell :as shell]
+            [day8.re-frame2-causa.theme.tokens :refer [tokens]]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
@@ -362,8 +363,23 @@
 
 (deftest ribbon-nav-buttons-dispatch-spine-events
   (testing "spec/018 §3 — ribbon `◀ ▶ ⏭` dispatch focus-cascade-prev /
-            -next / follow-head"
+            -next / follow-head. Driven in RETRO (focus pinned to an
+            older row) so ⏭ is ENABLED — it's the way back to head
+            (rf2-x5tro disables ⏭ only at-head? + live?)."
     (causa-setup!)
+    ;; Two events + pin focus to the older one ⟹ RETRO, ⏭ enabled.
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event
+                               :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:older/event]
+                                      :frame :rf/default
+                                      :rf.trace/dispatch-id 1}})
+    (trace-bus/collect-trace! {:id 2 :op-type :rf.event
+                               :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:newer/event]
+                                      :frame :rf/default
+                                      :rf.trace/dispatch-id 2}})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade 1]))
     (let [dispatches (atom [])]
       (with-redefs [rf/dispatch* (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
@@ -373,7 +389,7 @@
                 head (find-by-testid tree "rf-causa-nav-head")
                 handler (:on-click (second head))]
             (is (some? head) "fast-forward button present")
-            (is (fn? handler) "carries on-click")
+            (is (fn? handler) "carries on-click in RETRO (⏭ enabled)")
             (when handler (handler nil)))))
       (is (some #(= [:rf.causa/follow-head] %) @dispatches)
           ":rf.causa/follow-head dispatched on ⏭ click"))))
@@ -933,13 +949,19 @@
 ;; (4a) Ribbon nav button enable/disable state — rf2-htik0 Bug 1
 ;; -------------------------------------------------------------------------
 ;;
-;; The nav cluster's ◀ / ▶ buttons disable themselves at the boundaries
-;; of the cascade list so the user can see at-a-glance whether stepping
-;; further is meaningful. The ⏭ live button is always enabled (pressing
-;; it always advances focus to head + resumes LIVE; idempotent at head).
+;; The nav cluster's ◀ / ▶ / ⏭ buttons disable themselves at the
+;; boundaries of the cascade list so the user can see at-a-glance
+;; whether stepping further is meaningful.
 ;;
 ;; `at-head?` = focus is on the most recent (latest) cascade ⟹ ▶ disabled.
 ;; `at-tail?` = focus is on the oldest cascade in the buffer ⟹ ◀ disabled.
+;;
+;; rf2-x5tro — `⏭` (fast-forward / resume-LIVE) is disabled only when
+;; `at-head? AND live?` (the spine is already tracking head in `:live`
+;; mode + unpaused), where the snap is a true no-op. At head but PAUSED
+;; (frozen inspection) `⏭` STAYS enabled — pressing it resumes LIVE.
+;; In RETRO (after a row click) `live?` is false, so `⏭` stays enabled
+;; as the way back to head.
 
 (defn- nav-prev-disabled? [tree]
   (boolean (:disabled (second (find-by-testid tree "rf-causa-nav-prev")))))
@@ -951,32 +973,36 @@
   (boolean (:disabled (second (find-by-testid tree "rf-causa-nav-head")))))
 
 (deftest ribbon-nav-buttons-disabled-on-cold-start
-  (testing "empty cascade list → no boundary to walk. Both prev and
-            next disable; live button stays enabled (idempotent snap
-            to head)."
+  (testing "empty cascade list → no boundary to walk. All three disable:
+            prev + next have no target; ⏭ is at-head? in :live mode
+            (rf2-x5tro) so fast-forward is a no-op too."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
         (is (nav-prev-disabled? tree) "◀ disabled when no events")
         (is (nav-next-disabled? tree) "▶ disabled when no events")
-        (is (not (nav-head-disabled? tree)) "⏭ always enabled")))))
+        (is (nav-head-disabled? tree)
+            "⏭ disabled — empty buffer + :live = nothing to fast-forward to")))))
 
 (deftest ribbon-nav-buttons-at-head-disable-forward
-  (testing "rf2-htik0 Bug 1 — focus on the most recent event ⟹
-            ▶ disabled, ◀ enabled (older events exist), ⏭ enabled."
+  (testing "rf2-htik0 Bug 1 + rf2-x5tro — focus on the most recent event
+            in :live (unpaused) mode ⟹ ▶ disabled, ◀ enabled (older
+            events exist), ⏭ disabled (already tracking head live)."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
     (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
-    ;; Fresh focus auto-snaps to head (id 2). Sanity-check + assert.
+    ;; Fresh focus auto-snaps to head (id 2) in :live mode. Sanity-check.
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             focus @(rf/subscribe [:rf.causa/focus])]
         (is (= 2 (:dispatch-id focus)) "focus snapped to head (id 2)")
+        (is (= :live (:mode focus)) "spine is :live tracking head")
         (is (nav-next-disabled? tree)
             "▶ DISABLED at head — no newer event to step to")
         (is (not (nav-prev-disabled? tree))
             "◀ ENABLED at head — id 1 is older and reachable")
-        (is (not (nav-head-disabled? tree)) "⏭ stays enabled")))))
+        (is (nav-head-disabled? tree)
+            "⏭ DISABLED at head + live — fast-forward is a no-op")))))
 
 (deftest ribbon-nav-buttons-at-tail-disable-back
   (testing "rf2-htik0 Bug 1 — focus on the oldest event in the buffer
@@ -1008,7 +1034,56 @@
             "◀ ENABLED — older event (1) reachable")
         (is (not (nav-next-disabled? tree))
             "▶ ENABLED — newer event (3) reachable")
-        (is (not (nav-head-disabled? tree)) "⏭ stays enabled")))))
+        (is (not (nav-head-disabled? tree))
+            "⏭ stays enabled in RETRO — it's the way back to head")))))
+
+(deftest ribbon-nav-head-enabled-when-paused-at-head
+  (testing "rf2-x5tro nuance — at head but PAUSED (frozen inspection):
+            `live?` is false, so ⏭ stays ENABLED. Pressing it resumes
+            LIVE, which is not a no-op. Only at-head? + live? (unpaused)
+            disables ⏭."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    ;; Auto-snapped to head in :live; Space pauses the LIVE feed.
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/toggle-live-pause]))
+    (rf/with-frame :rf/causa
+      (let [tree  (shell/shell-view)
+            focus @(rf/subscribe [:rf.causa/focus])]
+        (is (= :live (:mode focus)) "mode is still :live (only paused)")
+        (is (true? (:paused? focus)) "LIVE feed paused")
+        (is (nav-next-disabled? tree) "▶ DISABLED — still at head")
+        (is (not (nav-head-disabled? tree))
+            "⏭ ENABLED — paused-at-head, pressing it resumes LIVE")))))
+
+(deftest ribbon-nav-disabled-button-has-inert-styling
+  (testing "rf2-x5tro — a disabled nav button READS as inert, not just
+            cursor: not-allowed. The disabled style dims the background
+            + border, drops ink to :text-tertiary, and reduces opacity
+            so the button visibly recedes (border + background are no
+            longer the active treatment). Asserted on ⏭ at head + live."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            head   (find-by-testid tree "rf-causa-nav-head")
+            style  (:style (second head))
+            active (find-by-testid tree "rf-causa-ribbon-nav")]
+        (is (some? active) "nav cluster renders")
+        (is (true? (:disabled (second head)))
+            "⏭ disabled at head + live (single event, fresh focus)")
+        ;; The proper inert appearance — every signal, not just cursor.
+        (is (= (:bg-1 tokens) (:background style))
+            "disabled background dims to the recessed bg-1 token")
+        (is (= (str "1px solid " (:border-subtle tokens)) (:border style))
+            "disabled border dims to border-subtle")
+        (is (= (:text-tertiary tokens) (:color style))
+            "disabled ink drops to text-tertiary")
+        (is (= 0.5 (:opacity style))
+            "disabled opacity reduced so the button recedes")
+        (is (= "not-allowed" (:cursor style))
+            "cursor: not-allowed telegraphs the no-op")))))
 
 ;; -------------------------------------------------------------------------
 ;; (4a-bis) rf2-fzbrw — ribbon nav at the boundary is a TRUE no-op
