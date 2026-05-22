@@ -131,7 +131,21 @@
         fallthrough?       (when interop/debug-enabled?
                              (and (not explicit-frame?)
                                   (nil? frame/*current-frame*)
-                                  (= :rf/default default-frame)))]
+                                  (= :rf/default default-frame)))
+        ;; Per rf2-j20a7 / Spec 005 §Level 4: a dispatch emitted from a
+        ;; machine's own processing (its `:action` / `:entry` / `:exit` /
+        ;; transition handling, via `:fx [[:dispatch …]]` or an inter-
+        ;; machine dispatch) is a machine-internal continuation. The
+        ;; `:dispatch` / `:dispatch-later` fx body stamps
+        ;; `:rf.machine/internal? true` on the child opts when the
+        ;; emitting handler is a machine (see `child-dispatch-opts` in
+        ;; re-frame.fx, which copies the flag off the machine-tagged
+        ;; parent envelope). `dispatch!` reads it to insert the envelope
+        ;; at the FRONT of the queue so the macrostep settles to
+        ;; quiescence before the next EXTERNAL event. This is a runtime
+        ;; ordering guarantee — NOT a trace concern — so the flag is
+        ;; carried unconditionally (never gated on interop/debug-enabled?).
+        machine-internal?  (true? (:rf.machine/internal? opts))]
     (cond-> {:event                  event
              :frame                  (or (:frame opts) default-frame)
              ;; Per rf2-5uwl: merge the lexical-scope `*fx-overrides*`
@@ -162,7 +176,10 @@
       call-site          (assoc :call-site         call-site)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
-      fallthrough?       (assoc :fell-through-to-default? true))))
+      fallthrough?       (assoc :fell-through-to-default? true)
+      ;; Per rf2-j20a7: carry the machine-internal continuation flag onto
+      ;; the envelope so `dispatch!` can front-of-queue insert it.
+      machine-internal?  (assoc :rf.machine/internal? true))))
 
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
@@ -848,6 +865,22 @@
   (let [{:keys [full-chain initial-ctx fx-overrides emit-event
                 schema-sensitive?]}
         (prepare-handler-ctx envelope frame frame-record handler-meta)
+        ;; Per rf2-j20a7 / Spec 005 §Level 4: tag the in-flight envelope
+        ;; as machine-originated when THIS handler is a machine (its
+        ;; registration meta carries `:rf/machine? true`, stamped by
+        ;; re-frame.machines `reg-machine*`). The tagged envelope is the
+        ;; `parent-envelope` threaded into `do-fx`; `child-dispatch-opts`
+        ;; (re-frame.fx) copies the flag onto every `:dispatch` /
+        ;; `:dispatch-later` child emitted during this handler's fx walk,
+        ;; so those continuation events front-of-queue insert (see
+        ;; `enqueue-envelope!`). The cut is the dispatch's ORIGIN — an
+        ;; event that merely TARGETS a machine but originates elsewhere
+        ;; carries no flag and stays FIFO. `:raise` is untouched: it
+        ;; never reaches the router queue (it drains in-memory inside the
+        ;; machine handler invocation, pre-commit).
+        envelope   (cond-> envelope
+                     (:rf/machine? handler-meta)
+                     (assoc :rf.machine/internal? true))
         ;; The schema-derived `:rf/sensitive?` key drives the scope's
         ;; `:sensitive?` trace-event stamp (read by `handler-scope-from-
         ;; meta`). Path-marked via app-schema slot meta; the handler-
@@ -1386,10 +1419,66 @@
                        (:parent-dispatch-id envelope)
                        (assoc :parent-dispatch-id (:parent-dispatch-id envelope))))))))
 
+(defn- front-insert-machine-internal
+  "Return `q` (a PersistentQueue of envelopes) with `envelope` spliced in
+  at the boundary between the machine-internal PREFIX and the external
+  TAIL — i.e. after any already-queued machine-internal envelopes but
+  ahead of the first external one.
+
+  Why a boundary splice, not a head `cons`: each sibling machine-internal
+  dispatch from one macrostep (`:fx [[:dispatch :a] [:dispatch :b]]`,
+  walked left-to-right by `do-fx`) is a SEPARATE `dispatch!` call, so this
+  fn is invoked once per sibling. A plain head-push would reverse them
+  (`:b` ends up ahead of `:a`). Inserting each new internal envelope at
+  the END of the existing internal prefix keeps siblings in source order
+  (`[:a :b …external]`) while still placing the whole internal run ahead
+  of every external event already on the queue.
+
+  PersistentQueue has no native splice, so the queue is rebuilt: take the
+  leading run of machine-internal envelopes, append `envelope`, then the
+  external remainder. `split-with` on `:rf.machine/internal?` is exact —
+  external envelopes never carry the flag."
+  [q envelope]
+  (let [[internal external] (split-with :rf.machine/internal? q)]
+    (into interop/empty-queue (concat internal [envelope] external))))
+
+(defn- enqueue-envelope!
+  "Insert `envelope` into the frame's router queue. Per Spec 002, ordinary
+  dispatches go to the BACK (plain FIFO via `conj` on the PersistentQueue).
+
+  Per rf2-j20a7 / Spec 005 §Level 4 — the one exception: a machine-
+  internal continuation envelope (`:rf.machine/internal? true`, stamped
+  by `build-envelope` from the machine-tagged child opts) leap-frogs
+  ahead of any already-queued EXTERNAL events, so the machine settles its
+  macrostep to quiescence before the next external event runs (SCXML
+  'internal before external'). It is spliced in by
+  `front-insert-machine-internal` AFTER any sibling machine-internal
+  envelopes already queued this macrostep, so source order is preserved
+  among siblings (first emitted is dequeued first).
+
+  Front-of-queue changes ORDER ONLY, not granularity: the leap-frogged
+  envelope is still a separately-dequeued event with its own epoch (per
+  Spec 002 §Drain versus event and Spec 005 §Level 4). `:raise` is a
+  different lever — it never reaches this queue (it drains in-memory,
+  intra-macrostep, inside the machine handler invocation)."
+  [router envelope]
+  (if (:rf.machine/internal? envelope)
+    (swap! router update :queue front-insert-machine-internal envelope)
+    (swap! router update :queue conj envelope)))
+
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:
-  FIFO at the runtime layer; no reordering, no priority lanes. The drain
-  loop picks it up in this same drain cycle (run-to-completion).
+  FIFO at the runtime layer. The drain loop picks it up in this same
+  drain cycle (run-to-completion).
+
+  Per rf2-j20a7 / Spec 005 §Level 4: the single exception to FIFO is a
+  machine-internal continuation event (a dispatch emitted from a
+  machine's own processing), which `enqueue-envelope!` inserts at the
+  FRONT of the queue so the machine settles its macrostep before the
+  next external event. The cut is the dispatch's ORIGIN (machine
+  processing), not its target — an event that merely targets a machine
+  but originates from user code / the UI / a non-machine effect stays
+  FIFO at the back.
 
   Per rf2-ts1a: the runtime-callable fn form (`re-frame.core/dispatch*`
   in public API terms). The macro form `re-frame.core/dispatch` stamps
@@ -1418,7 +1507,7 @@
        :else
        (let [router (:router frame-record)]
          (emit-dispatched-trace! envelope false)
-         (swap! router update :queue conj envelope)
+         (enqueue-envelope! router envelope)
          (ensure-drain-scheduled! (:frame envelope) router)))
      nil)))
 
