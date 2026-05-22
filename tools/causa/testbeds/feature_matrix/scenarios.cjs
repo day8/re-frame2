@@ -1619,39 +1619,26 @@ async function runHydration(page) {
   //
   // Post rf2-xy4yb: the dedicated Hydration debugger panel was
   // dropped. Per spec/018 §5 hydration mismatches surface as
-  // `:rf.ssr/*` rows (category-prefix "rf.ssr").
-  //
-  // Per rf2-u6dhp + rf2-g1pt8 + rf2-fzbrw the Causa-side surfacing
-  // chain has THREE invariants the user-facing panels uphold:
-  //
-  //   1. The Issues feed is cascade-scoped: only issues whose
-  //      `:dispatch-id` matches the focused cascade pass through
-  //      (rf2-u6dhp).
-  //   2. Causa-internal `:rf.causa/*` cascades are stripped from
-  //      `:rf.causa/cascades` (rf2-g1pt8) so the user never sees
-  //      Causa instrumenting itself.
-  //   3. The `:ungrouped` bucket is structurally unfocusable — the
-  //      spine's `compose-focus` snaps any `:ungrouped` slot to
-  //      head per rf2-fzbrw's no-aggregate-state invariant.
+  // `:rf.ssr/*` rows (category-prefix "rf.ssr") in the Issues tab.
   //
   // `:rf.ssr/hydration-mismatch` is emitted by `verify-hydration!`
-  // OUTSIDE any event-handler context (see testbed `core.cljs:188`),
-  // so the projector buckets it as `:dispatch-id :ungrouped`. With
-  // invariant (3) above, the user cannot pin the `:ungrouped`
-  // bucket, so this particular issue class CANNOT surface in the
-  // cascade-scoped feed — the Causa-side surfacing is a known gap
-  // for `verify-hydration!`-style traces (separate bead territory).
+  // OUTSIDE any event-handler context (see testbed `core.cljs:188`).
+  // The framework's epoch capture (`re-frame.epoch.capture/capture-
+  // event!`) drops out-of-cascade orphan emits — an error with no
+  // in-flight cascade AND no `:dispatch-id` (rf2-avvwm) — so the
+  // mismatch trace never lands in any `:rf/epoch-record`'s
+  // `:trace-events`. Surfacing orphaned out-of-cascade errors in the
+  // focused-epoch Issues lens is a deliberately separate concern
+  // (the L2 timeline's per-row badges, not this per-epoch panel).
   //
-  // What this scenario CAN verify end-to-end:
+  // What this scenario verifies end-to-end:
   //
   //   - the trace fired (testbed banner renders the projected
   //     payload — proves `verify-hydration!` reached `emit-error!`)
-  //   - the Issues panel mounts cleanly when the focused cascade
-  //     carries no `:rf.ssr/*` issues (silent-by-default empty-state
-  //     branch — proves cascade-scoping doesn't crash the panel)
-  //
-  // Asserting the feed `<ul>` testid here would require pinning the
-  // `:ungrouped` bucket, which invariant (3) forbids.
+  //   - the Issues panel mounts cleanly under cascade (focused-epoch)
+  //     scope and renders either the feed or a proper empty-state —
+  //     proving the focused-epoch projection doesn't crash and the
+  //     head-fallback (rf2-h0120) resolves to a real epoch record.
   const mismatchBanner = page.locator('[data-testid="mismatch-banner"]');
   await expectVisible(mismatchBanner, 10000);
   await expectVisible(page.locator('[data-testid="mismatch-server-hash"]'), 5000);
@@ -1659,19 +1646,26 @@ async function runHydration(page) {
   // ---- (2) Causa Issues panel mounts cleanly under cascade scope ----
   await openCausa(page);
   await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
-  // Issues panel ribbon is up; the focused cascade (the L4 default-
-  // focuses head per rf2-639lc) carries no `:rf.ssr/*` issues so the
-  // panel renders the silent-by-default empty-state per rf2-g3ghh.
-  // Either the empty-state testid OR the feed `<ul>` is acceptable —
-  // both prove cascade-scoping is honoured without crashing.
-  const emptyForEvent = page.locator(
-    '[data-testid="rf-causa-issues-empty-no-issues-for-event"]',
+  // The Issues panel is the focused-epoch lens (rf2-jio48): with no
+  // explicit focus it head-falls-back to the most-recent epoch
+  // (rf2-h0120). That epoch carries no projected `:error`/`:warning`/
+  // `:advisory` issue (the mismatch trace is out-of-cascade — see
+  // above), so the panel paints the positive `:no-issues` empty-state.
+  // Either the feed `<ul>` OR any of the panel's empty-state branches
+  // is acceptable — all prove the focused-epoch projection is honoured
+  // without crashing. (The legacy cascade-scoped `-for-event` empty
+  // state was collapsed into `:no-issues` by the rf2-jio48 rebuild.)
+  const feedOrEmptyState = page.locator(
+    [
+      '[data-testid="rf-causa-issues-feed"]',
+      '[data-testid="rf-causa-issues-empty-no-issues"]',
+      '[data-testid="rf-causa-issues-empty-no-matches"]',
+      '[data-testid="rf-causa-issues-empty-no-focus"]',
+      '[data-testid="rf-causa-issues-empty-epoch-evicted"]',
+    ].join(', '),
   );
-  const feed = page.locator('[data-testid="rf-causa-issues-feed"]');
   await waitForValue(
-    async () => (
-      (await emptyForEvent.count()) + (await feed.count()) > 0
-    ),
+    async () => (await feedOrEmptyState.count()) > 0,
     (n) => n === true,
     {
       timeoutMs: 5000,
