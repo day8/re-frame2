@@ -11,14 +11,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-event?-true-stamp-detected
-  (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? true})))
+  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
 
 (deftest sensitive-event?-false-stamp-passes
-  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? false}))))
+  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false}))))
 
 (deftest sensitive-event?-absent-stamp-passes
   ;; Per spec/009: "Consumers treat absent as `false`."
-  (is (not (sensitive/sensitive-event? {:operation :event/dispatched}))))
+  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
 
 (deftest sensitive-event?-non-true-truthy-drops-fail-closed
   ;; Fail-closed (rf2-ih7g4): the literal `true` drops AND any
@@ -29,10 +29,10 @@
   ;; The previous fail-OPEN posture silently leaked sensitive events
   ;; on such drift. The fix is fail-CLOSED: drop AND log.
   (binding [*err* (java.io.StringWriter.)] ; absorb the contract-drift warning
-    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? "true"}))
-    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? :yes}))
-    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? 1}))
-    (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? ["any" "truthy"]}))))
+    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
+    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
+    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
+    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]}))))
 
 (deftest sensitive-event?-non-map-input-passes
   (is (not (sensitive/sensitive-event? nil)))
@@ -43,8 +43,8 @@
   ;; Fail-closed posture (rf2-ih7g4) does NOT change the explicit-false
   ;; / nil path — those remain non-sensitive. Only truthy non-boolean
   ;; values get the new fail-closed drop.
-  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? false})))
-  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? nil}))))
+  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false})))
+  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? nil}))))
 
 (deftest strip-sensitive-fail-closed-drops-malformed-truthy
   ;; rf2-ih7g4: a transport bug that coerces `:sensitive? true` into
@@ -107,15 +107,15 @@
 
 (deftest spec-009-default-posture-is-suppress
   (testing "the default (include-sensitive? omitted ⇒ false) suppresses"
-    (let [sensitive-batch [{:operation :event/dispatched
-                            :tags      {:event-id :auth/sign-in}
+    (let [sensitive-batch [{:operation :rf.event/dispatched
+                            :tags      {:rf.trace/event-id :auth/sign-in}
                             :sensitive? true}]
           [kept dropped] (sensitive/strip-sensitive sensitive-batch false)]
       (is (= [] kept) "sensitive event must NOT reach the agent surface by default")
       (is (= 1 dropped))))
   (testing "include-sensitive? true is the documented opt-in"
-    (let [sensitive-batch [{:operation :event/dispatched
-                            :tags      {:event-id :auth/sign-in}
+    (let [sensitive-batch [{:operation :rf.event/dispatched
+                            :tags      {:rf.trace/event-id :auth/sign-in}
                             :sensitive? true}]
           [kept dropped] (sensitive/strip-sensitive sensitive-batch true)]
       (is (= sensitive-batch kept))
