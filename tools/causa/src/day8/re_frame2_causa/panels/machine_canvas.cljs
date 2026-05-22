@@ -254,6 +254,15 @@
     :current-state      — live snapshot state for the active-state
                           highlight. Optional; nil renders no
                           highlight.
+    :sim?               — rf2-u422r. When true the active-state
+                          highlight uses the amber sim palette (so the
+                          on-chart hermetic simulator reads distinct
+                          from the live cyan highlight). Forwarded to
+                          `mv-chart/MachineChart`.
+    :on-edge-click      — rf2-u422r. `(fn [#js {:eventId :fromPath
+                          :toPath}] ...)` invoked when a transition
+                          edge's label is clicked. The Static Machines
+                          on-chart sim wires this to `sim-step`.
     :on-state-click     — `(fn [path] ...)` invoked on node click.
     :show-after-rings?  — when true (default) overlay the
                           `:after`-timer countdown rings. Dynamic
@@ -268,7 +277,8 @@
   internally — no host-side viewport machinery is needed
   post-migration."
   [{:keys [definition machine-id from-highlight to-highlight current-state
-           on-state-click show-after-rings? show-view-mode-toggle?
+           sim? on-state-click on-edge-click
+           show-after-rings? show-view-mode-toggle?
            show-controls? testid inner-testid]
     :or   {show-after-rings?       true
            show-view-mode-toggle?  true
@@ -299,7 +309,9 @@
       :from-highlight  from-highlight
       :to-highlight    to-highlight
       :current-state   current-state
+      :sim?            sim?
       :on-state-click  on-state-click
+      :on-edge-click   on-edge-click
       :show-minimap?   false
       :show-controls?  show-controls?
       :show-background? true

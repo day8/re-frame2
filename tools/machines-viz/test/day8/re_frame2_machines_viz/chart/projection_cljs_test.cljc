@@ -399,6 +399,70 @@
       ;; corner-radius is the locked invariant — identical across both
       (is (= (:corner-radius regular) (:corner-radius compact) 6)))))
 
+;; ---- on-chart edge-click wiring (rf2-u422r) ----------------------------
+;;
+;; The on-chart machine simulator clicks a transition edge to send its
+;; event into the hermetic sim engine. The projector threads the host's
+;; `:on-edge-click` callback onto every edge `:data {:onClick}` + carries
+;; the raw fireable `:eventId` / `:fromPath` / `:toPath` so the edge
+;; component can hand the host the originating transition. These JVM pins
+;; guard that wiring; the edge component's click behaviour is pinned at
+;; the DOM layer (chart_dom).
+
+(deftest xyflow-graph-edge-carries-fireable-event-id
+  (testing "rf2-u422r — a plain `:on` transition edge carries its raw
+            fireable `:eventId` (the keyword the sim sends) + the
+            from/to paths on its `:data`"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          start  (first (filter #(= (:source %) (layout/node-id [:idle]))
+                                (:edges graph)))]
+      (is (some? start) "fixture has the idle→loading :start edge")
+      (is (= :start (:eventId (:data start)))
+          "the raw fireable event keyword rides on the edge data")
+      (is (= [:idle] (:fromPath (:data start))))
+      (is (= [:loading] (:toPath (:data start)))))))
+
+(deftest xyflow-graph-after-and-always-edges-are-not-fireable
+  (testing "rf2-u422r — `:after`-timer + `:always` eventless edges fire
+            automatically inside the engine, so they carry a nil
+            `:eventId` (the host filters them out — they are not
+            user-clickable on the chart)"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          after  (first (filter #(:afterMs (:data %)) (:edges graph)))
+          ;; the `:always` edge's label segment starts with "always"
+          ;; (the guarded fixture renders "always [loaded?]").
+          always (first (filter #(re-find #"^always"
+                                          (or (:eventLabel (:data %)) ""))
+                                (:edges graph)))]
+      (is (some? after) "fixture has an :after edge")
+      (is (nil? (:eventId (:data after)))
+          "the :after edge is not user-fireable")
+      (is (some? always) "fixture has an :always edge")
+      (is (nil? (:eventId (:data always)))
+          "the :always edge is not user-fireable"))))
+
+(deftest xyflow-graph-threads-on-edge-click-onto-every-edge
+  (testing "rf2-u422r — the host's `:on-edge-click` callback threads onto
+            EVERY edge's `:data {:onClick}` (the edge component decides
+            clickability from the presence of BOTH the callback + a
+            fireable event-id)"
+    (let [parsed   (layout/parse-definition idle-loading)
+          captured (atom nil)
+          cb       (fn [m] (reset! captured m))
+          graph    (projection/xyflow-graph parsed {} {:on-edge-click cb})]
+      (is (seq (:edges graph)))
+      (is (every? #(= cb (:onClick (:data %))) (:edges graph))
+          "every edge carries the same on-edge-click callback"))))
+
+(deftest xyflow-graph-omits-on-click-when-no-callback
+  (testing "rf2-u422r — omitting `:on-edge-click` leaves `:onClick` nil
+            so the edge label stays inert (no wiring)"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (is (every? #(nil? (:onClick (:data %))) (:edges graph))))))
+
 ;; ---- ->elk-children (G3) -----------------------------------------------
 
 (deftest elk-children-flat-is-one-per-node

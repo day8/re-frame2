@@ -109,6 +109,16 @@
         active?    (boolean (.-active d))
         focused?   (boolean (.-focused d))
         after-ms   (.-afterMs d)
+        ;; rf2-u422r — on-chart click wiring. `:onClick` is the host
+        ;; callback (e.g. Causa's on-chart sim → sim-step); `:eventId`
+        ;; is the raw fireable event keyword (nil for `:after` / `:always`
+        ;; auto edges). A label is clickable only when BOTH a callback +
+        ;; a fireable event-id are present, so auto edges stay inert.
+        on-click   (.-onClick d)
+        event-id   (.-eventId d)
+        from-path  (.-fromPath d)
+        to-path    (.-toPath d)
+        clickable? (and (fn? on-click) (some? event-id))
         {:keys [edge-label-px edge-label-backplate-opacity]} vc
         ;; xyflow's getBezierPath returns [path-string label-x label-y
         ;; offset-x offset-y]. Use a JS-side destructure via aget.
@@ -139,18 +149,40 @@
                :data-active (str active?)
                :data-focused-edge (str focused?)
                :data-after-ms (when after-ms (str after-ms))
+               ;; rf2-u422r — clickable edges surface their fireable
+               ;; event-id so a host (Causa on-chart sim) + tests can
+               ;; address them; inert (auto / no-callback) edges omit it.
+               :data-clickable (str clickable?)
+               :data-event-id (when (and clickable? event-id)
+                                (str event-id))
+               :role (when clickable? "button")
+               :title (when clickable?
+                        (str "Send " event-id))
+               :on-click (when clickable?
+                           (fn [ev]
+                             ;; Stop the click bubbling to the xyflow
+                             ;; pane (which would pan / clear selection).
+                             (.stopPropagation ev)
+                             (on-click
+                               #js {:eventId  event-id
+                                    :fromPath from-path
+                                    :toPath   to-path})))
                :style {:position       "absolute"
                        :transform      (str "translate(-50%, -50%) translate("
                                             label-x "px," label-y "px)")
                        :pointer-events "auto"
+                       :cursor         (if clickable? "pointer" "default")
                        :font-family    mono-stack
                        :font-size      (str edge-label-px "px")
-                       :font-weight    400
+                       :font-weight    (if (and clickable? focused?) 600 400)
                        :color          (:bg-0 tokens/tokens)
                        :background     (tokens/with-alpha :white edge-label-backplate-opacity)
                        :padding        "1px 5px"
                        :border-radius  "3px"
-                       :border         (str "1px solid " (tokens/with-alpha :border-subtle 0.4))
+                       :border         (str "1px solid "
+                                            (if clickable?
+                                              (tokens/with-alpha :yellow 0.55)
+                                              (tokens/with-alpha :border-subtle 0.4)))
                        :white-space    "nowrap"
                        :user-select    "none"}}
          label]]])))

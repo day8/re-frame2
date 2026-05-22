@@ -67,7 +67,11 @@
     7. `result-ok?` / `result-snap` / `result-info` — thin shims so
        the CLJS panel can read Result values without importing the
        machines artefact ns directly (Causa has no compile-time dep
-       on `re-frame.machines.result`)."
+       on `re-frame.machines.result`).
+    8. `last-transition` / `current-sim-state` / `edge-click->event`
+       — rf2-u422r on-chart binding algebra: the focused-edge lens
+       inputs + active-state highlight + edge-click → step-event
+       coercion that bind the topology chart to the sim engine."
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])))
@@ -359,6 +363,53 @@
 
       :else
       (record-error sim-state event nil "engine returned a non-Result value"))))
+
+;; ---- on-chart binding helpers (rf2-u422r) -------------------------------
+;;
+;; The on-chart simulator (rf2-u422r, epic rf2-nrrtb) renders the sim ON
+;; the topology chart: the active state highlights amber, the taken
+;; transition's edge animates, and clicking an outgoing event edge sends
+;; that event into the SAME hermetic engine the step-button drives. These
+;; pure helpers are the chart↔sim binding algebra — JVM-runnable so the
+;; binding is unit-tested without a CLJS/xyflow runtime.
+
+(defn last-transition
+  "Project the sim's MOST RECENT step into the chart's focused-event lens
+  inputs `{:from :to :event}` (or nil when no step has been taken yet).
+  The chart renders `:from` with the dashed origin highlight + `:to`
+  with the landing highlight, animating the taken edge.
+
+  Reads the tail of the `:audit-trail` (newest-last per `append-audit-row`)
+  — the audit row already carries `{:from :to :event}`, so this is a thin
+  projection that keeps the chart binding from re-deriving it. Returns nil
+  for a nil sim-state or an empty trail (no transition to animate)."
+  [sim-state]
+  (when-let [row (last (:audit-trail sim-state))]
+    {:from  (:from row)
+     :to    (:to row)
+     :event (:event row)}))
+
+(defn current-sim-state
+  "The sim snapshot's current `:state` value (keyword or path vector),
+  for the chart's active-state highlight. nil-safe — nil sim-state or
+  missing snapshot returns nil (no highlight)."
+  [sim-state]
+  (get-in sim-state [:snapshot :state]))
+
+(defn edge-click->event
+  "Coerce an on-chart edge click into a re-frame event vector for
+  `sim-step`. `event-id` is the raw fireable event keyword the chart's
+  edge payload carried (the chart only makes plain `:on` transition
+  edges clickable; `:after` / `:always` auto edges arrive with a nil
+  event-id). Returns `[event-id]` for a usable keyword, nil otherwise —
+  the caller suppresses the step on nil so an inert-edge click is a
+  no-op rather than a malformed dispatch.
+
+  Pure data — JVM-runnable; the CLJS click handler reads `:eventId` off
+  the JS payload and hands the keyword here."
+  [event-id]
+  (when (keyword? event-id)
+    [event-id]))
 
 ;; ---- display helpers ----------------------------------------------------
 

@@ -39,6 +39,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.static.machines.sim :as sim]
             [day8.re-frame2-causa.test-support :as causa-test-support]
@@ -93,6 +94,14 @@
                  (some-> (:data-testid (second node))
                          (.startsWith prefix))))
           (hiccup-seq tree)))
+
+;; rf2-u422r — a RAW walker that does NOT invoke fn components, so a
+;; `[machine-canvas/Chart {...}]` child survives as data and its props
+;; are assertable (the expanding `hiccup-seq` would replace it with the
+;; component's render output).
+
+(defn- raw-hiccup-seq [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
 
 ;; ---- fixture data --------------------------------------------------------
 
@@ -251,6 +260,96 @@
         (is (= :idle (get-in sim [:snapshot :state])))
         (is (some? (:last-error sim)))))))
 
+;; ---- (4b) on-chart edge click → step (rf2-u422r) ------------------------
+
+(deftest registry-installs-on-chart-sim-handlers
+  (testing "rf2-u422r — register-causa-handlers! installs the on-chart
+            sub family + the edge-click step event"
+    (registry/register-causa-handlers!)
+    (is (some? (registrar/handler :sub :rf.causa.static.machines/sim-current-state)))
+    (is (some? (registrar/handler :sub :rf.causa.static.machines/sim-last-transition)))
+    (is (some? (registrar/handler :event :rf.causa.static.machines/sim-chart-edge-clicked)))))
+
+(deftest sim-chart-edge-clicked-steps-via-engine
+  (testing "rf2-u422r — an on-chart edge click folds ONE step through the
+            SAME engine path as the step-button: snapshot advances +
+            audit-trail grows. No new transition logic."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (with-redefs [rf/machine-transition (fn [_d _s _e] ok-result)]
+        (rf/dispatch-sync [:rf.causa.static.machines/sim-chart-edge-clicked
+                           {:machine-id :auth/login
+                            :event-id   :start}]))
+      (let [sim @(rf/subscribe [:rf.causa.static.machines/sim-state])]
+        (is (= :authing (get-in sim [:snapshot :state]))
+            "snapshot advanced via the on-chart click")
+        (is (= 1 (count (:audit-trail sim))))
+        (is (= [:start] (-> sim :audit-trail last :event))
+            "the clicked edge's event-id was coerced to the step vector")))))
+
+(deftest sim-chart-edge-clicked-nil-event-is-noop
+  (testing "rf2-u422r — clicking an inert (auto / non-fireable) edge with
+            a nil event-id is a no-op: no step, no trail growth"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-chart-edge-clicked
+                         {:machine-id :auth/login
+                          :event-id   nil}])
+      (let [sim @(rf/subscribe [:rf.causa.static.machines/sim-state])]
+        (is (= :idle (get-in sim [:snapshot :state]))
+            "snapshot unchanged on an inert-edge click")
+        (is (= 0 (count (:audit-trail sim))))))))
+
+(deftest sim-chart-edge-clicked-fail-surfaces-guard-error
+  (testing "rf2-u422r — a failed-guard transition fired ON the chart
+            surfaces the error exactly as the button does: snapshot stays
+            put + :last-error stamped (rendered in the rail's error toast)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (with-redefs [rf/machine-transition (fn [_d _s _e] fail-result)]
+        (rf/dispatch-sync [:rf.causa.static.machines/sim-chart-edge-clicked
+                           {:machine-id :auth/login
+                            :event-id   :start}]))
+      (let [sim @(rf/subscribe [:rf.causa.static.machines/sim-state])]
+        (is (= :idle (get-in sim [:snapshot :state]))
+            "snapshot stays put on a failed on-chart step")
+        (is (= [:start] (-> sim :last-error :event))
+            "guard pass/fail surfaces via :last-error")))))
+
+(deftest sim-current-state-and-last-transition-subs
+  (testing "rf2-u422r — the chart-binding subs derive the active state +
+            the taken transition off sim-state"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      ;; Before any step: current = initial, last-transition = nil.
+      (is (= :idle @(rf/subscribe [:rf.causa.static.machines/sim-current-state])))
+      (is (nil? @(rf/subscribe [:rf.causa.static.machines/sim-last-transition])))
+      ;; After a step the chart subs reflect the advance.
+      (with-redefs [rf/machine-transition (fn [_d _s _e] ok-result)]
+        (rf/dispatch-sync [:rf.causa.static.machines/sim-chart-edge-clicked
+                           {:machine-id :auth/login :event-id :start}]))
+      (is (= :authing @(rf/subscribe [:rf.causa.static.machines/sim-current-state])))
+      (let [lt @(rf/subscribe [:rf.causa.static.machines/sim-last-transition])]
+        (is (= :idle (:from lt)))
+        (is (= :authing (:to lt)))
+        (is (= [:start] (:event lt)))))))
+
 ;; ---- (5) sim-reset ------------------------------------------------------
 
 (deftest sim-reset-rewinds-snapshot
@@ -408,6 +507,87 @@
       (let [sim @(rf/subscribe [:rf.causa.static.machines/sim-state])]
         (is (some? sim) "sim-state landed via the body's auto-start")
         (is (= :idle (get-in sim [:snapshot :state])))))))
+
+;; ---- (8b) on-chart sim surface (rf2-u422r) ------------------------------
+
+(deftest sim-chart-returns-canvas-bound-to-sim
+  (testing "rf2-u422r — SimChart returns the topology chart wrapper bound
+            to the sim engine (the on-chart simulation surface)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (let [tree (sim/SimChart {:machine-id :auth/login
+                                :definition fixture-definition})]
+        (is (= "rf-causa-static-machines-sim-chart"
+               (:data-testid (second tree)))
+            "the on-chart sim wrapper mounts")
+        ;; The wrapper carries the machine-canvas Chart hiccup as data.
+        (is (some (fn [node]
+                    (and (vector? node)
+                         (= machine-canvas/Chart (first node))))
+                  (raw-hiccup-seq tree))
+            "the wrapper embeds machine-canvas/Chart")))))
+
+(deftest sim-chart-passes-sim-bindings-to-canvas
+  (testing "rf2-u422r — SimChart hands the canvas the amber sim palette,
+            the current snapshot state, the focused-edge lens off the last
+            transition, and an on-edge-click callback"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (with-redefs [rf/machine-transition (fn [_d _s _e] ok-result)]
+        (rf/dispatch-sync [:rf.causa.static.machines/sim-chart-edge-clicked
+                           {:machine-id :auth/login :event-id :start}]))
+      (let [tree        (sim/SimChart {:machine-id :auth/login
+                                       :definition fixture-definition})
+            chart-node  (some (fn [node]
+                                (when (and (vector? node)
+                                           (= machine-canvas/Chart (first node)))
+                                  node))
+                              (raw-hiccup-seq tree))
+            chart-props (second chart-node)]
+        (is (true? (:sim? chart-props)) "amber sim palette is on")
+        (is (= :authing (:current-state chart-props))
+            "active-state highlight = the advanced snapshot state")
+        (is (= :idle (:from-highlight chart-props))
+            "focused-edge origin = last transition :from")
+        (is (= :authing (:to-highlight chart-props))
+            "focused-edge landing = last transition :to")
+        (is (fn? (:on-edge-click chart-props))
+            "the chart gets an on-edge-click callback")))))
+
+(deftest sim-body-renders-chart-and-rail-panes
+  (testing "rf2-u422r — the sim body is a two-pane split: the on-chart sim
+            surface (primary) + the rail side column"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.causa.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (let [tree (sim/body {:machine-id :auth/login
+                            :definition fixture-definition})]
+        (is (some? (find-by-testid tree "rf-causa-static-machines-sim-body")))
+        (is (some? (find-by-testid tree "rf-causa-static-machines-sim-chart-pane"))
+            "chart pane present")
+        (is (some? (find-by-testid tree "rf-causa-static-machines-sim-rail-pane"))
+            "rail pane present")
+        (is (some? (find-by-testid tree "rf-causa-static-machines-sim-chart"))
+            "on-chart sim surface present")
+        (is (some? (find-by-testid tree "rf-causa-static-machines-sim-rail"))
+            "side rail still present")))))
 
 (deftest body-renders-no-definition-hint-when-missing
   (setup-causa-frame!)
