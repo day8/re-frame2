@@ -471,6 +471,17 @@ testbeds that need a known starting point for reproducibility.
 | `{:in [{:pattern <…>} …] :out [{:pattern <…>} …]}` | Seed the slot on first install only. The seed never clobbers a user's hand-tuned set — once localStorage carries any pill, the seed is ignored. |
 | `nil` (default) | No seed; registry defaults to `{:in [] :out []}`. |
 
+> **Transient vs durable (rf2-swclw).** The IN/OUT pills, the
+> muted-event-id set, and the frame view-scope are **transient
+> exploration filters**: they persist via localStorage *within* a session
+> but RESET on every load — `mount.cljs/::reset-transient-filters` does
+> not hydrate them and clears the stored value so a stale filter can never
+> silently hide rows on reload (rf2-jvghz; an inspector must show the
+> truth). Only **durable view prefs** (the persisted Settings shape below
+> — mode, density, panel layout) hydrate on boot. The `:rf.causa/filters`
+> seed therefore lands only on a genuinely-empty first install, before the
+> reset hook has a stored value to clear.
+
 ### `:rf.causa/filters-storage-key`
 
 The localStorage key the filter persistence layer reads / writes.
@@ -490,11 +501,14 @@ key.
 
 ### Static mode availability
 
-Static mode is unconditionally available. The mode pill mounts at
-ribbon-left (`data-testid="rf-causa-mode-pill"`), `Cmd-Shift-M` /
-`Ctrl-Shift-M` toggles between Dynamic and Static surfaces via
-`:rf.causa/toggle-mode`, and the active mode hydrates from
-`causa.mode` localStorage on boot (with `"dynamic"` fallback).
+Static mode is unconditionally available. The mode **dropdown** mounts at
+chrome-ribbon-left (`data-testid="rf-causa-mode-pill"` — the testid keeps
+its historical name; the widget is now a compact `<select>` per
+rf2-4vp5j), `Cmd-Shift-M` / `Ctrl-Shift-M` toggles between Dynamic and
+Static surfaces via `:rf.causa/toggle-mode`, and the active mode hydrates
+from `causa.mode` localStorage on boot (with `"dynamic"` fallback — mode
+is a DURABLE view pref, so unlike the transient filters above it does
+persist across loads).
 
 Per rf2-8l3uk the prior `:rf.causa/static-mode?` configure key was
 removed (pre-alpha posture — back-compat shims are out of scope; if
@@ -561,6 +575,26 @@ frame's app-db per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
 the panels that drive them; this doc enumerates only the
 configuration-derived slot (`:suppressed-counters`) because it is the
 visible bridge between `configure!` and the reactive surface.
+
+**Frame is registered trace-disabled (rf2-2qaqh).** Causa registers its
+own frame with the framework's `:rf.trace/frame-no-emit?` frame-config:
+
+```clojure
+(rf/reg-frame :rf/causa {:rf.trace/frame-no-emit? true})   ;; mount.cljs/ensure-causa-frame!
+```
+
+This marks `:rf/causa` a tool / inspector frame: the framework's `emit!`
+/ `emit-error!` short-circuit for any trace event tagged with that frame,
+so Causa's own UI reactivity (`:rf.sub/run` + `:rf.view/render` on every
+panel render) emits NO trace and never floods the shared ring it
+inspects. It is the frame-scoped sibling of the handler-scoped
+`:rf.trace/no-emit?`; honoured on every `reg-frame` (re-)registration so
+the gate survives hot-reload. This config is NOT a `configure!` key — it
+is a framework `reg-frame` option Causa sets internally. See
+[framework API §`:rf.trace/frame-no-emit?`](../../../spec/API.md) +
+[`013-Trace-Bus.md` §Tool-frame trace gate](./013-Trace-Bus.md). (Causa
+adds a second, ingest-side belt-and-braces drop for the residual cases
+the frame gate misses — see 013.)
 
 ## `configure!` vs `init!` vs persisted Settings — ownership rule (rf2-g2a5v)
 

@@ -12,7 +12,7 @@ This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md
 
 Make the five canonical questions ([`000-Vision.md`](000-Vision.md) §Why it exists) answerable in seconds via:
 
-1. A **top ribbon** that controls scope (nav, frame, filters, mode, settings).
+1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (nav, focus-chip, filter pills, hidden-by-filters + Clear Filters).
 2. An **event list** that is the orienting timeline + canonical scrubber.
 3. A **tab bar** of 6 surfaces (Event / App-db / Views / Trace / Machines / Issues).
 4. A **detail panel** whose content is always the current tab's projection of the focused event.
@@ -34,7 +34,7 @@ Every selection event passes through a single spine sub — `:rf.causa/focus` �
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ LAYER 1  Top ribbon (56px)                                              │  scope controls
+│ LAYER 1  Two ribbons — chrome (40px) + events ribbon (rf2-4vp5j)        │  scope + spine controls
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -48,7 +48,8 @@ Wireframe at default (800px popout, "cosy" density):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ [◀ ▶ ⏭] │ Frame: :app/main ▾ │ [+ :auth/* ✎] [× :mouse-move ✎] [+]        │ ⚙ ⛶ ✕ │   L1
+│ Frame: :app/main ▾   Dynamic ▾                          🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
+│ Events: [◀ ▶ ⏭]  🎯 :order/retry  [+ :auth/* ✎] [× :mouse-move ✎] [+]   │   L1.5 events ribbon
 ├─────────────────────────────────────────────────────────────────────────┤
 │ ● :auth/login                                          [● REDACTED 1]   │   L2 — 8 rows default
 │ ● :app/route-changed                                                    │      single-line
@@ -69,7 +70,7 @@ Wireframe at default (800px popout, "cosy" density):
 
 Layers are stacked top-to-bottom; only L2/L3 has a user-draggable resize handle. L1/L3 are fixed-height; L2 takes the remainder above L3; L4 takes the remainder below L3. Narrow widths (<800px) and wide widths (≥1200px) preserve the layer order — see [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome.
 
-**Why 4 layers, not 5:** the round-2 design had a bottom rail (L0) carrying the scrubber + mode pill + classification totals. Mike's call: "there is already a scrubber effectively at the top, along with a list of events." The ribbon nav cluster IS the seek, the event list IS the timeline, and classification totals relocate to per-row + per-panel renderings. One fewer layer; same affordances. (The mode pill itself was subsequently dropped — see §3; LIVE / RETRO surfaces in the L2 spine.)
+**Why 4 layers, not 5:** the round-2 design had a bottom rail (L0) carrying the scrubber + mode pill + classification totals. Mike's call: "there is already a scrubber effectively at the top, along with a list of events." The events-ribbon nav cluster IS the seek, the event list IS the timeline, and classification totals relocate to per-row + per-panel renderings. One fewer layer; same affordances. (The Dynamic/Static **mode dropdown** lives at chrome-ribbon-left — see §3; LIVE / RETRO is a separate spine state surfaced in the L2 head-row cue.)
 
 ---
 
@@ -83,7 +84,7 @@ Dynamic is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4 detail panel
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ LAYER 1  Top ribbon (56px) — mode pill + right icons                    │   scope controls
+│ LAYER 1  Chrome ribbon (40px) — mode dropdown + right icons             │   scope controls
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 3  Tab bar (40px) — 5 tabs                                        │   projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -91,7 +92,7 @@ Dynamic is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4 detail panel
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-L2's absence is itself a functional signal — see §The 4 mode signals below. The L1 ribbon retains the mode pill (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); the Dynamic ribbon's nav cluster, frame picker, and filter pills are HIDDEN because Static is event-independent — those clusters have no meaning here.
+L2's absence is itself a functional signal — see §The 4 mode signals below. The L1 chrome ribbon retains the mode dropdown (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); the Dynamic chrome's events ribbon — nav cluster, focus-chip, frame picker, filter pills — is HIDDEN because Static is event-independent and has no spine, so those clusters have no meaning here.
 
 ### The 4 mode signals (chrome silhouette + 3 reinforcing)
 
@@ -99,12 +100,12 @@ The user reads "Static" at a glance via **four stacked signals**; together they 
 
 | # | Signal | Dynamic | Static |
 |---|---|---|---|
-| 1 | **Mode pill** at ribbon-left — two-segment radio (`[● Dynamic] [○ Static]`), 160px total, accent-violet active segment, 200ms cross-fade. Lives in BOTH modes (it's the toggle, not the indicator). | `[● Dynamic] [○ Static]` | `[○ Dynamic] [● Static]` |
+| 1 | **Mode dropdown** at chrome-ribbon-left — a compact `<select>` (rf2-4vp5j; replaced the old 160px two-segment radio pill) sharing the frame picker's control weight. Lives in BOTH modes (it's the toggle, not the indicator). | `Dynamic ▾` | `Static ▾` |
 | 2 | **2-px left-edge ribbon stripe.** | `:accent-violet` | `:cyan` (existing palette token — zero new tokens) |
 | 3 | **Motion dampening.** | LIVE pulse + machine-active pulse + 180ms tab fade | All continuous pulses dropped; tab fade collapses to 0ms instant. Honours `prefers-reduced-motion: reduce` via `--rf-causa-motion-scale`. |
 | 4 | **Chrome silhouette.** | 4-layer (L1 · L2 · L3 · L4) | 3-layer (L1 · L3 · L4 — no spine) |
 
-The pill is wired to the same handler the `Cmd-Shift-M` / `Ctrl+Shift+M` global chord (per §11 Keyboard map) fires — chord and pill share the toggle.
+The dropdown is wired to the same handler the `Cmd-Shift-M` / `Ctrl+Shift+M` global chord (per §11 Keyboard map) fires — chord and dropdown share the toggle.
 
 ### Mode-state lifecycle slots
 
@@ -133,7 +134,7 @@ Sub-surface slots (e.g. Static Machines' selected-id and per-machine sub-mode) r
 
 ### Availability
 
-Static mode is unconditionally available. The mode pill mounts at ribbon-left in every host, `Cmd-Shift-M` / `Ctrl-Shift-M` dispatches `:rf.causa/toggle-mode` against `:rf/causa`, and the surface composer switches on `:rf.causa/mode`. Per rf2-8l3uk the prior `:rf.causa/static-mode?` opt-in feature gate was removed (pre-alpha posture — back-compat shims are out of scope; if Static mode is useful, expose it unconditionally).
+Static mode is unconditionally available. The mode dropdown mounts at chrome-ribbon-left in every host, `Cmd-Shift-M` / `Ctrl-Shift-M` dispatches `:rf.causa/toggle-mode` against `:rf/causa`, and the surface composer switches on `:rf.causa/mode`. Per rf2-8l3uk the prior `:rf.causa/static-mode?` opt-in feature gate was removed (pre-alpha posture — back-compat shims are out of scope; if Static mode is useful, expose it unconditionally).
 
 ### Mnemonic mode-scoping rule
 
@@ -153,26 +154,54 @@ Same discipline as the Dynamic chrome (per §8 Frame-observation isolation invar
 
 ---
 
-## §3 Top ribbon anatomy (Layer 1)
+## §3 Ribbon anatomy (Layer 1) — two ribbons (rf2-4vp5j)
 
-Five clusters, fixed order left to right:
+Layer 1 is **two stacked ribbons** (rf2-4vp5j's two-ribbon redesign), not
+one. They split scope SELECTORS from spine/filter CHROME so each stratum
+stays compact and reads as a single concern:
 
-| Cluster | Width | Content | Keys |
+### L1 chrome ribbon (`rf-causa-ribbon`, 40px)
+
+Carries only scope selectors (left) and chrome actions (right):
+
+| Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Nav** | 84px | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE) | `j` / `k` / `G` |
-| **Frame** | flex 0 1 200px | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select only.** Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Filter pills** | flex 1 1 auto | `[+ :auth/* ✎]` IN pills (green) + `[× :mouse-move ✎]` OUT pills (magenta) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
-| **Right-icons** | 96px | `⚙` settings popup · `⛶` popout (`window.open` the whole shell) · `✕` close shell | `,` or `s` · `o` · `Esc` |
+| **Frame** | left | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
+| **Mode** | left | `Dynamic ▾` / `Static ▾` **dropdown** (`<select>`) — compact, understated; shares the frame picker's control weight (rf2-4vp5j). The 2-px left-edge accent stripe (violet Dynamic / cyan Static) carries the mode SIGNAL so the control itself recedes. | `Cmd/Ctrl-Shift-M` |
+| **Indicators** | right | Silent-by-default `🔇 N` mute indicator + `● N` REDACTED indicator (each painted only when its count > 0). | — |
+| **Right-icons** | right | `⚙` settings popup · `✕` close shell | `,` or `s` · `Esc` |
 
-(The Mode pill widget that earlier drafts placed between the filter pills and the right-icons was **dropped**: LIVE/RETRO is now communicated by the event-list spine itself — head row in LIVE, pinned row in RETRO — and the `Space` / `L` keys remain bound to the underlying mode transitions. The spine sub still carries `:mode` for downstream consumers; only the dedicated pill widget is gone.)
+### L1.5 events ribbon (`rf-causa-events-ribbon`, distinct `bg-2`)
 
-Wireframe (cluster boundaries shown):
+Carries the spine + filter chrome that moved DOWN off the chrome ribbon:
+
+| Cluster | Side | Content | Keys |
+|---|---|---|---|
+| **Label** | left | `Events:` | — |
+| **Nav** | left | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE). Boundary-disabled against the visible filtered list. | `j` / `k` / `G` |
+| **Focus chip** | left | `🎯 <label> ✕` — the current focus, click to reveal the pivot row, `✕` clears focus. | `Esc` clears |
+| **Filter pills** | left | `[+ :auth/* ✎]` IN pills (green) + `[× :mouse-move ✎]` OUT pills (magenta) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
+| **Hidden + Clear** | far right | `N events hidden by filters` (only when N > 0) + `Clear Filters` (whenever any filter is active). | — |
+
+### Mode is a DROPDOWN (rf2-4vp5j supersedes the "mode pill dropped" note)
+
+Earlier drafts of this spec **dropped** the mode pill, communicating
+LIVE/RETRO via the L2 spine alone. The rf2-4vp5j redesign **re-adds a
+mode control as a compact `<select> dropdown`** at chrome-ribbon-left
+(not the old 160px two-segment radio pill — that was too dominant for an
+occasional-use control). The dropdown and the `Cmd/Ctrl-Shift-M` global
+chord share the same `:rf.causa/toggle-mode` handler. (LIVE vs RETRO
+within Dynamic mode is still a SPINE state, surfaced by the L2 head-row
+cue; the dropdown toggles Dynamic ↔ Static, a separate axis.)
+
+Wireframe (two ribbons; cluster boundaries shown):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│ [◀ ▶ ⏭] │ Frame: :app/main ▾ │ [+ :auth/* ✎] [× :mouse-move ✎] [+]            │ ⚙ ⛶ ✕ │
+│ Frame: :app/main ▾   Dynamic ▾                                       🔇 2  ● 1   ⚙ ✕ │  L1 chrome
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│ Events:  [◀ ▶ ⏭]  🎯 :order/retry ✕  [+ :auth/* ✎] [× :mouse-move ✎] [+]   3 hidden  Clear Filters │  L1.5 events
 └─────────────────────────────────────────────────────────────────────────────────────┘
-  └─ nav ─┘   └── frame ──┘    └──── filter pills (flex) ────────────────────────┘  └ chrome ┘
 ```
 
 ### Frame dropdown
@@ -207,15 +236,21 @@ Single-frame apps collapse the dropdown to a flat label (`Frame: :rf/default`) �
 
 The filter system lives in this cluster — see §7 for full IN/OUT pill semantics and the edit-popup contract.
 
-### Mode transitions (no dedicated pill widget)
+### LIVE / RETRO is a spine state (orthogonal to the mode dropdown)
 
-The Mode pill was **dropped**; LIVE / LIVE-paused / RETRO modes are communicated by the L2 event list spine itself (the head row's pulse cue indicates LIVE; a pinned row indicates RETRO). Mode transitions still ride the `Space` / `L` keys + the `⏭` ribbon button + ordinary row clicks (clicking any non-head row flips LIVE→RETRO). The spine sub continues to carry `:mode` for downstream consumers.
+The Dynamic/Static **mode dropdown** (above) is one axis; LIVE /
+LIVE-paused / RETRO is a separate SPINE state communicated by the L2
+event list itself (the head row's pulse cue indicates LIVE; a pinned row
+indicates RETRO). LIVE/RETRO transitions ride the `Space` / `L` keys +
+the `⏭` ribbon button + ordinary row clicks (clicking any non-head row
+flips LIVE→RETRO). The spine sub carries `:mode :live | :retro` for
+downstream consumers; there is no separate LIVE/RETRO pill widget.
 
 ### Right-icon behaviour
 
-- `⚙` Settings — opens modal popup (see [§9 Settings popup](#9-settings-popup)).
-- `⛶` Popout — calls `window.open` on the whole Causa shell using `:popout/width` / `:popout/height` / `:popout/position` config keys. Cross-ref [`011-Launch-Modes.md`](011-Launch-Modes.md).
-- `✕` Close — hides Causa shell (CSS-only). Host can re-open via `Ctrl+Shift+C`.
+- `⚙` Settings — dispatches `:rf.causa/settings-open`; opens the Settings modal popup (see [§9 Settings popup](#9-settings-popup)).
+- `✕` Close — dispatches **`:rf.causa/close-shell`** (rf2-fq491), an app-db event handled in `mount.cljs` that actually hides the shell (an earlier draft only flipped a CSS class and could leave the shell stuck open). Host can re-open via `Ctrl+Shift+C`.
+- **`⛶` Popout is omitted from the ribbon** (rf2-g3ghh / rf2-yn86j — silent-by-default): the second-window UX ([`011-Launch-Modes.md`](011-Launch-Modes.md)) has not landed, so the ribbon does not show a broken-claim button. The programmatic `(causa/popout!)` API remains the supported pop-out path; the `⛶` slot is reserved for when the second-window UX ships.
 
 ---
 
@@ -547,7 +582,7 @@ as the developer scans.
 #### The 8 sections (Mike's verbatim order, rf2-jhhqt + rf2-lo37i)
 
 1. **DISPATCH SITE** — source-coord chip + `via :source · origin :origin`
-   caption. Reads `:rf.trace/call-site` off the `:event/dispatched`
+   caption. Reads `:rf.trace/call-site` off the `:rf.event/dispatched`
    trace (rf2-twt7m Change 1). Renders an absent-placeholder when no
    call-site was captured. **Comes FIRST** per Mike's Q1 — the
    developer's first instinct ("who fired this?") gets the most
@@ -853,17 +888,17 @@ The single-axis selection that every layer reads from.
 | `:rf.causa/focus-cascade-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.causa/filtered-cascades`; flips `:mode → :retro` if not already at head |
 | `:rf.causa/follow-head` | `⏭` button · `L` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.causa/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
-| `:rf.causa/set-frame <frame-id>` | Frame picker selection | Writes `:frame` slot; clears `:dispatch-id` to head of new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the same write ALSO re-seeds `:rf.causa/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.causa/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
+| `:rf.causa/select-frame <frame-id>` → `:rf.causa/set-frame <frame-id>` | Frame picker selection | **`:rf.causa/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.causa/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.causa/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.causa/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
 | `:rf.causa/preview-cascade <id>` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id <id>` transiently; reverts on hover-out without click |
 
 ### Per-layer rebind table
 
 | Layer | Surface | Reads from spine | Notes |
 |---|---|---|---|
-| L1 ribbon | Nav cluster (`◀` `▶` `⏭`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries |
-| L1 ribbon | Frame picker | `:frame` | Writes `:frame` via `:rf.causa/set-frame` |
-| L1 ribbon | Filter pills | `:rf.causa/active-filters` (separate sub) | Filters re-derive `:rf.causa/filtered-cascades`, which the L2 list reads |
-| L2 event list | Head-row mode cue | `:mode`, `:head?` | Pulse on head row in LIVE; pinned-row glyph in RETRO (the Mode pill widget was dropped — the spine carries `:mode` for downstream consumers) |
+| L1.5 events ribbon | Nav cluster (`◀` `▶` `⏭`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries |
+| L1 chrome ribbon | Frame picker (VIEW SCOPE) | `:rf.causa/view-scope-frame` | Writes `:view-scope-frame` (+ spine `:focus :frame`) via `:rf.causa/select-frame` |
+| L1.5 events ribbon | Filter pills + hidden indicator | `:rf.causa/active-filters` · `:rf.causa/hidden-by-filters` | Filters re-derive `:rf.causa/filtered-cascades`, which the L2 list reads; `N hidden` + `Clear Filters` surface when a filter suppresses rows |
+| L2 event list | Head-row mode cue | `:mode`, `:head?` | Pulse on head row in LIVE; pinned-row glyph in RETRO (LIVE/RETRO is a spine state; the Dynamic/Static mode dropdown is a separate chrome-ribbon control) |
 | L2 event list | Row gutter glyph | `:dispatch-id` | `◉` on focused row; `●` elsewhere |
 | L2 event list | Auto-scroll behaviour | `:mode`, `:head?` | LIVE: auto-scroll bottom; RETRO: sticky position |
 | L3 tab bar | Count badges (`Views 8`) | Focused cascade's projection counts | Re-derives on `:rf.causa/focus` change |
@@ -877,25 +912,27 @@ The single-axis selection that every layer reads from.
 :rf.causa/cascades                 ← raw cascade list from Tool-Pair projection
         │
         ▼
+:rf.causa/view-scope-frame         ← single defaulted VIEW SCOPE (rf2-4vp5j; head-frame default)
 :rf.causa/active-filters           ← IN/OUT pill state (Causa app-db slot)
-:rf.causa/focus-slot               ← spine slot incl. picker's :frame (per rf2-oziyr)
+:rf.causa/muted-event-ids          ← muted-event-id set (Causa app-db slot)
         │
         ▼
 :rf.causa/filtered-cascades        ← single switch point: list + scrubber + counters
-        │                            (composes IN/OUT pills + picker frame)
+        │                            (view-scope frame FIRST, then IN/OUT pills + mutes)
         ▼
 :rf.causa/focus                    ← spine: {:dispatch-id :epoch-id :frame :mode :head? :previewing?}
         │
-        ├──── L1 ribbon (nav, frame picker, filter pills)
+        ├──── L1 chrome ribbon (frame picker, mode dropdown, ⚙ ✕)
+        ├──── L1.5 events ribbon (nav, focus-chip, filter pills, N-hidden + Clear Filters)
         ├──── L2 event list (focused row, auto-scroll)
         ├──── L3 tab bar (count badges)
         └──── L4 detail panel (per-tab content)
 ```
 
-The filtering happens at the data layer (`:rf.causa/filtered-cascades`), not at render. Three reasons:
+The scoping + filtering happens at the data layer (`:rf.causa/filtered-cascades`), not at render. Reasons:
 1. Virtualisation cares about row count — render-time filtering means the virtualiser budgets unfiltered rows.
-2. Scrubbing must respect filters — `[◀ ▶ ⏭]` walks `:rf.causa/filtered-cascades`, not all cascades.
-3. The frame picker is a filter too — per rf2-oziyr the picker's `:frame` selection (stored on `:focus :frame` via `:rf.causa/set-frame`) is composed into `:rf.causa/filtered-cascades` alongside the IN/OUT pills so the L2 list, scrubber, and nav `[◀ ▶ ⏭]` walk the picker-scoped cascade list as one. Spine's LIVE auto-tracking ALSO respects the picker frame so `:head?` and the head walk are scoped per-frame.
+2. Scrubbing must respect the scope + filters — `[◀ ▶ ⏭]` walks `:rf.causa/filtered-cascades`, not all cascades.
+3. **Frame scope applied FIRST, then filters.** Per rf2-4vp5j the picker is a VIEW SCOPE (not a filter): `:rf.causa/filtered-cascades` scopes to `:view-scope-frame` via `matcher/filter-cascades-by-view-scope` BEFORE applying the IN/OUT pills + mutes, so the L2 list, scrubber, and nav `[◀ ▶ ⏭]` all walk the frame-scoped, pill-filtered list as one. The frame scope is excluded from the hidden-by-filters count (frame ≠ filter); the pills + mutes are what that count measures. Spine's LIVE auto-tracking ALSO respects the view scope so `:head?` and the head walk are scoped per-frame.
 
 ### LIVE / RETRO transitions
 
@@ -912,10 +949,22 @@ The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky
 
 ## §7 Filter system
 
-Two-tier filtering:
+**Single-tier filtering.** The ONLY filtering surface is the
+events-ribbon IN/OUT pills (+ the L2-row mute affordance) — they scope
+the L2 event list, the scrubber nav, the Issues counter, and palette
+verbs at the data layer (`:rf.causa/filtered-cascades`). The earlier
+"Trace tab filter toolbar" was **removed** (rf2-gkczt): the Trace L4
+panel is scoped to the focused epoch's `:trace-events` and carries no
+filtering UI at all — the focused epoch IS its scope (see
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §Trace
+panel).
 
-1. **Ribbon filter pills** — scope the L2 event list (and the scrubber, and Issues counter, and palette verbs).
-2. **Trace tab filter toolbar** — local to L4 Trace tab; doesn't affect L2.
+**Frame is a view SCOPE, not a filter (rf2-4vp5j).** The frame picker is
+NOT part of the filter system. It is a single, defaulted VIEW SCOPE
+(default = the head epoch's frame); it is never counted as "hidden",
+never listed as a filter cause, and never reset by Clear Filters. See
+[§Frame picker is a view scope](#frame-picker-is-a-view-scope-rf2-4vp5j)
+below.
 
 ### Ribbon pills
 
@@ -1037,11 +1086,71 @@ Rationale: pre-alpha posture (per the masterpiece principle). Silent mutation of
 
 The popup's "Match scope" checkboxes — `event-id` / `event-args` / `source-coord` / `tags` — surface the visual contract for spec/018 §7 'Click-pill → edit popup'. **v1's matcher (`filters/matcher.cljc`) operates on `event-id` only**; the wider scopes are stored as data in the pill record and consumed when the matcher widens in a follow-on bead. The `event-id` scope is the default and always-on; widening it is the future rev.
 
-### Filter persistence
+### Filter persistence — write-through, reset-on-load (rf2-swclw)
 
-Ribbon pills persist via localStorage per host-app under a Causa-namespaced key. **v1 storage key:** `"re-frame2.causa.filters.v1"` (versioned so future schema changes can ignore stale payloads). Configurable via `(causa-config/configure! {:rf.causa/filters-storage-key "<key>"})` per [`015-Configuration.md`](015-Configuration.md) — hosts that run multiple Causa instances in the same browser session (Story testbeds) override so each instance keeps its own pill state.
+Ribbon pills round-trip through localStorage per host-app under a
+Causa-namespaced key. **v1 storage key:** `"re-frame2.causa.filters.v1"`
+(versioned so future schema changes can ignore stale payloads).
+Configurable via `(causa-config/configure! {:rf.causa/filters-storage-key "<key>"})`
+per [`015-Configuration.md`](015-Configuration.md) — hosts that run
+multiple Causa instances in the same browser session (Story testbeds)
+override so each instance keeps its own pill state.
+
+**Transient filters RESET on every load (rf2-swclw).** The IN/OUT pills,
+the muted-event-id set, and the frame pin are **session-scoped
+exploration filters** — a fresh page load starts FULLY UNFILTERED, never
+silently carrying a stale filter from a past session (the trap that hid
+events and made the inspector look broken — rf2-jvghz; an inspector's
+prime directive is to show the truth). The first-mount hook
+(`mount.cljs/::reset-transient-filters`) does NOT hydrate these slots
+(so each starts at its registry default — empty pills / empty mute set /
+unpinned frame) AND clears each slot's stale localStorage value so the
+storage matches what the user sees and a phantom value can never
+resurface. Only **durable view prefs** (Dynamic/Static mode, density,
+panel layout) hydrate on load via their own hooks. The persist fx still
+writes pills through to localStorage *within* a session so a mid-session
+mutation survives a sub-recompute; it is the LOAD that resets, not the
+write that stops.
 
 Host-supplied seed via `(causa-config/configure! {:rf.causa/filters {:in […] :out […]}})` lands ONLY on first install when localStorage is empty — the seed never clobbers a user's hand-tuned set. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Causa itself ships with `nil` seed (first-session honesty).
+
+### "N events hidden by filters" indicator + Clear Filters (rf2-jvghz)
+
+Because filters reset on load (above) but can still hide rows *within* a
+session, the events ribbon carries an in-session safety net: when ANY
+suppressing filter is active (an IN/OUT pill or a non-empty mute set),
+the ribbon's far-right action cluster renders a **`Clear Filters`**
+button; beside it, an **`N events hidden by filters`** message renders
+*only when N > 0* (`N = max 0 (raw-visible − filtered-visible)`, both
+counts taken over the L2 list's visible-row set, both scoped to the
+selected frame). An active pill that happens to hide nothing → button
+present, message absent. The frame view-scope is excluded from the count
+entirely (frame ≠ filter — rf2-4vp5j), so switching frames never inflates
+N and `Clear Filters` never clears the frame. The pure model lives in
+`filters/hidden.cljc` (`summary`); `Clear Filters` resets the pills + the
+mute set (not the frame).
+
+### Frame picker is a view scope (rf2-4vp5j)
+
+Post rf2-4vp5j the frame picker is **a single, defaulted VIEW SCOPE — not
+a data-layer filter** (this supersedes the earlier rf2-oziyr "picker
+frame composed into `filtered-cascades`" framing in §6):
+
+- **Default = head-epoch frame.** On a fresh load the L2 list scopes to
+  whichever frame produced the most-recent pickable event
+  (`frame-switcher/head-frame`), rather than merging every frame.
+- **Single dedicated slot.** The picker writes `:view-scope-frame` (via
+  the canonical event-fx `:rf.causa/select-frame`); the L2 list scopes by
+  it through `matcher/filter-cascades-by-view-scope`, which is a NO-OP
+  when the scope is nil (a defaulted scope never drops the
+  not-yet-frame-tagged `:ungrouped` bucket). `:rf.causa/select-frame`
+  ALSO dispatches the spine's `:rf.causa/set-frame` (re-seeding
+  `:focus :frame` + `:rf.causa/target-frame` + `:rf.causa/epoch-history`
+  per invariant P) so the per-frame panels follow the picker as one
+  atomic move.
+- **NOT persisted, NOT counted as hidden.** The view scope resets to its
+  head-frame default on load (rf2-swclw) and is excluded from the
+  hidden-by-filters count + `Clear Filters` (above).
 
 The Settings popup §9 exposes the pill set + Recommended quick-add + factory-reset (the §9 Filters tab in v1 is a pointer into the ribbon pill UI — full per-pill management surface lives in the ribbon per spec §3; see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup — v1 ships).
 
@@ -1074,7 +1183,7 @@ Every consumer (event list, scrubber, Issues badge counter, palette verbs) reads
 
 | # | Invariant | Enforcement |
 |---|---|---|
-| **I1** | **Frame picker excludes `:rf/causa`** from the inspectable-frame list by default. Internal frames (`:rf/causa`, future `:rf/re-frame2-pair`) are filtered out at the `(rf/list-frames)` consumer in `panels/ribbon.cljs` frame-dropdown. | Settings popup (§9) carries a power-user toggle **"Show tool frames in picker"** under View → Power user (off by default; off in fresh installs; on only when a framework dev is debugging Causa itself). |
+| **I1** | **Frame picker excludes `:rf/causa`** from the inspectable-frame list by default. Internal frames (`:rf/causa`, future `:rf/re-frame2-pair`) are filtered out at the available-frames consumer in `frame_switcher.cljs` (the chrome-ribbon frame dropdown). | Settings popup (§9) carries a power-user toggle **"Show tool frames in picker"** under View → Power user (off by default; off in fresh installs; on only when a framework dev is debugging Causa itself). |
 | **I2** | **No Causa UI view reads from `:rf/causa` for data purposes.** Subscribes inside a Causa view that need host-app data MUST target the selected frame (`(rf/sub :the-sub :frame (sub :rf.causa/focus.frame))` form). Subscribes targeting Causa's own state (selection, mode, filters, settings) are fine but never appear in the inspected-data panels (Event/App-db/Views/Trace/Machines/Issues). | Code review + dev-time lint: a predicate added to `tools/causa/src/.../shell.cljs` mount path walks the registered sub graph and asserts no Causa-namespaced sub feeds an Event/App-db/Views/Trace/Machines/Issues render path. Throws useful error during dev mount; no-op in production. |
 | **I3** | **Views panel render-attribution is scoped to the selected frame ONLY.** The frame's per-cascade render projection must filter component-render entries to those whose owning frame matches `:rf.causa/focus.frame`. Causa's own React subtrees must not bleed in even when both frames mount under the same `react-dom` root. | Implementation: render tracker tags each component-render with `:owning-frame` at capture time; Views panel reads `(filter #(= (:owning-frame %) frame) renders)`. |
 | **I4** | **Test gate — Causa-self-observation is disallowed by CI.** Browser feature test: open Causa; select `:rf/default`; trigger a Causa-internal hover (a Causa-side hover-render); assert Views panel for `:rf/default` does NOT include any Causa-namespaced component. | Lives in `tools/causa/test/day8/re_frame2_causa/isolation_test.cljs` (new). Runs in `npm run test:browser`. **Failure blocks merge.** |

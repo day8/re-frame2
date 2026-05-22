@@ -61,7 +61,7 @@ the left because normal layout owns the relationship.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ LAYER 1  Top ribbon (56px)                                              │  scope controls
+│ LAYER 1  Two ribbons — chrome (40px) + events ribbon (rf2-4vp5j)        │  scope + spine controls
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -75,7 +75,8 @@ Wireframe at default (800px popout, "cosy" density):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ [◀ ▶ ⏭] │ Frame: :app/main ▾ │ [+ :auth/* ✎] [× :mouse-move ✎] [+] │ ● LIVE │ ⚙ ⛶ ✕ │   L1
+│ Frame: :app/main ▾   Dynamic ▾                          🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
+│ Events: [◀ ▶ ⏭]  🎯 :order/retry  [+ :auth/* ✎] [× :mouse-move ✎] [+]   │   L1.5 events ribbon
 ├─────────────────────────────────────────────────────────────────────────┤
 │ ● :auth/login                                          [● REDACTED 1]   │   L2 — 8 rows default
 │ ● :app/route-changed                                                    │      single-line
@@ -94,12 +95,16 @@ Wireframe at default (800px popout, "cosy" density):
 
 The four layers, top to bottom:
 
-1. **L1 — Top ribbon (56px).** Four clusters: nav (`◀` `▶` `⏭`) ·
-   frame picker · filter pills (IN/OUT) · right-icons (settings `⚙`
-   + popout `⛶` + close `✕`). The Mode pill widget that earlier
-   drafts placed between filter pills and right-icons was dropped —
-   LIVE/RETRO surfaces in the L2 event-list spine itself. Anatomy in
-   §The L1 ribbon below.
+1. **L1 — Two ribbons (rf2-4vp5j).** A **chrome ribbon** (40px) carries
+   scope selectors (frame view-scope dropdown + Dynamic/Static **mode
+   dropdown**) on the left and chrome actions (silent `🔇`/`●` indicators
+   + `⚙` settings + `✕` close) on the right. Below it an **events ribbon**
+   carries the spine + filter chrome that moved down: `Events:` label · nav
+   (`◀` `▶` `⏭`) · focus-chip · filter pills (IN/OUT) · the `N hidden` +
+   `Clear Filters` action cluster. (`⛶` popout is omitted — silent-by-
+   default until the second-window UX lands.) LIVE/RETRO surfaces in the
+   L2 event-list spine itself; the chrome ribbon's mode dropdown toggles
+   Dynamic ↔ Static (a separate axis). Anatomy in §The L1 ribbon below.
 2. **L2 — Event list.** 8 single-line rows default; vertically
    resizable (min 2); latest-on-bottom; virtualised. Single row shape
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
@@ -235,18 +240,32 @@ Unrecognised keys bubble normally so the surrounding chrome's
 `Ctrl+Shift+C` / `?` / `Esc` shortcuts remain reachable from the
 handle's focus position.
 
-## The L1 ribbon
+## The L1 ribbon — two ribbons (rf2-4vp5j)
 
-Four clusters, fixed order left to right. (The Mode pill widget that
-earlier drafts placed between filter pills and right-icons was
-dropped; LIVE/RETRO surfaces in the L2 event-list spine itself.)
+Layer 1 is **two stacked ribbons**, splitting scope SELECTORS from
+spine/filter CHROME. (The Dynamic/Static **mode dropdown** lives at
+chrome-ribbon-left — an earlier draft dropped the mode pill entirely; the
+rf2-4vp5j redesign re-added it as a compact `<select>`. LIVE/RETRO is a
+separate spine state, surfaced by the L2 head-row cue.)
 
-| Cluster | Width | Content | Keys |
+### L1 chrome ribbon (`rf-causa-ribbon`, 40px)
+
+| Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Nav** | 84px | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE) | `j` / `k` / `G` |
-| **Frame** | flex 0 1 200px | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select only.** Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Filter pills** | flex 1 1 auto | IN pills (green `+`) + OUT pills (magenta `×`) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
-| **Right-icons** | 96px | `⚙` settings popup · `⛶` popout (`window.open` whole shell) · `✕` close shell | `,` or `s` · `o` · `Esc` |
+| **Frame** | left | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
+| **Mode** | left | `Dynamic ▾` / `Static ▾` dropdown — compact; the 2-px left-edge accent stripe carries the mode signal. | `Cmd/Ctrl-Shift-M` |
+| **Indicators** | right | Silent-by-default `🔇 N` mute + `● N` REDACTED (each painted only when count > 0). | — |
+| **Right-icons** | right | `⚙` settings popup · `✕` close shell (`:rf.causa/close-shell`). `⛶` popout is omitted (reserved for the second-window UX — silent by default). | `,` or `s` · `Esc` |
+
+### L1.5 events ribbon (`rf-causa-events-ribbon`)
+
+| Cluster | Side | Content | Keys |
+|---|---|---|---|
+| **Label** | left | `Events:` | — |
+| **Nav** | left | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE) | `j` / `k` / `G` |
+| **Focus chip** | left | `🎯 <label> ✕` — current focus; click to reveal pivot row; `✕` clears. | `Esc` clears |
+| **Filter pills** | left | IN pills (green `+`) + OUT pills (magenta `×`) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
+| **Hidden + Clear** | far right | `N events hidden by filters` (only when N > 0) + `Clear Filters` (whenever any filter active). | — |
 
 Full anatomy + filter-pill edit popup in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §3 + §7.
@@ -264,7 +283,7 @@ contract:
 | Sub | `:rf.causa/current-frame` | Returns the frame id the user has focused (or nil pre-selection). |
 | Sub | `:rf.causa/available-frames` | First-seen-order vec of selectable frames; tool frames filtered by default per §I1 below. |
 | Event-fx | `:rf.causa/select-frame <frame-id>` | Canonical write. Dispatches the spine's `:rf.causa/set-frame` (which re-seeds `:target-frame` + `:epoch-history` — see [`018-Event-Spine.md`](./018-Event-Spine.md) §6) AND fires `:rf.causa.frame-switcher/persist` for localStorage. |
-| Fx | `:rf.causa.frame-switcher/persist` | localStorage write under `re-frame2.causa.frame-switcher.v1` (per-instance overridable via the direct setter `day8.re-frame2-causa.frame-switcher/set-storage-key!`; a future `configure! :rf.causa/frame-switcher-storage-key` plumb is straightforward but not wired today). |
+| Fx | `:rf.causa.frame-switcher/persist` | localStorage write under `re-frame2.causa.frame-switcher.v1` (per-instance overridable via the direct setter `day8.re-frame2-causa.frame-switcher/set-storage-key!`; a future `configure! :rf.causa/frame-switcher-storage-key` plumb is straightforward but not wired today). **Per rf2-swclw the frame pin is a TRANSIENT view scope: it is NOT hydrated on load — `mount.cljs/::reset-transient-filters` clears the stored value so each session starts at the head-frame default.** The write still happens within a session; only the load resets. |
 
 Every frame-aware feature — the L1 ribbon picker, the Cmd-K palette's
 `:palette/select-frame` verb, future panel-by-frame surfaces — MUST
@@ -472,8 +491,9 @@ Subscriptions exposed for tools / tests:
 
 ## IN/OUT filter pills
 
-Live in the L1 ribbon (NOT a separate L1.5 strip; NOT a sidebar).
-Two pill types (colour + glyph encode mode):
+Live in the **L1.5 events ribbon** (rf2-4vp5j moved them down out of the
+chrome ribbon; NOT a sidebar). Two pill types (colour + glyph encode
+mode):
 
 ```
 [+ :auth/* ✎]      ← filter-IN  · green border · `+` glyph    · show ONLY matches
@@ -482,7 +502,12 @@ Two pill types (colour + glyph encode mode):
 ```
 
 AND across modes; OR within mode. `(match-any-IN) AND NOT
-(match-any-OUT)`. localStorage persists per host app. Full edit-popup
+(match-any-OUT)`. localStorage persists per host app **within a session,
+but RESETS on every load** (rf2-swclw — pills are a transient filter; a
+fresh load starts unfiltered). When a filter is hiding rows mid-session,
+the events ribbon's far-right cluster shows `N events hidden by filters` +
+`Clear Filters` (rf2-jvghz). The frame view-scope is NOT a pill (rf2-4vp5j)
+— it is excluded from this composition + the hidden count. Full edit-popup
 contract + Recommended-filters quick-add + right-click context menu in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §7.
 
@@ -584,7 +609,7 @@ Three typefaces — two body workhorses + one display face:
   grotesque sans — the frontend-design rubric flags "Inter at every
   size" as a generic AI-aesthetic; one serif accent breaks the
   monotone. Body chrome stays Inter; L1 ribbon labels + chord
-  callouts + the mode pill stay Inter too (Fraunces is scoped to L4
+  callouts + the mode dropdown stay Inter too (Fraunces is scoped to L4
   panel headings).
 
 All three faces ship as `local()`-only `@font-face` rules from
@@ -1500,7 +1525,7 @@ panel). Static drops L2 — there is no spine in Static mode because the
 surface is event-independent — and renders 3 layers:
 
     ┌───────────────────────────────────────────────────────┐
-    │ L1  Top ribbon — mode pill · frame picker · icons     │
+    │ L1  Chrome ribbon — frame picker · mode dropdown · ⚙ ✕ │
     ├───────────────────────────────────────────────────────┤
     │ L3  Tab bar (40px) — 5 tabs                           │
     ├───────────────────────────────────────────────────────┤
@@ -1556,14 +1581,15 @@ Static opens the Machines registry browse.
 ### Mode-signal mechanism (4 stacked signals)
 
 The user reads Static at a glance via four stacked signals — together
-they telegraph the mode without the user needing to look at the pill:
+they telegraph the mode without the user needing to look at the dropdown:
 
-1. **Mode pill** at ribbon-left — two-segment radio
-   `[● Dynamic] [○ Static]`, 160px total, accent-violet active
-   segment with a 200ms cross-fade. Lives in both modes (it's the
-   toggle, not the indicator). Cmd-Shift-M (the global chord) fires
-   the same `:rf.causa/toggle-mode` event so chord and pill share
-   the handler.
+1. **Mode dropdown** at chrome-ribbon-left — a compact `<select>`
+   (`Dynamic ▾` / `Static ▾`), rf2-4vp5j (replaced the old 160px
+   two-segment radio pill — too dominant for an occasional-use control).
+   Lives in both modes (it's the toggle, not the indicator). Cmd-Shift-M
+   (the global chord) fires the same `:rf.causa/toggle-mode` event so
+   chord and dropdown share the handler. The mode SIGNAL is carried by
+   the accent stripe (#2) so the control itself recedes.
 2. **2-px left-edge ribbon stripe** — `:accent-violet` in Dynamic,
    `:cyan` (already in the palette) in Static. Zero new tokens
    introduced.
@@ -1582,8 +1608,8 @@ The mode slot lives on Causa's app-db at `[:rf.causa/mode]`
 `[:rf.causa.static/selected-tab]` (default `:machines`). Three event
 handlers drive the lifecycle:
 
-- `:rf.causa/set-mode` — writes a specific mode (mode-pill segment
-  clicks, hydration after localStorage read, test fixtures).
+- `:rf.causa/set-mode` — writes a specific mode (mode-dropdown
+  selection, hydration after localStorage read, test fixtures).
 - `:rf.causa/toggle-mode` — flips between modes (the Cmd-Shift-M
   chord — see `keybinding.cljs`).
 - `:rf.causa.static/select-tab` — flips the Static-scoped tab
@@ -1607,8 +1633,8 @@ its rendered component carries `:contextType frame-context` (rf2-in6l2
 ### Availability
 
 Static mode is unconditionally available. The surface composer reads
-`:rf.causa/mode`, the mode pill mounts at ribbon-left in every host,
-and the Cmd-Shift-M / Ctrl-Shift-M chord drives the toggle. Per
+`:rf.causa/mode`, the mode dropdown mounts at chrome-ribbon-left in every
+host, and the Cmd-Shift-M / Ctrl-Shift-M chord drives the toggle. Per
 rf2-8l3uk the prior `:rf.causa/static-mode?` opt-in feature gate was
 removed (pre-alpha posture — back-compat shims are out of scope; if
 Static mode is useful, expose it unconditionally).
@@ -1660,7 +1686,7 @@ then dispatches the active mode's tab — see §Keyboard).
 motion — live ONCE in the HCM token registry (`theme/tokens.cljc`,
 `theme/global-styles/*`) and apply across both modes. Visual cohesion
 between Dynamic and Static is achieved at the token layer, not by
-shell-ns reuse. The mode-signal mechanism (mode pill, 2-px ribbon
+shell-ns reuse. The mode-signal mechanism (mode dropdown, 2-px ribbon
 stripe colour, motion-dampening, chrome silhouette — see §Mode-signal
 mechanism above) reads from tokens; the divergence is in which tokens
 each shell selects (Dynamic's `:accent-violet` stripe vs Static's
