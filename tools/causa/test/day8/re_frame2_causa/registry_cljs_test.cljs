@@ -315,11 +315,11 @@
    :rf.causa/trace-buffer
    ;; rf2-7dyi8 — per-row inline payload expansion state (spec/021 §5.4).
    :rf.causa/trace-expanded-row-ids
+   ;; rf2-td380 — epoch-scoped feed (reads the focused epoch record's
+   ;; `:trace-events` directly). The `:rf.causa/trace-feed-state`
+   ;; buffer snapshot + `:rf.causa/trace-filters` chip-filter slot were
+   ;; removed with rf2-td380 + rf2-gkczt.
    :rf.causa/trace-feed
-   ;; rf2-39n8h discovered — trace-feed UI-state slot (selection /
-   ;; expansion state shared by the Trace panel).
-   :rf.causa/trace-feed-state
-   :rf.causa/trace-filters
    ;; Reactive panel (rf2-wyvf2 · spec/021 §3 · renamed from Views per
    ;; §11.5; tab key stays `:views`, display label rebases). Reads the
    ;; focused cascade's `:trace-events` for the substrate ops landed in
@@ -367,7 +367,6 @@
    :rf.causa/close-segment-inspector
    ;; rf2-7dyi8 — drop every expanded trace-row id in one shot.
    :rf.causa/clear-trace-expand
-   :rf.causa/clear-trace-filters
    :rf.causa/close-edit-popup
    :rf.causa/close-shell
    :rf.causa/copy-path-to-clipboard
@@ -526,7 +525,6 @@
    :rf.causa/machine-focus-prev
    :rf.causa/machine-focus-next
    :rf.causa/set-target-frame
-   :rf.causa/set-trace-filter
    ;; rf2-9poxq — Settings popup events.
    ;; rf2-ttnst — Settings popup Buffer-tab clear-buffer family
    ;; (confirm / cancel / clear).
@@ -1072,12 +1070,6 @@
         (is (= #{} (:prefixes filters)))
         (is (nil? (:since-ms filters)))))))
 
-(deftest sub-trace-filters-default-empty-map
-  (testing ":rf.causa/trace-filters defaults to {}"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))))))
-
 (deftest sub-reactive-show-unchanged-defaults-false
   (testing ":rf.causa/reactive-show-unchanged? defaults to false
             (rf2-wyvf2 — Reactive panel disclosure slot per spec/021
@@ -1129,13 +1121,15 @@
         (is (= :no-focus (:empty-kind data)))))))
 
 (deftest sub-trace-feed-shape-on-empty-buffer
-  (testing ":rf.causa/trace-feed returns :no-events empty-kind initially"
+  (testing ":rf.causa/trace-feed returns :no-focus empty-kind initially
+            (rf2-td380 — epoch-scoped: no focused epoch + empty history
+            → :no-focus / 0 rows)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (let [data @(rf/subscribe [:rf.causa/trace-feed])]
         (is (= 0 (:total data)))
         (is (= 0 (:rendered data)))
-        (is (false? (:any-filter? data)))))))
+        (is (= :no-focus (:empty-kind data)))))))
 
 (deftest sub-machine-inspector-data-shape-empty
   (testing ":rf.causa/machine-inspector-data returns :no-machines kind when
@@ -1213,21 +1207,6 @@
       (let [f @(rf/subscribe [:rf.causa/issues-filters])]
         (is (= #{} (:severities f)))
         (is (= #{} (:prefixes f)))))))
-
-(deftest event-set-trace-filter-axis-and-clear
-  (testing ":rf.causa/set-trace-filter sets/clears a single axis"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-trace-filter :op-type :event])
-      (is (= {:op-type :event} @(rf/subscribe [:rf.causa/trace-filters])))
-      (rf/dispatch-sync [:rf.causa/set-trace-filter :source :test])
-      (is (= {:op-type :event :source :test}
-             @(rf/subscribe [:rf.causa/trace-filters])))
-      ;; nil value clears that axis only
-      (rf/dispatch-sync [:rf.causa/set-trace-filter :op-type nil])
-      (is (= {:source :test} @(rf/subscribe [:rf.causa/trace-filters])))
-      (rf/dispatch-sync [:rf.causa/clear-trace-filters])
-      (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))))))
 
 (deftest event-reactive-toggle-unchanged-flips-slot
   (testing ":rf.causa/reactive-toggle-unchanged toggles the panel's

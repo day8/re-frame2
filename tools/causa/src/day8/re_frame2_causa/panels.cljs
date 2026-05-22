@@ -71,7 +71,7 @@
   | **event-detail** | `:rf.causa/focus` · `:rf.causa/cascades` · `:rf.causa/target-frame-db` | `:rf.causa/focus-cascade` |
   | **app-db (current-state inspector)** | `:rf.causa/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area — rf2-okvit) | `:rf.causa/open-segment-inspector` |
   | **reactive-panel** | `:rf.causa/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.causa/reactive-toggle-unchanged` |
-  | **trace** | `:rf.causa/trace-feed` (incremental projection over the buffer) | `:rf.causa/select-dispatch-id` · `:rf.causa/open-in-editor` |
+  | **trace** | `:rf.causa/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events`, rf2-td380) | `:rf.causa/toggle-trace-row-expand` · `:rf.causa/open-in-editor` |
   | **machine-inspector** | `:rf.causa/machine-chart-data` · `:rf.causa/active-timers-for-focused-machine` · `:rf.causa/machine-scrubber-position` | scrubber events · `:rf.causa/focus-cascade` |
   | **routing** | `:rf.causa/registered-routes` · `:rf.causa/current-route-slice` · `:rf.causa/routing-tab-data` | route-simulation events |
   | **issues-ribbon** | `:rf.causa/issues-ribbon` (composite over focused epoch's `:trace-events` + filter chips per spec/021 §8) | `:rf.causa.issues/toggle-severity` · `:rf.causa.issues/toggle-prefix` · `:rf.causa.issues/clear-filters` |
