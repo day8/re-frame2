@@ -810,8 +810,13 @@
           state (h/rebuild-feed-state evs)
           ;; Fixture has dispatch-ids 10, 11, 12. Scope to 10 → rows 1, 2, 4.
           feed  (h/project-feed-from-state state {} {:cascade-dispatch-id 10})]
-      (is (= 5 (:total feed))
-          ":total reflects entire buffer, not the scoped subset")
+      ;; rf2-r6d6u: the denominator the view shows ('Y' of 'X / Y in
+      ;; view') is the in-scope, pre-user-filter count — NOT the whole
+      ;; buffer. Three rows belong to cascade 10, so :total is 3.
+      (is (= 3 (:total feed))
+          ":total reflects the in-scope subset (cascade 10), not the buffer")
+      (is (= 5 (:buffer-total feed))
+          ":buffer-total still carries the whole ring's size")
       (is (= 3 (:rendered feed))
           "three rows belong to cascade 10")
       (is (= #{1 2 4} (set (mapv :id (:rows feed))))
@@ -829,7 +834,13 @@
                                             {:op-type :error}
                                             {:cascade-dispatch-id 10})]
       (is (= 1 (:rendered feed)))
-      (is (= [2] (mapv :id (:rows feed)))))))
+      (is (= [2] (mapv :id (:rows feed))))
+      ;; rf2-r6d6u: the denominator stays the in-scope, PRE-user-filter
+      ;; count — cascade 10 has 3 rows, so 'X / Y in view' is '1 / 3',
+      ;; NOT '1 / 1'. The user filter narrows X, never Y.
+      (is (= 3 (:total feed))
+          ":total is the in-scope count before the user chip filter")
+      (is (= 5 (:buffer-total feed))))))
 
 (deftest project-feed-from-state-cascade-scope-no-overlap-empty
   (testing "rf2-ycoct: scope on a cascade not in the buffer renders
@@ -838,6 +849,10 @@
           state (h/rebuild-feed-state evs)
           feed  (h/project-feed-from-state state {} {:cascade-dispatch-id 99999})]
       (is (= 0 (:rendered feed)))
+      ;; rf2-r6d6u: no row is in scope → the scoped denominator is 0.
+      (is (= 0 (:total feed))
+          ":total is 0 when no buffered row matches the scope")
+      (is (= 5 (:buffer-total feed)))
       (is (= :no-matches (:empty-kind feed)))
       (is (= 99999 (:cascade-dispatch-id feed))))))
 
@@ -854,7 +869,11 @@
           feed  (h/project-feed-from-state state {} {:cascade-dispatch-id :ungrouped})]
       (is (= 2 (:rendered feed))
           "rows 1 and 3 have no :dispatch-id → they belong to :ungrouped")
-      (is (= #{1 3} (set (mapv :id (:rows feed))))))))
+      (is (= #{1 3} (set (mapv :id (:rows feed)))))
+      ;; rf2-r6d6u: the :ungrouped bucket has 2 in-scope rows → :total 2.
+      (is (= 2 (:total feed))
+          ":total counts the in-scope (:ungrouped) rows")
+      (is (= 3 (:buffer-total feed))))))
 
 (deftest project-feed-from-state-no-focus-defensive-empty-state
   (testing "rf2-ycoct defensive: opts passed with nil :cascade-dispatch-id
@@ -866,8 +885,13 @@
       (is (= :no-focus (:empty-kind feed)))
       (is (= 0 (:rendered feed)))
       (is (= [] (:rows feed)))
-      (is (= 5 (:total feed))
-          ":total reflects the buffer (the state is broken, not the data)"))))
+      ;; rf2-r6d6u: no focused cascade → nothing is in scope → the
+      ;; scoped denominator is 0. The raw ring is still surfaced via
+      ;; :buffer-total (the state is broken, not the data).
+      (is (= 0 (:total feed))
+          ":total is 0 — no focused cascade means nothing is in view")
+      (is (= 5 (:buffer-total feed))
+          ":buffer-total reflects the buffer (the state is broken, not the data)"))))
 
 (deftest project-feed-from-state-2-arity-preserves-global-ribbon-shape
   (testing "rf2-ycoct: the 2-arity (no opts) keeps the pre-rf2-ycoct
@@ -879,6 +903,11 @@
           feed  (h/project-feed-from-state state {})]
       (is (= 5 (:rendered feed))
           "every buffered row renders — no cascade-scope applied")
+      ;; rf2-r6d6u: unscoped → the global ribbon's denominator IS the
+      ;; whole buffer, so :total = :buffer-total = 5.
+      (is (= 5 (:total feed))
+          "unscoped :total is the whole buffer")
+      (is (= 5 (:buffer-total feed)))
       (is (nil? (:empty-kind feed)))
       (is (nil? (:cascade-dispatch-id feed))
           "the scope key is nil (no scope was passed)"))))

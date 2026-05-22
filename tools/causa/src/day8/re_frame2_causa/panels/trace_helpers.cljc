@@ -634,9 +634,10 @@
   The filter pass still walks the projected-row vector (a single
   reverse-then-filter over rows that are ALREADY projected — no
   per-event `project-row` cost) and stops at `cap` matches so the
-  view never sees more than its render-cap rows. The buffer's full
-  size is reflected by `:total`; the panel's overflow indicator
-  surfaces 'hidden N' from the cap-rows helper downstream.
+  view never sees more than its render-cap rows. `:total` reflects
+  the in-scope, pre-user-filter denominator (see Scoped denominator
+  below); `:buffer-total` carries the whole buffer's size for callers
+  that need it.
 
   ## Cascade-scope (rf2-ycoct)
 
@@ -645,6 +646,21 @@
   belonging to the focused cascade — honouring spec/018 §6 (every L4
   panel is a lens on the spine's focused event, not a global ribbon).
   User chip filters still apply AND-wise on top of the cascade scope.
+
+  ## Scoped denominator (rf2-r6d6u)
+
+  The Trace tab is a per-cascade lens, so its 'X / Y in view' header
+  must report a denominator that lives INSIDE the cascade scope. `Y`
+  (`:total`) is the count of in-scope rows BEFORE user chip filters;
+  `X` (`:rendered`) is the count AFTER user filters. When unscoped
+  (the 2-arity global-ribbon bridge / headless test rigs that pass no
+  `opts`) `:total` is the whole buffer — the global ribbon's
+  denominator IS the buffer. The previous shape always returned the
+  whole-buffer `:total`, so a `:below`-focused cascade with 8 in-scope
+  ops reported '8 / 113 in view' where 113 spanned every recent
+  cascade AND every frame — leaking the unscoped, cross-frame total
+  and violating frame isolation. `:buffer-total` preserves the
+  whole-buffer count for any caller that needs the raw ring size.
 
   Scope semantics:
 
@@ -667,8 +683,13 @@
   only — the cascade-scope is a system-level invariant, not a user
   narrowing.
 
-  Returned shape adds:
+  Returned shape adds / changes:
 
+    :total               — the in-scope, pre-user-filter row count
+                           (the 'Y' of 'X / Y in view'). Equals
+                           `:buffer-total` when unscoped.
+    :buffer-total        — the whole buffer's row count, regardless of
+                           scope (was the prior meaning of `:total`).
     :cascade-dispatch-id — the resolved scope value (nil when
                            unscoped) — the view uses it to label the
                            cascade-scope chip in the header.
@@ -688,10 +709,12 @@
          spine-aware? (some? opts)
          normalised (normalise-filters filters)
          passes?    (trace-bus/build-filter-predicate normalised)
-         total      (:total state)
+         ;; `buffer-total` is the whole ring's size; `total` (returned)
+         ;; is the in-scope, pre-user-filter denominator computed below.
+         buffer-total (:total state)
          no-focus?  (and spine-aware?
                          (nil? cascade-dispatch-id)
-                         (pos? total))
+                         (pos? buffer-total))
          in-scope?  (cond
                       no-focus?
                       (constantly false)
@@ -708,39 +731,53 @@
          no-user-filters? (empty? normalised)
          rows       (:projected-rows state)
          rev-rows   (rseq rows)
-         rendered+rows
+         ;; Single walk produces three numbers + the display vector:
+         ;;   scoped-total — in-scope rows, BEFORE user chip filters
+         ;;                  (the 'Y' of 'X / Y in view').
+         ;;   rendered     — in-scope rows that ALSO pass user filters
+         ;;                  (the 'X').
+         ;;   display-rows — the rendered rows, newest-first.
+         scoped+rendered+rows
          (cond
            ;; Defensive no-focus path: short-circuit to empty rows
            ;; without walking the buffer.
            no-focus?
-           [0 []]
+           [0 0 []]
 
            ;; Fast path: no user filters AND no cascade-scope → every
-           ;; row passes; just reverse the vector.
+           ;; row is in scope and passes; scoped-total = rendered =
+           ;; the full buffer.
            (and no-user-filters? (not scoped?))
-           [(count rows) (vec rev-rows)]
+           [buffer-total buffer-total (vec rev-rows)]
 
            :else
            (loop [remain rev-rows
+                  scoped-total 0
                   rendered 0
                   acc      (transient [])]
              (if (nil? (seq remain))
-               [rendered (persistent! acc)]
+               [scoped-total rendered (persistent! acc)]
                (let [row (first remain)
                      ev  (:raw row)]
-                 (if (and (in-scope? row)
-                          (or no-user-filters? (passes? ev)))
-                   (recur (next remain) (inc rendered) (conj! acc row))
-                   (recur (next remain) rendered acc))))))
-         [rendered display-rows] rendered+rows
+                 (if (in-scope? row)
+                   (if (or no-user-filters? (passes? ev))
+                     (recur (next remain) (inc scoped-total) (inc rendered)
+                            (conj! acc row))
+                     (recur (next remain) (inc scoped-total) rendered acc))
+                   (recur (next remain) scoped-total rendered acc))))))
+         [scoped-total rendered display-rows] scoped+rendered+rows
+         ;; The denominator the view shows: in-scope when scoped, the
+         ;; whole buffer when unscoped (global ribbon).
+         total      (if scoped? scoped-total buffer-total)
          empty-kind (cond
-                      (zero? total)    :no-events
-                      no-focus?        :no-focus
-                      (zero? rendered) :no-matches
-                      :else            nil)
+                      (zero? buffer-total) :no-events
+                      no-focus?            :no-focus
+                      (zero? rendered)     :no-matches
+                      :else                nil)
          active-filters (active-filters-summary normalised (:seen state))]
      {:rows                display-rows
       :total               total
+      :buffer-total        buffer-total
       :rendered            rendered
       :distinct            (effective-distinct (:distinct state)
                                                (:seen state)
