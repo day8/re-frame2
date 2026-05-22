@@ -383,45 +383,50 @@
               (is (some?    (:id t)))
               (is (true?    (:different-fn? t))))))
 
-        ;; ---- :machine op-type ----------------------------------------------
-        (testing ":machine :rf.machine/transition fires on a machine event"
-          (is (has-op? events :machine :rf.machine/transition)
-              "expected :machine :rf.machine/transition")
-          (let [t (:tags (find-op events :machine :rf.machine/transition))]
+        ;; ---- :rf.machine op-type -------------------------------------------
+        ;; Per Spec 009 §:op-type vocabulary the machine trace family rides
+        ;; op-type :rf.machine (the :rf.* single-root scheme; #1973 +
+        ;; rf2-aa5qi). The operation carries the slashed identity.
+        (testing ":rf.machine :rf.machine/transition fires on a machine event"
+          (is (has-op? events :rf.machine :rf.machine/transition)
+              "expected :rf.machine :rf.machine/transition")
+          (let [t (:tags (find-op events :rf.machine :rf.machine/transition))]
             (is (keyword? (:machine-id t)))
             (is (vector?  (:event t)))
             (is (map?     (:before t)))
             (is (map?     (:after t)))))
 
-        (testing ":machine :rf.machine.timer/scheduled fires when a state with :after is entered"
-          (is (has-op? events :machine :rf.machine.timer/scheduled)
-              "expected :machine :rf.machine.timer/scheduled")
-          (let [t (:tags (find-op events :machine :rf.machine.timer/scheduled))]
+        (testing ":rf.machine :rf.machine.timer/scheduled fires when a state with :after is entered"
+          (is (has-op? events :rf.machine :rf.machine.timer/scheduled)
+              "expected :rf.machine :rf.machine.timer/scheduled")
+          (let [t (:tags (find-op events :rf.machine :rf.machine.timer/scheduled))]
             (is (keyword? (:state t)))
             (is (number?  (:delay t)))))
 
-        ;; ---- routing :event ops --------------------------------------------
-        (testing ":event :rf.route.nav-token/allocated fires on :rf.route/transitioned full nav"
-          (is (has-op? events :event :rf.route.nav-token/allocated)
-              "expected :event :rf.route.nav-token/allocated")
-          (let [t (:tags (find-op events :event :rf.route.nav-token/allocated))]
+        ;; ---- routing :rf.event ops -----------------------------------------
+        ;; Route lifecycle traces ride the :rf.event family (op-type
+        ;; :rf.event; rf2-a20e9 completed the #1973 migration in routing).
+        (testing ":rf.event :rf.route.nav-token/allocated fires on :rf.route/transitioned full nav"
+          (is (has-op? events :rf.event :rf.route.nav-token/allocated)
+              "expected :rf.event :rf.route.nav-token/allocated")
+          (let [t (:tags (find-op events :rf.event :rf.route.nav-token/allocated))]
             (is (keyword? (:route-id t)))
             (is (some?    (:nav-token t)))))
 
-        (testing ":event :rf.route/fragment-changed fires on fragment-only navigation"
+        (testing ":rf.event :rf.route/fragment-changed fires on fragment-only navigation"
           ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments:
           ;; :rf.route/fragment-changed is the canonical op-name for fragment-only
           ;; navigation. Consumers discriminate full vs fragment-only by :tags.
-          (is (has-op? events :event :rf.route/fragment-changed)
-              "expected :event :rf.route/fragment-changed")
-          (let [t (:tags (find-op events :event :rf.route/fragment-changed))]
+          (is (has-op? events :rf.event :rf.route/fragment-changed)
+              "expected :rf.event :rf.route/fragment-changed")
+          (let [t (:tags (find-op events :rf.event :rf.route/fragment-changed))]
             (is (keyword? (:route-id t)))
             (is (string?  (:next-fragment t)))))
 
-        (testing ":event :rf.route/navigation-blocked fires when :can-leave returns false"
-          (is (has-op? events :event :rf.route/navigation-blocked)
-              "expected :event :rf.route/navigation-blocked")
-          (let [t (:tags (find-op events :event :rf.route/navigation-blocked))]
+        (testing ":rf.event :rf.route/navigation-blocked fires when :can-leave returns false"
+          (is (has-op? events :rf.event :rf.route/navigation-blocked)
+              "expected :rf.event :rf.route/navigation-blocked")
+          (let [t (:tags (find-op events :rf.event :rf.route/navigation-blocked))]
             (is (string?  (:requested-url t)))
             (is (keyword? (:rejecting-route t)))))
 
@@ -511,8 +516,12 @@
             (gap-check :rf.sub                        :rf.sub/create)
             (gap-check :rf.machine.lifecycle/created  :rf.machine.lifecycle/created)
             (gap-check :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed)
-            (gap-check :rf.machine/event-received     :rf.machine/event-received)
-            (gap-check :rf.machine/snapshot-updated   :rf.machine/snapshot-updated)
+            ;; op-type is the machine FAMILY :rf.machine; the slashed
+            ;; identity lives in :operation (rf2-aa5qi fixed these two
+            ;; emit-sites which previously rode the malformed slashed
+            ;; op-type :rf.machine/event-received / :rf.machine/snapshot-updated).
+            (gap-check :rf.machine :rf.machine/event-received)
+            (gap-check :rf.machine :rf.machine/snapshot-updated)
             (gap-check :rf.registry :rf.registry/handler-registered)
             (gap-check :rf.registry :rf.registry/handler-cleared)))
 

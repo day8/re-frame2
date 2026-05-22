@@ -98,15 +98,34 @@
   ;; trace), with :microsteps 1 (the :always microstep). Subs do NOT
   ;; recompute mid-cascade — the runtime's :sub/run only fires when
   ;; queried.
+  ;; `:op-type` is pinned on every entry below (rf2-a20e9): the prior
+  ;; fixture asserted `:operation` only, which is exactly the blind spot
+  ;; that let the machines `:op-type :machine → :rf.machine` drift pass
+  ;; CI. The op-type is the SEVERITY/FAMILY discriminator Causa's issue
+  ;; + reactive surfaces filter on; pinning it here catches any future
+  ;; envelope-level regression.
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :boot/init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :quiz}}
-   ;; Outer macrostep trace — ONE per dispatch. Tags carry :before /
-   ;; :after snapshots (per machines.lifecycle-fx.registration/
-   ;; commit-or-finalize). The :after snapshot's :state is :winner
-   ;; (the committed end-state), not an intermediate microstep value;
-   ;; the partial-match matcher confirms :machine-id, and :sub-values
-   ;; above confirms the post-commit snapshot is what subs observe.
-   {:operation :rf.machine/transition
+  [{:op-type :rf.event :operation :rf.event :tags {:rf.trace/event-id :boot/init}}
+   {:op-type :rf.event :operation :rf.event :tags {:rf.trace/event-id :quiz}}
+   ;; Outer macrostep trace — ONE per dispatch. The op-type is the
+   ;; machine FAMILY discriminator `:rf.machine` (NOT the slashed
+   ;; operation `:rf.machine/transition`); pinning op-type here is the
+   ;; load-bearing addition. Tags carry :before / :after snapshots (per
+   ;; machines.lifecycle-fx.registration/commit-or-finalize). The :after
+   ;; snapshot's :state is :winner (the committed end-state), not an
+   ;; intermediate microstep value; the partial-match matcher confirms
+   ;; :machine-id, and :sub-values above confirms the post-commit
+   ;; snapshot is what subs observe.
+   {:op-type   :rf.machine
+    :operation :rf.machine/transition
     :tags      {:machine-id :quiz
-                :event      [:answer-correct]}}]}}
+                :event      [:answer-correct]}}
+   ;; Snapshot-updated rides op-type `:rf.machine` too (operation
+   ;; `:rf.machine/snapshot-updated`). This emit-site previously carried
+   ;; the MALFORMED slashed op-type `:rf.machine/snapshot-updated`
+   ;; (rf2-aa5qi); pinning op-type `:rf.machine` here is the regression
+   ;; guard for that specific defect. Fires because the macrostep moved
+   ;; the snapshot (:asking → :winner).
+   {:op-type   :rf.machine
+    :operation :rf.machine/snapshot-updated
+    :tags      {:machine-id :quiz}}]}}

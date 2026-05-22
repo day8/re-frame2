@@ -138,7 +138,7 @@
     true
     (let [g       (resolve-guard machine guard-ref)
           outcome (boolean (call-guard g snapshot event))]
-      (trace/emit! :machine :rf.machine/guard-evaluated
+      (trace/emit! :rf.machine :rf.machine/guard-evaluated
                    {:machine-id (or (:rf/parent-id machine) (:id machine))
                     :guard-id   guard-ref
                     :input      {:data  (:data snapshot)
@@ -555,7 +555,7 @@
           frame-id  (:rf/frame machine)]
       (try
         (let [r (call-action f snap event)]
-          (trace/emit! :machine :rf.machine/action-ran
+          (trace/emit! :rf.machine :rf.machine/action-ran
                        {:machine-id parent-id
                         :action-id  action-ref
                         :input      {:data  (:data snap)
@@ -564,7 +564,7 @@
                         :frame      frame-id})
           (or r {}))
         (catch #?(:clj Throwable :cljs :default) e
-          (trace/emit! :machine :rf.machine/action-ran
+          (trace/emit! :rf.machine :rf.machine/action-ran
                        {:machine-id parent-id
                         :action-id  action-ref
                         :input      {:data  (:data snap)
@@ -669,7 +669,7 @@
                           ;; actual resolved-ms once it has frame access).
                           ms-tag       delay-key]
                       (if server?
-                        (trace/emit! :machine :rf.machine.timer/skipped-on-server
+                        (trace/emit! :rf.machine :rf.machine.timer/skipped-on-server
                                      (cond-> {:machine-id   parent-id
                                               :state        leaf-state
                                               :delay        ms-tag
@@ -680,7 +680,7 @@
                                               :recovery     :skipped}
                                        (= :sub delay-source)
                                        (assoc :sub-id (first delay-key))))
-                        (trace/emit! :machine :rf.machine.timer/scheduled
+                        (trace/emit! :rf.machine :rf.machine.timer/scheduled
                                      (cond-> {:machine-id   parent-id
                                               :state        leaf-state
                                               :delay        ms-tag
@@ -1354,7 +1354,7 @@
   [frame-id match]
   (when match
     (when (:stale? match)
-      (trace/emit! :machine :rf.machine.timer/stale-after
+      (trace/emit! :rf.machine :rf.machine.timer/stale-after
                    {:state           (:state match)
                     :delay           (:delay match)
                     :scheduled-epoch (:scheduled-epoch match)
@@ -1362,7 +1362,7 @@
                     :frame           frame-id
                     :recovery        :replaced-with-default}))
     (when (:guard-suppressed? match)
-      (trace/emit! :machine :rf.machine.timer/fired
+      (trace/emit! :rf.machine :rf.machine.timer/fired
                    {:state  (:state match)
                     :delay  (:delay match)
                     :epoch  (:epoch match)
@@ -1371,7 +1371,7 @@
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (:delay match))
-      (trace/emit! :machine :rf.machine.timer/fired
+      (trace/emit! :rf.machine :rf.machine.timer/fired
                    {:state  (last (:decl-path match))
                     :delay  (:delay match)
                     :epoch  (:epoch match)

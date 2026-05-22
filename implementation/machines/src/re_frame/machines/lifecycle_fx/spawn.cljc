@@ -134,7 +134,7 @@
                               system-id (assoc-in [:rf/system-ids system-id] spawned-id)
                               track?    (assoc-in [:rf/spawned parent-id invoke-id] spawned-id))))
     (when system-id
-      (trace/emit! :machine :rf.machine/system-id-bound
+      (trace/emit! :rf.machine :rf.machine/system-id-bound
                    {:frame      frame-id
                     :system-id  system-id
                     :machine-id spawned-id}))))
@@ -206,7 +206,7 @@
                         (allocate-actor-id-in-db old-db machine-id-for-alloc)
           :else         [old-db nil])
         spec''     (stamp-framework-data spec' spawned-id parent-id invoke-id)]
-    (trace/emit! :machine :rf.machine/spawned
+    (trace/emit! :rf.machine :rf.machine/spawned
                  {:frame      frame-id
                   :machine-id (:machine-id args)
                   :spawned-id spawned-id
@@ -275,7 +275,7 @@
         children   (:children join-state)]
     (frame/swap-frame-db! frame-id assoc-in
                           [:rf/spawned parent-id invoke-id] join-state)
-    (trace/emit! :machine :rf.machine.spawn-all/started
+    (trace/emit! :rf.machine :rf.machine.spawn-all/started
                  {:machine-id parent-id
                   :spawn-id  invoke-id
                   :child-ids  (set (keys children))

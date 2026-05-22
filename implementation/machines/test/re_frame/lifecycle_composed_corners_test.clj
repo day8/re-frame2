@@ -227,10 +227,10 @@
               "late child dispatch traced :rf.error/frame-destroyed")
           ;; The resolution event (:hydrate/done / :hydrate/failed) did
           ;; NOT fire — the join state is gone with the frame.
-          (is (not-any? #(and (= :event (:op-type %))
-                              (= :event/dispatched (:operation %))
-                              (or (= :hydrate/done   (first (:event (:tags %))))
-                                  (= :hydrate/failed (first (:event (:tags %))))))
+          (is (not-any? #(and (= :rf.event (:op-type %))
+                              (= :rf.event/dispatched (:operation %))
+                              (or (= :hydrate/done   (first (:rf.event/v (:tags %))))
+                                  (= :hydrate/failed (first (:rf.event/v (:tags %))))))
                         @recorded)
               "no :hydrate/done / :hydrate/failed dispatch was scheduled")
           (finally (unreg)))))))
