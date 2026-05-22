@@ -68,8 +68,7 @@
             [day8.re-frame2-causa.panels.managed-fx-subs :as managed-fx-subs]
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
-            [day8.re-frame2-causa.panels.trace :as trace]
-            [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
+            [day8.re-frame2-causa.panels.trace :as trace]))
 
 ;; ---- defaults (re-exported for back-compat callers) ---------------------
 ;;
@@ -487,6 +486,13 @@
     ;; is still callable by tests that exercise the legacy per-event
     ;; shape — there it preserves the rf2-z4fza contract those tests
     ;; assert.
+    ;;
+    ;; rf2-td380: the `:trace-feed-state` incremental snapshot
+    ;; (rf2-44vzy) was the read-side substrate for the OLD Trace feed,
+    ;; which scoped the global buffer by `:dispatch-id`. The Trace
+    ;; panel now reads the focused epoch record's `:trace-events`
+    ;; directly (epoch-scoped), so the snapshot has no consumer — it
+    ;; is gone, and these handlers single-write `:trace-buffer` again.
     (rf/reg-event-db :rf.causa/note-trace-event
       {:rf.trace/no-emit? true}
       (fn [db [_ event]]
@@ -495,40 +501,17 @@
               ev-id (:id event)]
           (if (and ev-id (some #(= ev-id (:id %)) buf))
             db
-            ;; Dual-write: keep the raw `:trace-buffer` slot in
-            ;; lockstep with the incrementally-maintained
-            ;; `:trace-feed-state` snapshot (rf2-44vzy). The trace
-            ;; panel's `:rf.causa/trace-feed` sub reads
-            ;; `:trace-feed-state`; every other consumer that holds
-            ;; a raw event vector keeps reading `:trace-buffer`.
-            ;; `feed-state-push` mirrors `trace-bus/push`'s capped
-            ;; eviction so the snapshot stays bounded by the same
-            ;; depth contract.
-            (let [feed-state (or (get db :trace-feed-state)
-                                 (trace-helpers/init-feed-state))]
-              (-> db
-                  (assoc :trace-buffer
-                         (trace-bus/push buf depth event))
-                  (assoc :trace-feed-state
-                         (trace-helpers/feed-state-push
-                           feed-state depth event))))))))
+            (assoc db :trace-buffer
+                   (trace-bus/push buf depth event))))))
 
     ;; Clear the mirrored slot in lockstep with the trace-bus atom
     ;; (dispatched from `trace-bus/clear-buffer!` in CLJS). Per
     ;; rf2-qsjda the `:rf.trace/no-emit?` flag applies for the same
     ;; loop-avoidance reason as `:rf.causa/note-trace-event`.
-    ;;
-    ;; Per rf2-44vzy: drop `:trace-feed-state` alongside the raw
-    ;; buffer so the precomputed projection inherits the same
-    ;; retroactive-scrub guarantee `trace-bus/clear-buffer!`
-    ;; provides — no projection residue surviving a privacy toggle
-    ;; (rf2-lqmje §Privacy / retroactive-scrub).
     (rf/reg-event-db :rf.causa/clear-trace-buffer
       {:rf.trace/no-emit? true}
       (fn [db _event]
-        (-> db
-            (dissoc :trace-buffer)
-            (dissoc :trace-feed-state))))
+        (dissoc db :trace-buffer)))
 
     ;; Wholesale overwrite of the mirrored slot. Dispatched from
     ;; `mount.cljs/open!` on first Ctrl+Shift+C to seed `:rf/causa`'s
@@ -537,20 +520,10 @@
     ;; when the depth shrinks so the mirror reflects the post-shrink
     ;; contents. Per rf2-qsjda `:rf.trace/no-emit? true` for the same
     ;; loop-avoidance reason.
-    ;;
-    ;; Per rf2-44vzy: rebuild `:trace-feed-state` from the seeded
-    ;; buffer so the incremental projection starts in lockstep with
-    ;; the slot. The rebuild is O(buffer × axes); paid once on seed
-    ;; (mount-time or post-shrink) — every subsequent note-trace-
-    ;; event runs in O(axes).
     (rf/reg-event-db :rf.causa/sync-trace-buffer
       {:rf.trace/no-emit? true}
       (fn [db [_ buffer]]
-        (let [buf (vec buffer)]
-          (-> db
-              (assoc :trace-buffer buf)
-              (assoc :trace-feed-state
-                     (trace-helpers/rebuild-feed-state buf))))))
+        (assoc db :trace-buffer (vec buffer))))
 
     ;; Bump the per-frame suppressed-events counter (rf2-0vxdn).
     ;; Dispatched from `trace-bus/collect-trace!` (CLJS) under

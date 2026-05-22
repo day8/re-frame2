@@ -581,49 +581,6 @@ async function setCausaTargetFrame(page, frame) {
   }
 }
 
-async function setCausaTraceFilter(page, axis, value) {
-  const result = await page.evaluate(({ axisName, valueName }) => {
-    const cljs = window.cljs && window.cljs.core;
-    const rf = window.re_frame && window.re_frame.core;
-    const dispatch = rf && (rf.dispatch_STAR_ ||
-      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
-    if (!cljs || typeof dispatch !== 'function') {
-      return {
-        ok: false,
-        reason: 'cljs.core or re_frame.core.dispatch_STAR_ unavailable',
-        reFrameCoreKeys: rf ? Object.keys(rf).sort().slice(0, 40) : [],
-      };
-    }
-    function keyword(s) {
-      const trimmed = String(s).replace(/^:/, '');
-      const parts = trimmed.split('/');
-      if (parts.length === 2) {
-        return cljs.keyword.call
-          ? cljs.keyword.call(null, parts[0], parts[1])
-          : cljs.keyword(parts[0], parts[1]);
-      }
-      return cljs.keyword.call
-        ? cljs.keyword.call(null, trimmed)
-        : cljs.keyword(trimmed);
-    }
-    const event = cljs.PersistentVector.fromArray([
-      keyword(':rf.causa/set-trace-filter'),
-      keyword(axisName),
-      keyword(valueName),
-    ], true);
-    const opts = cljs.hash_map(keyword(':frame'), keyword(':rf/causa'));
-    if (dispatch.cljs$core$IFn$_invoke$arity$2) {
-      dispatch.cljs$core$IFn$_invoke$arity$2(event, opts);
-    } else {
-      dispatch(event, opts);
-    }
-    return { ok: true, axis: axisName, value: valueName };
-  }, { axisName: axis, valueName: value });
-  if (!result.ok) {
-    failWithDetails('Could not set Causa trace filter', { axis, value, observed: result });
-  }
-}
-
 /**
  * Find the `:dispatch-id` of the bus trace event matching the given
  * (`frame`, `eventId`) pair (an `:event/dispatched` record) and
@@ -738,30 +695,6 @@ async function focusCascadeByFrameEvent(page, { frame, eventId }) {
     });
   }
   return result;
-}
-
-async function readTraceCounts(page) {
-  const text = ((await page.locator('[data-testid="rf-causa-trace-counts"]').textContent()) || '').trim();
-  const match = /(\d+)\s*\/\s*(\d+)\s+in view/.exec(text);
-  if (!match) {
-    throw new Error(`Could not parse trace counts: ${JSON.stringify(text)}`);
-  }
-  return { rendered: Number(match[1]), total: Number(match[2]), text };
-}
-
-async function readTraceDomBudget(page) {
-  return page.evaluate(() => {
-    const root = document.getElementById('rf-causa-root');
-    const feed = root && root.querySelector('[data-testid="rf-causa-trace-feed"]');
-    const overflow = root && root.querySelector('[data-testid="rf-causa-trace-overflow-indicator"]');
-    return {
-      rootPresent: Boolean(root),
-      feedPresent: Boolean(feed),
-      rowCount: root ? root.querySelectorAll('li[data-testid^="rf-causa-trace-row-"]').length : 0,
-      overflowPresent: Boolean(overflow),
-      overflowText: overflow ? (overflow.textContent || '').trim() : null,
-    };
-  });
 }
 
 // rf2-r6d6u: the trace header's 'X / Y in view' denominator is now
@@ -916,7 +849,6 @@ async function readLaunchModeProjection(page) {
         // rendered, 0 when the empty container or orphaned branch is.
         cascadeRows: count(root, '[data-testid="rf-causa-event-detail-cascade"]'),
         traceRows: count(root, '[data-testid^="rf-causa-trace-row-"]'),
-        traceCountsText: text(root, '[data-testid="rf-causa-trace-counts"]'),
       };
     }
     const trace = traceEvents();
@@ -1016,10 +948,15 @@ async function runShellFeatureSweep(page) {
   );
 
   await clickTab(page, 'trace', 'rf-causa-trace');
-  const traceCounts = await readTraceCounts(page);
-  if (traceCounts.total < 1) {
-    throw new Error(`Expected non-empty trace feed, got ${traceCounts.text}.`);
-  }
+  // rf2-td380: the Trace panel is epoch-scoped — after the host
+  // dispatches above, LIVE auto-snap focuses the head epoch whose
+  // `:trace-events` populate the ribbon. Assert non-empty via the
+  // rendered rows (the 'X / Y in view' counts header is gone, rf2-o6yqq).
+  await waitForValue(
+    () => page.locator('li[data-testid^="rf-causa-trace-row-"]').count(),
+    (count) => count > 0,
+    { timeoutMs: 5000, description: 'epoch-scoped trace feed renders rows' },
+  );
 }
 
 async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
@@ -1028,7 +965,10 @@ async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
   await clearTrace(page);
   await clickHostButtonByLabel(page, '+');
   await waitForTraceMatch(page, /counter\/core\.cljs/, 'counter source-coordinate trace');
-  await setCausaTraceFilter(page, ':source', ':ui');
+  // rf2-td380 + rf2-gkczt: the Trace panel is epoch-scoped with no chip
+  // filter. After the host dispatch the spine auto-snaps focus to the
+  // head epoch (LIVE), whose `:trace-events` carry the source-coord
+  // rows — no filter step needed; every row's source-coord chip renders.
   await waitForValue(
     () => page.locator('[data-testid^="rf-causa-trace-row-"] button[data-testid$="-source-coord"]').count(),
     (count) => count > 0,
@@ -1740,44 +1680,6 @@ async function runHydration(page) {
   );
 }
 
-async function runTwentyEventLoad(page, state) {
-  await expectHostCounterEquals(page, 5, 10000);
-  await openCausa(page);
-  await clickTab(page, 'trace', 'rf-causa-trace');
-  await clearTrace(page);
-  const before = await readTraceCounts(page).catch(() => ({ rendered: 0, total: 0, text: 'empty' }));
-  const start = Date.now();
-  for (let i = 0; i < 20; i += 1) {
-    await clickHostButtonByLabel(page, i % 2 === 0 ? '+' : '-');
-  }
-  const after = await waitForValue(
-    () => readTraceCounts(page),
-    (counts) => counts.total > before.total,
-    { timeoutMs: 10000, description: 'trace count growth after 20 dispatches' },
-  );
-  const elapsedMs = Date.now() - start;
-  await clickTab(page, 'event', 'rf-causa-event-detail');
-  // Per rf2-639lc the L4 panel default-focuses the head cascade on
-  // mount — assert the cascade-detail surface rendered (proves the
-  // spine pipeline emitted routable cascades visible to L4).
-  await waitForValue(
-    () => page.locator('[data-testid="rf-causa-event-detail-cascade"]').count(),
-    (count) => count > 0,
-    { timeoutMs: 5000, description: 'event-detail cascade default-focus after load' },
-  );
-  // Post rf2-xy4yb + rf2-y0z5b: the Causality Graph panel was
-  // dropped entirely. The 20-event load-recheck still asserts trace
-  // + event-tab cascade growth, which exercises the spine +
-  // projection pipeline end-to-end.
-  state.loadStats = {
-    eventCountBefore: before.total,
-    eventCountAfter: after.total,
-    visibleRows: after.rendered,
-    traceBufferDepth: after.total,
-    elapsedMs,
-  };
-}
-
 async function runTraceBudgetSaturation(page, state) {
   await expectHostCounterEquals(page, 5, 10000);
   await openCausa(page);
@@ -1785,57 +1687,42 @@ async function runTraceBudgetSaturation(page, state) {
   await clearTrace(page);
   const start = Date.now();
   const pushed = await pushSyntheticTraceEvents(page, 1000);
-  // rf2-r6d6u: assert ring saturation against the BUS depth, not the
-  // header denominator (the latter is now cascade-scoped, not the ring).
+  // rf2-r6d6u + rf2-td380: the saturation invariant is a RING property,
+  // read straight from the trace bus. Post-rf2-td380 the Trace PANEL is
+  // epoch-scoped — it renders the focused epoch record's `:trace-events`,
+  // NOT the global bus — so the synthetic bus events do not reach the
+  // panel DOM and the old 'panel DOM caps at 200 bus rows' assertion no
+  // longer describes the panel. We assert the bus ring caps at 1000 and
+  // stays capped under continued host traffic.
   const saturatedDepth = await waitForValue(
     () => readTraceBufferDepth(page),
     (depth) => depth === 1000,
     { timeoutMs: 10000, description: 'trace buffer saturation at 1000 rows' },
   );
-  const saturated = await readTraceCounts(page);
-  const saturatedDom = await waitForValue(
-    () => readTraceDomBudget(page),
-    (budget) => budget.rowCount === 200 && budget.overflowPresent,
-    { timeoutMs: 10000, description: 'trace DOM row budget at 200 with overflow indicator' },
-  );
-  if (saturatedDom.rowCount > 200) {
-    failWithDetails('Trace panel exceeded its 200-row DOM budget under saturation', {
-      pushed,
-      counts: saturated,
-      dom: saturatedDom,
-    });
-  }
 
   for (let i = 0; i < 20; i += 1) {
     await clickHostButtonByLabel(page, i % 2 === 0 ? '+' : '-');
   }
-  // rf2-r6d6u: 'still capped' is a RING invariant — assert the bus depth
-  // stays at 1000 (host dispatches evict synthetic rows but never grow
-  // the ring) and the DOM budget stays ≤ 200. The header denominator is
-  // now cascade-scoped, so it no longer equals the ring depth.
+  // 'still capped' is a RING invariant — the bus depth stays at 1000
+  // (host dispatches evict synthetic rows but never grow the ring) and
+  // the host's own events keep flowing through the bus.
   const after = await waitForValue(
     async () => ({
       depth: await readTraceBufferDepth(page),
-      counts: await readTraceCounts(page),
-      dom: await readTraceDomBudget(page),
       events: await readTrace(page),
     }),
     (snapshot) =>
       snapshot.depth === 1000 &&
-      snapshot.dom.rowCount <= 200 &&
       snapshot.events.some((event) => event.includes(':counter/inc')) &&
       snapshot.events.some((event) => event.includes(':counter/dec')),
-    { timeoutMs: 10000, description: 'trace budget still capped after 20 host dispatches' },
+    { timeoutMs: 10000, description: 'trace ring still capped after 20 host dispatches' },
   );
   state.loadStats = {
     eventCountBefore: saturatedDepth,
     eventCountAfter: after.depth,
     traceBufferDepth: after.depth,
-    scopedDenominator: after.counts.total,
-    visibleRowCount: after.dom.rowCount,
     renderDurationMs: Date.now() - start,
     bufferEvictionCount: Math.max(0, saturatedDepth + 20 - after.depth),
-    overflowText: after.dom.overflowText,
     syntheticEventsPushed: pushed.pushed,
   };
 }

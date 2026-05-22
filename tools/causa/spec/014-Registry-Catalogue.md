@@ -369,22 +369,27 @@ panel-owned events — reuses `:rf.causa/select-dispatch-id` and
 
 ## Trace panel
 
-Consumer of the canonical 9-axis filter vocabulary documented in
-[`spec/009-Instrumentation.md` §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary).
+Epoch-scoped raw-event ribbon (rf2-td380): reads the focused epoch
+record's `:trace-events` (the complete domino trail for one event —
+both the synchronous event-side rows AND the async nil-dispatch-id
+reactive rows) via `:rf.causa/focus` + `:rf.causa/epoch-history`,
+resolved through `panels.shared.focus-resolver`. No chip-filtering
+(rf2-gkczt) and no top header row (rf2-o6yqq) — the focused epoch IS
+the scope, and the per-row payload-expand affordance is the drill-down.
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.causa/trace-filters` | The current 9-axis filter map. |
-| `:rf.causa/trace-feed` | Composite — `{:rows :total :rendered :distinct :counts :filters :any-filter? :empty-kind}`. |
+| `:rf.causa/trace-feed` | Composite over the focused epoch's `:trace-events` — `{:rows :total :rendered :epoch-id :empty-kind}`. `:empty-kind` ∈ `#{:no-focus :epoch-evicted :no-events nil}`. |
+| `:rf.causa/trace-expanded-row-ids` | The set of trace-row ids whose inline payload is expanded (spec/021 §5.4). |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.causa/set-trace-filter` | `[_ axis value]` | Sets / clears one axis. `nil` value clears that axis. v1 is single-value per axis; multi-value rides a follow-on. |
-| `:rf.causa/clear-trace-filters` | `[_]` | Clears every axis. |
+| `:rf.causa/toggle-trace-row-expand` | `[_ row-id]` | Toggle a row's inline payload expansion membership. |
+| `:rf.causa/clear-trace-expand` | `[_]` | Drop every expanded trace-row id. |
 
 ## Routes panel
 

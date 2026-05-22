@@ -93,14 +93,15 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 7. filter active --------------------------------------------
-  (story/reg-variant :story.causa.trace/filter-active
-    {:doc        "Ten events with an active :op-type :event filter.
-                 Header surfaces 'Clear filters'; the chip row
-                 surfaces the active chip highlit. Feed renders only
-                 the matching rows."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/filtered-active-buffer)]
-                  [:rf.causa/set-trace-filter :op-type :event]]
+  ;; ----- 7. mixed op-types -------------------------------------------
+  ;; rf2-gkczt: chip-filtering was removed from the Trace panel — the
+  ;; focused epoch IS the scope. This variant now just exercises a
+  ;; mixed-op-type buffer (the former 'filter-active' fixture) with no
+  ;; filter event.
+  (story/reg-variant :story.causa.trace/mixed-op-types
+    {:doc        "Ten events spanning mixed op-types. The feed renders
+                 every row (no chip-filtering post-rf2-gkczt)."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/filtered-active-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
