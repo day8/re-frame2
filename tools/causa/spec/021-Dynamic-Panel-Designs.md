@@ -84,7 +84,18 @@ own lens. **No third axis. No cross-epoch L4 panels.**
 
 ### §1.1 The epoch — eight steps, two perspectives
 
-Re-frame2 runs as a sequence of epochs. One epoch = one event's full chain.
+Re-frame2 runs as a sequence of epochs. **One epoch = one dequeued
+event's full chain** — the epoch boundary is the per-DEQUEUED-EVENT, not
+the drain-settle (per [framework 002 §Drain versus event — the epoch
+unit](../../../spec/002-Frames.md#drain-versus-event--the-epoch-unit) /
+rf2-nj6p7). Each `:fx :dispatch` child event and each frame-init event is
+its OWN epoch, carrying its own `:rf/epoch-record` (`:db-before` /
+`:db-after` / `:trace-events` / `:dispatch-id`). A user gesture that
+fans out to N child dispatches therefore produces N+1 epochs, each a
+focusable L2 row — NOT one merged "settle" epoch. This is why every L4
+panel can scope cleanly to "the focused epoch's record" (§1.2): the
+record IS one event's complete cascade.
+
 The split that organises the L4 panels is **handling vs reactive** —
 state-mutating vs state-observing.
 
@@ -108,6 +119,19 @@ timeline as per-row badges (B.1.1 super-prompt; restated in §1 here).
 This is binding: workers implementing per-panel beads MUST NOT introduce
 "aggregate across epochs" subviews inside L4 — those go on L2 as badges,
 or out-of-scope.
+
+**Epoch-record correlation via `focus.epoch-id` (rf2-rly4a).** The
+panels resolve "the focused epoch's record" by joining the spine's
+`:rf.causa/focus` (carrying `:epoch-id`) with `:rf.causa/epoch-history`
+(the framework's per-frame ring of `:rf/epoch-record` maps) through the
+shared `panels.shared.focus-resolver` — which classifies the focus status
+(`:no-focus` / `:focused` / `:epoch-evicted`, with the head-fallback) and
+looks up the record. The cascade↔epoch correlation is backed by the
+`:dispatch-id` slot on the epoch record: a cascade (L2 row) maps to its
+settling epoch, and `focus.epoch-id` is the canonical key the
+Views / Trace / App-DB Diff / Issues panels all scope by. This is what
+keeps Views + Trace showing the SAME event's data (rf2-rly4a fixed a
+regression where they could drift apart).
 
 ### §1.3 Inspect vs Rewind — non-destructive by default
 
@@ -145,13 +169,17 @@ Every epoch carries a dispatch origin tag (per A.5 super-prompt):
 in step 1 (Dispatch); the L2 timeline surfaces it as a short prefix on
 each row. There is no such thing as a context-less epoch.
 
-### §1.6 Single-frame focus
+### §1.6 Single-frame focus — the frame is a VIEW SCOPE (rf2-4vp5j)
 
-Causa observes one target frame at a time, picked via the L1 frame
-picker. The L2 timeline lists that frame's epoch stream; the L4 panels
-read state from that frame. No per-frame split layouts, no
-colour-coding-by-frame on the timeline. Multi-frame apps are inspected
-by switching focus.
+Causa observes one target frame at a time, picked via the L1 chrome-ribbon
+frame dropdown. The frame is a **single, defaulted VIEW SCOPE, not a
+filter** (rf2-4vp5j): it defaults to the head epoch's frame, single-select,
+is NOT persisted (resets on load — rf2-swclw), and is NOT counted as
+"hidden by filters". The L2 timeline lists that frame's epoch stream; the
+L4 panels read state from that frame. No per-frame split layouts, no
+colour-coding-by-frame on the timeline. Multi-frame apps are inspected by
+switching focus. See [`018-Event-Spine.md` §Frame picker is a view
+scope](018-Event-Spine.md) + [`020-Filter-Predicates.md` §3](020-Filter-Predicates.md).
 
 ---
 
@@ -283,7 +311,7 @@ Sparse case (focused epoch is a noisy timer with no effects):
 
 | From | Reads |
 |---|---|
-| Trace bus | `:rf/event-dispatched` (step 1), `:rf/coeffects-assembled` (step 2), `:rf/handler-invoked` (step 3), `:rf/effects-returned` (step 4), `:rf/effects-applied` per fx-id (step 5), `:rf.flow/computed` (step 6) — all filtered to the focused epoch's `:dispatch-id` |
+| Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.fx/do-fx` (step 4 — effects returned, carries `:rf.event/fx`), `:rf.fx/handled` per fx-id (step 5 — effects applied), `:rf.flow/computed` (step 6) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
 | Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated) |
 | App-db panel (bridge) | Inline diff renderer for step 4's `:db` value (reuses §8) |
 
@@ -294,7 +322,7 @@ Sparse case (focused epoch is a noisy timer with no effects):
 | Step 1 `Origin :user` chip | (no-op MVP; stretch: filter-IN on origin) |
 | Step 1 call-site | Open-in-editor (Causa's existing `:rf.causa/open-in-editor`) |
 | Step 3 handler source ↳ | Open-in-editor at handler file:line |
-| Step 4 `:fx` row | Switch to **Trace** panel, scrolled to the `:rf.fx/dispatched` op for that fx |
+| Step 4 `:fx` row | Switch to **Trace** panel, scrolled to the `:rf.fx/do-fx` / `:rf.fx/handled` op for that fx |
 | Step 5 fx settlement | Switch to **Trace** panel, scrolled to settlement op; if `:http/managed`, badge offers the wire-trace popover |
 | Step 6 flow row | Switch to **App-db** panel, scrolled to the path that flow wrote |
 | "db committed" marker | Switch to **App-db** panel (focused-epoch diff view) |
@@ -491,7 +519,7 @@ the "I want to see what DIDN'T fire" affordance.
 
 | From | Reads |
 |---|---|
-| Trace bus | `:rf.sub/computed`, `:rf.sub/skipped` (new — §11), `:rf.view/rendered` (new — §11) — filtered to focused `:dispatch-id` |
+| Focused epoch record | `:rf.sub/run`, `:rf.sub/skipped` (new — §11), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
 
@@ -625,62 +653,84 @@ Per-epoch raw trace ops ordered by emission time. The underlying stream
 that Event + Reactive summarise. NOT aggregate across epochs (per §1.2).
 
 **Density note** (per §0). Each op renders as a single mono row —
-`#id  +Xms   op-kw   inline-summary` — so a 30-op epoch reads as a
-30-line scroll. Per-row payload expansion via click reuses the shared
-data-display renderer (§10) with depth-2-expanded default. Filter chips
-(`[op-type ▾] [tag ▾]`) are panel-local + always visible — no
-"Show filters" toggle. Lines-per-screen target ~30-60.
+`timestamp · op-type-dot · operation · description · source-coord` — so
+a 30-op epoch reads as a 30-line scroll. Per-row payload expansion via
+click reuses the shared data-display renderer's `browse` (cljs-devtools)
+variant (§10). Lines-per-screen target ~30-60.
 
-### §5.2 Layout
+### §5.2 Scope + layout (reworked — rf2-o6yqq + rf2-td380 + rf2-gkczt)
+
+The Trace panel is **scoped to the focused epoch's `:trace-events`** —
+the per-frame settling epoch record's raw trace slice, resolved via the
+shared `panels.shared.focus-resolver` against `:rf.causa/focus` (its
+`:epoch-id`) + `:rf.causa/epoch-history`, exactly as Issues / App-DB Diff
+resolve theirs. This folds the COMPLETE domino trail for one event: both
+the synchronous event-side rows (dispatch-id N) AND the async reactive
+rows (`:rf.sub/run` / `:rf.view/render`, nil dispatch-id) that fire
+post-cascade for that settling. (The prior shape scoped the global trace
+bus by `:dispatch-id`, which DROPPED the async reactive rows — their
+dispatch-id is nil — so the rendered trail was incomplete.) With
+epoch-per-event (§1.1), one epoch = one event, so the focused epoch's
+`:trace-events` IS the right scope.
+
+**Removed (rf2-o6yqq + rf2-gkczt):**
+- the **header row** with the duplicate `[◀ Prev] [Next ▶]` film-strip,
+  the `X / Y in view` counts, and the `epoch #N · X ops` indicator — the
+  L2 events list already owns spine focus navigation, and the L4 tab
+  strip is the panel-name source-of-truth;
+- **ALL filtering UI** — the `[op-type ▾] [tag ▾]` chip-filter rows, the
+  per-row chip affordances, the clear-filters control. The focused epoch
+  IS the scope; the per-row payload-expand affordance is the drill-down.
+  (This makes the Trace panel the one L4 panel with NO film-strip header —
+  the others retain it; see §2.5.)
 
 ```
-┌─ TRACE · epoch #42 ─────────────────────────────── [◀ Prev] [Next ▶] ─┐
-│ Stripe: orange (:orange)                                              │
-│                                                                       │
-│ 14 ops · ordered by emission                                          │
-│                                                                       │
-│ #1837  +0.0ms   :rf/event-dispatched        [:checkout/submit …]      │
-│ #1838  +0.2ms   :rf/coeffects-assembled     {:db, :now, :http-cache}  │
-│ #1839  +0.3ms   :rf/handler-invoked         :checkout/submit          │
-│ #1840  +0.8ms   :rf/effects-returned        {:db …, :fx [1 entry]}    │
-│ #1841  +0.9ms   :rf/effects-applied         :db                       │
-│ #1842  +1.1ms   :rf.fx/dispatched           :http/managed             │
-│ #1843  +1.2ms   :rf.flow/computed           :cart/total               │
-│ #1844  +1.3ms   :rf.sub/computed            :cart/state               │
-│ #1845  +1.4ms   :rf.sub/computed            :cart/can-submit?         │
-│ #1846  +1.5ms   :rf.sub/skipped             :user/name                │
-│ #1847  +1.6ms   :rf.view/rendered           CheckoutButton            │
-│ #1848  +1.7ms   :rf.view/rendered           StateBanner               │
-│ #1849  +12ms    :rf.http/response           POST /orders → 201        │
-│ #1850  +12ms    :rf.fx/settled              :http/managed #h-142      │
-│                                                                       │
-│ Filters [op-type ▾] [tag ▾] · Click any row → expand payload         │
-└───────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ ▔▔▔▔▔▔▔▔▔▔▔▔▔  3px cascade-status bar (lifecycle colour)  ▔▔▔▔▔▔▔▔▔▔▔ │
+│ 14:42:14.701  ● :rf.event/dispatched  [:checkout/submit …]  events:88 │
+│ 14:42:14.701  ● :rf.event/run         :checkout/submit       events:88 │
+│ 14:42:14.702  ● :rf.fx/do-fx          :http/managed          —         │
+│ 14:42:14.703  ● :rf.sub/run           :cart/state            subs:21   │
+│ 14:42:14.703  ● :rf.sub/run           :cart/can-submit?      subs:33   │
+│ 14:42:14.714  ● :rf.view/render       CheckoutButton         views:12  │
+│ 14:42:14.714  ● :rf.view/render       StateBanner            views:40  │
+│  (click any row → inline payload expansion · no nav)                    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-Expanded payload uses the data-display renderer (§8). The per-epoch
-filter chips are panel-local (do not affect L1 ribbon's IN/OUT pills).
+A **3px cascade-status timeline bar** (rf2-b76v4) above the ribbon fills
+with the focused cascade's lifecycle-status colour (settled-success /
+errored / stale / paused / in-flight), driven by the same
+`event-status-colour` fn the L2 rows + Event header dot consume — one
+lifecycle vocabulary across the whole devtool. Expanded payload uses the
+data-display renderer's `browse` variant (§10).
+
+**Empty states** (focus-resolver statuses + the empty-epoch case):
+`:no-events` ("No events.") · `:no-focus` ("No focused event.",
+defensive) · `:epoch-evicted` ("This epoch has been evicted from the
+history buffer.").
 
 ### §5.3 Queries
 
-| From | Reads |
+| Sub | Reads |
 |---|---|
-| Trace bus | All ops with `:tags :dispatch-id` matching focused epoch's id |
+| `:rf.causa/trace-feed` | The focused epoch record's `:trace-events`, resolved via `:rf.causa/focus` (`:epoch-id`) + `:rf.causa/epoch-history`. No filtering. Returns `{:rows :total :rendered :epoch-id :empty-kind}` (`:rendered` = `:total` since there is no filter). |
 
 ### §5.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
-| Row → expand payload | Inline in panel (no nav) |
-| Op-type chip | Filter the panel to that op-type only |
-| `:rf.view/rendered` row | Switch to **Reactive**, scrolled to that view |
-| `:rf.fx/*` row | Inline — managed-fx hover shows wire-trace popover |
+| Row → expand payload | Inline in panel (no nav — toggles membership in `:rf.causa/trace-expanded-row-ids`) |
+| Source-coord chip | Opens the source coord in the editor (`:rf.causa/open-in-editor`) |
+| Right-click a destroy-event row / `⟲ cascade` button | Opens the cancellation-cascade popover for that row's dispatch-id |
 
-### §5.5 Film-strip
+(There is no op-type chip-filter row — filtering was removed, rf2-gkczt.)
 
-Chronological. The film-strip on Trace gives the operator "play this
-epoch's trace stream then advance to the next" which is the closest
-Causa comes to a time-step debugger replay UX.
+### §5.5 No film-strip (rf2-o6yqq)
+
+The Trace panel has **no film-strip header** — alone among the L4 panels.
+Epoch navigation is owned by the L2 events list / events-ribbon nav
+(`◀ ▶ ⏭`); the panel re-scopes whenever spine focus moves.
 
 ---
 
@@ -863,7 +913,7 @@ direction (deferred to follow-on bead). Default zoom: fit-on-mount with
 
 | From | Reads |
 |---|---|
-| Trace bus | `:rf.machine/transition`, `:rf.machine.after/scheduled`, `:rf.machine.after/fired`, `:rf.machine/cancellation` — filtered by `:dispatch-id` |
+| Focused epoch record | `:rf.machine/transition`, `:rf.machine.after/scheduled`, `:rf.machine.after/fired`, `:rf.machine/cancellation` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; the cascade-wide tag is `:rf.trace/dispatch-id`) |
 | Registries | Machine topology (`reg-machine`), guard / action metadata |
 | Per-frame state | Current machine state (for the "current ●" annotation in case B) |
 
@@ -932,7 +982,7 @@ is denser AND simpler. Lines-per-screen target ~16-30.
 
 | From | Reads |
 |---|---|
-| Trace bus | `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`, `:rf.route/fragment-changed` — filtered by `:dispatch-id` |
+| Focused epoch record | `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`, `:rf.route/fragment-changed` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`) |
 | Registries | Route tree (`reg-route`) |
 | Per-frame state | Current active route + phase (for empty-state) |
 
@@ -997,7 +1047,7 @@ Dense case:
 
 | From | Reads |
 |---|---|
-| Trace bus | `:rf.error/*`, `:rf.warning/*`, `:rf.schema/violation`, `:rf.a11y/violation` — filtered by `:dispatch-id` |
+| Focused epoch record | `:rf.error/*`, `:rf.warning/*`, `:rf.schema/violation`, `:rf.a11y/violation` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`) |
 
 ### §8.4 Cross-panel navigation
 
@@ -1255,7 +1305,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 | Bounded per-epoch capture | Cap at **50 subs + 100 views per epoch**. The substrate enforces at capture time; the panel shows `+N more` overflow indicator (existing component, `panels/overflow_indicator.cljc`). |
 | Buffer retention | Substrate-owned. Causa documents the operator surface as **Settings → General → Epoch history** (current ~100; configurable). |
 | Evicted-epoch UX | Per §10.7 — placeholder string in every panel. |
-| Sub `:skipped` op | New trace op needed (`:rf.sub/skipped`) — current trace has `:rf.sub/computed` only. Without `:skipped`, the "unchanged subs" disclosure in §3.4 cannot render coverage. |
+| Sub `:skipped` op | New trace op needed (`:rf.sub/skipped`) — current trace has `:rf.sub/run` only. Without `:skipped`, the "unchanged subs" disclosure in §3.4 cannot render coverage. |
 
 ### §11.4 B.10 Open sub-decisions
 
@@ -1288,14 +1338,14 @@ prerequisites.
 
 | Contract | Op key | Payload sketch | Used by |
 |---|---|---|---|
-| **View re-render attribution** | `:rf.view/rendered` | `{:view-id :ns/Component :file ".../X.cljs" :line N :caused-by-sub :sub-id :caused-by-paths [...] :dispatch-id <id>}` | Reactive panel · Trace panel · §3.5 |
-| **Sub skip attribution** | `:rf.sub/skipped` | `{:sub-id :s/foo :reason :input-unchanged :dispatch-id <id>}` | Reactive panel "unchanged subs" disclosure · §3.4 |
-| **Sub value-change + cascade attribution** (rf2-l1jz8) | `:sub/run` | `{:sub-id :s/foo :query-v [...] :value-changed? <bool> :prev-value <v> :value <v> :cascade? <bool> :cause-sub [query-id args]-or-nil}` — value slots redacted at the marks chokepoint; threaded onto the epoch record's `:sub-runs` projection. **Landed** in the framework substrate (Spec 009 §`:sub/run`, Spec-Schemas §`:rf/epoch-record` `:sub-runs`). | Reactive panel "SUBS WHOSE VALUE CHANGED" (§3.1.1.2) + "SUBS THAT CASCADED" (§3.1.1.3) |
-| **Cascade aggregate** | `:rf.cascade/captured` | `{:dispatch-id <id> :subs-ran N :subs-skipped N :views-rendered N :flows-recomputed N}` | Optional — emitted at end-of-epoch for fast L2 badge / Reactive summary line |
-| **Dispatch-origin tag** | (on existing `:rf/event-dispatched`) | Add `:tags :origin <origin-kw>` per §1.5 taxonomy | Event panel step 1 · L2 row prefix · filter pills |
+| **View re-render attribution** | `:rf.view/rendered` | `{:rf.view/id :ns/Component :file ".../X.cljs" :line N :rf.view/cause-event-id <id> :caused-by-paths [...] :rf.trace/dispatch-id <id>}` | Reactive panel · Trace panel · §3.5 |
+| **Sub skip attribution** | `:rf.sub/skipped` | `{:rf.sub/id :s/foo :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Reactive panel "unchanged subs" disclosure · §3.4 |
+| **Sub value-change + cascade attribution** (rf2-l1jz8) | `:rf.sub/run` | `{:rf.sub/id :s/foo :query-v [...] :value-changed? <bool> :prev-value <v> :value <v> :cascade? <bool> :cause-sub [query-id args]-or-nil}` — value slots redacted at the marks chokepoint; threaded onto the epoch record's `:sub-runs` projection. **Landed** in the framework substrate (Spec 009 §`:rf.sub/run`, Spec-Schemas §`:rf/epoch-record` `:sub-runs`). | Reactive panel "SUBS WHOSE VALUE CHANGED" (§3.1.1.2) + "SUBS THAT CASCADED" (§3.1.1.3) |
+| **Cascade aggregate** | `:rf.cascade/captured` | `{:rf.trace/dispatch-id <id> :subs-ran N :subs-skipped N :views-rendered N :flows-recomputed N}` | Optional — emitted at end-of-epoch for fast L2 badge / Reactive summary line |
+| **Dispatch-origin tag** | (on existing `:rf.event/dispatched`) | `:tags :rf.event/origin <origin-kw>` per §1.5 taxonomy (landed) | Event panel step 1 · L2 row prefix · filter pills |
 | **Handler-source string** | (on existing handler registry) | Stamp `:source-string` metadata via macro (DEBUG-gated) | Event panel step 3 inline source · §2.2 |
-| **Flow recompute** | `:rf.flow/computed` | `{:flow-id :inputs-changed [...] :dispatch-id <id>}` | Event panel step 6 |
-| **Flow skip** | `:rf.flow/skipped` | `{:flow-id :reason :input-unchanged :dispatch-id <id>}` | Event panel step 6 "dim" rows |
+| **Flow recompute** | `:rf.flow/computed` | `{:flow-id :inputs-changed [...] :rf.trace/dispatch-id <id>}` | Event panel step 6 |
+| **Flow skip** | `:rf.flow/skipped` | `{:flow-id :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Event panel step 6 "dim" rows |
 | **Route phase taxonomy** | (on existing `:rf.route/*`) | Confirm `:tags :phase #{:can-leave :can-enter :on-match :settle}` is consistent | Routing panel §7 |
 
 **Per-substrate adapter work for `:rf.view/rendered`:**
@@ -1312,7 +1362,7 @@ ship in dev / Causa-bundle builds).
 **Focused-event-only attribution (per §11.3).** The substrate enforces:
 on every epoch, emit lightweight `:rf.cascade/captured` aggregate
 (counts only). Emit fattened per-sub / per-view rows only when the
-current epoch's `:dispatch-id` matches Causa's reported focused id (a
+current epoch's `:rf.trace/dispatch-id` matches Causa's reported focused id (a
 read-only flag the runtime extension reads from a per-frame atom Causa
 publishes via `register-frame-meta!` or similar). When unfocused, the
 runtime drops fattened payloads at emit time, not at consumer time — the
@@ -1328,14 +1378,14 @@ real beads after approving this doc.
 
 ### Substrate beads (these gate panel work)
 
-- **rf2-?????** — *Substrate: add `:rf/event-dispatched` `:origin` tag.*
-  Extend the dispatch macro to stamp `:tags :origin <origin-kw>` per the
+- **rf2-?????** — *Substrate: add `:rf.event/dispatched` `:rf.event/origin` tag.*
+  Extend the dispatch macro to stamp `:tags :rf.event/origin <origin-kw>` per the
   §1.5 taxonomy. All call sites in `re-frame.core` + adapter mounts.
   Gates: Event panel step 1, L2 row prefix, B.10 dispatch-origin display.
 
 - **rf2-?????** — *Substrate: add `:rf.sub/skipped` trace op.* Emit at
   sub-evaluation skip site (input-unchanged short-circuit). Carries
-  `:sub-id` + `:reason` + `:dispatch-id`. Gates: Reactive panel
+  `:rf.sub/id` + `:reason` + `:rf.trace/dispatch-id`. Gates: Reactive panel
   "unchanged subs" disclosure (§3.4).
 
 - **rf2-?????** — *Substrate: add `:rf.view/rendered` trace op per

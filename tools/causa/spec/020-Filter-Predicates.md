@@ -50,6 +50,15 @@ keep = (no-IN-pills OR matches-IN) AND NOT (matches-OUT)
 within a bucket compose with OR, buckets compose with AND-NOT. Mixing
 typed pills + keyword-pattern pills in the same bucket is supported.
 
+**The frame is NOT in this composition (rf2-4vp5j).** The frame picker
+is a single, defaulted VIEW SCOPE, not a filter predicate. The
+`:rf.causa/filtered-cascades` sub scopes cascades to the selected frame
+(`matcher/filter-cascades-by-view-scope`) BEFORE applying the IN/OUT
+pills + mutes; the frame scope is never counted as "hidden" and is never
+reset by Clear Filters. Pills + mutes are the only suppressing filters
+this doc models. See [`018-Event-Spine.md` §7 Frame picker is a view
+scope](018-Event-Spine.md).
+
 ## §4 Deferred kinds (rf2-piye4 — defer to v1.1)
 
 | kind             | rationale                                                    |
@@ -80,7 +89,7 @@ Each typed-add event is idempotent: a duplicate add (same params)
 collapses to a no-op so multiple right-clicks don't pile up duplicate
 pills.
 
-## §7 Persistence
+## §7 Persistence — write-through, reset-on-load (rf2-swclw)
 
 `filters/persistence.cljs` round-trips the whole `:active-filters`
 slot — typed pills survive a localStorage write/load because
@@ -89,7 +98,32 @@ No version bump on the storage key (`re-frame2.causa.filters.v1`) —
 the shape is additive (legacy `{:pattern ...}` still loads through the
 canonicaliser).
 
-## §8 Cross-references
+**Pills RESET on every load (rf2-swclw).** The IN/OUT pills are a
+**transient exploration filter**, so the first-mount hook
+(`mount.cljs/::reset-transient-filters`) does NOT hydrate the slot from
+localStorage AND clears the stale stored value — a fresh page load starts
+fully unfiltered (so a stale pill can never silently hide rows and make
+the inspector look broken — rf2-jvghz). The persist fx still writes pills
+through *within* a session; it is the LOAD that resets. The muted-event-id
+set and the frame view-scope follow the same reset-on-load discipline.
+Only durable view prefs (mode, density, layout) hydrate. See
+[`015-Configuration.md` §Transient vs durable state](015-Configuration.md)
++ [`018-Event-Spine.md` §Filter persistence](018-Event-Spine.md).
+
+## §8 "N events hidden by filters" indicator (rf2-jvghz)
+
+Because pills reset on load but can still hide rows mid-session, the
+events ribbon surfaces an in-session safety net: when ANY suppressing
+filter is active (an IN/OUT pill or a non-empty mute set), a
+`Clear Filters` button renders, with an `N events hidden by filters`
+message beside it only when N > 0. `N = max 0 (raw-visible −
+filtered-visible)`, both counts over the L2 list's visible-row set and
+both scoped to the selected frame. The frame view-scope is excluded
+(frame ≠ filter — §3), so switching frames never inflates N and
+`Clear Filters` resets only the pills + mutes. The pure model lives in
+`filters/hidden.cljc` (`summary`).
+
+## §9 Cross-references
 
 - [`018-Event-Spine.md` §7](018-Event-Spine.md) — pill UI contract +
   IN/OUT composition.

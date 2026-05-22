@@ -362,8 +362,8 @@ reference:
 | `(rf/machines)` | Spec 005 | The machine inspector dropdown — 0-ary; returns the seq of machine-ids registered in the active frame. |
 | `(rf/app-schemas frame-id)` | Spec 010 | The schema-violation timeline rows. |
 | `(rf/sub-cache frame-id)` (CLJS only) | Tool-Pair | The subscription graph. |
-| `:dispatch-id` / `:parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by event-detail and trace surfaces. |
-| `:origin` (in `:tags`) | Spec 009 | The colour-coding axis. |
+| `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by event-detail and trace surfaces (`:rf.*` single-root names per rf2-y4qpy). |
+| `:rf.event/origin` (in `:tags`) | Spec 009 | The colour-coding axis. |
 | Source-coord metadata (`:ns` / `:line` / `:column` / `:file`) | Spec 001 / 006 | Click-to-source — see `Open in editor` below. |
 | `data-rf2-source-coord` DOM attribute | Spec 006 | DOM-level source-coord (for the rare cases where DOM event → source is needed). |
 
@@ -407,9 +407,10 @@ yields a clickable URI rather than a no-op; source-coords without
 
 Static mode is unconditionally available: the surface composer
 mounts a 3-layer Static silhouette (no L2 event list) alongside the
-default 4-layer Dynamic silhouette, with a mode pill at ribbon-left
-and a `Cmd-Shift-M` / `Ctrl-Shift-M` chord wired to
-`:rf.causa/toggle-mode`. Per rf2-8l3uk the prior
+default 4-layer Dynamic silhouette, with a Dynamic/Static **mode
+dropdown** at chrome-ribbon-left (rf2-4vp5j — a compact `<select>`,
+not the earlier two-segment pill) and a `Cmd-Shift-M` /
+`Ctrl-Shift-M` chord wired to `:rf.causa/toggle-mode`. Per rf2-8l3uk the prior
 `:rf.causa/static-mode?` opt-in feature gate was removed (pre-alpha
 posture — back-compat shims are out of scope; if Static mode is
 useful, expose it unconditionally).
@@ -612,8 +613,8 @@ call with a setup hint.
 ### Origin tag (`*current-origin*`)
 
 Every mutation the runtime performs on behalf of a tool client
-carries `:tags :origin <tool-name>`. The runtime exposes a
-`^:dynamic` var:
+carries `:tags :rf.event/origin <tool-name>` (the `:rf.*` single-root
+tag-key per rf2-y4qpy). The runtime exposes a `^:dynamic` var:
 
 ```clojure
 (def ^:dynamic *current-origin*
@@ -757,11 +758,12 @@ and have been reset to defaults."
 ## Trace-event tags Causa emits
 
 When Causa mutates the runtime (rewind, reset, re-dispatch), it
-emits trace events tagged `:origin :causa` so its actions are visible
-in the trace stream. (Origins from MCP servers carry their own
-server-name tag — re-frame2-pair-mcp uses `:origin :re-frame2-pair-mcp`.)
+emits trace events tagged `:rf.event/origin :causa` so its actions are
+visible in the trace stream. (Origins from MCP servers carry their own
+server-name tag — re-frame2-pair-mcp uses
+`:rf.event/origin :re-frame2-pair-mcp`.)
 
-These ride the framework's existing `:event/dispatched`,
+These ride the framework's existing `:rf.event/dispatched`,
 `:rf.epoch/restored`, etc. operations — no new operation kinds
 invented (per [`Principles.md`](./Principles.md) §Observation only).
 

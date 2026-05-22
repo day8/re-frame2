@@ -58,6 +58,15 @@ users accidentally rewound and were surprised. Causa's posture:
 Causa consumes Tool-Pair's epoch-history surface (per
 [Tool-Pair §Time-travel](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)):
 
+**One epoch = one dequeued event (rf2-nj6p7).** The epoch boundary is the
+per-DEQUEUED-EVENT, not the drain-settle (per [framework 002 §Drain
+versus event — the epoch unit](../../../spec/002-Frames.md#drain-versus-event--the-epoch-unit)).
+Each `:fx :dispatch` child event and each frame-init event yields its OWN
+`:rf/epoch-record` — so a single user gesture that fans out to N child
+dispatches produces N+1 scrubber ticks, each a discrete, focusable epoch
+with its own `:db-before` / `:db-after` / `:trace-events`. The scrubber
+walks events, not drains.
+
 - `(rf/epoch-history frame-id)` — vector of `:rf/epoch-record` values,
   oldest-first, bounded by `(rf/configure :epoch-history {:depth N})`
   (default 50).

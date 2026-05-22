@@ -55,6 +55,57 @@ top-level `:sensitive?` boolean (per
 Causa does **not** mutate the event shape; what the framework emits is
 what panels read.
 
+## Tool-frame trace gate — `:rf.trace/frame-no-emit?` (rf2-2qaqh)
+
+Causa renders its OWN UI inside the host application under a dedicated
+frame (`:rf/causa`). That UI's reactive substrate emits `:rf.sub/run` +
+`:rf.view/render` trace events on every panel render — and because the
+framework's ring buffer is process-global, an unguarded tool frame's
+self-instrumentation evicts every *application* event from the ring
+(observed: 200/200 events were `:rf/causa`; zero app events). Two
+independent guards keep the tool's reactivity out of the data plane it
+inspects:
+
+### Framework-side: emission suppressed at source
+
+`:rf/causa` is registered with **`:rf.trace/frame-no-emit? true`** (per
+[Spec 009 §Frame-level trace-emission opt-out](../../../spec/009-Instrumentation.md#frame-level-trace-emission-opt-out-rftraceframe-no-emit-frame-config)
+and [API §`:rf.trace/frame-no-emit?`](../../../spec/API.md)). The
+framework's `emit!` / `emit-error!` short-circuit (no envelope alloc, no
+delivery) for any event whose `:frame` is so marked — so the bulk of
+Causa's self-noise never reaches the collector at all. The flag is the
+frame-scoped sibling of the handler-scoped `:rf.trace/no-emit?` and is
+honoured on every `reg-frame` (re-)registration, so the gate survives
+hot-reload. Causa marks the frame at `mount.cljs/ensure-causa-frame!`:
+
+```clojure
+(rf/reg-frame :rf/causa {:rf.trace/frame-no-emit? true})   ;; tool / inspector frame
+```
+
+### Causa-side: ingest-time self-noise drop
+
+The frame gate covers events emitted *inside* a `(rf/with-frame
+:rf/causa …)` scope. Two residual classes still need a Causa-side guard
+at the collector boundary (`collect-trace!`), both dropped
+unconditionally (pre-alpha posture — Causa's internals are structurally
+invisible to the user; there is no "show internals" toggle):
+
+1. **`causa-internal-event?`** — any trace event whose `:frame` (top-level
+   or `:tags :frame`) resolves to `:rf/causa`. Belt-and-braces against
+   reactive sub-read / view-render emits that would otherwise bucket as
+   `:ungrouped`.
+2. **`causa-internal-cascade?` / `causa-internal-event-id?`** — cascades
+   whose `:event` vector's head is a keyword in the `rf.causa` namespace
+   (e.g. `:rf.causa/focus-cascade`, `:rf.causa/select-tab`). These can be
+   dispatched WITHOUT a `{:frame :rf/causa}` option, so they
+   chain-resolve onto the host's `:rf/default` frame and slip past the
+   frame gate; the `:rf.causa/cascades` sub filters them so every
+   downstream consumer inherits the filter from one source of truth.
+
+Both predicates are pure-data + JVM-runnable. The privacy gate (below)
+sits *below* the self-noise drop in `collect-trace!`, so an internal
+event never bumps the host's `[● REDACTED N]` counter.
+
 ## Buffer semantics
 
 ### Capacity
@@ -63,8 +114,8 @@ The buffer's default capacity is **1000 events** — five times the
 framework default. The cap balances Causa's `007-UX-IA.md` §Performance
 budget commitment (cascades cap at the last 200 dispatches) with
 headroom for the non-dispatch trace events
-(`:fx`, `:render`, `:sub-run`, error / warning, machine transitions)
-that share the same buffer.
+(`:rf.fx/*`, `:rf.view/render`, `:rf.sub/run`, error / warning,
+`:rf.machine/transition`) that share the same buffer.
 
 Hosts MAY override the default via the configuration knob (see
 [§Configuration](#configuration)). Setting depth to zero MUST keep the
@@ -257,21 +308,23 @@ pure-data fn against an arbitrary event vector so panel-side slicing
 locks the consumer contract: when Causa renders a filtered view,
 the filter axes are the framework's filter axes.
 
-The recognised filter keys (eleven axes; compose AND-wise; absent
-key = no constraint):
+The recognised filter keys (thirteen axes; compose AND-wise; absent
+key = no constraint). The opt-arg keys (`:operation`, `:frame`,
+`:since`, …) are bare; the values they match against carry the `:rf.*`
+single-root tag-key vocabulary post the rf2-y4qpy migration:
 
 | Key | Type | Match against |
 |---|---|---|
-| `:operation` | keyword | `:operation` field |
-| `:op-type` | keyword | `:op-type` field |
+| `:operation` | keyword | `:operation` field (e.g. `:rf.sub/run`, `:rf.view/render`) |
+| `:op-type` | keyword | `:op-type` field (e.g. `:rf.sub`, `:rf.view`, `:rf.fx`) |
 | `:since` | number | `:id` strictly greater than |
 | `:frame` | keyword | `:frame` (top-level or `:tags :frame`) |
 | `:severity` | `:error` / `:warning` / `:info` | `:op-type` (synonym restricted to those three values) |
-| `:event-id` | keyword | `:tags :event-id` |
+| `:event-id` | keyword | `:tags :rf.trace/event-id` |
 | `:handler-id` | keyword | `:tags :handler-id` |
 | `:source` | keyword | `:source` (top-level, hoisted by emit) or `:tags :source` |
-| `:origin` | keyword | `:tags :origin` |
-| `:dispatch-id` | keyword | `:tags :dispatch-id` (cascade-wide per `rf2-g6ih4`) |
+| `:origin` | keyword | `:tags :rf.event/origin` |
+| `:dispatch-id` | keyword | `:tags :rf.trace/dispatch-id` (cascade-wide per `rf2-g6ih4`) |
 | `:since-ms` | number | `:time` strictly greater than |
 | `:between` | `[t0 t1]` | `:time` falls in `[t0, t1]` inclusive |
 | `:pred` | `(fn [ev] → truthy)` | Arbitrary predicate |
@@ -373,9 +426,9 @@ the buffer for them rather than maintaining a separate substrate.
 A single dispatch may fan out across frames (per
 [Spec 002 §Cross-frame dispatch](../../../spec/002-Frames.md)). Each
 emit on each frame is its own trace event with the same
-`:dispatch-id` and different `:tags :frame`. The buffer stores every
-event; consumers projecting "cascade across frames" group by
-`:dispatch-id` (per `rf2-g6ih4`).
+`:tags :rf.trace/dispatch-id` and different `:tags :frame`. The buffer
+stores every event; consumers projecting "cascade across frames" group
+by `:rf.trace/dispatch-id` (per `rf2-g6ih4`).
 
 ### Privacy gate at registration boundaries
 
@@ -421,9 +474,9 @@ blocks any leak.
 to epoch 53 — what was the `app-db` state at each step? what subs were
 cached? what was the in-flight HTTP set?"
 
-**v1 ships:** trace events carry an opaque `:dispatch-id` /
-`:parent-dispatch-id` linkage plus `:tags` payloads. Replay from
-arbitrary position requires re-applying the events forward from the
+**v1 ships:** trace events carry an opaque `:rf.trace/dispatch-id` /
+`:rf.trace/parent-dispatch-id` linkage plus `:tags` payloads. Replay
+from arbitrary position requires re-applying the events forward from the
 last snapshot, which loses cache state and in-flight context.
 
 **Future:** trace events grow **context-at-position** payloads — per

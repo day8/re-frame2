@@ -147,13 +147,13 @@ user sees on opening Causa.
   oldest first.
 - The **six-domino hero** (selection set) — the cascade rendered as
   six labelled rows in order:
-  1. The event vector (the cascade root — from `:event/dispatched`).
-  2. The handler trace event (the `:run-end` emit — populated by
+  1. The event vector (the cascade root — from `:rf.event/dispatched`).
+  2. The handler trace event (the `:rf.event/run-end` emit — populated by
      `re-frame.trace.projection/absorb`).
-  3. The `:event/do-fx` emit (the effects map about to be walked).
+  3. The `:rf.fx/do-fx` emit (the effects map about to be walked).
   4. The list of `:rf.fx/handled` / override / skipped effects.
-  5. The list of `:sub/run` + `:sub/create` events.
-  6. The list of `:view/render` events.
+  5. The list of `:rf.sub/run` + `:rf.sub/create` events.
+  6. The list of `:rf.view/render` events.
 - An **`:other` bucket** for traces that don't fit the six-domino
   vocabulary (errors, warnings, machine transitions, etc.).
 - A small mono-font **source-coord caption** under each event when
@@ -162,7 +162,7 @@ user sees on opening Causa.
 ### Empty state
 
 The cascade list with `:rf.causa/empty-trace` cue when the buffer
-holds no `:event/dispatched` events.
+holds no `:rf.event/dispatched` events.
 
 ## Effects content — folded into Event tab
 

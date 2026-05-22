@@ -61,10 +61,14 @@ The Dynamic Machines panel renders one of three states:
    transitioned machine, document order:
     - Header: `<from-state> → <to-state>` with the event vector right-
       aligned.
-    - Topology chart (ELK+SVG primitive) with the FROM state drawn
-      dashed/accent-violet and the TO state bold/cyan; connecting edge
-      emphasised. `:after` countdown rings overlay armed timer
-      states.
+    - Topology chart (**xyflow + elkjs** primitive — rf2-gpzb4 xyflow
+      migration; the prior host-side ELK+SVG render is gone) with the
+      FROM state drawn dashed/accent-violet and the TO state bold/cyan;
+      connecting edge emphasised. Custom Stately/xstate-style nodes +
+      edges (initial-state marker, compound-state nesting, self-loops,
+      `event [guard] / action` edge labels) per [`021-Dynamic-Panel-Designs.md`
+      §6 + §17.4](021-Dynamic-Panel-Designs.md). `:after` countdown
+      rings overlay armed timer states.
     - Guards list (when the trace carried guard-evaluated events for
       this transition).
     - Actions list (when the trace carried action-ran events).
@@ -109,18 +113,24 @@ panel.
 ## Architectural posture
 
 **`tools/machines-viz/` owns the chart.** Per rf2-o9arp / PR #1570 the
-MachineChart primitive (ELK+SVG layout, the layered fallback, the
-interaction layer) lives in its own tool jar at
-`tools/machines-viz/src/day8/re_frame2_machines_viz/chart/{layout,svg,interaction}.cljc`.
+MachineChart primitive lives in its own tool jar; per the rf2-gpzb4
+xyflow migration (2026-05-21) it now renders via **xyflow + elkjs**
+(hierarchical-layered layout, custom Stately/xstate-style nodes + edges
++ arrowheads) — the prior host-side ELK+SVG layout/render is gone.
+Causa's own pure-data topology projector (`panels/machines/topology.cljs`
+— initial markers, compound nesting, self-loops, `event [guard] / action`
+labels, parallel regions; JVM-portable + unit-tested) survives as a
+self-contained fallback projection but is no longer the hot render path.
 Causa is a **consumer** of that primitive: the panel surface
-(`panels/machine_inspector*.cljs`) imports Causa-namespaced public
-names (e.g. `day8.re-frame2-causa.chart.svg/MachineChart`) which are
-thin re-export shims pointing at the machines-viz implementation
-(`day8.re-frame2-machines-viz.chart.svg/MachineChart`). One
-implementation, one layout cache, one ELK loader — re-used by Causa,
-Story (per-variant observability ribbons), the read-only viewer page,
-and any host-app drop-in that wants the chart without Causa's panel
-chrome.
+(`panels/machine_canvas.cljs` + `panels/machines/topology_view.cljs`)
+imports the machines-viz chart API **directly**
+(`day8.re-frame2-machines-viz.chart/MachineChart`) — post the xyflow
+migration the older Causa-side `chart.svg` / `chart.layout` /
+`chart.interaction` re-export shims were removed (the only remaining
+Causa-local `chart.*` ns is `chart/timing_waterfall.cljc`, unrelated).
+One implementation, one elkjs layout pass — re-used by Causa, Story
+(per-variant observability ribbons), the read-only viewer page, and any
+host-app drop-in that wants the chart without Causa's panel chrome.
 
 The Mermaid text emitter lives at
 `implementation/machines/src/re_frame/machines/mermaid.cljc` so the
@@ -134,25 +144,18 @@ tools/causa/  ─requires→  tools/machines-viz/  ─requires→  implementatio
     shims)                    .cljc)
 ```
 
-### Re-export shim contract
+### Direct-import contract (post xyflow migration)
 
-The thin shims keep Causa's public surface stable while letting the
-chart move independently. The contract is one-for-one: every
-Causa-namespaced public name re-exports a single machines-viz
-implementation name; no shim adds behaviour. Adding a chart feature
-means landing it in machines-viz first and re-exporting from Causa
-second.
-
-| Causa-namespaced public | Re-exports |
-|---|---|
-| `day8.re-frame2-causa.chart.svg/MachineChart` | `day8.re-frame2-machines-viz.chart.svg/MachineChart` |
-| `day8.re-frame2-causa.chart.layout/layered-fallback` | `day8.re-frame2-machines-viz.chart.layout/layered-fallback` |
-| `day8.re-frame2-causa.chart.interaction/on-state-click` | `day8.re-frame2-machines-viz.chart.interaction/on-state-click` |
-
-(Indicative — the live shim ns enumerates the full surface; the
-machines-viz API itself is the source of truth.) Embedders who want
-the chart alone depend on `tools/machines-viz/` directly; embedders
-who want Causa's panel chrome get the chart transitively via Causa.
+The re-export-shim layer was retired with the xyflow migration: Causa's
+panel surface now `:require`s the machines-viz chart API directly
+(`[day8.re-frame2-machines-viz.chart :as mv-chart]` →
+`mv-chart/MachineChart`; `day8.re-frame2-machines-viz.chart.layout` for
+`highlight-id`). The machines-viz API is the single source of truth; the
+contract is still one-implementation, no-Causa-side-behaviour, but
+without the indirection. Adding a chart feature means landing it in
+machines-viz; Causa picks it up by import. Embedders who want the chart
+alone depend on `tools/machines-viz/` directly; embedders who want Causa's
+panel chrome get the chart transitively via Causa.
 
 ### See also
 
