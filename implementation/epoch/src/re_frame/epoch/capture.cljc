@@ -196,6 +196,33 @@
             (record-sub-run! frame-id event)
             (state/buffer-event! frame-id event))
 
+          ;; Out-of-cascade orphan — drop from the capture buffer (rf2-avvwm).
+          ;; An emit with NO cascade context (no in-flight cascade for the
+          ;; frame AND no `:dispatch-id` on its tags) belongs to no cascade:
+          ;; a frame-lifecycle emit (`:frame/created` / `:frame/re-registered`)
+          ;; fired between the last settled event and the next dequeue, or a
+          ;; registry-time emit. Per Spec 009 §Dispatch correlation it stays
+          ;; UNCORRELATED — neither a new epoch nor folded into another
+          ;; epoch's `:trace-events`. It still rides the raw trace ring +
+          ;; listener fan-out (those run independently of this capture seam);
+          ;; only the epoch-record capture buffer skips it.
+          ;;
+          ;; Pre-rf2-avvwm such an orphan was buffered, then the NEXT
+          ;; dequeued event's harvest vacuumed it in as the first
+          ;; `:trace-events` entry (the per-event-epoch boundary from
+          ;; rf2-nj6p7 left it stranded; the post-settle render/sub-run
+          ;; branches above already gate on the same `in-flight-cascade?`
+          ;; signal — this is the third out-of-cascade emit class).
+          ;;
+          ;; A `:dispatch-id`-bearing emit is ALWAYS buffered even when no
+          ;; cascade is in flight for THIS frame at the instant of the emit:
+          ;; a child's `:event/dispatched` marker fires during the PARENT's
+          ;; do-fx carrying the child's id, and rides the child's later
+          ;; `harvest-buffer-for-event!` settle.
+          (and (not (in-flight-cascade? frame-id))
+               (nil? (:dispatch-id tags)))
+          nil
+
           :else
           (state/buffer-event! frame-id event))))))
 
