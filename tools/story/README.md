@@ -26,11 +26,11 @@ playground:
   panel — time-travel via `restore-epoch` is a UI affordance, not a
   reimplementation.
 - The `:test` mode pane ships a **play step-debugger** — step / pause /
-  rewind / step-back / breakpoint controls over a variant's `:play`
+  rewind / step-back / breakpoint controls over a variant's `:play-script`
   sequence (see [`spec/009-Test-Mode.md` §Play step-debugger](spec/009-Test-Mode.md#play-step-debugger-rf2-ulw5m)).
   Storybook's Interactions panel ships these for `play()` functions;
   Story's parity surface drives the same controls over the
-  `:rf.assert/*`-bearing play vector, with the canvas re-rendering against
+  `:rf.assert/*`-bearing `:play-script`, with the canvas re-rendering against
   each step's app-db.
 
 The agent-facing MCP surface ships as a separate artefact at
@@ -63,8 +63,8 @@ core jar does not transitively pull stdio / JSON-RPC machinery.
    :events [[:auth/initialise]
             [:auth/email-changed "not-an-email"]
             [:auth/login-pressed]]
-   :play   [[:rf.assert/path-equals [:auth :status] :rejected]
-            [:rf.assert/no-warnings]]
+   :play-script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :rejected]]
+                 [:dispatch-sync [:rf.assert/no-warnings]]]
    :tags   #{:dev :docs :test}})
 ```
 
