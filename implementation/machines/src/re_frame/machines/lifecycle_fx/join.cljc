@@ -160,7 +160,7 @@
   [frame-id parent-id invoke-id spec join-state'' child-id child-extra
    {:keys [fail-fired? success-fired?]}]
   (when fail-fired?
-    (trace/emit! :machine :rf.machine.spawn-all/any-failed
+    (trace/emit! :rf.machine :rf.machine.spawn-all/any-failed
                  {:machine-id parent-id
                   :spawn-id  invoke-id
                   :failed-id  child-id
@@ -170,12 +170,12 @@
                   :frame      frame-id}))
   (when success-fired?
     (if (= :all (:join spec :all))
-      (trace/emit! :machine :rf.machine.spawn-all/all-completed
+      (trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
                    {:machine-id parent-id
                     :spawn-id  invoke-id
                     :done       (:done join-state'')
                     :frame      frame-id})
-      (trace/emit! :machine :rf.machine.spawn-all/some-completed
+      (trace/emit! :rf.machine :rf.machine.spawn-all/some-completed
                    {:machine-id parent-id
                     :spawn-id  invoke-id
                     :done       (:done join-state'')
@@ -209,7 +209,7 @@
                                    (remove (fn [[cid _]]
                                              (contains? completed-ids cid))))]
             (doseq [[cid spawned-id] survivors]
-              (trace/emit! :machine :rf.machine.spawn/cancelled-on-join-resolution
+              (trace/emit! :rf.machine :rf.machine.spawn/cancelled-on-join-resolution
                            {:machine-id parent-id
                             :spawn-id  invoke-id
                             :child-id   cid
@@ -273,7 +273,7 @@
           ;; Already resolved: ignore late-completion. Trace once for
           ;; observability so tools can correlate.
           (:resolved? join-state)
-          (do (trace/emit! :machine :rf.machine.spawn-all/late-completion
+          (do (trace/emit! :rf.machine :rf.machine.spawn-all/late-completion
                            {:machine-id parent-id
                             :spawn-id  invoke-id
                             :child-id   child-id

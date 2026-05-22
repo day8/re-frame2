@@ -184,7 +184,7 @@
         parent-path [:rf/machines parent-id]
         ;; (2) Emit `:rf.machine/done` trace BEFORE the destroy cascade
         ;; (D6 ordering).
-        _ (trace/emit! :machine :rf.machine/done
+        _ (trace/emit! :rf.machine :rf.machine/done
                        {:machine-id machine-id
                         :output     result
                         :parent-id  parent-id

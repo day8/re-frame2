@@ -37,7 +37,7 @@
     invoke-id :spawn-id
     :or {reason :explicit}
     :as args}]
-  (trace/emit! :machine :rf.machine/destroyed
+  (trace/emit! :rf.machine :rf.machine/destroyed
                (cond-> {:frame    frame
                         :actor-id actor-id
                         :reason   reason}
@@ -52,7 +52,7 @@
   was released as part of teardown. No-op when `sid` is nil."
   [frame-id sid actor-id]
   (when sid
-    (trace/emit! :machine :rf.machine/system-id-released
+    (trace/emit! :rf.machine :rf.machine/system-id-released
                  {:frame      frame-id
                   :system-id  sid
                   :machine-id actor-id})))

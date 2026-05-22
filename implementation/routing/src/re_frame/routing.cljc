@@ -177,7 +177,7 @@
       ;; §Hot-reload trace surface); not re-emitted here. Mirrors the
       ;; `:rf.flow/registered` symmetry (rf2-ehxez).
       (when (nil? previous)
-        (trace/emit! :event :rf.route/registered
+        (trace/emit! :rf.event :rf.route/registered
                      {:route-id id
                       :path     pattern})))
     id))
@@ -191,7 +191,7 @@
   (let [previous (registrar/lookup :route id)]
     (when previous
       (registrar/unregister! :route id)
-      (trace/emit! :event :rf.route/cleared
+      (trace/emit! :rf.event :rf.route/cleared
                    {:route-id id
                     :path     (:path previous)})))
   nil)
@@ -903,10 +903,10 @@
   `:rf.route/transitioned` event."
   [prev-id next-id]
   (when (and prev-id (not= prev-id next-id))
-    (trace/emit! :event :rf.route/deactivated
+    (trace/emit! :rf.event :rf.route/deactivated
                  {:route-id prev-id}))
   (when (and next-id (not= prev-id next-id))
-    (trace/emit! :event :rf.route/activated
+    (trace/emit! :rf.event :rf.route/activated
                  {:route-id next-id})))
 
 ;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
@@ -1179,7 +1179,7 @@
                                                (:bypass-leave-guard? opts))]
         blocked
         (do
-          (trace/emit! :event :rf.route.nav-token/allocated
+          (trace/emit! :rf.event :rf.route.nav-token/allocated
                        {:route-id  route-id
                         :nav-token token})
           ;; Per rf2-dn26r: route lifecycle pair. Fires after the
@@ -1293,7 +1293,7 @@
     (when-not ok?
       (let [[db' pn-id] (alloc-pending-nav-id db)
             guard-id    (can-leave-guard-id current-meta)]
-        (trace/emit! :event :rf.route/navigation-blocked
+        (trace/emit! :rf.event :rf.route/navigation-blocked
                      {:requested-url   requested-url
                       :rejecting-route (:id current-route)
                       :rejecting-guard guard-id})
@@ -1380,7 +1380,7 @@
       (cond
         external?
         (do
-          (trace/emit! :event :rf.route/external-url-requested
+          (trace/emit! :rf.event :rf.route/external-url-requested
                        {:url url})
           {})
 
@@ -1469,7 +1469,7 @@
   `:prev-fragment` / `:next-fragment` in `:tags`. Scroll-capture (for the
   position the user is leaving) still rides along."
   [db prev next-fragment]
-  (trace/emit! :event :rf.route/fragment-changed
+  (trace/emit! :rf.event :rf.route/fragment-changed
                {:route-id      (:id prev)
                 :prev-fragment (:fragment prev)
                 :next-fragment next-fragment})
@@ -1590,7 +1590,7 @@
                                       :recovery :replaced-with-default}
                                frame      (assoc :frame frame)
                                malformed? (assoc :reason :malformed-url))))
-        (trace/emit! :event :rf.route.nav-token/allocated
+        (trace/emit! :rf.event :rf.route.nav-token/allocated
                      {:route-id  route-id
                       :nav-token token})
         ;; Per rf2-dn26r: route lifecycle pair. Fires after the nav-token
@@ -1704,13 +1704,13 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   (fn [{:keys [frame]} url]
     (if (url-bound-frame? frame)
       #?(:cljs (.pushState js/window.history nil "" url)
-         :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
+         :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                             {:fx-id :rf.nav/push-url :url url}))
       ;; Non-URL-bound frame: skip the history mutation. Frame's
       ;; `:rf/route` slice still updates — only the browser-URL sync is
       ;; suppressed. Per Spec 012 §Multi-frame routing this is the right
       ;; default for story-variant / devcard / per-test fixtures.
-      (trace/emit! :fx :rf.fx/skipped-on-platform
+      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                    {:fx-id :rf.nav/push-url
                     :url   url
                     :frame frame
@@ -1725,9 +1725,9 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   (fn [{:keys [frame]} url]
     (if (url-bound-frame? frame)
       #?(:cljs (.replaceState js/window.history nil "" url)
-         :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
+         :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                             {:fx-id :rf.nav/replace-url :url url}))
-      (trace/emit! :fx :rf.fx/skipped-on-platform
+      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                    {:fx-id :rf.nav/replace-url
                     :url   url
                     :frame frame
@@ -1748,7 +1748,7 @@ per-frame [:rf.route/scroll-positions <url>] map before leaving a route."}
                                  url
                                  pos)))
        :clj
-       (trace/emit! :fx :rf.fx/skipped-on-platform
+       (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                     {:fx-id :rf.nav/capture-scroll :url url}))))
 
 ;; ---- :url-bound? exclusivity check ----------------------------------------
@@ -1896,7 +1896,7 @@ unknown strategies as :preserve (no-op)."}
          ;; runtime doesn't blow up on a strategy it doesn't recognise.
          nil)
        :clj
-       (trace/emit! :fx :rf.fx/skipped-on-platform
+       (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                     {:fx-id :rf.nav/scroll :strategy strategy}))))
 
 ;; ---- framework-shipped subs over the slice -------------------------------

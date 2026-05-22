@@ -334,14 +334,14 @@
       ;; tag the headline machine-transition trace never reaches the
       ;; cascade's `:trace-events` slot, leaving the Causa Machine
       ;; Inspector chart blank for cascades that DID drive a transition.
-      (trace/emit! :machine :rf.machine/transition
+      (trace/emit! :rf.machine :rf.machine/transition
                    {:frame      frame-id
                     :machine-id machine-id
                     :event      inner-event
                     :before     snapshot
                     :after      next-snapshot})
       (when (not= snapshot next-snapshot)
-        (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
+        (trace/emit! :rf.machine :rf.machine/snapshot-updated
                      {:machine-id machine-id
                       :path       path
                       :before     snapshot
@@ -396,7 +396,7 @@
       ;; Per Spec 009 §:op-type vocabulary: `:rf.machine/event-received`
       ;; fires at the top of the handler so consumers see the inbound
       ;; event before any state derivation.
-      (trace/emit! :rf.machine/event-received :rf.machine/event-received
+      (trace/emit! :rf.machine :rf.machine/event-received
                    {:machine-id (first event)
                     :event      event
                     :frame      (or frame :rf/default)})

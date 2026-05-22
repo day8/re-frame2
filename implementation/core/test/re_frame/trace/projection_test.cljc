@@ -48,7 +48,7 @@
   (testing "events outside the six-domino vocabulary land in :other"
     (is (= :other (p/domino-bucket {:op-type :error :operation :rf.error/no-such-handler})))
     (is (= :other (p/domino-bucket {:op-type :warning :operation :rf.warning/interceptors-in-metadata-map})))
-    (is (= :other (p/domino-bucket {:op-type :machine :operation :rf.machine/transition})))
+    (is (= :other (p/domino-bucket {:op-type :rf.machine :operation :rf.machine/transition})))
     (is (= :other (p/domino-bucket {:op-type :rf.frame :operation :rf.frame/created})))
     (is (= :other (p/domino-bucket {:op-type :flow :operation :rf.flow/computed})))
     (is (= :other (p/domino-bucket {:op-type :rf.registry :operation :rf.registry/handler-registered})))))

@@ -894,11 +894,11 @@
       ;; the slot wholesale, then a `:rf.causa/note-trace-event` for the
       ;; same id arrives from a queued mirror dispatch.
       (rf/dispatch-sync [:rf.causa/sync-trace-buffer
-                         [{:id 42 :op-type :rf.frame :operation :frame/created
+                         [{:id 42 :op-type :rf.frame :operation :rf.frame/created
                            :tags {:frame :rf/causa}}]])
       (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 42 :op-type :rf.frame :operation :frame/created
+                         {:id 42 :op-type :rf.frame :operation :rf.frame/created
                           :tags {:frame :rf/causa}}])
       (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer])))
           "duplicate-id push is a no-op — slot length unchanged")

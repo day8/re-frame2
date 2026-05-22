@@ -15,26 +15,30 @@
   consumers need above the raw stream for the common 'render this
   cascade as six dominoes' use case.
 
-  The cascade-wide `:dispatch-id` makes the projection robust against
-  events the framework emits *inside* a drain even though they aren't
-  `:event/dispatched` — fx invocations, sub-runs, renders, errors.
-  Every such event carries `:tags :dispatch-id` so the group-by below
-  assembles a complete cascade record.
+  The cascade-wide `:rf.trace/dispatch-id` makes the projection robust
+  against events the framework emits *inside* a drain even though they
+  aren't `:rf.event/dispatched` — fx invocations, sub-runs, renders,
+  errors. Every such event carries `:tags :rf.trace/dispatch-id` so the
+  group-by below assembles a complete cascade record.
 
   ## Bucketing (per Spec 009 §`:op-type` vocabulary)
 
   Six dominoes:
 
-    1. `:event`    — `:op-type :event` + `:operation :event/dispatched`
+    1. `:event`    — `:op-type :rf.event` + `:operation :rf.event/dispatched`
                      (cascade-root marker; bucket value is the event vector)
-    2. `:handler`  — `:op-type :event` + `:operation :event`
-                     (the handler ran; tags carry `:phase :run-start` / `:run-end`)
-    3. `:fx`       — `:op-type :event` + `:operation :event/do-fx`
+    2. `:handler`  — `:op-type :rf.event` + `:operation :rf.event`
+                     (the handler ran; tags carry
+                     `:rf.trace/phase :run-start` / `:run-end`)
+    3. `:fx`       — `:op-type :rf.fx` + `:operation :rf.fx/do-fx`
                      (effects map computed and about to be walked)
-    4. `:effect`   — `:op-type :fx` (any `:operation` — `:rf.fx/handled`,
-                     `:rf.fx/override-applied`, `:rf.fx/skipped-on-platform`)
-    5. `:sub`      — `:op-type :sub/run` or `:sub/create`
-    6. `:render`   — `:op-type :view` + `:operation :view/render`
+    4. `:effect`   — `:op-type :rf.fx` (any other `:operation` —
+                     `:rf.fx/handled`, `:rf.fx/override-applied`,
+                     `:rf.fx/skipped-on-platform`)
+    5. `:sub`      — `:op-type :rf.sub` (`:operation :rf.sub/run` recompute,
+                     `:rf.sub/skip` memo-hit, or `:rf.sub/create` first-time
+                     signal-graph build)
+    6. `:render`   — `:op-type :rf.view` + `:operation :rf.view/render`
 
   Events whose op-type/operation pair doesn't fit any bucket flow
   through `:other` so the cascade-record shape is fully accountable to
@@ -47,7 +51,7 @@
     panel and causality-graph node renderer; the `:ungrouped` slot covers
     free-floating traces (e.g. registry events emitted at app boot).
   - re-frame2-pair's `cascade-of` MCP op currently walks
-    `:event/dispatched` traces in a slimmer form; it migrates to this
+    `:rf.event/dispatched` traces in a slimmer form; it migrates to this
     projection so 'show me every fx in this cascade' becomes one slice
     of the returned record.")
 
@@ -106,7 +110,7 @@
 
   `:event` is the dispatched event VECTOR (the convenient
   slim form most consumers need). `:dispatched` is the full
-  `:event/dispatched` trace EVENT — preserved so consumers (Causa's
+  `:rf.event/dispatched` trace EVENT — preserved so consumers (Causa's
   Event lens) can read top-level hoisted slots like
   `:rf.trace/call-site` (per rf2-twt7m Change 1) without reaching
   back into the raw trace buffer."
@@ -131,13 +135,14 @@
 
 (defn- cascade-id
   "Extract the cascade identifier from an event. Per Spec 009 §Dispatch
-  correlation, `:dispatch-id` is cascade-wide. For `:event/dispatched`
-  events, `:parent-dispatch-id` documents inter-cascade lineage; for
-  pair-shaped tools assembling 'the cascade caused by THAT dispatch',
-  the event's own `:dispatch-id` is the right key (the
-  `:event/dispatched` event rides under its own cascade's id). Events
-  outside any drain (registry-time, frame-creation) carry no
-  `:dispatch-id` — they land in the `:ungrouped` bucket."
+  correlation, `:rf.trace/dispatch-id` is cascade-wide. For
+  `:rf.event/dispatched` events, `:rf.trace/parent-dispatch-id` documents
+  inter-cascade lineage; for pair-shaped tools assembling 'the cascade
+  caused by THAT dispatch', the event's own `:rf.trace/dispatch-id` is
+  the right key (the `:rf.event/dispatched` event rides under its own
+  cascade's id). Events outside any drain (registry-time, frame-creation)
+  carry no `:rf.trace/dispatch-id` — they land in the `:ungrouped`
+  bucket."
   [ev]
   (or (dispatch-id ev) :ungrouped))
 
@@ -218,32 +223,34 @@
 
 (defn group-cascades
   "Project a sequence of raw trace events into one cascade record per
-  `:dispatch-id`. Pure data — JVM and CLJS.
+  `:rf.trace/dispatch-id`. Pure data — JVM and CLJS.
 
   Returns a vector of maps shaped:
 
       {:dispatch-id <cascade-id-or-:ungrouped>
        :frame       <frame-id-or-nil>
-       :event       <event-vector or nil>     ;; from :event/dispatched :tags
-       :dispatched  <trace-event or nil>      ;; the full :event/dispatched
+       :event       <event-vector or nil>     ;; from :rf.event/dispatched :tags
+       :dispatched  <trace-event or nil>      ;; the full :rf.event/dispatched
                                               ;;   trace event (top-level
                                               ;;   :rf.trace/call-site,
                                               ;;   :source, :origin per
                                               ;;   rf2-twt7m Change 1)
        :handler     <trace-event or nil>      ;; the :run-end emit (last wins)
-       :fx          <trace-event or nil>      ;; :event/do-fx
-       :effects     [<trace-event> ...]       ;; :op-type :fx
-       :subs        [<trace-event> ...]       ;; :sub/run + :sub/create
-       :renders     [<trace-event> ...]       ;; :view/render
+       :fx          <trace-event or nil>      ;; :rf.fx/do-fx
+       :effects     [<trace-event> ...]       ;; :op-type :rf.fx
+       :subs        [<trace-event> ...]       ;; :rf.sub/run + :rf.sub/skip
+                                              ;;   + :rf.sub/create
+       :renders     [<trace-event> ...]       ;; :rf.view/render
        :other       [<trace-event> ...]}      ;; everything else
                                               ;;   (errors, warnings,
                                               ;;   machine, frame,
                                               ;;   flow, etc.)
 
-  Events without a `:dispatch-id` (registry-time emits, frame
-  lifecycle outside a drain, REPL evals) collect under
-  `:dispatch-id :ungrouped`. The returned vector is sorted by the
-  lowest `:id` in each cascade, so cascades render in emission order.
+  Events without a `:rf.trace/dispatch-id` tag (registry-time emits,
+  frame lifecycle outside a drain, REPL evals) collect under the
+  projection's `:dispatch-id :ungrouped` slot. The returned vector is
+  sorted by the lowest `:id` in each cascade, so cascades render in
+  emission order.
 
   Stable / additive: future framework op-types that don't fit a
   domino slot will surface under `:other` automatically. Tools that

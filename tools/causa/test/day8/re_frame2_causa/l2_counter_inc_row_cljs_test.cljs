@@ -81,11 +81,11 @@
     :tags {:rf.trace/dispatch-id dispatch-id-8 :rf.view/render-key [:counter/root nil] :frame frame-below}}])
 
 (defn- orphan-frame-created-event
-  "The mis-attributed `:frame/created` orphan that — pre-avvwm —
+  "The mis-attributed `:rf.frame/created` orphan that — pre-avvwm —
   leaked into the NEXT epoch's `:trace-events` carrying that epoch's
   `:dispatch-id`. Represents the pre-fix corruption shape."
   []
-  {:id 49 :op-type :rf.frame :operation :frame/created
+  {:id 49 :op-type :rf.frame :operation :rf.frame/created
    :tags {:rf.trace/dispatch-id dispatch-id-8 :frame frame-below}})
 
 (defn- visible-l2-rows
@@ -143,9 +143,9 @@
       (let [c (first rows)]
         (is (= [:counter/inc] (:event c))
             ":event slot is still the dispatched event vector")
-        (is (some (fn [ev] (= :frame/created (:operation ev)))
+        (is (some (fn [ev] (= :rf.frame/created (:operation ev)))
                   (:other c))
-            "the orphan :frame/created lands in the cascade's :other slot")))))
+            "the orphan :rf.frame/created lands in the cascade's :other slot")))))
 
 ;; ---- 3. The classifier: a frame-lifecycle-ONLY group is the only drop --
 ;;
@@ -160,7 +160,7 @@
   (testing "a post-avvwm uncorrelated :frame/created (no :dispatch-id)
             lands in :ungrouped and is hidden from L2 by default, while
             the sibling counter-inc epoch still surfaces"
-    (let [events (into [{:id 49 :op-type :rf.frame :operation :frame/created
+    (let [events (into [{:id 49 :op-type :rf.frame :operation :rf.frame/created
                          :tags {:frame frame-below}}] ; NO :dispatch-id (avvwm)
                        (counter-inc-trace-events))
           all    (projection/group-cascades events)

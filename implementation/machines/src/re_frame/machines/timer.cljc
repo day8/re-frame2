@@ -200,7 +200,7 @@
     (let [k (after-timer-key parent-id invoke-id delay-key)
           prior-entry (get-in @after-timers [frame-id k])
           prior-ms    (:resolved-ms prior-entry)]
-      (trace/emit! :machine :rf.machine.timer/cancelled-on-resolution
+      (trace/emit! :rf.machine :rf.machine.timer/cancelled-on-resolution
                    {:machine-id parent-id
                     :state      state
                     :delay      prior-ms
@@ -279,7 +279,7 @@
             (when (and reaction (vector? delay-key))
               (try (subs/unsubscribe frame-id delay-key)
                    (catch #?(:clj Throwable :cljs :default) _ nil)))
-            (trace/emit! :machine :rf.warning/no-clock-configured
+            (trace/emit! :warning :rf.warning/no-clock-configured
                          {:machine-id   parent-id
                           :state        state
                           :delay-key    delay-key
@@ -289,7 +289,7 @@
 
           :else
           (let [_ (when emit-scheduled-trace?
-                    (trace/emit! :machine :rf.machine.timer/scheduled
+                    (trace/emit! :rf.machine :rf.machine.timer/scheduled
                                  (cond-> {:machine-id   parent-id
                                           :state        state
                                           :delay        resolved-ms
