@@ -2332,7 +2332,7 @@ The serialisable artefact contract for a story variant (post-v1 library; see [00
 > **Status:** dev-tier (gated on `re-frame.interop/debug-enabled?`; production builds elide entirely)
 > **Conformance:** `spec/conformance/fixtures/epoch-*.edn` + `implementation/epoch/test/re_frame/epoch_*.clj` (build / restore / privacy / redact-fn / jvm-prod-gate)
 
-Per-frame epoch snapshot, recorded on each drain-completion in dev builds. Used by Tool-Pair for time-travel and post-mortem analysis. Production builds elide entirely (no schema validation needed in prod).
+Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one record per event, not per drain (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)). A drain that settles several events back-to-back yields one record per settled event. Used by Tool-Pair for time-travel and post-mortem analysis. Production builds elide entirely (no schema validation needed in prod).
 
 ```clojure
 (def EpochRecord
@@ -2344,7 +2344,7 @@ Per-frame epoch snapshot, recorded on each drain-completion in dev builds. Used 
    [:trigger-event [:vector :any]]                                          ;; the full event vector
    [:db-before     :any]                                                    ;; app-db before the cascade
    [:db-after      :any]                                                    ;; app-db the runtime settled to (see :outcome)
-   [:outcome       [:enum :ok                                               ;; (rf2-v0jwt) drain reached empty queue cleanly
+   [:outcome       [:enum :ok                                               ;; (rf2-v0jwt) the event's own cascade settled cleanly
                           :halted-depth                                     ;; drain-depth limit tripped; atomic rollback
                           :halted-destroy                                   ;; frame destroyed mid-drain
                           :halted-handler-exception]]                       ;; reserved — current impl does not halt the drain on handler-exception, see §Outcomes below
@@ -2400,11 +2400,11 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 
 #### Outcomes (rf2-v0jwt)
 
-The runtime commits an epoch record on every drain boundary — both clean settles and halted drains. `:outcome` discriminates so devtools (Causa, re-frame2-pair) can render failing cascades with the partial-information shape they actually carry.
+The runtime commits one epoch record per dequeued event (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)) — both clean per-event settles and the terminal record for an event whose drain halted. `:outcome` discriminates so devtools (Causa, re-frame2-pair) can render failing cascades with the partial-information shape they actually carry.
 
 | `:outcome` | When the runtime commits | `:db-before` | `:db-after` |
 |---|---|---|---|
-| `:ok` | Drain reached an empty queue cleanly. The traditional record. | Pre-cascade snapshot. | Post-cascade snapshot. |
+| `:ok` | The dequeued event's own six-domino cascade settled cleanly. The traditional record — one per dequeued event. | Pre-cascade snapshot. | Post-cascade snapshot. |
 | `:halted-depth` | Drain hit the configured depth limit; the runtime performed an atomic rollback per [Spec 002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics). | Pre-cascade snapshot. | Equal to `:db-before` (the rolled-back state). |
 | `:halted-destroy` | A handler called `destroy-frame!` on its own frame mid-cascade; the drain interrupts and drops remaining queued events per [Spec 002 §Edge cases worth pinning §Frame disposal mid-drain](002-Frames.md). | Pre-cascade snapshot. | The state at destroy-time — the partial cascade's writes survive in the recorded value, but the frame is gone so the live container can no longer be read. |
 | `:halted-handler-exception` | **Reserved.** Spec 010 §Per-step recovery line 140 describes "cascade halts" on handler exception, but the reference runtime currently routes through the interceptor chain's error-capture seam: the failing handler's `:db` / `:fx` / flows do **not** apply (the chain caught the exception before `:effects` were populated), but the drain itself continues with the next queued event. No record carries this outcome under today's CLJS reference. Held for a future runtime path that aborts the drain on handler exception. | — | — |
