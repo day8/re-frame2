@@ -40,18 +40,9 @@
   - `app-db-diff-subs` / `app-db-diff-events` — subs + events. The
     composite diff sub (`:rf.causa/selected-epoch-diff` and friends)
     survives there for the Event tab's diff surface + the MCP exporter;
-    this panel reads only `:rf.causa/app-db-state`.
-  - `app-db-diff-downstream` — the downstream-subs hover popover
-    (spec/021 §4.4). Re-wired into the current-state inspector
-    (rf2-2lb7z): the trigger is mounted in each section header by
-    `app-db-diff-state` (one per top-level user-domain key, one per
-    reserved area `[:rf/area]`, one per fan-out instance `[:rf/area
-    id]`). rf2-okvit had dropped the diff breadcrumbs that previously
-    hosted it; this leaf re-injects it onto the section headers."
+    this panel reads only `:rf.causa/app-db-state`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
-            [day8.re-frame2-causa.panels.app-db-diff-downstream
-             :as downstream]
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]
             [day8.re-frame2-causa.panels.app-db-diff-state :as state]
             [day8.re-frame2-causa.panels.app-db-diff-subs :as subs]
@@ -82,11 +73,6 @@
   []
   (subs/install!)
   (events/install!)
-  ;; rf2-op9v2 — downstream-subs overlay subs + events. rf2-2lb7z
-  ;; re-wired the hover trigger into the current-state inspector's
-  ;; section headers (mounted by `app-db-diff-state`); install! here
-  ;; registers the subs/events those triggers + the popover read.
-  (downstream/install!)
   ;; rf2-2moh1 — register the Dynamic app-db tab with the internal L4
   ;; tab registry. rf2-okvit — label is lowercase "app-db" to match the
   ;; library's app-db naming.

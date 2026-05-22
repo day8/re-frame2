@@ -159,13 +159,18 @@
   Single-arg form picks the default node-key (`\"root\"`); two-arg
   form lets the caller supply a stable per-mount `node-key` — used as
   the cljs-devtools `render-id` so adjacent inspects in a panel keep
-  independent testids.
+  independent testids. Three-arg form takes an `opts` map; the only
+  key today is `:copy?` (default `true`) — pass `:copy? false` to
+  suppress the universal ⎘ copy gesture for THIS render (rf2-ilubp —
+  the app-db current-state inspector opts out so its section blocks
+  stay chrome-free; every other surface keeps the default-on gesture).
 
   Diff rendering (Event panel `:db` before→after smallest-diff) is a
   DIFFERENT contract — call `diff`, which stays on the home-grown
   `data-display/render-tree` engine."
-  ([v] (inspect v "root"))
-  ([v node-key]
+  ([v] (inspect v "root" nil))
+  ([v node-key] (inspect v node-key nil))
+  ([v node-key {:keys [copy?] :or {copy? true}}]
    (cond
      ;; spec/015 sentinels keep their bespoke chip chrome — cljs-devtools
      ;; has no diff/redaction vocabulary.
@@ -183,7 +188,8 @@
      :else
      (browse {:value     v
               :panel-id  :inspect
-              :render-id (str node-key)}))))
+              :render-id (str node-key)
+              :copy?     copy?}))))
 
 (defn inspect-inline
   "Compact one-line current-state rendering for hover tooltips / list
@@ -219,8 +225,13 @@
 
   Required: `:value :panel-id :render-id`.
   Optional: `:max-depth` (recursion cap for cljs-devtools' surrogate
-            expansion · defaults to `cdt/default-max-depth`)."
-  [{:keys [value panel-id render-id max-depth]}]
+            expansion · defaults to `cdt/default-max-depth`)
+            · `:copy?` (default `true`) — render the universal ⎘ copy
+            gesture on the root. Pass `:copy? false` to opt this render
+            out (rf2-ilubp — the app-db current-state inspector); every
+            other surface keeps the default-on gesture."
+  [{:keys [value panel-id render-id max-depth copy?]
+    :or   {copy? true}}]
   ;; Every browse value — map / vector / set / record / scalar —
   ;; routes through cljs-devtools. Collections expand into the nested
   ;; tree; scalars render as a single coloured span. The home-grown
@@ -232,6 +243,11 @@
   ;; container is `position:relative` to anchor the absolutely-
   ;; positioned `⎘` button at its top-right; padding-right reserves
   ;; the gutter so the button never overlaps a wide value's first line.
+  ;;
+  ;; rf2-ilubp — `:copy? false` suppresses the affordance for this
+  ;; render only (the app-db current-state inspector opts out). When
+  ;; off, the gutter padding collapses too so the value isn't pushed
+  ;; off-centre by a button that's no longer there.
   (let [container-id (str "rf-causa-edn-widget-browse-"
                           (name (or panel-id :unknown))
                           "-"
@@ -242,8 +258,9 @@
                    :font-size   "12px"
                    :color       (:text-primary tokens)
                    :line-height 1.4
-                   :padding-right "26px"}}
-     (copy-affordance value (str container-id "-copy"))
+                   :padding-right (if copy? "26px" "0")}}
+     (when copy?
+       (copy-affordance value (str container-id "-copy")))
      (if (some? max-depth)
        (cdt/value->tree-hiccup value max-depth)
        (cdt/value->tree-hiccup value))]))

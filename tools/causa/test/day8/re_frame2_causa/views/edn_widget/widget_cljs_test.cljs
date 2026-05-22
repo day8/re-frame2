@@ -159,6 +159,48 @@
       (is (some? (find-by-testid
                    out "rf-causa-edn-widget-browse-inspect-node-copy-copy"))))))
 
+;; ---- per-render copy opt-out (rf2-ilubp) ---------------------------------
+;;
+;; The copy gesture is default-ON (above). The app-db current-state
+;; inspector opts THIS render out via `:copy? false` so its section
+;; blocks stay chrome-free; every other surface keeps the default. These
+;; tests pin the opt-out on both `browse` and the `inspect` facade
+;; without disturbing the default-on behaviour the tests above cover.
+
+(deftest browse-copy-false-suppresses-affordance
+  (testing "rf2-ilubp — `:copy? false` drops the ⎘ button but keeps the
+            value tree"
+    (let [out (w/browse {:value     {:a 1}
+                         :panel-id  :test
+                         :render-id "nocopy-1"
+                         :copy?     false})]
+      (is (some? (find-by-testid out "rf-causa-edn-widget-browse-test-nocopy-1"))
+          "value container still renders")
+      (is (nil? (find-by-testid
+                  out "rf-causa-edn-widget-browse-test-nocopy-1-copy"))
+          "no copy button when opted out")
+      (is (contains-text? out ":a") "the value still renders")))
+  (testing "default (no `:copy?`) keeps the gesture on"
+    (let [out (w/browse {:value     {:a 1}
+                         :panel-id  :test
+                         :render-id "default-on-1"})]
+      (is (some? (find-by-testid
+                   out "rf-causa-edn-widget-browse-test-default-on-1-copy"))
+          "copy button rides on by default"))))
+
+(deftest inspect-copy-false-suppresses-affordance
+  (testing "rf2-ilubp — the 3-arity inspect facade threads `:copy? false`
+            through to browse"
+    (let [out (w/inspect {:a 1} "node-nocopy" {:copy? false})
+          ids (->> (walk-hiccup out)
+                   (keep #(some-> (second %) :data-testid))
+                   (filter string?))]
+      (is (some? (find-by-testid
+                   out "rf-causa-edn-widget-browse-inspect-node-nocopy"))
+          "value container still renders")
+      (is (not-any? #(.endsWith % "-copy") ids)
+          "no copy button anywhere in the opted-out inspect render"))))
+
 (deftest copy-affordance-helper-dispatches-copy-value
   ;; `copy-affordance` is public; assert its shape directly. The
   ;; on-click stops propagation (so a row-toggle click underneath
