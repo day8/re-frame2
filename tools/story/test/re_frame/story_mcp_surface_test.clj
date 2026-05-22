@@ -159,14 +159,14 @@
           ":decorators slot present — the resolved decorator pack"))))
 
 (deftest run-variant-empty-play-still-returns-shape
-  (testing "even a variant with no :play surfaces the full return shape
+  (testing "even a variant with no :play-script surfaces the full return shape
             — agents must not have to special-case the no-play branch"
     (story/reg-variant :story.mcp.run/no-play {:events []})
     (let [result (story-async/deref-blocking
                    (story/run-variant :story.mcp.run/no-play) 5000)]
       (is (= :story.mcp.run/no-play (:frame result)))
       (is (= [] (:assertions result))
-          "empty :play → empty :assertions vector (not nil)")
+          "empty :play-script → empty :assertions vector (not nil)")
       (is (map? (:app-db result))))))
 
 ;; ===========================================================================

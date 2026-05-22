@@ -12,7 +12,7 @@
     `record-test-run` / `clear-test-run` state transitions;
     `variant-test-status` lookup; `test-summary` aggregation across a
     fixture of variants in mixed states; `testable-variant-ids`
-    filter (must be both `:test`-tagged AND `:play`-bearing); the
+    filter (must be both `:test`-tagged AND `:play-script`-bearing); the
     `status->dot-style-key` projection and `dot-aria-label`.
   - **CLJS-only**: the rendered hiccup for the chrome widget carries
     the expected counts + headline; the sidebar's variant-row hiccup
@@ -133,7 +133,7 @@
 ;; ---- pure: testable-variant-ids -----------------------------------------
 
 (deftest testable-variant-ids-filters-by-tag-and-play
-  (testing "only :test-tagged variants with non-empty :play count"
+  (testing "only :test-tagged variants with non-empty :play-script count"
     (story/reg-variant :story.x/a {:tags #{:test} :events []
                                    :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
     (story/reg-variant :story.x/b {:tags #{:test} :events [] :play-script []})

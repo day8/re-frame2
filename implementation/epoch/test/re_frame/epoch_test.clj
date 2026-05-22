@@ -126,7 +126,16 @@
       (is (vector? (:trace-events r)))
       (is (vector? (:sub-runs r)))
       (is (vector? (:renders r)))
-      (is (vector? (:effects r))))))
+      (is (vector? (:effects r)))
+      ;; rf2-rly4a — the settling cascade's :dispatch-id is pinned as a
+      ;; first-class slot (the stable epoch-id ↔ cascade link Causa's
+      ;; focus correlation reads). It must equal the :dispatch-id tag the
+      ;; cascade's own trace events carry.
+      (is (some? (:dispatch-id r))
+          "record carries the pinned :dispatch-id slot")
+      (is (= (:dispatch-id r)
+             (some #(get-in % [:tags :dispatch-id]) (:trace-events r)))
+          ":dispatch-id slot equals the cascade's trace :dispatch-id tag"))))
 
 (deftest record-multi-event-cascade
   (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): each dequeued

@@ -194,22 +194,22 @@
     (is (= "\n     " (pred/indent-after "12345")))))
 
 (deftest indent-after-aligns-recorder-play-body
-  (testing "the indent lines events up under the first item of `:play [` on the previous line"
-    (let [prefix      "   :play ["
-          first-line  (str prefix "[:counter/inc]")
+  (testing "the indent lines steps up under the first item of `:script [` on the previous line"
+    (let [prefix      "   :script ["
+          first-line  (str prefix "[:dispatch-sync [:counter/inc]]")
           cont-indent (pred/indent-after prefix)
-          full        (str first-line cont-indent "[:counter/dec]")
+          full        (str first-line cont-indent "[:dispatch-sync [:counter/dec]]")
           lines       (clojure.string/split full #"\n")
-          ;; column of the first event char on line 1 = (count prefix)
-          ;; (the `[` of `:play [` is the last char of prefix; the next
-          ;; char — the first event's leading `[` — sits at index N.)
+          ;; column of the first step char on line 1 = (count prefix)
+          ;; (the `[` of `:script [` is the last char of prefix; the next
+          ;; char — the first step's leading `[` — sits at index N.)
           line1-event-col (count prefix)
-          ;; column of the first event char on line 2 = the indent's
+          ;; column of the first step char on line 2 = the indent's
           ;; space-count, which equals (count cont-indent) - 1 for `\n`.
           line2-event-col (dec (count cont-indent))]
       (is (= 2 (count lines)))
       (is (= line1-event-col line2-event-col)
-          "second event's leading char aligns under first event's leading char"))))
+          "second step's leading char aligns under first step's leading char"))))
 
 (deftest indent-after-aligns-save-variant-args-map
   (testing "the indent lines kv pairs up under the first kv of `:args {` on the previous line"
@@ -226,9 +226,9 @@
 
 (deftest indent-after-pure-and-deterministic
   (testing "the helper is pure — same input → same output"
-    (is (= (pred/indent-after "   :play [")
-           (pred/indent-after "   :play [")))
-    ;; And the recorder + save-variant prefixes collapse to the same width
+    (is (= (pred/indent-after "   :name {")
+           (pred/indent-after "   :name {")))
+    ;; And two equal-width body prefixes collapse to the same indent width
     ;; (both keys are 4 chars; both bodies indent 3 + key + space + bracket = 10)
-    (is (= (pred/indent-after "   :play [")
+    (is (= (pred/indent-after "   :name {")
            (pred/indent-after "   :args {")))))

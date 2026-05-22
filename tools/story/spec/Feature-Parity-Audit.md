@@ -104,7 +104,7 @@ by the prior pass; this manifest captures the gap-only summary.
 | 10c | Loader teardown / cancellation | **MISSING** | gap-M | capability | M | **P2** | **[C-3] / [F-3]** — see brief below |
 | 11 | `tags` (auto-test selection + filter) | `:tags` (seven canonical + project + axes) | matches+ | — | — | — | Faceted axes; `!`-prefix removal; 7 canonical tags |
 | 12 | `globalTypes` / globals (toolbar) | `reg-mode` (saved tuples) | **WIN** | — | — | — | One primitive collapses theme + viewport + locale + background |
-| 13 | `useArgs()` stateful stories | per-frame isolation + `:play` dispatching | matches+ | insight/doc | S | P3 | **[I-1] / [F-4]** — undermarketed; doc reorg in `001-Authoring.md` |
+| 13 | `useArgs()` stateful stories | per-frame isolation + `:play-script` dispatching | matches+ | insight/doc | S | P3 | **[I-1] / [F-4]** — undermarketed; doc reorg in `001-Authoring.md` |
 | 14 | MSW / mock-network addon | `:rf.story/force-fx-stub` | **WIN** | — | — | — | One primitive subsumes 4+ addons (HTTP/ws/storage/analytics/geo) |
 | 15 | Toolbar (theme/viewport/locale) | 5-cluster toolbar + `reg-mode` | **WIN** | — | — | — | MODES \| DATA \| VIEW \| DEBUG \| REC clusters with small-caps labels |
 | 16 | Backgrounds addon | `reg-mode` `:axis :background` | matches | — | — | — | One primitive; no separate addon |

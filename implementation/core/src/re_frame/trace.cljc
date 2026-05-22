@@ -164,6 +164,75 @@
                                     (->HandlerScope nil cs# did# false false))]
           ~@body))))
 
+;; ---- trace-disabled (tool / inspector) frames ----------------------------
+;;
+;; Per rf2-2qaqh: an inspector tool (Causa, Story, re-frame2-pair) renders
+;; its OWN UI inside a dedicated frame (`:rf/causa`). That UI's reactive
+;; substrate emits `:sub/run` + `:view/render` trace events on every panel
+;; render — and because the shared ring buffer is process-global, the
+;; tool's self-instrumentation evicts every APPLICATION event from the
+;; ring (observed: 200/200 events were `:rf/causa`; zero app events). The
+;; inspector must not flood the buffer it inspects.
+;;
+;; The fix is a frame-level emission gate, the frame-scoped sibling of the
+;; handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission opt-out):
+;; a frame registered with `:rf.trace/frame-no-emit? true` is recorded
+;; here, and `emit!` / `emit-error!` short-circuit (no envelope alloc, no
+;; delivery) for any event tagged with that frame. Causa marks `:rf/causa`
+;; trace-disabled at frame registration (`mount/ensure-causa-frame!`), so
+;; tool frames produce no trace at all while application frames are
+;; unaffected.
+;;
+;; Mechanism (not a hardcoded `:rf/causa` literal): `frame.cljc`'s
+;; `reg-frame` reads the config flag and calls `set-frame-no-emit!` —
+;; trace.cljc owns the canonical set + predicate so the gate is single-
+;; sourced. The set is held under a defonce atom so a hot `:after-load`
+;; cycle never wipes prior registrations; the empty-set common case (no
+;; tool frame mounted) short-circuits on `(seq …)` before any membership
+;; test, so the hot emit path pays a single nil-check when no tool frame
+;; is registered.
+
+(defonce ^:private trace-disabled-frames
+  ;; Set of frame-ids whose trace emission is suppressed. Populated by
+  ;; `frame.cljc`'s `reg-frame` from the `:rf.trace/frame-no-emit?`
+  ;; config flag (and cleared on re-registration when the flag drops).
+  (atom #{}))
+
+(defn set-frame-no-emit!
+  "Mark / unmark `frame-id` as trace-disabled. When `no-emit?` is truthy
+  the frame is added to the trace-disabled set; otherwise it is removed.
+  `emit!` / `emit-error!` short-circuit for any event whose `:frame` tag
+  is in the set. Idempotent. Per Spec 009 §Trace-emission opt-out
+  (frame-level) and rf2-2qaqh."
+  [frame-id no-emit?]
+  (swap! trace-disabled-frames (if no-emit? conj disj) frame-id)
+  nil)
+
+(defn frame-trace-disabled?
+  "Canonical predicate: true iff `frame-id` is currently registered
+  trace-disabled (a tool / inspector frame). Single-sourced here so no
+  call site hardcodes `:rf/causa`."
+  [frame-id]
+  (contains? @trace-disabled-frames frame-id))
+
+(defn clear-frame-no-emit!
+  "Reset the trace-disabled-frames set to empty. Test / teardown helper —
+  the per-frame flag is otherwise process-sticky (it tracks frame
+  registrations, which `reset! frame/frames {}` does not unwind)."
+  []
+  (reset! trace-disabled-frames #{})
+  nil)
+
+(defn- tagged-frame-trace-disabled?
+  "True when `tags` carries a `:frame` that is registered trace-disabled.
+  The empty-set common case (no tool frame mounted) short-circuits
+  before the membership test so the hot emit path is unaffected when no
+  inspector is running."
+  [tags]
+  (let [disabled @trace-disabled-frames]
+    (and (seq disabled)
+         (contains? disabled (:frame tags)))))
+
 ;; ---- emission -------------------------------------------------------------
 
 (defn- deliver-to-epoch-capture!
@@ -320,8 +389,13 @@
     ;; `:no-emit?` short-circuit sits *inside* the outer
     ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
     ;; (the outer gate must stand alone for Closure DCE — see
-    ;; §Production-elision verification).
-    (when-not (true? (some-> *handler-scope* :no-emit?))
+    ;; §Production-elision verification). The frame-level gate
+    ;; (rf2-2qaqh) is its sibling: an event tagged with a trace-
+    ;; disabled (tool / inspector) frame is suppressed before any
+    ;; envelope is built — the inspector's own reactivity must not
+    ;; flood the buffer it inspects.
+    (when-not (or (true? (some-> *handler-scope* :no-emit?))
+                  (tagged-frame-trace-disabled? tags))
       (deliver! (maybe-project-marks (build-event op operation tags))))))
 
 (defn emit-error!
@@ -342,7 +416,11 @@
   (when interop/debug-enabled?
     ;; `:no-emit?` short-circuit sits *inside* the outer
     ;; `interop/debug-enabled?` gate per Spec 009 §Production builds.
-    (when-not (true? (some-> *handler-scope* :no-emit?))
+    ;; The frame-level gate (rf2-2qaqh) suppresses errors emitted from
+    ;; a trace-disabled (tool / inspector) frame too — symmetric with
+    ;; `emit!`.
+    (when-not (or (true? (some-> *handler-scope* :no-emit?))
+                  (tagged-frame-trace-disabled? tags))
       (deliver! (maybe-project-marks (build-event :error error-operation tags))))))
 
 ;; ---- late-bind hook registration ------------------------------------------

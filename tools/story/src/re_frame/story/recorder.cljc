@@ -1,12 +1,13 @@
 (ns re-frame.story.recorder
-  "Test Codegen — record canvas-dispatched events as a `:play` body.
+  "Test Codegen — record canvas-dispatched events as a `:play-script` body.
 
   Per bead rf2-5fc15: Storybook 9's killer feature is the record-and-save
   workflow — the user interacts with the canvas, the tool watches the
   event bus, and on 'stop' it emits a code snippet the user appends to
-  a new variant. Story's `:play` body is a vector of event vectors, so
-  the captured trace is the codegen output verbatim — no Testing
-  Library / page-object translation layer is needed.
+  a new variant. Story's `:play-script` body wraps each captured event
+  vector as a `[:dispatch-sync <event-vec>]` step (rf2-0wrud), so the
+  captured trace is the codegen output verbatim — no Testing Library /
+  page-object translation layer is needed.
 
   ## What this namespace does
 
@@ -37,7 +38,7 @@
   ## `:sensitive?` events — record-but-redact (rf2-hdadz)
 
   Per rf2-hdadz (pragmatic stance, 2026-05-14): events flagged
-  `:sensitive? true` are STILL captured into the `:play` body, but the
+  `:sensitive? true` are STILL captured into the `:play-script` body, but the
   event payload is replaced with the framework's `:rf/redacted`
   sentinel so the credential / PII / auth-token doesn't ride into the
   snippet text. Mirrors rf2-vnjfg's enforcement on the always-on
@@ -48,8 +49,8 @@
      temporal ordering of dispatches; a recording that goes `:click`
      → `<dropped>` → `:click` is harder to read than `:click` →
      `[:rf/redacted]` → `:click`.
-  2. **Re-play stays well-formed.** A `:play` body of `[<vec> ... <vec>]`
-     stays a vector-of-vectors; round-trip through `read-string` and
+  2. **Re-play stays well-formed.** The captured events vector of
+     `[<vec> ... <vec>]` stays a vector-of-vectors; round-trip through `read-string` and
      re-dispatch find a `[:rf/redacted]` event vector rather than a bare
      sentinel keyword (no handler registered for `:rf/redacted`, so the
      re-play raises a clean dispatch error rather than a malformed
@@ -77,7 +78,7 @@
   Recording captures user dispatches. Assertions are the dual — the
   user wants to say 'after I click this button, the counter shows 3'.
   The canonical seven `:rf.assert/*` ids (per spec/004) compose with
-  the captured `:play` body exactly the way they compose with a hand-
+  the captured `:play-script` body exactly the way they compose with a hand-
   authored one — `dispatch-sync` them in line. The `recordable-event?`
   filter drops them off the trace bus (assertions are authored, not
   observed), so we expose an explicit insertion path:
@@ -120,13 +121,13 @@
 ;;
 ;; The recorder skips assertion events (`:rf.assert/*`) and Story's
 ;; own internal helpers (`:rf.story/*` / `:re-frame.story.*`) so the
-;; emitted `:play` body is exactly the user-facing dispatches that
+;; emitted `:play-script` body is exactly the user-facing dispatches that
 ;; reproduce the canvas state.
 ;; ---------------------------------------------------------------------------
 
 (defn- internal-namespace?
   "True iff `ns-str` is a Story-internal namespace whose events should
-  not appear in a recorded `:play` body."
+  not appear in a recorded `:play-script` body."
   [ns-str]
   (and (string? ns-str)
        (or (= pred/reserved-assertion-ns ns-str)   ; "rf.assert"
@@ -136,7 +137,7 @@
 
 (defn recordable-event?
   "True iff `event` (a re-frame event vector) is one the recorder should
-  capture into a `:play` body. Filters out assertion events and
+  capture into a `:play-script` body. Filters out assertion events and
   Story's own internal helper events. Pure data → boolean; JVM-
   testable."
   [event]
@@ -150,9 +151,9 @@
   "The placeholder event vector the recorder appends in place of a
   `:sensitive? true` event when the show-sensitive? flag is false
   (default). Per rf2-hdadz: record-but-redact preserves the row's
-  temporal position in the captured `:play` body without leaking the
+  temporal position in the captured `:play-script` body without leaking the
   credential / PII / auth-token. The single-element vector keeps the
-  `:play` shape (vector-of-event-vectors) intact so the snippet
+  captured-events shape (vector-of-event-vectors) intact so the snippet
   round-trips through `read-string` cleanly; re-play sees a well-
   formed event vector whose id (`:rf/redacted`, the framework sentinel
   from `re-frame.privacy`) has no registered handler — the resulting
@@ -238,7 +239,7 @@
 ;; ids are reserved. The recorder's mid-recording insertion picker
 ;; enumerates these to drive a single-click 'add assertion' affordance —
 ;; pick the id, supply the payload, the assertion event lands inline
-;; in the captured `:play` body alongside the dispatched events.
+;; in the captured `:play-script` body alongside the dispatched events.
 ;;
 ;; The vocabulary is data, not behaviour — the actual handlers live in
 ;; `re-frame.story.assertions`. This list is for the picker UI and for
@@ -419,8 +420,8 @@
 (def initial-state
   "The recorder's idle state shape. `:recording?` flips true while a
   capture is in flight; `:events` accumulates the captured event
-  vectors in declared order (oldest first, ready to drop straight
-  into `:play`); `:entries` (rf2-d5u89) accumulates the richer
+  vectors in declared order (oldest first, ready for `gen-play-snippet`
+  to wrap as `:play-script` `:dispatch-sync` steps); `:entries` (rf2-d5u89) accumulates the richer
   per-entry maps (`:event/dispatch` + `:dom/click` / `:dom/type` /
   `:dom/submit`) with per-event timestamps — consumed by the
   `:play-script` translator; `:variant-id` records which frame the
@@ -454,8 +455,9 @@
   (:variant-id @state))
 
 (defn recorded-events
-  "Return the vector of captured event vectors (oldest first). Back-
-  compat surface — feeds the legacy `:play` snippet codegen."
+  "Return the vector of captured event vectors (oldest first). Feeds the
+  simple `gen-play-snippet` codegen, which wraps each as a
+  `:play-script` `:dispatch-sync` step."
   []
   (:events @state))
 
@@ -483,11 +485,11 @@
 ;; ---------------------------------------------------------------------------
 ;; rf2-d5u89 — per-event timestamps + DOM-event entries
 ;;
-;; The legacy recorder model carried `:events` (a vector of event
-;; vectors) — sufficient for the v1 `:play` slot which dispatches
-;; them on mount, but blind to TIMING and DOM INTERACTION which the
-;; rich `:play-script` DSL needs to emit `:click` / `:type` / `:wait`
-;; steps.
+;; The original recorder model carried `:events` (a vector of event
+;; vectors) — sufficient for the simple `gen-play-snippet` codegen which
+;; wraps each as a `:dispatch-sync` step, but blind to TIMING and DOM
+;; INTERACTION which the rich `:play-script` DSL needs to emit `:click`
+;; / `:type` / `:wait` steps.
 ;;
 ;; The model now carries a parallel `:entries` vector keyed on the
 ;; same index as `:events`. Each entry is one of:
@@ -497,9 +499,9 @@
 ;;   {:kind :dom/type       :selector <str> :text <str> :t <ms>}
 ;;   {:kind :dom/submit     :selector <str> :t <ms>}
 ;;
-;; `:events` stays canonical for the legacy `:play` snippet codegen
-;; (gen-play-snippet) — back-compat is non-negotiable. `:entries` is
-;; the new richer surface the `:play-script` translator consumes.
+;; `:events` stays canonical for the simple `gen-play-snippet` codegen
+;; (which emits `:dispatch-sync` `:play-script` steps). `:entries` is
+;; the richer surface the rich `:play-script` translator consumes.
 ;;
 ;; `:t` is ms since `:started-ms`; pure helpers accept a `now-ms`
 ;; argument for deterministic testing. (Helper fns `now-ms*`,
@@ -515,8 +517,8 @@
   Per rf2-d5u89 the call ALSO appends a parallel `:entries` entry
   `{:kind :event/dispatch :event <vec> :t <ms>}` so the
   `:play-script` translator sees the timing alongside the event.
-  `:events` (bare event vectors) stays as-is for back-compat with
-  the legacy `:play` snippet codegen.
+  `:events` (bare event vectors) stays as-is for the simple
+  `gen-play-snippet` codegen.
 
   Two-arg form (`(append state event now-ms)`) lets callers pin
   the timestamp for deterministic tests."
@@ -789,7 +791,7 @@
   Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED per
   rf2-hdadz: the placeholder `redacted-event` vector replaces the
   event payload so the credential / PII / auth-token doesn't ride into
-  the captured `:play` body, while the row's temporal position is
+  the captured `:play-script` body, while the row's temporal position is
   preserved for correlation. The suppressed-events counter is still
   bumped (Spec 009 §Privacy + rf2-bclgj — Story is a framework-
   published trace consumer that default-suppresses sensitive events)

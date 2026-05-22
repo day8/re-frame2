@@ -195,30 +195,27 @@
 ;; (2) L1 ribbon clusters
 ;; -------------------------------------------------------------------------
 
-(deftest ribbon-mounts-all-four-clusters
-  (testing "spec/018 §3 + Round-3 rf2-g9pee — ribbon carries nav ·
-            frame · filter pills · right icons in fixed left-to-right
-            order. The explicit `● LIVE` / `◐ RETRO` SPINE-mode pill
-            was dropped in Round-3 — spine mode is derivable from
-            sticky-row selection + the `[◀ ▶ ⏭]` cluster, and Space /
-            L / G keybindings preserve toggle access.
-
-            Note: the Dynamic/Static MODE pill (rf2-o5f5f.1, testid
-            `rf-causa-mode-pill`) is a different widget — it mounts
-            at ribbon-left unconditionally per rf2-8l3uk and is
-            asserted by `static/shell_cljs_test.cljs`."
+(deftest ribbon-mounts-all-clusters-across-two-strata
+  (testing "rf2-4vp5j — the top of the shell is TWO strata. The chrome
+            ribbon carries the Frame + Dynamic/Static selectors (left)
+            and the right-icons cluster; the events ribbon carries the
+            nav cluster + filter pills (moved down from the old single
+            ribbon). All clusters still mount somewhere in the shell
+            tree."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
         (is (some? (find-by-testid tree "rf-causa-ribbon-nav"))
-            "nav cluster present")
+            "nav cluster present (now in the events ribbon)")
         (is (or (find-by-testid tree "rf-causa-ribbon-frame")
                 (find-by-testid tree "rf-causa-ribbon-frame-picker"))
-            "frame cluster present (label or dropdown)")
+            "frame selector present (label or dropdown) in the chrome ribbon")
+        (is (some? (find-by-testid tree "rf-causa-mode-pill"))
+            "Dynamic/Static mode dropdown present in the chrome ribbon")
         (is (some? (find-by-testid tree "rf-causa-ribbon-filters"))
-            "filter cluster present")
+            "filter cluster present (now in the events ribbon)")
         (is (some? (find-by-testid tree "rf-causa-ribbon-icons"))
-            "right-icons cluster present")))))
+            "right-icons cluster present in the chrome ribbon")))))
 
 (deftest ribbon-omits-popout-button
   (testing "rf2-u3qm1 — the right-icons cluster mounts only Settings +
@@ -240,6 +237,128 @@
             "pop-out ribbon button is absent (silent-by-default)")
         (is (not (re-find #"stubbed" (text-nodes icons)))
             "no `stubbed` copy in the right-icons cluster")))))
+
+;; -------------------------------------------------------------------------
+;; (2b) Two-ribbon redesign — chrome ribbon + events ribbon (rf2-4vp5j)
+;; -------------------------------------------------------------------------
+
+(deftest chrome-ribbon-carries-only-selectors-and-icons
+  (testing "rf2-4vp5j Workstream A — the chrome ribbon (rf-causa-ribbon)
+            carries the Frame + Dynamic/Static selectors on the left and
+            the right-icons cluster; the nav cluster + focus-chip +
+            filter pills moved OUT to the events ribbon."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [ribbon (shell/ribbon nil)]
+        (is (some? (find-by-testid ribbon "rf-causa-ribbon-selectors"))
+            "left selector cluster present")
+        (is (or (find-by-testid ribbon "rf-causa-ribbon-frame")
+                (find-by-testid ribbon "rf-causa-ribbon-frame-picker"))
+            "Frame selector in the chrome ribbon")
+        (is (some? (find-by-testid ribbon "rf-causa-mode-pill"))
+            "Dynamic/Static mode dropdown in the chrome ribbon")
+        (is (some? (find-by-testid ribbon "rf-causa-ribbon-icons"))
+            "right-icons cluster in the chrome ribbon")
+        ;; spine/filter chrome moved DOWN to the events ribbon
+        (is (nil? (find-by-testid ribbon "rf-causa-ribbon-nav"))
+            "nav cluster is NOT in the chrome ribbon")
+        (is (nil? (find-by-testid ribbon "rf-causa-ribbon-filters"))
+            "filter pills are NOT in the chrome ribbon")
+        (is (nil? (find-by-testid ribbon "rf-causa-focus-chip"))
+            "focus-chip is NOT in the chrome ribbon")))))
+
+(deftest events-ribbon-carries-label-nav-and-pills
+  (testing "rf2-4vp5j Workstream B — the events ribbon
+            (rf-causa-events-ribbon) carries the `Events:` label, the
+            nav cluster, and the filter pills on the left."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            ribbon (find-by-testid tree "rf-causa-events-ribbon")]
+        (is (some? ribbon) "events ribbon mounts as its own stratum")
+        (is (some? (find-by-testid tree "rf-causa-events-ribbon-label"))
+            "`Events:` label present")
+        (is (re-find #"Events:" (text-nodes ribbon))
+            "the label text reads `Events:`")
+        (is (some? (find-by-testid tree "rf-causa-ribbon-nav"))
+            "nav cluster present in the events ribbon")
+        (is (some? (find-by-testid tree "rf-causa-ribbon-filters"))
+            "filter pills present in the events ribbon")))))
+
+(deftest events-ribbon-actions-absent-when-no-filters
+  (testing "rf2-4vp5j Decision 3 — with no pills + no mutes, the events
+            ribbon's right-side action cluster (Clear Filters + N-hidden
+            message) is absent (clean default state)."
+    (causa-setup!)
+    (trace-bus/collect-trace! {:id 1 :op-type :event :operation :event/dispatched
+                               :tags {:event [:a] :frame :rf/default :dispatch-id 1}})
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (nil? (find-by-testid tree "rf-causa-events-ribbon-actions"))
+            "no action cluster when no filter is active")
+        (is (nil? (find-by-testid tree "rf-causa-filters-hidden-clear"))
+            "no Clear Filters button when no filter is active")
+        (is (nil? (find-by-testid tree "rf-causa-filters-hidden-indicator"))
+            "no N-hidden message when no filter is active")))))
+
+(deftest events-ribbon-shows-clear-filters-when-filter-active
+  (testing "rf2-4vp5j Decision 3 — when a filter is active, Clear Filters
+            appears; the N-hidden message appears beside it only when N>0."
+    (causa-setup!)
+    (trace-bus/collect-trace! {:id 1 :op-type :event :operation :event/dispatched
+                               :tags {:event [:a] :frame :rf/default :dispatch-id 1}})
+    (trace-bus/collect-trace! {:id 2 :op-type :event :operation :event/dispatched
+                               :tags {:event [:noise/tick] :frame :rf/default :dispatch-id 2}})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/add-filter :out {:pattern :noise/tick}]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (some? (find-by-testid tree "rf-causa-events-ribbon-actions"))
+            "action cluster present when a filter is active")
+        (is (some? (find-by-testid tree "rf-causa-filters-hidden-clear"))
+            "Clear Filters button present")
+        (is (some? (find-by-testid tree "rf-causa-filters-hidden-indicator"))
+            "N-hidden message present (the OUT pill hides 1 row → N>0)")
+        ;; the message says 'Clear Filters' (capitalised label per redesign)
+        (is (re-find #"Clear Filters"
+                     (text-nodes (find-by-testid tree "rf-causa-events-ribbon-actions"))))))))
+
+(deftest close-icon-dispatches-close-shell
+  (testing "rf2-4vp5j Workstream A — the chrome ribbon `✕` dispatches the
+            existing `:rf.causa/close-shell` event (landed by rf2-fq491);
+            it does NOT reimplement the hide logic."
+    (causa-setup!)
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch* (fn
+                                   ([ev]       (swap! dispatches conj ev) nil)
+                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/causa
+          (let [tree    (shell/shell-view)
+                close   (find-by-testid tree "rf-causa-icon-close")
+                handler (:on-click (second close))]
+            (is (some? close) "close icon present in the chrome ribbon")
+            (when handler (handler nil)))))
+      (is (some #(= :rf.causa/close-shell (first %)) @dispatches)
+          "`✕` click dispatches :rf.causa/close-shell"))))
+
+(deftest mode-dropdown-change-dispatches-set-mode
+  (testing "rf2-4vp5j Workstream A — selecting Static in the mode
+            dropdown dispatches `:rf.causa/set-mode :static`."
+    (causa-setup!)
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch* (fn
+                                   ([ev]       (swap! dispatches conj ev) nil)
+                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/causa
+          (let [ribbon  (shell/ribbon nil)
+                select  (find-by-testid ribbon "rf-causa-mode-pill")
+                on-chg  (:on-change (second select))]
+            (is (some? on-chg) "mode dropdown carries an on-change handler")
+            (when on-chg
+              (on-chg #js {:target #js {:value "static"}})))))
+      (is (some #(and (= :rf.causa/set-mode (first %))
+                      (= :static (second %))) @dispatches)
+          "selecting Static dispatches :rf.causa/set-mode :static"))))
 
 (deftest ribbon-nav-buttons-dispatch-spine-events
   (testing "spec/018 §3 — ribbon `◀ ▶ ⏭` dispatch focus-cascade-prev /

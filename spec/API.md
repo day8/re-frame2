@@ -461,6 +461,7 @@ Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag (rf
 | Metadata key | Where | Value | Default | Effect |
 |---|---|---|---|---|
 | `:rf.trace/no-emit?` | `reg-event-db` / `reg-event-fx` / `reg-event-ctx` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. Per [009 §Trace-emission opt-out](009-Instrumentation.md#trace-emission-opt-out-rftraceno-emit-event-meta). |
+| `:rf.trace/frame-no-emit?` | `reg-frame` config map | boolean | `false` | When `true`, marks the frame a tool / inspector frame: the runtime suppresses every trace emission tagged with that frame, so the inspector's own reactivity does not flood the shared ring it inspects. The frame-scoped sibling of `:rf.trace/no-emit?`. Per [009 §Frame-level trace-emission opt-out](009-Instrumentation.md#frame-level-trace-emission-opt-out-rftraceframe-no-emit-frame-config) (rf2-2qaqh). |
 
 ### Epoch history (per Tool-Pair)
 

@@ -187,7 +187,7 @@
 (defn- compute-testable-content-hashes
   "Walk the registered testable variants and return a `{variant-id →
   hex-hash}` map of snapshot-identity content hashes. The hash captures
-  the variant's `:play` / `:events` / `:loaders` / `:decorators` /
+  the variant's `:play-script` / `:events` / `:loaders` / `:decorators` /
   `:tags` slots plus the parent story's slice, the view's registered
   schema-digest, AND the variant's resolved effective args (which fold
   in the user's live `:cell-overrides`). See `re-frame.story.identity`
@@ -680,7 +680,7 @@
   composed of header / prose / args / decorators / parameters / tags
   sections. Per rf2-qmjo the `:test` pane renders `test-mode-view/test-view`
   — the in-canvas aggregated pass/fail summary of the variant's
-  `:play` sequence + assertions. `:dev` preserves the existing canvas
+  `:play-script` sequence + assertions. `:dev` preserves the existing canvas
   / workspace behaviour."
   []
   (let [shell      @state/shell-state-atom

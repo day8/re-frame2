@@ -34,6 +34,10 @@
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
   (rf/clear-trace-buffer!)
+  ;; rf2-2qaqh — the frame-level trace-emission gate (the trace-disabled
+  ;; frame set) is process-sticky and is NOT unwound by `reset! frames`,
+  ;; so clear it between tests to avoid a tool-frame flag bleeding forward.
+  (trace/clear-frame-no-emit!)
   ;; Restore default depth between tests so a depth-tweaking test does
   ;; not bleed configuration into the next.
   (rf/configure :trace-buffer {:depth 200})
@@ -494,3 +498,86 @@
     (let [router-evs (rf/trace-buffer {:rf/dispatch-origin :router})]
       (is (seq router-evs))
       (is (every? #(= :router (get-in % [:tags :rf/dispatch-origin])) router-evs)))))
+
+;; ---- 5. Frame-level trace-emission gate (rf2-2qaqh) ------------------------
+;;
+;; A tool / inspector frame registered with `:rf.trace/frame-no-emit? true`
+;; (e.g. Causa's `:rf/causa`) produces NO trace — its own reactivity must
+;; not flood the shared ring buffer it inspects. The frame-scoped sibling
+;; of the handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission
+;; opt-out). The gate keys on the event's `:frame` tag, single-sourced via
+;; `trace/frame-trace-disabled?`.
+
+(deftest tool-frame-emits-no-trace
+  (testing "a frame registered :rf.trace/frame-no-emit? true grows the ring by 0"
+    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (rf/reg-event-db :tool/work (fn [db _] (assoc db :ran? true)))
+    (rf/clear-trace-buffer!)
+    (is (= [] (rf/trace-buffer))
+        "buffer empty after clear (the :frame/created emit was suppressed too)")
+    ;; Drive a full cascade ON the tool frame: dispatch, db-change, the
+    ;; whole drain. None of it should reach the ring.
+    (rf/dispatch-sync [:tool/work] {:frame :tool/inspector})
+    (is (= [] (rf/trace-buffer))
+        "no trace event from a trace-disabled frame's cascade reaches the ring")))
+
+(deftest app-frame-emits-trace-while-tool-frame-silent
+  (testing "an app frame's cascade DOES grow the ring; the tool frame's does NOT"
+    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (rf/reg-frame :app/main {:doc "ordinary application frame"})
+    (rf/reg-event-db :work (fn [db _] (assoc db :ran? true)))
+    (rf/clear-trace-buffer!)
+    ;; Interleave: tool-frame noise must never displace app-frame signal.
+    (dotimes [_ 20] (rf/dispatch-sync [:work] {:frame :tool/inspector}))
+    (rf/dispatch-sync [:work] {:frame :app/main})
+    (let [buf (rf/trace-buffer)]
+      (is (seq buf) "app-frame cascade produced trace")
+      (is (every? #(not= :tool/inspector
+                         (or (:frame %) (get-in % [:tags :frame])))
+                  buf)
+          "NO event in the ring is tagged with the trace-disabled frame")
+      (is (some #(= :app/main (or (:frame %) (get-in % [:tags :frame]))) buf)
+          "the app-frame events survived (not evicted by tool noise)"))))
+
+(deftest tool-frame-self-instrumentation-does-not-saturate-ring
+  (testing "the rf2-2qaqh scenario: heavy tool-frame churn cannot evict app events"
+    (rf/configure :trace-buffer {:depth 50})
+    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (rf/reg-frame :app/main {:doc "app"})
+    (rf/reg-event-db :work (fn [db _] db))
+    (rf/dispatch-sync [:work] {:frame :app/main})
+    (rf/clear-trace-buffer!)
+    ;; Seed one app cascade, then bury it under far more tool-frame churn
+    ;; than the ring depth — pre-fix this evicted the app event entirely.
+    (rf/dispatch-sync [:work] {:frame :app/main})
+    (dotimes [_ 500] (rf/dispatch-sync [:work] {:frame :tool/inspector}))
+    (let [buf (rf/trace-buffer)]
+      (is (some #(= :app/main (or (:frame %) (get-in % [:tags :frame]))) buf)
+          "the app-frame event is STILL in the ring after 500 tool dispatches")
+      (is (empty? (rf/trace-buffer {:frame :tool/inspector}))
+          "zero tool-frame events in the ring"))))
+
+(deftest frame-no-emit-flag-clears-on-re-registration
+  (testing "re-registering a frame WITHOUT the flag re-enables its trace"
+    (rf/reg-frame :flip/frame {:rf.trace/frame-no-emit? true})
+    (rf/reg-event-db :work (fn [db _] db))
+    (is (trace/frame-trace-disabled? :flip/frame)
+        "predicate reports the flag is set")
+    (rf/clear-trace-buffer!)
+    (rf/dispatch-sync [:work] {:frame :flip/frame})
+    (is (= [] (rf/trace-buffer)) "trace suppressed while flag set")
+    ;; Surgical re-registration drops the flag → trace re-enabled.
+    (rf/reg-frame :flip/frame {:doc "now a normal frame"})
+    (is (not (trace/frame-trace-disabled? :flip/frame))
+        "predicate reports the flag cleared on re-registration")
+    (rf/clear-trace-buffer!)
+    (rf/dispatch-sync [:work] {:frame :flip/frame})
+    (is (seq (rf/trace-buffer)) "trace flows again once the flag is cleared")))
+
+(deftest frame-trace-disabled-predicate-is-single-sourced
+  (testing "set-frame-no-emit! / frame-trace-disabled? toggle the canonical set"
+    (is (not (trace/frame-trace-disabled? :probe/frame)))
+    (trace/set-frame-no-emit! :probe/frame true)
+    (is (trace/frame-trace-disabled? :probe/frame))
+    (trace/set-frame-no-emit! :probe/frame false)
+    (is (not (trace/frame-trace-disabled? :probe/frame)))))

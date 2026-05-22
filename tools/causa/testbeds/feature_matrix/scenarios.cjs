@@ -1619,39 +1619,26 @@ async function runHydration(page) {
   //
   // Post rf2-xy4yb: the dedicated Hydration debugger panel was
   // dropped. Per spec/018 §5 hydration mismatches surface as
-  // `:rf.ssr/*` rows (category-prefix "rf.ssr").
-  //
-  // Per rf2-u6dhp + rf2-g1pt8 + rf2-fzbrw the Causa-side surfacing
-  // chain has THREE invariants the user-facing panels uphold:
-  //
-  //   1. The Issues feed is cascade-scoped: only issues whose
-  //      `:dispatch-id` matches the focused cascade pass through
-  //      (rf2-u6dhp).
-  //   2. Causa-internal `:rf.causa/*` cascades are stripped from
-  //      `:rf.causa/cascades` (rf2-g1pt8) so the user never sees
-  //      Causa instrumenting itself.
-  //   3. The `:ungrouped` bucket is structurally unfocusable — the
-  //      spine's `compose-focus` snaps any `:ungrouped` slot to
-  //      head per rf2-fzbrw's no-aggregate-state invariant.
+  // `:rf.ssr/*` rows (category-prefix "rf.ssr") in the Issues tab.
   //
   // `:rf.ssr/hydration-mismatch` is emitted by `verify-hydration!`
-  // OUTSIDE any event-handler context (see testbed `core.cljs:188`),
-  // so the projector buckets it as `:dispatch-id :ungrouped`. With
-  // invariant (3) above, the user cannot pin the `:ungrouped`
-  // bucket, so this particular issue class CANNOT surface in the
-  // cascade-scoped feed — the Causa-side surfacing is a known gap
-  // for `verify-hydration!`-style traces (separate bead territory).
+  // OUTSIDE any event-handler context (see testbed `core.cljs:188`).
+  // The framework's epoch capture (`re-frame.epoch.capture/capture-
+  // event!`) drops out-of-cascade orphan emits — an error with no
+  // in-flight cascade AND no `:dispatch-id` (rf2-avvwm) — so the
+  // mismatch trace never lands in any `:rf/epoch-record`'s
+  // `:trace-events`. Surfacing orphaned out-of-cascade errors in the
+  // focused-epoch Issues lens is a deliberately separate concern
+  // (the L2 timeline's per-row badges, not this per-epoch panel).
   //
-  // What this scenario CAN verify end-to-end:
+  // What this scenario verifies end-to-end:
   //
   //   - the trace fired (testbed banner renders the projected
   //     payload — proves `verify-hydration!` reached `emit-error!`)
-  //   - the Issues panel mounts cleanly when the focused cascade
-  //     carries no `:rf.ssr/*` issues (silent-by-default empty-state
-  //     branch — proves cascade-scoping doesn't crash the panel)
-  //
-  // Asserting the feed `<ul>` testid here would require pinning the
-  // `:ungrouped` bucket, which invariant (3) forbids.
+  //   - the Issues panel mounts cleanly under cascade (focused-epoch)
+  //     scope and renders either the feed or a proper empty-state —
+  //     proving the focused-epoch projection doesn't crash and the
+  //     head-fallback (rf2-h0120) resolves to a real epoch record.
   const mismatchBanner = page.locator('[data-testid="mismatch-banner"]');
   await expectVisible(mismatchBanner, 10000);
   await expectVisible(page.locator('[data-testid="mismatch-server-hash"]'), 5000);
@@ -1659,19 +1646,26 @@ async function runHydration(page) {
   // ---- (2) Causa Issues panel mounts cleanly under cascade scope ----
   await openCausa(page);
   await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
-  // Issues panel ribbon is up; the focused cascade (the L4 default-
-  // focuses head per rf2-639lc) carries no `:rf.ssr/*` issues so the
-  // panel renders the silent-by-default empty-state per rf2-g3ghh.
-  // Either the empty-state testid OR the feed `<ul>` is acceptable —
-  // both prove cascade-scoping is honoured without crashing.
-  const emptyForEvent = page.locator(
-    '[data-testid="rf-causa-issues-empty-no-issues-for-event"]',
+  // The Issues panel is the focused-epoch lens (rf2-jio48): with no
+  // explicit focus it head-falls-back to the most-recent epoch
+  // (rf2-h0120). That epoch carries no projected `:error`/`:warning`/
+  // `:advisory` issue (the mismatch trace is out-of-cascade — see
+  // above), so the panel paints the positive `:no-issues` empty-state.
+  // Either the feed `<ul>` OR any of the panel's empty-state branches
+  // is acceptable — all prove the focused-epoch projection is honoured
+  // without crashing. (The legacy cascade-scoped `-for-event` empty
+  // state was collapsed into `:no-issues` by the rf2-jio48 rebuild.)
+  const feedOrEmptyState = page.locator(
+    [
+      '[data-testid="rf-causa-issues-feed"]',
+      '[data-testid="rf-causa-issues-empty-no-issues"]',
+      '[data-testid="rf-causa-issues-empty-no-matches"]',
+      '[data-testid="rf-causa-issues-empty-no-focus"]',
+      '[data-testid="rf-causa-issues-empty-epoch-evicted"]',
+    ].join(', '),
   );
-  const feed = page.locator('[data-testid="rf-causa-issues-feed"]');
   await waitForValue(
-    async () => (
-      (await emptyForEvent.count()) + (await feed.count()) > 0
-    ),
+    async () => (await feedOrEmptyState.count()) > 0,
     (n) => n === true,
     {
       timeoutMs: 5000,
@@ -1956,14 +1950,15 @@ async function runConfigurePartialUpdate(page, state) {
 // feature-matrix carried zero browser coverage for the highest-user-
 // visible Causa surface to land in the recent cluster. This scenario:
 //
-//   1. Asserts the Dynamic baseline — mode pill present with `dynamic`
-//      segment selected (aria-checked=true), L2 spine event-list
-//      visible (4-layer chrome).
+//   1. Asserts the Dynamic baseline — mode dropdown present with
+//      `dynamic` selected (rf2-4vp5j reshaped the two-button pill into a
+//      compact `<select>`; `data-active-mode`/`value` carry the state),
+//      L2 spine event-list visible (4-layer chrome).
 //   2. Fires Ctrl+Shift+M (the cross-platform chord per
 //      `keybinding.cljs/mode-toggle-key?` — Cmd-Shift-M on macOS,
 //      Ctrl-Shift-M elsewhere; Playwright drives Ctrl as the headless
 //      Chromium maps to Ctrl reliably). Asserts the mode flips: the
-//      `static` segment becomes selected, the Static surface mounts
+//      dropdown reads `static`, the Static surface mounts
 //      (`rf-causa-static-surface` with `data-rf-causa-mode="static"`),
 //      the L2 spine disappears (3-layer silhouette — chrome-silhouette
 //      mode-signal #4), the Machines sub-tab is selected by default
@@ -1971,8 +1966,8 @@ async function runConfigurePartialUpdate(page, state) {
 //      / Views / Flows) mounts its real panel root testid while
 //      `:events` (rf2-o5f5f.6 — last remaining placeholder) still
 //      renders a placeholder card naming the sibling bead.
-//   3. Clicks `rf-causa-mode-pill-dynamic`; mode flips back; L2 spine
-//      returns (proves the pill is the canonical toggle path too —
+//   3. Selects `Dynamic` in the dropdown; mode flips back; L2 spine
+//      returns (proves the dropdown is the canonical toggle path too —
 //      not just the chord).
 //   4. Reloads the page; asserts localStorage `causa.mode` round-
 //      trips the last-set mode (Dynamic here, per the flip-back step).
@@ -1992,22 +1987,17 @@ async function runStaticModeChromeAndChord(page, state) {
   await openCausa(page);
 
   // ---- (1) Dynamic baseline -----------------------------------------
-  // Per rf2-8l3uk the mode pill is always rendered (the Static-mode
-  // feature gate was removed). The Dynamic segment must be selected
-  // by default.
+  // Per rf2-8l3uk the mode control is always rendered (the Static-mode
+  // feature gate was removed). Per rf2-4vp5j it is a compact `<select>`
+  // dropdown; `data-active-mode` + `value` carry the active mode.
+  // Dynamic must be selected by default.
   await expectVisible(
     page.locator('[data-testid="rf-causa-mode-pill"]'),
     5000,
   );
   const dynamicBaseline = await waitForValue(
     () => page.evaluate(() => {
-      const dynamicPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-dynamic"]',
-      );
-      const staticPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-static"]',
-      );
-      const pillGroup = document.querySelector(
+      const modeSelect = document.querySelector(
         '[data-testid="rf-causa-mode-pill"]',
       );
       const eventList = document.querySelector(
@@ -2017,16 +2007,14 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-surface"]',
       );
       return {
-        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
-        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
-        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        modeSelectValue: modeSelect ? modeSelect.value : null,
+        pillGroupActiveMode: modeSelect ? modeSelect.getAttribute('data-active-mode') : null,
         eventListPresent: Boolean(eventList),
         staticSurfacePresent: Boolean(staticSurface),
       };
     }),
     (snap) =>
-      snap.dynamicPillChecked === 'true' &&
-      snap.staticPillChecked === 'false' &&
+      snap.modeSelectValue === 'dynamic' &&
       snap.pillGroupActiveMode === 'dynamic' &&
       snap.eventListPresent &&
       !snap.staticSurfacePresent,
@@ -2037,13 +2025,7 @@ async function runStaticModeChromeAndChord(page, state) {
   await page.keyboard.press('Control+Shift+M');
   const afterChord = await waitForValue(
     () => page.evaluate(() => {
-      const dynamicPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-dynamic"]',
-      );
-      const staticPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-static"]',
-      );
-      const pillGroup = document.querySelector(
+      const modeSelect = document.querySelector(
         '[data-testid="rf-causa-mode-pill"]',
       );
       const surface = document.querySelector(
@@ -2069,9 +2051,8 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-detail-panel-machines"]',
       );
       return {
-        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
-        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
-        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        modeSelectValue: modeSelect ? modeSelect.value : null,
+        pillGroupActiveMode: modeSelect ? modeSelect.getAttribute('data-active-mode') : null,
         staticSurfacePresent: Boolean(surface),
         staticSurfaceModeAttr: surface ? surface.getAttribute('data-rf-causa-mode') : null,
         ribbonPresent: Boolean(ribbon),
@@ -2082,8 +2063,7 @@ async function runStaticModeChromeAndChord(page, state) {
       };
     }),
     (snap) =>
-      snap.staticPillChecked === 'true' &&
-      snap.dynamicPillChecked === 'false' &&
+      snap.modeSelectValue === 'static' &&
       snap.pillGroupActiveMode === 'static' &&
       snap.staticSurfacePresent &&
       snap.staticSurfaceModeAttr === 'static' &&
@@ -2158,18 +2138,14 @@ async function runStaticModeChromeAndChord(page, state) {
     5000,
   );
 
-  // ---- (3) Click Dynamic pill — Static → Dynamic --------------------
-  await page.locator('[data-testid="rf-causa-mode-pill-dynamic"]').click();
+  // ---- (3) Select Dynamic in the dropdown — Static → Dynamic --------
+  // rf2-4vp5j — the mode control is a `<select>`; flipping back is a
+  // selectOption (the canonical toggle path, not just the chord).
+  await page.locator('[data-testid="rf-causa-mode-pill"]').selectOption('dynamic');
   const afterClickBack = await waitForValue(
     () => page.evaluate(() => {
-      const pillGroup = document.querySelector(
+      const modeSelect = document.querySelector(
         '[data-testid="rf-causa-mode-pill"]',
-      );
-      const dynamicPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-dynamic"]',
-      );
-      const staticPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-static"]',
       );
       const eventList = document.querySelector(
         '[data-testid="rf-causa-event-list"]',
@@ -2178,20 +2154,18 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-surface"]',
       );
       return {
-        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
-        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
-        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
+        pillGroupActiveMode: modeSelect ? modeSelect.getAttribute('data-active-mode') : null,
+        modeSelectValue: modeSelect ? modeSelect.value : null,
         eventListPresent: Boolean(eventList),
         staticSurfacePresent: Boolean(surface),
       };
     }),
     (snap) =>
       snap.pillGroupActiveMode === 'dynamic' &&
-      snap.dynamicPillChecked === 'true' &&
-      snap.staticPillChecked === 'false' &&
+      snap.modeSelectValue === 'dynamic' &&
       snap.eventListPresent &&
       !snap.staticSurfacePresent,
-    { timeoutMs: 5000, description: 'Dynamic restored after clicking pill segment' },
+    { timeoutMs: 5000, description: 'Dynamic restored after selecting Dynamic in the dropdown' },
   );
 
   // Per rf2-8l3uk Static mode is unconditionally available — no feature

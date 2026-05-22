@@ -155,7 +155,8 @@
      {:doc                   \"...\"
       :extends               <variant-id>
       :events                [[:event-id args...]]
-      :play                  [[:event-id args...]]
+      :play-script           {:script [[:dispatch [:event-id args...]] ...]}
+      :plays                 [{:name \"...\" :script [...]} ...]
       :args                  {<arg-key> <value>}
       :argtypes              {...}
       :tags                  #{...}
@@ -872,9 +873,9 @@
   on a variant's `:decorators` slot:
 
       (story/reg-variant :story.auth/login-pending
-        {:decorators [[story/force-fx-stub-id :http {:status :pending}]]
-         :play       [[:auth/login]
-                      [:rf.assert/effect-emitted :http]]})"
+        {:decorators  [[story/force-fx-stub-id :http {:status :pending}]]
+         :play-script {:script [[:dispatch [:auth/login]]
+                                [:dispatch [:rf.assert/effect-emitted :http]]]}})"
   fx-stubs/force-fx-stub-id)
 
 ;; ---- public SOTA-feature surface ----------------------------------------
@@ -1024,7 +1025,7 @@
 ;; ---- rf2-5fc15 — Test Codegen recorder public surface --------------------
 ;;
 ;; Per bead rf2-5fc15 the recorder captures canvas-dispatched events as
-;; a `:play` body. Exposing the entry points here lets tests, MCP
+;; a `:play-script` body. Exposing the entry points here lets tests, MCP
 ;; tooling, and headless integrations drive recording programmatically
 ;; without going through the toolbar UI.
 
@@ -1063,9 +1064,11 @@
   (recorder/clear!))
 
 (defn gen-play-snippet
-  "Render an EDN snippet `(reg-variant <id> {... :play [...]})` for
+  "Render an EDN snippet `(reg-variant <id> {... :play-script {...}})` for
   `events`. Pure data → string; round-trips through `read-string` and
-  re-frame's registrar machinery.
+  re-frame's registrar machinery. Per rf2-0wrud `:play-script` is the
+  canonical AND ONLY phase-4 slot — each captured event vector is wrapped
+  as a `[:dispatch-sync <event-vec>]` step under `:play-script :script`.
 
   `opts` accepts:
     :variant-id  required — keyword id for the new variant.
@@ -1073,7 +1076,7 @@
     :extends     optional — keyword id of a variant to `:extends`.
     :alias       optional — short ns alias for the form (default `story`).
 
-  Empty `events` still produces a valid form (with `:play []`) so the
-  user sees the shape to fill in."
+  Empty `events` still produces a valid form (with an empty `:script []`)
+  so the user sees the shape to fill in."
   [events opts]
   (recorder/gen-play-snippet events opts))

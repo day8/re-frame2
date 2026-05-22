@@ -143,6 +143,9 @@
    :rf.causa/epoch-history
    :rf.causa/event-detail
    :rf.causa/filtered-cascades
+   ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
+   ;; (raw vs filtered visible counts + the active filter cause).
+   :rf.causa/hidden-by-filters
    :rf.causa/focus
    ;; rf2-70tkv — App-DB diff subs pivot off the spine's focus
    ;; `:epoch-id` (which auto-tracks head in LIVE mode) instead of
@@ -158,6 +161,12 @@
    ;; surfaces. See `frame_switcher.cljs` for the full contract.
    :rf.causa/current-frame
    :rf.causa/available-frames
+   ;; rf2-4vp5j — the dedicated VIEW-SCOPE frame slot (frame is a view
+   ;; scope, not a filter): the resolved scope + its raw stored slot +
+   ;; the raw target-frame slot it falls back to on a host seed.
+   :rf.causa/view-scope-frame
+   :rf.causa/view-scope-frame-slot
+   :rf.causa/target-frame-slot
    :rf.causa/focused-slice-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
@@ -361,6 +370,9 @@
    :rf.causa/cancellation-cascade-open
    :rf.causa/cancellation-cascade-set-expanded
    :rf.causa/cancellation-cascade-toggle-expand
+   ;; rf2-jvghz — one-click reset behind the L2 'N hidden by filters'
+   ;; indicator (resets IN/OUT pills + frame pin + mutes).
+   :rf.causa/clear-all-filters
    :rf.causa/clear-machine-selection
    ;; rf2-a1z3b — focus-navigation primitive (gutter click on L2 row sets a
    ;; focus-set; `[◀][▶]` step within the in-focus subset).
@@ -590,6 +602,10 @@
    :rf.causa.fx/open-in-new-tab
    ;; rf2-0us27 — Per-cascade structured export: text-file download fx.
    :rf.causa.fx/download-text-file
+   ;; rf2-fq491 — `✕` close button: the DOM-side shell-hide effect fired
+   ;; by `:rf.causa/close-shell`. Registered via `mount/install-fx!` from
+   ;; the orchestrator; calls `mount/close!`.
+   :rf.causa.fx/hide-shell
    ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
    ;; filter-specific prefix because the localStorage write is bound
    ;; to the filter-mutating events (add-filter / remove-filter /

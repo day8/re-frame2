@@ -49,7 +49,8 @@
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
-            [day8.re-frame2-causa.filters :as filters]
+            [day8.re-frame2-causa.filters.persistence :as filters-persistence]
+            [day8.re-frame2-causa.frame-switcher :as frame-switcher]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.spine :as spine]
@@ -395,7 +396,17 @@
     in lockstep — symmetric with the picker path and the public
     `core/set-target-frame!` API."
   []
-  (rf/reg-frame :rf/causa {})
+  ;; `:rf.trace/frame-no-emit? true` marks `:rf/causa` a tool / inspector
+  ;; frame: the framework suppresses all trace emission tagged with this
+  ;; frame so Causa's own UI reactivity (`:sub/run` + `:view/render` on
+  ;; every panel render) does NOT flood the shared trace ring it inspects
+  ;; (rf2-2qaqh). Without this, Causa's self-instrumentation evicted every
+  ;; application event from the process-global ring buffer — any other
+  ;; consumer reading the raw buffer (re-frame2-pair, Story) saw only
+  ;; Causa noise. The flag is the frame-scoped sibling of the handler-
+  ;; scoped `:rf.trace/no-emit?`; the framework's `reg-frame` honours it
+  ;; on every (re-)registration so the gate survives hot-reload.
+  (rf/reg-frame :rf/causa {:rf.trace/frame-no-emit? true})
   (doseq [{:keys [handler]} @first-mount-hooks]
     (handler)))
 
@@ -437,23 +448,32 @@
         (rf/dispatch-sync [:rf.causa/set-target-frame seed-frame])))))
 
 (register-first-mount-hook!
-  ::hydrate-filters
-  ;; Hydrate the auto-filter pills (rf2-ak4ms). The preload-time
-  ;; `filters/install!` call ran BEFORE the `:rf/causa` frame was
-  ;; registered, so its hydrate attempt no-op'd; re-running here under
-  ;; the now-registered frame lifts the localStorage / seed value into
-  ;; the slot. Idempotent — re-running with an unchanged source
-  ;; produces the same slot.
-  filters/hydrate!)
-
-(register-first-mount-hook!
-  ::hydrate-spine-filters
-  ;; Hydrate the muted-event-ids set (rf2-ikuwt). Same rationale as
-  ;; `filters/hydrate!` above — the preload-time `spine-filters/
-  ;; install!` ran before `:rf/causa` was registered, so re-running
-  ;; here under the now-registered frame lifts the localStorage value
-  ;; into the slot.
-  spine-filters/hydrate!)
+  ::reset-transient-filters
+  ;; Reset the TRANSIENT exploration filters to unfiltered on every page
+  ;; load (rf2-swclw). Three suppressing surfaces — the IN/OUT pills
+  ;; (rf2-ak4ms), the muted-event-ids set (rf2-ikuwt), and the frame pin
+  ;; (rf2-iwwou) — are session-scoped: a fresh load must NOT silently
+  ;; carry a stale filter from a past session (the trap that hid events
+  ;; and made the inspector look broken — rf2-jvghz). An inspector's
+  ;; prime directive is to show the truth, so the first paint starts
+  ;; fully unfiltered.
+  ;;
+  ;; Mechanism: we do NOT hydrate these slots, so app-db starts at its
+  ;; registry default (empty pills / empty mute set / unpinned frame).
+  ;; We additionally CLEAR each slot's stale localStorage value so the
+  ;; storage matches what the user sees and a phantom value can never
+  ;; resurface — if we only ignored-on-read, the next mute / pin write
+  ;; would overwrite a slot that still held last session's ghost until
+  ;; then. Clearing keeps storage honest from the first frame.
+  ;;
+  ;; DURABLE view prefs (Dynamic/Static mode, density, panel layout)
+  ;; still hydrate via their own hooks below — only transient filters
+  ;; reset. The #1962 'N events hidden by filters' indicator stays as
+  ;; the in-session safety net once the user reaches for a filter.
+  (fn []
+    (filters-persistence/clear!)
+    (spine-filters/clear-raw!)
+    (frame-switcher/clear!)))
 
 (register-first-mount-hook!
   ::hydrate-static-mode
@@ -537,6 +557,29 @@
   (per `open!`); subsequent calls flip visibility."
   []
   (if (visible?) (close!) (open!)))
+
+;; ---- close-shell effect (rf2-fq491) -------------------------------------
+;;
+;; The shell `✕` button (and any other in-app close affordance) dispatches
+;; `:rf.causa/close-shell`, an app-db event. That event sets the reactive
+;; `:close-requested?` flag, but the actual DOM hide lives here in `close!`
+;; (the same path the Ctrl+Shift+C keybinding drives via `toggle!`). This
+;; fx is the bridge: the event returns `[:rf.causa.fx/hide-shell]` and the
+;; effect calls `close!`, so the flag and the visible hide stay in lock-
+;; step. Co-locating the effect with the DOM action (mirrors
+;; `static-persistence/install-fx!`) keeps `registry.cljs` free of any
+;; direct DOM-toggle call.
+(defn install-fx!
+  "Idempotently register `:rf.causa.fx/hide-shell` — the effect that
+  performs the DOM-side shell hide. re-frame's registrar replaces in
+  place, so repeat calls (shadow-cljs `:after-load`) are harmless.
+
+  Handler signature `(fn [ctx args])` per the v2 reg-fx contract."
+  []
+  (rf/reg-fx :rf.causa.fx/hide-shell
+    (fn [_ctx _args]
+      (close!)))
+  nil)
 
 (defn- teardown-popout-state!
   "Internal: tear down the popout singleton if present. Invokes the

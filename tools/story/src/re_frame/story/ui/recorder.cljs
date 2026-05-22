@@ -399,7 +399,7 @@
                       (str "Recording " (count (:events rec))
                            " events — click to stop and save as variant")
                       :else
-                      "Record canvas dispatches as a :play body (Test Codegen)")
+                      "Record canvas dispatches as a :play-script body (Test Codegen)")
       :on-click     on-click}
      (when rec? [:span {:style (:dot styles)}])
      "REC"
@@ -418,7 +418,7 @@
 ;;      buttons. Click selects one + advances to phase 2.
 ;;   2. Field entry — one EDN input per payload field declared in the
 ;;      vocabulary entry. A live preview shows the event vector that
-;;      will land in the captured `:play` body. 'Insert' calls
+;;      will land in the captured `:play-script` body. 'Insert' calls
 ;;      `recorder/insert-assertion!`; 'cancel' returns to phase 1.
 ;;
 ;; The picker is overlay-style modal so it stays visible while the
@@ -721,7 +721,7 @@
        [:button
         {:style     (:assert-btn styles)
          :data-test "story-recorder-add-assertion"
-         :title     "Insert a :rf.assert/* assertion into the captured :play body"
+         :title     "Insert a :rf.assert/* assertion into the captured :play-script body"
          :on-click  (fn [_] (open-picker!))}
         "+ assert"]
        [:button
@@ -743,7 +743,7 @@
 
 (defn save-dialog
   "Modal dialog rendered after the user stops a non-empty recording.
-  Shows the EDN snippet — `(reg-variant <id> {... :play [...]})` —
+  Shows the EDN snippet — `(reg-variant <id> {... :play-script {...}})` —
   and a 'copy to clipboard' affordance.
 
   The user edits the variant id inline; the snippet re-generates on
@@ -777,7 +777,7 @@
            :on-discard        (fn [] (recorder/clear!) (close-dialog!))
            ;; rf2-x9zsr — open the :play-script export dialog with the
            ;; captured snapshot. We DON'T close the parent dialog
-           ;; (user may want to copy the :play form too); the export
+           ;; (user may want to copy the simple :play-script form too); the export
            ;; dialog stacks on top via a higher z-index.
            :on-export         (fn []
                                 (export-dialog/open-from-recorder-dialog!

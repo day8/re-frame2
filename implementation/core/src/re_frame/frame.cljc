@@ -295,6 +295,15 @@
   [id metadata]
   (let [config (source-coords/merge-coords (expand-preset metadata))]
     (registrar/register! :frame id config)
+    ;; Frame-level trace-emission gate (rf2-2qaqh): a frame registered
+    ;; with `:rf.trace/frame-no-emit? true` is a tool / inspector frame
+    ;; (e.g. Causa's `:rf/causa`) whose own reactive substrate must NOT
+    ;; flood the shared trace ring it inspects. The flag is the frame-
+    ;; scoped sibling of the handler-scoped `:rf.trace/no-emit?`
+    ;; (Spec 009 §Trace-emission opt-out). Honoured on BOTH first
+    ;; registration and re-registration so a hot-reload can flip it
+    ;; either way; `trace.cljc` owns the canonical set + predicate.
+    (trace/set-frame-no-emit! id (true? (:rf.trace/frame-no-emit? config)))
     (let [existing (get @frames id)]
       (cond
         ;; First registration: create everything.

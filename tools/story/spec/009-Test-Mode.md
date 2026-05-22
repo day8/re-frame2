@@ -1,7 +1,7 @@
 # Story — `:test` Mode Pane
 
 > The in-canvas aggregated test-runner view that sits behind the
-> `:test` mode-tab. Runs the variant's `:play` sequence + the seven
+> `:test` mode-tab. Runs the variant's `:play-script` sequence + the seven
 > canonical `:rf.assert/*` events; surfaces a status badge, per-row
 > pass/fail/skip, collapsible failure detail, and a re-run button.
 > The downstream surface the mode-tabs primitive (rf2-9hc8, spec/007)
@@ -49,7 +49,7 @@ Three companion namespaces (split per rf2-8n2fz — see `pure.cljc`,
 
 ;; pure data → data (JVM-testable) — under re-frame.story.ui.test-mode.pure:
 (variant-has-tests? variant-id)
-  ; → boolean — true iff the variant body declares a non-empty :play
+  ; → boolean — true iff the variant body declares a non-empty :play-script
 (assertion-row assertion)
   ; → {:assertion :rf.assert/path-equals
   ;    :status   :pass|:fail|:skip
@@ -74,7 +74,7 @@ The pane renders four sections, top-to-bottom:
 | 1 | Header           | variant id + parent-story id + run/elapsed status                        | always                                         |
 | 2 | Summary badge    | overall pass/fail/skip count + "all passed" / "<n> failed" status pill  | a run has executed                             |
 | 3 | Per-test rows    | one row per `:assertions` record — green/red/grey + collapsible detail   | a run has executed AND `:assertions` non-empty |
-| 4 | Empty state      | "No tests registered for this variant" + link to testing recipes         | `:play` slot is empty                          |
+| 4 | Empty state      | "No tests registered for this variant" + link to testing recipes         | `:play-script` slot is empty                    |
 
 ### 1. Header
 
@@ -100,8 +100,8 @@ parent story: :story.counter
 
 A status pill — green when every assertion passed, red when any
 failed, grey when the variant ran but recorded zero assertions
-(possible when `:play` is non-empty but contains only non-assertion
-event dispatches). The pill text is `"N passed"`, `"N failed of M"`,
+(possible when `:play-script` is non-empty but contains only
+non-assertion dispatch steps). The pill text is `"N passed"`, `"N failed of M"`,
 or `"no assertions recorded"`.
 
 The pill is followed by a key:
@@ -140,13 +140,13 @@ exactly which file/line declared the assertion.
 ### 4. Empty state
 
 When `(variant-has-tests? variant-id)` is false — the variant body's
-`:play` slot is empty or absent — the pane skips the run entirely
+`:play-script` slot is empty or absent — the pane skips the run entirely
 and renders a placeholder:
 
 ```
 No tests registered for this variant
 
-Add a :play slot to register assertions.
+Add a :play-script slot to register assertions.
 See: skills/re-frame2/references/cross-cutting/testing.md
 ```
 
@@ -159,7 +159,7 @@ whichever hash route the playground is on (`#/stories/...`), which
 isn't the repository root.
 
 The pane MUST NOT call `run-variant` in this branch — the runtime
-is happy to short-circuit on an empty `:play`, but skipping the
+is happy to short-circuit on an empty `:play-script`, but skipping the
 call also skips frame allocation, which keeps the pane cheap for
 "browse-only" sessions.
 
@@ -231,7 +231,7 @@ strip sits above it (owned by the mode-tabs primitive).
   only. A "last N runs" rollup is a separate surface and would
   hang off the trace panel, not the `:test` mode.
 - **Hot-reload re-fire on the per-variant pane.** If the variant's
-  `:play` slot changes on hot-reload, the **per-variant `:test` pane**
+  `:play-script` slot changes on hot-reload, the **per-variant `:test` pane**
   keeps the previous run's record until the user clicks Re-run. The
   mode-tabs primitive's `:hot-reload-tick` watcher is intentionally
   not wired through the per-variant pane — re-run is an explicit
@@ -275,7 +275,7 @@ hashes]` (the watch-mode detector's drift baseline).
                                               ;    :all-green?}
 (testable-variant-ids id->body)              ; → vector of variant-ids
                                               ; whose :tags contains :test
-                                              ; AND :play is non-empty.
+                                              ; AND :play-script is non-empty.
 ```
 
 The `re-frame.story.ui.sidebar` namespace renders the chrome widget
@@ -286,10 +286,10 @@ can render them directly.
 ### Testable variants
 
 The widget aggregates over **testable** variants — variants whose
-`:tags` set contains `:test` AND whose `:play` slot is non-empty. A
+`:tags` set contains `:test` AND whose `:play-script` slot is non-empty. A
 variant tagged `:test` but without any assertions to run is excluded
 so the headline counts don't mislead. Per-variant dots follow the
-same filter: a `:dev`-only variant or an empty-`:play` `:test`
+same filter: a `:dev`-only variant or an empty-`:play-script` `:test`
 variant renders no dot.
 
 ### Status semantics
@@ -341,10 +341,13 @@ variants — the sidebar dots transit through `:running` to the new
 
 The detection signal is the variant's snapshot-identity content
 hash (per `re-frame.story.identity/snapshot-identity` + IMPL-SPEC
-§5.6) — the hash captures `:play` / `:events` / `:loaders` / args
+§5.6) — the hash captures `:play-script` / `:plays` / `:events` /
+`:loaders` / `:loaders-teardown` / `:viewport` / `:background` / args
 / decorators / parent-story slice, so a change to any of those
 produces a fresh hash. Cosmetic edits (docstring, `:source` coords)
-do not contribute.
+do not contribute. (Per rf2-bgwnf — the slice was previously keyed on
+the removed `:play` slot, so play edits silently failed to perturb the
+hash; the slice now reads `:play-script` / `:plays`.)
 
 Toggle-off clears `[:tests :content-hashes]` so the next toggle-on
 seeds a fresh baseline from the current registry (no spurious
@@ -494,7 +497,7 @@ The section renders (top-to-bottom):
 |---|---------------------|---------------------------------------------------------------|
 | 1 | Header strip        | "Step-debugger · {progress-label} · playing?" + keyboard hint |
 | 2 | Controls strip      | Start (inactive) OR Stop / Back / Step / Pause/Play / Rewind  |
-| 3 | Step list           | One row per `:play` event with glyph / index / label / BP chip; active state only |
+| 3 | Step list           | One row per `:play-script` step with glyph / index / label / BP chip; active state only |
 | 3'| Inactive hint       | One-line "Click Start to step…" placeholder; inactive only    |
 
 Each step row carries:

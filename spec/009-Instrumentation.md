@@ -475,6 +475,24 @@ Semantics:
 
 Per rf2-nk01x / rf2-qsjda and the framework `re-frame.trace/*handler-scope*` Var's `:no-emit?` slot (per [§Handler-scope](#handler-scope-the-in-scope-reading-at-emit-time)).
 
+### Frame-level trace-emission opt-out: `:rf.trace/frame-no-emit?` frame-config
+
+A frame registered with `:rf.trace/frame-no-emit? true` produces **no trace events**: `emit!` / `emit-error!` short-circuit (no envelope allocation, no delivery) for any event whose `:frame` tag matches a frame so marked. This is the frame-scoped sibling of the handler-scoped `:rf.trace/no-emit?` above — the same suppression boundary, keyed on the frame rather than the in-scope handler.
+
+```clojure
+(rf/reg-frame :rf/causa {:rf.trace/frame-no-emit? true})   ;; <- tool / inspector frame
+```
+
+The flag is the framework-level escape hatch for **inspector tools** (Causa, Story, re-frame2-pair) that render their own UI inside a dedicated frame. That UI's reactive substrate emits `:sub/run` + `:view/render` on every panel render; because the retain-N ring is process-global, an inspector's self-instrumentation would otherwise evict every *application* event from the buffer it inspects (observed under rf2-2qaqh: the ring held 200/200 `:rf/causa` events and zero app events, so any other raw-buffer consumer saw only inspector noise). Marking the tool frame trace-disabled means tool frames produce no trace at all, while application frames are unaffected.
+
+Semantics:
+
+- **What's suppressed.** Every trace + error emit tagged with the marked frame — `:event/dispatched`, `:run-start` / `:run-end`, `:event/db-changed`, `:sub/run`, `:view/render`, `:frame/created` for the frame itself, and every `:rf.error/*` whose `:frame` is the marked frame. The framework's emit sites already thread `:frame` onto these tags, so the gate keys on `(:frame tags)`.
+- **Mechanism (one canonical predicate).** `re-frame.trace/frame-trace-disabled?` is the single source of truth; `reg-frame` reads the config flag and calls `re-frame.trace/set-frame-no-emit!`. No call site hardcodes a frame id (e.g. `:rf/causa`). Honoured on first registration *and* surgical re-registration so a hot-reload can flip it either way.
+- **Production elision.** The gate sits inside the same `interop/debug-enabled?` `when` as the rest of the emit substrate, so it DCEs out of `:advanced` production builds (which emit no trace at all).
+
+Per rf2-2qaqh.
+
 ### Where trace emission lives
 
 The framework emits trace events from these call sites:

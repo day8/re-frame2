@@ -199,3 +199,31 @@
   (if (nil? picker-frame)
     cascades
     (filterv #(keep-cascade-for-frame? % picker-frame) cascades)))
+
+(defn keep-cascade-for-view-scope?
+  "True iff `cascade` is in the picker-selected VIEW SCOPE `scope-frame`
+  (rf2-4vp5j). Like `keep-cascade-for-frame?` but the FRAMELESS
+  `:ungrouped` pseudo-cascade (nil `:frame` — registry-time emits /
+  lifecycle outside a drain) is frame-AGNOSTIC and always survives the
+  scope: it has no frame to match, and whether it RENDERS is gated
+  separately by the `show-ungrouped?` opt-in (`l2-cascade-visible?`).
+
+  This is the view-scope analogue of `keep-cascade-for-frame?`: a view
+  scope narrows to one host frame's events without swallowing the
+  frame-agnostic bucket. Pure data; JVM-runnable."
+  [cascade scope-frame]
+  (or (nil? scope-frame)
+      (nil? (:frame cascade))
+      (= scope-frame (:frame cascade))))
+
+(defn filter-cascades-by-view-scope
+  "Restrict `cascades` to the picker-selected VIEW SCOPE `scope-frame`,
+  preserving frameless `:ungrouped` pseudo-cascades (rf2-4vp5j). nil
+  `scope-frame` returns `cascades` unchanged. Pure — no I/O, no atoms
+  read. The L2 list + hidden-count baseline read THIS (not the strict
+  `filter-cascades-by-frame`) so a defaulted view scope never drops the
+  frame-agnostic bucket."
+  [cascades scope-frame]
+  (if (nil? scope-frame)
+    cascades
+    (filterv #(keep-cascade-for-view-scope? % scope-frame) cascades)))

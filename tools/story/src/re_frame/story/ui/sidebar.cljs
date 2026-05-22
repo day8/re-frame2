@@ -199,7 +199,7 @@
 
 (defn status-dot
   "Render the per-variant status glyph. Variants not in `[:tests :runs]`
-  (no recorded run AND not tagged `:test`/empty `:play`) skip the dot
+  (no recorded run AND not tagged `:test`/empty `:play-script`) skip the dot
   entirely — the row layout shifts left a few pixels but stays
   readable. Variants whose status is `:pending` show an empty-ring dot
   so the user can see the slot is reserved.
@@ -471,8 +471,8 @@
 
 (defn test-widget
   "Chrome-level test widget. Aggregates `run-variant` outcomes across
-  every testable variant. `:test`-tagged + `:play`-bearing variants
-  contribute; variants without `:play` are excluded by `testable-
+  every testable variant. `:test`-tagged + `:play-script`-bearing variants
+  contribute; variants without `:play-script` are excluded by `testable-
   variant-ids` so the headline counts don't mislead.
 
   Renders nothing when no variants are testable — the widget is the

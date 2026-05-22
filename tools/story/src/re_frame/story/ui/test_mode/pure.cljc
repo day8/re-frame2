@@ -164,7 +164,8 @@
 
 ;; ---- pure: play-step scrubber data (rf2-lc36w) --------------------------
 ;;
-;; Each entry in the variant body's `:play` vector is dispatched as a
+;; Each play event derived from the variant body's `:play-script` is
+;; dispatched as a
 ;; single event — each dispatch produces exactly one epoch in the variant
 ;; frame's `epoch-history`. So the play sequence maps 1-to-1 onto a slice
 ;; of epochs. The scrubber row renders one tick per play event; clicking
@@ -182,7 +183,7 @@
 ;;   - per-step `:label` — `(pr-str (first event))` for a compact tick
 ;;     title; tooltip text the CLJS renderer wires onto each tick.
 ;;
-;;   - the trailing epoch-id slice — the last `count(:play)` epoch-ids
+;;   - the trailing epoch-id slice — the last `count(play-events)` epoch-ids
 ;;     pulled from the variant frame's history. The CLJS side captures
 ;;     this on `run-variant` resolve so a later epoch (e.g. a Re-run on
 ;;     a different tab) can't drift the scrubber's mapping.
@@ -202,7 +203,8 @@
     :else                     (pr-str (first event))))
 
 (defn play-step-statuses
-  "Pure: given a `:play` events vector and an `:assertions` records vector,
+  "Pure: given a play-events vector (derived from `:play-script`) and an
+  `:assertions` records vector,
   return a vector of step-status maps — one per play event.
 
   Each entry:
@@ -257,7 +259,7 @@
 
 (defn epoch-id-slice
   "Pure: given the variant frame's full `history` vector (oldest-first)
-  + the count `n` of `:play` events, return the trailing `n` `:epoch-id`s
+  + the count `n` of play events, return the trailing `n` `:epoch-id`s
   (in play-step order, oldest-first). Returns `[]` when the history
   has fewer than `n` records (production / ring-buffer-trimmed contexts
   — the scrubber gracefully degrades to no ticks rather than mis-mapping

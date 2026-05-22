@@ -124,6 +124,27 @@
       []
       cascades)))
 
+(defn head-frame
+  "Pure helper — the DEFAULT view-scope frame on load (rf2-4vp5j
+  Decision 1): the frame of the head (most recent) pickable cascade.
+
+  Walks `cascades` newest-first and returns the first frame that is
+  pickable (non-nil, not an `internal-frames` tool frame). nil only
+  when the stream carries no pickable frame at all (empty / tool-only).
+
+  This is the seam that makes the frame a SINGLE defaulted view scope:
+  on a fresh load the L2 list scopes to whichever frame produced the
+  most recent event, rather than merging every frame. The user can
+  override via the picker; the override lives on the dedicated
+  `:view-scope-frame` slot (NOT persisted — rf2-swclw)."
+  [cascades]
+  (some (fn [cascade]
+          (let [f (:frame cascade)]
+            (when (and (some? f)
+                       (not (contains? internal-frames f)))
+              f)))
+        (reverse cascades)))
+
 ;; ---- persistence ---------------------------------------------------------
 
 (def default-storage-key
@@ -344,8 +365,12 @@
               records the choice.
     - Effects: `:rf.causa.frame-switcher/persist` — localStorage
               write fx.
-    - Side-effect: hydrate `[:focus :frame]` from localStorage at
-              first install via `hydrate!`.
+
+  Does NOT hydrate `[:focus :frame]` from localStorage (rf2-swclw): the
+  frame pin is a transient exploration filter, reset to unpinned on
+  every page load. `mount.cljs`'s `::reset-transient-filters` first-
+  mount hook clears the stale slot. `hydrate!` / `load` remain as the
+  data layer for tests and opt-in hosts, but init does not restore.
 
   Called from `registry/register-causa-handlers!` after `spine/install!`
   so the canonical event-fx's `[:dispatch [:rf.causa/set-frame ...]]`
@@ -377,10 +402,53 @@
   ;; already pulls in `:rf.causa/cascades`; the raw slot is the right
   ;; primitive.
 
+  ;; `:rf.causa/view-scope-frame` (rf2-4vp5j Workstream C) — the
+  ;; dedicated VIEW-SCOPE slot. The frame is a single defaulted view
+  ;; scope, NOT a filter and NOT the spine's `[:focus :frame]` slot
+  ;; (which is also written by epoch auto-alignment + the focus-step
+  ;; walk — reading it for the LIST scope was the conflation bug). The
+  ;; picker writes `:view-scope-frame` directly; the L2 list +
+  ;; hidden-count read it.
+  ;;
+  ;; Resolution order (first non-nil wins):
+  ;;   1. the explicit picker slot (`:view-scope-frame`);
+  ;;   2. the host-seeded `:target-frame` (rf2-ulpp8 — a host calling
+  ;;      `core/set-target-frame!` is saying 'observe this frame', which
+  ;;      IS the view scope on first mount);
+  ;;   3. the head epoch's frame (`head-frame`) — the rf2-4vp5j Decision-1
+  ;;      default so a fresh load with no host seed scopes to whichever
+  ;;      frame produced the most recent event.
+  ;; Composes off `:rf.causa/cascades` so the head default re-resolves
+  ;; as the stream grows; once the user explicitly picks, slot #1 wins.
+  (rf/reg-sub :rf.causa/view-scope-frame
+    :<- [:rf.causa/view-scope-frame-slot]
+    :<- [:rf.causa/target-frame-slot]
+    :<- [:rf.causa/cascades]
+    (fn [[slot target-slot cascades] _query]
+      (or slot target-slot (head-frame cascades))))
+
+  ;; Raw stored slots — separated so the composed sub above can default
+  ;; off the cascade list without a cycle.
+  (rf/reg-sub :rf.causa/view-scope-frame-slot
+    (fn [db _query]
+      (:view-scope-frame db)))
+
+  ;; Raw `:target-frame` slot WITHOUT the `:rf.causa/target-frame`
+  ;; sub's `default-target-frame` fallback — nil when no host seed has
+  ;; been applied, so it only contributes to the view-scope default when
+  ;; a host explicitly called `set-target-frame!`.
+  (rf/reg-sub :rf.causa/target-frame-slot
+    (fn [db _query]
+      (:target-frame db)))
+
+  ;; `:rf.causa/current-frame` — what the picker shows + writes against.
+  ;; Reads the resolved VIEW-SCOPE frame (rf2-4vp5j) so the dropdown
+  ;; reflects the single defaulted view scope, decoupled from the
+  ;; spine's auto-tracking `[:focus :frame]`.
   (rf/reg-sub :rf.causa/current-frame
-    :<- [:rf.causa/focus-slot]
-    (fn [focus _query]
-      (:frame focus)))
+    :<- [:rf.causa/view-scope-frame]
+    (fn [view-scope-frame _query]
+      view-scope-frame))
 
   ;; `:rf.causa/available-frames` is the canonical 'which frames is it
   ;; meaningful to pick right now' list. Composes off `:rf.causa/
@@ -404,14 +472,32 @@
   ;; so every persistence / instrumentation layer we add lives in one
   ;; place. See `palette/events.cljs`'s `:palette/select-frame` clause.
 
+  ;; Writes the dedicated `:view-scope-frame` slot (rf2-4vp5j) — the
+  ;; single source of truth for the L2 list's view scope — AND still
+  ;; dispatches the spine's `:rf.causa/set-frame` so the LEGITIMATE
+  ;; per-frame epoch alignment (App-DB Diff / Views / machine-inspector
+  ;; reading `:epoch-history`, rf2-ulpp8) follows the picker. The two
+  ;; concerns are now distinct slots: `:view-scope-frame` scopes the
+  ;; LIST; `[:focus :frame]` (via set-frame) aligns the per-frame
+  ;; epoch reads. nil clears the view scope back to its head-frame
+  ;; default. Persist fx is retained (the data layer); init does not
+  ;; restore it (rf2-swclw — frame is transient).
   (rf/reg-event-fx :rf.causa/select-frame
-    (fn [_ctx [_ frame-id]]
-      {:fx [[:dispatch [:rf.causa/set-frame frame-id]]
+    (fn [{:keys [db]} [_ frame-id]]
+      {:db (if (some? frame-id)
+             (assoc db :view-scope-frame frame-id)
+             (dissoc db :view-scope-frame))
+       :fx [[:dispatch [:rf.causa/set-frame frame-id]]
             [:rf.causa.frame-switcher/persist frame-id]]}))
 
-  ;; Hydrate from localStorage. The actual logic lives in `hydrate!`
-  ;; above so first-mount (`mount/ensure-causa-frame!`) can call the
-  ;; same fn to converge.
-  (hydrate!)
+  ;; NO hydrate from localStorage on install (rf2-swclw). The frame pin
+  ;; is a TRANSIENT exploration filter — it resets to unpinned on every
+  ;; page load so a fresh session never silently scopes the inspector to
+  ;; a frame chosen in a past session. The `[:focus :frame]` slot starts
+  ;; at its registry default (unpinned) and `mount.cljs`'s
+  ;; `::reset-transient-filters` first-mount hook clears the stale
+  ;; localStorage slot so storage matches. `hydrate!` / `load` remain as
+  ;; the data layer (exercised by the round-trip tests), but init does
+  ;; not restore.
 
   nil)

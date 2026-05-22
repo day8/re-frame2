@@ -52,7 +52,7 @@
 ;; ===========================================================================
 
 (deftest execute-play-empty
-  (testing "execute-play! against an empty :play resolves to []"
+  (testing "execute-play! against an empty :play-script resolves to []"
     (story/reg-variant :story.play/empty {:events []})
     (async/deref-blocking (story/run-variant :story.play/empty) 5000)
     (let [p (play/execute-play! :story.play/empty [])]

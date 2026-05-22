@@ -216,3 +216,36 @@
                     {:dispatch-id 2 :frame :cart-frame}]]
       (is (= [1 2] (mapv :dispatch-id
                          (matcher/filter-cascades-by-frame cascades :cart-frame)))))))
+
+;; ---- view-scope filter (rf2-4vp5j) --------------------------------------
+
+(deftest keep-cascade-for-view-scope-nil-keeps-everything
+  (testing "nil scope-frame means 'no view scope' — every cascade survives"
+    (is (matcher/keep-cascade-for-view-scope? {:frame :cart-frame} nil))
+    (is (matcher/keep-cascade-for-view-scope? {:frame nil} nil))))
+
+(deftest keep-cascade-for-view-scope-keeps-matching-and-frameless
+  (testing "rf2-4vp5j — a view scope keeps the matching frame AND the
+            frame-agnostic `:ungrouped` bucket (nil frame); only OTHER
+            real frames drop"
+    (is (matcher/keep-cascade-for-view-scope? {:frame :cart-frame} :cart-frame))
+    (is (matcher/keep-cascade-for-view-scope? {:frame nil} :cart-frame)
+        "frameless :ungrouped bucket survives the view scope")
+    (is (not (matcher/keep-cascade-for-view-scope? {:frame :other-frame} :cart-frame))
+        "a different real frame drops out of scope")))
+
+(deftest filter-cascades-by-view-scope-preserves-frameless-bucket
+  (testing "rf2-4vp5j — unlike the strict frame filter, the view-scope
+            filter keeps the frameless `:ungrouped` bucket so a defaulted
+            scope never swallows it (its render is gated by show-ungrouped?)"
+    (let [cascades [{:dispatch-id 1 :frame :cart-frame}
+                    {:dispatch-id :ungrouped :frame nil}
+                    {:dispatch-id 2 :frame :other-frame}
+                    {:dispatch-id 3 :frame :cart-frame}]]
+      (is (= [1 :ungrouped 3]
+             (mapv :dispatch-id
+                   (matcher/filter-cascades-by-view-scope cascades :cart-frame)))))))
+
+(deftest filter-cascades-by-view-scope-nil-is-identity
+  (let [cascades [{:dispatch-id 1 :frame :a} {:dispatch-id 2 :frame :b}]]
+    (is (= cascades (matcher/filter-cascades-by-view-scope cascades nil)))))

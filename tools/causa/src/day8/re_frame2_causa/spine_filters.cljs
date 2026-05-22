@@ -652,9 +652,12 @@
     (fn [db [_ muted]]
       (assoc db :muted-event-ids (set (or muted #{})))))
 
-  ;; Hydrate on install. Mirrors `filters/hydrate!`'s pre-mount /
-  ;; post-mount split — the dispatch is gated on the `:rf/causa` frame
-  ;; existing, so the preload-time call short-circuits and the post-
-  ;; mount `ensure-causa-frame!` call lands the slot.
-  (hydrate!)
+  ;; NO hydrate on install (rf2-swclw). The muted-event-ids set is a
+  ;; TRANSIENT exploration filter — it resets to empty on every page
+  ;; load so a fresh session never silently hides events muted in a
+  ;; past session. The slot starts at its registry default `#{}` and
+  ;; `mount.cljs`'s `::reset-transient-filters` first-mount hook clears
+  ;; the stale localStorage slot so storage matches. `hydrate!` / `load`
+  ;; remain as the data layer (exercised by the round-trip tests), but
+  ;; init does not restore.
   nil)

@@ -348,6 +348,105 @@
       (is (= [1] (mapv :id (:issues feed))))
       (is (= 6 (:epoch-id feed)) "feed epoch-id reflects the head"))))
 
+;; ---- (6b) feed-under-cascade-scope: SSR hydration-mismatch (rf2-djuf3) --
+;;
+;; Pins the regression the `hydration mismatch debugger` feature-gate
+;; scenario surfaces: the Issues panel is the focused-epoch (cascade)
+;; lens, so a `:rf.ssr/hydration-mismatch` error that LANDS in a cascade's
+;; `:trace-events` MUST project into the feed under that cascade's scope.
+;;
+;; (When `verify-hydration!` emits the mismatch OUTSIDE any dispatch the
+;; framework's epoch capture drops the orphan — rf2-avvwm — so it never
+;; reaches an epoch record. That out-of-cascade case is exercised by the
+;; orphan-drop epoch-capture tests, not here; this test pins the in-
+;; cascade projection that the panel's contract guarantees.)
+
+(defn- hydration-mismatch-ev
+  "A Spec 011-shaped `:rf.ssr/hydration-mismatch` error trace event as
+  it lands in a cascade's `:trace-events` (op-type :error, recovery
+  hoisted, payload in :tags)."
+  [id]
+  (error-ev id :rf.ssr/hydration-mismatch
+            {:time     500
+             :recovery :warned-and-replaced
+             :tags     {:server-hash "deadbeef"
+                        :client-hash "91de1ba6"
+                        :failing-id  :rf/hydrate
+                        :reason      "Hydration mismatch: server hash 'deadbeef' != client hash '91de1ba6'."}}))
+
+(deftest project-feed-hydration-mismatch-surfaces-under-cascade-scope
+  (testing "an in-cascade :rf.ssr/hydration-mismatch error projects into
+            the focused epoch's feed under cascade scope"
+    (let [record (epoch-record 2 [(non-issue-ev 1)
+                                  (hydration-mismatch-ev 9)
+                                  (non-issue-ev 2)])
+          feed   (h/project-feed record {} :focused)]
+      (is (nil? (:empty-kind feed)) "feed renders, not an empty state")
+      (is (= 1 (:total feed)))
+      (is (= 1 (:rendered feed)))
+      (is (= [9] (mapv :id (:issues feed))))
+      (let [row (first (:issues feed))]
+        (is (= :error               (:severity row)))
+        (is (= "rf.ssr"             (:category-prefix row)))
+        (is (= :rf.ssr/hydration-mismatch (:operation row)))
+        (is (re-find #"Hydration mismatch" (:description row))))
+      (is (= 2 (:epoch-id feed)) "feed epoch-id reflects the focused cascade")
+      (is (= {:error 1} (:severity-counts feed)))
+      (is (= ["rf.ssr"] (:distinct-prefixes feed))))))
+
+(deftest project-feed-hydration-mismatch-head-fallback-sub-call-site
+  (testing "rf2-djuf3 — the panel's sub call-site shape: nil focus +
+            non-empty history head-falls-back (rf2-h0120) onto the
+            cascade carrying the hydration-mismatch, and the feed
+            renders that issue under cascade scope"
+    (let [hist           [(epoch-record 1 [])
+                          (epoch-record 2 [(hydration-mismatch-ev 9)])]
+          focus-epoch-id nil
+          focus-status   (h/resolve-focus-status focus-epoch-id hist)
+          record         (h/find-epoch-record   focus-epoch-id hist)
+          feed           (h/project-feed record {} focus-status)]
+      (is (= :focused focus-status))
+      (is (= 2 (:epoch-id record)))
+      (is (nil? (:empty-kind feed)))
+      (is (= [9] (mapv :id (:issues feed)))))))
+
+(deftest project-feed-always-renders-feed-or-empty-state
+  (testing "rf2-djuf3 invariant — under EVERY focus-status the panel sub
+            yields a renderable shape: either the feed (empty-kind nil)
+            or exactly one of the four empty-state discriminators. The
+            feature-gate scenario waits on this union; an unhandled
+            empty-kind would silently render nothing."
+    (let [renderable? #{nil :no-focus :epoch-evicted :no-issues :no-matches}]
+      (testing ":no-focus → :no-focus empty-state"
+        (is (= :no-focus (:empty-kind (h/project-feed nil {} :no-focus)))))
+      (testing ":epoch-evicted → :epoch-evicted empty-state"
+        (is (= :epoch-evicted
+               (:empty-kind (h/project-feed nil {} :epoch-evicted)))))
+      (testing ":focused + no issues → :no-issues empty-state"
+        (is (= :no-issues
+               (:empty-kind (h/project-feed (epoch-record 1 []) {} :focused)))))
+      (testing ":focused + issues hidden by filters → :no-matches empty-state"
+        (is (= :no-matches
+               (:empty-kind (h/project-feed
+                              (epoch-record 1 [(hydration-mismatch-ev 9)])
+                              {:severities #{:advisory}}
+                              :focused)))))
+      (testing ":focused + visible issue → feed (empty-kind nil)"
+        (is (nil? (:empty-kind (h/project-feed
+                                 (epoch-record 1 [(hydration-mismatch-ev 9)])
+                                 {}
+                                 :focused)))))
+      (testing "every branch's empty-kind is in the view's renderable set"
+        (doseq [[record filters status]
+                [[nil {} :no-focus]
+                 [nil {} :epoch-evicted]
+                 [(epoch-record 1 []) {} :focused]
+                 [(epoch-record 1 [(hydration-mismatch-ev 9)])
+                  {:severities #{:advisory}} :focused]
+                 [(epoch-record 1 [(hydration-mismatch-ev 9)]) {} :focused]]]
+          (is (contains? renderable?
+                         (:empty-kind (h/project-feed record filters status)))))))))
+
 (deftest project-feed-newest-first
   (testing "the feed reverses the trace-events stream — newest first"
     (let [record (epoch-record 1 [(error-ev   1 :rf.error/a {:time 100})

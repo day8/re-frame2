@@ -122,15 +122,31 @@
 ;; ---- epoch → dispatch-id resolution -------------------------------------
 
 (defn dispatch-id-of-epoch
-  "Walk an `:rf/epoch-record`'s `:trace-events` for the first
-  cascade-root `:dispatch-id` tag and return it; nil when no
-  dispatch-id-bearing event is present (synthetic epochs from
-  `reset-frame-db!` record `:trace-events []`).
+  "Return an `:rf/epoch-record`'s settling cascade `:dispatch-id`, or nil
+  when none is known (synthetic epochs from `reset-frame-db!`, a rejected
+  dispatch that never reached run-start).
 
-  Pure data → cascade-id-or-nil. Used by the time-travel panel
-  (when building a fresh pin or deciding chip presentation)."
+  Per rf2-rly4a the record carries `:dispatch-id` as a first-class slot
+  (pinned in `re-frame.epoch.assembly/build-record` from the settling
+  event's `:event/run-start` tags) — read it directly. This is the stable
+  link between the epoch ring (epoch-id space) and the raw trace stream's
+  cascade list (dispatch-id space) that Causa's `:rf.causa/focus`
+  correlation pivots on, and it survives both `:trace-events-keep`
+  elision on older records and the post-settle reactive back-fill (which
+  pads `:trace-events` with nil-`:dispatch-id` sub-run / render events).
+
+  Falls back to a `:trace-events` walk for records produced before the
+  slot existed (or restored fixtures that omit it) — the first cascade-
+  root `:dispatch-id` / `:parent-dispatch-id` tag. The fallback is nil-
+  safe: a record with neither the slot nor a dispatch-id-bearing trace
+  yields nil.
+
+  Pure data → cascade-id-or-nil. Used by Causa's `:rf.causa/focus`
+  epoch-id correlation and the time-travel panel (when building a fresh
+  pin or deciding chip presentation)."
   [epoch-record]
-  (some (fn [ev]
-          (or (get-in ev [:tags :dispatch-id])
-              (get-in ev [:tags :parent-dispatch-id])))
-        (:trace-events epoch-record)))
+  (or (:dispatch-id epoch-record)
+      (some (fn [ev]
+              (or (get-in ev [:tags :dispatch-id])
+                  (get-in ev [:tags :parent-dispatch-id])))
+            (:trace-events epoch-record))))

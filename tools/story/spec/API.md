@@ -65,8 +65,7 @@ All under `re-frame.story`.
 |---|---|---|
 | `run-variant` | `(run-variant variant-id)` / `(run-variant variant-id opts)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
 | `reset-variant` | `(reset-variant variant-id)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
-| `watch-variant` | `(watch-variant variant-id)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
-| `unwatch-variant` | `(unwatch-variant variant-id)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
+| `watch-variant` | `(watch-variant variant-id callback)` — returns a 0-arity unsubscribe fn (call it to stop watching; there is no separate `unwatch-variant`). | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
 | `destroy-variant!` | `(destroy-variant! variant-id)` | [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation |
 | `variants-with-tags` | `(variants-with-tags tags)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
 | `variants-of` | `(variants-of story-id)` | [`006-MCP-Surface.md`](006-MCP-Surface.md) §Story's public read primitives |
@@ -90,7 +89,6 @@ All under `re-frame.story`.
 | `canonical-tags` | `canonical-tags` | The seven canonical tags as a set. |
 | `canonical-assertion-ids` | `(canonical-assertion-ids)` | The seven `:rf.assert/*` event ids. |
 | `registered-substrates` | `(registered-substrates)` | CLJS-only. The substrate set as registered via `register-substrate!`. |
-| `variant-substrates` | `(variant-substrates variant-id)` | The substrate set for a specific variant (intersect of registered + variant's `:substrates`). |
 
 ## Write helpers (used by MCP write surface and hot-reload tooling)
 
@@ -109,6 +107,26 @@ public; their unsuffixed macro counterparts cover authored cases.
 | `unregister!` | `(unregister! kind id)` | Remove a registration. |
 | `clear-kind!` | `(clear-kind! kind)` | Remove all of a kind. |
 | `clear-all!` | `(clear-all!)` | Reset Story state entirely. |
+
+## Global decorators (`reg-global-decorator`) — rf2-835ey
+
+Story ships story-level + variant-level + **global** decorators. The
+global tier is the parity surface for Storybook's `preview.ts`
+`decorators: [...]` — "wrap every variant in the design system's theme
+provider" lives here, set once at boot. The resolved per-variant stack
+is `(concat globals story variant)` with globals as the outermost wrap.
+All under `re-frame.story`.
+
+| Fn | Signature | Purpose |
+|---|---|---|
+| `reg-global-decorator` | `(reg-global-decorator id body)` / `(reg-global-decorator id body ref-args)` | Register a decorator body (delegates to `reg-decorator*`) AND append a `[id & ref-args]` reference to the global stack. Re-registering the same id REPLACES the entry in place so a hot-reload of the body doesn't reshuffle order. Returns the decorator id. |
+| `unreg-global-decorator!` | `(unreg-global-decorator! id)` | Remove `id` from the global-decorators vector (the registered decorator body is left intact — call `unregister!` for that). Idempotent. |
+| `global-decorators` | `(global-decorators)` | Return the current ordered ref vector (`[[decorator-id & args] ...]`), earliest-registered first. |
+
+`configure!`'s `:rf.story/global-decorators` key (above) is the
+declarative bulk-set form for the same vector; `reg-global-decorator`
+is the register-and-opt-in-in-one-call form. `clear-all!` clears the
+global vector so stale ref-by-id entries don't bleed across tests.
 
 ## Variant `:play-script` slot (rf2-0wrud)
 
@@ -195,7 +213,6 @@ DOM-derived DSL `:require` the sub-namespace directly.
 |---|---|---|
 | `:story/active-modes` | `[<mode-id> ...]` | The chrome-toolbar's active mode-set (rf2-p0mv). See [`010-Toolbar.md`](010-Toolbar.md). |
 | `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. See [`010-Toolbar.md`](010-Toolbar.md). |
-| `:story/substrate` | `:reagent`, `:uix`, ... | The active substrate. |
 
 ## Canonical assertion events
 
@@ -217,8 +234,8 @@ into `:assertions` rather than throwing — see
 
 | Fn | Signature | Spec |
 |---|---|---|
-| `mount-shell!` | `(mount-shell! mount-point opts)` | [`003-Render-Shell.md`](003-Render-Shell.md) §Shell lifecycle |
-| `unmount-shell!` | `(unmount-shell!)` | [`003-Render-Shell.md`](003-Render-Shell.md) §Shell lifecycle |
+| `mount-shell!` | `(mount-shell! dom-node)` | [`003-Render-Shell.md`](003-Render-Shell.md) §Shell lifecycle |
+| `unmount-shell!` | `(unmount-shell!)` / `(unmount-shell! handle)` | [`003-Render-Shell.md`](003-Render-Shell.md) §Shell lifecycle |
 | `active-shell` | `(active-shell)` | [`003-Render-Shell.md`](003-Render-Shell.md) §Shell lifecycle |
 
 ## Theme tokens (`re-frame.story.theme.*`)
@@ -312,7 +329,7 @@ axis before reaching into the implementation.
 | Var / fn | Notes |
 |---|---|
 | `goog-define :rf.story/enabled?` | Compile-time DCE flag; `true` in dev, `false` in `:advanced`. See [`005-SOTA-Features.md`](005-SOTA-Features.md). |
-| `configure!` | `(configure! {:rf.story/global-args {...} :rf.story/editor :vscode :rf.story/project-root "..." :rf.privacy/show-sensitive? false})` — set global config at boot. Every key lives under `:rf.story/*` per the `:rf.<tool>/*` convention (spec/Conventions §Reserved namespaces); the cross-tool privacy flag uses the shared `:rf.privacy/*` reservation. `:rf.story/project-root` is bridged into Causa's slot via `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). `:rf.privacy/show-sensitive?` is the on-box dev override that gates whether the chrome's diagnostic surfaces (Causa Event Detail, the `:test` mode pane row-detail disclosures) render path-marked values in clear vs. `:rf/redacted`; defaults to `false`. The off-box wire-egress equivalent (`:include-sensitive?` for MCP, per [spec/Conventions §Privacy config-knob naming](../../../spec/Conventions.md)) is owned by `tools/story-mcp/`. |
+| `configure!` | `(configure! {:rf.story/global-args {...} :rf.story/global-decorators [[<dec-id> & ref-args] ...] :rf.story/editor :vscode :rf.story/project-root "..." :rf.privacy/show-sensitive? false})` — set global config at boot. Every key lives under `:rf.story/*` per the `:rf.<tool>/*` convention (spec/Conventions §Reserved namespaces); the cross-tool privacy flag uses the shared `:rf.privacy/*` reservation. `:rf.story/global-decorators` replaces the global-decorators ref vector (rf2-9qpk3 — Storybook `preview.ts` `decorators: [...]` parity); each entry is `[decorator-id & ref-args]`, the same shape a `:decorators` slot takes, and the decorator bodies must already be registered via `reg-decorator` (or `reg-global-decorator`). The resolved per-variant stack is `(concat globals story variant)` with the earliest entry the outermost wrap; `nil` / `[]` clears it. See [Global decorators](#global-decorators-reg-global-decorator--rf2-835ey). `:rf.story/project-root` is bridged into Causa's slot via `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). `:rf.privacy/show-sensitive?` is the on-box dev override that gates whether the chrome's diagnostic surfaces (Causa Event Detail, the `:test` mode pane row-detail disclosures) render path-marked values in clear vs. `:rf/redacted`; defaults to `false`. The off-box wire-egress equivalent (`:include-sensitive?` for MCP, per [spec/Conventions §Privacy config-knob naming](../../../spec/Conventions.md)) is owned by `tools/story-mcp/`. |
 
 ## Privacy
 
@@ -323,7 +340,7 @@ for the marquee posture statement, and the per-surface entries:
 | Surface | Behaviour | Spec |
 |---|---|---|
 | `story/add-marks` / `story/set-marks` (re-exports of `re-frame.core/add-marks` + `set-marks`) | Declare per-frame path-marks against `app-db`. Re-exports of the framework primitives (rf2-l6hzv) — same primitives, same data model, same per-frame semantics. `add-marks` merges additively; `set-marks` replaces the frame mark-set wholesale. Story-author discoverability aliases so authors scanning `re-frame.story`'s public surface for privacy primitives find them without chasing cross-references. See [Conventions.md §Privacy primitives — `add-marks` / `set-marks` re-export](Conventions.md#privacy-primitives--add-marks--set-marks-re-export). | [framework spec/015](../../../spec/015-Data-Classification.md) §App-db marks |
-| `reg-variant` body — per-frame marks | Variant body MAY include `(story/add-marks <variant-id> {path mark, ...})` or `(story/set-marks <variant-id> {path mark, ...})` to declare `app-db` marks scoped to that variant's frame. The `:loaders` / `:events` / `:play` registrations honour the standard `:sensitive` / `:large` registration grammar. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) + [spec/015](../../../spec/015-Data-Classification.md) |
+| `reg-variant` body — per-frame marks | Variant body MAY include `(story/add-marks <variant-id> {path mark, ...})` or `(story/set-marks <variant-id> {path mark, ...})` to declare `app-db` marks scoped to that variant's frame. The `:loaders` / `:events` / `:play-script` registrations honour the standard `:sensitive` / `:large` registration grammar. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) + [spec/015](../../../spec/015-Data-Classification.md) |
 | Assertion records | `:rf.assert/*` records build `:actual` / `:expected` / `:payload` slots through `re-frame.elision/elide-wire-value` before landing in `:assertions`. The `:rf/redacted` sentinel is a legal `:expected` value for pinning the redaction contract. | [`004-Assertions.md`](004-Assertions.md) §Privacy |
 | Error-projection records | `:rf.error/exception` records pass `ex-data` through `re-frame.elision/elide-wire-value`; exception `:message` strings are NOT auto-walked (author responsibility — see spec/Security.md §Author guidance for exceptions under path-level `:sensitive?`). | [`002-Runtime.md`](002-Runtime.md) §Error projection §Privacy |
 | MCP read surface | Story core returns marks-as-data; wire substitution to `:rf/redacted` happens at the MCP jar's egress boundary, not in Story core. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) §MCP read surface |

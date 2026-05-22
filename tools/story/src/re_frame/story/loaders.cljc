@@ -319,7 +319,7 @@
     AND
   - the resolved decorator stack carries no `:frame-setup` decorators.
 
-  The variant body's `:events` and `:play` slots are ignored — events
+  The variant body's `:events` and `:play-script` slots are ignored — events
   dispatch synchronously after mount and play runs strictly after
   `:ready`, so neither holds the lifecycle in a loading phase.
   `:hiccup` and `:fx-override` decorators don't drive the lifecycle

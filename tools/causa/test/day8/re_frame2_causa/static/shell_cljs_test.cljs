@@ -393,43 +393,48 @@
     (is (= :accent-violet (static-shell/stripe-token-for-mode nil)))))
 
 ;; -------------------------------------------------------------------------
-;; (7) Mode pill — radio pattern + active segment
+;; (7) Mode dropdown — compact single-select (rf2-4vp5j reshape)
 ;; -------------------------------------------------------------------------
+;;
+;; rf2-4vp5j replaced the two-button radio pill with a compact `<select>`
+;; dropdown (mode is an occasional-use control; the accent stripe carries
+;; the mode signal). Both `<option>` testids + the `data-active-mode`
+;; attribute remain so the inventory + active-mode are assertable.
 
-(deftest mode-pill-renders-two-segments
-  (testing "mode pill is a 2-segment radio group with Dynamic + Static"
+(deftest mode-dropdown-renders-both-options
+  (testing "mode control is a single-select dropdown with Dynamic +
+            Static options"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (mode-pill/mode-pill)]
-        (is (some? (find-by-testid tree "rf-causa-mode-pill")))
-        (is (some? (find-by-testid tree "rf-causa-mode-pill-dynamic")))
-        (is (some? (find-by-testid tree "rf-causa-mode-pill-static")))))))
+        (is (some? (find-by-testid tree "rf-causa-mode-pill"))
+            "the select control is present")
+        (is (= :select (first tree)) "the control is a native <select>")
+        (is (some? (find-by-testid tree "rf-causa-mode-pill-dynamic"))
+            "Dynamic option present")
+        (is (some? (find-by-testid tree "rf-causa-mode-pill-static"))
+            "Static option present")))))
 
-(deftest mode-pill-active-segment-aria-checked
-  (testing "the active segment carries aria-checked='true'"
+(deftest mode-dropdown-reflects-active-mode
+  (testing "the dropdown's :value + data-active-mode track the live mode"
     (causa-setup!)
     (rf/with-frame :rf/causa
-      (let [tree     (mode-pill/mode-pill)
-            dynamic  (find-by-testid tree "rf-causa-mode-pill-dynamic")
-            static-b (find-by-testid tree "rf-causa-mode-pill-static")]
-        (is (= "true"  (:aria-checked (second dynamic))))
-        (is (= "false" (:aria-checked (second static-b))))))
+      (let [attrs (second (mode-pill/mode-pill))]
+        (is (= "dynamic" (:value attrs)))
+        (is (= "dynamic" (:data-active-mode attrs)))))
     ;; flip to Static and re-render
     (frame-dispatch [:rf.causa/set-mode :static])
     (rf/with-frame :rf/causa
-      (let [tree     (mode-pill/mode-pill)
-            dynamic  (find-by-testid tree "rf-causa-mode-pill-dynamic")
-            static-b (find-by-testid tree "rf-causa-mode-pill-static")]
-        (is (= "false" (:aria-checked (second dynamic))))
-        (is (= "true"  (:aria-checked (second static-b))))))))
+      (let [attrs (second (mode-pill/mode-pill))]
+        (is (= "static" (:value attrs)))
+        (is (= "static" (:data-active-mode attrs)))))))
 
-(deftest mode-pill-segment-glyphs
-  (testing "active segment renders ● and inactive renders ○
-            (mirrors Causa's existing tab-button glyph language)"
-    (is (= "●" (mode-pill/segment-glyph {:mode :dynamic} :dynamic)))
-    (is (= "○" (mode-pill/segment-glyph {:mode :static}  :dynamic)))
-    (is (= "○" (mode-pill/segment-glyph {:mode :dynamic} :static)))
-    (is (= "●" (mode-pill/segment-glyph {:mode :static}  :static)))))
+(deftest mode-dropdown-label-helper
+  (testing "the pure mode-label helper maps each mode to its display text"
+    (is (= "Dynamic" (mode-pill/mode-label :dynamic)))
+    (is (= "Static"  (mode-pill/mode-label :static)))
+    (is (= "Dynamic" (mode-pill/mode-label :nonsense))
+        "unknown modes fall back to the Dynamic label")))
 
 ;; -------------------------------------------------------------------------
 ;; (8) Surface composer — shell.cljs dispatches Dynamic vs Static
