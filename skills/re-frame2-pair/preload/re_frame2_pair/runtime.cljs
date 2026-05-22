@@ -714,14 +714,14 @@
 ;;   :epoch  — every assembled `:rf/epoch-record` matching `:filter`
 ;;             (filter map mirrors `epoch-matches?` — see watch-epochs).
 ;;             One event per committed epoch.
-;;   :fx     — sugar for `:topic :trace :filter {:op-type :fx}` with
+;;   :fx     — sugar for `:topic :trace :filter {:op-type :rf.fx}` with
 ;;             optional `:fx-id` and `:event-id` axes from the trace
 ;;             filter vocabulary.
 ;;   :error  — sugar for `:topic :trace :filter {:op-type :error}`,
 ;;             with `:event-id`/`:handler-id`/`:source` available.
 ;;
 ;; The :fx and :error topics compose with axes from the trace filter
-;; vocabulary verbatim — they just default `:op-type` to `:fx` /
+;; vocabulary verbatim — they just default `:op-type` to `:rf.fx` /
 ;; `:error` and let callers override the rest.
 
 (defonce ^:private subscriptions
@@ -808,7 +808,7 @@
    base constraint here (the user-supplied filter is the only constraint)."
   [topic]
   (case topic
-    :fx    {:op-type :fx}
+    :fx    {:op-type :rf.fx}
     :error {:op-type :error}
     {}))
 
@@ -839,16 +839,16 @@
                                     (or (:frame ev)
                                         (get-in ev [:tags :frame]))))
            (or (nil? event-id)   (= event-id
-                                    (get-in ev [:tags :event-id])))
+                                    (get-in ev [:tags :rf.trace/event-id])))
            (or (nil? handler-id) (= handler-id
                                     (get-in ev [:tags :handler-id])))
            (or (nil? source)     (= source
                                     (or (:source ev)
                                         (get-in ev [:tags :source]))))
            (or (nil? origin)     (= origin
-                                    (get-in ev [:tags :origin])))
+                                    (get-in ev [:tags :rf.event/origin])))
            (or (nil? dispatch-id)(= dispatch-id
-                                    (get-in ev [:tags :dispatch-id])))
+                                    (get-in ev [:tags :rf.trace/dispatch-id])))
            (or (nil? since-ms)   (and (number? (:time ev))
                                       (> (:time ev) since-ms)))
            (or (nil? t0)         (and (number? (:time ev))
@@ -1115,22 +1115,22 @@
 
 (defn cascade-of
   "Reconstruct the cascade tree from a root `:dispatch-id` by walking
-   `:event/dispatched` traces in the buffer for matching :parent links.
+   `:rf.event/dispatched` traces in the buffer for matching :parent links.
    Returns a tree of {:dispatch-id <id> :event <ev> :children [...]}.
 
    Note: this walks the in-memory trace buffer (default depth 200 events
    per `(rf/configure :trace-buffer {:depth N})`). For long cascades use
    `(rf/configure :trace-buffer {:depth ...})` to widen the window."
   [root-dispatch-id]
-  (let [events     (trace-tooling/trace-buffer {:operation :event/dispatched})
-        by-parent  (group-by #(get-in % [:tags :parent-dispatch-id]) events)
+  (let [events     (trace-tooling/trace-buffer {:operation :rf.event/dispatched})
+        by-parent  (group-by #(get-in % [:tags :rf.trace/parent-dispatch-id]) events)
         node       (fn node [did]
-                     (let [ev (some (fn [e] (when (= did (get-in e [:tags :dispatch-id])) e))
+                     (let [ev (some (fn [e] (when (= did (get-in e [:tags :rf.trace/dispatch-id])) e))
                                     events)]
                        {:dispatch-id did
-                        :event       (get-in ev [:tags :event])
-                        :origin      (get-in ev [:tags :origin])
-                        :children    (mapv #(node (get-in % [:tags :dispatch-id]))
+                        :event       (get-in ev [:tags :rf.event/v])
+                        :origin      (get-in ev [:tags :rf.event/origin])
+                        :children    (mapv #(node (get-in % [:tags :rf.trace/dispatch-id]))
                                            (get by-parent did []))}))]
     (node root-dispatch-id)))
 
@@ -1139,7 +1139,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Per Spec 002 §Dispatch origin tagging, dispatches carry an :origin opt
-;; (default :app). The skill stamps :pair so `:event/dispatched` traces
+;; (default :app). The skill stamps :pair so `:rf.event/dispatched` traces
 ;; can be filtered by who fired them. Pair-epoch tracking populates
 ;; `pair-epoch-ids` from the assembled-epoch listener.
 
@@ -1458,7 +1458,7 @@
 
 (defn epoch-elapsed-ms
   "Compute the handler's wall-clock elapsed-ms for an epoch by pairing
-   the cascade's `:event/run-start` and `:event/run-end` trace events
+   the cascade's `:rf.event/run-start` and `:rf.event/run-end` trace events
    on `:time` (the host-clock timestamp every trace event carries per
    Spec 009 §Trace event shape).
 
@@ -1475,9 +1475,9 @@
    see Spec-Schemas §`:rf/epoch-record`)."
   [{:keys [trace-events]}]
   (let [run-event? (fn [phase ev]
-                     (and (= :event (:op-type ev))
-                          (= :event (:operation ev))
-                          (= phase (get-in ev [:tags :phase]))))
+                     (and (= :rf.event (:op-type ev))
+                          (= :rf.event (:operation ev))
+                          (= phase (get-in ev [:tags :rf.trace/phase]))))
         first-time (some (fn [ev] (when (run-event? :run-start ev) (:time ev))) trace-events)
         last-time  (reduce (fn [acc ev]
                              (if (run-event? :run-end ev)
@@ -1527,13 +1527,13 @@
    :fx-id in the projection), :touches-path (anywhere in db-before /
    db-after), :sub-ran (matches :sub-id or first of :query-v),
    :render (matches :render-key as a string), :origin (matches
-   :origin in :event/dispatched trace events), :frame, :timing-ms.
+   :rf.event/origin in :rf.event/dispatched trace events), :frame, :timing-ms.
 
    `:timing-ms` — server-side timing filter. Accepts a
    number (sugar for `>= N`) or a comparison string (`\">100\"`,
    `\"<=50\"`, `\">=100\"`, `\"<200\"`, `\"=42\"`). Compares against
    the epoch's wall-clock elapsed-ms derived from the cascade's
-   `:event/run-start` / `:event/run-end` trace pair (see
+   `:rf.event/run-start` / `:rf.event/run-end` trace pair (see
    `epoch-elapsed-ms`). Filtering rides server-side so the wire
    payload shrinks before bytes cross the boundary — matters for the
    'alert me on slow events' recipe under streaming subscriptions.
@@ -1564,8 +1564,8 @@
                               (= p-sub (first (:query-v %))))
                          sub-runs) true)
       (if p-render (some #(= p-render (str (:render-key %))) renders) true)
-      (if p-origin (some (fn [t] (and (= :event/dispatched (:operation t))
-                                      (= p-origin (get-in t [:tags :origin]))))
+      (if p-origin (some (fn [t] (and (= :rf.event/dispatched (:operation t))
+                                      (= p-origin (get-in t [:tags :rf.event/origin]))))
                          trace-events)
                    true)
       (if p-frame  (= p-frame frame) true)

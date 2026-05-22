@@ -34,7 +34,7 @@
 (defn topic->base-filter
  [topic]
  (case topic
- :fx {:op-type :fx}
+ :fx {:op-type :rf.fx}
  :error {:op-type :error}
  {}))
 
@@ -58,30 +58,30 @@
  (or (:frame ev)
  (get-in ev [:tags :frame]))))
  (or (nil? event-id) (= event-id
- (get-in ev [:tags :event-id])))
+ (get-in ev [:tags :rf.trace/event-id])))
  (or (nil? handler-id) (= handler-id
  (get-in ev [:tags :handler-id])))
  (or (nil? source) (= source
  (or (:source ev)
  (get-in ev [:tags :source]))))
  (or (nil? origin) (= origin
- (get-in ev [:tags :origin])))
+ (get-in ev [:tags :rf.event/origin])))
  (or (nil? dispatch-id)(= dispatch-id
- (get-in ev [:tags :dispatch-id])))
+ (get-in ev [:tags :rf.trace/dispatch-id])))
  (or (nil? since-ms) (and (number? (:time ev))
  (> (:time ev) since-ms)))
  (or (nil? t0) (and (number? (:time ev))
  (<= t0 (:time ev) t1)))))))
 
-;; Mirror of epoch-elapsed-ms: pair :event/run-start with
-;; :event/run-end on :time. Span first run-start → last run-end so
+;; Mirror of epoch-elapsed-ms: pair :rf.event/run-start with
+;; :rf.event/run-end on :time. Span first run-start → last run-end so
 ;; nested same-cascade dispatches roll up correctly.
 (defn epoch-elapsed-ms
  [{:keys [trace-events]}]
  (let [run-event? (fn [phase ev]
- (and (= :event (:op-type ev))
- (= :event (:operation ev))
- (= phase (get-in ev [:tags :phase]))))
+ (and (= :rf.event (:op-type ev))
+ (= :rf.event (:operation ev))
+ (= phase (get-in ev [:tags :rf.trace/phase]))))
  first-time (some (fn [ev] (when (run-event? :run-start ev) (:time ev))) trace-events)
  last-time (reduce (fn [acc ev]
  (if (run-event? :run-end ev)
@@ -274,8 +274,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest topic-sugar-base-filters
- (testing ":fx topic adds :op-type :fx as a base filter"
- (is (= {:op-type :fx} (compose-trace-filter :fx nil))))
+ (testing ":fx topic adds :op-type :rf.fx as a base filter"
+ (is (= {:op-type :rf.fx} (compose-trace-filter :fx nil))))
  (testing ":error topic adds :op-type :error"
  (is (= {:op-type :error} (compose-trace-filter :error nil))))
  (testing ":trace topic adds no base — user filter is the only constraint"
@@ -286,8 +286,8 @@
 
 (deftest trace-filter-matches-by-event-id
  (let [filter-map {:event-id :user/login}
- match {:operation :event/dispatched :tags {:event-id :user/login}}
- no-match {:operation :event/dispatched :tags {:event-id :user/logout}}]
+ match {:operation :rf.event/dispatched :tags {:rf.trace/event-id :user/login}}
+ no-match {:operation :rf.event/dispatched :tags {:rf.trace/event-id :user/logout}}]
  (is (trace-matches? filter-map match))
  (is (not (trace-matches? filter-map no-match)))))
 
@@ -321,22 +321,22 @@
  (is (not (epoch-matches? {:effects :http} {:effects [{:fx-id :db}]}))))
 
 (deftest epoch-elapsed-ms-pairs-run-start-and-run-end
- ;; The cascade's wall-clock is derived from `:event/run-start` and
- ;; `:event/run-end` trace events on `:time`. Span first run-start to
+ ;; The cascade's wall-clock is derived from `:rf.event/run-start` and
+ ;; `:rf.event/run-end` trace events on `:time`. Span first run-start to
  ;; last run-end so a same-cascade chain of synchronously-dispatched
  ;; handlers rolls up to the cascade's total hold time.
- (let [epoch {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
- {:op-type :event :operation :event :time 1150 :tags {:phase :run-end}}]}]
+ (let [epoch {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event :time 1150 :tags {:rf.trace/phase :run-end}}]}]
  (is (= 150 (epoch-elapsed-ms epoch))))
  (testing "no run-start ⇒ nil (degenerate or trace-elided epoch)"
- (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-end}}]}))))
+ (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-end}}]}))))
  (testing "no run-end ⇒ nil"
- (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}]}))))
+ (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}]}))))
  (testing "spans first run-start to LAST run-end across nested dispatches"
- (let [epoch {:trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
- {:op-type :event :operation :event :time 1050 :tags {:phase :run-end}}
- {:op-type :event :operation :event :time 1060 :tags {:phase :run-start}}
- {:op-type :event :operation :event :time 1300 :tags {:phase :run-end}}]}]
+ (let [epoch {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event :time 1050 :tags {:rf.trace/phase :run-end}}
+ {:op-type :rf.event :operation :rf.event :time 1060 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event :time 1300 :tags {:rf.trace/phase :run-end}}]}]
  (is (= 300 (epoch-elapsed-ms epoch))))))
 
 (deftest epoch-filter-matches-by-timing-ms-threshold
@@ -344,11 +344,11 @@
  ;; (`>= N`) and comparison-string forms (`">100"`, `"<=50"`, …) both
  ;; supported.
  (let [slow-epoch {:event-id :cart/add
- :trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
- {:op-type :event :operation :event :time 1150 :tags {:phase :run-end}}]}
+ :trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event :time 1150 :tags {:rf.trace/phase :run-end}}]}
  fast-epoch {:event-id :cart/add
- :trace-events [{:op-type :event :operation :event :time 1000 :tags {:phase :run-start}}
- {:op-type :event :operation :event :time 1005 :tags {:phase :run-end}}]}]
+ :trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event :time 1005 :tags {:rf.trace/phase :run-end}}]}]
  (testing "number `100` is sugar for `>= 100` — slow matches, fast doesn't"
  (is (epoch-matches? {:timing-ms 100} slow-epoch))
  (is (not (epoch-matches? {:timing-ms 100} fast-epoch))))
@@ -370,9 +370,9 @@
  (is (contains? subs "s1"))
  (is (= :trace (get-in subs ["s1" :topic])))
  (let [;; Three events, only one matches.
- ev1 {:op-type :error :tags {:event-id :user/login}}
- ev2 {:op-type :info :tags {:event-id :user/login}}
- ev3 {:op-type :error :tags {:event-id :user/logout}}
+ ev1 {:op-type :error :tags {:rf.trace/event-id :user/login}}
+ ev2 {:op-type :info :tags {:rf.trace/event-id :user/login}}
+ ev3 {:op-type :error :tags {:rf.trace/event-id :user/logout}}
  subs (-> subs
  (dispatch-trace-to-subs! ev1)
  (dispatch-trace-to-subs! ev2)
@@ -420,9 +420,9 @@
 
 (deftest fx-topic-defaults-op-type-but-respects-overrides
  (let [;; :fx sub with no extra filter matches any trace event with
- ;; :op-type :fx.
+ ;; :op-type :rf.fx.
  subs (-> {} (subscribe! "fx-sub" {:topic :fx}))
- ev {:op-type :fx :tags {:fx-id :http}}
+ ev {:op-type :rf.fx :tags {:fx-id :http}}
  ev2 {:op-type :info :tags {}}
  subs (-> subs
  (dispatch-trace-to-subs! ev)
@@ -430,7 +430,7 @@
  (is (= [ev] (get-in subs ["fx-sub" :queue]))))
  (testing "user filter can override the topic's base op-type"
  (let [subs (-> {} (subscribe! "fx-sub" {:topic :fx :filter {:op-type :info}}))
- ev {:op-type :fx :tags {}}
+ ev {:op-type :rf.fx :tags {}}
  ev2 {:op-type :info :tags {}}
  subs (-> subs
  (dispatch-trace-to-subs! ev)
@@ -582,12 +582,12 @@
  (testing "default privacy config suppresses :sensitive? true events"
  (let [default-cfg {:include-sensitive? false}]
  (is (true? (streaming-drop? default-cfg {:sensitive? true})))
- (is (true? (streaming-drop? default-cfg {:sensitive? true :op-type :fx})))))
+ (is (true? (streaming-drop? default-cfg {:sensitive? true :op-type :rf.fx})))))
  (testing "non-sensitive events are never dropped on the privacy axis"
  (let [default-cfg {:include-sensitive? false}]
  (is (false? (streaming-drop? default-cfg {:sensitive? false})))
  (is (false? (streaming-drop? default-cfg {}))) ;; absent ⇒ not sensitive
- (is (false? (streaming-drop? default-cfg {:op-type :fx}))))))
+ (is (false? (streaming-drop? default-cfg {:op-type :rf.fx}))))))
 
 (deftest streaming-drop-allows-opt-in-via-include-sensitive
  (testing "opting in lets :sensitive? true events through"
@@ -602,12 +602,12 @@
  ;; enqueued under the default privacy posture.
  (let [default-cfg {:include-sensitive? false}
  subs (-> {} (subscribe! "s1" {:topic :trace}))
- sensitive-ev {:op-type :event :sensitive? true
- :tags {:event-id :auth/sign-in}}
- ordinary-ev {:op-type :event :sensitive? false
- :tags {:event-id :cart/add}}
- absent-flag-ev {:op-type :event ;; no :sensitive? at all
- :tags {:event-id :route/change}}
+ sensitive-ev {:op-type :rf.event :sensitive? true
+ :tags {:rf.trace/event-id :auth/sign-in}}
+ ordinary-ev {:op-type :rf.event :sensitive? false
+ :tags {:rf.trace/event-id :cart/add}}
+ absent-flag-ev {:op-type :rf.event ;; no :sensitive? at all
+ :tags {:rf.trace/event-id :route/change}}
  subs (-> subs
  (on-trace-streaming default-cfg sensitive-ev)
  (on-trace-streaming default-cfg ordinary-ev)
@@ -625,10 +625,10 @@
  ;; surface forwards every event regardless of the flag.
  (let [opt-in-cfg {:include-sensitive? true}
  subs (-> {} (subscribe! "s1" {:topic :trace}))
- sensitive-ev {:op-type :event :sensitive? true
- :tags {:event-id :auth/sign-in}}
- ordinary-ev {:op-type :event :sensitive? false
- :tags {:event-id :cart/add}}
+ sensitive-ev {:op-type :rf.event :sensitive? true
+ :tags {:rf.trace/event-id :auth/sign-in}}
+ ordinary-ev {:op-type :rf.event :sensitive? false
+ :tags {:rf.trace/event-id :cart/add}}
  subs (-> subs
  (on-trace-streaming opt-in-cfg sensitive-ev)
  (on-trace-streaming opt-in-cfg ordinary-ev))]
@@ -643,8 +643,8 @@
  subs (-> {} (subscribe! "auth-events"
  {:topic :trace
  :filter {:event-id :auth/sign-in}}))
- sensitive-ev {:op-type :event :sensitive? true
- :tags {:event-id :auth/sign-in}}
+ sensitive-ev {:op-type :rf.event :sensitive? true
+ :tags {:rf.trace/event-id :auth/sign-in}}
  subs (on-trace-streaming subs default-cfg sensitive-ev)]
  (is (empty? (get-in subs ["auth-events" :queue]))
  "even a filter that *names* the sensitive event must not pull it through")))
