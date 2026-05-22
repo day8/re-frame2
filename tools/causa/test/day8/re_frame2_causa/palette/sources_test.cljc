@@ -26,11 +26,11 @@
 
 (def sample-trace-buffer
   ;; oldest → newest order; recency-rank 0 sits at the end
-  [{:id 100 :op :event/handled :event-id [:user/login]}
-   {:id 101 :op :event/handled :event-id [:user/logout]}
-   {:id 102 :op :event/dispatched :event-id [:cart/add 42]}
+  [{:id 100 :op :rf.event/handled :event-id [:user/login]}
+   {:id 101 :op :rf.event/handled :event-id [:user/logout]}
+   {:id 102 :op :rf.event/dispatched :event-id [:cart/add 42]}
    {:id 103 :op :trace/note}            ;; filtered — not an event op
-   {:id 104 :op :event/handled :event-id [:cart/remove]}])
+   {:id 104 :op :rf.event/handled :event-id [:cart/remove]}])
 
 (def sample-frames [:rf/default :rf/causa :app/main])
 
@@ -71,7 +71,7 @@
 (deftest recent-event-cap
   (let [big-buffer (vec
                      (for [i (range 50)]
-                       {:id i :op :event/handled :event-id [:noise i]}))
+                       {:id i :op :rf.event/handled :event-id [:noise i]}))
         items      (sources/recent-event-items big-buffer 10)]
     (is (= 10 (count items)))
     (is (= 0 (:recency-rank (first
@@ -213,8 +213,8 @@
 (deftest rank-recency-boosts-latest-event
   ;; Two events whose labels both fuzzy-match the query; the more
   ;; recent one should score higher because of the recency bonus.
-  (let [buf [{:id 1 :op :event/handled :event-id [:foo]}
-             {:id 2 :op :event/handled :event-id [:foo]}]
+  (let [buf [{:id 1 :op :rf.event/handled :event-id [:foo]}
+             {:id 2 :op :rf.event/handled :event-id [:foo]}]
         index   (sources/recent-event-items buf)
         results (sources/rank index "foo" 10)
         scores  (map :score results)]

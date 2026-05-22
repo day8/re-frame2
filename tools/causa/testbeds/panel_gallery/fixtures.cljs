@@ -13,14 +13,14 @@
   `re-frame.trace.projection/group-cascades` projects them:
 
       {:id <int>
-       :op-type   :event | :fx | :sub/run | :view | :error | :warning | ...
-       :operation :event/dispatched | :event | :event/do-fx | :rf.fx/handled | ...
-       :tags      {:dispatch-id <int>
-                   :event       <event-vec>     ;; on :event/dispatched
-                   :phase       :run-start | :run-end
-                   :fx-id       <kw>            ;; on :fx
-                   :sub-id      <kw>            ;; on :sub/run
-                   :render-key  [<view-id> <args>] ;; on :view
+       :op-type   :rf.event | :fx | :rf.sub/run | :view | :error | :warning | ...
+       :operation :rf.event/dispatched | :event | :rf.fx/do-fx | :rf.fx/handled | ...
+       :tags      {:rf.trace/dispatch-id <int>
+                   :rf.event/v       <event-vec>     ;; on :rf.event/dispatched
+                   :rf.trace/phase       :run-start | :run-end
+                   :rf.fx/id       <kw>            ;; on :rf.event/fx
+                   :rf.sub/id      <kw>            ;; on :rf.sub/run
+                   :rf.view/render-key  [<view-id> <args>] ;; on :view
                    :frame       <frame-id>}}
 
   The mirror of this shape lives in
@@ -50,29 +50,29 @@
   ([dispatch-id event-vec id-base frame-id]
    (let [tag (cond-> {:dispatch-id dispatch-id}
                frame-id (assoc :frame frame-id))]
-     [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-       :tags (assoc tag :event event-vec)}
-      {:id (+ id-base 2) :op-type :event :operation :event
-       :tags (assoc tag :phase :run-start)}
-      {:id (+ id-base 3) :op-type :event :operation :event
-       :tags (assoc tag :phase :run-end :duration-ms 4)}
-      {:id (+ id-base 4) :op-type :event :operation :event/do-fx
+     [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+       :tags (assoc tag :rf.event/v event-vec)}
+      {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+       :tags (assoc tag :rf.trace/phase :run-start)}
+      {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 4)}
+      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
        :tags tag}
-      {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
-       :tags (assoc tag :fx-id :db)}
-      {:id (+ id-base 6) :op-type :fx :operation :rf.fx/handled
-       :tags (assoc tag :fx-id :dispatch)}
-      {:id (+ id-base 7) :op-type :sub/run :operation :sub/run
-       :tags (assoc tag :sub-id :sub/foo)}
-      {:id (+ id-base 8) :op-type :view :operation :view/render
-       :tags (assoc tag :render-key [:app/root nil])}])))
+      {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+       :tags (assoc tag :rf.fx/id :db)}
+      {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+       :tags (assoc tag :rf.fx/id :dispatch)}
+      {:id (+ id-base 7) :op-type :rf.sub :operation :rf.sub/run
+       :tags (assoc tag :rf.sub/id :sub/foo)}
+      {:id (+ id-base 8) :op-type :rf.view :operation :rf.view/render
+       :tags (assoc tag :rf.view/render-key [:app/root nil])}])))
 
 (defn cascade-with-counts
   "Build a cascade with caller-controlled fanout. `counts` is a map of
   `{:effects N :subs N :renders N}`; each non-zero count emits that
   many additional rows of the matching `:op-type`. Always emits the
   three baseline event/do-fx rows so the cascade has a recognisable
-  spine; never emits the eighth `:view/render` row when `:renders 0`.
+  spine; never emits the eighth `:rf.view/render` row when `:renders 0`.
 
   Synthetic fx-ids / sub-ids / render-keys cycle through a small pool
   so the panel renders distinguishable values rather than 30 identical
@@ -82,13 +82,13 @@
     :or {effects 1 subs 0 renders 0}}]
   (let [tag (cond-> {:dispatch-id dispatch-id}
               frame-id (assoc :frame frame-id))
-        spine [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-                :tags (assoc tag :event event-vec)}
-               {:id (+ id-base 2) :op-type :event :operation :event
-                :tags (assoc tag :phase :run-start)}
-               {:id (+ id-base 3) :op-type :event :operation :event
-                :tags (assoc tag :phase :run-end :duration-ms 7)}
-               {:id (+ id-base 4) :op-type :event :operation :event/do-fx
+        spine [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+                :tags (assoc tag :rf.event/v event-vec)}
+               {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+                :tags (assoc tag :rf.trace/phase :run-start)}
+               {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+                :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7)}
+               {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
                 :tags tag}]
         fx-pool [:db :dispatch :http :rf.machine/transition :rf.flow/computed
                  :navigate :persist :metrics]
@@ -100,16 +100,16 @@
                      [:perf/ribbon nil] [:settings/tab {:tab :general}]
                      [:modal/host nil]]
         fx-rows (mapv (fn [i]
-                        {:id (+ id-base 100 i) :op-type :fx :operation :rf.fx/handled
-                         :tags (assoc tag :fx-id (nth fx-pool (mod i (count fx-pool))))})
+                        {:id (+ id-base 100 i) :op-type :rf.fx :operation :rf.fx/handled
+                         :tags (assoc tag :rf.fx/id (nth fx-pool (mod i (count fx-pool))))})
                       (range effects))
         sub-rows (mapv (fn [i]
-                         {:id (+ id-base 1000 i) :op-type :sub/run :operation :sub/run
-                          :tags (assoc tag :sub-id (nth sub-pool (mod i (count sub-pool))))})
+                         {:id (+ id-base 1000 i) :op-type :rf.sub :operation :rf.sub/run
+                          :tags (assoc tag :rf.sub/id (nth sub-pool (mod i (count sub-pool))))})
                        (range subs))
         render-rows (mapv (fn [i]
-                            {:id (+ id-base 10000 i) :op-type :view :operation :view/render
-                             :tags (assoc tag :render-key
+                            {:id (+ id-base 10000 i) :op-type :rf.view :operation :rf.view/render
+                             :tags (assoc tag :rf.view/render-key
                                           (nth render-pool (mod i (count render-pool))))})
                           (range renders))]
     (-> []
@@ -124,23 +124,23 @@
   `other-row` render branch."
   [dispatch-id id-base]
   (let [tag {:dispatch-id dispatch-id}]
-    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-      :tags (assoc tag :event [:user/save-profile {:id 7}])}
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-start)}
-     {:id (+ id-base 3) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 12)}
-     {:id (+ id-base 4) :op-type :event :operation :event/do-fx
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:user/save-profile {:id 7}])}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 12)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
-     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :db)}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :db)}
      ;; Non-domino rows — surface under :other.
      {:id (+ id-base 6) :op-type :rf.error/handler-exception
       :operation :rf.error/handler-exception
-      :tags (assoc tag :event [:user/save-profile {:id 7}])}
+      :tags (assoc tag :rf.event/v [:user/save-profile {:id 7}])}
      {:id (+ id-base 7) :op-type :rf.warning/large-value-unschema'd
       :operation :rf.warning/large-value-unschema'd
-      :tags (assoc tag :sub-id :user/profile)}
+      :tags (assoc tag :rf.sub/id :user/profile)}
      {:id (+ id-base 8) :op-type :rf.machine/transition
       :operation :rf.machine/transition
       :tags (assoc tag :machine-id :user/save :from :idle :to :saving)}]))
@@ -207,18 +207,18 @@
   (let [dispatch-id 100
         id-base 50
         tag {:dispatch-id dispatch-id}]
-    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-      :tags (assoc tag :event [:user/sign-in {:email "ada@example.com"
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:user/sign-in {:email "ada@example.com"
                                               :password :rf/redacted
                                               :totp     :rf/redacted}])}
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-start)}
-     {:id (+ id-base 3) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 9)}
-     {:id (+ id-base 4) :op-type :event :operation :event/do-fx
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 9)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
-     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :http)}]))
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :http)}]))
 
 (defn large-payload-buffer
   "One cascade whose event payload is large-elided per Spec 009. The
@@ -228,23 +228,23 @@
   (let [dispatch-id 100
         id-base 50
         tag {:dispatch-id dispatch-id}]
-    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-      :tags (assoc tag :event [:report/upload
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:report/upload
                                {:rf.size/large-elided
                                 {:source :schema
                                  :handle :report/payload-1234
                                  :original-size 4218543
                                  :truncated-preview "{\"rows\": [{...} ...]"}}])}
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-start)}
-     {:id (+ id-base 3) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 23)}
-     {:id (+ id-base 4) :op-type :event :operation :event/do-fx
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 23)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
-     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :http)}
-     {:id (+ id-base 6) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :metrics)}]))
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :http)}
+     {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :metrics)}]))
 
 (defn other-rows-buffer
   "A buffer whose selected cascade carries non-domino rows — errors,
@@ -280,14 +280,14 @@
   (let [dispatch-id 100
         id-base     50
         tag         {:dispatch-id dispatch-id}]
-    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-      :tags (assoc tag :event [:checkout/submit {:order-id 42}])}
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-start)}
-     {:id (+ id-base 3) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 5)}
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}])}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 5)}
      {:id (+ id-base 4) :op-type :error :operation :rf.error/handler-threw
-      :tags (assoc tag :event [:checkout/submit {:order-id 42}]
+      :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}]
                        :handler-id :checkout/submit-h
                        :severity :error
                        :reason "NullPointerException at checkout/submit-h:88"
@@ -302,32 +302,32 @@
   (let [tag1 {:dispatch-id 100}
         tag2 {:dispatch-id 101}]
     [;; Root cascade — :cart/refresh dispatches an :http/request fx.
-     {:id 51 :op-type :event :operation :event/dispatched
-      :tags (assoc tag1 :event [:cart/refresh])}
-     {:id 52 :op-type :event :operation :event
-      :tags (assoc tag1 :phase :run-start)}
-     {:id 53 :op-type :event :operation :event
-      :tags (assoc tag1 :phase :run-end :duration-ms 3)}
-     {:id 54 :op-type :event :operation :event/do-fx
+     {:id 51 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag1 :rf.event/v [:cart/refresh])}
+     {:id 52 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag1 :rf.trace/phase :run-start)}
+     {:id 53 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag1 :rf.trace/phase :run-end :duration-ms 3)}
+     {:id 54 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag1}
-     {:id 55 :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag1 :fx-id :http/request
-                        :source :http :origin :app)}
-     {:id 56 :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag1 :fx-id :db)}
+     {:id 55 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag1 :rf.fx/id :http/request
+                        :source :http :rf.event/origin :app)}
+     {:id 56 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag1 :rf.fx/id :db)}
      ;; Follow-up cascade — :cart/loaded re-dispatched by the http callback.
-     {:id 101 :op-type :event :operation :event/dispatched
-      :tags (assoc tag2 :event [:cart/loaded {:items 6 :total 24}])}
-     {:id 102 :op-type :event :operation :event
-      :tags (assoc tag2 :phase :run-start)}
-     {:id 103 :op-type :event :operation :event
-      :tags (assoc tag2 :phase :run-end :duration-ms 4)}
-     {:id 104 :op-type :event :operation :event/do-fx
+     {:id 101 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag2 :rf.event/v [:cart/loaded {:items 6 :total 24}])}
+     {:id 102 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag2 :rf.trace/phase :run-start)}
+     {:id 103 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag2 :rf.trace/phase :run-end :duration-ms 4)}
+     {:id 104 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag2}
-     {:id 105 :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag2 :fx-id :db)}
-     {:id 106 :op-type :view :operation :view/render
-      :tags (assoc tag2 :render-key [:cart/list nil])}]))
+     {:id 105 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag2 :rf.fx/id :db)}
+     {:id 106 :op-type :rf.view :operation :rf.view/render
+      :tags (assoc tag2 :rf.view/render-key [:cart/list nil])}]))
 
 (defn machine-triggering-cascade-buffer
   "Cascade whose handler triggered a state-machine transition —
@@ -338,27 +338,27 @@
   (let [tag1 {:dispatch-id 100}
         tag2 {:dispatch-id 101}]
     [;; Root — :user/save triggers the :user/save machine to :saving.
-     {:id 51 :op-type :event :operation :event/dispatched
-      :tags (assoc tag1 :event [:user/save {:id 7 :name "Ada"}])}
-     {:id 52 :op-type :event :operation :event
-      :tags (assoc tag1 :phase :run-start)}
-     {:id 53 :op-type :event :operation :event
-      :tags (assoc tag1 :phase :run-end :duration-ms 6)}
-     {:id 54 :op-type :event :operation :event/do-fx
+     {:id 51 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag1 :rf.event/v [:user/save {:id 7 :name "Ada"}])}
+     {:id 52 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag1 :rf.trace/phase :run-start)}
+     {:id 53 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag1 :rf.trace/phase :run-end :duration-ms 6)}
+     {:id 54 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag1}
-     {:id 55 :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag1 :fx-id :db)}
+     {:id 55 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag1 :rf.fx/id :db)}
      {:id 56 :op-type :rf.machine/transition :operation :rf.machine/transition
       :tags (assoc tag1 :machine-id :user/save :from :idle :to :saving
                         :event [:user/save {:id 7}])}
      ;; Follow-up — :user/save-success transitions :user/save to :saved.
-     {:id 101 :op-type :event :operation :event/dispatched
-      :tags (assoc tag2 :event [:user/save-success {:id 7}])}
-     {:id 102 :op-type :event :operation :event
-      :tags (assoc tag2 :phase :run-start)}
-     {:id 103 :op-type :event :operation :event
-      :tags (assoc tag2 :phase :run-end :duration-ms 2)}
-     {:id 104 :op-type :event :operation :event/do-fx
+     {:id 101 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag2 :rf.event/v [:user/save-success {:id 7}])}
+     {:id 102 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag2 :rf.trace/phase :run-start)}
+     {:id 103 :op-type :rf.event :operation :rf.event
+      :tags (assoc tag2 :rf.trace/phase :run-end :duration-ms 2)}
+     {:id 104 :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag2}
      {:id 105 :op-type :rf.machine/transition :operation :rf.machine/transition
       :tags (assoc tag2 :machine-id :user/save :from :saving :to :saved
@@ -395,8 +395,8 @@
 ;;
 ;; Builders that exercise the redesigned Event lens's 6-section layout
 ;; under realistic combinations of substrate keys (rf2-twt7m): the
-;; dispatch-site coord on :event/dispatched, the :fx + :db-present?
-;; tags on :event/do-fx, and (in tests) the :rf/default? flag on
+;; dispatch-site coord on :rf.event/dispatched, the :fx + :db-present?
+;; tags on :rf.fx/do-fx, and (in tests) the :rf/default? flag on
 ;; framework-auto-wrapped interceptors.
 
 (defn event-lens-simple-buffer
@@ -408,20 +408,20 @@
   (let [dispatch-id 100
         id-base     50
         tag         {:dispatch-id dispatch-id}]
-    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
-             :tags (assoc tag :event [:cart/add-item {:id 42 :qty 2}])
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:cart/add-item {:id 42 :qty 2}])
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/cart/views.cljs" :line 127})
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-start)}
-     {:id (+ id-base 3) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 11)}
-     {:id (+ id-base 4) :op-type :event :operation :event/do-fx
-      :tags (assoc tag :fx [[:dispatch [:notify "added"]]]
-                       :db-present? true)}
-     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :dispatch :fx-args [[:notify "added"]]
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 11)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags (assoc tag :rf.event/fx [[:dispatch [:notify "added"]]]
+                       :rf.event/db-present? true)}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :dispatch :rf.fx/args [[:notify "added"]]
                        :duration-ms 0)}]))
 
 (defn event-lens-with-interceptors-buffer
@@ -435,28 +435,28 @@
 (defn event-lens-with-coeffects-buffer
   "Event lens fixture exercising the COEFFECTS section (rf2-jhhqt).
   Stamps two user-injected coeffects (`:now` + `:local-storage`) onto
-  the `:event/do-fx` trace's `:tags :coeffects` slot — the substrate
+  the `:rf.fx/do-fx` trace's `:tags :coeffects` slot — the substrate
   filter has already excluded the framework defaults (`:db` `:event`
   `:frame` `:source` `:trace-id`)."
   []
   (let [dispatch-id 110
         id-base     60
         tag         {:dispatch-id dispatch-id}]
-    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
-             :tags (assoc tag :event [:cart/restore])
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:cart/restore])
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/cart/events.cljs" :line 211})
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 7)}
-     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
-      :tags (assoc tag :fx [[:db nil]]
-                       :db-present? true
-                       :coeffects {:now "2026-05-18T19:00:00Z"
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags (assoc tag :rf.event/fx [[:db nil]]
+                       :rf.event/db-present? true
+                       :rf.event/coeffects {:now "2026-05-18T19:00:00Z"
                                    :local-storage {:user/last-cart-id "cart-42"
                                                    :user/wishlist-ids #{"sku-9"}}})}
-     {:id (+ id-base 4) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :db :duration-ms 1)}]))
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :db :duration-ms 1)}]))
 
 (defn event-lens-many-fx-buffer
   "Event lens fixture — six fx handlers ran in the cascade, including
@@ -466,31 +466,31 @@
   (let [dispatch-id 200
         id-base     200
         tag         {:dispatch-id dispatch-id}]
-    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
-             :tags (assoc tag :event [:dashboard/refresh-all])
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:dashboard/refresh-all])
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/dashboard/views.cljs" :line 88})
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 47)}
-     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
-      :tags (assoc tag :fx [[:db nil] [:rf.http/get {:url "/api/stats"}]
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 47)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags (assoc tag :rf.event/fx [[:db nil] [:rf.http/get {:url "/api/stats"}]
                             [:dispatch [:refresh-done]]]
-                       :db-present? true)}
-     {:id (+ id-base 4) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :db :duration-ms 1)}
-     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :rf.http/get :duration-ms 87
-                       :source :http :origin :app
-                       :fx-args [{:url "/api/stats"}])}
-     {:id (+ id-base 6) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :metrics :duration-ms 2)}
-     {:id (+ id-base 7) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :persist :duration-ms 3)}
-     {:id (+ id-base 8) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :navigate :duration-ms 1)}
-     {:id (+ id-base 9) :op-type :fx :operation :rf.fx/handled
-      :tags (assoc tag :fx-id :dispatch :fx-args [[:refresh-done]]
+                       :rf.event/db-present? true)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :db :duration-ms 1)}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :rf.http/get :duration-ms 87
+                       :source :http :rf.event/origin :app
+                       :rf.fx/args [{:url "/api/stats"}])}
+     {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :metrics :duration-ms 2)}
+     {:id (+ id-base 7) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :persist :duration-ms 3)}
+     {:id (+ id-base 8) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :navigate :duration-ms 1)}
+     {:id (+ id-base 9) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :dispatch :rf.fx/args [[:refresh-done]]
                        :duration-ms 0)}]))
 
 (defn event-lens-handler-threw-buffer
@@ -501,15 +501,15 @@
   (let [dispatch-id 300
         id-base     300
         tag         {:dispatch-id dispatch-id}]
-    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
-             :tags (assoc tag :event [:checkout/submit {:order-id 42}])
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}])
              :source :ui :origin :app}
             :rf.trace/call-site
             {:file "src/checkout/views.cljs" :line 203})
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-start)}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-start)}
      {:id (+ id-base 3) :op-type :error :operation :rf.error/handler-exception
-      :tags (assoc tag :event-id :checkout/submit
+      :tags (assoc tag :rf.trace/event-id :checkout/submit
                        :exception-message "NullPointerException at checkout/submit-h:88"
                        :severity :error)}]))
 
@@ -521,16 +521,16 @@
   (let [dispatch-id 400
         id-base     400
         tag         {:dispatch-id dispatch-id}]
-    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-      :tags (assoc tag :event [:rf.ssr/hydrated {:duration-ms 87
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:rf.ssr/hydrated {:duration-ms 87
                                                   :subs-ran 142
                                                   :mismatches 0}])
       :source :ssr :origin :app}
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 87)}
-     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 87)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
-     {:id (+ id-base 4) :op-type :event :operation :rf.ssr/hydration-outcome
+     {:id (+ id-base 4) :op-type :rf.event :operation :rf.ssr/hydration-outcome
       :tags (assoc tag :duration-ms 87 :subs-ran 142 :mismatches 0)}]))
 
 (defn event-lens-hydration-mismatch-buffer
@@ -540,12 +540,12 @@
   (let [dispatch-id 401
         id-base     410
         tag         {:dispatch-id dispatch-id}]
-    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-      :tags (assoc tag :event [:rf.ssr/hydrated {:duration-ms 91 :mismatches 3}])
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:rf.ssr/hydrated {:duration-ms 91 :mismatches 3}])
       :source :ssr :origin :app}
-     {:id (+ id-base 2) :op-type :event :operation :event
-      :tags (assoc tag :phase :run-end :duration-ms 91)}
-     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 91)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
       :tags tag}
-     {:id (+ id-base 4) :op-type :event :operation :rf.ssr/hydration-outcome
+     {:id (+ id-base 4) :op-type :rf.event :operation :rf.ssr/hydration-outcome
       :tags (assoc tag :duration-ms 91 :subs-ran 142 :mismatches 3)}]))

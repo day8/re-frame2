@@ -222,7 +222,7 @@
             :tags {:machine-id :auth/login
                    :before {:state :idle :data {}}
                    :after  {:state :authing :data {}}
-                   :event [:auth/submit] :dispatch-id "d-1"}}]}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
          {:epoch-id 2 :trace-events []}])
       (focus-epoch! 2)
       (let [tree     (machine-inspector/Panel)
@@ -271,7 +271,7 @@
                    :before     {:state :idle    :data {}}
                    :after      {:state :authing :data {}}
                    :event      [:auth/submit]
-                   :dispatch-id "d-1"}}]}])
+                   :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 2)
       (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid tree "rf-causa-machine-focused-event"))
@@ -300,7 +300,7 @@
             :tags {:machine-id :auth/login
                    :before     {:state :idle    :data {}}
                    :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :dispatch-id "d-1"}}]}])
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
       (let [tree   (machine-inspector/Panel)
             chart  (find-by-testid
@@ -325,17 +325,17 @@
             :tags {:machine-id :auth/login
                    :before     {:state :idle    :data {}}
                    :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :dispatch-id "d-1"}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
            {:id 2 :time 11 :operation :rf.machine/transition
             :tags {:machine-id :checkout/flow
                    :before     {:state :idle :data {}}
                    :after      {:state :done :data {}}
-                   :event      [:cart/sync] :dispatch-id "d-1"}}
+                   :event      [:cart/sync] :rf.trace/dispatch-id "d-1"}}
            {:id 3 :time 12 :operation :rf.machine/transition
             :tags {:machine-id :session/clock
                    :before     {:state :idle :data {}}
                    :after      {:state :authing :data {}}
-                   :event      [:tick] :dispatch-id "d-1"}}]}])
+                   :event      [:tick] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 7)
       (let [tree     (machine-inspector/Panel)
             sections (find-all-by-testid-prefix
@@ -362,7 +362,7 @@
             :tags {:machine-id :auth/login
                    :before     {:state :idle    :data {}}
                    :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :dispatch-id "d-1"}}]}])
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
       (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid
@@ -401,21 +401,21 @@
             :tags {:machine-id :auth/login
                    :before {:state :idle :data {}}
                    :after  {:state :authing :data {}}
-                   :event [:auth/submit] :dispatch-id "d-1"}}]}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
          {:epoch-id 2
           :trace-events
           [{:id 2 :time 20 :operation :rf.machine/transition
             :tags {:machine-id :checkout/flow
                    :before {:state :idle :data {}}
                    :after  {:state :done :data {}}
-                   :event [:cart/sync] :dispatch-id "d-2"}}]}
+                   :event [:cart/sync] :rf.trace/dispatch-id "d-2"}}]}
          {:epoch-id 3
           :trace-events
           [{:id 3 :time 30 :operation :rf.machine/transition
             :tags {:machine-id :auth/login
                    :before {:state :authing :data {}}
                    :after  {:state :done :data {}}
-                   :event [:auth/done] :dispatch-id "d-3"}}]}])
+                   :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
       (focus-epoch! 3)
       (rf/dispatch-sync [:rf.causa/machine-focus-prev])
       (let [causa-db (frame/frame-app-db-value :rf/causa)]
@@ -438,21 +438,21 @@
             :tags {:machine-id :auth/login
                    :before {:state :idle :data {}}
                    :after  {:state :authing :data {}}
-                   :event [:auth/submit] :dispatch-id "d-1"}}]}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
          {:epoch-id 2
           :trace-events
           [{:id 2 :time 20 :operation :rf.machine/transition
             :tags {:machine-id :checkout/flow
                    :before {:state :idle :data {}}
                    :after  {:state :done :data {}}
-                   :event [:cart/sync] :dispatch-id "d-2"}}]}
+                   :event [:cart/sync] :rf.trace/dispatch-id "d-2"}}]}
          {:epoch-id 3
           :trace-events
           [{:id 3 :time 30 :operation :rf.machine/transition
             :tags {:machine-id :auth/login
                    :before {:state :authing :data {}}
                    :after  {:state :done :data {}}
-                   :event [:auth/done] :dispatch-id "d-3"}}]}])
+                   :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
       (focus-epoch! 1)
       (rf/dispatch-sync [:rf.causa/machine-focus-next])
       (let [causa-db (frame/frame-app-db-value :rf/causa)]
@@ -473,7 +473,7 @@
             :tags {:machine-id :auth/login
                    :before {:state :idle :data {}}
                    :after  {:state :authing :data {}}
-                   :event [:auth/submit] :dispatch-id "d-1"}}]}])
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
       (rf/dispatch-sync [:rf.causa/machine-focus-prev])
       (let [causa-db (frame/frame-app-db-value :rf/causa)]
@@ -575,12 +575,12 @@
             :tags {:machine-id :auth/login
                    :before {:state :idle :data {}}
                    :after  {:state :authing :data {}}
-                   :event [:auth/submit] :dispatch-id "d-1"}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}
            {:id 2 :time 11 :operation :rf.machine/transition
             :tags {:machine-id :checkout/flow
                    :before {:state :idle :data {}}
                    :after  {:state :done :data {}}
-                   :event [:cart/sync] :dispatch-id "d-1"}}]}])
+                   :event [:cart/sync] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
       (let [tree     (machine-inspector/Panel)
             sections (raw-find-all-by-testid-prefix

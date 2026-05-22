@@ -225,7 +225,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest dispatch-tags-event-with-current-origin
-  (testing "`dispatch!` attaches `{:tags {:origin <current-origin>}}` as
+  (testing "`dispatch!` attaches `{:tags {:rf.event/origin <current-origin>}}` as
             event metadata so the framework's trace bus carries the
             Causa-MCP tag (Lock #4 / I1)"
     (let [captured (atom nil)]

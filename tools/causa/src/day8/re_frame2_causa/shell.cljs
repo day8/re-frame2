@@ -231,7 +231,7 @@
     2. `#<dispatch-id>` (the sequence number)
     3. `frame: <id>`
     4. Source coordinate `<file>:<line>:<col>` (when `:rf.trace/call-site`
-       rode the `:event/dispatched` emit per rf2-twt7m Change 1)
+       rode the `:rf.event/dispatched` emit per rf2-twt7m Change 1)
     5. `handler: <ms>ms` (when the cascade carried a `:handler` emit
        with `:elapsed-ms`)
     6. Trailing hint: `Click → open Event detail`"

@@ -791,9 +791,9 @@
       ;; Push first, then subscribe — the Reaction's first read sees
       ;; the current atom contents.
       (trace-bus/collect-trace!
-        {:id 1 :op-type :event :operation :rf.test/x :tags {}})
+        {:id 1 :op-type :rf.event :operation :rf.test/x :tags {}})
       (trace-bus/collect-trace!
-        {:id 2 :op-type :event :operation :rf.test/y :tags {}})
+        {:id 2 :op-type :rf.event :operation :rf.test/y :tags {}})
       (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
         (is (= 2 (count buf))
             "the two pushes are visible on the first subscribe")
@@ -828,9 +828,9 @@
       ;; the slot populated the sub MUST read from app-db (not the atom
       ;; fall-through) — that's the reactive surface panels depend on.
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 1 :op-type :event :operation :rf.test/a :tags {}}])
+                         {:id 1 :op-type :rf.event :operation :rf.test/a :tags {}}])
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 2 :op-type :event :operation :rf.test/b :tags {}}])
+                         {:id 2 :op-type :rf.event :operation :rf.test/b :tags {}}])
       (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
         (is (= 2 (count buf))
             "two mirrored pushes are visible immediately on subscribe")
@@ -840,7 +840,7 @@
       ;; path the production trace-collector takes. No
       ;; clear-sub-cache! workaround needed.
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 3 :op-type :event :operation :rf.test/c :tags {}}])
+                         {:id 3 :op-type :rf.event :operation :rf.test/c :tags {}}])
       (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
         (is (= 3 (count buf))
             "subsequent mirror dispatch re-fires the sub — immediate update")
@@ -854,7 +854,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 1 :op-type :event :operation :rf.test/x :tags {}}])
+                         {:id 1 :op-type :rf.event :operation :rf.test/x :tags {}}])
       (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
       (rf/dispatch-sync [:rf.causa/clear-trace-buffer])
       ;; After clear the slot is dissoc'd; the sub falls back to the
@@ -870,8 +870,8 @@
             to reflect post-shrink atom state."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [seed [{:id 100 :op-type :event :operation :rf.test/seeded :tags {}}
-                  {:id 101 :op-type :event :operation :rf.test/seeded :tags {}}]]
+      (let [seed [{:id 100 :op-type :rf.event :operation :rf.test/seeded :tags {}}
+                  {:id 101 :op-type :rf.event :operation :rf.test/seeded :tags {}}]]
         (rf/dispatch-sync [:rf.causa/sync-trace-buffer seed])
         (is (= seed @(rf/subscribe [:rf.causa/trace-buffer]))
             "seed lands wholesale in the slot")
@@ -895,11 +895,11 @@
       ;; the slot wholesale, then a `:rf.causa/note-trace-event` for the
       ;; same id arrives from a queued mirror dispatch.
       (rf/dispatch-sync [:rf.causa/sync-trace-buffer
-                         [{:id 42 :op-type :frame :operation :frame/created
+                         [{:id 42 :op-type :rf.frame :operation :frame/created
                            :tags {:frame :rf/causa}}]])
       (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 42 :op-type :frame :operation :frame/created
+                         {:id 42 :op-type :rf.frame :operation :frame/created
                           :tags {:frame :rf/causa}}])
       (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer])))
           "duplicate-id push is a no-op — slot length unchanged")
@@ -909,7 +909,7 @@
       ;; Distinct ids still push normally — dedup is per-id, not blanket
       ;; deduplication-by-anything.
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 43 :op-type :event :operation :rf.test/y
+                         {:id 43 :op-type :rf.event :operation :rf.test/y
                           :tags {}}])
       (is (= [42 43] (mapv :id @(rf/subscribe [:rf.causa/trace-buffer])))
           "fresh ids still append — dedup is :id-keyed, not push-blocking"))))
@@ -922,10 +922,10 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:op-type :event :operation :rf.test/no-id
+                         {:op-type :rf.event :operation :rf.test/no-id
                           :tags {}}])
       (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:op-type :event :operation :rf.test/also-no-id
+                         {:op-type :rf.event :operation :rf.test/also-no-id
                           :tags {}}])
       (is (= 2 (count @(rf/subscribe [:rf.causa/trace-buffer])))
           "events without :id are not deduped — both push lands"))))
@@ -941,7 +941,7 @@
       (rf/with-frame :rf/causa
         (dotimes [i 5]
           (trace-bus/collect-trace!
-            {:id i :op-type :event :operation :rf.test/x :tags {}}))
+            {:id i :op-type :rf.event :operation :rf.test/x :tags {}}))
         (let [buf @(rf/subscribe [:rf.causa/trace-buffer])]
           (is (= 3 (count buf))
               "depth=3 caps the sub-visible buffer at 3 entries")
@@ -962,21 +962,21 @@
    :other       []})
 
 (defn- seed-buffer-with-dispatched-events!
-  "Push synthetic `:event/dispatched` trace events into Causa's trace
+  "Push synthetic `:rf.event/dispatched` trace events into Causa's trace
   buffer so `group-cascades` produces one cascade per event. Each
-  trace event needs `:operation :event/dispatched`, `:op-type :event`,
+  trace event needs `:operation :rf.event/dispatched`, `:op-type :rf.event`,
   a unique `:dispatch-id` (cascade-grouping key), and the event vector
   under `:tags :event`."
   [events]
   (doseq [{:keys [dispatch-id event-vec]} events]
     (trace-bus/collect-trace!
-      {:operation   :event/dispatched
-       :op-type     :event
+      {:operation   :rf.event/dispatched
+       :op-type     :rf.event
        :id          dispatch-id
        :time        (* dispatch-id 1000)
-       :tags        {:dispatch-id dispatch-id
-                     :event       event-vec
-                     :event-id    (first event-vec)
+       :tags        {:rf.trace/dispatch-id dispatch-id
+                     :rf.event/v       event-vec
+                     :rf.trace/event-id    (first event-vec)
                      :frame       :rf/default}})))
 
 (deftest sub-cascades-filters-causa-internal-events

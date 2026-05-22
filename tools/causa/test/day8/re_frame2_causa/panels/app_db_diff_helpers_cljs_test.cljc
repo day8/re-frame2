@@ -554,8 +554,8 @@
     (let [events [(flow-computed :cart-total [:cart :total])
                   {:op-type :flow :operation :rf.flow/skip
                    :tags {:flow-id :tax-due :reason :inputs-value-equal}}
-                  {:op-type :event :operation :event/dispatched
-                   :tags {:event [:foo]}}
+                  {:op-type :rf.event :operation :rf.event/dispatched
+                   :tags {:rf.event/v [:foo]}}
                   (flow-computed :tax-due [:tax :due])]
           rows   (h/flow-writes-from-trace-events events)]
       (is (= 2 (count rows)))

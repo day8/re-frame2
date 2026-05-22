@@ -230,7 +230,7 @@
      :from        (or (:from tags) (:from-state tags))
      :to          (or (:to tags)   (:to-state   tags))
      :event       (or (:event tags) (:event-v tags))
-     :dispatch-id (:dispatch-id tags)
+     :dispatch-id (:rf.trace/dispatch-id tags)
      :microstep?  (= :rf.machine.microstep/transition (:operation ev))}))
 
 (defn project-transitions
@@ -461,7 +461,7 @@
      :event        event-v
      :time         (:time ev)
      :id           (:id ev)
-     :dispatch-id  (get-in ev [:tags :dispatch-id])
+     :dispatch-id  (get-in ev [:tags :rf.trace/dispatch-id])
      :microstep?   (= :rf.machine.microstep/transition (:operation ev))
      ;; Guards/actions filled in by `attach-guards-and-actions` —
      ;; default empty so the record shape is stable.

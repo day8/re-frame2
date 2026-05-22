@@ -53,11 +53,11 @@
   ([id event-vec] (dispatch-trace-ev id event-vec :rf/default))
   ([id event-vec frame-id]
    {:id           id
-    :op-type      :event
-    :operation    :event/dispatched
-    :tags         {:event       event-vec
+    :op-type      :rf.event
+    :operation    :rf.event/dispatched
+    :tags         {:rf.event/v       event-vec
                    :frame       frame-id
-                   :dispatch-id id}}))
+                   :rf.trace/dispatch-id id}}))
 
 ;; ---- hiccup helpers (mirrors spine_filters_cljs_test) -------------------
 

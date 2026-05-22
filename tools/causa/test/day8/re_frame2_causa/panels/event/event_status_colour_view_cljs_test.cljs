@@ -77,15 +77,15 @@
   (frame/reg-frame :rf/causa {}))
 
 (defn- dispatch-trace-ev
-  "Minimal :event/dispatched fixture — same shape the shell tests
+  "Minimal :rf.event/dispatched fixture — same shape the shell tests
   use."
   [id event-vec]
   {:id        id
-   :op-type   :event
-   :operation :event/dispatched
-   :tags      {:event       event-vec
+   :op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      {:rf.event/v       event-vec
                :frame       :rf/default
-               :dispatch-id id}})
+               :rf.trace/dispatch-id id}})
 
 (defn- handler-exception-ev
   "An :rf.error/handler-exception trace pinned to `dispatch-id`. The
@@ -95,7 +95,7 @@
   {:id        id
    :op-type   :error
    :operation :rf.error/handler-exception
-   :tags      {:dispatch-id dispatch-id :event-id :foo}})
+   :tags      {:rf.trace/dispatch-id dispatch-id :rf.trace/event-id :foo}})
 
 (defn- warning-ev
   "An :rf.warning/depth-exceeded trace pinned to `dispatch-id`. The
@@ -105,7 +105,7 @@
   {:id        id
    :op-type   :warning
    :operation :rf.warning/depth-exceeded
-   :tags      {:dispatch-id dispatch-id}})
+   :tags      {:rf.trace/dispatch-id dispatch-id}})
 
 ;; ---- (1) L2 event-list row pickups -------------------------------------
 

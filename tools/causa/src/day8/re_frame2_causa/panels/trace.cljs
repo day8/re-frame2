@@ -22,7 +22,7 @@
   `:trace-events` — the per-frame settling epoch record's raw trace
   slice — which folds the COMPLETE domino trail for one event: both
   the synchronous event-side rows (dispatch-id N) AND the async
-  reactive rows (`:sub/run` / `:view/render`, nil dispatch-id) that
+  reactive rows (`:rf.sub/run` / `:rf.view/render`, nil dispatch-id) that
   fire post-cascade for that settling.
 
   The prior shape scoped the global trace bus by `:dispatch-id`,
@@ -406,7 +406,7 @@
   ;; EPOCH's `:trace-events` — the per-frame settling epoch record's
   ;; raw trace slice, which folds the COMPLETE domino trail for one
   ;; event (the synchronous event-side dispatch-id-N rows AND the
-  ;; async nil-dispatch-id reactive rows — `:sub/run` / `:view/render`
+  ;; async nil-dispatch-id reactive rows — `:rf.sub/run` / `:rf.view/render`
   ;; — that fire post-cascade for that settling). The prior shape
   ;; scoped the global trace bus by `:dispatch-id`, which dropped the
   ;; async reactive rows; reading the epoch record renders the whole

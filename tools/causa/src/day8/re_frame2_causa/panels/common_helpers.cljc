@@ -128,7 +128,7 @@
 
   Per rf2-rly4a the record carries `:dispatch-id` as a first-class slot
   (pinned in `re-frame.epoch.assembly/build-record` from the settling
-  event's `:event/run-start` tags) — read it directly. This is the stable
+  event's `:rf.event/run-start` tags) — read it directly. This is the stable
   link between the epoch ring (epoch-id space) and the raw trace stream's
   cascade list (dispatch-id space) that Causa's `:rf.causa/focus`
   correlation pivots on, and it survives both `:trace-events-keep`
@@ -137,7 +137,7 @@
 
   Falls back to a `:trace-events` walk for records produced before the
   slot existed (or restored fixtures that omit it) — the first cascade-
-  root `:dispatch-id` / `:parent-dispatch-id` tag. The fallback is nil-
+  root `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` tag. The fallback is nil-
   safe: a record with neither the slot nor a dispatch-id-bearing trace
   yields nil.
 
@@ -147,6 +147,6 @@
   [epoch-record]
   (or (:dispatch-id epoch-record)
       (some (fn [ev]
-              (or (get-in ev [:tags :dispatch-id])
-                  (get-in ev [:tags :parent-dispatch-id])))
+              (or (get-in ev [:tags :rf.trace/dispatch-id])
+                  (get-in ev [:tags :rf.trace/parent-dispatch-id])))
             (:trace-events epoch-record))))

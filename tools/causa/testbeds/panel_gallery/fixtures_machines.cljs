@@ -91,15 +91,15 @@
   [{:id 1 :time 1000 :op-type :rf.machine/transition
     :operation :rf.machine/transition
     :tags {:machine-id :loader :from :idle :to :loading
-           :event [:start] :dispatch-id 100}}
+           :event [:start] :rf.trace/dispatch-id 100}}
    {:id 2 :time 1010 :op-type :rf.machine/transition
     :operation :rf.machine/transition
     :tags {:machine-id :loader :from :loading :to :loaded
-           :event [:success {:result :data}] :dispatch-id 101}}
+           :event [:success {:result :data}] :rf.trace/dispatch-id 101}}
    {:id 3 :time 1020 :op-type :rf.machine/transition
     :operation :rf.machine/transition
     :tags {:machine-id :loader :from :loaded :to :idle
-           :event [:reset] :dispatch-id 102}}])
+           :event [:reset] :rf.trace/dispatch-id 102}}])
 
 (defn many-transitions-buffer
   "Many transitions including microsteps — populates the ribbon at
@@ -119,7 +119,7 @@
                       :rf.machine/transition)
          :tags {:machine-id :loader :from from :to to
                 :event [(if microstep? :tick :pulse)]
-                :dispatch-id (+ 100 i)}}))))
+                :rf.trace/dispatch-id (+ 100 i)}}))))
 
 ;; ---- multi-machine override seeds --------------------------------------
 

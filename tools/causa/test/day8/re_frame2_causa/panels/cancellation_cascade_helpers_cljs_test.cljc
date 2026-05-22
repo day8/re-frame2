@@ -28,11 +28,11 @@
   ([event {:keys [dispatch-id time id frame]
            :or {dispatch-id 1 time 1000 id 100 frame :rf/default}}]
    {:id        id
-    :operation :event/dispatched
-    :op-type   :event
+    :operation :rf.event/dispatched
+    :op-type   :rf.event
     :time      time
-    :tags      {:event       event
-                :dispatch-id dispatch-id
+    :tags      {:rf.event/v       event
+                :rf.trace/dispatch-id dispatch-id
                 :frame       frame}}))
 
 (defn- destroy-ev
@@ -48,7 +48,7 @@
    :time      time
    :tags      (cond-> {:machine-id  machine-id
                        :reason      reason
-                       :dispatch-id dispatch-id}
+                       :rf.trace/dispatch-id dispatch-id}
                 spawned-id (assoc :spawned-id spawned-id)
                 parent-id  (assoc :parent-id parent-id))})
 
@@ -69,7 +69,7 @@
    :tags       (cond-> {:request-id  request-id
                         :url         url
                         :actor-id    actor-id}
-                 dispatch-id (assoc :dispatch-id dispatch-id))})
+                 dispatch-id (assoc :rf.trace/dispatch-id dispatch-id))})
 
 (defn- ws-abort-ev
   [{:keys [event actor-id dispatch-id time id]
@@ -82,9 +82,9 @@
    :operation  :rf.ws/aborted-on-actor-destroy
    :op-type    :rf.ws
    :time       time
-   :tags       {:event       event
+   :tags       {:rf.event/v       event
                 :actor-id    actor-id
-                :dispatch-id dispatch-id}})
+                :rf.trace/dispatch-id dispatch-id}})
 
 (defn- timer-cancel-ev
   [{:keys [timer-id dispatch-id time id]
@@ -97,7 +97,7 @@
    :op-type    :rf.machine.timer
    :time       time
    :tags       {:timer-id    timer-id
-                :dispatch-id dispatch-id}})
+                :rf.trace/dispatch-id dispatch-id}})
 
 (defn- invoke-cancel-ev
   [{:keys [child-id dispatch-id time id]
@@ -110,7 +110,7 @@
    :op-type    :rf.machine.spawn
    :time       time
    :tags       {:child-id    child-id
-                :dispatch-id dispatch-id}})
+                :rf.trace/dispatch-id dispatch-id}})
 
 ;; ---- (1) predicates -----------------------------------------------------
 

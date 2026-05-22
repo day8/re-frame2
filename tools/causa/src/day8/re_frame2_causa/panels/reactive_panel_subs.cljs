@@ -6,7 +6,7 @@
   substrate on each `:rf/epoch-record` (per spec/018), plus the
   view-side capture ops (`:rf.view/rendered` / `:rf.view/unmounted`)
   off the raw `:trace-events`. It does NOT re-derive sub rows from raw
-  `:trace-events` by op-keyword: the canonical ops are `:sub/run` /
+  `:trace-events` by op-keyword: the canonical ops are `:rf.sub/run` /
   `:rf.sub/skip` / `:rf.view/rendered` (Spec 009 §:op-type vocabulary),
   and the earlier op-keyword path grepped for names the substrate never
   emits (`:rf.sub/computed` / `:rf.sub/skipped`), pinning subs-ran /
@@ -39,10 +39,10 @@
   The view ACTION + REASON ride phase-A's (rf2-9hoos) additions to the
   view-render trace ops, read off the epoch record's `:trace-events`:
 
-    - `:rf.view/rendered` carries `:mount?` (true → mount, false →
-      rerender) and `:deref-subs` (the `[query-id args]` query-vectors
-      THIS view derefs — its per-view read-set; absent for a structural
-      render that derefs no subs).
+    - `:rf.view/rendered` carries `:rf.view/mount?` (true → mount,
+      false → rerender) and `:rf.view/deref-subs` (the `[query-id args]`
+      query-vectors THIS view derefs — its per-view read-set; absent for
+      a structural render that derefs no subs).
     - `:rf.view/unmounted` is a teardown op → action unmount.
 
   The REASON is computed by intersecting a render's `:deref-subs`
@@ -171,9 +171,9 @@
   Reads `:rf.view/rendered` and `:rf.view/unmounted` ops off the raw
   `:trace-events` (the phase-A rf2-9hoos additions). The structured
   `:renders` projection is intentionally NOT used here — it projects
-  from `:view/render` (the render-START marker) and carries neither
-  `:mount?` nor `:deref-subs`. The action/reason data rides the
-  post-render `:rf.view/rendered` op + the `:rf.view/unmounted` op.
+  from `:rf.view/render` (the render-START marker) and carries neither
+  `:rf.view/mount?` nor `:rf.view/deref-subs`. The action/reason data
+  rides the post-render `:rf.view/rendered` op + the `:rf.view/unmounted` op.
 
   Each row:
 
@@ -192,21 +192,21 @@
         (keep (fn [ev]
                 (let [op   (op-kw ev)
                       tags (:tags ev)
-                      view-id (or (:view-id tags) (:view-id ev))]
+                      view-id (or (:rf.view/id tags) (:rf.view/id ev))]
                   (cond
                     (nil? view-id) nil
 
                     (= :rf.view/rendered op)
-                    (let [mount?     (true? (:mount? tags))
-                          deref-subs (:deref-subs tags)]
+                    (let [mount?     (true? (:rf.view/mount? tags))
+                          deref-subs (:rf.view/deref-subs tags)]
                       {:view-id    view-id
-                       :render-key (:render-key tags)
+                       :render-key (:rf.view/render-key tags)
                        :action     (if mount? :mount :rerender)
                        :reason     (compute-view-reason deref-subs changed-set)})
 
                     (= :rf.view/unmounted op)
                     {:view-id    view-id
-                     :render-key (:render-key tags)
+                     :render-key (:rf.view/render-key tags)
                      :action     :unmount
                      :reason     {:kind :none}}
 

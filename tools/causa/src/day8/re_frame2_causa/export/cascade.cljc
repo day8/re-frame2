@@ -26,13 +26,13 @@
        :dispatch-id                <opaque-id|nil>
        :frame                      <frame-id|nil>
        :event                      <event-vec|nil>
-       :dispatched                 <trace-event|nil>   ;; full :event/dispatched
-       :handler                    <trace-event|nil>   ;; :event/run-end (last wins)
-       :fx                         <trace-event|nil>   ;; :event/do-fx
+       :dispatched                 <trace-event|nil>   ;; full :rf.event/dispatched
+       :handler                    <trace-event|nil>   ;; :rf.event/run-end (last wins)
+       :fx                         <trace-event|nil>   ;; :rf.fx/do-fx
        :coeffects                  <coeffect-map|nil>  ;; hoisted from handler
-       :effects                    [<trace-event> ...] ;; :op-type :fx
-       :subs                       [<trace-event> ...] ;; :sub/run + :sub/create
-       :renders                    [<trace-event> ...] ;; :view/render
+       :effects                    [<trace-event> ...] ;; :op-type :rf.fx
+       :subs                       [<trace-event> ...] ;; :rf.sub/run + :rf.sub/create
+       :renders                    [<trace-event> ...] ;; :rf.view/render
        :other                      [<trace-event> ...] ;; errors, flows, …
        :timing                     {:started-ms <n|nil>
                                     :ended-ms   <n|nil>
@@ -52,7 +52,7 @@
 
   ## What is NOT exported
 
-  - **Reagent/React render trees.** `:view/render` trace events
+  - **Reagent/React render trees.** `:rf.view/render` trace events
     capture the render call (component name, frame, dispatch-id);
     the rendered VDOM is intentionally absent. Lock 4's serialisation
     argument holds at the React-tree level — VDOM is non-portable
@@ -152,13 +152,13 @@
 
 (defn- extract-coeffects
   "The framework's handler trace event carries the resolved coeffect
-  map on the `:event/run-end` envelope under `:coeffects` (Spec 009
-  §Handler envelopes). Pull it out as a top-level slot so the export
-  reader doesn't have to know the trace event's internal layout."
+  map on the `:rf.event/run-end` envelope under `:rf.event/coeffects`
+  (Spec 009 §Handler envelopes). Pull it out as a top-level slot so the
+  export reader doesn't have to know the trace event's internal layout."
   [handler-event]
   (when (map? handler-event)
-    (or (:coeffects handler-event)
-        (get-in handler-event [:tags :coeffects]))))
+    (or (:rf.event/coeffects handler-event)
+        (get-in handler-event [:tags :rf.event/coeffects]))))
 
 (defn- diff-triples
   "Diff the epoch's `:db-before` / `:db-after`. Lifted from

@@ -147,7 +147,7 @@
 (deftest op-type-colour-returns-css-variable-string
   (testing "rf2-on4cm — `trace-helpers/op-type-colour` returns the
             per-row Trace dot colour as a CSS variable."
-    (doseq [op-type [:error :warning :info :event :fx :view/render]]
+    (doseq [op-type [:error :warning :info :rf.event :rf.fx :rf.view/render]]
       (let [v (trace-h/op-type-colour op-type)]
         (is (string? v))
         (is (re-find #"^var\(--rf-causa-" v)

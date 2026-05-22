@@ -134,13 +134,13 @@
 (def tag common/tag-of)
 
 (defn- fx-id-of [ev]
-  (tag ev :fx-id))
+  (tag ev :rf.fx/id))
 
 (defn- fx-args-of [ev]
-  (tag ev :fx-args))
+  (tag ev :rf.fx/args))
 
 (defn- dispatch-id-of [ev]
-  (tag ev :dispatch-id))
+  (tag ev :rf.trace/dispatch-id))
 
 (defn- frame-id-of [ev]
   (tag ev :frame))

@@ -40,7 +40,7 @@
   (is (true?  (h/transition-event? {:operation :rf.machine/transition})))
   (is (true?  (h/transition-event?
                 {:operation :rf.machine.microstep/transition})))
-  (is (false? (h/transition-event? {:operation :event/dispatched})))
+  (is (false? (h/transition-event? {:operation :rf.event/dispatched})))
   (is (false? (h/transition-event? nil)))
   (is (false? (h/transition-event? {}))))
 
@@ -220,11 +220,11 @@
     (is (true?  (:microstep? micro)))))
 
 (deftest project-transitions-drops-non-transition-events
-  (let [buffer [{:id 1 :operation :event/dispatched
+  (let [buffer [{:id 1 :operation :rf.event/dispatched
                  :tags {:machine-id :auth/login}}
                 {:id 2 :operation :rf.machine/transition
                  :tags {:machine-id :auth/login :from :idle :to :a}}
-                {:id 3 :operation :sub/run
+                {:id 3 :operation :rf.sub/run
                  :tags {:machine-id :auth/login}}]
         rows   (h/project-transitions buffer :auth/login)]
     (is (= [2] (map :id rows)))))
@@ -235,7 +235,7 @@
                  :tags {:machine-id :auth/login
                         :from :idle :to :authing
                         :event [:auth/submit "ada"]
-                        :dispatch-id "d-42"}}]
+                        :rf.trace/dispatch-id "d-42"}}]
         rows   (h/project-transitions buffer :auth/login)
         row    (first rows)]
     (is (= [:auth/submit "ada"] (:event row)))
@@ -278,7 +278,7 @@
         buffer    [{:id 1 :operation :rf.machine/transition
                     :tags {:machine-id :auth/login
                            :from :idle :to :authing
-                           :event [:auth/submit] :dispatch-id "d-1"}}]
+                           :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]
         d         (h/project-data machines snapshots buffer nil :rf/default)]
     (is (= 2 (:total d)))
     (is (= :auth/login (:selected-id d))
@@ -349,7 +349,7 @@
                 :before      {:state from :data {}}
                 :after       {:state to   :data {}}
                 :event       ev
-                :dispatch-id (str "d-" id)}}))
+                :rf.trace/dispatch-id (str "d-" id)}}))
 
 (deftest project-focused-event-empty-for-no-events
   (is (= [] (h/project-focused-event-transitions nil)))
@@ -358,10 +358,10 @@
 (deftest project-focused-event-empty-for-no-machine-traces
   (testing "a cascade with no machine traces yields the silent-by-default
             empty vector"
-    (let [events [{:id 1 :operation :event/dispatched
-                   :tags {:event [:foo]}}
-                  {:id 2 :operation :sub/run
-                   :tags {:sub-id ::bar}}]]
+    (let [events [{:id 1 :operation :rf.event/dispatched
+                   :tags {:rf.event/v [:foo]}}
+                  {:id 2 :operation :rf.sub/run
+                   :tags {:rf.sub/id ::bar}}]]
       (is (= [] (h/project-focused-event-transitions events))))))
 
 (deftest project-focused-event-projects-one-record-per-transition

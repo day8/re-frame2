@@ -61,7 +61,7 @@
   visualiser.
 
   The decision row (\"parent decision\") is the most-recent
-  `:event/dispatched` trace event within the cascade that the anchor
+  `:rf.event/dispatched` trace event within the cascade that the anchor
   belongs to — typically `[:auth/logout]`, `[:checkout/cancel]`, etc.
 
   Best-effort heuristic when the trace events lack the runtime tags
@@ -146,10 +146,10 @@
        (contains? abort-operations (:operation ev))))
 
 (defn dispatched-event?
-  "True iff `ev` is an `:event/dispatched` trace event."
+  "True iff `ev` is an `:rf.event/dispatched` trace event."
   [ev]
   (and (map? ev)
-       (= :event/dispatched (:operation ev))))
+       (= :rf.event/dispatched (:operation ev))))
 
 (defn- destroy-reason
   "Lift the cancellation `:reason` off the destroy trace event. Per
@@ -239,15 +239,15 @@
      :dispatch-id    (:dispatch-id tags)}))
 
 (defn- decision-row
-  "Build the parent-decision row from a `:event/dispatched` trace
+  "Build the parent-decision row from a `:rf.event/dispatched` trace
   event. nil when the input isn't a dispatched event."
   [ev]
   (when (dispatched-event? ev)
     (let [tags (:tags ev)]
-      {:event-vec   (:event tags)
+      {:event-vec   (:rf.event/v tags)
        :t           (:time ev)
        :machine-id  (or (:machine-id tags) (:handler-id tags))
-       :dispatch-id (:dispatch-id tags)
+       :dispatch-id (:rf.trace/dispatch-id tags)
        :trace-id    (:id ev)})))
 
 ;; ---- cascade extraction -------------------------------------------------
@@ -279,7 +279,7 @@
       :dispatch-id
       (->> evs
            (filter #(and (cancellation-anchor? %)
-                         (= focus-id (get-in % [:tags :dispatch-id]))))
+                         (= focus-id (get-in % [:tags :rf.trace/dispatch-id]))))
            (sort-by :time)
            last)
 
@@ -303,14 +303,14 @@
   [trace-buffer anchor]
   (let [evs           (or trace-buffer [])
         anchor-t      (:time anchor)
-        anchor-disp   (get-in anchor [:tags :dispatch-id])
+        anchor-disp   (get-in anchor [:tags :rf.trace/dispatch-id])
         anchor-actor  (or (get-in anchor [:tags :machine-id])
                           (get-in anchor [:tags :spawned-id]))
         window        default-actor-destroy-window-ms
         by-dispatch   (when anchor-disp
                         (filter #(and (abort-event? %)
                                       (= anchor-disp
-                                         (get-in % [:tags :dispatch-id])))
+                                         (get-in % [:tags :rf.trace/dispatch-id])))
                                 evs))
         ;; Wall-clock fallback — include if the trace lacks the
         ;; dispatch-id link but lands inside the window AND either
@@ -321,7 +321,7 @@
                                (number? (:time ev))
                                (number? anchor-t)
                                (<= 0 (- (:time ev) anchor-t) window)
-                               (let [ev-disp (get-in ev [:tags :dispatch-id])
+                               (let [ev-disp (get-in ev [:tags :rf.trace/dispatch-id])
                                      ev-actor (or (get-in ev [:tags :actor-id])
                                                   (get-in ev [:tags :machine-id]))]
                                  (and (or (nil? ev-disp)
@@ -358,12 +358,12 @@
   [trace-buffer anchor aborts]
   (let [evs           (or trace-buffer [])
         anchor-t      (:time anchor)
-        anchor-disp   (get-in anchor [:tags :dispatch-id])
+        anchor-disp   (get-in anchor [:tags :rf.trace/dispatch-id])
         window        default-actor-destroy-window-ms
         by-dispatch   (when anchor-disp
                         (filter #(and (cancellation-anchor? %)
                                       (= anchor-disp
-                                         (get-in % [:tags :dispatch-id])))
+                                         (get-in % [:tags :rf.trace/dispatch-id])))
                                 evs))
         by-window     (filter
                         (fn [ev]
@@ -373,7 +373,7 @@
                                (<= 0
                                    (Math/abs (- (:time ev) anchor-t))
                                    window)
-                               (let [ev-disp (get-in ev [:tags :dispatch-id])]
+                               (let [ev-disp (get-in ev [:tags :rf.trace/dispatch-id])]
                                  (or (nil? ev-disp)
                                      (nil? anchor-disp)
                                      (not= ev-disp anchor-disp)))))
@@ -408,19 +408,19 @@
                    (assoc row :inflight-count (or found 0))))))))
 
 (defn- find-decision
-  "Locate the parent decision — the most-recent `:event/dispatched`
+  "Locate the parent decision — the most-recent `:rf.event/dispatched`
   trace event within the cascade defined by the anchor's
-  `:dispatch-id`. Falls back to the most-recent dispatched event
-  before the anchor's `:time` when the anchor has no `:dispatch-id`."
+  `:rf.trace/dispatch-id`. Falls back to the most-recent dispatched event
+  before the anchor's `:time` when the anchor has no `:rf.trace/dispatch-id`."
   [trace-buffer anchor]
   (let [evs         (or trace-buffer [])
         anchor-t    (:time anchor)
-        anchor-disp (get-in anchor [:tags :dispatch-id])
+        anchor-disp (get-in anchor [:tags :rf.trace/dispatch-id])
         by-dispatch (when anchor-disp
                       (->> evs
                            (filter #(and (dispatched-event? %)
                                          (= anchor-disp
-                                            (get-in % [:tags :dispatch-id]))))
+                                            (get-in % [:tags :rf.trace/dispatch-id]))))
                            (sort-by :time)
                            first))]
     (or by-dispatch
