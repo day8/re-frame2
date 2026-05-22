@@ -287,7 +287,7 @@
    ;; trigger-less buffer is `on-frame-destroyed!`'s `:halted-destroy`
    ;; commit; the conditional `cond->` slots make that record valid
    ;; against the schema.
-   (let [{:keys [event-id event]}     (capture/find-trigger-event events)
+   (let [{:keys [event-id event dispatch-id]} (capture/find-trigger-event events)
          ;; Per rf2-ecu37: one fused walk producing all three
          ;; projections, replacing three independent transducer
          ;; passes over the same buffer. Mirrors `find-trigger-event`'s
@@ -327,4 +327,17 @@
               :effects            effects}
        event-id    (assoc :event-id event-id)
        event       (assoc :trigger-event event)
+       ;; Per rf2-rly4a — pin the settling cascade's `:dispatch-id` as a
+       ;; first-class record slot. It is the stable cross-counter-space
+       ;; link between the epoch ring (epoch-id space) and the raw trace
+       ;; stream's cascade list (dispatch-id space) that Causa's
+       ;; `:rf.causa/focus` correlation pivots on. Pinned here — not
+       ;; re-derived from `:trace-events` at read time — so the link
+       ;; survives `:trace-events-keep` elision on older records and the
+       ;; post-settle reactive back-fill (which pads `:trace-events` with
+       ;; nil-`:dispatch-id` sub-run / render events). Optional per
+       ;; Spec-Schemas §`:rf/epoch-record`: a cascade whose trace carried
+       ;; no `:dispatch-id` (a rejected dispatch, a halt before run-start)
+       ;; omits the slot, matching `:event-id` / `:trigger-event`.
+       dispatch-id (assoc :dispatch-id dispatch-id)
        halt-reason (assoc :halt-reason halt-reason)))))

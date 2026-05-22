@@ -8,8 +8,9 @@
     project-all        -- one fused reducer pass producing the
                           `:sub-runs`, `:renders`, `:effects` slots.
     find-trigger-event -- one walk extracting `:event-id` + `:event`
-                          from the cascade's first `:event/run-start`,
-                          with a `:event-id`-only fallback.
+                          + `:dispatch-id` from the cascade's first
+                          `:event/run-start`, with a `:event-id`-only
+                          fallback.
 
   Per rf2-0wi86 Phase-2 seam B: this namespace owns the cascade-buffer
   *behaviour*; the buffer atom itself and the low-level
@@ -444,7 +445,8 @@
 
 (defn find-trigger-event
   "Walk the buffered events to find the first :event/run-start trace.
-  That carries the `:event` and `:event-id` for the cascade.
+  That carries the `:event`, `:event-id` AND `:dispatch-id` for the
+  cascade.
 
   When the cascade had no successful event handler (e.g. an unknown
   event id or a frame-destroyed dispatch), no :run-start fires; fall
@@ -454,6 +456,17 @@
   that originally carried payload as payload-less. `build-record`'s
   conditional `cond->` (rf2-kl5p1) omits the `:trigger-event` slot
   when `:event` is nil, which the schema's open map admits.
+
+  Per rf2-rly4a: the run-start's `:dispatch-id` is surfaced here so
+  `build-record` can pin it as a first-class `:dispatch-id` slot on the
+  epoch record. The settling cascade's id is the record's stable
+  cross-counter-space link to the raw trace stream's cascade list — and
+  must NOT depend on `:trace-events` (which `:trace-events-keep` elides
+  on older records and the post-settle reactive back-fill pads with
+  nil-`:dispatch-id` events). Causa's `:rf.causa/focus` epoch-id
+  correlation walks this slot; pre-rf2-rly4a it walked `:trace-events`
+  tags, which returned nil whenever the focused cascade's epoch had its
+  raw stream elided — starving the epoch-scoped Views + Trace panels.
 
   Per rf2-txrq9: single-walk reduction over `events` — the original
   two-pass `or`-of-`some` reordered both walks across the buffer
@@ -471,18 +484,23 @@
                        (= :event (:operation ev))
                        (= :run-start (:phase tags)))
                 ;; run-start beats the fallback; short-circuit.
-                (reduced {:run-start {:event-id (:event-id tags)
-                                      :event    (:event tags)}})
+                (reduced {:run-start {:event-id    (:event-id tags)
+                                      :event       (:event tags)
+                                      :dispatch-id (:dispatch-id tags)}})
                 ;; Capture the first :event-id we see as the fallback.
                 ;; Per rf2-7kxxx: do NOT fabricate `:event` — when the
                 ;; tag is absent we leave the field nil, and downstream
                 ;; `build-record` (rf2-kl5p1) omits the
                 ;; `:trigger-event` slot entirely rather than emit a
-                ;; misleading synthesised vector.
+                ;; misleading synthesised vector. The fallback also
+                ;; carries its `:dispatch-id` (rf2-rly4a) so a no-run-
+                ;; start cascade still pins the slot when its trace
+                ;; carried an id.
                 (if (or (:fallback acc) (nil? (:event-id tags)))
                   acc
-                  (assoc acc :fallback {:event-id (:event-id tags)
-                                        :event    (:event tags)})))))
+                  (assoc acc :fallback {:event-id    (:event-id tags)
+                                        :event       (:event tags)
+                                        :dispatch-id (:dispatch-id tags)})))))
           {}
           events)]
     (or (:run-start result) (:fallback result))))

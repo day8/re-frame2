@@ -2342,6 +2342,7 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
    [:committed-at  :any]                                                    ;; timestamp
    [:event-id      :keyword]                                                ;; the event that triggered the cascade
    [:trigger-event [:vector :any]]                                          ;; the full event vector
+   [:dispatch-id   {:optional true} :any]                                   ;; (rf2-rly4a) the settling cascade's opaque router dispatch-id, pinned from the `:event/run-start` tag — the stable cross-counter-space link from this epoch (epoch-id space) to the raw trace stream's cascade list (dispatch-id space); survives `:trace-events` elision + reactive back-fill; absent when the cascade carried no dispatch-id (rejected dispatch / pre-run-start halt / synthetic reset epoch)
    [:db-before     :any]                                                    ;; app-db before the cascade
    [:db-after      :any]                                                    ;; app-db the runtime settled to (see :outcome)
    [:outcome       [:enum :ok                                               ;; (rf2-v0jwt) the event's own cascade settled cleanly
