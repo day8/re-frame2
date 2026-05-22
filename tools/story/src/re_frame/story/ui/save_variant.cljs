@@ -83,7 +83,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Button styling — the controls-panel-local affordance. The modal
 ;; itself reuses `re-frame.story.review-dialog`'s shared styles so the
-;; two save-as flows (record-as-:play + snapshot-as-:args) share
+;; two save-as flows (record-as-:play-script + snapshot-as-:args) share
 ;; visual language.
 ;; ---------------------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 (ns re-frame.story-source-coords-test
   "Regression test for rf2-ulxi — `:rf.assert/*` events surfaced from
-  `:play` sequences were emitting source-coords with `:file
+  `:play-script` sequences were emitting source-coords with `:file
   \"NO_SOURCE_PATH\"`. Root cause: `coords-form` read `*file*` at
   macro-expansion time, but the CLJS analyzer never binds Clojure's
   `*file*` during macro expansion (it binds `cljs.analyzer/*cljs-file*`
@@ -97,7 +97,7 @@
   (testing "rf2-ulxi end-to-end: the gen-reg-call expansion (which
             reg-variant feeds) carries the form-meta :file through to
             the *pending-coords* binding form — covers the actual macro
-            path Story uses for variants whose :play sequences emit
+            path Story uses for variants whose :play-script sequences emit
             :rf.assert/* events"
     (let [form-meta {:line 42 :column 3 :file "stories.cljs"}
           expansion (macros/gen-reg-call

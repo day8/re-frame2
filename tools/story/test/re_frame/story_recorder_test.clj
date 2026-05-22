@@ -18,7 +18,7 @@
     atom alongside the predicate filter.
   - `gen-play-snippet` — the codegen output is `read-string`-able
     EDN; the assertion is shape-level (round-trips back to the same
-    `:play` vector) so future cosmetic changes to formatting don't
+    `:play-script` body) so future cosmetic changes to formatting don't
     churn the test."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
@@ -175,11 +175,11 @@
 ;; ---- gen-play-snippet ----------------------------------------------------
 
 (deftest gen-play-snippet-empty
-  (testing "gen-play-snippet with no events renders an empty :play vector"
+  (testing "gen-play-snippet with no events renders an empty :play-script :script vector"
     (let [snip (recorder/gen-play-snippet [] {:variant-id :story.x/y})]
       (is (string? snip))
       (is (str/includes? snip ":story.x/y"))
-      (is (str/includes? snip ":play"))
+      (is (str/includes? snip ":play-script"))
       (is (str/includes? snip "[]")))))
 
 (deftest gen-play-snippet-renders-reg-variant
@@ -562,7 +562,7 @@
     (recorder/remove-trace-listener!)))
 
 (deftest trace-listener-skips-assertion-events
-  (testing "with a recording active, :rf.assert/* dispatches don't leak into the captured :play body"
+  (testing "with a recording active, :rf.assert/* dispatches don't leak into the captured :play-script body"
     (reset-rf-state!)
     (rf/reg-event-db :counter/inc
       (fn [db _] (update db :n (fnil inc 0))))
@@ -619,7 +619,7 @@
     (recorder/remove-trace-listener!)))
 
 (deftest end-to-end-recording-to-snippet
-  (testing "the full record→stop→gen-play-snippet cycle produces a valid :play body"
+  (testing "the full record→stop→gen-play-snippet cycle produces a valid :play-script body"
     (reset-rf-state!)
     (rf/reg-event-db :counter/inc
       (fn [db _] (update db :n (fnil inc 0))))

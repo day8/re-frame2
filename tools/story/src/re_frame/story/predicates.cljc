@@ -54,15 +54,15 @@
   Used by `recorder/gen-play-snippet`, `save-variant/gen-variant-
   snippet`, and `review-dialog`'s snippet renderer to join multi-line
   EDN bodies. The argument is the literal first-line text preceding
-  the items (e.g. `\"   :play [\"` or `\"   :args {\"`) — passing the
+  the items (e.g. `\"   :script [\"` or `\"   :args {\"`) — passing the
   rendered prefix verbatim keeps the geometry obvious and
   breakage-resistant.
 
   Example:
 
-      (str \"   :play [item1\" (indent-after \"   :play [\") \"item2]\")
-      ;; => \"   :play [item1\\n          item2]\"
-      ;;                  ^---------- item2 aligns under item1
+      (str \"   :script [item1\" (indent-after \"   :script [\") \"item2]\")
+      ;; => \"   :script [item1\\n             item2]\"
+      ;;                    ^---------- item2 aligns under item1
 
   Lives in the predicates leaf (rf2-ar0t9) so producers
   (recorder / save-variant) don't have to `:require` the consumer

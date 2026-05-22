@@ -194,9 +194,9 @@
 (deftest indent-after-matches-prefix-width
   (testing "indent-after returns \\n + N spaces equal to the prefix length"
     (is (= "\n" (pred/indent-after "")))
-    (is (= "\n          " (pred/indent-after "   :play [")))
+    (is (= "\n          " (pred/indent-after "   :name {")))
     (is (= "\n          " (pred/indent-after "   :args {")))
-    (is (= (pred/indent-after "   :play [")
+    (is (= (pred/indent-after "   :name {")
            (pred/indent-after "   :args {"))
         "both flows' prefixes collapse to the same indent")))
 

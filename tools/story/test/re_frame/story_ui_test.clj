@@ -764,12 +764,12 @@
     (is (nil? (test-mode/parent-story-id nil)))))
 
 (deftest test-mode-variant-has-tests?-checks-play-slot
-  (testing "variant-has-tests? is false when :play is absent or empty"
+  (testing "variant-has-tests? is false when :play-script is absent or empty"
     (story/reg-variant :story.tm/empty {:events []})
     (story/reg-variant :story.tm/empty-play {:events [] :play-script []})
     (is (not (test-mode/variant-has-tests? :story.tm/empty)))
     (is (not (test-mode/variant-has-tests? :story.tm/empty-play))))
-  (testing "variant-has-tests? is true when :play carries any event"
+  (testing "variant-has-tests? is true when :play-script carries any step"
     (story/reg-variant :story.tm/has
       {:events [] :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
     (is (test-mode/variant-has-tests? :story.tm/has)))
@@ -940,7 +940,7 @@
           assertions [{:assertion :rf.assert/path-equals :passed? true}
                       {:assertion :rf.assert/path-equals :passed? false}]
           out        (test-mode/play-step-statuses play assertions)]
-      (is (= 4 (count out)) "one row per :play event")
+      (is (= 4 (count out)) "one row per play event")
       (is (= [:event :event :pass :fail] (mapv :status out)))
       (is (= [0 1 2 3] (mapv :index out)))
       (is (= ":auth/email-changed" (-> out (nth 0) :label)))

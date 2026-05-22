@@ -2,9 +2,10 @@
   "Recorder → :play-script export dialog UI (rf2-x9zsr).
 
   The recorder's existing save-as-variant dialog
-  (`re-frame.story.ui.recorder/save-dialog`) emits the legacy `:play`
-  body — a bare vector of event vectors that re-fires on mount. The
-  rich `:play-script` DSL landed in rf2-8i2a9; this dialog is its
+  (`re-frame.story.ui.recorder/save-dialog`) emits the simple
+  `:play-script` body — each captured event vector wrapped as a
+  `[:dispatch-sync <event-vec>]` step (rf2-0wrud). The rich
+  `:play-script` DSL landed in rf2-8i2a9; this dialog is its
   twin — same recording, different output shape:
 
       (story/reg-variant :story.your/recorded

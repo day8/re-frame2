@@ -71,7 +71,7 @@
 
 (defn- register-variants!
   "Two stories with one non-testable variant each, plus one workspace.
-  No `:test` tag / `:play` slot → both variants take the non-testable
+  No `:test` tag / `:play-script` slot → both variants take the non-testable
   branch in `variant-row` (the branch that emits `[glyphs/variant-glyph
   10]`)."
   []
@@ -183,7 +183,7 @@
             `[glyphs/variant-glyph]` sentinel as the iconographic
             prefix in the variant-glyph branch of `variant-row`. Both
             registered variants are non-testable (no `:test` tag, no
-            `:play`), so both rows take this branch."
+            `:play-script`), so both rows take this branch."
     (e2e/with-story-and-causa-frames
       {:register-stories register-variants!}
       (fn []

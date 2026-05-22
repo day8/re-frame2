@@ -1190,7 +1190,7 @@
 
 (deftest test-view-empty-state-without-play
   (testing "test-view renders the empty-state placeholder when the
-            variant body has no :play slot — the variant is registered
+            variant body has no :play-script slot — the variant is registered
             but declares zero assertions, so no run is fired."
     (story/reg-variant :story.tv/no-play {:events []})
     (let [result (test-mode-view/test-view :story.tv/no-play)]

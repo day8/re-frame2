@@ -159,7 +159,7 @@
 ;; ===========================================================================
 
 (deftest dispatched-pass
-  (testing ":rf.assert/dispatched? passes when an earlier event in :play fired"
+  (testing ":rf.assert/dispatched? passes when an earlier event in :play-script fired"
     (rf/reg-event-db :test/click
       (fn [db _] (assoc db :clicked? true)))
     (story/reg-variant :story.dispatched/v
@@ -267,7 +267,7 @@
     (story/reg-variant :story.empty/v {:events [] :play-script []})
     (let [r (async/deref-blocking (story/run-variant :story.empty/v) 5000)]
       (is (true? (story/assertions-passing? r))
-          "a variant with no :play still 'passes' for cljs.test integration")
+          "a variant with no :play-script still 'passes' for cljs.test integration")
       (is (empty? (:assertions r))))
     (story/destroy-variant! :story.empty/v)))
 
