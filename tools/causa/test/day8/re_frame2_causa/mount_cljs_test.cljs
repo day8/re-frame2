@@ -540,6 +540,62 @@
                  toggle-after-mount transitions")))))))
 
 ;; -------------------------------------------------------------------------
+;; (5b) close-shell event — the `✕` button round-trip (rf2-fq491)
+;; -------------------------------------------------------------------------
+;;
+;; The shell `✕` button dispatches `:rf.causa/close-shell` rather than
+;; calling `mount/close!` directly. Before rf2-fq491 the event only set
+;; the reactive `:close-requested?` flag and nothing consumed it, so the
+;; button was a no-op. The event is now a `reg-event-fx` that sets the
+;; flag AND fires `:rf.causa.fx/hide-shell` (registered by
+;; `mount/install-fx!`, called from the registry orchestrator) which
+;; performs the actual DOM hide via `close!`. These tests prove the
+;; flag + the visible hide land together.
+
+(deftest close-shell-event-hides-the-shell
+  (testing "rf2-fq491 — dispatching :rf.causa/close-shell on a visible
+            shell flips it hidden: visible? false, container display=none,
+            and the reactive :close-requested? flag set — all in one
+            round-trip, the same hide path the keybinding drives"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (is (true? (mount/visible?)) "precondition: shell visible")
+            (rf/with-frame :rf/causa
+              (rf/dispatch-sync [:rf.causa/close-shell]))
+            (is (false? (mount/visible?))
+                "close-shell event drove the DOM hide — not just a flag")
+            (is (= "none"
+                   (.-display (.-style (:node @@#'mount/mount-state))))
+                "container.style.display = none after the event")
+            (is (true? (mount/mounted?))
+                "mount-state retained — close-shell hides, never tears down")
+            (is (= 0 @unmount-calls)
+                "close-shell must NOT invoke the substrate unmount fn")
+            (is (true? (:close-requested? (frame/frame-app-db-value :rf/causa)))
+                "reactive :close-requested? flag set in lock-step")))))))
+
+(deftest close-shell-then-open!-reopens-the-shell
+  (testing "rf2-fq491 — a shell hidden via the close-shell event re-opens
+            on the existing open mechanism (CSS-only show, no re-render),
+            so the `✕` close is reversible"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (rf/with-frame :rf/causa
+              (rf/dispatch-sync [:rf.causa/close-shell]))
+            (is (false? (mount/visible?)))
+            (mount/open!)
+            (is (true? (mount/visible?))
+                "open! re-shows the shell hidden by close-shell")
+            (is (= 1 (count @calls))
+                "re-show is CSS-only — no second substrate render")))))))
+
+;; -------------------------------------------------------------------------
 ;; (6) Teardown — full destroy
 ;; -------------------------------------------------------------------------
 
