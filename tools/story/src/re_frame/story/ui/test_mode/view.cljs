@@ -3,7 +3,7 @@
   Per rf2-qmjo + spec/009.
 
   Replaces the `mode-tabs/tests-placeholder` stub that landed with the
-  mode-tabs primitive (rf2-9hc8). The pane runs the variant's `:play`
+  mode-tabs primitive (rf2-9hc8). The pane runs the variant's `:play-script`
   sequence via `run-variant`, reads the `:assertions` vector off the
   result, and renders an aggregated pass/fail summary inside the
   canvas:
@@ -21,7 +21,7 @@
       │           the source-coord stamping                   │
       └──────────────────────────────────────────────────────┘
 
-  When the variant body's `:play` slot is empty / absent the pane
+  When the variant body's `:play-script` slot is empty / absent the pane
   short-circuits and renders an empty-state placeholder pointing at
   the canonical testing-recipes leaf (Story doesn't auto-allocate a
   frame in this branch).
@@ -90,7 +90,7 @@
                                (when running? (:rerun-running styles)))
         :data-test      "story-test-rerun"
         :disabled       running?
-        :aria-label     "Re-run the variant's :play sequence"
+        :aria-label     "Re-run the variant's :play-script sequence"
         :on-click       (fn [_] (when-not running? (state/run-variant-pane! variant-id)))}
        (if running? "Running…" "Re-run")]
       [:div {:style (:last-run styles)}
@@ -158,13 +158,13 @@
     "·"))
 
 (defn- scrubber-section
-  "Step-through scrubber (rf2-lc36w). One tick per `:play` event with
+  "Step-through scrubber (rf2-lc36w). One tick per play event with
   pass/fail/event/skip status colouring. Click a tick (or drag the
   slider below) to restore the variant's app-db to that step's
   epoch — the canvas re-renders against it.
 
   Renders nothing until a run has captured an epoch slice. When
-  `:play` ran but no epochs were captured (production elision, or
+  the `:play-script` ran but no epochs were captured (production elision, or
   the ring buffer was disabled), the section short-circuits to a
   muted hint rather than a broken scrubber."
   [variant-id]
@@ -320,7 +320,7 @@
              ;; rf2-tistm — :expanded is keyed by the row's stable
              ;; identity (:row-key from assertion-row, the rendered
              ;; label string) rather than positional index. A re-run
-             ;; that reorders or inserts assertions (e.g. a new :play
+             ;; that reorders or inserts assertions (e.g. a new :play-script
              ;; step lands between two existing ones) would otherwise
              ;; open the wrong row.
              (for [[i row] (map-indexed vector rows)]
@@ -354,7 +354,7 @@
                      "")]]))]]])))))
 
 (defn- empty-state
-  "Placeholder when the variant has no `:play` slot."
+  "Placeholder when the variant has no `:play-script` slot."
   [variant-id]
   [:div {:style     (:empty styles)
          :data-test "story-test-empty"}
@@ -363,7 +363,7 @@
     "No tests registered for this variant"]
    [:div
     "Add a "
-    [:code ":play"]
+    [:code ":play-script"]
     " slot to "
     [:code (str variant-id)]
     " to register assertions."]

@@ -4,7 +4,7 @@
 
   The step-debugger gives the `:test` mode pane Storybook's
   Interactions-panel feel: step / pause / rewind / step-back / breakpoint
-  controls over the variant's `:play` sequence. Everything below is pure
+  controls over the variant's `:play-script` sequence. Everything below is pure
   data → data so the JVM test corpus pins the contract without booting
   Reagent or the runtime.
 

@@ -173,7 +173,7 @@
   "Per IMPL-SPEC §3.5 + Phase-2 §5.1 #9: true iff every entry in
   `assertions` has `:passed? true`. An assertions vector with zero
   entries is vacuously passing — this is the spec/007 §Story-as-test
-  duality contract: a variant with no `:play` (and therefore no
+  duality contract: a variant with no `:play-script` (and therefore no
   assertions) still 'passes', and shows up as green in test reports.
 
   Accepts either an assertions vector or a `run-variant` result map."

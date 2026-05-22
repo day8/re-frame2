@@ -5,9 +5,9 @@
 
   The recorder (`re-frame.story.recorder`) captures dispatched events
   during a canvas session and surfaces them in a save-as-variant
-  dialog as a `(reg-variant ... :play [...])` EDN snippet — the
-  legacy `:play` slot, a bare vector of event vectors that re-fires
-  on mount.
+  dialog as a `(reg-variant ... :play-script {...})` EDN snippet — the
+  simple `gen-play-snippet` codegen, which wraps each captured event
+  vector as a `[:dispatch-sync <event-vec>]` step (rf2-0wrud).
 
   The rich `:play-script` DSL landed in rf2-8i2a9 — tagged steps
   (`[:dispatch ...]`, `[:wait ms]`, `[:assert-db ...]`,

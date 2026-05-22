@@ -111,7 +111,7 @@
             once the substrate ships:
               1. A variant whose :events seed a sensitive payload at
                  [:auth :token].
-              2. A :play asserting [:rf.assert/path-equals [:auth :token] ...].
+              2. A :play-script asserting [:rf.assert/path-equals [:auth :token] ...].
               3. The recorded :actual slot's contract.
 
             Today: the assertion-evaluator (assertions/evaluate-path-

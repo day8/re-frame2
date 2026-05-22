@@ -636,7 +636,7 @@
     (is (false? (loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
         "presence of :frame-setup decorators → not events-only")
     (is (true?  (loaders/events-only-variant? {:play-script [[:dispatch-sync [:assert]]]} {}))
-        ":play does not gate the lifecycle (runs strictly after :ready)")
+        ":play-script does not gate the lifecycle (runs strictly after :ready)")
     (is (true?  (loaders/events-only-variant? {} {:hiccup    [{:body {}}]
                                                   :fx-override [{:body {}}]}))
         ":hiccup + :fx-override decorators don't drive the lifecycle machine")))

@@ -537,7 +537,7 @@ module.exports = {
        *     for an fx-id the variant did NOT stub renders as a passing
        *     row IFF the fx genuinely emitted, otherwise as a failing
        *     row whose reason text identifies the missed fx-id. The
-       *     `:story.counter/loaded` variant's `:play` carries no
+       *     `:story.counter/loaded` variant's `:play-script` carries no
        *     effect-emitted assertion; we navigate to it and confirm
        *     three passing rows + zero stub leak (no rogue fx-id
        *     emitted from a previous variant survives into a new
@@ -593,7 +593,7 @@ module.exports = {
       }
 
       // (b) Cross-variant isolation: navigate to a variant whose
-      // :play declares NO effect-emitted assertion. The emitted-fx
+      // :play-script declares NO effect-emitted assertion. The emitted-fx
       // accumulator is per-frame, so the newly-allocated frame must
       // start empty — no rogue carry-over from :save-stubbed.
       await clickVariant(page, '/loaded');
@@ -623,7 +623,7 @@ module.exports = {
       // it to do); the force-fx-stub :fx-override redirects it to a
       // local stub fx that only writes the per-frame stub-call-log.
       // Walking back to :save-stubbed and re-running the assertion
-      // suite via the test pane re-fires the :play sequence — which
+      // suite via the test pane re-fires the :play-script sequence — which
       // dispatches :counter/save and emits :counter/sync-to-server
       // again. If the stub leaks, a real cross-origin request lands
       // in the page's request log.
@@ -1725,7 +1725,7 @@ module.exports = {
        *         row in test mode surfaces a source-coord chip when
        *         the assertion's source map is available. /loaded's
        *         three passing assertions all carry source metadata
-       *         from the variant's :play vector registration; the
+       *         from the variant's :play-script registration; the
        *         test pane's row detail should expose at least one
        *         data-test="story-open-in-editor-chip"-tagged chip
        *         (or, when the failing-row detail expands, the

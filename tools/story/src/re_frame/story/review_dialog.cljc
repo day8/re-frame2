@@ -4,7 +4,7 @@
 
   Two save-as flows ship today:
 
-  - record-as-`:play` — `re-frame.story.recorder` captures a trace of
+  - record-as-`:play-script` — `re-frame.story.recorder` captures a trace of
     dispatched events and surfaces the generated `(reg-variant ...)`
     EDN form in a modal for the user to copy + paste into source.
   - snapshot-args-as-`:args` — `re-frame.story.save-variant` captures
@@ -210,8 +210,8 @@
 ;; bracket/brace of their body key — e.g.
 ;;
 ;;     (story/reg-variant :id
-;;       {:play [[:counter/inc]
-;;               [:counter/dec]]})
+;;       {:play-script {:script [[:dispatch-sync [:counter/inc]]
+;;                               [:dispatch-sync [:counter/dec]]]}})
 ;;
 ;; Per rf2-ar0t9: `indent-after` lives in `re-frame.story.predicates`
 ;; so producers (recorder, save-variant) don't have to `:require`

@@ -261,7 +261,7 @@
        (step-list variant-id slot)
        [:div {:style     (:inactive styles)
               :data-test "story-stepper-inactive"}
-        "Click Start to step through the :play sequence one event at a time."])]))
+        "Click Start to step through the :play-script sequence one event at a time."])]))
 
 (defn stepper-section
   "Top-level component. Renders the step-debugger section for `variant-id`.

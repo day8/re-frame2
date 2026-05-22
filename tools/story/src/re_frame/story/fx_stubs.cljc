@@ -6,10 +6,10 @@
   ## Authoring shape
 
       (story/reg-variant :story.auth/login-pending
-        {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
-         :play       [[:auth/login]
-                      [:rf.assert/effect-emitted :http]
-                      [:rf.assert/path-equals [:auth :status] :pending]]})
+        {:decorators  [[:rf.story/force-fx-stub :http {:status :pending}]]
+         :play-script {:script [[:dispatch [:auth/login]]
+                                [:dispatch [:rf.assert/effect-emitted :http]]
+                                [:dispatch [:rf.assert/path-equals [:auth :status] :pending]]]}})
 
   ## Authoring shape — value-form
 

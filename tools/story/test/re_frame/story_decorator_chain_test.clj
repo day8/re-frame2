@@ -20,7 +20,7 @@
   - Two variants registered with the same event ids each get an
     independent frame: dispatching into A leaves B's app-db, emitted
     fx, assertions, and trace history untouched.
-  - The pair runs the SAME `:play` body against DIFFERENT seed args —
+  - The pair runs the SAME `:play-script` body against DIFFERENT seed args —
     so the only thing distinguishing the two frames' final app-db is
     the seed.
 
@@ -130,7 +130,7 @@
                     [:seed-user]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
        :events     [[:record/observed]]
-       ;; :emit/track dispatches in :play so the assertion accumulator
+       ;; :emit/track dispatches in :play-script so the assertion accumulator
        ;; (reset at play-start by reset-trace-accumulators!) sees it.
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:seen-user :name] "alice"]]
                     [:dispatch-sync [:emit/track]]
@@ -142,7 +142,7 @@
       (is (= 1 (count (:fx-override pack))) ":fx-override slot populated")
       (is (empty? (:errors pack))           "no decorator errors"))
     ;; Run end-to-end: :frame-setup fires first, then :events observe
-    ;; the seeded slot, then :play asserts.
+    ;; the seeded slot, then :play-script asserts.
     (let [r (async/deref-blocking
               (story/run-variant :story.multi-kind/v) 5000)]
       (is (= :ready (:lifecycle r))
@@ -233,7 +233,7 @@
       {:decorators [[:seed-A]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
        :events     [[:inc-and-track] [:inc-and-track]]
-       ;; :play emits one more inc-and-track so :rf.assert/effect-emitted
+       ;; :play-script emits one more inc-and-track so :rf.assert/effect-emitted
        ;; sees a fresh emission (the events-phase emissions are wiped by
        ;; reset-trace-accumulators! at play start by design).
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 102]]
@@ -261,7 +261,7 @@
       ;; app-db isolation: each frame walks its own counter. Two
       ;; events-phase incs + one play-phase inc = 3 increments.
       (is (= 103 (:counter (:app-db rA)))
-          "A starts at 100 + two :events :inc-and-track + one :play
+          "A starts at 100 + two :events :inc-and-track + one :play-script
            :inc-and-track = 103")
       (is (= 203 (:counter (:app-db rB)))
           "B starts at 200 + same three increments = 203 — A's
@@ -273,13 +273,13 @@
           "all B's assertions pass against B's app-db")
       ;; emitted-fx isolation: the stub-call log keys by frame-id; each
       ;; frame's log carries only its own emissions. Three per frame:
-      ;; two during :events phase + one during :play phase. Note the
+      ;; two during :events phase + one during :play-script phase. Note the
       ;; stub-call log accumulates across phases (unlike the assertion
       ;; emitted-fx accumulator which the play-runner resets at play
       ;; start).
       (is (= 3 (count logA))
           "frame A's stub log carries exactly three entries — two from
-           :events + one from :play")
+           :events + one from :play-script")
       (is (= 3 (count logB))
           "frame B's stub log carries exactly three entries — and ZERO
            of A's entries leaked across")
