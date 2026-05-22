@@ -39,13 +39,13 @@
  :sub-cache {[:cart/total] {:value 4200 :ref-count 2}}
  :epochs [{:epoch-id "e1" :event-id :app/init}
  {:epoch-id "e2" :event-id :cart/add}]
- :traces [{:id 1 :operation :event/dispatched :tags {:frame :rf/default}}
- {:id 2 :operation :sub/run :tags {:frame :rf/default}}]}
+ :traces [{:id 1 :operation :rf.event/dispatched :tags {:frame :rf/default}}
+ {:id 2 :operation :rf.sub/run :tags {:frame :rf/default}}]}
  :stories {:app-db {:scenarios {:checkout :ready}
  :rf/machines {}}
  :sub-cache {[:stories/active] {:value :checkout :ref-count 1}}
  :epochs [{:epoch-id "s1" :event-id :stories/load}]
- :traces [{:id 3 :operation :event/dispatched :tags {:frame :stories}}]}})
+ :traces [{:id 3 :operation :rf.event/dispatched :tags {:frame :stories}}]}})
 
 (defn stub-frame-ids [] (keys fixture-frames))
 (defn stub-get-frame-db [fid] (get-in fixture-frames [fid :app-db]))

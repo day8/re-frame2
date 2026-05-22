@@ -38,7 +38,7 @@ Four topics, two underlying buses.
 |---|---|---|
 | `:trace` | raw trace stream | every trace event matching `:filter` |
 | `:epoch` | assembled-epoch bus | every `:rf/epoch-record` matching `:filter` |
-| `:fx` | raw trace stream | sugar for `:topic :trace :filter {:op-type :fx ...}` |
+| `:fx` | raw trace stream | sugar for `:topic :trace :filter {:op-type :rf.fx ...}` |
 | `:error` | raw trace stream | sugar for `:topic :trace :filter {:op-type :error ...}` |
 
 The `:fx` and `:error` topics are convenience sugar — they pre-pin the `:op-type` filter so you can layer additional trace-vocab keys on top.
@@ -53,12 +53,12 @@ The filter map is `nil` (no filter) or a topic-specific map. Server-side normali
 
 Mirrors `(re-frame.trace.tooling/trace-buffer)` per Spec 009. Recognised keys:
 
-- `:operation` — exact trace operation keyword (e.g. `:event/dispatched`)
-- `:op-type` — broad category: `:event` `:sub` `:fx` `:render` `:cofx` `:error` `:registry` `:internal`
+- `:operation` — exact trace operation keyword (e.g. `:rf.event/dispatched`)
+- `:op-type` — broad category: `:rf.event` `:rf.sub` `:rf.fx` `:rf.view` `:rf.registry` `:rf.frame` `:rf.machine` `:error` `:warning` `:info`
 - `:frame` — frame id (e.g. `:rf/default`)
 - `:severity` — `:debug` `:info` `:warn` `:error`
 - `:event-id` — exact event id keyword
-- `:handler-id` — exact handler id keyword (e.g. for `:sub/run` traces)
+- `:handler-id` — exact handler id keyword (e.g. for `:rf.sub/run` traces)
 - `:source` — `:tags.source` value
 - `:origin` — `:tags.origin` value (`:pair` `:app` `:ui` `:timer` `:http`)
 - `:dispatch-id` — exact dispatch-id; combine with `cascade-of` for tree drills
@@ -76,9 +76,9 @@ Mirrors the `watch-epochs` pull-mode pred map. Recognised keys:
 - `:touches-path` — vector path that resolves to a non-nil value in either `:db-before` or `:db-after`
 - `:sub-ran` — sub-id or first element of `:query-v` appearing in `:sub-runs`
 - `:render` — render-key (stringified) appearing in `:renders`
-- `:origin` — `:origin` tag on the trigger event's `:event/dispatched` trace
+- `:origin` — `:rf.event/origin` tag on the trigger event's `:rf.event/dispatched` trace
 - `:frame` — frame id
-- `:timing-ms` — server-side wall-clock filter on the cascade's elapsed-ms. Number `N` is sugar for `>= N`; strings `">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"` set the comparator. Derived from the `:event/run-start` / `:event/run-end` trace pair on `:time` — spans first run-start to last run-end so synchronously-dispatched same-cascade chains roll up. Use this for "alert me on slow events"; the filter rides server-side so non-matching epochs never cross the wire.
+- `:timing-ms` — server-side wall-clock filter on the cascade's elapsed-ms. Number `N` is sugar for `>= N`; strings `">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"` set the comparator. Derived from the `:rf.event/run-start` / `:rf.event/run-end` trace pair on `:time` — spans first run-start to last run-end so synchronously-dispatched same-cascade chains roll up. Use this for "alert me on slow events"; the filter rides server-side so non-matching epochs never cross the wire.
 
 ## Progress-notification correlation
 

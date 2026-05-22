@@ -123,8 +123,8 @@
                 :machines  {:ids [:auth-fsm] :state {:auth-fsm {:state :idle}}}
                 :epochs    [{:event-id :foo :db-after {:rf.mcp/diff-from :db-before :sections []}}
                             {:event-id :bar :db-after {:rf.mcp/diff-from :db-before :sections []}}]
-                :traces    [{:operation :event :event-id :foo}
-                            {:operation :sub   :sub-id  :bar}]}
+                :traces    [{:operation :rf.event/dispatched :event-id :foo}
+                            {:operation :rf.sub/run          :sub-id  :bar}]}
    :stories    {:app-db    {:rf.mcp/summary {:type :map :keys [:story-id] :count 1 :bytes 12}}
                 :sub-cache {}
                 :machines  {:ids [] :state {}}
@@ -255,7 +255,7 @@
                          :db-before  big-map
                          :db-after   big-map}))
       :traces    (vec (for [i (range 200)]
-                        {:operation :event :event-id (keyword (str "t" i))
+                        {:operation :rf.event/dispatched :event-id (keyword (str "t" i))
                          :timestamp i}))}}))
 
 (deftest discovery-snapshot-fits-the-wire-cap

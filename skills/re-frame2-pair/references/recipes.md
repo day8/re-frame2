@@ -36,7 +36,7 @@ Each recipe leads with the **MCP-tool form** (preferred — ~14× faster, single
 
 1. Identify the sub the view reads (ask the user if it's not in the view file).
 2. `trace/last-epoch` (or `trace/last-pair-epoch`) — find the recent dispatch that should have updated it.
-3. Walk the epoch's `:sub-runs` projection. **A sub that re-ran appears in the vector; a sub that cache-hit does not** (Spec-Schemas §`:rf/epoch-record` — value-equal recompute suppression is enforced by the runtime, so cache-hit subs do not emit `:sub/run`).
+3. Walk the epoch's `:sub-runs` projection. **A sub that re-ran appears in the vector; a sub that cache-hit does not** (Spec-Schemas §`:rf/epoch-record` — value-equal recompute suppression is enforced by the runtime, so cache-hit subs do not emit `:rf.sub/run`).
 4. If the sub the view depends on isn't in `:sub-runs` for the cascade, the equality gate held; report the upstream sub whose return value was `=` to its previous value.
 5. If the sub did re-run but the view didn't re-render, check `:renders` — the projection lists every render in the cascade with its `:render-key` and `:triggered-by`.
 
