@@ -1950,14 +1950,15 @@ async function runConfigurePartialUpdate(page, state) {
 // feature-matrix carried zero browser coverage for the highest-user-
 // visible Causa surface to land in the recent cluster. This scenario:
 //
-//   1. Asserts the Dynamic baseline — mode pill present with `dynamic`
-//      segment selected (aria-checked=true), L2 spine event-list
-//      visible (4-layer chrome).
+//   1. Asserts the Dynamic baseline — mode dropdown present with
+//      `dynamic` selected (rf2-4vp5j reshaped the two-button pill into a
+//      compact `<select>`; `data-active-mode`/`value` carry the state),
+//      L2 spine event-list visible (4-layer chrome).
 //   2. Fires Ctrl+Shift+M (the cross-platform chord per
 //      `keybinding.cljs/mode-toggle-key?` — Cmd-Shift-M on macOS,
 //      Ctrl-Shift-M elsewhere; Playwright drives Ctrl as the headless
 //      Chromium maps to Ctrl reliably). Asserts the mode flips: the
-//      `static` segment becomes selected, the Static surface mounts
+//      dropdown reads `static`, the Static surface mounts
 //      (`rf-causa-static-surface` with `data-rf-causa-mode="static"`),
 //      the L2 spine disappears (3-layer silhouette — chrome-silhouette
 //      mode-signal #4), the Machines sub-tab is selected by default
@@ -1965,8 +1966,8 @@ async function runConfigurePartialUpdate(page, state) {
 //      / Views / Flows) mounts its real panel root testid while
 //      `:events` (rf2-o5f5f.6 — last remaining placeholder) still
 //      renders a placeholder card naming the sibling bead.
-//   3. Clicks `rf-causa-mode-pill-dynamic`; mode flips back; L2 spine
-//      returns (proves the pill is the canonical toggle path too —
+//   3. Selects `Dynamic` in the dropdown; mode flips back; L2 spine
+//      returns (proves the dropdown is the canonical toggle path too —
 //      not just the chord).
 //   4. Reloads the page; asserts localStorage `causa.mode` round-
 //      trips the last-set mode (Dynamic here, per the flip-back step).
@@ -1986,22 +1987,17 @@ async function runStaticModeChromeAndChord(page, state) {
   await openCausa(page);
 
   // ---- (1) Dynamic baseline -----------------------------------------
-  // Per rf2-8l3uk the mode pill is always rendered (the Static-mode
-  // feature gate was removed). The Dynamic segment must be selected
-  // by default.
+  // Per rf2-8l3uk the mode control is always rendered (the Static-mode
+  // feature gate was removed). Per rf2-4vp5j it is a compact `<select>`
+  // dropdown; `data-active-mode` + `value` carry the active mode.
+  // Dynamic must be selected by default.
   await expectVisible(
     page.locator('[data-testid="rf-causa-mode-pill"]'),
     5000,
   );
   const dynamicBaseline = await waitForValue(
     () => page.evaluate(() => {
-      const dynamicPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-dynamic"]',
-      );
-      const staticPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-static"]',
-      );
-      const pillGroup = document.querySelector(
+      const modeSelect = document.querySelector(
         '[data-testid="rf-causa-mode-pill"]',
       );
       const eventList = document.querySelector(
@@ -2011,16 +2007,14 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-surface"]',
       );
       return {
-        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
-        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
-        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        modeSelectValue: modeSelect ? modeSelect.value : null,
+        pillGroupActiveMode: modeSelect ? modeSelect.getAttribute('data-active-mode') : null,
         eventListPresent: Boolean(eventList),
         staticSurfacePresent: Boolean(staticSurface),
       };
     }),
     (snap) =>
-      snap.dynamicPillChecked === 'true' &&
-      snap.staticPillChecked === 'false' &&
+      snap.modeSelectValue === 'dynamic' &&
       snap.pillGroupActiveMode === 'dynamic' &&
       snap.eventListPresent &&
       !snap.staticSurfacePresent,
@@ -2031,13 +2025,7 @@ async function runStaticModeChromeAndChord(page, state) {
   await page.keyboard.press('Control+Shift+M');
   const afterChord = await waitForValue(
     () => page.evaluate(() => {
-      const dynamicPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-dynamic"]',
-      );
-      const staticPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-static"]',
-      );
-      const pillGroup = document.querySelector(
+      const modeSelect = document.querySelector(
         '[data-testid="rf-causa-mode-pill"]',
       );
       const surface = document.querySelector(
@@ -2063,9 +2051,8 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-detail-panel-machines"]',
       );
       return {
-        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
-        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
-        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        modeSelectValue: modeSelect ? modeSelect.value : null,
+        pillGroupActiveMode: modeSelect ? modeSelect.getAttribute('data-active-mode') : null,
         staticSurfacePresent: Boolean(surface),
         staticSurfaceModeAttr: surface ? surface.getAttribute('data-rf-causa-mode') : null,
         ribbonPresent: Boolean(ribbon),
@@ -2076,8 +2063,7 @@ async function runStaticModeChromeAndChord(page, state) {
       };
     }),
     (snap) =>
-      snap.staticPillChecked === 'true' &&
-      snap.dynamicPillChecked === 'false' &&
+      snap.modeSelectValue === 'static' &&
       snap.pillGroupActiveMode === 'static' &&
       snap.staticSurfacePresent &&
       snap.staticSurfaceModeAttr === 'static' &&
@@ -2152,18 +2138,14 @@ async function runStaticModeChromeAndChord(page, state) {
     5000,
   );
 
-  // ---- (3) Click Dynamic pill — Static → Dynamic --------------------
-  await page.locator('[data-testid="rf-causa-mode-pill-dynamic"]').click();
+  // ---- (3) Select Dynamic in the dropdown — Static → Dynamic --------
+  // rf2-4vp5j — the mode control is a `<select>`; flipping back is a
+  // selectOption (the canonical toggle path, not just the chord).
+  await page.locator('[data-testid="rf-causa-mode-pill"]').selectOption('dynamic');
   const afterClickBack = await waitForValue(
     () => page.evaluate(() => {
-      const pillGroup = document.querySelector(
+      const modeSelect = document.querySelector(
         '[data-testid="rf-causa-mode-pill"]',
-      );
-      const dynamicPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-dynamic"]',
-      );
-      const staticPill = document.querySelector(
-        '[data-testid="rf-causa-mode-pill-static"]',
       );
       const eventList = document.querySelector(
         '[data-testid="rf-causa-event-list"]',
@@ -2172,20 +2154,18 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-causa-static-surface"]',
       );
       return {
-        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
-        dynamicPillChecked: dynamicPill ? dynamicPill.getAttribute('aria-checked') : null,
-        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
+        pillGroupActiveMode: modeSelect ? modeSelect.getAttribute('data-active-mode') : null,
+        modeSelectValue: modeSelect ? modeSelect.value : null,
         eventListPresent: Boolean(eventList),
         staticSurfacePresent: Boolean(surface),
       };
     }),
     (snap) =>
       snap.pillGroupActiveMode === 'dynamic' &&
-      snap.dynamicPillChecked === 'true' &&
-      snap.staticPillChecked === 'false' &&
+      snap.modeSelectValue === 'dynamic' &&
       snap.eventListPresent &&
       !snap.staticSurfacePresent,
-    { timeoutMs: 5000, description: 'Dynamic restored after clicking pill segment' },
+    { timeoutMs: 5000, description: 'Dynamic restored after selecting Dynamic in the dropdown' },
   );
 
   // Per rf2-8l3uk Static mode is unconditionally available — no feature

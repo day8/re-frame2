@@ -667,59 +667,37 @@
       "✕"]]))
 
 (rf/reg-view ribbon
-  "L1 ribbon — per spec/018 §3 Top ribbon anatomy. Four clusters left
-  to right: nav · frame · filters · right icons. The REDACTED
-  indicator surfaces on-demand next to the right-icons cluster when
-  the suppressed-sensitive count is positive.
+  "L1 **chrome ribbon** — the top stratum per rf2-4vp5j's two-ribbon
+  redesign. Compact (`:top-strip-height`, lowered to 40px) because it
+  now carries only scope SELECTORS on the left and chrome ACTIONS on
+  the right:
 
-  Per Round-3 rf2-g9pee the explicit `● LIVE` / `◐ RETRO` mode pill
-  was dropped — the spine mode is already derivable from sticky-row
-  selection + the `[◀ ▶ ⏭]` nav cluster. Space / L / G keybindings
-  preserve the toggle access the pill used to surface.
+    - **LEFT** — the Frame dropdown (`frame-switcher/frame-switcher-
+      view`) + the Dynamic/Static mode dropdown (`mode-pill/mode-pill`).
+      Both share one compact control style so they read as a single
+      selector stratum.
+    - **RIGHT** — the mute (🔇 N) + REDACTED (● N) silent-by-default
+      indicators, then the `⚙` settings + `✕` close icon-buttons.
+
+  The nav cluster (`[◀ ▶ ⏭]`), the focus-chip, and the filter pills
+  moved DOWN to the events ribbon (`events-ribbon`) — they are
+  spine/filter chrome, not scope selectors. Moving them out is what
+  buys the compacted height.
+
+  The 2-px left-edge accent stripe (rf2-o5f5f.1 mode-signal mechanism
+  #2 — violet Dynamic / cyan Static) stays as the at-a-glance mode cue,
+  so the understated mode dropdown can recede without losing the signal.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
   [_props]
-  (let [focus           @(rf/subscribe [:rf.causa/focus])
-        cascades        @(rf/subscribe [:rf.causa/cascades])
-        focus-set       @(rf/subscribe [:rf.causa/focus-set])
-        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
-        ;; bucket. Default OFF preserves silent-by-default; ON
-        ;; includes the bucket in L2 + the ribbon's boundary walk
-        ;; so the nav cluster's `[◀ ▶ ⏭]` agrees with what the user
-        ;; sees in L2.
-        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
-        redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
-        ;; rf2-ikuwt — mute-count drives the L1 ribbon indicator next
-        ;; to the REDACTED indicator. Reading the count sub (not the
-        ;; raw set) means the ribbon re-renders only when the count
-        ;; changes; the indicator's click opens the unmute manager.
-        muted-count     @(rf/subscribe [:rf.causa/muted-event-ids-count])
-        filters         @(rf/subscribe [:rf.causa/active-filters])
-        focused-id      (:dispatch-id focus)
-        ;; Per rf2-fzbrw: the boundary predicates must align with the
-        ;; user-visible event list. The L2 list filters `:ungrouped`
-        ;; (registry-time emits / lifecycle / REPL evals) by default;
-        ;; when the rf2-r9lyy opt-in is on the bucket appears in L2
-        ;; and the ribbon's walk MUST include it too, otherwise the
-        ;; user could click a visible bucket row in L2 that the
-        ;; `[<]` boundary refuses to step past. The `l2-cascade-
-        ;; visible?` predicate is the single source of truth — both
-        ;; surfaces compose against it.
-        event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
-        ;; rf2-a1z3b — when a focus-set is active the nav buttons walk
-        ;; ONLY the in-focus subset. Boundary predicates honour that
-        ;; so `[◀]` greys at the first in-focus row and `[▶]` greys at
-        ;; the last. When no focus-set is active, fall through to the
-        ;; existing full-stream boundary semantics.
-        ids             (if focus-set
-                          (fh/in-focus-ids event-cascades focus-set)
-                          (mapv :dispatch-id event-cascades))
-        at-head?        (or (empty? ids)
-                            (= focused-id (last ids))
-                            (and (nil? focused-id) (not focus-set)))
-        at-tail?        (or (empty? ids)
-                            (= focused-id (first ids)))]
+  (let [redacted-count @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
+        ;; rf2-ikuwt — mute-count drives the chrome ribbon's silent-by-
+        ;; default indicator next to the REDACTED indicator. Reading the
+        ;; count sub (not the raw set) means the ribbon re-renders only
+        ;; when the count changes; the indicator's click opens the
+        ;; unmute manager.
+        muted-count    @(rf/subscribe [:rf.causa/muted-event-ids-count])]
     [:div {:data-testid "rf-causa-ribbon"
            :style {:display          "flex"
                    :align-items      "center"
@@ -742,27 +720,31 @@
                                           (static-shell/stripe-hex-for-mode :dynamic))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; rf2-o5f5f.1 — mode pill at ribbon-left. Always rendered
-     ;; (the `:rf.causa/static-mode?` feature gate was removed per
-     ;; rf2-8l3uk — Static mode is unconditionally available).
-     [mode-pill/mode-pill]
-     [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
-     [ribbon-focus-chip {:focus-set focus-set}]
-     ;; L1 frame-switcher slot (rf2-iwwou) — single contractually-
-     ;; anchored surface. The view itself reads `:rf.causa/current-
-     ;; frame` + `:rf.causa/available-frames` and writes via
-     ;; `:rf.causa/select-frame` — no ad-hoc frame access from the
-     ;; ribbon. See `frame_switcher.cljs` for the contract.
-     [frame-switcher/frame-switcher-view]
-     [ribbon-filter-pills {:filters filters}]
+     ;; LEFT cluster — scope selectors (Frame + Dynamic/Static), one
+     ;; shared compact control style so they read as one stratum.
+     [:div {:data-testid "rf-causa-ribbon-selectors"
+            :style {:display "flex" :align-items "center" :gap "8px"}}
+      ;; L1 frame-switcher slot (rf2-iwwou) — single contractually-
+      ;; anchored surface. The view itself reads `:rf.causa/current-
+      ;; frame` + `:rf.causa/available-frames` and writes via
+      ;; `:rf.causa/select-frame` — no ad-hoc frame access from the
+      ;; ribbon. See `frame_switcher.cljs` for the contract. The frame
+      ;; is a view SCOPE, not a filter (rf2-4vp5j Workstream C).
+      [frame-switcher/frame-switcher-view]
+      ;; Dynamic/Static dropdown (rf2-4vp5j) — compact, understated;
+      ;; the accent stripe carries the mode signal so the control
+      ;; itself stays quiet. Always rendered (the `:rf.causa/static-
+      ;; mode?` feature gate was removed per rf2-8l3uk).
+      [mode-pill/mode-pill]]
+     ;; RIGHT cluster — silent-by-default indicators + chrome actions.
      [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
       ;; rf2-ikuwt — mute indicator (🔇 N) renders inline next to the
       ;; REDACTED indicator. Both are silent-by-default surfaces that
       ;; only paint when their count is positive. Click → unmute
       ;; manager modal.
       [spine-filters/ribbon-mute-indicator muted-count]
-      [ribbon-redacted-indicator redacted-count]]
-     [ribbon-right-icons]]))
+      [ribbon-redacted-indicator redacted-count]
+      [ribbon-right-icons]]]))
 
 ;; ---- L2 event list -------------------------------------------------------
 
@@ -1313,21 +1295,32 @@
      ;; the row's trailing edge.
      (relative-time-chip cascade now-ms)]))
 
-;; ---- 'N hidden by filters' indicator (rf2-jvghz, defect #1) -------------
+;; ---- events ribbon (rf2-4vp5j) -----------------------------------------
 ;;
-;; Persisted filters (a `:machine` IN-pill under
-;; `re-frame2.causa.filters.v1`, a frame pin under
-;; `re-frame2.causa.frame-switcher.v1`) survive reload via localStorage
-;; and silently suppress L2 rows. Without an indicator the list looks
-;; broken — it fooled the project author. This banner renders whenever
-;; the filtered visible-row set is strictly smaller than the raw set
-;; (`:rf.causa/hidden-by-filters` → `:visible?`), making the active
-;; pills / frame-pin / mutes the VISIBLE cause and offering a one-click
-;; reset (`:rf.causa/clear-all-filters`).
+;; The SECOND stratum below the chrome ribbon. LEFT → RIGHT:
+;;
+;;   Events:  [◀ ▶ ⏭]  [🎯 focus-chip]  [+pill ×pill +]   …   N hidden  [Clear Filters]
+;;
+;; Left = spine state + navigation; right = filter actions. The
+;; `N events hidden by filters` message + Clear Filters appear ONLY when
+;; filters are active (per rf2-4vp5j Decision 3):
+;;
+;;   - both absent when no pills + no mutes (clean default → empty right);
+;;   - Clear Filters shows when ANY filter is active;
+;;   - the message shows beside it ONLY when N > 0.
+;;
+;; The hidden COUNT reflects pill/mute suppression ONLY — the frame is a
+;; view SCOPE, not a filter (rf2-4vp5j Workstream C), so switching frames
+;; never inflates "hidden" and Clear Filters never touches the frame.
+;; The message keeps rf2-jvghz's prominent yellow accent (Mike values
+;; it). Persisted filters survive reload via localStorage and used to
+;; silently suppress L2 rows; this ribbon makes them a VISIBLE cause +
+;; one-click reset (`:rf.causa/clear-all-filters`).
 
 (defn- filter-cause-chip
-  "One small chip naming an active suppressing surface (a pill, the
-  frame pin, or the mute set) inside the indicator banner."
+  "One small chip naming an active suppressing surface (a pill or the
+  mute set) inside the hidden-count message. Frame is NOT a cause —
+  it is a view scope (rf2-4vp5j Workstream C)."
   [{:keys [testid tone label title]}]
   [:span {:data-testid testid
           :title       title
@@ -1343,34 +1336,27 @@
                   :white-space    "nowrap"}}
    label])
 
-(defn filters-hidden-indicator
-  "Pure hiccup. Given the `:rf.causa/hidden-by-filters` summary map,
-  render the 'N events hidden by filters' banner — the offending pills
-  / frame pin / mute count as visible cause chips + a one-click
-  'Clear filters' button. Returns nil when nothing is hidden so the
-  no-filter case stays chromeless.
-
-  Covers the filtered-to-empty and filtered-to-one cases: both report a
-  positive `:hidden` whenever the raw stream carried more visible rows,
-  so the banner renders even when the list below shows 'No events.'"
-  [{:keys [hidden visible? pills frame muted-count] :as _summary}]
+(defn filters-hidden-message
+  "Pure hiccup. The `N events hidden by filters` message + its pill /
+  mute cause chips — the RIGHT-side signal of the events ribbon. Renders
+  nil unless the hidden count is positive (`:visible?`). Keeps rf2-jvghz's
+  prominent yellow accent. Counts pill/mute suppression ONLY — the frame
+  is a view scope, never counted as hidden (rf2-4vp5j Workstream C)."
+  [{:keys [hidden visible? pills muted-count] :as _summary}]
   (when visible?
     [:div {:data-testid "rf-causa-filters-hidden-indicator"
            :role        "status"
-           :style {:display       "flex"
-                   :align-items   "center"
-                   :flex-wrap     "wrap"
-                   :gap           "8px"
-                   :padding       "6px 10px"
-                   :background    (:bg-3 tokens)
-                   :border-bottom (str "1px solid " (:yellow tokens))
-                   :font-family   sans-stack
-                   :font-size     (:caption type-scale)
-                   :color         (:text-primary tokens)}}
+           :style {:display     "inline-flex"
+                   :align-items "center"
+                   :flex-wrap   "wrap"
+                   :gap         "6px"
+                   :font-family sans-stack
+                   :font-size   (:caption type-scale)
+                   :color       (:text-primary tokens)}}
      [:span {:data-testid "rf-causa-filters-hidden-count"
              :style {:font-weight 600 :color (:yellow tokens) :white-space "nowrap"}}
       (str hidden " event" (when (not= 1 hidden) "s") " hidden by filters")]
-     ;; Cause chips — the active pills, the frame pin, the mute set.
+     ;; Cause chips — the active pills + the mute set (NOT the frame).
      (into [:span {:data-testid "rf-causa-filters-hidden-causes"
                    :style {:display "flex" :align-items "center"
                            :flex-wrap "wrap" :gap "4px"}}]
@@ -1383,36 +1369,119 @@
                  :title  (str (name mode) " filter pill")
                  :label  (str (if (= mode :out) "× " "+ ")
                               (when glyph (str glyph ":")) label)}])
-             (when frame
-               [^{:key "frame"}
-                [filter-cause-chip
-                 {:testid "rf-causa-filters-hidden-frame"
-                  :tone   (:accent-violet tokens)
-                  :title  "Frame pin — only this frame's events show"
-                  :label  (str "Frame: " frame)}]])
              (when (pos? muted-count)
                [^{:key "muted"}
                 [filter-cause-chip
                  {:testid "rf-causa-filters-hidden-muted"
                   :tone   (:text-secondary tokens)
                   :title  "Muted event-ids hidden from the spine"
-                  :label  (str "🔇 " muted-count)}]])))
-     [:button {:data-testid "rf-causa-filters-hidden-clear"
-               :on-click    #(rf/dispatch [:rf.causa/clear-all-filters]
-                                          {:frame :rf/causa})
-               :title       "Clear every filter pill, the frame pin, and all mutes"
-               :style {:margin-left   "auto"
-                       :background    "transparent"
-                       :border        (str "1px solid " (:yellow tokens))
-                       :color         (:yellow tokens)
-                       :cursor        "pointer"
-                       :font-family   sans-stack
-                       :font-size     (:caption type-scale)
-                       :font-weight   600
-                       :padding       "2px 10px"
-                       :border-radius "10px"
-                       :white-space   "nowrap"}}
-      "Clear filters"]]))
+                  :label  (str "🔇 " muted-count)}]])))]))
+
+(defn- clear-filters-button
+  "Restrained outline `Clear Filters` button — resets pills + mutes (NOT
+  the frame; rf2-4vp5j Workstream C). Rendered only when a filter is
+  active (`:any-active?`)."
+  []
+  [:button {:data-testid "rf-causa-filters-hidden-clear"
+            :on-click    #(rf/dispatch [:rf.causa/clear-all-filters]
+                                       {:frame :rf/causa})
+            :title       "Clear every filter pill and all mutes"
+            :style {:background    "transparent"
+                    :border        (str "1px solid " (:border-default tokens))
+                    :color         (:text-secondary tokens)
+                    :cursor        "pointer"
+                    :font-family   sans-stack
+                    :font-size     (:caption type-scale)
+                    :font-weight   500
+                    :padding       "2px 10px"
+                    :border-radius "4px"
+                    :white-space   "nowrap"}}
+   "Clear Filters"])
+
+(rf/reg-view events-ribbon
+  "L1.5 **events ribbon** (rf2-4vp5j) — the second stratum below the
+  chrome ribbon. LEFT → RIGHT: `Events:` label · the `[◀ ▶ ⏭]` nav
+  cluster · the focus-chip · the active filter pills + add-pill widget.
+  FAR RIGHT (only when a filter is active): the `N hidden` message +
+  the `Clear Filters` button.
+
+  The nav cluster, focus-chip, and filter pills moved here from the
+  chrome ribbon (they are spine/filter chrome, not scope selectors).
+  Boundary detection for the nav cluster is computed here against the
+  same `l2-cascade-visible?` visible-row set the L2 list renders.
+
+  Visibility of the right-side action cluster (rf2-4vp5j Decision 3):
+    - both absent in the clean/default state (no pills, no mutes);
+    - `Clear Filters` shows when ANY filter is active (`:any-active?`);
+    - the `N hidden` message shows beside it only when N > 0
+      (`:visible?`) — an active filter that hides nothing → button
+      present, message absent.
+
+  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
+  `:rf/causa`. A distinct `bg-2` background + `border-subtle` hairline
+  separate it from the chrome ribbon's `bg-1` as a distinct layer."
+  []
+  (let [focus           @(rf/subscribe [:rf.causa/focus])
+        ;; rf2-4vp5j — boundary detection walks the FILTERED cascade
+        ;; list (frame view-scope + pills + mutes) so the `[◀ ▶]`
+        ;; disabled glyphs match exactly what the user sees in L2.
+        cascades        @(rf/subscribe [:rf.causa/filtered-cascades])
+        focus-set       @(rf/subscribe [:rf.causa/focus-set])
+        filters         @(rf/subscribe [:rf.causa/active-filters])
+        hidden-summary  @(rf/subscribe [:rf.causa/hidden-by-filters])
+        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
+        ;; bucket. The boundary walk MUST agree with what the user
+        ;; sees in L2, so it composes against the same
+        ;; `l2-cascade-visible?` predicate the L2 list uses.
+        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
+        focused-id      (:dispatch-id focus)
+        event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
+        ;; rf2-a1z3b — when a focus-set is active the nav buttons walk
+        ;; ONLY the in-focus subset; boundary predicates honour that.
+        ids             (if focus-set
+                          (fh/in-focus-ids event-cascades focus-set)
+                          (mapv :dispatch-id event-cascades))
+        at-head?        (or (empty? ids)
+                            (= focused-id (last ids))
+                            (and (nil? focused-id) (not focus-set)))
+        at-tail?        (or (empty? ids)
+                            (= focused-id (first ids)))
+        any-active?     (:any-active? hidden-summary)]
+    [:div {:data-testid "rf-causa-events-ribbon"
+           :role        "toolbar"
+           :aria-label  "Causa events"
+           :style {:display          "flex"
+                   :align-items      "center"
+                   :justify-content  "space-between"
+                   :gap              "12px"
+                   :min-height       (:events-ribbon-height layout)
+                   :flex-wrap        "wrap"
+                   :padding          "0 12px"
+                   :background       (:bg-2 tokens)
+                   :border-bottom    (str "1px solid " (:border-subtle tokens))
+                   :font-family      sans-stack
+                   :font-size        (:body type-scale)}}
+     ;; LEFT cluster — label · nav · focus-chip · filter pills.
+     [:div {:data-testid "rf-causa-events-ribbon-left"
+            :style {:display "flex" :align-items "center"
+                    :flex-wrap "wrap" :gap "8px"}}
+      [:span {:data-testid "rf-causa-events-ribbon-label"
+              :style {:color       (:text-secondary tokens)
+                      :font-size   (:body-tight type-scale)
+                      :white-space "nowrap"}}
+       "Events:"]
+      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
+      [ribbon-focus-chip {:focus-set focus-set}]
+      [ribbon-filter-pills {:filters filters}]]
+     ;; RIGHT cluster — hidden-count message + Clear Filters. Both
+     ;; absent in the clean state; rendered together only when a filter
+     ;; is active (Clear always when active; message only when N > 0).
+     (when any-active?
+       [:div {:data-testid "rf-causa-events-ribbon-actions"
+              :style {:display "flex" :align-items "center" :gap "8px"
+                      :margin-left "auto"}}
+        (filters-hidden-message hidden-summary)
+        [clear-filters-button]])]))
 
 (rf/reg-view event-list
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
@@ -1459,10 +1528,11 @@
   ;; no-op everywhere it matters.
   (inject-scrollbar-style!)
   (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
-        ;; rf2-jvghz — the hidden-by-filters summary drives the banner
-        ;; above the scroll container so suppressed-by-persisted-filter
-        ;; rows are a VISIBLE cause, not a silently-broken-looking list.
-        hidden-summary @(rf/subscribe [:rf.causa/hidden-by-filters])
+        ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
+        ;; events ribbon (`events-ribbon`); the L2 list no longer renders
+        ;; the banner itself. The events ribbon is the always-present
+        ;; second stratum so the count surfaces above the list rather
+        ;; than as an inline banner inside it.
         focus          @(rf/subscribe [:rf.causa/focus])
         focus-set      @(rf/subscribe [:rf.causa/focus-set])
         ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
@@ -1495,11 +1565,9 @@
         focus-pred     (fh/build-focus-predicate focus-set)]
     [:div {:data-testid "rf-causa-event-list-wrap"
            :style {:display "flex" :flex-direction "column"}}
-     ;; rf2-jvghz — the hidden-by-filters banner sits ABOVE the scroll
-     ;; container so it stays visible even when the filtered list is
-     ;; empty (the filtered-to-empty case) — that is precisely the case
-     ;; that looked broken before.
-     (filters-hidden-indicator hidden-summary)
+     ;; rf2-4vp5j — the hidden-by-filters message now lives in the
+     ;; events ribbon (above this list) rather than as an inline banner
+     ;; here; the list is just the scroll container.
      [:div {:data-testid "rf-causa-event-list"
             :style {:height        "200px"   ; 8 rows × 22px + gaps + padding (rf2-htik0)
                     :min-height    "48px"    ; 2 rows minimum
@@ -1735,9 +1803,13 @@
 ;; discipline as the rest of the shell.
 
 (rf/reg-view dynamic-chrome
-  "The Dynamic 4-layer chrome (L1 ribbon · L2 event list · L3 tab bar ·
-  L4 detail panel) wrapped as a single component. Extracted from the
-  inline composition in `shell-view` so the Static surface can swap in
+  "The Dynamic chrome wrapped as a single component. Per rf2-4vp5j the
+  top splits into two strata — the **chrome ribbon** (`ribbon`: Frame +
+  Dynamic/Static dropdowns, `⚙`/`✕`) and the **events ribbon**
+  (`events-ribbon`: `Events:` + nav + focus-chip + pills, and the
+  hidden-count + Clear Filters on the right) — above the L2 event list,
+  L3 tab bar, and L4 detail panel. Extracted from the inline
+  composition in `shell-view` so the Static surface can swap in
   alongside it via the mode composer (rf2-o5f5f.1).
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
@@ -1745,6 +1817,7 @@
   []
   [:<>
    [ribbon {}]
+   [events-ribbon]
    [event-list]
    [tab-bar]
    [detail-panel]])

@@ -161,6 +161,12 @@
    ;; surfaces. See `frame_switcher.cljs` for the full contract.
    :rf.causa/current-frame
    :rf.causa/available-frames
+   ;; rf2-4vp5j — the dedicated VIEW-SCOPE frame slot (frame is a view
+   ;; scope, not a filter): the resolved scope + its raw stored slot +
+   ;; the raw target-frame slot it falls back to on a host seed.
+   :rf.causa/view-scope-frame
+   :rf.causa/view-scope-frame-slot
+   :rf.causa/target-frame-slot
    :rf.causa/focused-slice-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
