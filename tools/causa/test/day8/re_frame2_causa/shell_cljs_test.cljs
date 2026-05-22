@@ -1613,11 +1613,49 @@
       "no recognised op-types → no badges"))
 
 (deftest row-badges-detects-errors-and-http-and-machine
+  ;; Canonical post-`:rf.*`-migration trace shape (Spec 009): the
+  ;; machine op-type is `:rf.machine` / operation `:rf.machine/*` and
+  ;; HTTP is `:rf.http` / `:rf.http/*`. Feeding this shape would FAIL
+  ;; against the pre-fix `#":machine"` substring regex — `(str
+  ;; :rf.machine/transition)` is ":rf.machine/transition", which does
+  ;; NOT contain ":machine" (the substring is ".machine"). Pinning the
+  ;; migrated shape here closes the false-green blind spot where the
+  ;; old test fed `:machine/transition` and passed while the live badge
+  ;; never rendered.
   (let [cascade {:other [{:op-type :error}
-                         {:operation :http/get}
-                         {:operation :machine/transition}]}]
+                         {:op-type :rf.http :operation :rf.http/settled}
+                         {:op-type :rf.machine :operation :rf.machine/transition}]}]
     (is (= ["⚠" "🌐" "🤖"] (shell/row-badges cascade))
-        "badges in fixed left-to-right order")))
+        "migrated :rf.machine/* + :rf.http/* shapes light all three badges")))
+
+(deftest row-badges-machine-detection-covers-op-type-and-sub-families
+  (testing "machine badge fires on the bare :op-type :rf.machine"
+    (is (= ["🤖"] (shell/row-badges {:other [{:op-type :rf.machine}]}))))
+  (testing "machine badge fires on a :rf.machine/* operation alone"
+    (is (= ["🤖"] (shell/row-badges
+                   {:other [{:operation :rf.machine/snapshot-updated}]}))))
+  (testing "machine badge folds in the :rf.machine.lifecycle/* sub-stream"
+    (is (= ["🤖"] (shell/row-badges
+                   {:other [{:operation :rf.machine.lifecycle/destroyed}]}))))
+  (testing "machine badge folds in the :rf.machine.microstep/* sub-stream"
+    (is (= ["🤖"] (shell/row-badges
+                   {:other [{:operation :rf.machine.microstep/transition}]}))))
+  (testing "a non-machine :rf.* family does NOT trip the machine badge"
+    (is (= [] (shell/row-badges {:other [{:operation :rf.event/dispatched}]})))))
+
+(deftest row-badges-http-detection-covers-op-type-and-canonical-family
+  (testing "http badge fires on the canonical :rf.http/* operation"
+    (is (= ["🌐"] (shell/row-badges
+                   {:other [{:op-type :rf.http :operation :rf.http/settled}]}))))
+  (testing "http badge still recognises the legacy :http/* alias"
+    (is (= ["🌐"] (shell/row-badges {:other [{:operation :http/get}]})))))
+
+(deftest row-badges-still-recognises-legacy-pre-migration-shape
+  ;; A pre-migration trace replayed through Causa keeps lighting up.
+  (let [cascade {:other [{:operation :machine/transition}
+                         {:operation :http/get}]}]
+    (is (= ["🌐" "🤖"] (shell/row-badges cascade))
+        "legacy :machine/* + :http/* still detected")))
 
 (deftest event-id-of-cascade-plucks-first-element
   (is (= :foo/bar (shell/event-id-of-cascade {:event [:foo/bar {:x 1}]})))

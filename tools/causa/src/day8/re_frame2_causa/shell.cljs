@@ -300,23 +300,59 @@
     (:whole-redacted? cascade)            "▥"
     :else                                 "●"))
 
+(defn- op-namespace
+  "The `:operation` keyword's namespace as a string, or nil when the
+  operation is missing / not a keyword. Mirrors the family-detection
+  idiom in `panels.l2-timeline` so badge classification matches the
+  rest of the post-`:rf.*`-migration Causa code."
+  [op]
+  (when (keyword? op) (namespace op)))
+
+(defn- ns-in-family?
+  "True when the operation keyword belongs to `family` — either an
+  exact namespace match (`:rf.http/settled` → `\"rf.http\"`) or a
+  dotted sub-family (`:rf.machine.lifecycle/destroyed` →
+  `\"rf.machine.lifecycle\"` is in the `rf.machine` family). Lets a
+  single family check fold in lifecycle / microstep sub-streams without
+  a fragile substring regex."
+  [op family]
+  (when-let [ns (op-namespace op)]
+    (or (= ns family)
+        (str/starts-with? ns (str family ".")))))
+
 (defn row-badges
   "Per spec/018 §4 Row badges. Returns a vector of present badges in
-  the fixed `[:warn :http :machine]` order. Stub heuristic until the
-  per-row classifier lands — looks at the cascade's `:other` bucket
-  for op-types we recognise."
+  the fixed `[:warn :http :machine]` order. Walks the cascade's
+  `:other` bucket and classifies each event by its Spec 009 `:op-type`
+  family (`:rf.machine`, `:rf.http`, severity discriminators) — the
+  same family-detection idiom `panels.l2-timeline` uses, NOT a
+  substring regex.
+
+  Post-`:rf.*`-migration the machine op-type is `:rf.machine` and
+  operations are `:rf.machine/transition` etc.; the old `#\":machine\"`
+  regex matched the pre-migration `:machine/*` shape but NOT
+  `:rf.machine/*` (whose substring is `.machine`, not `:machine`), so
+  the badge silently stopped rendering. Detection now matches the
+  `:op-type` / `:operation` namespace precisely and folds in the
+  `:rf.machine.lifecycle/*` and `:rf.machine.microstep/*` sub-streams.
+  The legacy bare `:machine` / `:http` shapes are still recognised so
+  any pre-migration trace replayed through Causa keeps lighting up."
   [cascade]
   (let [others (:other cascade)
         warn?  (some (fn [e] (or (= :error (:op-type e))
                                  (= :warning (:op-type e))))
                      others)
-        http?  (some (fn [e] (when-let [op (:operation e)]
-                               (let [n (str op)]
-                                 (or (re-find #":http/" n)
-                                     (re-find #":rf\.http" n)))))
+        http?  (some (fn [e]
+                       (or (contains? #{:rf.http :http} (:op-type e))
+                           (let [op (:operation e)]
+                             (or (ns-in-family? op "rf.http")
+                                 (ns-in-family? op "http")))))
                      others)
-        machine? (some (fn [e] (when-let [op (:operation e)]
-                                 (re-find #":machine" (str op))))
+        machine? (some (fn [e]
+                         (or (contains? #{:rf.machine :machine} (:op-type e))
+                             (let [op (:operation e)]
+                               (or (ns-in-family? op "rf.machine")
+                                   (ns-in-family? op "machine")))))
                        others)]
     (cond-> []
       warn?    (conj "⚠")
@@ -939,9 +975,12 @@
   - **`⚠`** — exception/error glyph (from `:other` carrying
     `:op-type :error` / `:warning`, or `:errors` slot populated).
   - **`🌐`** — managed-HTTP marker (from `:other` carrying an
-    `:operation` matching `:http/*` or `:rf.http/*`).
+    `:op-type :rf.http` or an `:operation` in the `:rf.http/*` /
+    legacy `:http/*` family).
   - **`🤖`** — state-machine marker (from `:other` carrying an
-    `:operation` matching `:machine`).
+    `:op-type :rf.machine` or an `:operation` in the `:rf.machine/*`
+    family, including the `:rf.machine.lifecycle/*` and
+    `:rf.machine.microstep/*` sub-streams).
 
   Dropped from the default view (moved to hover tooltip + Event
   detail tab): the full event vector with args, the sequence
