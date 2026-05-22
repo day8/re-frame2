@@ -10,18 +10,22 @@
 
       Level 1 Subscriptions   one row per Level 1 sub that ran this
                               cascade. Columns:
-                                name | changed | code
+                                name | changed | read by | code
                               `changed` is the accent flag from the
-                              `:value-changed?` projection; `code` is a
+                              `:value-changed?` projection; `read by`
+                              (rf2-y23uw) lists the views that deref this
+                              sub this cascade — the shared-subscription
+                              edge from `:sub-readers`; `code` is a
                               jump-to-source [code] chip from the static
                               topology coord.
 
       Level 2+ Subscriptions  one row per composed sub that ran.
                               Columns:
-                                name | changed | inputs | code
+                                name | changed | inputs | read by | code
                               `inputs` lists the input-sub names ONE PER
                               LINE (the static `:<-` chain from
-                              `sub-topology`).
+                              `sub-topology`); `read by` is the shared-sub
+                              edge as in Level 1.
 
       Views                   one row per view render / unmount this
                               cascade. Columns:
@@ -370,20 +374,41 @@
   (when (> total shown)
     [:div {:style overflow-style} (str "+" (- total shown) " more")]))
 
+(defn- readers-cell
+  "The `read by` column (rf2-y23uw) — the views that deref THIS sub this
+  cascade (the shared-subscription edge), one per line, honestly
+  truncated with `+N more`. A muted em-dash when no rendered view read
+  the sub (e.g. an upstream-input sub a composed sub reads but no view
+  derefs directly)."
+  [readers]
+  (let [n     (count readers)
+        shown (take max-inline-list readers)]
+    [:td {:style td-style}
+     (if (seq readers)
+       (into [:div {:style {:display "flex" :flex-direction "column"
+                            :gap "1px"}}]
+             (concat
+               (for [[i v] (map-indexed vector shown)]
+                 ^{:key i} [:span {:style {:color (:text-secondary tokens)}}
+                            (format-id v)])
+               [(overflow-line max-inline-list n)]))
+       [:span {:style changed-no-style} "—"])]))
+
 ;; ---- table 1: Level 1 subs --------------------------------------------
 
 (defn- level-1-row
-  "One Level 1 sub row: name | changed | code.
+  "One Level 1 sub row: name | changed | read by | code.
 
   testids:
     row       `rf-causa-reactive-l1-row-<slug>`
     code chip `rf-causa-reactive-l1-code-<slug>`"
-  [{:keys [sub-id changed? coord]}]
+  [{:keys [sub-id changed? coord readers]}]
   (let [slug (id-slug sub-id)]
     [:tr {:data-testid (str "rf-causa-reactive-l1-row-" slug)
           :style       {:border-top (str "1px solid " (:border-subtle tokens))}}
      [:td {:style name-cell-style} (format-id sub-id)]
      (changed-cell changed?)
+     (readers-cell readers)
      (code-cell coord (str "rf-causa-reactive-l1-code-" slug))]))
 
 (defn- level-1-section
@@ -399,6 +424,7 @@
          [:tr
           [:th {:style th-style} "name"]
           [:th {:style th-style} "changed"]
+          [:th {:style th-style} "read by"]
           [:th {:style th-style} "code"]]]
         (into [:tbody]
               (concat
@@ -406,7 +432,7 @@
                   (with-meta (level-1-row r) {:key i}))
                 (when (> n max-table-rows)
                   [[:tr {:data-testid "rf-causa-reactive-l1-overflow"}
-                    [:td {:colSpan 3 :style (assoc td-style :padding-left "0")}
+                    [:td {:colSpan 4 :style (assoc td-style :padding-left "0")}
                      (overflow-line max-table-rows n)]]])))]
        (empty-row "rf-causa-reactive-l1-empty" "(no Level 1 subs ran)"))]))
 
@@ -431,18 +457,19 @@
        [:span {:style changed-no-style} "—"])]))
 
 (defn- level-2-row
-  "One Level 2+ sub row: name | changed | inputs | code.
+  "One Level 2+ sub row: name | changed | inputs | read by | code.
 
   testids:
     row       `rf-causa-reactive-l2-row-<slug>`
     code chip `rf-causa-reactive-l2-code-<slug>`"
-  [{:keys [sub-id changed? inputs coord]}]
+  [{:keys [sub-id changed? inputs coord readers]}]
   (let [slug (id-slug sub-id)]
     [:tr {:data-testid (str "rf-causa-reactive-l2-row-" slug)
           :style       {:border-top (str "1px solid " (:border-subtle tokens))}}
      [:td {:style name-cell-style} (format-id sub-id)]
      (changed-cell changed?)
      (inputs-cell inputs)
+     (readers-cell readers)
      (code-cell coord (str "rf-causa-reactive-l2-code-" slug))]))
 
 (defn- level-2-section
@@ -459,6 +486,7 @@
           [:th {:style th-style} "name"]
           [:th {:style th-style} "changed"]
           [:th {:style th-style} "inputs"]
+          [:th {:style th-style} "read by"]
           [:th {:style th-style} "code"]]]
         (into [:tbody]
               (concat
@@ -466,7 +494,7 @@
                   (with-meta (level-2-row r) {:key i}))
                 (when (> n max-table-rows)
                   [[:tr {:data-testid "rf-causa-reactive-l2-overflow"}
-                    [:td {:colSpan 4 :style (assoc td-style :padding-left "0")}
+                    [:td {:colSpan 5 :style (assoc td-style :padding-left "0")}
                      (overflow-line max-table-rows n)]]])))]
        (empty-row "rf-causa-reactive-l2-empty" "(no Level 2+ subs ran)"))]))
 
