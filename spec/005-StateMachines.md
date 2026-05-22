@@ -808,12 +808,17 @@ Bounded by `:raise-depth-limit` (default 16, exceeding emits `:rf.error/machine-
 
 ### Level 4 — across the runtime
 
-Standard re-frame. The router maintains a single FIFO queue:
+The router maintains a single per-frame queue. It is **FIFO by default with one exception** — machine-originated continuation events leap-frog to the front so a machine settles its macrostep before the next external event runs (SCXML-aligned).
 
-- **Dispatched events go to the back.** Whether dispatched from user code, from `:fx [[:dispatch ...]]`, or from any other source.
-- **The router drains in queue order.** No reordering, no priority lanes, no front-of-queue insertion.
-- **Each dequeue runs to completion before the next.** A machine event's full Level-3 cascade (including raised sub-events and snapshot commit) finishes before the next runtime-queue event is processed.
-- **`do-fx` runs after the handler returns and before the next dequeue** — so `:fx [[:dispatch :ev-X]]` emitted during event Y goes to the queue *after* anything Y queued earlier in its run, *before* the next dequeue.
+- **Ordinary dispatched events go to the back.** Events whose origin is user code, the UI, a timer/promise/websocket callback, an async-effect response, or any `:fx [[:dispatch …]]` emitted by a **non-machine** handler — go to the **back** of the queue. This is plain FIFO, even if the event *targets* a machine. The arrival order is the run order.
+- **Machine-internal continuation events go to the FRONT.** An event dispatched **from a machine's own processing** — its `:action` / `:entry` / `:exit` / transition handling, e.g. an action's `:fx [[:dispatch …]]` or an inter-machine dispatch — is inserted at the **front** of the queue, ahead of any already-queued external events. The effect: the machine drives its **macrostep to quiescence before the next external event is processed**, matching SCXML's "internal events run before external events" macrostep rule.
+- **The cut is the dispatch's *origin*, not its target.** An event leap-frogs **iff** it is a machine-originated continuation — dispatched *during* machine action / transition processing. An event that merely *targets* a machine but originates from user code, the UI, or a non-machine effect stays **FIFO** at the back. (The router tags machine-internal events at dispatch time; the *marking mechanism* is an implementation concern owned by rf2-j20a7 — this spec states the observable order, not the mechanism.)
+- **Each dequeue runs to completion before the next.** A machine event's full Level-3 cascade (raised sub-events and snapshot commit) finishes before the next queue event is processed. Front-of-queue changes which event is dequeued next; it does not interleave cascades.
+- **`do-fx` runs after the handler returns and before the next dequeue** — so for a *non-machine* handler, `:fx [[:dispatch :ev-X]]` emitted during event Y lands at the back, *after* anything Y queued earlier and *before* the next dequeue. For a *machine* handler, the same `:fx [[:dispatch …]]` lands at the front; multiple machine-internal dispatches from one macrostep preserve their source order at the front (the first emitted is dequeued first).
+
+**`:raise` is unchanged — and is a different lever from front-of-queue.** `:raise` is the **in-memory, intra-macrostep, pre-commit** mechanism: a raised event drains through the machine's local raise-queue inside the *same* handler invocation, depth-first, against the evolving in-flight snapshot, and **never touches the router queue** (per [§`:raise`](#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) and Level 3 above). Front-of-queue is the *separate* lever for machine-originated events that **do** traverse the router queue (`:fx [[:dispatch …]]`, inter-machine dispatches): these are real, separately-dequeued events that still settle ahead of external work. The two must not be blurred — `:raise` collapses chaining into *one* macrostep with no router round-trip; front-of-queue *orders* router-queue events so a machine's follow-on events run before external ones, each as its own dequeue.
+
+**Consistent with epoch-per-event ([002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)).** Front-of-queue changes **order only, not granularity.** Each leap-frogged machine-internal continuation is still a separately-dequeued event, so it is still **its own epoch** with its own six-domino cascade and its own trace — exactly as [002 §One epoch per dequeued event](002-Frames.md#drain-versus-event--the-epoch-unit) requires. `:raise` sub-events and `:always` microsteps remain *inside* the triggering event's epoch (they are not dequeued); a front-of-queue `:fx [[:dispatch …]]` is a fresh dequeue and a fresh epoch — it simply runs sooner.
 
 ### Worked walkthrough
 
@@ -844,19 +849,32 @@ Standard re-frame. The router maintains a single FIFO queue:
 ;;
 ;;   3. commit snapshot to app-db (one :db write at [:rf/machines <id>])
 ;;
-;;   4. emit outgoing fx → do-fx appends :ev-A, :ev-B to runtime queue
+;;   4. emit outgoing fx → these are MACHINE-ORIGINATED dispatches, so
+;;      do-fx inserts :ev-A, :ev-B at the FRONT of the queue (Level 4),
+;;      ahead of the already-queued external [:other-thing], preserving
+;;      their source order (:ev-A before :ev-B). The machine drives its
+;;      follow-on events to quiescence before the next EXTERNAL event.
 ;;
-;; runtime queue: [[:other-thing] [:ev-A] [:ev-B]]
-
-;; --- dequeue [:other-thing] ----------------------------------
-;;   ... runs, possibly dispatches more ...
+;; runtime queue: [[:ev-A] [:ev-B] [:other-thing]]
 
 ;; --- dequeue [:ev-A] -----------------------------------------
-;;   suppose its handler dispatches [:ev-C]
-;;   runtime queue after: [[:ev-B] [:ev-C]]
+;;   :ev-A is a plain (non-machine) handler; suppose it dispatches [:ev-C].
+;;   :ev-C originates from a NON-machine handler → goes to the BACK (FIFO).
+;;   runtime queue after: [[:ev-B] [:other-thing] [:ev-C]]
 
-;; --- dequeue [:ev-B] BEFORE :ev-C ----------------------------
-;;   FIFO. :ev-B was queued before :ev-C.
+;; --- dequeue [:ev-B] -----------------------------------------
+;;   ... runs; the remaining machine-originated continuation settles ...
+
+;; --- dequeue [:other-thing] BEFORE :ev-C ---------------------
+;;   The external [:other-thing] was leap-frogged by the machine's
+;;   :ev-A / :ev-B, but it still precedes :ev-C: it was queued (from user
+;;   code) before :ev-C (a non-machine back-of-queue dispatch). FIFO holds
+;;   among non-machine events; only machine-internal continuations jump.
+
+;; --- dequeue [:ev-C] -----------------------------------------
+;;   last. Each dequeued event above — machine-originated or not — is its
+;;   own epoch (per 002 §Drain versus event); front-of-queue changed only
+;;   the order, not the epoch granularity.
 
 ;; --- dequeue [:ev-C] -----------------------------------------
 ;;   ...
@@ -864,7 +882,7 @@ Standard re-frame. The router maintains a single FIFO queue:
 
 ### Why these rules
 
-- **FIFO at the runtime layer** — matches actor-mailbox semantics across the whole literature; matches re-frame's existing drain; gives a single global event-order that's identical to the trace's `:dispatched-at` ordering. No reordering, no surprises.
+- **FIFO at the runtime layer, with machine-internal events at the front** — external events keep actor-mailbox FIFO semantics, identical to the trace's `:dispatched-at` ordering. The single exception is machine-originated continuation events (Level 4 above), which leap-frog to the front so a machine completes its macrostep to quiescence before the next external event — SCXML's "internal before external" rule. The cut is the dispatch's *origin* (machine processing), not its target, so external dispatches stay predictably FIFO.
 - **Depth-first for `:raise`** — within a machine, transition-chaining (`a → b → c`) is the natural unit of work; collapsing it into one externally-observable step matches how authors think about FSMs.
 - **Action / transition / event composition is left-to-right, in-spec-order** — readers of the transition table can compute the effect order by eye. No "actions can be reordered for optimisation"; the order in the source is the order at runtime.
 - **Snapshot commit is atomic per machine event** — sub-events raised within a machine see the *evolving* data through the local raise-cascade, but external observers (subs, other machines, tools) only see the post-commit snapshot. This prevents partial-snapshot observation.
@@ -878,7 +896,7 @@ The four-level drain has a small number of recurring implementation mistakes. Ea
 
 - **Implementing `:raise` as a runtime-FIFO append rather than a local pre-commit queue.** *What goes wrong:* the raised event lands at the *back* of the global router queue, behind other events queued in this turn — so external observers can interleave between the raise and its handling. *Instead:* keep a per-machine-event raise-queue inside the handler invocation; drain it depth-first before committing the snapshot, never via the runtime router.
 - **Committing the snapshot before draining the raise queue.** *What goes wrong:* sub-events in the cascade observe their own *partial* snapshot (the post-action commit), not the evolving in-flight one — so a chained raise can re-fire a transition mid-cascade. *Instead:* the snapshot is committed *after* the raise queue is drained (Level 3 step 4), exactly once, atomically.
-- **Conflating `:fx [:dispatch <self-id>]` with `:raise`.** They have different ordering semantics: `:dispatch` to self goes to the *back of the runtime FIFO*, runs after every other already-queued event, and runs against the *post-commit* snapshot. `:raise` runs *before* commit, depth-first, in the same logical step. *Instead:* use `:raise` for transition-chaining intended to settle inside one externally-observable step; use `[:dispatch [<self-id> ...]]` only when the round-trip through the runtime queue is what you actually want.
+- **Conflating `:fx [:dispatch <self-id>]` with `:raise`.** They have different semantics on two axes — commit timing and macrostep membership. `:raise` runs *before* commit, depth-first, **in the same logical step** (one macrostep, one epoch, no router round-trip), against the *evolving in-flight* snapshot. `:dispatch` to self is a **separate dequeued event** (its own epoch) that round-trips through the router queue and runs against the *post-commit* snapshot. Because the dispatch originates from machine processing, it leap-frogs to the **front** of the queue (Level 4 above) — it runs *before the next external event* but *after* the current macrostep commits, **not** inside it. *Instead:* use `:raise` for transition-chaining intended to settle inside one externally-observable macrostep; use `[:dispatch [<self-id> ...]]` only when you genuinely want a fresh post-commit epoch — front-of-queue means it still runs ahead of external work, but it is a distinct step, not part of this one.
 - **Not bounding raise-depth.** *What goes wrong:* a buggy `a → raise b → raise a → ...` cycle hangs the runtime. *Instead:* enforce the default depth-16 limit and emit `:rf.error/machine-raise-depth-exceeded` when it's hit; halt the cascade and surface the path.
 - **Treating "self-transition with `:target`" as internal.** It is **external** — `:exit` of source and `:entry` of target both fire (because the transition crosses the state-node boundary, even though source and target are the same keyword). *Instead:* use `:target :same-state` only when you want exit/entry to fire.
 - **Treating "transition without `:target`" as external.** It is **internal** — neither `:exit` nor `:entry` fires; only the transition's `:action` runs. *Instead:* omit `:target` only when you want a pure data update with no exit/entry machinery; if you want exit/entry, name the target.
