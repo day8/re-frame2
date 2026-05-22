@@ -35,10 +35,10 @@
 
   - records `:warning` and `:error` `:op-type` events into the
     frame's `:warnings` slot,
-  - records every `:event/dispatched` event vector into the
+  - records every `:rf.event/dispatched` event vector into the
     frame's `:dispatched` slot,
-  - records every fx call (operations under `:event/do-fx` /
-    `:fx` op-type) into the frame's `:emitted-fx` slot.
+  - records every fx call (operations under `:rf.fx/do-fx` /
+    `:rf.fx/handled` op-type `:rf.fx`) into the frame's `:emitted-fx` slot.
 
   The accumulators clear at play-start and live until frame teardown
   (per `assertions/drop-trace-accumulators!`).
@@ -134,18 +134,19 @@
           :error        (do (assertions/record-warning! frame-id ev)
                             (when (= :rf.error/handler-exception (:operation ev))
                               (record-pending-exception! frame-id ev)))
-          :event        (when (= :event/dispatched (:operation ev))
-                          (let [event-vec (get-in ev [:tags :event])]
+          :rf.event     (when (= :rf.event/dispatched (:operation ev))
+                          (let [event-vec (get-in ev [:tags :rf.event/v])]
                             (when (and event-vec
                                        (not (assertions/assertion-event? event-vec)))
                               (assertions/record-dispatched! frame-id event-vec))))
-          :event/do-fx  (let [fx-map (get-in ev [:tags :fx])]
-                          (when (map? fx-map)
-                            (doseq [fx-id (keys fx-map)]
+          :rf.fx        (case (:operation ev)
+                          :rf.fx/do-fx (let [fx-map (get-in ev [:tags :rf.event/fx])]
+                                         (when (map? fx-map)
+                                           (doseq [fx-id (keys fx-map)]
+                                             (assertions/record-emitted-fx! frame-id fx-id))))
+                          (let [fx-id (get-in ev [:tags :rf.fx/id])]
+                            (when fx-id
                               (assertions/record-emitted-fx! frame-id fx-id))))
-          :fx           (let [fx-id (get-in ev [:tags :fx-id])]
-                          (when fx-id
-                            (assertions/record-emitted-fx! frame-id fx-id)))
           nil)))))
 
 (defn drain-pending-exceptions!

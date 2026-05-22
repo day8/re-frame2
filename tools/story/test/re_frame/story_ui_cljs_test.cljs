@@ -1016,18 +1016,18 @@
             the RHS replacement. Event shapes here track the
             framework's actual emit pattern per Spec 009 §`:op-type`
             vocabulary."
-    (let [evs       [{:op-type :event :operation :event/dispatched
-                      :id 1 :tags {:dispatch-id 100 :event [:foo]}}
-                     {:op-type :event :operation :event
-                      :id 2 :tags {:dispatch-id 100 :phase :run-end}}
-                     {:op-type :event :operation :event/do-fx
-                      :id 3 :tags {:dispatch-id 100}}
-                     {:op-type :fx :operation :rf.fx/handled
-                      :id 4 :tags {:dispatch-id 100 :fx-id :db}}
-                     {:op-type :sub/run :operation :sub/run
-                      :id 5 :tags {:dispatch-id 100 :sub-id :sub/foo}}
-                     {:op-type :view :operation :view/render
-                      :id 6 :tags {:dispatch-id 100 :render-key [:app/root nil]}}]
+    (let [evs       [{:op-type :rf.event :operation :rf.event/dispatched
+                      :id 1 :tags {:rf.trace/dispatch-id 100 :rf.event/v [:foo]}}
+                     {:op-type :rf.event :operation :rf.event
+                      :id 2 :tags {:rf.trace/dispatch-id 100 :rf.trace/phase :run-end}}
+                     {:op-type :rf.fx :operation :rf.fx/do-fx
+                      :id 3 :tags {:rf.trace/dispatch-id 100}}
+                     {:op-type :rf.fx :operation :rf.fx/handled
+                      :id 4 :tags {:rf.trace/dispatch-id 100 :rf.fx/id :db}}
+                     {:op-type :rf.sub :operation :rf.sub/run
+                      :id 5 :tags {:rf.trace/dispatch-id 100 :rf.sub/id :sub/foo}}
+                     {:op-type :rf.view :operation :rf.view/render
+                      :id 6 :tags {:rf.trace/dispatch-id 100 :rf.view/render-key [:app/root nil]}}]
           cascades  (projection/group-cascades evs)]
       (is (= 1 (count cascades)))
       (let [c (first cascades)]
@@ -1056,14 +1056,14 @@
           buf-a     (trace-buffer/ensure-buffer! v-a)
           buf-b     (trace-buffer/ensure-buffer! v-b)
           mk-ev     (fn [vid sensitive?]
-                      (cond-> {:op-type   :event
-                               :operation :event/dispatched
+                      (cond-> {:op-type   :rf.event
+                               :operation :rf.event/dispatched
                                :id        1
                                :time      1700000000000
-                               :tags      {:dispatch-id 1
-                                           :frame       vid
-                                           :event-id    :foo
-                                           :event       [:foo]}}
+                               :tags      {:rf.trace/dispatch-id 1
+                                           :frame                vid
+                                           :rf.trace/event-id    :foo
+                                           :rf.event/v           [:foo]}}
                         sensitive? (assoc :sensitive? true)))]
       (try
         ;; Engineer flips the flag on to investigate.
@@ -1100,7 +1100,7 @@
         ;; The flag started false, so no sensitive events ever landed.
         ;; A redundant set-show-sensitive! false call must NOT throw away
         ;; the buffered non-sensitive history.
-        (reset! buf [{:op-type :event :tags {:frame vid}}])
+        (reset! buf [{:op-type :rf.event :tags {:frame vid}}])
         (story-config/set-show-sensitive! false) ; redundant; default is false
         (is (= 1 (count @buf))
             "redundant set-show-sensitive! false must not clear the buffer")
@@ -1113,7 +1113,7 @@
     (let [vid :story.priv-scrub/opt-in
           buf (trace-buffer/ensure-buffer! vid)]
       (try
-        (reset! buf [{:op-type :event :tags {:frame vid}}])
+        (reset! buf [{:op-type :rf.event :tags {:frame vid}}])
         (story-config/set-show-sensitive! true)
         (is (= 1 (count @buf))
             "opting in must not clear pre-existing non-sensitive history")

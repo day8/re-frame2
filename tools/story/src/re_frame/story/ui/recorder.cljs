@@ -8,7 +8,7 @@
     toolbar (just left of the `[reset]` button) so the affordance is
     chrome-wide and visually unmistakable.
   - The trace bus — installs a per-process listener that filters
-    `:event/dispatched` events targeting the currently-focused variant
+    `:rf.event/dispatched` events targeting the currently-focused variant
     frame and feeds them into `recorder/record-event!`.
   - A save-as-variant dialog — when the user stops recording, a modal
     surfaces the captured EDN snippet (the `(reg-variant ...)` form
@@ -29,8 +29,8 @@
   ## Listener integration
 
   The listener lives behind a single `install-trace-listener!` call
-  the shell makes once at mount. Events with `:op-type :event` +
-  `:operation :event/dispatched` whose `:frame` tag matches the
+  the shell makes once at mount. Events with `:op-type :rf.event` +
+  `:operation :rf.event/dispatched` whose `:frame` tag matches the
   recorder's `:variant-id` slot pipe through `record-event!`. The
   pure predicate (`recordable-event?`) drops `:rf.assert/*` and
   internal Story events.
