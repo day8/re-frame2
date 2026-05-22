@@ -1,19 +1,55 @@
 (ns panel-gallery.fixtures-trace
   "Pure fixture builders for the Causa Trace tab gallery (rf2-sszlr —
-  rebuild for new 6-tab Causa shape).
+  rebuild for new 6-tab Causa shape; epoch-scoped rewire rf2-ofoqu).
 
-  The trace panel reads its rows from `:rf.causa/trace-feed`, a
-  composite over:
+  ## Epoch-scoped feed (rf2-td380 / rf2-ofoqu)
 
-    - `:rf.causa/trace-buffer`   — the raw trace ring buffer
-    - `:rf.causa/trace-filters`  — the active 9-axis filter map
+  After PR #1958 (rf2-td380 / rf2-o6yqq / rf2-gkczt) the Trace panel
+  is a lens on the spine's FOCUSED EPOCH, not the global trace bus.
+  Its sub `:rf.causa/trace-feed` joins:
 
-  Each variant seeds via `:rf.causa/sync-trace-buffer` — the canonical
-  seed event used by `mount.cljs/open!` to publish the trace-bus
-  contents into Causa's frame app-db. The handler `assoc`s the buffer
-  vector into Causa's frame app-db; Story's `:rf.story/*` runtime slots
-  survive untouched per `tools/story/spec/002-Runtime.md` §Coexistence
-  with hosting application state.
+    - `:rf.causa/focus`          — carries `:epoch-id`
+    - `:rf.causa/epoch-history`  — the per-frame ring of `:rf/epoch-record`
+                                   maps (the framework's settling records)
+
+  and renders the focused epoch's `:trace-events` slice (the complete
+  domino trail for one settling). It NO LONGER reads the trace bus /
+  `:trace-buffer`, so seeding the bus produces an empty panel.
+
+  Each variant therefore seeds via `:rf.causa/sync-epoch-history` — the
+  canonical seed event (`epoch.cljs`) that `assoc`s the history vector
+  into Causa's frame app-db under `:epoch-history`. The handler is
+  tagged `{:rf.trace/no-emit? true}`; Story's `:rf.story/*` runtime
+  slots survive untouched per `tools/story/spec/002-Runtime.md`
+  §Coexistence with hosting application state.
+
+  ## Focus resolution (head-fallback)
+
+  No variant pins `:rf.causa/focus`. With no trace bus seeded there are
+  no cascades, so `compose-focus` leaves the focus `:epoch-id` nil; the
+  shared `panels.shared.focus-resolver` then applies its head-fallback
+  (rf2-h0120): nil focus + non-empty history → `:focused`, resolving to
+  the HEAD record `(peek epoch-history)`. `:rf.causa/epoch-history` is
+  oldest-first, so the variant's representative epoch is placed LAST in
+  the history vector and is what the panel renders. Multi-op variants
+  put older epochs ahead of the focused one to exercise a realistic
+  ring without changing which epoch renders.
+
+  ## Epoch-record shape (per spec/004-AppDbDiff + re-frame.epoch)
+
+  Each `:rf/epoch-record` the resolver looks up carries:
+
+      {:epoch-id      <int>             ; stable id, ring-buffer key
+       :frame         :rf/default
+       :committed-at  <ms>
+       :event-id      <kw>              ; first elem of :trigger-event
+       :trigger-event <event-vec>
+       :trace-events  [<trace-event> ...]}  ; the domino trail (what the
+                                            ; Trace panel projects)
+
+  The Trace panel reads ONLY `:epoch-id` (for the head/feed key) and
+  `:trace-events` (the rows), so these records populate just enough for
+  a faithful render.
 
   ## Trace-event shape (per Spec 009 §Trace bus + trace_helpers/project-row)
 
@@ -305,3 +341,120 @@
        (ev {:id 7 :time 1006 :op-type :view :operation :view/render
             :source :ui :origin :app :frame :rf/default :dispatch-id 100
             :render-key [:cart/badge nil]})])))
+
+;; ---- epoch-record + history builders (rf2-ofoqu) -------------------------
+;;
+;; The Trace panel reads the FOCUSED EPOCH's `:trace-events`, resolved
+;; via the shared focus-resolver over `:rf.causa/epoch-history`. These
+;; builders wrap the per-event buffer builders above into `:rf/epoch-
+;; record` maps so each variant seeds an epoch the panel can project.
+
+(defn epoch-record
+  "Build a minimal `:rf/epoch-record` carrying a `:trace-events` slice.
+  The Trace panel reads only `:epoch-id` (head/feed key) and
+  `:trace-events` (the domino-trail rows); the remaining slots mirror
+  the framework's settling-record shape for fidelity."
+  [{:keys [epoch-id event trace-events]}]
+  {:epoch-id      epoch-id
+   :frame         :rf/default
+   :committed-at  (* 1000 (or epoch-id 0))
+   :event-id      (first event)
+   :trigger-event event
+   :trace-events  (vec trace-events)})
+
+(defn single-epoch-history
+  "Wrap one trace-event vector into a one-record history. The single
+  record is the head (oldest-first vector of one) so the focus-
+  resolver's head-fallback renders it. `event` is the epoch's trigger
+  event (cosmetic — surfaces in the record's `:event-id`)."
+  [{:keys [epoch-id event trace-events]}]
+  [(epoch-record {:epoch-id     epoch-id
+                  :event        event
+                  :trace-events trace-events})])
+
+(defn empty-trace-history
+  "One epoch whose `:trace-events` slice is empty — drives the panel's
+  `:no-events` empty-state ('No events.'). Distinct from no history at
+  all (`:no-focus`): the focus resolves to a real record that simply
+  carries no trace rows."
+  []
+  (single-epoch-history
+    {:epoch-id 1 :event [:counter/init] :trace-events (empty-buffer)}))
+
+(defn short-trace-history
+  "One epoch whose domino trail is the ten-event cascade — a normal,
+  representative settling spanning every canonical op-type."
+  []
+  (single-epoch-history
+    {:epoch-id 2 :event [:cart/add :apple]
+     :trace-events (ten-events-buffer)}))
+
+(defn medium-trace-history
+  "One epoch carrying a 100-row domino trail. The cap (200) is not hit;
+  the overflow indicator stays quiet."
+  []
+  (single-epoch-history
+    {:epoch-id 3 :event [:dashboard/recompute-all]
+     :trace-events (hundred-events-buffer)}))
+
+(defn long-trace-history
+  "One epoch carrying a 1000-row trail — exercises the 200-row cap and
+  the overflow indicator at the head of the feed."
+  []
+  (single-epoch-history
+    {:epoch-id 4 :event [:storm/replay]
+     :trace-events (thousand-events-buffer)}))
+
+(defn errors-trace-history
+  "One epoch whose trail is all issues (errors / warnings / info) —
+  every row carries a severity tier."
+  []
+  (single-epoch-history
+    {:epoch-id 5 :event [:report/upload]
+     :trace-events (error-buffer)}))
+
+(defn flows-trace-history
+  "A multi-op history: a prior counter epoch precedes the focused
+  flow-cascade epoch. The focused (head) epoch carries the
+  `:cart/add` cascade with three `:rf.flow/computed` recompute rows
+  and a downstream render — the panel renders the flow op-type
+  alongside the dominoes. The leading epoch exercises a realistic
+  ring while head-fallback keeps the flow epoch in view."
+  []
+  [(epoch-record {:epoch-id 6 :event [:counter/inc]
+                  :trace-events (ten-events-buffer)})
+   (epoch-record {:epoch-id 7 :event [:cart/add :apple]
+                  :trace-events (flows-buffer)})])
+
+(defn mixed-op-types-history
+  "One epoch whose trail mixes event + fx op-types (no chip-filtering
+  post-rf2-gkczt — the feed renders every row)."
+  []
+  (single-epoch-history
+    {:epoch-id 8 :event [:cart/add :apple]
+     :trace-events (filtered-active-buffer)}))
+
+(defn redacted-trace-history
+  "One epoch whose dispatched-event payload carries `:rf/redacted`
+  markers on `:password` + `:totp` — the panel surfaces the marker
+  verbatim per Spec 009 §Privacy."
+  []
+  (single-epoch-history
+    {:epoch-id 9 :event [:auth/sign-in]
+     :trace-events (redacted-buffer)}))
+
+(defn cross-frame-history
+  "One epoch whose trail spans three frames evenly — exercises the
+  panel's per-row frame projection across the full ladder."
+  []
+  (single-epoch-history
+    {:epoch-id 10 :event [:tenant/poke]
+     :trace-events (cross-frame-buffer)}))
+
+(defn source-coord-history
+  "One epoch whose every row carries a `:source-coord` slot — exercises
+  the panel's clickable source-coord chip (jump-to-editor affordance)."
+  []
+  (single-epoch-history
+    {:epoch-id 11 :event [:counter/inc]
+     :trace-events (source-coord-buffer)}))
