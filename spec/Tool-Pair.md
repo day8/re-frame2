@@ -66,9 +66,9 @@ The capability that requires *new* commitments is **time-travel**, addressed bel
 
 The runtime contract for time-travel:
 
-**Recording.** Every event-cascade settle (drain reaching empty queue) marks an epoch boundary. The runtime records, per frame, an `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) consisting of `:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, and (optionally) `:trace-events`, plus the structured per-epoch projections `:sub-runs`, `:renders`, and `:effects` (each pre-derived from `:trace-events`; see [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) for shapes). Pair tools route diagnostics off the structured slots — cache-hit-vs-rerun analysis (`:sub-runs[*].:recomputed?`), render-key attribution (`:renders[*].:render-key`, the tuple `[<view-id> <instance-token>]` per [004 §Render-tree primitives](004-Views.md#render-tree-primitives) — rf2-t5tx Option C / rf2-piag), and fx cascade outcome (`:effects[*].:outcome`) — without re-folding the raw trace stream each epoch.
+**Recording.** Each **dequeued event** marks an epoch boundary — one `:rf/epoch-record` per dequeued event, not per drain (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)). The unit is `process-event!`: every dequeued envelope runs its own full six-domino cascade and yields its own epoch, irrespective of how it arrived — a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or the frame-creation `:on-create` event each open a fresh epoch. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one, even though both settle inside the same drain. (A machine's `:raise` sub-events and `:always` microsteps are intra-macrostep — they ride the triggering event's epoch and do **not** open a new one, per [005 §Drain semantics](005-StateMachines.md#drain-semantics).) The runtime records, per frame, an `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) consisting of `:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, and (optionally) `:trace-events`, plus the structured per-epoch projections `:sub-runs`, `:renders`, and `:effects` (each pre-derived from `:trace-events`; see [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) for shapes). Pair tools route diagnostics off the structured slots — cache-hit-vs-rerun analysis (`:sub-runs[*].:recomputed?`), render-key attribution (`:renders[*].:render-key`, the tuple `[<view-id> <instance-token>]` per [004 §Render-tree primitives](004-Views.md#render-tree-primitives) — rf2-t5tx Option C / rf2-piag), and fx cascade outcome (`:effects[*].:outcome`) — without re-folding the raw trace stream each epoch.
 
-**Ordering.** Epochs within a frame are totally ordered by drain-completion time. Across frames, ordering is per-frame only — there is no global epoch sequence.
+**Ordering.** Epochs within a frame are totally ordered by event settle-order — the order in which dequeued events complete their cascades. (A drain that settles several events back-to-back yields one epoch per event, in dequeue order.) Across frames, ordering is per-frame only — there is no global epoch sequence.
 
 **Bounded history.** The runtime keeps the last *N* epochs per frame (default 50, configurable via `(rf/configure :epoch-history {:depth N})`). Older epochs are discarded.
 
@@ -443,7 +443,7 @@ The full attachment surface, from the tool's point of view:
 | Need | Surface | Spec |
 |---|---|---|
 | Receive live trace events | `(rf/register-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
-| Receive per-drain assembled epoch records | `(rf/register-epoch-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
+| Receive per-event assembled epoch records | `(rf/register-epoch-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Restore an epoch | `(rf/restore-epoch frame-id epoch-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
@@ -469,7 +469,7 @@ The consumption pattern is therefore:
 
 > **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
 
-Two listener shapes coexist by design: `register-listener!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
+Two listener shapes coexist by design: `register-listener!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per dequeued event (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)), with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
 
 This is **dev-only** end-to-end — every primitive listed above elides in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Pair-shaped tools do not ship in production binaries.
 
@@ -504,11 +504,11 @@ For per-cascade structured projections (sub-cache hit/miss, render attribution, 
 
 ### Subscribing to assembled epoch records
 
-`register-epoch-listener!` callbacks fire **once per drain-settle**, with the cascade's `:sub-runs` / `:renders` / `:effects` projections already computed. Pair-shaped tools, post-mortem dashboards, and "what just happened?" probes typically consume this shape rather than re-folding the raw trace stream:
+`register-epoch-listener!` callbacks fire **once per dequeued event** (one per epoch, per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)), with the cascade's `:sub-runs` / `:renders` / `:effects` projections already computed. A drain that settles several events back-to-back therefore fires the callback once per settled event, in dequeue order. Pair-shaped tools, post-mortem dashboards, and "what just happened?" probes typically consume this shape rather than re-folding the raw trace stream:
 
 ```clojure
 ;; A pair-tool dashboard routing diagnostics off the assembled per-cascade record.
-;; - One callback per drain-settle (NOT per emitted trace event).
+;; - One callback per dequeued event / epoch (NOT per drain, NOT per emitted trace event).
 ;; - The record is fully shaped: :db-before, :db-after, :sub-runs, :renders, :effects.
 ;; - The record has already been appended to (rf/epoch-history (:frame ev)).
 
@@ -540,7 +540,7 @@ Edge-case behaviour the example does not exercise but consumers should know abou
 
 - **Listener exceptions are caught.** A throw inside the callback does not propagate to the framework or other listeners (per [009 §register-epoch-listener! invocation rules](009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). The framework does **not** auto-evict the throwing listener — repeated throws keep the registration in place; eviction is the consumer's call.
 - **Re-entrant dispatch from a callback.** A callback that calls `(rf/dispatch …)` enqueues the new event; the new dispatch's drain begins on stack-unwind from the current callback fan-out, not before. Other registered epoch listeners still receive the *current* record before the re-entrant dispatch begins.
-- **`(rf/configure :epoch-history {:depth 0})` and listeners.** Setting depth to 0 disables the per-frame ring buffer (so `(rf/epoch-history frame-id)` returns `[]`) but does **not** stop epoch listeners from firing — `register-epoch-listener!` callbacks continue to receive the assembled record on every drain-settle. Tools that need the assembled stream without retaining history should set depth `0` and consume via `register-epoch-listener!` only.
+- **`(rf/configure :epoch-history {:depth 0})` and listeners.** Setting depth to 0 disables the per-frame ring buffer (so `(rf/epoch-history frame-id)` returns `[]`) but does **not** stop epoch listeners from firing — `register-epoch-listener!` callbacks continue to receive the assembled record once per dequeued event. Tools that need the assembled stream without retaining history should set depth `0` and consume via `register-epoch-listener!` only.
 - **Frame-destroyed mid-observation.** Tool-Pair surface behaviour against destroyed frames (epoch-history reads, in-flight epoch-cb deliveries, restore against a now-destroyed frame, listener silencing) is closed in [§Surface behaviour against destroyed frames](#surface-behaviour-against-destroyed-frames). Read-shaped surfaces return empty shapes; mutating-shaped surfaces raise `:rf.error/no-such-handler` (kind `:frame`); a previously-firing callback whose observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
 
 ### Implications for downstream tools
