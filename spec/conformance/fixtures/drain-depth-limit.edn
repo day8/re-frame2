@@ -48,11 +48,11 @@
   :final-app-db {:depth 5}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :recursive}}
-   {:operation :event :tags {:event-id :recursive}}
-   {:operation :event :tags {:event-id :recursive}}
-   {:operation :event :tags {:event-id :recursive}}
-   {:operation :event :tags {:event-id :recursive}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :recursive}}
+   {:operation :rf.event :tags {:rf.trace/event-id :recursive}}
+   {:operation :rf.event :tags {:rf.trace/event-id :recursive}}
+   {:operation :rf.event :tags {:rf.trace/event-id :recursive}}
+   {:operation :rf.event :tags {:rf.trace/event-id :recursive}}
    ;; Drain depth exceeded — the 6th (halting) event is not run. Per
    ;; rf2-nj6p7 there is no whole-drain rollback, so :rollback? is false;
    ;; the already-settled events are durable.

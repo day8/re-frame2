@@ -99,8 +99,8 @@
   ;; recompute mid-cascade — the runtime's :sub/run only fires when
   ;; queried.
   :trace-emissions
-  [{:operation :event :tags {:event-id :boot/init}}
-   {:operation :event :tags {:event-id :quiz}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :boot/init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :quiz}}
    ;; Outer macrostep trace — ONE per dispatch. Tags carry :before /
    ;; :after snapshots (per machines.lifecycle-fx.registration/
    ;; commit-or-finalize). The :after snapshot's :state is :winner

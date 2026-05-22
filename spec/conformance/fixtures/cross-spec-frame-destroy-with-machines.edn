@@ -14,7 +14,7 @@
 ;;   1. Each active machine emits `:rf.machine.lifecycle/destroyed` with
 ;;      `:reason :parent-frame-destroyed`, carrying the destroyed frame
 ;;      id, the machine id, and the snapshot's `:last-state`.
-;;   2. After every machine has settled, the frame's `:frame/destroyed`
+;;   2. After every machine has settled, the frame's `:rf.frame/destroyed`
 ;;      trace fires.
 ;;
 ;; This fixture exercises the singleton-machine path (one machine
@@ -77,11 +77,11 @@
  ;;      signal while the handler still resolves).
  ;;   5. :frame/destroyed fires last.
  {:trace-emissions
-  [{:operation :event :tags {:event-id :boot/seed}}
-   {:operation :event :tags {:event-id :auth/session}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :boot/seed}}
+   {:operation :rf.event :tags {:rf.trace/event-id :auth/session}}
    {:operation :rf.machine.lifecycle/destroyed
     :tags      {:frame      :rf/default
                 :machine-id :auth/session
                 :last-state :authenticated
                 :reason     :parent-frame-destroyed}}
-   {:operation :frame/destroyed :tags {:frame :rf/default}}]}}
+   {:operation :rf.frame/destroyed :tags {:frame :rf/default}}]}}

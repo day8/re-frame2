@@ -30,12 +30,12 @@
  {:final-app-db {:count 2}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :counter/init}}
-   {:operation :event :tags {:event-id :counter/inc}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :counter/init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/inc}}
    {:operation :rf.error/no-such-handler
     :op-type   :error
     :tags      {:category :rf.error/no-such-handler
-                :event    [:does-not-exist]
+                :rf.event/v    [:does-not-exist]
                 :kind     :event}
     :recovery  :replaced-with-default}
-   {:operation :event :tags {:event-id :counter/inc}}]}}
+   {:operation :rf.event :tags {:rf.trace/event-id :counter/inc}}]}}

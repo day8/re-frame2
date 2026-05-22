@@ -451,7 +451,7 @@ The full attachment surface, from the tool's point of view:
 | Configure history depth | `(rf/configure :epoch-history {:depth N})` and `(rf/configure :trace-buffer {:depth N})` | [API.md](API.md) |
 | Inspect registered app-db schemas | `(rf/app-schemas frame-id)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
 | Tag dispatches by actor (e.g. tool vs app) | `:origin` opt on `(rf/dispatch event opts)` | [002 §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) |
-| Correlate a dispatch cascade | `:dispatch-id` + `:parent-dispatch-id` on `:event/dispatched` traces | [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id) |
+| Correlate a dispatch cascade | `:rf.trace/dispatch-id` + `:rf.trace/parent-dispatch-id` on `:rf.event/dispatched` traces | [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id) |
 | Enumerate frames | `(rf/frame-ids)`, `(rf/frame-meta id)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Read a frame's app-db | `(rf/get-frame-db frame-id)` / `(rf/snapshot-of path opts)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Inspect the registry | `(rf/registrations kind)`, `(rf/handler-meta kind id)` | [001](001-Registration.md), [002](002-Frames.md) |
@@ -498,7 +498,7 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
         nil))))
 ```
 
-The same pattern works for any subsystem with a dedicated op-type — `:machine` for state-machine activity, `:event` for the dispatch / drain stream, `:sub/run` and `:sub/create` for subscription work, `:fx` for effect handlers. New op-types are additive (per [009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)); tools ignore op-types they don't understand.
+The same pattern works for any subsystem with a dedicated op-type — `:rf.machine` for state-machine activity, `:rf.event` for the dispatch / drain stream, `:rf.sub` for subscription work, `:rf.fx` for effect handlers. New op-types are additive (per [009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)); tools ignore op-types they don't understand.
 
 For per-cascade structured projections (sub-cache hit/miss, render attribution, effect outcome), tools route off `register-epoch-listener!`'s assembled `:rf/epoch-record` instead — the §[Time-travel](#time-travel-epoch-snapshots-and-undo) projection slots already pre-fold the per-cascade trace into the `:sub-runs` / `:renders` / `:effects` shape. The raw-stream filter pattern above is the right shape for fine-grained per-event consumption.
 

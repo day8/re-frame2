@@ -87,4 +87,4 @@
    {:operation :rf.route.nav-token/stale-suppressed
     :tags      {:carried-token "nav-1"
                 :current-token "nav-2"
-                :event-id      :article/loaded}}]}}
+                :rf.trace/event-id      :article/loaded}}]}}

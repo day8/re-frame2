@@ -8,7 +8,7 @@
 ;; reachable data on the other three axes.
 ;;
 ;; Per Spec 009 §Trace operations / §Retain-N trace ring buffer
-;; (`(trace-buffer {:op-type :fx})`, `{:operation :rf.error/...}`,
+;; (`(trace-buffer {:op-type :rf.fx})`, `{:operation :rf.error/...}`,
 ;; `{:severity :error}`): the filter axes presuppose the trace bus
 ;; emits at least one event per category in canonical app cascades.
 ;; This fixture drives one cascade that fires events in all four
@@ -53,20 +53,20 @@
 
   :trace-emissions
   [;; :rf.event/* category — event lifecycle. The :on-create
-   ;; :counter/initialise is the first hit; the explicit :event matcher
-   ;; covers the canonical lifecycle emit point (Spec 009 §:event
+   ;; :counter/initialise is the first hit; the explicit :rf.event matcher
+   ;; covers the canonical lifecycle emit point (Spec 009 §:rf.event
    ;; trace-event vocabulary).
-   {:operation :event
-    :op-type   :event
-    :tags      {:event-id :counter/initialise}}
+   {:operation :rf.event
+    :op-type   :rf.event
+    :tags      {:rf.trace/event-id :counter/initialise}}
 
    ;; :rf.fx/* category — fx routing. The :log fx the :counter/inc
    ;; handler emitted lands on the trace bus as :rf.fx/handled with
-   ;; :op-type :fx. This is what the trace-buffer's `{:op-type :fx}`
+   ;; :op-type :rf.fx. This is what the trace-buffer's `{:op-type :rf.fx}`
    ;; filter selects on (Spec 009 §Retain-N trace ring buffer).
    {:operation :rf.fx/handled
-    :op-type   :fx
-    :tags      {:fx-id :log}}
+    :op-type   :rf.fx
+    :tags      {:rf.fx/id :log}}
 
    ;; :rf.error/* category — structured failures. :will-throw throws;
    ;; the runtime emits :rf.error/handler-exception with :op-type :error.
@@ -79,28 +79,28 @@
 
    ;; :rf.sub/* category — sub computation. The runner's :sub-values
    ;; check below invokes rf/subscribe-once, which the runtime
-   ;; instruments with a :sub/run emit (Spec 009 §:sub/run trace event,
-   ;; rf2-i7eb). The :op-type is :sub/run; trace-buffer's
-   ;; `{:op-type :sub/run}` filter selects on that.
+   ;; instruments with a :rf.sub/run emit (Spec 009 §:rf.sub/run trace event,
+   ;; rf2-i7eb). The :op-type is :rf.sub; trace-buffer's
+   ;; `{:op-type :rf.sub}` filter selects on that.
    ;;
-   ;; Per rf2-l1jz8 the reactive recompute path enriches the :sub/run
-   ;; tag with value-change + cascade attribution (Spec 009 §:sub/run
+   ;; Per rf2-l1jz8 the reactive recompute path enriches the :rf.sub/run
+   ;; tag with value-change + cascade attribution (Spec 009 §:rf.sub/run
    ;; trace event). This is the FIRST recompute of `:count` (subscribe-
-   ;; once subscribes fresh), so `:value-changed?` is true (the
-   ;; no-prior-value sentinel reports a change) and `:value` is the
+   ;; once subscribes fresh), so `:rf.sub/value-changed?` is true (the
+   ;; no-prior-value sentinel reports a change) and `:rf.sub/value` is the
    ;; freshly-computed `1`. `:count` is a layer-1 sub (reads app-db
-   ;; directly), so `:cascade?` is false and there is no upstream
-   ;; `:cause-sub`. The cross-recompute cases (value-unchanged,
-   ;; layer-2 cascade naming `:cause-sub`) need a held reactive
+   ;; directly), so `:rf.sub/cascade?` is false and there is no upstream
+   ;; `:rf.sub/cause-sub`. The cross-recompute cases (value-unchanged,
+   ;; layer-2 cascade naming `:rf.sub/cause-sub`) need a held reactive
    ;; subscription across two dispatches, which the corpus's
    ;; subscribe-once-at-expect model can't express; they're pinned by
    ;; the reference substrate trace tests instead.
-   {:operation :sub/run
-    :op-type   :sub/run
-    :tags      {:sub-id         :count
-                :value-changed? true
-                :value          1
-                :cascade?       false}}]
+   {:operation :rf.sub/run
+    :op-type   :rf.sub
+    :tags      {:rf.sub/id             :count
+                :rf.sub/value-changed? true
+                :rf.sub/value          1
+                :rf.sub/cascade?       false}}]
 
   :effects-routed
   [{:fx-id :log :args {:msg "incremented"}}]}}

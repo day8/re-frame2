@@ -36,11 +36,11 @@
   :sub-values     {[:user] {:id "u-1" :name "Test User"}}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :user/load}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :user/load}}
    ;; The override redirected the :http effect to :http.canned-user.
    ;; A trace event records that the override was applied.
-   {:operation :rf.fx/override-applied :tags {:from :http :to :http.canned-user}}
-   {:operation :event :tags {:event-id :user/loaded}}]
+   {:operation :rf.fx/override-applied :tags {:rf.fx/from :http :rf.fx/to :http.canned-user}}
+   {:operation :rf.event :tags {:rf.trace/event-id :user/loaded}}]
 
   :effects-routed
   [{:fx-id :http.canned-user

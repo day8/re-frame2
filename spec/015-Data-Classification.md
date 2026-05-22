@@ -252,7 +252,7 @@ Paths in a cofx's `:sensitive` / `:large` declaration index into the **value the
   (fn [cofx]
     (assoc cofx :user/profile (load-profile))))
 
-;; Trace-bus emit of the assembled cofx-map (under :event/do-fx tags):
+;; Trace-bus emit of the assembled cofx-map (under :rf.fx/do-fx tags):
 ;;   {:auth/jwt     :rf/redacted
 ;;    :user/profile {:ssn :rf/redacted
 ;;                   :dob :rf/redacted
@@ -501,7 +501,7 @@ The `:source` slot is for tooling (Causa's "why is this redacted?" affordance re
 
 ## Author guidance for the exception-path residual
 
-The path-marked declarations in this Spec redact at the five observation surfaces named in [§Scope](#in-scope--the-five-observation-points-marks-must-guard). They walk **known data shapes** — the trace event's `:tags :event` slot, `:tags :app-db-after`, `:tags :sub-output`, and friends — and substitute sentinels at marked paths. They do NOT walk:
+The path-marked declarations in this Spec redact at the five observation surfaces named in [§Scope](#in-scope--the-five-observation-points-marks-must-guard). They walk **known data shapes** — the trace event's `:tags :rf.event/v` slot, `:tags :app-db-after`, `:tags :sub-output`, and friends — and substitute sentinels at marked paths. They do NOT walk:
 
 - **Exception messages.** Once a sensitive value has been concatenated into an `ex-message` string, no path resolves to the substring; the walker has no rule that says "this substring of this string is a marked leaf."
 - **`ex-data` maps.** The map's keys are author-chosen (`{:user/email "..."}`); they have no relationship to the path-marked declarations in `[:rf/elision :sensitive-declarations]`. A walker rule that scrubbed `:user/email` would either need a separate ex-data-key registration (which would duplicate the path declaration and drift) or auto-detect by value comparison (the [§Out of scope §Full taint-tracking system](#out-of-scope-explicit-non-goals) non-goal).
@@ -540,14 +540,14 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 
 | Fixture | What it asserts |
 |---|---|
-| `data-classification/event-arg-sensitive-path-redacts-in-trace.edn` | A `reg-event-fx` with `:sensitive [[:password]]`, when dispatched with `{:password "secret"}`, produces an `:event/dispatched` trace event whose `:tags :event` slot renders `[:event-id {:password :rf/redacted}]`. |
-| `data-classification/app-db-sensitive-path-redacts-in-diff.edn` | A frame with `set-marks {[:user :ssn] :sensitive}`, after dispatching an event that writes `"123-45-6789"` to `[:user :ssn]`, produces an `:event/db-changed` trace event whose `:tags :app-db-after` slot renders `:rf/redacted` at that path. |
-| `data-classification/sub-auto-propagates-sensitivity.edn` | A `reg-sub` reading `[:user :ssn]` (marked sensitive at `set-marks`) with no `:sensitive?` override produces a `:sub/run` trace event whose output value is marked sensitive (the sub's value, when re-emitted into a downstream trace event, renders as `:rf/redacted`). |
-| `data-classification/sub-explicit-opt-out-honoured.edn` | A `reg-sub` reading sensitive app-db data with `{:sensitive? false}` produces a `:sub/run` trace event whose output is NOT marked (the value renders unredacted). |
+| `data-classification/event-arg-sensitive-path-redacts-in-trace.edn` | A `reg-event-fx` with `:sensitive [[:password]]`, when dispatched with `{:password "secret"}`, produces an `:rf.event/dispatched` trace event whose `:tags :rf.event/v` slot renders `[:event-id {:password :rf/redacted}]`. |
+| `data-classification/app-db-sensitive-path-redacts-in-diff.edn` | A frame with `set-marks {[:user :ssn] :sensitive}`, after dispatching an event that writes `"123-45-6789"` to `[:user :ssn]`, produces an `:rf.event/db-changed` trace event whose `:tags :app-db-after` slot renders `:rf/redacted` at that path. |
+| `data-classification/sub-auto-propagates-sensitivity.edn` | A `reg-sub` reading `[:user :ssn]` (marked sensitive at `set-marks`) with no `:sensitive?` override produces a `:rf.sub/run` trace event whose output value is marked sensitive (the sub's value, when re-emitted into a downstream trace event, renders as `:rf/redacted`). |
+| `data-classification/sub-explicit-opt-out-honoured.edn` | A `reg-sub` reading sensitive app-db data with `{:sensitive? false}` produces a `:rf.sub/run` trace event whose output is NOT marked (the value renders unredacted). |
 | `data-classification/combined-sensitive-and-large.edn` | A path declared in both `:sensitive` and `:large` (or marked by one source and inheriting from another) renders as `:rf/redacted {:bytes N}` — the combined sentinel form. |
 | `data-classification/cofx-empty-path-redacts-whole.edn` | A `reg-cofx` with `{:sensitive [[]]}` produces a trace event whose corresponding cofx-map slot renders `:rf/redacted` for the whole injected value. |
 | `data-classification/machine-data-sensitive-path-redacts-in-snapshot.edn` | A `reg-machine` with `:sensitive [[:data :jwt]]`, after a transition that writes a JWT into `:data`, produces an `:rf.machine/snapshot-updated` trace event whose `:tags :snapshot :data :jwt` slot renders `:rf/redacted`. |
-| `data-classification/flow-output-inherits-from-input.edn` | A `reg-flow` whose `:inputs` include a sensitive app-db path produces a flow `:path` write whose value is marked sensitive in the downstream `:event/db-changed` trace event. |
+| `data-classification/flow-output-inherits-from-input.edn` | A `reg-flow` whose `:inputs` include a sensitive app-db path produces a flow `:path` write whose value is marked sensitive in the downstream `:rf.event/db-changed` trace event. |
 | `data-classification/set-marks-replaces-not-merges.edn` | A second `set-marks` call against the same frame *replaces* the previous declaration set (the previous set's paths no longer redact). |
 | `data-classification/add-marks-merges-not-replaces.edn` | A second `add-marks` call against the same frame MERGES into the previous declaration set (the previous set's paths still redact). |
 | `data-classification/schema-and-app-db-marks-union.edn` | A path declared sensitive by schema (per [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)) AND a different path declared sensitive by `add-marks` / `set-marks` both redact in the same observation; the two sources union. |

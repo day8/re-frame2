@@ -25,14 +25,14 @@
 
  :fixture/expect
  {:trace-emissions
-  [{:operation :event
-    :tags     {:event-id :storage/save}}
+  [{:operation :rf.event
+    :tags     {:rf.trace/event-id :storage/save}}
    ;; The fx was skipped because :server is not in :platforms.
    {:operation :rf.fx/skipped-on-platform
     :op-type   :warning
-    :tags     {:fx-id                :localstorage/set
-               :platform             :server
-               :registered-platforms #{:client}}
+    :tags     {:rf.fx/id                :localstorage/set
+               :rf.fx/platform             :server
+               :rf.fx/registered-platforms #{:client}}
     :recovery :skipped}]
 
   :effects-routed []                                  ;; nothing was actually routed; :localstorage/set was skipped

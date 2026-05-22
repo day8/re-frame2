@@ -58,12 +58,12 @@
                   :value {:ok true :recovered-on :attempt-2}}}}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :flaky/load}}
-   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
-                                              :to   :rf.http/managed-canned-success}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :flaky/load}}
+   {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
+                                              :rf.fx/to   :rf.http/managed-canned-success}}
    ;; Exactly one :on-success dispatch — intermediate :rf.http/retry-attempt
    ;; traces ride the live fx, not the canned-success stub.
-   {:operation :event :tags {:event-id :flaky/load-success}}]
+   {:operation :rf.event :tags {:rf.trace/event-id :flaky/load-success}}]
 
   :effects-routed
   [{:fx-id :rf.http/managed-canned-success

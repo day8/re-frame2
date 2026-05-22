@@ -56,4 +56,4 @@
     :tags      {:url "/garbage/path" :kind :route}}
 
    ;; The not-found route's :on-match events still fire.
-   {:operation :event :tags {:event-id :analytics/log-404}}]}}
+   {:operation :rf.event :tags {:rf.trace/event-id :analytics/log-404}}]}}

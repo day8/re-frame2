@@ -51,5 +51,5 @@
     :tags      {:route-id :route/cart}}
 
    ;; The two on-match events fire in declaration order.
-   {:operation :event :tags {:event-id :cart/load-items}}
-   {:operation :event :tags {:event-id :user/load-prefs}}]}}
+   {:operation :rf.event :tags {:rf.trace/event-id :cart/load-items}}
+   {:operation :rf.event :tags {:rf.trace/event-id :user/load-prefs}}]}}

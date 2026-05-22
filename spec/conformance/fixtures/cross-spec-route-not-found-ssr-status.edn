@@ -63,8 +63,8 @@
    :analytics   {:last-404 true}}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :rf/server-init}}
-   {:operation :event :tags {:event-id :rf.route/handle-url-change}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :rf/server-init}}
+   {:operation :rf.event :tags {:rf.trace/event-id :rf.route/handle-url-change}}
    ;; The runtime emits :rf.error/no-such-handler when match-url returns nil.
    ;; (Per Spec 012 §Route-not-found, route-not-found IS treated as an error
    ;; on the wire — it surfaces an :rf.error/no-such-handler trace and the
@@ -81,7 +81,7 @@
     ;; [Spec 009 §Error categories — :rf.error/no-such-handler].
     :tags      {:url "/missing" :kind :route}}
    ;; The not-found route's :on-match still fires.
-   {:operation :event :tags {:event-id :analytics/log-404}}]
+   {:operation :rf.event :tags {:rf.trace/event-id :analytics/log-404}}]
 
   ;; The default projector's public-error shape.
   :ssr/public-error

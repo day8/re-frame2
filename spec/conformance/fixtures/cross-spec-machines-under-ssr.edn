@@ -80,7 +80,7 @@
   ;; If the runtime mis-handled SSR machines and emitted /scheduled,
   ;; this assertion would fail.
   :trace-emissions
-  [{:operation :event :tags {:event-id :auth/probe}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :auth/probe}}
    {:operation :rf.machine.timer/skipped-on-server
     :tags      {:machine-id   :auth/probe
                 :state        :loading

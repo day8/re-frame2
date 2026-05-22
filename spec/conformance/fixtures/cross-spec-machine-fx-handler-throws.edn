@@ -62,14 +62,14 @@
    :fx-log      [{:tag :will-record}]}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :test/m}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :test/m}}
    ;; Machine transition succeeded — snapshot committed.
    {:operation :rf.machine/transition
     :tags      {:machine-id :test/m}}
    ;; The throwing fx surfaces a structured fx-handler-exception trace.
    {:operation :rf.error/fx-handler-exception
     :op-type   :error
-    :tags      {:fx-id             :throwy
+    :tags      {:rf.fx/id             :throwy
                 :exception-message "fx-bang"}}]
 
   ;; The runtime DID attempt to route both fx — order matches declared

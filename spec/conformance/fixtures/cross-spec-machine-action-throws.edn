@@ -59,7 +59,7 @@
  {:final-app-db {}
 
   :trace-emissions
-  [{:operation :event :tags {:event-id :test/m}}
+  [{:operation :rf.event :tags {:rf.trace/event-id :test/m}}
    ;; Machine-scoped error trace fires with the original message.
    {:operation :rf.error/machine-action-exception
     :op-type   :error

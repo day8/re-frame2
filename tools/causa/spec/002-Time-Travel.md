@@ -215,7 +215,7 @@ A pin is the **4-tuple** `(epoch-id × frame-db-value × dispatch-id × user-lab
 |---|---|---|
 | `:epoch-id` | `:rf/epoch-record :epoch-id` ([Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record)) | The opaque history key the scrubber and `restore-epoch` both address. |
 | `:frame-db` | `:rf/epoch-record :db-after` | A direct handle to the value the user marked — survives if `epoch-history` ages the slot out of the ring buffer. |
-| `:dispatch-id` | `:rf/epoch-record`'s cascade root (`:tags :dispatch-id` on the trigger event, per [Spec 009 §Dispatch correlation](../../../spec/009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)) | Links the pin to the cascade that produced the epoch. |
+| `:dispatch-id` | `:rf/epoch-record`'s cascade root (`:tags :rf.trace/dispatch-id` on the trigger event, per [Spec 009 §Dispatch correlation](../../../spec/009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id)) | Links the pin to the cascade that produced the epoch. |
 | `:label` | User-supplied string (the prompt that opens when `*` fires) | What the programmer reads on the scrubber. Defaults to `pin-<n>` (incrementing per session) if the user dismisses the prompt. |
 
 The capture is **eager**: pinning copies the four slots into Causa's
