@@ -45,6 +45,23 @@
     (is (= 2 (count (filter :final? nodes)))
         "final states are flagged")))
 
+(deftest parse-definition-flags-compound-initial
+  (testing "rf2-54s5a — a compound parent's :initial child is flagged
+            :initial? (xstate per-level initial semantics)"
+    (let [{:keys [nodes]} (layout/parse-definition compound-machine)
+          browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))]
+      (is (true? (:initial? browsing))))))
+
+(deftest parse-definition-wires-compound-parent-id
+  (testing "rf2-54s5a — compound substates carry :parent-id (the
+            parent's node-id) for xyflow parentNode nesting; top-level
+            states carry none"
+    (let [{:keys [nodes]} (layout/parse-definition compound-machine)
+          browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))
+          unauth   (first (filter #(= [:unauth] (:path %)) nodes))]
+      (is (= (layout/node-id [:authenticated]) (:parent-id browsing)))
+      (is (nil? (:parent-id unauth))))))
+
 (deftest parse-definition-extracts-edges
   (let [{:keys [edges]} (layout/parse-definition idle-loading-success)
         edge-pairs (set (map (juxt :from :to :event) edges))]

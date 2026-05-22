@@ -119,19 +119,28 @@
         from-path  (.-fromPath d)
         to-path    (.-toPath d)
         clickable? (and (fn? on-click) (some? event-id))
+        self-loop? (boolean (.-selfLoop d))
         {:keys [edge-label-px edge-label-backplate-opacity]} vc
-        ;; xyflow's getBezierPath returns [path-string label-x label-y
-        ;; offset-x offset-y]. Use a JS-side destructure via aget.
-        bz (get-bezier-path
-             #js {:sourceX        src-x
-                  :sourceY        src-y
-                  :sourcePosition src-pos
-                  :targetX        tgt-x
-                  :targetY        tgt-y
-                  :targetPosition tgt-pos})
-        path  (aget bz 0)
-        label-x (aget bz 1)
-        label-y (aget bz 2)
+        ;; A self-transition (source == target) renders as a small loop
+        ;; off the node's edge instead of xyflow's degenerate near-zero
+        ;; bezier. Everything else uses `getBezierPath`, which returns
+        ;; [path-string label-x label-y offset-x offset-y] (aget'd).
+        [path label-x label-y]
+        (if self-loop?
+          (let [r 30]
+            [(str "M " src-x "," src-y
+                  " C " (+ src-x r) "," (- src-y r)
+                  " "  (+ src-x r) "," (+ src-y r)
+                  " "  src-x       "," src-y)
+             (+ src-x r 4) src-y])
+          (let [bz (get-bezier-path
+                     #js {:sourceX        src-x
+                          :sourceY        src-y
+                          :sourcePosition src-pos
+                          :targetX        tgt-x
+                          :targetY        tgt-y
+                          :targetPosition tgt-pos})]
+            [(aget bz 0) (aget bz 1) (aget bz 2)]))
         stroke  (edge-stroke {:active? active? :focused? focused?})
         stroke-w (edge-stroke-width {:active? active? :focused? focused? :chart vc})]
     (r/as-element
@@ -143,6 +152,7 @@
                                  :strokeWidth stroke-w
                                  :animation (when focused?
                                               "mv-chart-transition-glow 720ms ease-out infinite")}}]
+       (when (seq label)
        [:> EdgeLabelRenderer
         [:div {:data-testid (str "rf-mv-chart-edge-" (.-id props))
                :data-event (when label label)
@@ -185,7 +195,7 @@
                                               (tokens/with-alpha :border-subtle 0.4)))
                        :white-space    "nowrap"
                        :user-select    "none"}}
-         label]]])))
+         label]])])))
 
 ;; ---- after-edge ---------------------------------------------------------
 
