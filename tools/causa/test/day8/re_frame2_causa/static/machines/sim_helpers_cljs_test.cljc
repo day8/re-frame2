@@ -271,7 +271,83 @@
     (is (= [:start] (-> trail first :event)))
     (is (= [:ok]    (-> trail last :event)))))
 
-;; ---- (8) format helpers --------------------------------------------------
+;; ---- (8) on-chart binding helpers (rf2-u422r) ---------------------------
+;;
+;; The on-chart simulator binds the topology chart to this same engine:
+;; `current-sim-state` drives the active-state highlight, `last-transition`
+;; drives the focused-edge animation, and `edge-click->event` coerces an
+;; on-chart edge click into a step-event. Pure data → data, so pinned here
+;; at the cheap JVM layer.
+
+(deftest current-sim-state-reads-snapshot-state
+  (testing "current-sim-state returns the snapshot's :state for the chart
+            active-state highlight"
+    (let [s0 (sim-h/make-sim-state :auth/login flat-definition)]
+      (is (= :idle (sim-h/current-sim-state s0))))))
+
+(deftest current-sim-state-is-nil-safe
+  (testing "nil sim-state / missing snapshot → nil (no highlight)"
+    (is (nil? (sim-h/current-sim-state nil)))
+    (is (nil? (sim-h/current-sim-state {})))))
+
+(deftest current-sim-state-tracks-vector-paths
+  (testing "a hierarchical :state path surfaces unchanged for the chart"
+    (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition)]
+      ;; hierarchical-definition's :initial is :auth (a compound) — the
+      ;; seed snapshot keeps it as the declared :initial value.
+      (is (= :auth (sim-h/current-sim-state s0))))))
+
+(deftest last-transition-nil-before-any-step
+  (testing "no step taken yet → nil (no edge to animate)"
+    (let [s0 (sim-h/make-sim-state :auth/login flat-definition)]
+      (is (nil? (sim-h/last-transition s0)))
+      (is (nil? (sim-h/last-transition nil))))))
+
+(deftest last-transition-projects-most-recent-audit-row
+  (testing "last-transition projects the newest audit row into the chart's
+            focused-event lens {:from :to :event}"
+    (let [ok1 {:re-frame.machines.result/tag :ok
+               :re-frame.machines.result/snap {:state :authing :data {}}
+               :re-frame.machines.result/fx []}
+          ok2 {:re-frame.machines.result/tag :ok
+               :re-frame.machines.result/snap {:state :done :data {}}
+               :re-frame.machines.result/fx []}
+          s0  (sim-h/make-sim-state :auth/login flat-definition)
+          s1  (sim-h/step-sim s0 [:start] (constantly ok1))
+          s2  (sim-h/step-sim s1 [:ok]    (constantly ok2))
+          lt  (sim-h/last-transition s2)]
+      (is (= :authing (:from lt)) "from = the second step's prior state")
+      (is (= :done    (:to lt))   "to = the second step's landing state")
+      (is (= [:ok]    (:event lt))))))
+
+(deftest last-transition-unchanged-by-failed-step
+  (testing "a failed step does not append a row, so last-transition still
+            reflects the last SUCCESSFUL transition (the chart keeps the
+            prior edge lit while the guard error toasts)"
+    (let [ok  {:re-frame.machines.result/tag :ok
+               :re-frame.machines.result/snap {:state :authing :data {}}
+               :re-frame.machines.result/fx []}
+          s0  (sim-h/make-sim-state :auth/login flat-definition)
+          s1  (sim-h/step-sim s0 [:start] (constantly ok))
+          s2  (sim-h/step-sim s1 [:bad]   (constantly fail-result))
+          lt  (sim-h/last-transition s2)]
+      (is (= :idle    (:from lt)))
+      (is (= :authing (:to lt)))
+      (is (= [:start] (:event lt))))))
+
+(deftest edge-click->event-coerces-keyword-to-vector
+  (testing "a fireable event-id keyword → a `[event-id]` step vector"
+    (is (= [:start] (sim-h/edge-click->event :start)))
+    (is (= [:auth/login] (sim-h/edge-click->event :auth/login)))))
+
+(deftest edge-click->event-nil-for-non-fireable
+  (testing "a nil event-id (an inert :after / :always auto edge, or a
+            non-keyword) → nil so the click is a no-op step"
+    (is (nil? (sim-h/edge-click->event nil)))
+    (is (nil? (sim-h/edge-click->event "start")))
+    (is (nil? (sim-h/edge-click->event 42)))))
+
+;; ---- (9) format helpers --------------------------------------------------
 
 (deftest format-state-display-handles-shapes
   (is (= "(none)" (sim-h/format-state-display nil)))

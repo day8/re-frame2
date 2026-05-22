@@ -296,6 +296,11 @@
    :rf.causa.static.machines/sim-by-machine
    :rf.causa.static.machines/sim-event-suggestions
    :rf.causa.static.machines/sim-state
+   ;; rf2-u422r (epic rf2-nrrtb) — on-chart sim binding subs: the
+   ;; current snapshot state (active-state highlight) + the last
+   ;; transition (focused-edge animation).
+   :rf.causa.static.machines/sim-current-state
+   :rf.causa.static.machines/sim-last-transition
    ;; rf2-nqw0v Phase 5 — Share affordance subs.
    :rf.causa/share-copy-status
    :rf.causa/share-modal-open?
@@ -556,6 +561,10 @@
    :rf.causa.static.machines/sim-start
    :rf.causa.static.machines/sim-step
    :rf.causa.static.machines/sim-stop
+   ;; rf2-u422r (epic rf2-nrrtb) — on-chart edge click → step. Coerces
+   ;; the clicked transition edge's fireable event-id and folds one
+   ;; step through the same engine path the step-button drives.
+   :rf.causa.static.machines/sim-chart-edge-clicked
    :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
    ;; rf2-7hwwe — `:after` countdown rings event family. timer-tick

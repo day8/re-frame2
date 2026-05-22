@@ -139,6 +139,19 @@
     :sim?                — flips the highlight palette to amber.
     :on-state-click      — `(fn [path] ...)` invoked when a state
                            node is clicked.
+    :on-edge-click       — rf2-u422r. `(fn [{:keys [event-id from-path
+                           to-path]}] ...)` invoked when a transition
+                           edge's label is clicked. Threaded onto every
+                           edge `:data` as `:onClick` (+ the raw
+                           `:eventId` / `:fromPath` / `:toPath` so the
+                           edge component can hand the host the
+                           originating transition). The on-chart machine
+                           simulator (Causa) wires this to send the
+                           clicked event into the hermetic sim engine.
+                           Edges with no fireable event (`:after` /
+                           `:always`) carry the callback too but a nil
+                           `:eventId`; the host filters those out. nil
+                           omits the wiring entirely (no-op edge labels).
     :chart               — rf2-k647w. The resolved visual-constants
                            map for the active `:density`
                            (`visual-constants/chart-for-density`).
@@ -154,7 +167,8 @@
                            pixel-identical to pre-rf2-k647w."
   [{:keys [nodes edges]}
    positions
-   {:keys [highlight-id from-highlight-id to-highlight-id sim? on-state-click chart]
+   {:keys [highlight-id from-highlight-id to-highlight-id sim?
+           on-state-click on-edge-click chart]
     :or   {chart vc/chart-regular}}]
   {:nodes
    ;; rf2-lkwev — region container nodes MUST precede their children in
@@ -227,7 +241,16 @@
                  ;; url to its `<BaseEdge>`.
                  marker-color (if (or focused? from-active?)
                                 (:cyan tokens/tokens)
-                                (:border-default tokens/tokens))]
+                                (:border-default tokens/tokens))
+                 ;; rf2-u422r — only plain `:on` transitions carry a
+                 ;; user-fireable event-id. `:after`-timer + `:always`
+                 ;; eventless edges fire automatically inside the engine,
+                 ;; so their click carries a nil `:eventId` (the host —
+                 ;; e.g. Causa's on-chart sim — filters those out).
+                 fireable?    (and (nil? (:after e))
+                                    (not (:always? e))
+                                    (keyword? (:event e)))
+                 event-id     (when fireable? (:event e))]
              {:id     (:id e)
               :source (:source e)
               :target (:target e)
@@ -242,6 +265,15 @@
                        :afterMs    (:after e)
                        :guard      (some-> (:guard e) name)
                        :action     (some-> (:action e) name)
+                       ;; rf2-u422r — on-chart click wiring. `:eventId`
+                       ;; is the raw fireable event keyword (nil for
+                       ;; auto edges); `:fromPath` / `:toPath` give the
+                       ;; host the originating transition. `:onClick` is
+                       ;; the host callback (omitted when no wiring).
+                       :eventId    event-id
+                       :fromPath   (:from-path e)
+                       :toPath     (:to-path e)
+                       :onClick    on-edge-click
                        ;; rf2-k647w — resolved density constants for the
                        ;; edge-label typography (same rationale as the
                        ;; node payload above).

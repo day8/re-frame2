@@ -39,15 +39,33 @@
     - **Exit** disposes the per-machine sim slot and flips the strip's
       sub-mode back to `:topology`.
 
+  ## On-chart simulation (rf2-u422r, epic rf2-nrrtb)
+
+  Stately's signature is simulating ON the chart. The Sim body is a
+  two-pane split: `SimChart` (the topology chart bound to this engine)
+  is the PRIMARY surface — the active state highlights amber, the taken
+  transition's edge animates, and clicking an outgoing transition edge
+  SENDS that event into the sim. The `SimRail` side column carries the
+  payload input + Reset / Exit + guard error toast + audit trail. The
+  on-chart path REUSES the existing engine end-to-end (no new
+  transition logic): an edge click coerces the edge's fireable
+  event-id and folds ONE `step-sim` through the same
+  `rf/machine-transition` call the step-button drives.
+
   ## What this ns owns
 
     - The `body` view — the per-machine Sim panel mounted as the
       `:sim` sub-mode body in the Static Machines panel.
+    - `SimChart` — the on-chart simulation surface (rf2-u422r).
+    - `SimRail` — the side controls/diagnostics column.
     - The `pill` affordance — the `Sim` pill in the 4-mode sub-strip.
     - The `:rf.causa.static.machines/sim-*` events:
-      `sim-start`, `sim-step`, `sim-reset`, `sim-stop`, plus
+      `sim-start`, `sim-step`, `sim-reset`, `sim-stop`,
+      `sim-chart-edge-clicked` (rf2-u422r on-chart step), plus
       `sim-set-pending-event` / `sim-set-pending-data`.
-    - The `:rf.causa.static.machines/sim-*` sub family.
+    - The `:rf.causa.static.machines/sim-*` sub family, incl.
+      `sim-current-state` / `sim-last-transition` (rf2-u422r chart
+      binding).
 
   ## Helper algebra
 
@@ -55,6 +73,7 @@
   target drives it (`clojure -M:test`). This ns is the thin CLJS
   wrapper that wires the helpers to the reactive substrate."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.static.machines.sim-helpers :as sim-h]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -126,7 +145,22 @@
     :<- [:rf.causa.static.machines/sim-state]
     (fn [sim _query]
       (when sim
-        (sim-h/event-id-suggestions (:definition sim))))))
+        (sim-h/event-id-suggestions (:definition sim)))))
+
+  ;; rf2-u422r — the sim's current snapshot state, for the on-chart
+  ;; active-state highlight (amber via the chart's `:sim?` palette).
+  (rf/reg-sub :rf.causa.static.machines/sim-current-state
+    :<- [:rf.causa.static.machines/sim-state]
+    (fn [sim _query]
+      (sim-h/current-sim-state sim)))
+
+  ;; rf2-u422r — the most-recent transition `{:from :to :event}`, feeding
+  ;; the chart's focused-event lens so the taken edge animates after each
+  ;; on-chart (or step-button) step. nil before the first step.
+  (rf/reg-sub :rf.causa.static.machines/sim-last-transition
+    :<- [:rf.causa.static.machines/sim-state]
+    (fn [sim _query]
+      (sim-h/last-transition sim))))
 
 ;; ---- events -------------------------------------------------------------
 
@@ -172,6 +206,26 @@
           (assoc-in db [:rf.causa.static.machines/sim-by-machine machine-id]
             next-sim))
         db)))
+
+  ;; rf2-u422r — on-chart edge click → step. The chart's clickable edge
+  ;; hands us the raw fireable event-id; coerce it to a step event vector
+  ;; and fold it through the SAME engine path as the step-button (no new
+  ;; transition logic — `step-sim` + `run-machine-transition` are reused).
+  ;; A nil/non-keyword event-id (an inert auto edge) is a no-op so the
+  ;; click never produces a malformed dispatch.
+  (rf/reg-event-db :rf.causa.static.machines/sim-chart-edge-clicked
+    (fn [db [_ {:keys [machine-id event-id]}]]
+      (let [sim     (get-in db [:rf.causa.static.machines/sim-by-machine
+                                machine-id])
+            event-v (sim-h/edge-click->event event-id)]
+        (if (and sim event-v)
+          (let [runtime-fn (fn [ev]
+                             (run-machine-transition
+                               (:definition sim) (:snapshot sim) ev))
+                next-sim   (sim-h/step-sim sim event-v runtime-fn)]
+            (assoc-in db [:rf.causa.static.machines/sim-by-machine machine-id]
+              next-sim))
+          db))))
 
   ;; Update the pending event-input text (controlled-input).
   (rf/reg-event-db :rf.causa.static.machines/sim-set-pending-event
@@ -593,6 +647,73 @@
        (available-transitions-list machine-id (:pending-event sim) transitions)
        (audit-trail (:audit-trail sim))])))
 
+;; ---- on-chart simulation surface (rf2-u422r) ---------------------------
+
+(defn SimChart
+  "The on-chart simulation surface — the topology chart bound to the
+  hermetic sim engine (rf2-u422r, epic rf2-nrrtb). Stately's signature
+  is simulating ON the chart; this is the binding seam that delivers it.
+
+  Reuses the EXISTING engine end-to-end — no new transition logic:
+
+    - **Active state** — the sim snapshot's `:state`
+      (`:sim-current-state`) drives `machine-canvas/Chart`'s
+      `:current-state` with `:sim? true`, so the live node highlights
+      AMBER (distinct from the live cyan highlight on the Dynamic
+      surface).
+    - **Taken transition** — the last audit-trail row's `:from` / `:to`
+      (`:sim-last-transition`) drive the chart's focused-event lens
+      (`:from-highlight` / `:to-highlight`), animating the edge just
+      taken.
+    - **Click to send** — a click on an outgoing transition edge
+      dispatches `:sim-chart-edge-clicked`, which coerces the edge's
+      fireable event-id and folds ONE `step-sim` through the same
+      `rf/machine-transition` path the step-button uses. Guard
+      pass/fail surfaces exactly as it does for the button — a failed
+      guard leaves the snapshot put + stamps `:last-error` (rendered in
+      the side rail's error toast).
+
+  Returns nil when sim is inactive (the auto-start gap) so the host's
+  `when sim` guard keeps the render safe.
+
+  Pure hiccup (Causa rf2-tijr convention) — subscribes/dispatches
+  resolve against `:rf/causa` via the shell's frame-provider."
+  [{:keys [machine-id definition]}]
+  (let [current     @(rf/subscribe
+                       [:rf.causa.static.machines/sim-current-state])
+        last-trans  @(rf/subscribe
+                       [:rf.causa.static.machines/sim-last-transition])]
+    [:div {:data-testid "rf-causa-static-machines-sim-chart"
+           :data-machine-id (str machine-id)
+           :data-current-state (sim-h/format-state-display current)
+           :style {:position   "relative"
+                   :flex       "1 1 auto"
+                   :min-height "260px"
+                   :background (:bg-1 tokens)
+                   :border-top (str "1px solid " (:yellow tokens))
+                   :overflow   "hidden"}}
+     [machine-canvas/Chart
+      {:definition             definition
+       :machine-id             machine-id
+       :current-state          current
+       :from-highlight         (:from last-trans)
+       :to-highlight           (:to last-trans)
+       :sim?                   true
+       :show-after-rings?      false
+       :show-view-mode-toggle? false
+       :inner-testid           "rf-causa-static-machines-sim-chart-svg"
+       :on-edge-click
+       (fn [payload]
+         ;; The chart hands a JS payload `#js {:eventId :fromPath
+         ;; :toPath}`; read the fireable event-id off it and dispatch
+         ;; the on-chart step. nil/inert edges produce a no-op event.
+         (let [event-id (some-> payload (aget "eventId"))]
+           (rf/dispatch
+             [:rf.causa.static.machines/sim-chart-edge-clicked
+              {:machine-id machine-id
+               :event-id   event-id}]
+             {:frame :rf/causa})))}]]))
+
 ;; ---- body (mounted from definition_detail.cljs) ------------------------
 
 (defn body
@@ -606,7 +727,18 @@
 
   The auto-start is fire-and-forget via `rf/dispatch` (not
   `dispatch-sync`) so the render itself stays pure; the subsequent
-  reactive cycle re-mounts with sim-state populated."
+  reactive cycle re-mounts with sim-state populated.
+
+  ## On-chart layout (rf2-u422r)
+
+  The sim body is a two-pane split: the interactive `SimChart` is the
+  PRIMARY surface (left/main) — the user clicks transition edges on the
+  chart to drive the sim, watches the active state highlight amber, and
+  sees the taken edge animate. The `SimRail` side column (right) carries
+  the controls + diagnostics that don't belong on the canvas: the
+  payload input, Reset / Exit, guard pass/fail error toast, and the
+  audit trail. The chart and rail read the SAME sim-state, so clicking
+  an edge and clicking a Step button are interchangeable."
   [{:keys [machine-id definition]}]
   (let [sim @(rf/subscribe [:rf.causa.static.machines/sim-state])]
     (when (and (some? machine-id)
@@ -642,15 +774,31 @@
        " — Sim cannot clone what isn't there."]
 
       ;; Sim-state has landed (or the auto-start dispatch just queued).
-      ;; Render the rail; the `when sim` guard inside SimRail keeps
-      ;; the gap render safe.
+      ;; rf2-u422r — two-pane split: the on-chart sim surface is primary,
+      ;; the rail is the side detail/controls column. Both guard the
+      ;; auto-start gap (`SimChart` returns its wrapper unconditionally
+      ;; but the chart degrades on a nil definition; `SimRail`'s `when
+      ;; sim` keeps the gap render safe).
       :else
       [:section {:data-testid "rf-causa-static-machines-sim-body"
                  :data-machine-id (str machine-id)
                  :style {:display "flex"
-                         :flex-direction "column"
-                         :height "100%"}}
-       [SimRail]])))
+                         :flex-direction "row"
+                         :height "100%"
+                         :min-height "0"}}
+       [:div {:data-testid "rf-causa-static-machines-sim-chart-pane"
+              :style {:display "flex"
+                      :flex-direction "column"
+                      :flex "1 1 auto"
+                      :min-width "0"
+                      :min-height "0"}}
+        [SimChart {:machine-id machine-id :definition definition}]]
+       [:div {:data-testid "rf-causa-static-machines-sim-rail-pane"
+              :style {:flex "0 0 320px"
+                      :max-width "360px"
+                      :overflow "auto"
+                      :border-left (str "1px solid " (:border-subtle tokens))}}
+        [SimRail]]])))
 
 ;; ---- public install entry -----------------------------------------------
 

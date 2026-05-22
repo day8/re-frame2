@@ -232,6 +232,14 @@
     :sim?              — flips the highlight palette to amber for
                          the simulator path.
     :on-state-click    — `(fn [path] ...)` invoked on node click.
+    :on-edge-click     — rf2-u422r. `(fn [#js {:eventId :fromPath
+                         :toPath}] ...)` invoked when a transition edge's
+                         label is clicked. Only edges with a fireable
+                         event (plain `:on` transitions) are clickable;
+                         `:after` / `:always` auto edges stay inert. The
+                         on-chart machine simulator wires this to send
+                         the clicked event into the hermetic sim engine
+                         (\"simulate ON the chart\"). nil = no wiring.
     :read-only?        — when true all `:on-*` callbacks are no-op'd.
                          The viewer page sets this.
     :direction         — `:tb` (top-to-bottom, default) or `:lr`.
@@ -307,7 +315,7 @@
   (let [positions     (r/atom {})
         layout-key    (r/atom nil)]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
-                 sim? on-state-click read-only?
+                 sim? on-state-click on-edge-click read-only?
                  direction layout-options density
                  height show-minimap? show-controls? show-background?
                  after-ring-specs after-ring-tick
@@ -384,6 +392,7 @@
                 from-highlight-id (layout/highlight-id from-highlight)
                 to-highlight-id   (layout/highlight-id to-highlight)
                 callback          (when-not read-only? on-state-click)
+                edge-callback     (when-not read-only? on-edge-click)
                 {:keys [nodes edges]}
                 (projection/xyflow-graph parsed
                               @positions
@@ -392,6 +401,7 @@
                                :to-highlight-id   to-highlight-id
                                :sim?              sim?
                                :on-state-click    callback
+                               :on-edge-click     edge-callback
                                :chart             chart-vc})
                 aria-label (str "State machine"
                                 (when machine-id
