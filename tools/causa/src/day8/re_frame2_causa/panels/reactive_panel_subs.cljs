@@ -68,12 +68,20 @@
          :subs-ran        [{:sub-id _ :value-changed? _ ...} ...]
          :subs-skipped    [{:sub-id _ ...} ...]
          :views-rendered  [{:view-id _ ...} ...]      ; legacy count slot
-         :level-1-subs    [{:sub-id _ :changed? _ :coord _} ...]
-         :level-2-subs    [{:sub-id _ :changed? _ :inputs [...] :coord _} ...]
+         :level-1-subs    [{:sub-id _ :changed? _ :coord _ :readers [...]} ...]
+         :level-2-subs    [{:sub-id _ :changed? _ :inputs [...] :coord _
+                            :readers [...]} ...]
+         :sub-readers     {<sub-id> [<view-id> ...] ...}
          :view-rows       [{:view-id _ :action _ :reason {...} :coord _} ...]
          :counts          {:subs-ran N :subs-skipped N
                            :views-rendered N
                            :flows-recomputed N}}
+
+  `:sub-readers` (rf2-y23uw) is the shared-subscription edge map — for
+  each sub-id, the views that deref'd it this cascade ('which views read
+  sub X'), derived from the per-view `:rf.view/deref-subs` read-sets. The
+  same list rides each sub row's `:readers` slot so the Views panel can
+  show, per sub, the views that share it.
 
   The `:reason` slot on a `:view-row` is `{:kind :reactive :subs [...]}`
   | `{:kind :structural}` | `{:kind :none}` (unmount). The view layer
@@ -213,6 +221,53 @@
                     :else nil))))
         (or trace-events [])))
 
+;; ---- shared-subscription edges (rf2-y23uw) --------------------------------
+
+(defn sub-readers
+  "Build the sub→readers map for this cascade — `{sub-id [view-id ...]}` —
+  the 'which views read sub X' shared-subscription edge set.
+
+  Walks the cascade's `:rf.view/rendered` ops and, for each, unions its
+  view-id into the reader list of every sub-id it derefs (its
+  `:rf.view/deref-subs` read-set). The result lets the Views panel show,
+  per sub row, the set of views that read it — the shared-sub detection
+  the per-render `:rf.view/cause-subs`/`:rf.sub/reader-render-key` pair
+  can't supply (cause-subs is cascade-wide and over-reports; the
+  reader-render-key names only the TRIGGERING reader of a recompute, not
+  every reader, and not unchanged subs a view also reads).
+
+  Reader lists preserve first-seen view order across the trace and
+  de-duplicate (a view that re-derefs the same sub, or two instances of
+  the same view-id, contribute the view-id once). nil-safe; non-view ops
+  and ops without a `:view-id` / `:deref-subs` are skipped."
+  [trace-events]
+  (-> (reduce
+        (fn [acc ev]
+          (if (= :rf.view/rendered (op-kw ev))
+            (let [tags    (:tags ev)
+                  view-id (or (:rf.view/id tags) (:rf.view/id ev))]
+              (if (nil? view-id)
+                acc
+                (reduce
+                  (fn [m qv]
+                    (if-let [sid (query-id qv)]
+                      ;; Ordered-distinct union: a sorted set would lose
+                      ;; first-seen order, so track an explicit vector +
+                      ;; membership in one entry, flattened below.
+                      (update m sid
+                              (fn [{:keys [seen order] :or {seen #{} order []}}]
+                                (if (contains? seen view-id)
+                                  {:seen seen :order order}
+                                  {:seen (conj seen view-id)
+                                   :order (conj order view-id)})))
+                      m))
+                  acc
+                  (or (:rf.view/deref-subs tags) []))))
+            acc))
+        {}
+        (or trace-events []))
+      (->> (reduce-kv (fn [m sid entry] (assoc m sid (:order entry))) {}))))
+
 ;; ---- sub-level partition (rf2-8ve8z, sub-topology contract) ---------------
 
 (defn topology-coord
@@ -240,35 +295,46 @@
   `subs-ran` is the `:sub-runs` projection slice (each entry carries
   `:sub-id` + `:value-changed?`). `topology` is the
   `re-frame.subs.tooling/sub-topology` map (`{sub-id {:inputs [...]
-  :ns :line :file}}`).
+  :ns :line :file}}`). `readers` (optional, rf2-y23uw) is the sub→readers
+  map from `sub-readers` (`{sub-id [view-id ...]}`).
 
   Returns `{:level-1 [row ...] :level-2 [row ...]}` where each row:
 
-    Level 1: {:sub-id _ :changed? bool :coord {...}?}
+    Level 1: {:sub-id _ :changed? bool :coord {...}? :readers [view-id ...]}
     Level 2: {:sub-id _ :changed? bool :inputs [<input-sub-id> ...]
-              :coord {...}?}
+              :coord {...}? :readers [view-id ...]}
+
+  `:readers` is the views that deref this sub THIS cascade — the
+  shared-subscription edge (rf2-y23uw); absent when no rendered view read
+  it (e.g. a handler-side or upstream-input sub no view directly derefs).
 
   Order preserved from `subs-ran` within each level. nil-safe: a sub
   absent from the topology degrades to Level 1 with no inputs / no
-  coord. Both args may be nil."
-  [subs-ran topology]
-  (let [topo (or topology {})]
-    (reduce
-      (fn [acc sub-run]
-        (let [sub-id     (:sub-id sub-run)
-              topo-entry (get topo sub-id)
-              changed?   (boolean (:value-changed? sub-run))
-              coord      (topology-coord topo-entry)]
-          (if (level-1? topo-entry)
-            (update acc :level-1 conj
-                    (cond-> {:sub-id sub-id :changed? changed?}
-                      coord (assoc :coord coord)))
-            (update acc :level-2 conj
-                    (cond-> {:sub-id sub-id :changed? changed?
-                             :inputs (vec (:inputs topo-entry))}
-                      coord (assoc :coord coord))))))
-      {:level-1 [] :level-2 []}
-      (or subs-ran []))))
+  coord; absent / nil `readers` simply omits the slot. All args may be
+  nil."
+  ([subs-ran topology] (partition-subs-by-level subs-ran topology nil))
+  ([subs-ran topology readers]
+   (let [topo (or topology {})
+         rdrs (or readers {})]
+     (reduce
+       (fn [acc sub-run]
+         (let [sub-id     (:sub-id sub-run)
+               topo-entry (get topo sub-id)
+               changed?   (boolean (:value-changed? sub-run))
+               coord      (topology-coord topo-entry)
+               sub-rdrs   (get rdrs sub-id)]
+           (if (level-1? topo-entry)
+             (update acc :level-1 conj
+                     (cond-> {:sub-id sub-id :changed? changed?}
+                       coord         (assoc :coord coord)
+                       (seq sub-rdrs) (assoc :readers (vec sub-rdrs))))
+             (update acc :level-2 conj
+                     (cond-> {:sub-id sub-id :changed? changed?
+                              :inputs (vec (:inputs topo-entry))}
+                       coord         (assoc :coord coord)
+                       (seq sub-rdrs) (assoc :readers (vec sub-rdrs)))))))
+       {:level-1 [] :level-2 []}
+       (or subs-ran [])))))
 
 ;; ---- record projection ----------------------------------------------------
 
@@ -305,13 +371,15 @@
          flows-comp    (count (get grouped :rf.flow/computed []))
          flows-skipped (count (get grouped :rf.flow/skip []))
          changed-set   (changed-sub-id-set ran)
-         {:keys [level-1 level-2]} (partition-subs-by-level ran topology)
+         readers       (sub-readers trace-events)
+         {:keys [level-1 level-2]} (partition-subs-by-level ran topology readers)
          v-rows        (view-rows trace-events changed-set)]
      {:subs-ran        ran
       :subs-skipped    skipped
       :views-rendered  renders
       :level-1-subs    level-1
       :level-2-subs    level-2
+      :sub-readers     readers
       :view-rows       v-rows
       :counts          {:subs-ran         (count ran)
                         :subs-skipped     (count skipped)

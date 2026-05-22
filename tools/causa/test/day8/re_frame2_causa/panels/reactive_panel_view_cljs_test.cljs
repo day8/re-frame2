@@ -168,6 +168,29 @@
         (is (re-find #":cart/state" row-text) "input :cart/state listed")
         (is (re-find #":cart/items" row-text) "input :cart/items listed")))))
 
+(deftest sub-row-renders-readers-shared-sub-edge
+  (testing "rf2-y23uw — a sub row's `read by` column lists the views that
+            deref it this cascade (the shared-subscription edge); a sub no
+            view read shows a muted placeholder, not the views."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :view-rows []
+       :level-1-subs [{:sub-id :cart/state :changed? true
+                       :readers [:cart/Header :cart/Summary]}]
+       :level-2-subs [{:sub-id :cart/total :changed? false
+                       :inputs [:cart/state]}]}) ; no readers → placeholder
+    (let [tree (view/reactive-panel)
+          l1-text (text-of tree "rf-causa-reactive-l1-row-_cart_state")
+          l2-text (text-of tree "rf-causa-reactive-l2-row-_cart_total")]
+      (is (re-find #":cart/Header" l1-text)
+          "shared-sub reader :cart/Header listed in the L1 `read by` column")
+      (is (re-find #":cart/Summary" l1-text)
+          "shared-sub reader :cart/Summary listed")
+      (is (not (re-find #":cart/Header|:cart/Summary" l2-text))
+          ":cart/total has no readers → no view names in its `read by` column"))))
+
 ;; ---- view action + reason (rf2-8ve8z) ---------------------------------
 
 (deftest view-row-reactive-reason-lists-changed-subs

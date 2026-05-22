@@ -277,6 +277,63 @@
       (is (nil? (-> level-1 first :coord))
           "no coord when topology absent"))))
 
+;; ---- shared-subscription edges (rf2-y23uw) ----------------------------
+
+(deftest sub-readers-maps-each-sub-to-views-that-read-it
+  (testing "rf2-y23uw — sub-readers builds {sub-id [view-id ...]}: every
+            view that derefs a sub this cascade lands in that sub's reader
+            list (the shared-sub edge)."
+    (let [events [(rendered-ev :v/a false [[:s/x] [:s/y]])
+                  (rendered-ev :v/b false [[:s/x]])
+                  (rendered-ev :v/c false [[:s/z]])]
+          readers (subs/sub-readers events)]
+      (is (= [:v/a :v/b] (:s/x readers))
+          ":s/x is read by both v/a and v/b (shared sub)")
+      (is (= [:v/a] (:s/y readers)))
+      (is (= [:v/c] (:s/z readers))))))
+
+(deftest sub-readers-preserves-first-seen-view-order-and-dedupes
+  (testing "rf2-y23uw — a view that re-derefs the same sub, or two ops for
+            the same view-id, contribute the view-id once; reader order is
+            first-seen across the trace."
+    (let [events [(rendered-ev :v/b false [[:s/x] [:s/x]]) ; re-deref same sub
+                  (rendered-ev :v/a false [[:s/x]])
+                  (rendered-ev :v/b false [[:s/x]])]        ; same view again
+          readers (subs/sub-readers events)]
+      (is (= [:v/b :v/a] (:s/x readers))
+          "first-seen order, de-duplicated"))))
+
+(deftest sub-readers-nil-safe-and-skips-non-view-ops
+  (testing "rf2-y23uw — nil-safe; non-view ops, ops without :view-id, and
+            structural renders (no :deref-subs) contribute no edges."
+    (is (= {} (subs/sub-readers nil)))
+    (is (= {} (subs/sub-readers [])))
+    (let [events [{:operation :rf.sub/run :tags {:rf.sub/id :s/x}}
+                  (rendered-ev :v/structural false nil)
+                  (rendered-ev :v/ok false [[:s/x]])]
+          readers (subs/sub-readers events)]
+      (is (= {:s/x [:v/ok]} readers)
+          "only the rendered view that derefs a sub contributes an edge"))))
+
+(deftest partition-attaches-readers-to-sub-rows
+  (testing "rf2-y23uw — partition-subs-by-level attaches each sub's
+            :readers (which views read it) onto the L1 / L2 row; absent
+            when no view read the sub."
+    (let [readers {:cart/state [:cart/Header :cart/Summary]
+                   :cart/total [:cart/Summary]}
+          {:keys [level-1 level-2]}
+          (subs/partition-subs-by-level
+            [(sub-run+ :cart/state true true)
+             (sub-run+ :cart/items true false) ; no reader → :readers absent
+             (sub-run+ :cart/total true true)]
+            topology readers)]
+      (is (= [:cart/Header :cart/Summary] (-> level-1 first :readers))
+          ":cart/state's readers ride its L1 row")
+      (is (not (contains? (second level-1) :readers))
+          ":cart/items has no reader → :readers slot omitted")
+      (is (= [:cart/Summary] (-> level-2 first :readers))
+          ":cart/total's reader rides its L2 row"))))
+
 ;; ---- project-record composes the phase-B slots ------------------------
 
 (deftest project-record-emits-level-and-view-slots
@@ -295,7 +352,12 @@
           ":cart/Summary derefs :cart/total which changed → reactive")
       (is (= [:cart/total] (-> p :view-rows first :reason :subs)))
       (is (= :unmount (-> p :view-rows second :action)))
-      (is (= 2 (-> p :counts :view-rows))))))
+      (is (= 2 (-> p :counts :view-rows)))
+      ;; rf2-y23uw — shared-sub edges thread through project-record.
+      (is (= {:cart/total [:cart/Summary]} (:sub-readers p))
+          ":sub-readers maps :cart/total → the views that read it")
+      (is (= [:cart/Summary] (-> p :level-2-subs first :readers))
+          ":cart/total's L2 row carries its :readers"))))
 
 (deftest project-record-degrades-without-topology
   (testing "rf2-8ve8z — nil topology: every sub falls to Level 1; the
