@@ -31,7 +31,8 @@
       `chart.cljs`; they touch JS objects and are not portable to the
       JVM.
     - **Topology parsing** — lives in `chart.layout`."
-  (:require [day8.re-frame2-machines-viz.visual-constants :as vc]))
+  (:require [day8.re-frame2-machines-viz.theme.tokens :as tokens]
+            [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- node-size floor constants -----------------------------------------
 ;;
@@ -216,11 +217,25 @@
                  focused?     (and (some? from-highlight-id)
                                    (some? to-highlight-id)
                                    (= (:source e) from-highlight-id)
-                                   (= (:target e) to-highlight-id))]
+                                   (= (:target e) to-highlight-id))
+                 ;; rf2-5qsxo — arrowhead colour tracks the edge stroke
+                 ;; (focused/active edges glow cyan; the rest the default
+                 ;; border colour) so the marker reads as part of the same
+                 ;; line. xyflow renders a `<marker>` def per edge when
+                 ;; `:markerEnd` is present; the custom edge component
+                 ;; (`chart.edges/transition-edge`) forwards the resolved
+                 ;; url to its `<BaseEdge>`.
+                 marker-color (if (or focused? from-active?)
+                                (:cyan tokens/tokens)
+                                (:border-default tokens/tokens))]
              {:id     (:id e)
               :source (:source e)
               :target (:target e)
               :type   (choose-edge-type e)
+              :markerEnd {:type "arrowclosed"
+                          :color marker-color
+                          :width 18
+                          :height 18}
               :data   {:eventLabel (:event-label e)
                        :active     from-active?
                        :focused    focused?

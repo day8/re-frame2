@@ -260,16 +260,19 @@
                           keeps true; Static passes false.
     :show-view-mode-toggle? — when true (default) render the
                               Canvas/List pill in the chart top-left.
+    :show-controls?     — when true (default) render xyflow's built-in
+                          zoom/pan/fit Controls inside the chart.
     :testid             — wrapper testid override.
 
   Returns hiccup. xyflow owns zoom/pan/fit + keyboard shortcuts
   internally — no host-side viewport machinery is needed
   post-migration."
   [{:keys [definition machine-id from-highlight to-highlight current-state
-           on-state-click show-after-rings? show-view-mode-toggle? testid
-           inner-testid]
+           on-state-click show-after-rings? show-view-mode-toggle?
+           show-controls? testid inner-testid]
     :or   {show-after-rings?       true
            show-view-mode-toggle?  true
+           show-controls?          true
            testid                  "rf-causa-machine-canvas-host"
            inner-testid            "rf-mv-chart"}}]
   [:div
@@ -298,7 +301,7 @@
       :current-state   current-state
       :on-state-click  on-state-click
       :show-minimap?   false
-      :show-controls?  true
+      :show-controls?  show-controls?
       :show-background? true
       :testid          "rf-mv-chart"}]]
    (when show-after-rings?

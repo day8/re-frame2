@@ -553,6 +553,50 @@
             css)
           "paused-by-tool status carries a rule"))))
 
+;; ---- React Flow base stylesheet (rf2-5qsxo) ----------------------------
+;;
+;; The Machines topology charts render via `@xyflow/react`'s
+;; `<ReactFlow>`, which needs xyflow's STRUCTURAL base stylesheet
+;; (`@xyflow/react/dist/style.css`) to render at all — without it nodes
+;; stack full-width, edges have no path/arrowheads, the Controls are
+;; bare. shadow-cljs's npm resolver won't load a `.css` via `:require`,
+;; so the verbatim contents are bundled as a string and injected on the
+;; Causa preload path. These tests pin the load-bearing selectors so an
+;; `@xyflow/react` bump that drops/renames a structural rule is caught.
+
+(deftest react-flow-base-css-carries-structural-rules
+  (testing "rf2-5qsxo — the bundled base stylesheet carries the rules
+            React Flow needs to render: absolute-positioned nodes, the
+            edge path, the Controls chrome, and the dot-grid background."
+    (let [css @#'gs/react-flow-base-css]
+      (is (re-find #"\.react-flow__node\s*\{" css)
+          "node rule present")
+      (is (re-find #"\.react-flow__node\s*\{[^}]*position:\s*absolute" css)
+          "nodes are absolutely positioned (the stacked-box fix)")
+      (is (re-find #"\.react-flow__edge-path\s*\{" css)
+          "edge path rule present")
+      (is (re-find #"\.react-flow__controls\b" css)
+          "Controls chrome present")
+      (is (re-find #"\.react-flow__container\s*\{" css)
+          "viewport container rule present")
+      (is (re-find #"\.react-flow__viewport\s*\{" css)
+          "viewport transform rule present"))))
+
+(deftest react-flow-causa-theme-css-remaps-xy-vars-to-tokens
+  (testing "rf2-5qsxo — the Causa override layer remaps xyflow's `--xy-*`
+            custom properties to Causa tokens (dark surface) so the
+            chrome xyflow paints itself reads as part of Causa, layered
+            AFTER the base sheet so it wins on equal specificity."
+    (let [css @#'gs/react-flow-causa-theme-css]
+      (is (re-find #"--xy-node-background-color-default:" css)
+          "node fill remapped")
+      (is (re-find #"--xy-controls-button-background-color-default:" css)
+          "Controls button background remapped")
+      (is (re-find #"--xy-edge-stroke-default:" css)
+          "edge stroke remapped")
+      (is (re-find #"\.react-flow__attribution\s*\{\s*display:\s*none" css)
+          "attribution backplate hidden against the dark canvas"))))
+
 ;; ---- install! idempotence ----------------------------------------------
 
 (deftest install-bang-is-safe-without-document

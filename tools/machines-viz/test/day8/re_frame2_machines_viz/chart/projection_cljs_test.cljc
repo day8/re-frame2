@@ -270,6 +270,39 @@
           graph  (projection/xyflow-graph parsed {} {:from-highlight-id from})]
       (is (every? false? (map (comp :focused :data) (:edges graph)))))))
 
+;; ---- xyflow-graph arrowheads (rf2-5qsxo) -------------------------------
+
+(deftest xyflow-graph-edge-requests-arrowclosed-marker-end
+  (testing "rf2-5qsxo — every transition edge requests an `arrowclosed`
+            markerEnd so React Flow draws an arrowhead at the target end
+            (the custom edge component forwards the resolved url to its
+            BaseEdge)."
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (is (seq (:edges graph)))
+      (is (every? #(= "arrowclosed" (:type (:markerEnd %))) (:edges graph))
+          "every edge carries an arrowclosed markerEnd")
+      (is (every? #(string? (:color (:markerEnd %))) (:edges graph))
+          "the marker colour resolves to a token string"))))
+
+(deftest xyflow-graph-marker-end-colour-tracks-active-edge
+  (testing "rf2-5qsxo — the arrowhead colour tracks the edge stroke: an
+            edge touching the highlighted node uses the active (cyan)
+            colour, idle edges use the default border colour, so the
+            marker reads as part of the same line."
+    ;; Highlight `:ready` (a leaf): only the loading→ready edge touches
+    ;; it, so the graph has a clean active/inactive split.
+    (let [parsed   (layout/parse-definition idle-loading)
+          hi       (layout/node-id [:ready])
+          graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
+          active   (first (filter #(:active (:data %)) (:edges graph)))
+          inactive (first (filter #(not (:active (:data %))) (:edges graph)))]
+      (is (some? active) "fixture has at least one active edge")
+      (is (some? inactive) "fixture has at least one idle edge")
+      (is (not= (:color (:markerEnd active))
+                (:color (:markerEnd inactive)))
+          "active vs idle arrowheads are distinct colours"))))
+
 ;; ---- xyflow-graph misc payload + style ---------------------------------
 
 (deftest xyflow-graph-region-style-from-measured-position
