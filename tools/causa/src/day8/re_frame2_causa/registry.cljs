@@ -44,6 +44,7 @@
             [day8.re-frame2-causa.epoch :as epoch]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.frame-switcher :as frame-switcher]
+            [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
@@ -417,12 +418,23 @@
         ;; Settings popup lands behind rf2-pending-settings-modal.
         (assoc db :settings-open? true)))
 
-    (rf/reg-event-db :rf.causa/close-shell
-      (fn [db _event]
-        ;; Close intent — mount.cljs reads the slot in production to
-        ;; drive the CSS-only hide. The reactive flag is set here so
-        ;; tests can assert the round-trip.
-        (assoc db :close-requested? true)))
+    (rf/reg-event-fx :rf.causa/close-shell
+      (fn [{:keys [db]} _event]
+        ;; Close intent (rf2-fq491). Two outcomes, kept in lock-step:
+        ;;   :db  — set the reactive `:close-requested?` flag so the
+        ;;          round-trip is observable/testable.
+        ;;   :fx  — `:rf.causa.fx/hide-shell` performs the actual DOM
+        ;;          hide via `mount/close!` (the same CSS-only toggle the
+        ;;          Ctrl+Shift+C keybinding drives through `mount/toggle!`).
+        ;; Previously this only set the flag and nothing consumed it, so
+        ;; the `✕` button was a no-op.
+        {:db (assoc db :close-requested? true)
+         :fx [[:rf.causa.fx/hide-shell]]}))
+
+    ;; Install the DOM-side `:rf.causa.fx/hide-shell` effect that the
+    ;; `:rf.causa/close-shell` event above fires. Idempotent — re-frame's
+    ;; registrar replaces in place (rf2-fq491).
+    (mount/install-fx!)
 
     ;; ---- trace-buffer mirror events (rf2-in6l2 / rf2-wq6gx) -------
     ;;

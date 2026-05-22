@@ -596,6 +596,10 @@
    :rf.causa.fx/open-in-new-tab
    ;; rf2-0us27 — Per-cascade structured export: text-file download fx.
    :rf.causa.fx/download-text-file
+   ;; rf2-fq491 — `✕` close button: the DOM-side shell-hide effect fired
+   ;; by `:rf.causa/close-shell`. Registered via `mount/install-fx!` from
+   ;; the orchestrator; calls `mount/close!`.
+   :rf.causa.fx/hide-shell
    ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
    ;; filter-specific prefix because the localStorage write is bound
    ;; to the filter-mutating events (add-filter / remove-filter /

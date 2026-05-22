@@ -558,6 +558,29 @@
   []
   (if (visible?) (close!) (open!)))
 
+;; ---- close-shell effect (rf2-fq491) -------------------------------------
+;;
+;; The shell `✕` button (and any other in-app close affordance) dispatches
+;; `:rf.causa/close-shell`, an app-db event. That event sets the reactive
+;; `:close-requested?` flag, but the actual DOM hide lives here in `close!`
+;; (the same path the Ctrl+Shift+C keybinding drives via `toggle!`). This
+;; fx is the bridge: the event returns `[:rf.causa.fx/hide-shell]` and the
+;; effect calls `close!`, so the flag and the visible hide stay in lock-
+;; step. Co-locating the effect with the DOM action (mirrors
+;; `static-persistence/install-fx!`) keeps `registry.cljs` free of any
+;; direct DOM-toggle call.
+(defn install-fx!
+  "Idempotently register `:rf.causa.fx/hide-shell` — the effect that
+  performs the DOM-side shell hide. re-frame's registrar replaces in
+  place, so repeat calls (shadow-cljs `:after-load`) are harmless.
+
+  Handler signature `(fn [ctx args])` per the v2 reg-fx contract."
+  []
+  (rf/reg-fx :rf.causa.fx/hide-shell
+    (fn [_ctx _args]
+      (close!)))
+  nil)
+
 (defn- teardown-popout-state!
   "Internal: tear down the popout singleton if present. Invokes the
   substrate unmount, clears the opener-gone watchdog, attempts to
