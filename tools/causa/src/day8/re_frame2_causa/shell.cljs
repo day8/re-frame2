@@ -1313,6 +1313,107 @@
      ;; the row's trailing edge.
      (relative-time-chip cascade now-ms)]))
 
+;; ---- 'N hidden by filters' indicator (rf2-jvghz, defect #1) -------------
+;;
+;; Persisted filters (a `:machine` IN-pill under
+;; `re-frame2.causa.filters.v1`, a frame pin under
+;; `re-frame2.causa.frame-switcher.v1`) survive reload via localStorage
+;; and silently suppress L2 rows. Without an indicator the list looks
+;; broken — it fooled the project author. This banner renders whenever
+;; the filtered visible-row set is strictly smaller than the raw set
+;; (`:rf.causa/hidden-by-filters` → `:visible?`), making the active
+;; pills / frame-pin / mutes the VISIBLE cause and offering a one-click
+;; reset (`:rf.causa/clear-all-filters`).
+
+(defn- filter-cause-chip
+  "One small chip naming an active suppressing surface (a pill, the
+  frame pin, or the mute set) inside the indicator banner."
+  [{:keys [testid tone label title]}]
+  [:span {:data-testid testid
+          :title       title
+          :style {:display        "inline-flex"
+                  :align-items    "center"
+                  :gap            "3px"
+                  :border         (str "1px solid " tone)
+                  :color          tone
+                  :padding        "0 5px"
+                  :border-radius  "8px"
+                  :font-family    mono-stack
+                  :font-size      (:caption type-scale)
+                  :white-space    "nowrap"}}
+   label])
+
+(defn filters-hidden-indicator
+  "Pure hiccup. Given the `:rf.causa/hidden-by-filters` summary map,
+  render the 'N events hidden by filters' banner — the offending pills
+  / frame pin / mute count as visible cause chips + a one-click
+  'Clear filters' button. Returns nil when nothing is hidden so the
+  no-filter case stays chromeless.
+
+  Covers the filtered-to-empty and filtered-to-one cases: both report a
+  positive `:hidden` whenever the raw stream carried more visible rows,
+  so the banner renders even when the list below shows 'No events.'"
+  [{:keys [hidden visible? pills frame muted-count] :as _summary}]
+  (when visible?
+    [:div {:data-testid "rf-causa-filters-hidden-indicator"
+           :role        "status"
+           :style {:display       "flex"
+                   :align-items   "center"
+                   :flex-wrap     "wrap"
+                   :gap           "8px"
+                   :padding       "6px 10px"
+                   :background    (:bg-3 tokens)
+                   :border-bottom (str "1px solid " (:yellow tokens))
+                   :font-family   sans-stack
+                   :font-size     (:caption type-scale)
+                   :color         (:text-primary tokens)}}
+     [:span {:data-testid "rf-causa-filters-hidden-count"
+             :style {:font-weight 600 :color (:yellow tokens) :white-space "nowrap"}}
+      (str hidden " event" (when (not= 1 hidden) "s") " hidden by filters")]
+     ;; Cause chips — the active pills, the frame pin, the mute set.
+     (into [:span {:data-testid "rf-causa-filters-hidden-causes"
+                   :style {:display "flex" :align-items "center"
+                           :flex-wrap "wrap" :gap "4px"}}]
+           (concat
+             (for [[idx {:keys [mode label glyph]}] (map-indexed vector pills)]
+               ^{:key (str "pill-" idx)}
+               [filter-cause-chip
+                {:testid (str "rf-causa-filters-hidden-pill-" idx)
+                 :tone   (if (= mode :out) (:magenta tokens) (:green tokens))
+                 :title  (str (name mode) " filter pill")
+                 :label  (str (if (= mode :out) "× " "+ ")
+                              (when glyph (str glyph ":")) label)}])
+             (when frame
+               [^{:key "frame"}
+                [filter-cause-chip
+                 {:testid "rf-causa-filters-hidden-frame"
+                  :tone   (:accent-violet tokens)
+                  :title  "Frame pin — only this frame's events show"
+                  :label  (str "Frame: " frame)}]])
+             (when (pos? muted-count)
+               [^{:key "muted"}
+                [filter-cause-chip
+                 {:testid "rf-causa-filters-hidden-muted"
+                  :tone   (:text-secondary tokens)
+                  :title  "Muted event-ids hidden from the spine"
+                  :label  (str "🔇 " muted-count)}]])))
+     [:button {:data-testid "rf-causa-filters-hidden-clear"
+               :on-click    #(rf/dispatch [:rf.causa/clear-all-filters]
+                                          {:frame :rf/causa})
+               :title       "Clear every filter pill, the frame pin, and all mutes"
+               :style {:margin-left   "auto"
+                       :background    "transparent"
+                       :border        (str "1px solid " (:yellow tokens))
+                       :color         (:yellow tokens)
+                       :cursor        "pointer"
+                       :font-family   sans-stack
+                       :font-size     (:caption type-scale)
+                       :font-weight   600
+                       :padding       "2px 10px"
+                       :border-radius "10px"
+                       :white-space   "nowrap"}}
+      "Clear filters"]]))
+
 (rf/reg-view event-list
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
   latest-on-bottom, ~8 visible at the tightened 22px row height
@@ -1358,6 +1459,10 @@
   ;; no-op everywhere it matters.
   (inject-scrollbar-style!)
   (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
+        ;; rf2-jvghz — the hidden-by-filters summary drives the banner
+        ;; above the scroll container so suppressed-by-persisted-filter
+        ;; rows are a VISIBLE cause, not a silently-broken-looking list.
+        hidden-summary @(rf/subscribe [:rf.causa/hidden-by-filters])
         focus          @(rf/subscribe [:rf.causa/focus])
         focus-set      @(rf/subscribe [:rf.causa/focus-set])
         ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
@@ -1388,44 +1493,51 @@
         ;; so the per-row work is a single fn call rather than a
         ;; predicate rebuild per row.
         focus-pred     (fh/build-focus-predicate focus-set)]
-    [:div {:data-testid "rf-causa-event-list"
-           :style {:height        "200px"   ; 8 rows × 22px + gaps + padding (rf2-htik0)
-                   :min-height    "48px"    ; 2 rows minimum
-                   :overflow-y    "auto"
-                   :overflow-x    "hidden"
-                   :background    (:bg-2 tokens)
-                   :border-bottom (str "1px solid " (:border-subtle tokens))
-                   :resize        "vertical"   ; native vertical resize for the L2/L3 drag handle
-                   :padding       "4px"
-                   ;; rf2-ieg6d Bug 2 — Firefox standardised props for the
-                   ;; slim scrollbar. WebKit/Blink pseudo-element rules ship
-                   ;; via the `inject-scrollbar-style!` <style> tag above —
-                   ;; pseudo-elements can't be set via React inline-style.
-                   :scrollbar-width "thin"
-                   :scrollbar-color "rgba(107, 112, 128, 0.4) transparent"}}
-     (if (empty? event-cascades)
-       [:div {:data-testid "rf-causa-event-list-empty"
-              :style {:padding   "16px"
-                      :color     (:text-secondary tokens)
-                      :font-family sans-stack
-                      :font-size (:body type-scale)}}
-        "No events."]
-       (into [:ul {:style {:list-style "none" :margin 0 :padding 0
-                           :display "flex" :flex-direction "column"
-                           :gap "2px"}}]
-             (for [cascade event-cascades]
-               ^{:key (str (:dispatch-id cascade))}
-               [event-row {:cascade     cascade
-                           :focused-id  focused-id
-                           :auto-track? auto-track?
-                           :focus-set   focus-set
-                           :in-focus?   (focus-pred cascade)
-                           ;; rf2-b76v4 — pass the spine focus through
-                           ;; so the row's lifecycle-status classifier
-                           ;; can read `:mode` (RETRO → :stale) and
-                           ;; `:paused?` (paused-by-tool → :cyan).
-                           :focus       focus
-                           :now-ms      now-ms}])))]))
+    [:div {:data-testid "rf-causa-event-list-wrap"
+           :style {:display "flex" :flex-direction "column"}}
+     ;; rf2-jvghz — the hidden-by-filters banner sits ABOVE the scroll
+     ;; container so it stays visible even when the filtered list is
+     ;; empty (the filtered-to-empty case) — that is precisely the case
+     ;; that looked broken before.
+     (filters-hidden-indicator hidden-summary)
+     [:div {:data-testid "rf-causa-event-list"
+            :style {:height        "200px"   ; 8 rows × 22px + gaps + padding (rf2-htik0)
+                    :min-height    "48px"    ; 2 rows minimum
+                    :overflow-y    "auto"
+                    :overflow-x    "hidden"
+                    :background    (:bg-2 tokens)
+                    :border-bottom (str "1px solid " (:border-subtle tokens))
+                    :resize        "vertical"   ; native vertical resize for the L2/L3 drag handle
+                    :padding       "4px"
+                    ;; rf2-ieg6d Bug 2 — Firefox standardised props for the
+                    ;; slim scrollbar. WebKit/Blink pseudo-element rules ship
+                    ;; via the `inject-scrollbar-style!` <style> tag above —
+                    ;; pseudo-elements can't be set via React inline-style.
+                    :scrollbar-width "thin"
+                    :scrollbar-color "rgba(107, 112, 128, 0.4) transparent"}}
+      (if (empty? event-cascades)
+        [:div {:data-testid "rf-causa-event-list-empty"
+               :style {:padding   "16px"
+                       :color     (:text-secondary tokens)
+                       :font-family sans-stack
+                       :font-size (:body type-scale)}}
+         "No events."]
+        (into [:ul {:style {:list-style "none" :margin 0 :padding 0
+                            :display "flex" :flex-direction "column"
+                            :gap "2px"}}]
+              (for [cascade event-cascades]
+                ^{:key (str (:dispatch-id cascade))}
+                [event-row {:cascade     cascade
+                            :focused-id  focused-id
+                            :auto-track? auto-track?
+                            :focus-set   focus-set
+                            :in-focus?   (focus-pred cascade)
+                            ;; rf2-b76v4 — pass the spine focus through
+                            ;; so the row's lifecycle-status classifier
+                            ;; can read `:mode` (RETRO → :stale) and
+                            ;; `:paused?` (paused-by-tool → :cyan).
+                            :focus       focus
+                            :now-ms      now-ms}])))]]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 
