@@ -90,15 +90,23 @@ through.
 ## Play sequence execution
 
 The runtime's phase 4 (per [`002-Runtime.md`](002-Runtime.md)
-§Four-phase lifecycle) iterates the `:play` event vector. For each
-event:
+§Four-phase lifecycle) drives the variant's `:play-script` (or each
+entry in `:plays`) through the rich-DSL runner. Author event sequences
+by wrapping each entry in `[:dispatch-sync <event-vec>]` — the legacy
+`:play` event-vector slot was removed (rf2-0wrud); see
+[`001-Authoring.md`](001-Authoring.md) §`:play-script`. For each step:
 
-1. `dispatch-sync` the event into the variant's frame.
-2. Drain to completion.
-3. If the event id is one of the canonical seven, record the
-   assertion result returned by the handler into `:assertions`.
-4. If the event raises an unexpected exception, project it as
-   `:rf.error/exception` and continue (per
+1. `:dispatch` / `:dispatch-sync` steps fire their event vector into
+   the variant's frame.
+2. Drain to completion between steps.
+3. **`:rf.assert/*` events ride the `:dispatch-sync` rail.** Per
+   rf2-yn825 the play-runner bridges a `[:dispatch-sync [:rf.assert/* …]]`
+   step into the step result: the registered assertion handler records
+   its result map into `:rf.story/assertions` on the variant frame, and
+   the runner mirrors the recorded outcome (pass/fail) onto the step so
+   the step-debugger + test pane read it without a second lookup.
+4. If a step raises an unexpected exception, the runtime projects it as
+   `:rf.error/exception` and continues (per
    [`002-Runtime.md`](002-Runtime.md) §Error projection).
 
 The play-stepper UI affordance pauses between events, surfaces the
@@ -127,6 +135,42 @@ the assertion in a single play sequence. The variant's
 `:emitted-fx` slot records the emission per
 [`002-Runtime.md`](002-Runtime.md) §`:rf.assert/effect-emitted`
 under `force-fx-stub`.
+
+## Canvas assertion-strip (structured rows)
+
+The variant frame's accumulated `:rf.story/assertions` vector renders
+inline below the canvas render — and below each workspace cell — as a
+**structured assertion-strip** (rf2-29lw1; C2 detail-panel reveal
+polish #1826). Both call sites
+share one leaf component (`re-frame.story.ui.assertion-strip`); the
+`:test` mode pane keeps its richer per-row table, the inline strip is
+the compact version of the same shape. The strip lifts five patterns
+from Storybook's addon-tests interactions panel:
+
+1. **Structured row** — status glyph (`✓` / `✗` / `⊘`) + assertion
+   label + a one-line summary, not a raw `pr-str` of the record map.
+2. **Auto-collapse pass · auto-expand fail** — failed rows seed open so
+   the user lands on disclosed failures; passed / skipped rows stay
+   collapsed. A click toggles any row.
+3. **Token-coloured left border** — green / red / grey by status, so
+   the eye sweeps the colour band before reading any text.
+4. **Truncate long values** — the inline summary clamps to one line; a
+   long `:expected` / `:actual` inside the expanded panel clamps too
+   with a click-to-reveal-full chord (no modal — same row) per the C2
+   detail-panel value-reveal polish (#1826).
+5. **Group by dispatching event** — assertions cluster under the
+   `:event` slot they were dispatched from; assertions outside a play
+   step (phase-0 setup, decorator-throws) cluster under a leading
+   `setup` group.
+
+The pure projection helpers (`truncate`, `summary-line`,
+`group-by-event`, `value-display`) are data → data, so the strip's
+shape is unit-testable. The rendered rows carry stable `data-test`
+hooks (`story-canvas-assertion-strip` / `-row` / `-glyph` / `-label` /
+`-summary` / `-detail` / `-detail-reveal`) for the agent reader and the
+Story/Causa gate. Per rf2-5lw9w each row vector carries a React `:key`
+on the element Reagent hands to React (not on a function-call form) so
+the row seq does not warn.
 
 ## Privacy
 
@@ -197,7 +241,7 @@ their reporter protocols.
 
 ## Cross-references
 
-- [`001-Authoring.md`](001-Authoring.md) — how `:play` and
+- [`001-Authoring.md`](001-Authoring.md) — how `:play-script` and
   `:rf.assert/*` events appear in variant bodies.
 - [`002-Runtime.md`](002-Runtime.md) — the lifecycle phase 4 that
   executes the play sequence.

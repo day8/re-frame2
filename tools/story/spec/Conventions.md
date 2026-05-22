@@ -43,7 +43,7 @@ Mirror of [`re-frame.core`](../../../implementation/core/src/re_frame/core.cljc)
 | Macro | `*`-fn partner | Body shape | Spec |
 |---|---|---|---|
 | `reg-story` | `reg-story*` | story body + optional `:variants` desugaring (Form B) | [001-Authoring.md](001-Authoring.md) |
-| `reg-variant` | `reg-variant*` | variant body (`:doc`, `:component`, `:args`, `:decorators`, `:play`, …) | [001-Authoring.md](001-Authoring.md) |
+| `reg-variant` | `reg-variant*` | variant body (`:doc`, `:component`, `:args`, `:decorators`, `:play-script`, …) | [001-Authoring.md](001-Authoring.md) |
 | `reg-workspace` | `reg-workspace*` | workspace body (`:layout`, `:variants`, `:content`, `:render`, …) | [001-Authoring.md](001-Authoring.md) |
 | `reg-mode` | `reg-mode*` | mode body (`:doc`, `:axis`, `:args`) | [001-Authoring.md](001-Authoring.md) + [010-Toolbar.md](010-Toolbar.md) |
 | `reg-story-panel` | `reg-story-panel*` | panel body (`:title`, `:placement`, `:render`) | [001-Authoring.md](001-Authoring.md) + [003-Render-Shell.md](003-Render-Shell.md) |

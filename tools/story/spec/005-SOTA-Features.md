@@ -546,7 +546,7 @@ The `:rf.story/save-current-as-variant` event id sits under the
 [spec/Conventions.md](../../../spec/Conventions.md) §Reserved namespaces)
 and is filtered by the Test Codegen recorder's `recordable-event?`
 predicate — a save dispatched during an active recording never appears
-in the recorded `:play` body.
+in the recorded `:play-script` body.
 
 #### MCP wiring
 
@@ -822,7 +822,7 @@ phase-2 SOTA adds that are cheap.
 | Per-variant QR code in share menu | Stage 6 |
 | Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 |
 | Causa epoch panel embed (stub + contract) | Stage 6 |
-| Test Codegen — record canvas dispatches as `:play` (rf2-5fc15) | Stage 6 |
+| Test Codegen — record canvas dispatches as `:play-script` (rf2-5fc15) | Stage 6 |
 
 ## v1.1 ship list (first follow-up)
 
