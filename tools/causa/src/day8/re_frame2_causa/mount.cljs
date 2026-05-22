@@ -395,7 +395,17 @@
     in lockstep — symmetric with the picker path and the public
     `core/set-target-frame!` API."
   []
-  (rf/reg-frame :rf/causa {})
+  ;; `:rf.trace/frame-no-emit? true` marks `:rf/causa` a tool / inspector
+  ;; frame: the framework suppresses all trace emission tagged with this
+  ;; frame so Causa's own UI reactivity (`:sub/run` + `:view/render` on
+  ;; every panel render) does NOT flood the shared trace ring it inspects
+  ;; (rf2-2qaqh). Without this, Causa's self-instrumentation evicted every
+  ;; application event from the process-global ring buffer — any other
+  ;; consumer reading the raw buffer (re-frame2-pair, Story) saw only
+  ;; Causa noise. The flag is the frame-scoped sibling of the handler-
+  ;; scoped `:rf.trace/no-emit?`; the framework's `reg-frame` honours it
+  ;; on every (re-)registration so the gate survives hot-reload.
+  (rf/reg-frame :rf/causa {:rf.trace/frame-no-emit? true})
   (doseq [{:keys [handler]} @first-mount-hooks]
     (handler)))
 
