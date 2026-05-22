@@ -314,8 +314,8 @@ installed is free.
 
 Three filter layers:
 
-1. **Op-type** — only `:event/dispatched` emissions qualify (skip
-   `:fx` / `:sub` / `:view` / `:cofx` traffic).
+1. **Op-type** — only `:rf.event/dispatched` emissions qualify (skip
+   `:rf.fx` / `:rf.sub` / `:rf.view` / `:rf.cofx` traffic).
 2. **Frame scope** — the emission's `:frame` tag must match the
    recording's target variant. Cross-frame dispatches (typing in
    another canvas while a recording is active) are dropped.
@@ -395,7 +395,7 @@ Testing Library calls (`fireEvent.click(...)`, `await userEvent.fill(...)`),
 which then have to translate back through React's reconciliation. Story
 records re-frame events directly: every user interaction in a Story
 canvas eventually lands as a `dispatch` on the variant's router, and
-the trace bus already projects those dispatches with `:event/dispatched`
+the trace bus already projects those dispatches with `:rf.event/dispatched`
 emissions per Spec 009. Capturing the right value is one filter on the
 existing emit; the output shape is the exact vector the runtime will
 re-dispatch (wrapped as `[:dispatch-sync <vec>]`) under

@@ -58,7 +58,7 @@
    :operation operation
    :id        id
    :time      (+ 1700000000000 (* id 10))
-   :tags      {:dispatch-id (+ 1000 id)}})
+   :tags      {:rf.trace/dispatch-id (+ 1000 id)}})
 
 ;; ---- pure: schema-validation-event? classification ----------------------
 
@@ -73,7 +73,7 @@
 (deftest schema-validation-event?-rejects-unrelated
   (testing "non-error trace events and unrelated error categories are filtered out"
     (is (not (sv/schema-validation-event?
-               (unrelated-trace-event 10 :event :event/dispatched))))
+               (unrelated-trace-event 10 :rf.event :rf.event/dispatched))))
     (is (not (sv/schema-validation-event?
                (unrelated-trace-event 11 :error :rf.error/handler-exception))))
     (is (not (sv/schema-validation-event?
@@ -155,10 +155,10 @@
   (testing "a mixed buffer returns only schema-failure rows, projected,
             in input order"
     (let [buf  [(failure-event 1 :event {:event-id :foo/bar})
-                (unrelated-trace-event 2 :event :event/dispatched)
-                (unrelated-trace-event 3 :sub/run :sub/run)
+                (unrelated-trace-event 2 :rf.event :rf.event/dispatched)
+                (unrelated-trace-event 3 :rf.sub :rf.sub/run)
                 (failure-event 4 :app-db {:path [:user]})
-                (unrelated-trace-event 5 :view :view/render)
+                (unrelated-trace-event 5 :rf.view :rf.view/render)
                 (failure-event 6 :sub-return {:sub-id :pending-todos})]
           rows (sv/project-failures buf)]
       (is (= 3 (count rows)))
@@ -170,7 +170,7 @@
   (testing "empty / all-unrelated buffers project to empty vector"
     (is (= [] (sv/project-failures [])))
     (is (= [] (sv/project-failures
-                [(unrelated-trace-event 1 :event :event/dispatched)
+                [(unrelated-trace-event 1 :rf.event :rf.event/dispatched)
                  (unrelated-trace-event 2 :error :rf.error/handler-exception)])))))
 
 ;; ---- pure: map-schema? + map-entries ------------------------------------

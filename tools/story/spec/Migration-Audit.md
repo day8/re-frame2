@@ -172,7 +172,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 |---:|---|:---:|---|
 | 1 | `expectVisible(non-trivial-app-db)` | C | Mount. → drop. |
 | 2 | Pre-click: app-db pretty-print does NOT include 'BK-099' | A | Sub readback. → `implementation/core/test/re_frame/trace_ordering_cljs_test.cljs` (new file) or extend `event_emit_test.cljc`. |
-| 3 | Trace bus: `:event/dispatched` index < `:event/db-changed` index | A | Spec 009 ordering contract. → same target. |
+| 3 | Trace bus: `:rf.event/dispatched` index < `:rf.event/db-changed` index | A | Spec 009 ordering contract. → same target. |
 | 4 | Post-click: app-db includes 'BK-099' (DOM mirror re-renders) | A | Sub→view re-render. → same target — assert `(get-in @app-db [:catalog :categories :books :groups :tech :skus])` directly. |
 
 **Migrated subtotal: 3 of 3 = 100%. DROP this spec entirely.** Trace ordering is observable in pure CLJS.

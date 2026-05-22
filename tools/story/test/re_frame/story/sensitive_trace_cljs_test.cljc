@@ -56,30 +56,30 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- sensitive-dispatch-event
-  "Build a `:event/dispatched` trace event flagged `:sensitive? true`.
+  "Build a `:rf.event/dispatched` trace event flagged `:sensitive? true`.
   Mirrors the runtime's emit shape per Spec 009 §Privacy."
   [frame-id event]
-  {:op-type    :event
-   :operation  :event/dispatched
+  {:op-type    :rf.event
+   :operation  :rf.event/dispatched
    :id         1
    :time       1700000000000
    :sensitive? true
-   :tags       {:dispatch-id 1
-                :frame       frame-id
-                :event-id    (first event)
-                :event       event}})
+   :tags       {:rf.trace/dispatch-id 1
+                :frame                frame-id
+                :rf.trace/event-id    (first event)
+                :rf.event/v           event}})
 
 (defn- plain-dispatch-event
-  "Build an ordinary `:event/dispatched` trace event (no `:sensitive?`)."
+  "Build an ordinary `:rf.event/dispatched` trace event (no `:sensitive?`)."
   [frame-id event]
-  {:op-type   :event
-   :operation :event/dispatched
+  {:op-type   :rf.event
+   :operation :rf.event/dispatched
    :id        2
    :time      1700000000010
-   :tags      {:dispatch-id 2
-               :frame       frame-id
-               :event-id    (first event)
-               :event       event}})
+   :tags      {:rf.trace/dispatch-id 2
+               :frame                frame-id
+               :rf.trace/event-id    (first event)
+               :rf.event/v           event}})
 
 (defn- sensitive-warning-event
   "Build a `:warning` trace event flagged `:sensitive? true`."
@@ -89,8 +89,8 @@
    :id         3
    :time       1700000000020
    :sensitive? true
-   :tags       {:dispatch-id 3
-                :frame       frame-id}})
+   :tags       {:rf.trace/dispatch-id 3
+                :frame                frame-id}})
 
 ;; ---------------------------------------------------------------------------
 ;; Pure config helpers
@@ -208,7 +208,7 @@
           "the suppressed-events counter should have bumped"))))
 
 (deftest play-listener-suppresses-sensitive-dispatched
-  (testing "by default a :sensitive? :event/dispatched is dropped from the dispatched accumulator"
+  (testing "by default a :sensitive? :rf.event/dispatched is dropped from the dispatched accumulator"
     (let [frame-id :story.sensitive/v
           build    @#'play/listener-for-frame
           listen   (build frame-id)
