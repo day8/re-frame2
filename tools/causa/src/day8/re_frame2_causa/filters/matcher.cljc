@@ -121,9 +121,7 @@
 
 (defn match-pill?
   "True iff the pill matches `event-id`. Pills are
-  `{:pattern <kw-or-str>}`; an optional `:scope` set may be threaded
-  in future (event-args / source-coord / tags scopes per spec/018 §7)
-  — pre-alpha we match on event-id only.
+  `{:pattern <kw-or-str>}` — event-id is the only scope.
 
   Returns false when the pill is malformed (missing pattern)."
   [{:keys [pattern]} event-id]

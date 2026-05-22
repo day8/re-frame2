@@ -35,7 +35,7 @@
           "default state — both buckets empty")
       (h/dispatch-causa!
         [:rf.causa/add-filter :out
-         {:pattern :evt/inc :scope #{:event-id}}])
+         {:pattern :evt/inc}])
       (let [filters-1 (h/read-sub :rf.causa/active-filters)]
         (is (= 1 (count (:out filters-1)))
             "one pill added to :out bucket")
@@ -55,7 +55,7 @@
           "both cascades present before filter")
       (h/dispatch-causa!
         [:rf.causa/add-filter :out
-         {:pattern :evt/inc :scope #{:event-id}}])
+         {:pattern :evt/inc}])
       (let [cascades-after (h/read-sub :rf.causa/filtered-cascades)]
         (is (= 1 (count cascades-after))
             "filtered cascade dropped from list")
@@ -71,7 +71,7 @@
     (h/seed-cascades! cascades)
     (h/dispatch-causa!
       [:rf.causa/add-filter :out
-       {:pattern :evt/inc :scope #{:event-id}}])
+       {:pattern :evt/inc}])
     (is (= 1 (count (h/read-sub :rf.causa/filtered-cascades)))
         "filter is active")
     (h/dispatch-causa! [:rf.causa/remove-filter :out 0])

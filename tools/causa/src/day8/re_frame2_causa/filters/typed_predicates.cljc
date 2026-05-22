@@ -91,11 +91,10 @@
         (update :params #(or % {})))
 
     (contains? pill :pattern)
-    ;; Legacy shape: surface the pattern under params so the matcher
-    ;; reads from one slot.
+    ;; Event-id-pattern shape: surface the pattern under params so the
+    ;; matcher reads from one slot. Event-id is the only scope.
     {:kind   :event-id-pattern
-     :params {:pattern (:pattern pill)
-              :scope   (or (:scope pill) #{:event-id})}}
+     :params {:pattern (:pattern pill)}}
 
     :else
     {:kind :never :params {}}))

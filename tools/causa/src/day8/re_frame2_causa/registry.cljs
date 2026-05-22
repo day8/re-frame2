@@ -239,8 +239,9 @@
     ;; ---- 4-layer chrome — active filter pills (rf2-xy4yb / spec/018 §7) ----
     ;;
     ;; The ribbon's filter cluster reads `:rf.causa/active-filters` —
-    ;; shape `{:in [{:pattern <str> :scope #{:event-id ...}}]
-    ;;         :out [{:pattern <str> :scope #{...}}]}`. The
+    ;; shape `{:in [{:pattern <str>}] :out [{:pattern <str>}]}` (pills
+    ;; are keyed off event-id only; typed-predicate kinds add a
+    ;; `{:kind … :params …}` shape via right-click affordances). The
     ;; `:rf.causa/filtered-cascades` sub (rf2-ak4ms, installed via
     ;; `filters/install!` further down) composes against this slot to
     ;; produce the filtered cascade list every consumer reads.

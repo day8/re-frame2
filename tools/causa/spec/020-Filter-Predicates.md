@@ -13,9 +13,9 @@ Owner: tools/causa.
 Every IN / OUT pill is one of:
 
 ```clojure
-;; Legacy keyword-pattern (rf2-ak4ms — back-compat persisted shape):
-{:pattern <kw-or-str>
- :scope   #{:event-id}}
+;; Keyword-pattern (rf2-ak4ms — the Add-filter dialog's only output):
+;; event-id is the implicit, only scope (rf2-o8pjv).
+{:pattern <kw-or-str>}
 
 ;; Typed predicate (rf2-piye4):
 {:kind   <keyword>
@@ -23,9 +23,11 @@ Every IN / OUT pill is one of:
 ```
 
 The matcher (`filters/typed-predicates`) `canonicalise-pill`s on the way
-through, so legacy shape hydrates as `:event-id-pattern` without a
-migration step. New pills written by right-click affordances persist
-under the typed shape; the round-trip is symmetric.
+through, so the keyword-pattern shape hydrates as `:event-id-pattern`
+without a migration step. New pills written by right-click affordances
+persist under the typed shape; the round-trip is symmetric. A stale
+`:scope` key on a pre-rf2-o8pjv persisted pill is dropped on hydration —
+the matcher honours event-id only.
 
 ## §2 v1 kinds
 

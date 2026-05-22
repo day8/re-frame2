@@ -138,7 +138,6 @@
     - Events: `:rf.causa/open-edit-popup`, `:rf.causa/close-edit-popup`,
               `:rf.causa/edit-popup-set-mode`,
               `:rf.causa/edit-popup-set-pattern`,
-              `:rf.causa/edit-popup-toggle-scope`,
               `:rf.causa/save-edit-popup`,
               `:rf.causa/delete-edit-popup`,
               `:rf.causa/hide-event-type`,
@@ -300,15 +299,6 @@
     (fn [db [_ pattern]]
       (assoc-in db [:edit-popup-draft :pattern] (or pattern ""))))
 
-  (rf/reg-event-db :rf.causa/edit-popup-toggle-scope
-    {:rf.trace/no-emit? true}
-    (fn [db [_ scope-key]]
-      (let [current (or (get-in db [:edit-popup-draft :scope]) #{:event-id})
-            next    (if (contains? current scope-key)
-                      (disj current scope-key)
-                      (conj current scope-key))]
-        (assoc-in db [:edit-popup-draft :scope] next))))
-
   ;; ---- events: save / delete -------------------------------------------
   ;;
   ;; Save and Delete both mutate the live `:active-filters` slot and
@@ -416,8 +406,7 @@
 
   (rf/reg-event-db :rf.causa/hide-event-type
     (fn [db [_ event-id]]
-      (let [pill {:pattern (when event-id (str event-id))
-                  :scope   #{:event-id}}]
+      (let [pill {:pattern (when event-id (str event-id))}]
         (-> db
             (assoc :edit-popup-open? true)
             (assoc :edit-popup-trigger
