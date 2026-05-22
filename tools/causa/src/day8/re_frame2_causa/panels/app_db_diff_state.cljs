@@ -25,25 +25,14 @@
   home-grown diff engine — this view carries no diff / value-changed
   affordances.
 
-  ## Downstream-subs hover popover (spec/021 §4.4, rf2-2lb7z)
-
-  Each section header hosts the downstream-subs hover trigger
-  (`app-db-diff-downstream/hover-trigger`) keyed to that section's
-  app-db path — hovering it opens the popover listing subs/views
-  downstream of the path. The reserved-area sections key on `[:rf/area]`
-  (or `[:rf/area id]` per instance); the TOP user-domain section fans a
-  trigger out per top-level user-domain key (`[:key]`) since the whole-db
-  root path `[]` is a no-op for the path-filter (per
-  `panels.shared.sub-input-paths/sub-touches-path?`). The popover
-  machinery itself (subs/events/component) is owned by
-  `app-db-diff-downstream`; this ns is just the trigger host (the
-  re-wire after rf2-okvit dropped the diff breadcrumbs that previously
-  hosted it).
+  The inspect call opts OUT of the EDN widget's universal ⎘ copy gesture
+  (`:copy? false`, rf2-ilubp) — the app-db tab is a clean current-state
+  view, not a per-block toolbox. Every other EDN-widget surface (Trace,
+  segment-inspector, Event lens, Static panels) keeps the default-on
+  copy gesture.
 
   Pure hiccup; reuses Causa's theme tokens so light/dark resolve."
-  (:require [day8.re-frame2-causa.panels.app-db-diff-downstream
-             :as downstream]
-            [day8.re-frame2-causa.panels.app-db-diff-format :as f]
+  (:require [day8.re-frame2-causa.panels.app-db-diff-format :as f]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
@@ -54,11 +43,9 @@
   "A titled card surface used by every current-state section. `title`
   is hiccup (so callers can colour the reserved-area / instance-id
   label); `testid` hooks the section for tests; `body` is the section's
-  content hiccup. Optional `trigger` is right-aligned hiccup in the
-  header — the downstream-subs hover trigger(s) for this section's
-  path(s) (spec/021 §4.4). Reuses Causa's `:bg-3` card + subtle-border
-  chrome so light/dark resolve via the token CSS variables."
-  [{:keys [testid title body trigger]}]
+  content hiccup. Reuses Causa's `:bg-3` card + subtle-border chrome so
+  light/dark resolve via the token CSS variables."
+  [{:keys [testid title body]}]
   [:section {:data-testid testid
              :style       {:margin        "12px"
                            :background    (:bg-3 tokens)
@@ -67,7 +54,6 @@
                            :overflow      "hidden"}}
    [:header {:style {:display         "flex"
                      :align-items     "center"
-                     :justify-content "space-between"
                      :gap             "8px"
                      :padding         "6px 12px"
                      :border-bottom   (str "1px solid " (:border-subtle tokens))
@@ -81,20 +67,9 @@
                     :text-overflow "ellipsis"
                     :white-space   "nowrap"
                     :flex          1}}
-     title]
-    (when trigger trigger)]
+     title]]
    [:div {:style {:padding "8px 12px"}}
     body]])
-
-(defn- path-trigger
-  "Mount the downstream-subs hover trigger for a single app-db `path`
-  (spec/021 §4.4). Reagent component vector — Reagent renders it under
-  the panel's `reg-view` so its `subscribe` reactivity resolves. The
-  trigger's `:text-transform` is reset so the header's uppercase chrome
-  doesn't bleed into the keyword path label inside the popover."
-  [path]
-  [:span {:style {:text-transform "none"}}
-   [downstream/hover-trigger path]])
 
 (defn- empty-body
   "Empty-state placeholder body for an absent / empty section. `label`
@@ -117,47 +92,30 @@
   a 20 KiB payload from flooding the inspector (and from leaking the raw
   bytes into the rendered text); the data-classification sentinels
   (`:rf/redacted` / `:rf/large`) still get their bespoke chip chrome via
-  `edn/inspect`."
+  `edn/inspect`.
+
+  `:copy? false` (rf2-ilubp) opts this render out of the EDN widget's
+  universal ⎘ copy gesture — the app-db tab is a clean current-state
+  view, not a per-block toolbox. Other EDN-widget surfaces keep it on."
   [value render-id]
-  (edn/inspect (f/display-value value) (str "app-db-state/" render-id)))
+  (edn/inspect (f/display-value value)
+               (str "app-db-state/" render-id)
+               {:copy? false}))
 
 ;; ---- top (user-domain) section ------------------------------------------
-
-(defn- top-triggers
-  "Downstream-subs hover triggers for the TOP user-domain section: one
-  per top-level user-domain key (`[:key]`). The whole-db root path `[]`
-  is a no-op for the path-filter (per
-  `panels.shared.sub-input-paths/sub-touches-path?` — the root excludes
-  every known layer-1 leaf), so the TOP section fans out per key rather
-  than hosting a single `[]` trigger. Returns nil when `top` carries no
-  user-domain keys (so the empty TOP section shows no triggers). Keys
-  are sorted by `pr-str` for stable render order."
-  [top]
-  (when (and (map? top) (seq top))
-    (into [:span {:data-testid "rf-causa-app-db-state-top-triggers"
-                  :style {:display     "inline-flex"
-                          :align-items "center"
-                          :flex-wrap   "wrap"
-                          :gap         "2px"
-                          :flex        "0 0 auto"}}]
-          (for [k (sort-by pr-str (keys top))]
-            (with-meta (path-trigger [k]) {:key (pr-str k)})))))
 
 (defn top-section
   "The TOP section — the app-db MINUS every reserved `:rf/*` key (the
   user-domain app-db). Renders the whole user-domain value as a
   current-state tree. Empty-state when the user-domain app-db is empty
-  (e.g. boot value / reserved-keys-only db). Each top-level user-domain
-  key gets a downstream-subs hover trigger in the header (spec/021
-  §4.4)."
+  (e.g. boot value / reserved-keys-only db)."
   [top]
   (section-shell
-    {:testid  "rf-causa-app-db-state-top"
-     :title   [:span "app-db"]
-     :trigger (top-triggers top)
-     :body    (if (and (map? top) (empty? top))
-                (empty-body "app-db has no user-domain keys yet.")
-                (value-body top "top"))}))
+    {:testid "rf-causa-app-db-state-top"
+     :title  [:span "app-db"]
+     :body   (if (and (map? top) (empty? top))
+               (empty-body "app-db has no user-domain keys yet.")
+               (value-body top "top"))}))
 
 ;; ---- reserved-area sections ---------------------------------------------
 
@@ -172,21 +130,19 @@
 (defn instance-section
   "One fan-out sub-section for a single instance of a map-of-instances
   reserved area — section title = the instance id. Used per machine
-  (`:rf/machines`) and per parent (`:rf/spawned`). The header hosts the
-  downstream-subs hover trigger keyed to `[area id]` (spec/021 §4.4)."
+  (`:rf/machines`) and per parent (`:rf/spawned`)."
   [area {:keys [id value]}]
   (section-shell
-    {:testid  (str "rf-causa-app-db-state-instance-"
-                   (pr-str area) "-" (pr-str id))
-     :title   [:span
-               (area-label area)
-               [:span {:style {:margin "0 6px" :color (:text-tertiary tokens)}}
-                "›"]
-               [:span {:style {:font-family mono-stack
-                               :color       (:text-primary tokens)}}
-                (pr-str id)]]
-     :trigger (path-trigger [area id])
-     :body    (value-body value (str (pr-str area) "/" (pr-str id)))}))
+    {:testid (str "rf-causa-app-db-state-instance-"
+                  (pr-str area) "-" (pr-str id))
+     :title  [:span
+              (area-label area)
+              [:span {:style {:margin "0 6px" :color (:text-tertiary tokens)}}
+               "›"]
+              [:span {:style {:font-family mono-stack
+                              :color       (:text-primary tokens)}}
+               (pr-str id)]]
+     :body   (value-body value (str (pr-str area) "/" (pr-str id)))}))
 
 (defn instances-area
   "Render a map-of-instances reserved area (`:rf/machines`,
@@ -196,14 +152,13 @@
   [{:keys [area empty? instances]}]
   (if empty?
     (section-shell
-      {:testid  (str "rf-causa-app-db-state-area-" (pr-str area))
-       :title   (area-label area)
-       :trigger (path-trigger [area])
-       :body    (empty-body
-                  (case area
-                    :rf/machines "No machines registered."
-                    :rf/spawned  "No spawned actors."
-                    "Empty."))})
+      {:testid (str "rf-causa-app-db-state-area-" (pr-str area))
+       :title  (area-label area)
+       :body   (empty-body
+                 (case area
+                   :rf/machines "No machines registered."
+                   :rf/spawned  "No spawned actors."
+                   "Empty."))})
     (into [:div {:data-testid (str "rf-causa-app-db-state-area-" (pr-str area))}]
           (for [{:keys [id] :as inst} instances]
             (with-meta (instance-section area inst)
@@ -216,18 +171,17 @@
   for `:rf/route`). Empty/absent slices render the empty-state body."
   [{:keys [area empty? value]}]
   (section-shell
-    {:testid  (str "rf-causa-app-db-state-area-" (pr-str area))
-     :title   (area-label area)
-     :trigger (path-trigger [area])
-     :body    (if empty?
-                (empty-body
-                  (case area
-                    :rf/route              "No active route."
-                    :rf/system-ids         "No system-id bindings."
-                    :rf/pending-navigation "No navigation pending."
-                    :rf/elision            "No elision declarations."
-                    "Empty."))
-                (value-body value (pr-str area)))}))
+    {:testid (str "rf-causa-app-db-state-area-" (pr-str area))
+     :title  (area-label area)
+     :body   (if empty?
+               (empty-body
+                 (case area
+                   :rf/route              "No active route."
+                   :rf/system-ids         "No system-id bindings."
+                   :rf/pending-navigation "No navigation pending."
+                   :rf/elision            "No elision declarations."
+                   "Empty."))
+               (value-body value (pr-str area)))}))
 
 (defn area-section
   "Dispatch one reserved-area section entry (from
