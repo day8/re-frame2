@@ -77,8 +77,8 @@
  ;;      signal while the handler still resolves).
  ;;   5. :frame/destroyed fires last.
  {:trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :boot/seed}}
-   {:operation :rf.event :tags {:rf.trace/event-id :auth/session}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :boot/seed}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/session}}
    {:operation :rf.machine.lifecycle/destroyed
     :tags      {:frame      :rf/default
                 :machine-id :auth/session

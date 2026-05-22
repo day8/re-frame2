@@ -27,9 +27,10 @@
 
     1. `:event`    — `:op-type :rf.event` + `:operation :rf.event/dispatched`
                      (cascade-root marker; bucket value is the event vector)
-    2. `:handler`  — `:op-type :rf.event` + `:operation :rf.event`
-                     (the handler ran; tags carry
-                     `:rf.trace/phase :run-start` / `:run-end`)
+    2. `:handler`  — `:op-type :rf.event` + `:operation :rf.event/run-start`
+                     or `:rf.event/run-end` (the cascade run markers; both
+                     also carry the redundant `:rf.trace/phase :run-start` /
+                     `:run-end` tag — `:operation` is the discriminator)
     3. `:fx`       — `:op-type :rf.fx` + `:operation :rf.fx/do-fx`
                      (effects map computed and about to be walked)
     4. `:effect`   — `:op-type :rf.fx` (any other `:operation` —
@@ -86,7 +87,8 @@
     (= op-type :rf.event)
     (case operation
       :rf.event/dispatched :event
-      :rf.event            :handler
+      :rf.event/run-start  :handler
+      :rf.event/run-end    :handler
       :other)
 
     ;; `:rf.fx/do-fx` is the third domino (the effects-resolution pass

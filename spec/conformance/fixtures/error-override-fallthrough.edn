@@ -37,7 +37,7 @@
   :sub-values   {[:user] {:from :http :id "real-http"}}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :user/load}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :user/load}}
    {:operation :rf.error/override-fallthrough
     :op-type   :error
     :tags      {:category      :rf.error/override-fallthrough
@@ -46,7 +46,7 @@
                 :looked-up-id  :nonexistent-stub
                 :reason        "Override redirected `:http` to `:nonexistent-stub`, which is not registered. Using the registered `:http` instead."}
     :recovery  :replaced-with-default}
-   {:operation :rf.event :tags {:rf.trace/event-id :user/loaded}}]
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :user/loaded}}]
 
   :effects-routed
   [{:fx-id :http :args {:method :get :url "/api/me" :on-success [:user/loaded]}}]}}

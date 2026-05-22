@@ -2268,7 +2268,7 @@
 
       (swap! buffers-atom assoc :test/main
              [{:op-type   :rf.event
-               :operation :rf.event
+               :operation :rf.event/run-start
                :tags      {:rf.event/v        [:pre-destroy]
                            :rf.trace/event-id :pre-destroy
                            :frame             :test/main
@@ -2316,7 +2316,7 @@
     ;; nothing. This mirrors the degenerate path the audit identified
     ;; on the :halted-destroy commit.
     (let [tag-less-events [{:op-type   :rf.event
-                            :operation :rf.event
+                            :operation :rf.event/run-start
                             :tags      {:frame          :test/main
                                         :rf.trace/phase :run-start}}]
           record          (#'assembly/build-record
@@ -2344,7 +2344,7 @@
             happy-path record shape"
     (rf/reg-frame :test/main {})
     (let [events [{:op-type   :rf.event
-                   :operation :rf.event
+                   :operation :rf.event/run-start
                    :tags      {:frame             :test/main
                                :rf.trace/phase    :run-start
                                :rf.trace/event-id :seed

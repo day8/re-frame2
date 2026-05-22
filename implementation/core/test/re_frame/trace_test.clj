@@ -275,17 +275,11 @@
                    (vec (take 3 (remove valid-envelope? events))))))
 
         ;; ---- :rf.event op-type ---------------------------------------------
-        (testing ":rf.event :rf.event (run-start / run-end phase)"
-          (let [run-starts (filter #(and (= :rf.event (:op-type %))
-                                         (= :rf.event (:operation %))
-                                         (= :run-start (:rf.trace/phase (:tags %))))
-                                   events)
-                run-ends   (filter #(and (= :rf.event (:op-type %))
-                                         (= :rf.event (:operation %))
-                                         (= :run-end (:rf.trace/phase (:tags %))))
-                                   events)]
-            (is (seq run-starts) ":rf.event run-start fires for each handler invocation")
-            (is (seq run-ends)   ":rf.event run-end fires for each handler invocation")
+        (testing ":rf.event/run-start / :rf.event/run-end operations"
+          (let [run-starts (filter #(= :rf.event/run-start (:operation %)) events)
+                run-ends   (filter #(= :rf.event/run-end (:operation %)) events)]
+            (is (seq run-starts) ":rf.event/run-start fires for each handler invocation")
+            (is (seq run-ends)   ":rf.event/run-end fires for each handler invocation")
             ;; Tag shape: the first run-start carries :rf.trace/event-id,
             ;; :rf.event/v, :frame.
             (let [t (:tags (first run-starts))]
@@ -693,7 +687,9 @@
             ":rf.event/dispatched fired for the un-flagged handler")
         (is (contains? ops :rf.event/db-changed)
             ":rf.event/db-changed fired for the un-flagged handler")
-        (is (contains? ops :rf.event)
-            ":rf.event (run-start / run-end) fired for the un-flagged handler"))
+        (is (contains? ops :rf.event/run-start)
+            ":rf.event/run-start fired for the un-flagged handler")
+        (is (contains? ops :rf.event/run-end)
+            ":rf.event/run-end fired for the un-flagged handler"))
 
       (rf/unregister-listener! ::rec))))

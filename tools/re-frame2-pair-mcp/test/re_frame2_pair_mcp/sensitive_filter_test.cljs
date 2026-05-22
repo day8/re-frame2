@@ -199,9 +199,9 @@
   (is (sensitive/sensitive-epoch?
         {:epoch-id 2
          :event-id :auth/sign-in
-         :trace-events [{:op-type :rf.event :operation :rf.event
+         :trace-events [{:op-type :rf.event :operation :rf.event/run-start
                          :tags {:rf.trace/phase :run-start}}
-                        {:op-type :rf.event :operation :rf.event
+                        {:op-type :rf.event :operation :rf.event/run-end
                          :tags {:rf.trace/phase :run-end}
                          :sensitive? true}]})))
 
@@ -209,9 +209,9 @@
   (is (not (sensitive/sensitive-epoch?
              {:epoch-id 3
               :event-id :cart/add
-              :trace-events [{:op-type :rf.event :operation :rf.event
+              :trace-events [{:op-type :rf.event :operation :rf.event/run-start
                               :tags {:rf.trace/phase :run-start}}
-                             {:op-type :rf.event :operation :rf.event
+                             {:op-type :rf.event :operation :rf.event/run-end
                               :tags {:rf.trace/phase :run-end}}]}))))
 
 (deftest sensitive-epoch-empty-trace-events-passes
@@ -231,7 +231,7 @@
   (is (sensitive/sensitive-epoch?
         {:epoch-id 6
          :sensitive? false
-         :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end} :sensitive? true}]})))
+         :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]})))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive on epoch records — the streaming-surface defense-in-depth
@@ -245,17 +245,17 @@
   ;; runtime rollup was absent but a constituent trace was stamped.
   (let [epochs [{:epoch-id 1
                  :event-id :cart/add
-                 :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end}}]}
+                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
                 {:epoch-id 2
                  :event-id :auth/sign-in
-                 :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end} :sensitive? true}]}]
+                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}]
         [kept dropped] (sensitive/strip-sensitive epochs false)]
     (is (= 1 (count kept)))
     (is (= 1 (:epoch-id (first kept))))
     (is (= 1 dropped))))
 
 (deftest strip-sensitive-passes-non-sensitive-epoch-vector-through
-  (let [epochs [{:epoch-id 1 :event-id :cart/add :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end}}]}
+  (let [epochs [{:epoch-id 1 :event-id :cart/add :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
                 {:epoch-id 2 :event-id :cart/checkout :trace-events []}
                 {:epoch-id 3 :event-id :nav/route}]
         [kept dropped] (sensitive/strip-sensitive epochs false)]
@@ -270,14 +270,14 @@
   ;;   - epoch 4: clean (no trace-events slot at all)            → keep
   (let [epochs [{:epoch-id 1
                  :event-id :auth/sign-in
-                 :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end} :sensitive? true}]}
+                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}
                 {:epoch-id 2
                  :event-id :auth/recover
                  :sensitive? true
-                 :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end}}]}
+                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
                 {:epoch-id 3
                  :event-id :cart/add
-                 :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end}}]}
+                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
                 {:epoch-id 4 :event-id :nav/route}]
         [kept dropped] (sensitive/strip-sensitive epochs false)]
     (is (= [3 4] (mapv :epoch-id kept)))
@@ -286,7 +286,7 @@
 (deftest strip-sensitive-include-opt-in-keeps-epoch-with-sensitive-constituent
   ;; `:include-sensitive true` is the documented escape hatch — even
   ;; epochs carrying sensitive constituents pass through unchanged.
-  (let [epochs [{:epoch-id 1 :trace-events [{:operation :rf.event :tags {:rf.trace/phase :run-end} :sensitive? true}]}
+  (let [epochs [{:epoch-id 1 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}
                 {:epoch-id 2 :sensitive? true}]
         [kept dropped] (sensitive/strip-sensitive epochs true)]
     (is (= epochs kept))

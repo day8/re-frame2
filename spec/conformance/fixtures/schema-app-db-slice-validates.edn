@@ -54,12 +54,12 @@
   :sub-values   {[:user] {:id 2 :email "bob@example.com"}}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :user/init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :user/set-good}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :user/init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :user/set-good}}
    ;; No schema-validation-failure between :user/set-good (well-typed) and
    ;; :user/set-bad — the runner asserts the order of NEW emissions; absent
    ;; emissions in between are fine.
-   {:operation :rf.event :tags {:rf.trace/event-id :user/set-bad}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :user/set-bad}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
     :tags      {:category        :rf.error/schema-validation-failure

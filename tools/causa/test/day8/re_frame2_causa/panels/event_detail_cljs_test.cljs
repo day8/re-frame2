@@ -75,10 +75,10 @@
       call-site (assoc :rf.trace/call-site call-site)
       source    (assoc :source source)
       origin    (assoc :origin origin))
-    {:id (+ id-base 2) :op-type :rf.event :operation :rf.event
+    {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
      :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-start}
              frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 3) :op-type :rf.event :operation :rf.event
+    {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
      :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-end :duration-ms 11}
              frame-id (assoc :frame frame-id))}
     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
@@ -541,7 +541,7 @@
     (seed-buffer!
       [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
         :tags {:rf.trace/dispatch-id 100 :rf.event/v [:cart/refresh]}}
-       {:id 2 :op-type :rf.event :operation :event
+       {:id 2 :op-type :rf.event :operation :rf.event/run-end
         :tags {:rf.trace/dispatch-id 100 :rf.trace/phase :run-end :duration-ms 3}}
        {:id 3 :op-type :rf.fx :operation :rf.fx/do-fx
         :tags {:rf.trace/dispatch-id 100}}

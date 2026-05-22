@@ -83,8 +83,8 @@
   ;;      the trace surface is allowed (and required) to preserve PII;
   ;;      sanitisation happens at the projector boundary.
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :rf/server-init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :load/start}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/start}}
    {:operation :rf.error/fx-handler-exception
     :op-type   :error
     :tags      {:rf.fx/id             :user.fx/db-call

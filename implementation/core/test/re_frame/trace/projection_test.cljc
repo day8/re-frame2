@@ -18,9 +18,11 @@
   (testing ":rf.event/dispatched buckets as :event (cascade root)"
     (is (= :event
            (p/domino-bucket {:op-type :rf.event :operation :rf.event/dispatched}))))
-  (testing ":rf.event :rf.event buckets as :handler (the interceptor chain ran)"
+  (testing ":rf.event/run-start + :rf.event/run-end both bucket as :handler (cascade run markers)"
     (is (= :handler
-           (p/domino-bucket {:op-type :rf.event :operation :rf.event}))))
+           (p/domino-bucket {:op-type :rf.event :operation :rf.event/run-start})))
+    (is (= :handler
+           (p/domino-bucket {:op-type :rf.event :operation :rf.event/run-end}))))
   (testing ":rf.fx :rf.fx/do-fx buckets as :fx (effects map computed)"
     (is (= :fx
            (p/domino-bucket {:op-type :rf.fx :operation :rf.fx/do-fx}))))
@@ -67,9 +69,9 @@
   ([dispatch-id event-vec frame-id]
    [{:id 1 :op-type :rf.event    :operation :rf.event/dispatched
      :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v event-vec :frame frame-id}}
-    {:id 2 :op-type :rf.event    :operation :rf.event
+    {:id 2 :op-type :rf.event    :operation :rf.event/run-start
      :tags {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-start :frame frame-id}}
-    {:id 3 :op-type :rf.event    :operation :rf.event
+    {:id 3 :op-type :rf.event    :operation :rf.event/run-end
      :tags {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-end :frame frame-id}}
     {:id 4 :op-type :rf.fx       :operation :rf.fx/do-fx
      :tags {:rf.trace/dispatch-id dispatch-id :frame frame-id}}
@@ -147,10 +149,12 @@
           "the error event lands in :other, not a sibling :ungrouped cascade"))))
 
 (deftest group-cascades-handler-slot-takes-last-event-emit
-  (testing "when the chain emits :run-start + :run-end the :handler slot
-            ends up as the :run-end event (reduce overwrites)"
+  (testing "when the chain emits :rf.event/run-start + :rf.event/run-end
+            the :handler slot ends up as the :run-end event (reduce
+            overwrites)"
     (let [evs (cascade-evs 500 [:foo])
           [c] (p/group-cascades evs)]
+      (is (= :rf.event/run-end (get-in c [:handler :operation])))
       (is (= :run-end (get-in c [:handler :tags :rf.trace/phase]))))))
 
 (deftest group-cascades-empty-input-yields-empty-output

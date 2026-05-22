@@ -58,5 +58,5 @@
   :ssr/html-attr-present "data-rf-render-hash"
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :rf/server-init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :rf.route/handle-url-change}}]}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}]}}

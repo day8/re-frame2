@@ -376,15 +376,13 @@
         (is (= [:a :b :c] (:seq @observed))
             "full :on-create handler body completed before reg-frame returned")
 
-        ;; Ordering: the :event/run-end for :boot precedes :rf.frame/created
+        ;; Ordering: the :rf.event/run-end for :boot precedes :rf.frame/created
         ;; (reg-frame emits :rf.frame/created AFTER on-create dispatch-syncs).
         (let [run-end-idx (->> @traces
                                (keep-indexed
                                  (fn [i ev]
-                                   (when (and (= :rf.event (:op-type ev))
-                                              (= :rf.event (:operation ev))
-                                              (= :boot (:rf.trace/event-id (:tags ev)))
-                                              (= :run-end (:rf.trace/phase (:tags ev))))
+                                   (when (and (= :rf.event/run-end (:operation ev))
+                                              (= :boot (:rf.trace/event-id (:tags ev))))
                                      i)))
                                first)
               created-idx (->> @traces

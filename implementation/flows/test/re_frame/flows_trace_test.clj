@@ -1123,8 +1123,7 @@
           evs-v       (vec evs)
           bump-start  (->> (map-indexed vector evs-v)
                            (filter (fn [[_ ev]]
-                                     (and (= :rf.event (:operation ev))
-                                          (= :run-start (get-in ev [:tags :rf.trace/phase]))
+                                     (and (= :rf.event/run-start (:operation ev))
                                           (= [:bump] (get-in ev [:tags :rf.event/v])))))
                            (map first)
                            last)

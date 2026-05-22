@@ -51,9 +51,9 @@
   [;; First navigation: nav-token allocated, loader fires.
    {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/article}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/load}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load}}
 
    ;; Second navigation: fresh nav-token, loader re-fires.
    {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/article}}
-   {:operation :rf.event :tags {:rf.trace/event-id :article/load}}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load}}]}}

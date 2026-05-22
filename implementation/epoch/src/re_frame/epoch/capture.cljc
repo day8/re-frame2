@@ -112,9 +112,7 @@
   and is back-filled to the cascade that caused it."
   [frame-id]
   (some (fn [ev]
-          (and (= :rf.event (:op-type ev))
-               (= :rf.event (:operation ev))
-               (= :run-start (-> ev :tags :rf.trace/phase))))
+          (= :rf.event/run-start (:operation ev)))
         (state/buffer-for frame-id)))
 
 (defn capture-event!
@@ -282,9 +280,7 @@
                              tags (:tags ev)]
                          (cond-> acc
                            (and (nil? (:cause-event-id acc))
-                                (= :rf.event (:op-type ev))
-                                (= :rf.event op)
-                                (= :run-start (:rf.trace/phase tags)))
+                                (= :rf.event/run-start op))
                            (assoc :cause-event-id (:rf.trace/event-id tags))
 
                            (and (= :rf.sub/run op)
@@ -480,9 +476,7 @@
         (reduce
           (fn [acc ev]
             (let [tags (:tags ev)]
-              (if (and (= :rf.event (:op-type ev))
-                       (= :rf.event (:operation ev))
-                       (= :run-start (:rf.trace/phase tags)))
+              (if (= :rf.event/run-start (:operation ev))
                 ;; run-start beats the fallback; short-circuit.
                 ;; Tag-key reads use the :rf.* namespaced scheme
                 ;; (rf2-y4qpy.2); the run-start's :dispatch-id is surfaced

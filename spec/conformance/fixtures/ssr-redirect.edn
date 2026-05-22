@@ -41,5 +41,5 @@
               :redirect {:status 302 :location "/login"}}}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :rf/server-init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :auth/check-session}}]}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/check-session}}]}}

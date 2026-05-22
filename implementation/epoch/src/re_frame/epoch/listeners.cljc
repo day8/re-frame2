@@ -249,9 +249,7 @@
     ;; buffer gets wiped in step 3.
     (let [buffered-events  (state/buffer-for frame-id)
           in-cascade?      (some (fn [ev]
-                                   (and (= :rf.event (:op-type ev))
-                                        (= :rf.event (:operation ev))
-                                        (= :run-start (-> ev :tags :rf.trace/phase))))
+                                   (= :rf.event/run-start (:operation ev)))
                                  buffered-events)]
       (when in-cascade?
         ;; Per rf2-wp70d: even on the halted-destroy partial-record

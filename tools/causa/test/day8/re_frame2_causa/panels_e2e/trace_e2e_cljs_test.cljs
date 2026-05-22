@@ -42,8 +42,8 @@
               dispatched  (filter #(= :rf.event/dispatched (:operation %)) buffer)
               ;; Per Spec 009 §Event envelope: :rf.event/dispatched carries
               ;; the full event vector under :tags :rf.event/v (not
-              ;; :rf.trace/event-id — that lands on later op-types like
-              ;; :rf.event with :rf.trace/phase :run-start).
+              ;; :rf.trace/event-id — that lands on later operations like
+              ;; :rf.event/run-start).
               counter-inc (filter #(= [:counter/inc] (get-in % [:tags :rf.event/v])) dispatched)]
           (is (pos? (count counter-inc))
               "no :rf.event/dispatched trace event carries [:counter/inc]"))))))

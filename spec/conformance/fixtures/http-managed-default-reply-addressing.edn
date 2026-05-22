@@ -72,12 +72,12 @@
 
   :trace-emissions
   [;; Initial dispatch.
-   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :article/load}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/load}}
    ;; The override redirected :rf.http/managed → :rf.http/managed-canned-success.
    {:operation :rf.fx/override-applied :tags {:rf.fx/from :rf.http/managed
                                               :rf.fx/to   :rf.http/managed-canned-success}}
    ;; The stub re-dispatched to :article/load-reply with the success payload.
-   {:operation :rf.event :op-type :rf.event :tags {:rf.trace/event-id :article/load-reply}}]
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/load-reply}}]
 
   :effects-routed
   [{:fx-id :rf.http/managed-canned-success

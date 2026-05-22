@@ -78,13 +78,12 @@
 ;; nested same-cascade dispatches roll up correctly.
 (defn epoch-elapsed-ms
  [{:keys [trace-events]}]
- (let [run-event? (fn [phase ev]
+ (let [run-event? (fn [op ev]
  (and (= :rf.event (:op-type ev))
- (= :rf.event (:operation ev))
- (= phase (get-in ev [:tags :rf.trace/phase]))))
- first-time (some (fn [ev] (when (run-event? :run-start ev) (:time ev))) trace-events)
+ (= op (:operation ev))))
+ first-time (some (fn [ev] (when (run-event? :rf.event/run-start ev) (:time ev))) trace-events)
  last-time (reduce (fn [acc ev]
- (if (run-event? :run-end ev)
+ (if (run-event? :rf.event/run-end ev)
  (let [t (:time ev)]
  (if (and (number? t) (or (nil? acc) (> t acc))) t acc))
  acc))
@@ -325,18 +324,18 @@
  ;; `:rf.event/run-end` trace events on `:time`. Span first run-start to
  ;; last run-end so a same-cascade chain of synchronously-dispatched
  ;; handlers rolls up to the cascade's total hold time.
- (let [epoch {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
- {:op-type :rf.event :operation :rf.event :time 1150 :tags {:rf.trace/phase :run-end}}]}]
+ (let [epoch {:trace-events [{:op-type :rf.event :operation :rf.event/run-start :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event/run-end :time 1150 :tags {:rf.trace/phase :run-end}}]}]
  (is (= 150 (epoch-elapsed-ms epoch))))
  (testing "no run-start ⇒ nil (degenerate or trace-elided epoch)"
- (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-end}}]}))))
+ (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :rf.event :operation :rf.event/run-end :time 1000 :tags {:rf.trace/phase :run-end}}]}))))
  (testing "no run-end ⇒ nil"
- (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}]}))))
+ (is (nil? (epoch-elapsed-ms {:trace-events [{:op-type :rf.event :operation :rf.event/run-start :time 1000 :tags {:rf.trace/phase :run-start}}]}))))
  (testing "spans first run-start to LAST run-end across nested dispatches"
- (let [epoch {:trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
- {:op-type :rf.event :operation :rf.event :time 1050 :tags {:rf.trace/phase :run-end}}
- {:op-type :rf.event :operation :rf.event :time 1060 :tags {:rf.trace/phase :run-start}}
- {:op-type :rf.event :operation :rf.event :time 1300 :tags {:rf.trace/phase :run-end}}]}]
+ (let [epoch {:trace-events [{:op-type :rf.event :operation :rf.event/run-start :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event/run-end :time 1050 :tags {:rf.trace/phase :run-end}}
+ {:op-type :rf.event :operation :rf.event/run-start :time 1060 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event/run-end :time 1300 :tags {:rf.trace/phase :run-end}}]}]
  (is (= 300 (epoch-elapsed-ms epoch))))))
 
 (deftest epoch-filter-matches-by-timing-ms-threshold
@@ -344,11 +343,11 @@
  ;; (`>= N`) and comparison-string forms (`">100"`, `"<=50"`, …) both
  ;; supported.
  (let [slow-epoch {:event-id :cart/add
- :trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
- {:op-type :rf.event :operation :rf.event :time 1150 :tags {:rf.trace/phase :run-end}}]}
+ :trace-events [{:op-type :rf.event :operation :rf.event/run-start :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event/run-end :time 1150 :tags {:rf.trace/phase :run-end}}]}
  fast-epoch {:event-id :cart/add
- :trace-events [{:op-type :rf.event :operation :rf.event :time 1000 :tags {:rf.trace/phase :run-start}}
- {:op-type :rf.event :operation :rf.event :time 1005 :tags {:rf.trace/phase :run-end}}]}]
+ :trace-events [{:op-type :rf.event :operation :rf.event/run-start :time 1000 :tags {:rf.trace/phase :run-start}}
+ {:op-type :rf.event :operation :rf.event/run-end :time 1005 :tags {:rf.trace/phase :run-end}}]}]
  (testing "number `100` is sugar for `>= 100` — slow matches, fast doesn't"
  (is (epoch-matches? {:timing-ms 100} slow-epoch))
  (is (not (epoch-matches? {:timing-ms 100} fast-epoch))))

@@ -55,7 +55,7 @@ The classic shape: a starting state (frame configuration plus initial `app-db`),
  :fixture/expect
  {:final-app-db        {:count 1}
   :sub-values          {[:count] 1}
-  :trace-emissions     [{:operation :rf.event :tags {:rf.trace/event-id :counter/inc}}
+  :trace-emissions     [{:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc}}
                         {:operation :rf.fx/do-fx :tags {}}]
   :effects-routed      []}}
 ```

@@ -56,7 +56,7 @@
  {:final-app-db {}
 
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :cap/seed}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :cap/seed}}
    {:operation :rf.error/schema-validation-failure
     :op-type   :error
     :tags      {:category   :rf.error/schema-validation-failure

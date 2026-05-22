@@ -46,8 +46,8 @@
 
   ;; Internal trace event preserves full detail (for monitoring).
   :trace-emissions
-  [{:operation :rf.event :tags {:rf.trace/event-id :rf/server-init}}
-   {:operation :rf.event :tags {:rf.trace/event-id :load/article}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/article}}
    {:operation :rf.error/handler-exception
     :op-type   :error
     :tags      {:category          :rf.error/handler-exception
