@@ -344,8 +344,12 @@
               records the choice.
     - Effects: `:rf.causa.frame-switcher/persist` — localStorage
               write fx.
-    - Side-effect: hydrate `[:focus :frame]` from localStorage at
-              first install via `hydrate!`.
+
+  Does NOT hydrate `[:focus :frame]` from localStorage (rf2-swclw): the
+  frame pin is a transient exploration filter, reset to unpinned on
+  every page load. `mount.cljs`'s `::reset-transient-filters` first-
+  mount hook clears the stale slot. `hydrate!` / `load` remain as the
+  data layer for tests and opt-in hosts, but init does not restore.
 
   Called from `registry/register-causa-handlers!` after `spine/install!`
   so the canonical event-fx's `[:dispatch [:rf.causa/set-frame ...]]`
@@ -409,9 +413,14 @@
       {:fx [[:dispatch [:rf.causa/set-frame frame-id]]
             [:rf.causa.frame-switcher/persist frame-id]]}))
 
-  ;; Hydrate from localStorage. The actual logic lives in `hydrate!`
-  ;; above so first-mount (`mount/ensure-causa-frame!`) can call the
-  ;; same fn to converge.
-  (hydrate!)
+  ;; NO hydrate from localStorage on install (rf2-swclw). The frame pin
+  ;; is a TRANSIENT exploration filter — it resets to unpinned on every
+  ;; page load so a fresh session never silently scopes the inspector to
+  ;; a frame chosen in a past session. The `[:focus :frame]` slot starts
+  ;; at its registry default (unpinned) and `mount.cljs`'s
+  ;; `::reset-transient-filters` first-mount hook clears the stale
+  ;; localStorage slot so storage matches. `hydrate!` / `load` remain as
+  ;; the data layer (exercised by the round-trip tests), but init does
+  ;; not restore.
 
   nil)

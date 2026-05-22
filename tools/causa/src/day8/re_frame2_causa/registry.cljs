@@ -615,11 +615,13 @@
     ;; Frame-switcher slot (rf2-iwwou) — hardened L1 frame-switcher
     ;; contract. MUST install AFTER `spine/install!` so the canonical
     ;; `:rf.causa/select-frame` event-fx's `[:dispatch [:rf.causa/set-
-    ;; frame ...]]` resolves at hydration time. Registers the
+    ;; frame ...]]` resolves at install time. Registers the
     ;; `:rf.causa/current-frame` + `:rf.causa/available-frames` subs,
-    ;; the `:rf.causa/select-frame` event-fx, the `:rf.causa.frame-
-    ;; switcher/persist` localStorage write fx, and hydrates the
-    ;; `[:focus :frame]` slot from localStorage at first install.
+    ;; the `:rf.causa/select-frame` event-fx, and the `:rf.causa.frame-
+    ;; switcher/persist` localStorage write fx. Does NOT restore the pin
+    ;; on init (rf2-swclw) — the frame pin is a transient filter, reset
+    ;; to unpinned on every page load by mount.cljs's
+    ;; `::reset-transient-filters` hook.
     (frame-switcher/install!)
     (app-db-diff/install!)
     ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
