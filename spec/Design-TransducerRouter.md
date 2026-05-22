@@ -197,15 +197,20 @@ specific to the v1 queue-pump shape. Under Stage B they collapse into a single `
 `microtask-driver` definition.
 
 **What stays.** Spec 002's normative behaviour is unchanged: run-to-completion, FIFO ordering
-within a frame, depth-exceeded rollback, `:dispatch-sync` reentrancy guard, frame-destroy
-mid-drain semantics. Each is a property of the *reducing function* under Stage B, not of
-ad-hoc drain code.
+within a frame, depth-exceeded halt (per-event, **not** whole-drain rollback),
+`:dispatch-sync` reentrancy guard, frame-destroy mid-drain semantics. Each is a property of the
+*reducing function* under Stage B, not of ad-hoc drain code.
 
-**Atomic rollback.** v1's depth-exceeded path (`handle-depth-exceeded!`) restores the
-pre-cascade `:db` and emits a `:halted-depth` epoch. Under Stage B this becomes the
-**transducer's `completing` arity**: when the reducing function detects depth exhaustion it
-short-circuits via `reduced` carrying the rollback marker, and the completing arity emits the
-epoch record. Pure, testable, no flag.
+**Depth-exceeded halt (no rollback).** Per [Spec 002 §Run-to-completion rule 3](002-Frames.md#run-to-completion-dispatch-drain-semantics)
+the atomicity unit is the **event**, not the drain: every already-settled event kept its own
+durable `:ok` epoch + `:db` write — there is **no** whole-drain rollback and no pre-cascade
+restore. v1's depth-exceeded path (`handle-depth-exceeded!`) discards the remaining queued
+events (the halting event never runs) and emits a single trailing `:halted-depth` epoch whose
+`:db-before` and `:db-after` both equal the durable last-settled `app-db`. Under Stage B this
+becomes the **transducer's `completing` arity**: when the reducing function detects depth
+exhaustion it short-circuits via `reduced` carrying the halt marker (`:rollback? false`), and
+the completing arity emits the trailing `:halted-depth` record over the durable state. Pure,
+testable, no flag.
 
 ---
 
