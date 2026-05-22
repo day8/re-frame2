@@ -130,7 +130,14 @@
         (is (string? (:source e)))
         (is (string? (:target e)))
         (is (string? (:label e)))
-        (is (keyword? (-> e :data :kind)))))))
+        (is (keyword? (-> e :data :kind)))))
+    (testing "rf2-5qsxo — each edge requests an arrowclosed markerEnd so
+              React Flow draws an arrowhead at the target end"
+      (doseq [e (:edges out)]
+        (is (= "arrowclosed" (-> e :markerEnd :type)))
+        (is (string? (-> e :markerEnd :color))
+            "marker colour resolves (falls back to currentColor when the
+             style fn omits a stroke)")))))
 
 (deftest project-applies-current-state-overlay
   (testing "current-state-path marks the matching node as :current"

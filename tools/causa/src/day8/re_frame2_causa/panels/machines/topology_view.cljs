@@ -9,14 +9,27 @@
 
   ## Composition
 
-      machine-id + definition  ──→  topology/project   ──→  {:nodes :edges}
+      machine-id + definition  ──→  resolve current-state-path (4-source)
                                           │
-                                          ▼ (xyflow-style/node-style + edge-style)
-                                          │
-                                          ▼ xyflow-wrapper/xyflow-canvas
-                                          │
+                                          ▼ machine-canvas/Chart
+                                          │     (mv-chart/MachineChart —
+                                          │      xyflow + elkjs hierarchical
+                                          │      layout, custom Stately-style
+                                          │      nodes/edges + arrowheads)
                                           ▼
                                   <ReactFlow> in React tree
+
+  ## Layout (rf2-5qsxo)
+
+  This view renders through `machine-canvas/Chart` → the shared
+  `mv-chart/MachineChart` so the blank-state (Case-B) topology gets the
+  SAME elkjs hierarchical-layered layout, sized state nodes, arrowheads,
+  and Controls chrome as the focused-event chart — the Stately/xstate
+  look. The previous deterministic grid (`topology/grid-positions` via
+  `xyflow-wrapper/xyflow-canvas`) is no longer the render path; the pure
+  `topology/project` projector + its grid layout survive as a
+  self-contained, JVM-portable fallback projection (still unit-tested)
+  but are not on this view's hot path.
 
   ## current-state overlay
 
@@ -45,9 +58,8 @@
   directly — the parent panel is responsible for pulling the
   definition + traces off the substrate and passing them in. Keeps
   the view testable in isolation."
-  (:require [day8.re-frame2-causa.panels.machines.topology :as topology]
-            [day8.re-frame2-causa.panels.machines.xyflow-style :as xstyle]
-            [day8.re-frame2-causa.panels.machines.xyflow-wrapper :as wrapper]
+  (:require [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
+            [day8.re-frame2-causa.panels.machines.topology :as topology]
             [day8.re-frame2-causa.theme.tokens :as t :refer [tokens]]))
 
 (defn- resolve-current-state-path
@@ -119,13 +131,11 @@
         ;; absent. Surfaces as a data attribute so tests + downstream
         ;; views can assert the empty-state shape.
         no-transition-this-epoch? (empty? fired-ids)
-        graph     (topology/project
-                    {:definition         definition
-                     :current-state-path cur-path
-                     :fired-edge-ids     fired-ids
-                     :node-style-fn      xstyle/node-style
-                     :edge-style-fn      xstyle/edge-style
-                     :edge-animated-fn   xstyle/animated?})]
+        ;; rf2-5qsxo — node/edge counts come straight off the pure
+        ;; `parse-definition` (no positions/styling needed just to count)
+        ;; so the data attributes downstream tests assert still hold while
+        ;; the actual render now flows through the elkjs chart.
+        {:keys [nodes edges]} (topology/parse-definition definition)]
     (cond
       (nil? definition)
       [:div {:data-testid (str testid "-no-definition")
@@ -137,7 +147,7 @@
                      :border-radius "6px"}}
        "Machine definition is not introspectable — no topology to render."]
 
-      (empty? (:nodes graph))
+      (empty? nodes)
       [:div {:data-testid (str testid "-empty")
              :data-machine-id (str machine-id)
              :style {:padding "16px"
@@ -148,8 +158,8 @@
       [:div {:data-testid testid
              :data-machine-id (str machine-id)
              :data-current-state (when cur-path (pr-str cur-path))
-             :data-node-count (str (count (:nodes graph)))
-             :data-edge-count (str (count (:edges graph)))
+             :data-node-count (str (count nodes))
+             :data-edge-count (str (count edges))
              :data-no-transition-this-epoch (str no-transition-this-epoch?)
              :data-current-state-source (cond
                                           current-state-path "explicit"
@@ -166,8 +176,17 @@
                      :border (str "1px solid " (:border-default tokens))
                      :border-radius "6px"
                      :overflow "hidden"}}
-       [wrapper/xyflow-canvas
-        {:nodes          (:nodes graph)
-         :edges          (:edges graph)
-         :show-controls? show-controls?
-         :testid         (str testid "-canvas")}]])))
+       ;; rf2-5qsxo — render through the shared elkjs MachineChart so the
+       ;; Case-B blank-state topology gets the Stately/xstate look (sized
+       ;; nodes, arrowheads, hierarchical layout, Controls). The resolved
+       ;; current-state path drives the active-state highlight; there is
+       ;; no focused-event lens here (no from/to highlight) and no
+       ;; after-rings (no live timers on a blank epoch).
+       [machine-canvas/Chart
+        {:definition             definition
+         :machine-id             machine-id
+         :current-state          cur-path
+         :show-after-rings?      false
+         :show-view-mode-toggle? false
+         :show-controls?         show-controls?
+         :inner-testid           (str testid "-canvas")}]])))

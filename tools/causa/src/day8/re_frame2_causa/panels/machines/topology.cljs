@@ -303,13 +303,24 @@
 
      :edges
      (mapv (fn [e]
-             (let [kind (edge-kind e fired-edge-ids traversed-edge-ids)]
+             (let [kind  (edge-kind e fired-edge-ids traversed-edge-ids)
+                   style (edge-style-fn kind)]
                {:id       (:id e)
                 :source   (node-id-for-path (:from e))
                 :target   (node-id-for-path (:to e))
                 :label    (:label e)
-                :style    (edge-style-fn kind)
+                :style    style
                 :animated (edge-animated-fn kind)
+                ;; rf2-5qsxo — arrowhead. xyflow's default edge type
+                ;; renders a `<marker>` def when `:markerEnd` is present;
+                ;; the colour tracks the edge stroke (per-kind via the
+                ;; injected `edge-style-fn`) so the arrow reads as part of
+                ;; the same line. nil-safe: falls back to the kind's
+                ;; nominal stroke colour when the style fn omits one.
+                :markerEnd {:type   "arrowclosed"
+                            :color  (or (:stroke style) "currentColor")
+                            :width  18
+                            :height 18}
                 :data     {:kind  kind
                            :event (:event e)}}))
            edges)}))
