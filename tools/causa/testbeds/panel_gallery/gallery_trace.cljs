@@ -1,11 +1,24 @@
 (ns panel-gallery.gallery-trace
   "Story coverage for the **Trace tab** of the new 6-tab Causa chrome
-  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
+  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine; epoch-scoped
+  rewire rf2-ofoqu).
 
   The Trace tab body is the `trace/Panel` view: the raw-event ribbon
-  over the 9-axis filter vocabulary. Each variant seeds its frame's
-  `:trace-buffer` (and optionally `:trace-filters`) via REAL Causa
-  init events fired into the variant frame."
+  scoped to the spine's FOCUSED EPOCH (rf2-td380). The panel reads the
+  focused epoch's `:trace-events` slice — resolved via the shared
+  `focus-resolver` over `:rf.causa/focus` + `:rf.causa/epoch-history` —
+  NOT the trace bus.
+
+  ## Why seed via `:rf.causa/sync-epoch-history` (rf2-ofoqu)
+
+  Pre-rewire each variant seeded the trace BUS via
+  `:rf.causa/sync-trace-buffer`, which the epoch-scoped panel no longer
+  reads — so the variants rendered empty. Each variant now seeds its
+  frame's `:epoch-history` via `:rf.causa/sync-epoch-history` (a vector
+  of `:rf/epoch-record` maps, each carrying a populated `:trace-events`
+  slice). No variant pins focus: with no bus seeded there are no
+  cascades, so the focus-resolver's head-fallback renders the HEAD
+  epoch record (`(peek epoch-history)`)."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures-trace :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
@@ -23,115 +36,118 @@
 
   (story/reg-tag :feature/causa-trace
     {:axis :feature
-     :doc  "Causa Trace tab — raw-event ribbon over the 9-axis
-            filter vocabulary (per spec/018-Event-Spine §5.4)."})
+     :doc  "Causa Trace tab — the focused-epoch domino-trail ribbon
+            (per spec/018-Event-Spine §5.4 + rf2-td380)."})
 
   (story/reg-story :story.causa.trace
     {:doc        "Visual gallery of the Causa Trace tab under varying
-                 buffer depth + filter state. Each variant seeds its
-                 frame's :trace-buffer via :rf.causa/sync-trace-buffer;
-                 the rendered panel reads from the variant frame in
-                 isolation."
+                 epoch trace-event depth + shape. Each variant seeds
+                 its frame's :epoch-history via
+                 :rf.causa/sync-epoch-history; the panel reads the
+                 focused epoch's :trace-events from the variant frame
+                 in isolation."
      :component  :panel-gallery.trace/Panel
      :tags       #{:dev :feature/causa-trace}
      :substrates #{:reagent}})
 
-  ;; ----- 1. short trace (empty) --------------------------------------
+  ;; ----- 1. empty trace (focused epoch carries no events) ------------
   (story/reg-variant :story.causa.trace/empty-trace
-    {:doc        "No events in the buffer. Panel renders the
-                 :no-events empty-state copy."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/empty-buffer)]]
+    {:doc        "Focused epoch carries an empty :trace-events slice.
+                 Panel renders the :no-events empty-state ('No
+                 events.')."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/empty-trace-history)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
-  ;; ----- 2. short trace (ten events) ---------------------------------
+  ;; ----- 2. short trace (normal ten-row cascade) ---------------------
   (story/reg-variant :story.causa.trace/short-trace
-    {:doc        "Ten events spanning every canonical op-type. Chip
-                 rows surface op-type / source / origin / frame with
-                 ≥2 values each; the feed renders one row per event."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/ten-events-buffer)]]
+    {:doc        "A normal cascade — the focused epoch's domino trail
+                 is ten events spanning every canonical op-type. One
+                 row per event, newest first."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/short-trace-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  ;; ----- 3. medium trace (100 events) --------------------------------
+  ;; ----- 3. medium trace (100 rows) ----------------------------------
   (story/reg-variant :story.causa.trace/medium-trace
-    {:doc        "One hundred events spanning all four op-types,
-                 three frames, three origins, four sources. The cap
-                 (200) is not hit; cap-eviction indicator stays
-                 quiet."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/hundred-events-buffer)]]
+    {:doc        "Focused epoch with a 100-row domino trail spanning
+                 all four op-types. The 200-row cap is not hit; the
+                 overflow indicator stays quiet."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/medium-trace-history)]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
-  ;; ----- 4. long trace (1000 events; cap-eviction) -------------------
+  ;; ----- 4. long trace (1000 rows; cap-eviction) ---------------------
   (story/reg-variant :story.causa.trace/long-trace
-    {:doc        "One thousand events — exercises the 200-row cap and
-                 surfaces the overflow indicator at the head of the
-                 feed. Per `overflow_indicator.cljc` §capped-list the
-                 panel renders 200 rows + one '... N rows hidden'
-                 indicator row."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/thousand-events-buffer)]]
+    {:doc        "Focused epoch with a 1000-row trail — exercises the
+                 200-row cap and surfaces the overflow indicator at the
+                 head of the feed."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/long-trace-history)]]
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
   ;; ----- 5. trace with errors ----------------------------------------
   (story/reg-variant :story.causa.trace/trace-with-errors
-    {:doc        "Every row is an issue: two errors, two warnings,
-                 one info. Severity chip row surfaces all three
-                 tiers populated; per-row dot colours match."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/error-buffer)]]
+    {:doc        "Focused epoch whose every row is an issue: two
+                 errors, two warnings, one info. Per-row dot colours
+                 match the severity tiers."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/errors-trace-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 6. trace with flows -----------------------------------------
+  ;; ----- 6. multi-op epoch with flows --------------------------------
+  ;; A multi-op history: a leading counter epoch precedes the focused
+  ;; flow-cascade epoch (head), exercising a realistic ring while
+  ;; head-fallback keeps the flow epoch in view.
   (story/reg-variant :story.causa.trace/trace-with-flows
-    {:doc        "Cascade rooted on `:cart/add` that triggers three
-                 `:rf.flow/computed` recompute events followed by a
-                 downstream view render. Pins the panel's rendering
-                 of the flow op-type alongside the dominoes."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/flows-buffer)]]
+    {:doc        "Multi-op history. The focused (head) epoch is a
+                 `:cart/add` cascade that triggers three
+                 `:rf.flow/computed` recompute rows then a downstream
+                 view render — the panel renders the flow op-type
+                 alongside the dominoes. A prior counter epoch sits
+                 behind it in the ring."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/flows-trace-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   ;; ----- 7. mixed op-types -------------------------------------------
   ;; rf2-gkczt: chip-filtering was removed from the Trace panel — the
-  ;; focused epoch IS the scope. This variant now just exercises a
-  ;; mixed-op-type buffer (the former 'filter-active' fixture) with no
-  ;; filter event.
+  ;; focused epoch IS the scope. This variant exercises a mixed-op-type
+  ;; trail with no filter event.
   (story/reg-variant :story.causa.trace/mixed-op-types
-    {:doc        "Ten events spanning mixed op-types. The feed renders
-                 every row (no chip-filtering post-rf2-gkczt)."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/filtered-active-buffer)]]
+    {:doc        "Focused epoch whose trail mixes event + fx op-types.
+                 The feed renders every row (no chip-filtering
+                 post-rf2-gkczt)."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/mixed-op-types-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   ;; ----- 8. redacted slot --------------------------------------------
   (story/reg-variant :story.causa.trace/redacted
-    {:doc        "Dispatched event payload carries `:rf/redacted`
-                 markers on `:password` + `:totp` slots. The panel's
-                 description column renders the marker verbatim per
-                 Spec 009 §Privacy."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/redacted-buffer)]]
+    {:doc        "Focused epoch whose dispatched event payload carries
+                 `:rf/redacted` markers on `:password` + `:totp`. The
+                 panel's description column renders the marker verbatim
+                 per Spec 009 §Privacy."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/redacted-trace-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   ;; ----- 9. cross-frame ----------------------------------------------
   (story/reg-variant :story.causa.trace/cross-frame
-    {:doc        "Twelve events spanning three frames evenly. The
-                 :frame chip row populates the full ladder; the per-
-                 row chip surfaces the frame on every event.
-                 Panel-specific axis."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/cross-frame-buffer)]]
+    {:doc        "Focused epoch whose trail spans three frames evenly.
+                 The per-row frame projection surfaces the frame on
+                 every event. Panel-specific axis."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/cross-frame-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   ;; ----- 10. source-coord --------------------------------------------
   (story/reg-variant :story.causa.trace/source-coord
-    {:doc        "Six events each carrying a `:source-coord` slot
-                 (file + line). The per-row source-coord chip
-                 renders with the cyan accent and is clickable.
-                 Panel-specific axis: source-coord jump-to-editor."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/source-coord-buffer)]]
+    {:doc        "Focused epoch whose every row carries a
+                 `:source-coord` slot (file + line). The per-row
+                 source-coord chip renders with the cyan accent and is
+                 clickable. Panel-specific axis: jump-to-editor."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/source-coord-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -139,7 +155,7 @@
   (story/reg-workspace :Workspace.causa.trace/all
     {:doc      "All ten Trace tab variants in one auto-grid. Scroll
                 to see the panel's response across empty / short /
-                medium / long / errors / flows / filter-active /
+                medium / long / errors / flows / mixed-op-types /
                 redacted / cross-frame / source-coord."
      :layout   :variants-grid
      :story    :story.causa.trace
