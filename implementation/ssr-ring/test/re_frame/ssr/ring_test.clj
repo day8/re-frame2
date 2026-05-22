@@ -239,7 +239,7 @@
     (let [destroyed (atom [])
           _ (rf/register-listener! ::destroy-watch
               (fn [ev]
-                (when (= :frame/destroyed (:operation ev))
+                (when (= :rf.frame/destroyed (:operation ev))
                   (swap! destroyed conj (:frame ev)))))
           handler (ssr-ring/ssr-handler
                     {:on-create    [:rf/server-init]
@@ -258,7 +258,7 @@
       (is (= frames-before frames-after)
           "the per-request frame is removed from the registry after destroy")
       (is (seq @destroyed)
-          ":frame/destroyed trace fired for the per-request frame"))))
+          ":rf.frame/destroyed trace fired for the per-request frame"))))
 
 ;; ===========================================================================
 ;; ssr-handler — redirect short-circuit
