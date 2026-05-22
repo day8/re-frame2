@@ -107,8 +107,12 @@
                            current-state ● annotation when neither the
                            focused epoch nor the history buffer carries
                            a transition for this machine.
-    :height              — outer wrapper height (default `'320px'`).
-                           xyflow requires a non-zero parent height.
+    :height              — outer wrapper height (default `'100%'` so the
+                           chart fills its container — the topology is the
+                           centrepiece and should not sit in a fixed box).
+                           A `min-height` floor keeps xyflow's non-zero-
+                           parent-height requirement satisfied when the
+                           container itself is auto-height.
     :show-controls?      — pass-through to wrapper (default true).
     :testid              — pass-through wrapper testid (default
                            `'rf-causa-machines-topology'`).
@@ -116,7 +120,7 @@
   Returns hiccup."
   [{:keys [machine-id definition current-state-path trace-events
            epoch-history snapshot-state height show-controls? testid]
-    :or   {height          "320px"
+    :or   {height          "100%"
            show-controls?  true
            testid          "rf-causa-machines-topology"}}]
   (let [cur-path  (resolve-current-state-path machine-id
@@ -172,6 +176,12 @@
              :style {:position "relative"
                      :width  "100%"
                      :height height
+                     ;; rf2-zdfbm — non-zero-parent-height floor so xyflow
+                     ;; still mounts when `:height` resolves against an
+                     ;; auto-height container (the default is now `100%`,
+                     ;; letting the topology fill its panel instead of
+                     ;; sitting in a fixed 320px box).
+                     :min-height "320px"
                      :background (:bg-1 tokens)
                      :border (str "1px solid " (:border-default tokens))
                      :border-radius "6px"

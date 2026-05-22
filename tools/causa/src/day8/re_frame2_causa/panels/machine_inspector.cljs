@@ -49,7 +49,6 @@
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
             [day8.re-frame2-causa.panels.machine-after-rings :as after-rings]
-            [day8.re-frame2-causa.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-causa.share :as share]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -176,10 +175,18 @@
       :data-to-state (str to-state)
       :data-on-event (str on-event)
       :data-microstep (str (boolean microstep?))
+      ;; rf2-zdfbm — the topology is the panel's centrepiece, so the
+      ;; section grows to fill the focused-event host's available
+      ;; height. A flex column lets the canvas chart (`flex 1` below)
+      ;; expand into the panel instead of sitting in a fixed 320px box.
       :style {:margin "12px"
               :border (str "1px solid " (:border-default tokens))
               :border-radius "4px"
-              :background (:bg-2 tokens)}}
+              :background (:bg-2 tokens)
+              :flex "1 1 0"
+              :min-height 0
+              :display "flex"
+              :flex-direction "column"}}
      ;; Right-click on the per-machine section header fires
      ;; `:rf.causa/filter-by-machine` with this section's machine-id
      ;; (rf2-piye4) — drops a typed `:machine` IN pill into the ribbon
@@ -260,9 +267,20 @@
                   :data-from-highlight-id (or from-id "")
                   :data-to-highlight-id (or to-id "")
                   :data-view-mode "canvas"
+                  ;; rf2-zdfbm — fill the section's available height so the
+                  ;; topology chart (`machine-canvas/Chart` is `height
+                  ;; 100%`) expands into the panel rather than collapsing
+                  ;; to its 260px min. `flex 1` + `min-height 0` lets the
+                  ;; chart grow inside the flex-column section; the
+                  ;; min-height floor keeps xyflow's non-zero-parent-
+                  ;; height requirement satisfied when the panel is short.
                   :style {:padding "12px"
                           :background (:bg-1 tokens)
                           :overflow "hidden"
+                          :flex "1 1 0"
+                          :min-height "320px"
+                          :display "flex"
+                          :flex-direction "column"
                           ;; position-relative so the after-rings overlay
                           ;; can absolute-position itself over the chart SVG.
                           :position "relative"}}
@@ -348,8 +366,13 @@
     (when (seq records)
       (into [:div {:data-testid "rf-causa-machine-focused-event"
                    :data-section-count (count records)
+                   ;; rf2-zdfbm — fill the focused-event host so each
+                   ;; per-machine section (`flex 1`) can grow its topology
+                   ;; chart into the panel's available height.
                    :style {:display "flex"
-                           :flex-direction "column"}}]
+                           :flex-direction "column"
+                           :flex 1
+                           :min-height 0}}]
             (for [rec records]
               (with-meta (focused-event-section rec)
                 {:key (str (:machine-id rec) "-"
@@ -357,85 +380,35 @@
                            (:from-state rec) "-"
                            (:to-state rec))}))))))
 
-(defn- blank-state-section
-  "One per-machine section rendered in the blank state (Case B per
-  spec/021 §6.2 + §17.4.1). The Topology view receives the full
-  `:epoch-history` so it can walk back to the most-recent transition
-  for this machine, and the live `:snapshot-state` keyword so it can
-  fall back to the snapshot's `:state` when the buffer has no
-  transition for this machine at all. Both args flow into
-  `topology-view`'s 4-source precedence chain (rf2-dbi87)."
-  [{:keys [machine-id definition snapshot-state epoch-history]}]
-  [:section {:data-testid (str "rf-causa-machine-inspector-blank-section-"
-                               (when machine-id (subs (str machine-id) 1)))
-             :data-machine-id (str machine-id)
-             :style {:margin "12px"
-                     :border (str "1px solid " (:border-default tokens))
-                     :border-radius "4px"
-                     :background (:bg-2 tokens)}}
-   [:header {:style {:padding "10px 12px"
-                     :display "flex"
-                     :align-items "center"
-                     :gap "10px"
-                     :border-bottom (str "1px solid " (:border-subtle tokens))
-                     :background (:bg-3 tokens)
-                     :font-family mono-stack
-                     :font-size "12px"
-                     :color (:text-primary tokens)}}
-    [:strong {:style {:color (:accent-violet tokens)}}
-     (h/format-machine-id machine-id)]
-    [:span {:style {:color (:text-tertiary tokens)
-                    :font-family sans-stack
-                    :font-size "11px"
-                    :margin-left "auto"}}
-     "no activity this epoch · current ●"]]
-   [:div {:style {:padding "12px"
-                  :background (:bg-1 tokens)}}
-    [topology-view/Topology
-     {:machine-id     machine-id
-      :definition     definition
-      :epoch-history  epoch-history
-      :snapshot-state snapshot-state
-      :height         "260px"
-      :testid         (str "rf-causa-machine-inspector-blank-topology-"
-                           (when machine-id (subs (str machine-id) 1)))}]]])
-
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
-  cascade — Case B per spec/021 §6.2 + §17.4.1 (rf2-dbi87). The
-  panel renders one section per registered machine, each carrying
-  the full topology with the most-recent-known state annotated as
-  `:current`. Resolution of the current-state ● flows through
-  `topology-view`'s 4-source precedence chain (explicit > focused-
-  epoch traces > epoch-history walk-back > live snapshot state).
+  cascade. The Dynamic Machines panel is **event-driven only** (Mike's
+  2026-05-19 redesign, panel docstring §4-15): it is silent-by-default
+  (rf2-g3ghh) when the focused event triggered no machine transition.
 
-  Snapshot resolution honours the test override (`:rf.causa/machine-
-  snapshots-override`) ahead of the live snapshot sub — same shape as
-  the `:rf.causa/machine-inspector-data` composite — so view tests
-  can seed snapshot state without writing to the target frame's
-  `:rf/machines` slot."
+  This is a TRULY BLANK affordance — not a topology render. The earlier
+  rf2-t5wp9 (#1757) variant rendered one per-machine topology section
+  here, which contradicted the event-driven-only contract and produced
+  the inverted visibility bug (rf2-zdfbm): content surfaced on
+  non-machine events, drowning the panel's lens job. The most-recent-
+  known-state topology view belongs to the future Static Machines
+  surface (rf2-r4nao), not the Dynamic lens."
   []
-  (let [machines           @(rf/subscribe [:rf.causa/registered-machines])
-        definitions        @(rf/subscribe [:rf.causa/machine-definitions])
-        live-snapshots     @(rf/subscribe [:rf.causa/machine-snapshots])
-        snapshots-override @(rf/subscribe [:rf.causa/machine-snapshots-override])
-        snapshots          (or snapshots-override live-snapshots {})
-        epoch-history      @(rf/subscribe [:rf.causa/epoch-history])
-        rows               (->> (or machines [])
-                                (map (fn [id]
-                                       {:machine-id     id
-                                        :definition     (get definitions id)
-                                        :snapshot-state (get-in snapshots [id :state])
-                                        :epoch-history  epoch-history}))
-                                (sort-by (comp str :machine-id))
-                                vec)]
-    (into [:div {:data-testid "rf-causa-machine-inspector-blank"
-                 :data-section-count (str (count rows))
-                 :style {:display "flex"
-                         :flex-direction "column"}}]
-          (for [{:keys [machine-id] :as row} rows]
-            ^{:key (str machine-id)}
-            (blank-state-section row)))))
+  [:div {:data-testid "rf-causa-machine-inspector-blank"
+         :style {:padding "16px"
+                 :color (:text-tertiary tokens)
+                 :font-family sans-stack
+                 :font-size "13px"
+                 :flex 1
+                 :display "flex"
+                 :flex-direction "column"
+                 :align-items "center"
+                 :justify-content "center"
+                 :text-align "center"}}
+   [:p {:style {:margin "0 0 6px 0" :font-size "14px"}}
+    "No machine activity in the focused event."]
+   [:p {:style {:margin 0 :font-size "12px" :color (:text-tertiary tokens)}}
+    "Select an event that triggered a transition to inspect machines."]])
 
 ;; ---- empty state (no machines registered at all) -----------------------
 
@@ -526,8 +499,13 @@
        (empty-state)
 
        (seq records)
+       ;; rf2-zdfbm — flex column so the focused-event view fills the
+       ;; host and the topology chart grows into the panel height.
        [:div {:data-testid "rf-causa-machine-inspector-focused-event-host"
-              :style {:flex 1 :overflow "auto"}}
+              :style {:flex 1
+                      :overflow "auto"
+                      :display "flex"
+                      :flex-direction "column"}}
         (focused-event-view)]
 
        :else

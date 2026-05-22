@@ -53,10 +53,6 @@
   (rf/dispatch-sync
     [:rf.causa/set-registered-machines-override-for-test machines]))
 
-(defn- override-snapshots! [snapshots]
-  (rf/dispatch-sync
-    [:rf.causa/set-machine-snapshots-override-for-test snapshots]))
-
 (defn- override-definitions! [definitions]
   (rf/dispatch-sync
     [:rf.causa/set-machine-definitions-override-for-test definitions]))
@@ -136,16 +132,27 @@
             "panel header icon is gone (lived in the scrubbed h1)")))))
 
 ;; ---- (3) blank state (event has no machine activity) ------------------
+;;
+;; rf2-zdfbm — visibility-gate polarity. The Dynamic Machines panel is
+;; **event-driven only** (panel docstring §4-15, Mike's 2026-05-19
+;; redesign): TRULY BLANK when the focused event triggered no machine
+;; transition; the per-machine topology surface ONLY mounts when a
+;; transition fired. The earlier rf2-t5wp9 variant rendered an all-
+;; machines topology in the blank state, which inverted the panel's
+;; visibility (content on non-machine events, drowning the lens job).
+;; These tests pin the correct (non-inverted) polarity.
 
-(deftest blank-state-renders-when-focused-event-has-no-machine-activity
+(deftest blank-state-is-truly-blank-when-focused-event-has-no-machine-activity
   (testing "when machines are registered but the focused event triggered
-            no transitions, the panel renders the BLANK state — Case B
-            per spec/021 §6.2 + §17.4.1 (rf2-dbi87 / rf2-t5wp9). The
-            blank container is present; the focused-event surface is
-            suppressed."
+            no transitions, the panel renders the TRULY BLANK affordance:
+            the blank container is present, NO per-machine topology
+            section/chart is rendered, and the focused-event surface is
+            suppressed (rf2-zdfbm visibility gate)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
+      (override-machines!    [:auth/login :checkout/flow])
+      (override-definitions! {:auth/login    fixture-definition
+                              :checkout/flow fixture-definition})
       (let [tree (machine-inspector/Panel)
             root (find-by-testid tree "rf-causa-machine-inspector")]
         (is (= "focused-event" (:data-view-mode (second root))))
@@ -153,68 +160,33 @@
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-blank"))
             "blank-state container present")
         (is (nil? (find-by-testid tree "rf-causa-machine-focused-event"))
-            "no focused-event surface when cascade has no transitions")))))
+            "no focused-event surface when cascade has no transitions")
+        ;; The inversion guard — NO topology renders on a non-machine
+        ;; event. Pre-fix (rf2-t5wp9) this surfaced one section + chart
+        ;; per registered machine, producing the "content on non-machine
+        ;; events" half of the inverted-visibility bug.
+        (is (empty? (find-all-by-testid-prefix
+                      tree "rf-causa-machine-inspector-blank-section-"))
+            "no per-machine topology sections render in the blank state")
+        (is (empty? (find-all-by-testid-prefix
+                      tree "rf-causa-machine-inspector-blank-topology-"))
+            "no topology chart renders in the blank state")
+        (is (empty? (find-all-by-testid-prefix
+                      tree "rf-causa-machines-topology"))
+            "no Topology view mounts when the focused event is not
+             machine-related")))))
 
-(deftest blank-state-renders-one-section-per-registered-machine
-  (testing "Case B (rf2-t5wp9): blank state renders one per-machine
-            section so the topology stays visible even when the focused
-            epoch fired no transitions"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!    [:auth/login :checkout/flow])
-      (override-definitions! {:auth/login    fixture-definition
-                              :checkout/flow fixture-definition})
-      (let [tree     (machine-inspector/Panel)
-            blank    (find-by-testid tree "rf-causa-machine-inspector-blank")
-            sections (find-all-by-testid-prefix
-                       tree "rf-causa-machine-inspector-blank-section-")]
-        (is (some? blank) "blank container present")
-        (is (= "2" (:data-section-count (second blank)))
-            "data-section-count tracks the rendered row count")
-        (is (= 2 (count sections))
-            "one section per registered machine")
-        (is (= [":auth/login" ":checkout/flow"]
-               (mapv #(:data-machine-id (second %)) sections))
-            "sections appear in deterministic alphabetical order")))))
-
-(deftest blank-state-passes-snapshot-state-into-topology-view
-  (testing "Case B (rf2-t5wp9): the live machine snapshot's :state is
-            piped through to the Topology view so its 4-source
-            precedence resolves the current ● annotation from the
-            snapshot when neither traces nor epoch-history carry a
-            transition"
+(deftest blank-state-stays-blank-on-an-event-less-focused-epoch
+  (testing "an explicitly-focused epoch whose :trace-events carry no
+            machine transitions keeps the panel blank — the gate does
+            not leak a topology even when epoch-history holds prior
+            transitions for the machine (rf2-zdfbm)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines!    [:auth/login])
       (override-definitions! {:auth/login fixture-definition})
-      (override-snapshots!   {:auth/login {:state :authing :data {}}})
-      (let [tree     (machine-inspector/Panel)
-            topology (find-by-testid
-                       tree "rf-causa-machine-inspector-blank-topology-auth/login")]
-        (is (some? topology)
-            "the per-machine topology mount lands inside the blank state")
-        (is (= "snapshot" (:data-current-state-source (second topology)))
-            "current-state-source falls back to the live snapshot when
-             no traces / no epoch-history carry a transition for this
-             machine")
-        (is (= "[:authing]" (:data-current-state (second topology)))
-            "the snapshot's :state keyword resolves to a [:authing] path
-             via Topology's :snapshot-state arg")
-        (is (= "true" (:data-no-transition-this-epoch (second topology)))
-            "Case B flag — no transition this epoch")))))
-
-(deftest blank-state-passes-epoch-history-into-topology-view
-  (testing "Case B (rf2-t5wp9): the panel's :rf.causa/epoch-history is
-            piped through to Topology so the 4-source precedence walks
-            back to the prior epoch that touched this machine when the
-            focused epoch has no transition for it"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      ;; epoch 1 carries an :auth/login transition. epoch 2 is the
-      ;; focused epoch — no machine activity. The blank state should
-      ;; walk epoch-history back to epoch 1 and surface :authing.
+      ;; epoch 1 carries an :auth/login transition; epoch 2 (the
+      ;; focused epoch) is event-less. The panel must stay blank.
       (override-epoch-history!
         [{:epoch-id 1
           :trace-events
@@ -225,33 +197,14 @@
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
          {:epoch-id 2 :trace-events []}])
       (focus-epoch! 2)
-      (let [tree     (machine-inspector/Panel)
-            topology (find-by-testid
-                       tree "rf-causa-machine-inspector-blank-topology-auth/login")]
-        (is (some? topology)
-            "the per-machine topology mounts in the blank state when the
-             focused epoch carries no machine activity")
-        (is (= "epoch-history" (:data-current-state-source (second topology)))
-            "current-state-source resolves from the epoch-history walk-
-             back when the focused epoch is event-less")
-        (is (= "[:authing]" (:data-current-state (second topology)))
-            "Topology projected :authing as the most-recent-known state
-             for :auth/login from the epoch-history walk-back")))))
-
-(deftest blank-state-degrades-when-definition-is-not-introspectable
-  (testing "Case B (rf2-t5wp9): blank state renders even when the
-            registered machine has no introspectable definition —
-            Topology falls back to its no-definition surface"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
-      ;; No definition override → :rf.causa/machine-definitions yields
-      ;; nil for this id. Topology emits its `*-no-definition` testid.
       (let [tree (machine-inspector/Panel)]
-        (is (some? (find-by-testid
-                     tree "rf-causa-machine-inspector-blank-topology-auth/login-no-definition"))
-            "Topology's no-definition fallback surface renders inside the
-             blank section when the machine spec is not introspectable")))))
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-blank"))
+            "blank-state container present on the event-less focused epoch")
+        (is (nil? (find-by-testid tree "rf-causa-machine-focused-event"))
+            "focused-event surface suppressed — no transition this epoch")
+        (is (empty? (find-all-by-testid-prefix
+                      tree "rf-causa-machines-topology"))
+            "no topology renders for a focused epoch with no transition")))))
 
 ;; ---- (4) focused-event lens (one section per transition) --------------
 
@@ -284,6 +237,52 @@
             "the section renders the topology chart")
         (is (nil? (find-by-testid tree "rf-causa-machine-inspector-blank"))
             "the blank-state is suppressed when records exist")))))
+
+(deftest gate-reads-the-migrated-rf-machine-transition-op-only
+  (testing "the machine-relatedness gate keys on the `:rf.*` migrated op
+            `:rf.machine/transition` (post-#1973). A focused epoch whose
+            trace carries ONLY the pre-migration `:machine/transition`
+            op does NOT trip the gate — the panel stays blank — while
+            the migrated op shows the focused-event surface. Pins that
+            the op name is load-bearing for detection (rf2-zdfbm): a
+            stale `:machine/transition` read would misfire the gate and
+            invert the panel's visibility."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      ;; epoch 1 — only the LEGACY (pre-#1973) op. Must NOT trip the gate.
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree (machine-inspector/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-machine-focused-event"))
+            "legacy `:machine/transition` op does NOT show the focused-
+             event surface")
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-blank"))
+            "panel stays blank when only the legacy op is present"))
+      ;; epoch 2 — the MIGRATED op. Must trip the gate.
+      (override-epoch-history!
+        [{:epoch-id 2
+          :trace-events
+          [{:id 2 :time 20 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-2"}}]}])
+      (focus-epoch! 2)
+      (let [tree (machine-inspector/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-machine-focused-event"))
+            "migrated `:rf.machine/transition` op shows the focused-event
+             surface")
+        (is (nil? (find-by-testid tree "rf-causa-machine-inspector-blank"))
+            "blank suppressed when the migrated op fired")))))
 
 (deftest focused-event-section-emits-from-and-to-highlight-ids
   (testing "the per-section chart carries data-from/to-highlight-id so
