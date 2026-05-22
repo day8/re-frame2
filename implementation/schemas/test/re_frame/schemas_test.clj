@@ -167,7 +167,7 @@
 
 (deftest app-db-rollback-emits-second-db-changed-with-phase-rollback
   (testing "Per rf2-wkxng / rf2-6m0se: rollback emits a second
-            :event/db-changed trace stamped :phase :rollback so
+            :rf.event/db-changed trace stamped :phase :rollback so
             listeners observe the restored state without ambiguity.
             Trace ordering: forward db-changed → schema-failure error
             → rollback db-changed."
@@ -176,12 +176,12 @@
     (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
     (let [events (atom [])]
       (rf/register-listener! ::ord
-        (fn [ev] (when (#{:event/db-changed
+        (fn [ev] (when (#{:rf.event/db-changed
                           :rf.error/schema-validation-failure}
                         (:operation ev))
                    (swap! events conj
                           [(:operation ev)
-                           (-> ev :tags :phase)]))))
+                           (-> ev :tags :rf.trace/phase)]))))
       (rf/dispatch-sync [:n/init])
       (reset! events [])
       (rf/dispatch-sync [:n/break])
@@ -189,9 +189,9 @@
       ;; Three emissions in this exact order: forward commit (no phase),
       ;; schema-failure error (no phase slot), rollback commit (phase
       ;; :rollback).
-      (is (= [[:event/db-changed                     nil]
+      (is (= [[:rf.event/db-changed                     nil]
               [:rf.error/schema-validation-failure   nil]
-              [:event/db-changed                     :rollback]]
+              [:rf.event/db-changed                     :rollback]]
              @events)
           "trace ordering: forward commit → schema-failure → rollback commit"))))
 
@@ -327,7 +327,7 @@
             "at least one sub-return validation failure fired")
         (let [v (first violations)]
           (is (= :sub-return (-> v :tags :where)))
-          (is (= :items (-> v :tags :sub-id)))
+          (is (= :items (-> v :tags :rf.sub/id)))
           (is (= :items (-> v :tags :schema-id)))
           (is (= :replaced-with-default (:recovery v))))))))
 
@@ -378,7 +378,7 @@
           (let [v (first violations)]
             (is (= :cofx (-> v :tags :where)))
             (is (= :cap/seed (-> v :tags :failing-id)))
-            (is (= :app-version/bad (-> v :tags :cofx-id)))
+            (is (= :app-version/bad (-> v :tags :rf.cofx/id)))
             (is (= :app-version/bad (-> v :tags :schema-id)))
             (is (= :no-recovery (:recovery v)))))))))
 
@@ -439,7 +439,7 @@
           (let [v (first violations)]
             (is (= :fx-args (-> v :tags :where)))
             (is (= :my/notify (-> v :tags :failing-id)))
-            (is (= :my/notify (-> v :tags :fx-id)))
+            (is (= :my/notify (-> v :tags :rf.fx/id)))
             (is (= :my/notify (-> v :tags :schema-id)))
             (is (= :ui/announce (-> v :tags :event-id))
                 "the originating event-id threads through to the fx-args trace")
@@ -512,11 +512,11 @@
         (is (= 1 (count violations)))
         (let [v (first violations)]
           (is (= :fx-args   (-> v :tags :where)))
-          (is (= :my/fx     (-> v :tags :fx-id)))
+          (is (= :my/fx     (-> v :tags :rf.fx/id)))
           (is (= :my/fx     (-> v :tags :failing-id)))
           (is (= :my/fx     (-> v :tags :schema-id)))
           (is (= :ev/origin (-> v :tags :event-id)))
-          (is (= {:x "bad"} (-> v :tags :fx-args)))
+          (is (= {:x "bad"} (-> v :tags :rf.fx/args)))
           (is (= {:x "bad"} (-> v :tags :value)))
           (is (= {:x "bad"} (-> v :tags :received)))
           (is (= :skipped   (:recovery v))))))))
@@ -581,7 +581,7 @@
         (is (= 1 (count violations)))
         (let [v (first violations)]
           (is (= :cofx        (-> v :tags :where)))
-          (is (= :app-version (-> v :tags :cofx-id)))
+          (is (= :app-version (-> v :tags :rf.cofx/id)))
           (is (= :ev/origin   (-> v :tags :event-id)))
           (is (= :ev/origin   (-> v :tags :failing-id)))
           (is (= :app-version (-> v :tags :schema-id)))
@@ -610,10 +610,10 @@
         (is (= 1 (count violations)))
         (let [v (first violations)]
           (is (= :sub-return  (-> v :tags :where)))
-          (is (= :items       (-> v :tags :sub-id)))
+          (is (= :items       (-> v :tags :rf.sub/id)))
           (is (= :items       (-> v :tags :failing-id)))
           (is (= :items       (-> v :tags :schema-id)))
-          (is (= [:items]     (-> v :tags :query-v)))
+          (is (= [:items]     (-> v :tags :rf.sub/query-v)))
           (is (= [1 2]        (-> v :tags :value)))
           (is (= [1 2]        (-> v :tags :received)))
           (is (= :replaced-with-default (:recovery v))))))))
@@ -661,7 +661,7 @@
 (deftest fx-args-validation-redacts-when-sensitive
   (testing "validate-fx! consults the schema tree for `:sensitive?` props
             (the fx-meta `:sensitive?` annotation has been removed); on
-            redaction it scrubs `:value`/`:received`/`:explain`/`:fx-args`
+            redaction it scrubs `:value`/`:received`/`:explain`/`:rf.fx/args`
             and stamps `:sensitive? true`. Per rf2-4fbsd the earlier
             `:malli-error` duplicate slot is gone."
     (let [traces (atom [])]
@@ -685,12 +685,12 @@
               "top-level :sensitive? stamp consumers filter on")
           (is (= :rf/redacted (-> v :tags :value)))
           (is (= :rf/redacted (-> v :tags :received)))
-          (is (= :rf/redacted (-> v :tags :fx-args)))
+          (is (= :rf/redacted (-> v :tags :rf.fx/args)))
           (is (= :rf/redacted (-> v :tags :explain)))
           (is (not (contains? (:tags v) :malli-error))
               ":malli-error slot is gone (rf2-4fbsd)")
           ;; Non-redacted slots survive redaction.
-          (is (= :my/secret (-> v :tags :fx-id)))
+          (is (= :my/secret (-> v :tags :rf.fx/id)))
           (is (= :my/secret (-> v :tags :failing-id)))
           (is (= :fx-args   (-> v :tags :where))))))))
 

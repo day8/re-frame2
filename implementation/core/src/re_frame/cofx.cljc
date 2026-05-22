@@ -259,12 +259,12 @@
                      (maybe-validate-cofx! cofx-id meta)))
                (do
                  (trace/emit! :warning :rf.cofx/skipped-on-platform
-                              (cond-> {:cofx-id              cofx-id
-                                       :frame                frame-id
-                                       :platform             active-platform
-                                       :registered-platforms (:platforms meta)
-                                       :recovery             :skipped}
-                                valued? (assoc :cofx-value value)))
+                              (cond-> {:rf.cofx/id                   cofx-id
+                                       :frame                        frame-id
+                                       :rf.cofx/platform             active-platform
+                                       :rf.cofx/registered-platforms (:platforms meta)
+                                       :recovery                     :skipped}
+                                valued? (assoc :rf.cofx/value value)))
                  ctx)))
            ;; No registered cofx — emit the `:rf.error/no-such-cofx`
            ;; trace. When the cofx was reached via its macro form
@@ -276,10 +276,10 @@
                                      (some-> trace/*handler-scope* :call-site))
              (let [event (interceptor/get-coeffect ctx :event)]
                (trace/emit-error! :rf.error/no-such-cofx
-                                  (cond-> {:cofx-id  cofx-id
-                                           :event-id (when (vector? event) (first event))
-                                           :recovery :no-recovery}
-                                    valued? (assoc :cofx-value value)))
+                                  (cond-> {:rf.cofx/id        cofx-id
+                                           :rf.trace/event-id (when (vector? event) (first event))
+                                           :recovery          :no-recovery}
+                                    valued? (assoc :rf.cofx/value value)))
                ctx))))))))
 
 ;; ---- standard cofx --------------------------------------------------------

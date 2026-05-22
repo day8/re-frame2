@@ -158,13 +158,13 @@
               reason (str "Effect-map for `" event-id "` returned top-level key `" k
                           "`; only `:db` and `:fx` are allowed at the top level.")]
           (trace/emit-error! :rf.error/effect-map-shape
-                             {:failing-id    event-id
-                              :event-id      event-id
-                              :event         event
-                              :offending-key k
-                              :value         v
-                              :reason        reason
-                              :recovery      :logged-and-skipped})))
+                             {:failing-id        event-id
+                              :rf.trace/event-id event-id
+                              :rf.event/v        event
+                              :offending-key     k
+                              :value             v
+                              :reason            reason
+                              :recovery          :logged-and-skipped})))
       offending)))
 
 ;; ---- handler-as-interceptor wrappers --------------------------------------

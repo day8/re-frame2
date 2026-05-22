@@ -1441,11 +1441,11 @@
         :else
         ;; Stale — suppress.
         (do (trace/emit-error! :rf.route.nav-token/stale-suppressed
-                               {:carried-token carried-nav-token
-                                :current-token current
-                                :event-id      (when (vector? on-success-event)
-                                                 (first on-success-event))
-                                :recovery      :replaced-with-default})
+                               {:carried-token     carried-nav-token
+                                :current-token     current
+                                :rf.trace/event-id (when (vector? on-success-event)
+                                                     (first on-success-event))
+                                :recovery          :replaced-with-default})
             {})))))
 
 ;; ---- URL-driven navigation: shared full-rewrite path ---------------------
@@ -1869,10 +1869,10 @@ per-frame [:rf.route/scroll-positions <url>] map before leaving a route."}
         ;; `:rf.test/simulate-http-resolution` so a single conformance
         ;; assertion covers both production and test paths.
         (trace/emit-error! :rf.route.nav-token/stale-suppressed
-                           {:carried-token nav-token
-                            :current-token current
-                            :event-id      (inner-fx-event-id do-entry)
-                            :recovery      :replaced-with-default})))))
+                           {:carried-token     nav-token
+                            :current-token     current
+                            :rf.trace/event-id (inner-fx-event-id do-entry)
+                            :recovery          :replaced-with-default})))))
 
 (fx/reg-fx :rf.nav/scroll
   {:platforms #{:client}

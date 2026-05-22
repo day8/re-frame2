@@ -75,14 +75,14 @@
               ":op-type is :error per Spec 009 §Error contract")
           (is (= :rf.error/no-such-cofx (get-in t [:tags :category]))
               ":tags :category mirrors :operation per Spec 009 §Core fields")
-          (is (= :cofx-test/never-registered (get-in t [:tags :cofx-id]))
-              ":cofx-id identifies the offending cofx")
-          (is (= :cofx-test/run-no-cofx (get-in t [:tags :event-id]))
-              ":event-id carries the event-id whose interceptor chain missed")
+          (is (= :cofx-test/never-registered (get-in t [:tags :rf.cofx/id]))
+              ":rf.cofx/id identifies the offending cofx")
+          (is (= :cofx-test/run-no-cofx (get-in t [:tags :rf.trace/event-id]))
+              ":rf.trace/event-id carries the event-id whose interceptor chain missed")
           (is (= :no-recovery (:recovery t))
               ":recovery is :no-recovery per Spec 009 §Recovery table")
-          (is (not (contains? (:tags t) :cofx-value))
-              "1-arity form: no :cofx-value in the tags"))))))
+          (is (not (contains? (:tags t) :rf.cofx/value))
+              "1-arity form: no :rf.cofx/value in the tags"))))))
 
 (deftest unknown-cofx-id-emits-structured-trace-2-arity
   (testing "the 2-arity inject-cofx form additionally carries :cofx-value"
@@ -97,10 +97,10 @@
         (is (= 1 (count missing))
             "exactly one :rf.error/no-such-cofx trace was emitted")
         (let [t (first missing)]
-          (is (= :cofx-test/also-missing (get-in t [:tags :cofx-id])))
-          (is (= {:k :payload} (get-in t [:tags :cofx-value]))
-              "2-arity form: :cofx-value carries the value arg")
-          (is (= :cofx-test/run-no-cofx-2 (get-in t [:tags :event-id]))))))))
+          (is (= :cofx-test/also-missing (get-in t [:tags :rf.cofx/id])))
+          (is (= {:k :payload} (get-in t [:tags :rf.cofx/value]))
+              "2-arity form: :rf.cofx/value carries the value arg")
+          (is (= :cofx-test/run-no-cofx-2 (get-in t [:tags :rf.trace/event-id]))))))))
 
 (deftest unknown-cofx-id-does-not-println
   (testing "the missing-cofx path no longer writes to *out* — the trace is the
@@ -161,11 +161,11 @@
               ":op-type is :warning per Spec 009 §Error contract (the trace rides the same envelope as :rf.fx/skipped-on-platform)")
           (is (= :skipped (:recovery t))
               ":recovery is :skipped — the runtime declined to act")
-          (is (= :cofx-test/browser-locale (get-in t [:tags :cofx-id])))
-          (is (= :server (get-in t [:tags :platform]))
-              ":platform carries the active platform that excluded the cofx")
-          (is (= #{:client} (get-in t [:tags :registered-platforms]))
-              ":registered-platforms surfaces the cofx's declared set"))))))
+          (is (= :cofx-test/browser-locale (get-in t [:tags :rf.cofx/id])))
+          (is (= :server (get-in t [:tags :rf.cofx/platform]))
+              ":rf.cofx/platform carries the active platform that excluded the cofx")
+          (is (= #{:client} (get-in t [:tags :rf.cofx/registered-platforms]))
+              ":rf.cofx/registered-platforms surfaces the cofx's declared set"))))))
 
 (deftest platforms-matching-cofx-runs-normally
   (testing ":platforms #{:server} cofx runs on JVM (:server) — no skipped-on-platform trace"
@@ -248,8 +248,8 @@
         (let [t (first skips)]
           (is (= :cofx-test/ssr-frame (get-in t [:tags :frame]))
               ":frame carries the dispatching frame id")
-          (is (= :server (get-in t [:tags :platform]))
-              ":platform is :server — the per-frame override took effect"))))))
+          (is (= :server (get-in t [:tags :rf.cofx/platform]))
+              ":rf.cofx/platform is :server — the per-frame override took effect"))))))
 
 (deftest platforms-gating-carries-value-on-2-arity
   (testing "the 2-arity inject-cofx form surfaces :cofx-value on the skip trace
@@ -269,5 +269,5 @@
                           @traces)]
         (is (= 1 (count skips)))
         (let [t (first skips)]
-          (is (= {:key :payload} (get-in t [:tags :cofx-value]))
-              "2-arity form: :cofx-value carries the value arg on the skip trace"))))))
+          (is (= {:key :payload} (get-in t [:tags :rf.cofx/value]))
+              "2-arity form: :rf.cofx/value carries the value arg on the skip trace"))))))

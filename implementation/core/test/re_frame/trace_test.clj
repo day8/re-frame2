@@ -274,53 +274,54 @@
               (str "non-conformant envelopes seen — first 3: "
                    (vec (take 3 (remove valid-envelope? events))))))
 
-        ;; ---- :event op-type ------------------------------------------------
-        (testing ":event :event (run-start / run-end phase)"
-          (let [run-starts (filter #(and (= :event   (:op-type %))
-                                         (= :event   (:operation %))
-                                         (= :run-start (:phase (:tags %))))
+        ;; ---- :rf.event op-type ---------------------------------------------
+        (testing ":rf.event :rf.event (run-start / run-end phase)"
+          (let [run-starts (filter #(and (= :rf.event (:op-type %))
+                                         (= :rf.event (:operation %))
+                                         (= :run-start (:rf.trace/phase (:tags %))))
                                    events)
-                run-ends   (filter #(and (= :event (:op-type %))
-                                         (= :event (:operation %))
-                                         (= :run-end (:phase (:tags %))))
+                run-ends   (filter #(and (= :rf.event (:op-type %))
+                                         (= :rf.event (:operation %))
+                                         (= :run-end (:rf.trace/phase (:tags %))))
                                    events)]
-            (is (seq run-starts) ":event run-start fires for each handler invocation")
-            (is (seq run-ends)   ":event run-end fires for each handler invocation")
-            ;; Tag shape: the first run-start carries :event-id, :event, :frame.
+            (is (seq run-starts) ":rf.event run-start fires for each handler invocation")
+            (is (seq run-ends)   ":rf.event run-end fires for each handler invocation")
+            ;; Tag shape: the first run-start carries :rf.trace/event-id,
+            ;; :rf.event/v, :frame.
             (let [t (:tags (first run-starts))]
-              (is (keyword? (:event-id t)))
-              (is (vector?  (:event t)))
+              (is (keyword? (:rf.trace/event-id t)))
+              (is (vector?  (:rf.event/v t)))
               (is (keyword? (:frame t))))))
 
-        (testing ":event :event/db-changed fires when a handler returns :db"
-          (is (has-op? events :event :event/db-changed)
-              "expected :event :event/db-changed at least once")
-          (let [t (:tags (find-op events :event :event/db-changed))]
-            (is (keyword? (:event-id t)))
-            (is (vector?  (:event t)))
+        (testing ":rf.event :rf.event/db-changed fires when a handler returns :db"
+          (is (has-op? events :rf.event :rf.event/db-changed)
+              "expected :rf.event :rf.event/db-changed at least once")
+          (let [t (:tags (find-op events :rf.event :rf.event/db-changed))]
+            (is (keyword? (:rf.trace/event-id t)))
+            (is (vector?  (:rf.event/v t)))
             (is (keyword? (:frame t)))))
 
-        (testing ":event :event/do-fx wraps the fx walk on every dispatch"
-          (is (has-op? events :event :event/do-fx)
-              "expected :event :event/do-fx at least once")
-          (is (keyword? (:frame (:tags (find-op events :event :event/do-fx))))))
+        (testing ":rf.fx :rf.fx/do-fx wraps the fx walk on every dispatch"
+          (is (has-op? events :rf.fx :rf.fx/do-fx)
+              "expected :rf.fx :rf.fx/do-fx at least once")
+          (is (keyword? (:frame (:tags (find-op events :rf.fx :rf.fx/do-fx))))))
 
-        ;; ---- :fx op-type ---------------------------------------------------
-        (testing ":fx :rf.fx/override-applied fires under :fx-overrides"
-          (is (has-op? events :fx :rf.fx/override-applied)
-              "expected :fx :rf.fx/override-applied")
-          (let [t (:tags (find-op events :fx :rf.fx/override-applied))]
-            (is (= :prod/sender (:from t)))
-            (is (= :stub/sender (:to t)))))
+        ;; ---- :rf.fx op-type ------------------------------------------------
+        (testing ":rf.fx :rf.fx/override-applied fires under :fx-overrides"
+          (is (has-op? events :rf.fx :rf.fx/override-applied)
+              "expected :rf.fx :rf.fx/override-applied")
+          (let [t (:tags (find-op events :rf.fx :rf.fx/override-applied))]
+            (is (= :prod/sender (:rf.fx/from t)))
+            (is (= :stub/sender (:rf.fx/to t)))))
 
         ;; ---- :warning op-type ----------------------------------------------
         (testing ":warning :rf.fx/skipped-on-platform fires when an fx's :platforms excludes the active platform"
           (is (has-op? events :warning :rf.fx/skipped-on-platform)
               "expected :warning :rf.fx/skipped-on-platform")
           (let [t (:tags (find-op events :warning :rf.fx/skipped-on-platform))]
-            (is (= :client-only-fx (:fx-id t)))
-            (is (= #{:client}      (:registered-platforms t)))
-            (is (set? (:registered-platforms t)))))
+            (is (= :client-only-fx (:rf.fx/id t)))
+            (is (= #{:client}      (:rf.fx/registered-platforms t)))
+            (is (set? (:rf.fx/registered-platforms t)))))
 
         (testing ":warning :rf.warning/route-shadowed-by-equal-score fires on equal-rank route registration"
           (is (has-op? events :warning :rf.warning/route-shadowed-by-equal-score)
@@ -329,46 +330,46 @@
             (is (keyword? (:route-id t)))
             (is (keyword? (:shadowed t)))))
 
-        ;; ---- :frame op-type ------------------------------------------------
-        (testing ":frame :frame/created fires on first reg-frame for an id"
-          (is (has-op? events :frame :frame/created)
-              "expected :frame :frame/created")
-          (let [t (:tags (find-op events :frame :frame/created))]
+        ;; ---- :rf.frame op-type ---------------------------------------------
+        (testing ":rf.frame :rf.frame/created fires on first reg-frame for an id"
+          (is (has-op? events :rf.frame :rf.frame/created)
+              "expected :rf.frame :rf.frame/created")
+          (let [t (:tags (find-op events :rf.frame :rf.frame/created))]
             (is (keyword? (:frame t)))
             (is (map?     (:config t)))))
 
-        (testing ":frame :frame/re-registered fires on subsequent reg-frame for the same id"
-          (is (has-op? events :frame :frame/re-registered)
-              "expected :frame :frame/re-registered")
-          (is (keyword? (:frame (:tags (find-op events :frame :frame/re-registered))))))
+        (testing ":rf.frame :rf.frame/re-registered fires on subsequent reg-frame for the same id"
+          (is (has-op? events :rf.frame :rf.frame/re-registered)
+              "expected :rf.frame :rf.frame/re-registered")
+          (is (keyword? (:frame (:tags (find-op events :rf.frame :rf.frame/re-registered))))))
 
-        (testing ":frame :frame/destroyed fires on destroy-frame!"
-          (is (has-op? events :frame :frame/destroyed)
-              "expected :frame :frame/destroyed")
-          (is (keyword? (:frame (:tags (find-op events :frame :frame/destroyed))))))
+        (testing ":rf.frame :rf.frame/destroyed fires on destroy-frame!"
+          (is (has-op? events :rf.frame :rf.frame/destroyed)
+              "expected :rf.frame :rf.frame/destroyed")
+          (is (keyword? (:frame (:tags (find-op events :rf.frame :rf.frame/destroyed))))))
 
-        ;; ---- :registry op-type ---------------------------------------------
-        (testing ":registry :rf.registry/handler-replaced fires on EVERY re-registration (rf2-6w7zn)"
+        ;; ---- :rf.registry op-type ------------------------------------------
+        (testing ":rf.registry :rf.registry/handler-replaced fires on EVERY re-registration (rf2-6w7zn)"
           ;; Per Spec 001 §Hot-reload trace surface the emit is
           ;; unconditional on re-registration — the prior `different-fn?`
           ;; gate dropped events for kinds like `:frame` whose slot
           ;; replacement need not rotate `:handler-fn`. Tools branch on
           ;; the `:different-fn?` tag (preserved below) to suppress
           ;; idempotent reload noise on their side.
-          (is (has-op? events :registry :rf.registry/handler-replaced)
-              "expected :registry :rf.registry/handler-replaced")
+          (is (has-op? events :rf.registry :rf.registry/handler-replaced)
+              "expected :rf.registry :rf.registry/handler-replaced")
           ;; The flow re-registers BOTH `:test/main` (a frame, same
           ;; handler-fn) and `:inc` (an event, different fn body) so
           ;; both events fire. Find the `:inc` event explicitly so the
           ;; `:different-fn?` assertion targets the real fn-change case.
           (let [different-events (filterv (fn [ev]
-                                            (and (= :registry (:op-type ev))
+                                            (and (= :rf.registry (:op-type ev))
                                                  (= :rf.registry/handler-replaced
                                                     (:operation ev))
                                                  (true? (get-in ev [:tags :different-fn?]))))
                                           events)
                 idempotent-events (filterv (fn [ev]
-                                             (and (= :registry (:op-type ev))
+                                             (and (= :rf.registry (:op-type ev))
                                                   (= :rf.registry/handler-replaced
                                                      (:operation ev))
                                                   (false? (get-in ev [:tags :different-fn?]))))
@@ -438,20 +439,20 @@
           (is (has-op? events :error :rf.error/fx-handler-exception)
               "expected :error :rf.error/fx-handler-exception")
           (let [t (:tags (find-op events :error :rf.error/fx-handler-exception))]
-            (is (= :throwing-fx (:fx-id t)))
+            (is (= :throwing-fx (:rf.fx/id t)))
             (is (string? (:exception-message t)))))
 
         (testing ":error :rf.error/no-such-fx"
           (is (has-op? events :error :rf.error/no-such-fx)
               "expected :error :rf.error/no-such-fx")
           (is (= :nonexistent/fx
-                 (:fx-id (:tags (find-op events :error :rf.error/no-such-fx))))))
+                 (:rf.fx/id (:tags (find-op events :error :rf.error/no-such-fx))))))
 
         (testing ":error :rf.error/no-such-handler"
           (is (has-op? events :error :rf.error/no-such-handler)
               "expected :error :rf.error/no-such-handler")
           (let [t (:tags (find-op events :error :rf.error/no-such-handler))]
-            (is (= :no.such/event (:event-id t)))
+            (is (= :no.such/event (:rf.trace/event-id t)))
             (is (= :event         (:kind t)))))
 
         (testing ":error :rf.error/no-such-sub"
@@ -506,14 +507,14 @@
                                (println "  [trace-test] note:" op-type operation
                                         "not emitted (rf2-hyxg)"))))]
           (testing "Spec 009 documented ops not yet emitted (rf2-hyxg)"
-            (gap-check :sub/run                       :sub/run)
-            (gap-check :sub/create                    :sub/create)
+            (gap-check :rf.sub                        :rf.sub/run)
+            (gap-check :rf.sub                        :rf.sub/create)
             (gap-check :rf.machine.lifecycle/created  :rf.machine.lifecycle/created)
             (gap-check :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed)
             (gap-check :rf.machine/event-received     :rf.machine/event-received)
             (gap-check :rf.machine/snapshot-updated   :rf.machine/snapshot-updated)
-            (gap-check :registry :rf.registry/handler-registered)
-            (gap-check :registry :rf.registry/handler-cleared)))
+            (gap-check :rf.registry :rf.registry/handler-registered)
+            (gap-check :rf.registry :rf.registry/handler-cleared)))
 
         (testing "diagnostic: every (op-type, operation) pair the flow produced"
           ;; Always passes; printing only when test verbosity helps.
@@ -643,8 +644,8 @@
             (filter
               (fn [ev]
                 (let [tags (:tags ev)
-                      eid  (or (:event-id tags)
-                               (let [ev-vec (:event tags)]
+                      eid  (or (:rf.trace/event-id tags)
+                               (let [ev-vec (:rf.event/v tags)]
                                  (when (vector? ev-vec) (first ev-vec))))]
                   (= :rf2-qsjda/internal-bookkeeping eid)))
               @recorded)]
@@ -673,17 +674,17 @@
             (filter
               (fn [ev]
                 (let [tags (:tags ev)
-                      eid  (or (:event-id tags)
-                               (let [ev-vec (:event tags)]
+                      eid  (or (:rf.trace/event-id tags)
+                               (let [ev-vec (:rf.event/v tags)]
                                  (when (vector? ev-vec) (first ev-vec))))]
                   (= :rf2-qsjda/normal eid)))
               @recorded)
             ops (set (map :operation our-events))]
-        (is (contains? ops :event/dispatched)
-            ":event/dispatched fired for the un-flagged handler")
-        (is (contains? ops :event/db-changed)
-            ":event/db-changed fired for the un-flagged handler")
-        (is (contains? ops :event)
-            ":event (run-start / run-end) fired for the un-flagged handler"))
+        (is (contains? ops :rf.event/dispatched)
+            ":rf.event/dispatched fired for the un-flagged handler")
+        (is (contains? ops :rf.event/db-changed)
+            ":rf.event/db-changed fired for the un-flagged handler")
+        (is (contains? ops :rf.event)
+            ":rf.event (run-start / run-end) fired for the un-flagged handler"))
 
       (rf/unregister-listener! ::rec))))

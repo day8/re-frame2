@@ -75,10 +75,10 @@
     (trace-tooling/register-listener!
       cb-key
       (fn [ev]
-        (when (and (= :event/dispatched (:operation ev))
-                   (vector? (-> ev :tags :event))
-                   (= :rf/url-requested (-> ev :tags :event first)))
-          (reset! dispatched (-> ev :tags :event)))))
+        (when (and (= :rf.event/dispatched (:operation ev))
+                   (vector? (-> ev :tags :rf.event/v))
+                   (= :rf/url-requested (-> ev :tags :rf.event/v first)))
+          (reset! dispatched (-> ev :tags :rf.event/v)))))
     (try
       (let [[_ attrs] (routing/route-link-render props)
             on-click (:on-click attrs)]

@@ -114,9 +114,9 @@
   `:operation` is top-level."
   [evs]
   (->> evs
-       (filter #(and (= :event (:operation %))
-                     (= :run-start (:phase (:tags %)))))
-       (mapv #(:event-id (:tags %)))))
+       (filter #(and (= :rf.event (:operation %))
+                     (= :run-start (:rf.trace/phase (:tags %)))))
+       (mapv #(:rf.trace/event-id (:tags %)))))
 
 (deftest each-leapfrogged-event-is-its-own-epoch
   (testing "front-of-queue changes order only — each dequeued event

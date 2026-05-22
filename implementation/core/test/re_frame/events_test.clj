@@ -170,8 +170,8 @@
                           @recorded)]
         (is (= 1 (count errs))
             "a subsequent dispatch traces :rf.error/no-such-handler")
-        (is (= :test.6z20/foo (-> errs first :tags :event-id))
-            ":event-id carries the cleared handler's id")))))
+        (is (= :test.6z20/foo (-> errs first :tags :rf.trace/event-id))
+            ":rf.trace/event-id carries the cleared handler's id")))))
 
 (deftest clear-event-no-arg-clears-every-event
   (testing "(rf/clear-event) with no args clears every registered :event id"

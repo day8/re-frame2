@@ -579,12 +579,19 @@
 ;; ---- the trace-event projection chokepoint -------------------------------
 
 (defn- project-event-tags
-  "Walk `:event/dispatched` / `:event/db-changed` / `:event/do-fx` tag
-  shapes: the dispatched event vector lives at `:event` and is a
+  "Walk `:rf.event/dispatched` / `:rf.event/db-changed` / `:rf.fx/do-fx`
+  tag shapes: the dispatched event vector lives at `:rf.event/v` and is a
   `[event-id arg-map]` form. Marks come from the event handler's
-  registration."
-  [tags]
-  (let [event    (:event tags)
+  registration.
+
+  The `:rf.error/*` error traces (e.g. `:rf.error/handler-exception`)
+  carry the event vector under the bare `:event` slot per the
+  `:rf/error-event` `HandlerExceptionTags` shape (Spec-Schemas), not
+  `:rf.event/v`. We redact whichever slot the trace carries so the
+  schema-driven / interceptor-driven scrub reaches both the success and
+  the error channel."
+  [tags slot]
+  (let [event    (get tags slot)
         event-id (when (vector? event) (first event))
         marks    (event-marks event-id)]
     (if-not marks
@@ -592,29 +599,30 @@
       (let [sens   (or (:sensitive marks) [])
             large  (or (:large marks) [])
             redacted (redact-event-vec event sens large)]
-        (assoc tags :event redacted)))))
+        (assoc tags slot redacted)))))
 
 (defn- project-fx-tags
-  "Walk `:rf.fx/handled` tag shape: `:fx-id` carries the fx keyword and
-  `:fx-args` carries the args value. Marks come from the fx handler's
+  "Walk `:rf.fx/handled` tag shape: `:rf.fx/id` carries the fx keyword and
+  `:rf.fx/args` carries the args value. Marks come from the fx handler's
   registration."
   [tags]
-  (let [fx-id (:fx-id tags)
+  (let [fx-id (:rf.fx/id tags)
         marks (fx-marks fx-id)]
     (if-not marks
       tags
       (let [sens     (or (:sensitive marks) [])
             large    (or (:large marks) [])
-            redacted (redact-with-paths (:fx-args tags) sens large)]
-        (assoc tags :fx-args redacted)))))
+            redacted (redact-with-paths (:rf.fx/args tags) sens large)]
+        (assoc tags :rf.fx/args redacted)))))
 
 (defn- project-cofx-tags
   "Walk cofx-relevant tag shapes: the cofx-injected value rides under a
   cofx-id key (per `re-frame.cofx`'s injection convention). When a
-  trace event carries a `:coeffects` slot (e.g. `:event/dispatched`,
-  `:event/do-fx`), walk each cofx-id key against the cofx's marks."
+  trace event carries a `:rf.event/coeffects` slot (e.g.
+  `:rf.event/dispatched`, `:rf.fx/do-fx`), walk each cofx-id key against
+  the cofx's marks."
   [tags]
-  (let [cofx-map (:coeffects tags)]
+  (let [cofx-map (:rf.event/coeffects tags)]
     (if-not (map? cofx-map)
       tags
       (let [walked (reduce-kv
@@ -628,7 +636,7 @@
                              (assoc acc cofx-id redacted)))))
                      (empty cofx-map)
                      cofx-map)]
-        (assoc tags :coeffects walked)))))
+        (assoc tags :rf.event/coeffects walked)))))
 
 (defn- project-sub-tags
   "Walk `:sub/run` tag shape: `:sub-id` carries the sub query keyword
@@ -644,15 +652,16 @@
   compute via `trace/build-event`; a container deref here would register
   a spurious app-db dependency and break glitch-free layering)."
   [tags frame-id]
-  (let [sub-id (:sub-id tags)
+  (let [sub-id (:rf.sub/id tags)
         marks  (sub-marks sub-id)
         prop-s? (sub-output-sensitive? frame-id sub-id)
         prop-l? (sub-output-large? frame-id sub-id)
-        ;; Redact `:prev-value` with the same rule as `:value`, but ONLY
-        ;; when the slot is present (the pure compute-sub emit and the
-        ;; production base-shape emit omit it). `nil` prev-value (first
-        ;; recompute) passes through redaction harmlessly.
-        has-prev? (contains? tags :prev-value)]
+        ;; Redact `:rf.sub/prev-value` with the same rule as
+        ;; `:rf.sub/value`, but ONLY when the slot is present (the pure
+        ;; compute-sub emit and the production base-shape emit omit it).
+        ;; `nil` prev-value (first recompute) passes through redaction
+        ;; harmlessly.
+        has-prev? (contains? tags :rf.sub/prev-value)]
     (cond
       ;; No marks AND no propagation — pass through unchanged.
       (and (nil? marks) (not prop-s?) (not prop-l?))
@@ -660,15 +669,15 @@
 
       ;; Whole-output propagation wins: stamp at root.
       (and prop-s? (not (false? (:sensitive? marks))))
-      (cond-> (assoc tags :value privacy/redacted-sentinel :sensitive? true)
-        has-prev? (assoc :prev-value privacy/redacted-sentinel))
+      (cond-> (assoc tags :rf.sub/value privacy/redacted-sentinel :sensitive? true)
+        has-prev? (assoc :rf.sub/prev-value privacy/redacted-sentinel))
 
       :else
       (let [sens     (or (:sensitive marks) [])
             large    (or (:large marks) [])
-            redacted (redact-with-paths (:value tags) sens large)]
-        (cond-> (assoc tags :value redacted)
-          has-prev? (assoc :prev-value (redact-with-paths (:prev-value tags) sens large))
+            redacted (redact-with-paths (:rf.sub/value tags) sens large)]
+        (cond-> (assoc tags :rf.sub/value redacted)
+          has-prev? (assoc :rf.sub/prev-value (redact-with-paths (:rf.sub/prev-value tags) sens large))
           prop-l?   (assoc :large? true))))))
 
 (defn- project-machine-tags
@@ -718,16 +727,21 @@
           tags      (:tags event)
           frame-id  (or (:frame tags) :rf/default)
           tags'     (cond-> tags
+                      (and (map? tags) (contains? tags :rf.event/v))
+                      (project-event-tags :rf.event/v)
+
+                      ;; Error traces carry the event vector under the
+                      ;; bare `:event` slot (HandlerExceptionTags etc.).
                       (and (map? tags) (contains? tags :event))
-                      (project-event-tags)
+                      (project-event-tags :event)
 
                       (and (map? tags) (= :rf.fx/handled operation))
                       (project-fx-tags)
 
-                      (and (map? tags) (contains? tags :coeffects))
+                      (and (map? tags) (contains? tags :rf.event/coeffects))
                       (project-cofx-tags)
 
-                      (and (map? tags) (= :sub/run operation))
+                      (and (map? tags) (= :rf.sub/run operation))
                       (project-sub-tags frame-id)
 
                       (and (map? tags) (machine-op? operation))

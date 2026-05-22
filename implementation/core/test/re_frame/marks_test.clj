@@ -192,9 +192,9 @@
     (fn [_ _] {}))
   (let [traces (collect-traces! :evt-redact)]
     (rf/dispatch-sync [:auth/log-in {:email "a@b.c" :password "secret"}])
-    (let [dispatched (filter #(= :event/dispatched (:operation %)) @traces)]
+    (let [dispatched (filter #(= :rf.event/dispatched (:operation %)) @traces)]
       (is (seq dispatched))
-      (let [ev (-> dispatched first :tags :event)]
+      (let [ev (-> dispatched first :tags :rf.event/v)]
         (is (= :rf/redacted (get-in ev [1 :password])))
         (is (= "a@b.c" (get-in ev [1 :email])))))
     (trace-tooling/unregister-listener! :evt-redact)))
@@ -210,7 +210,7 @@
     (rf/dispatch-sync [:send])
     (let [handled (filter #(= :rf.fx/handled (:operation %)) @traces)]
       (is (seq handled))
-      (let [args (-> handled first :tags :fx-args)]
+      (let [args (-> handled first :tags :rf.fx/args)]
         (is (= :rf/redacted (get-in args [:headers :authorization])))
         (is (= "ok" (get-in args [:headers :other])))))
     (trace-tooling/unregister-listener! :fx-redact)))
@@ -222,8 +222,8 @@
   (let [traces (collect-traces! :large-marker)
         big    (apply str (repeat 500 "X"))]
     (rf/dispatch-sync [:evt {:blob big :other "small"}])
-    (let [dispatched (filter #(= :event/dispatched (:operation %)) @traces)
-          ev         (-> dispatched first :tags :event)
+    (let [dispatched (filter #(= :rf.event/dispatched (:operation %)) @traces)
+          ev         (-> dispatched first :tags :rf.event/v)
           slot       (get-in ev [1 :blob])]
       (is (elision/marker? slot))
       (is (= "small" (get-in ev [1 :other])))
@@ -237,8 +237,8 @@
     (fn [_ _] {}))
   (let [traces (collect-traces! :whole)]
     (rf/dispatch-sync [:evt {:a 1 :b 2}])
-    (let [ev (-> (filter #(= :event/dispatched (:operation %)) @traces)
-                 first :tags :event)]
+    (let [ev (-> (filter #(= :rf.event/dispatched (:operation %)) @traces)
+                 first :tags :rf.event/v)]
       (is (= :rf/redacted (nth ev 1))))
     (trace-tooling/unregister-listener! :whole)))
 
@@ -318,7 +318,7 @@
 ;; ---- per-sub-path declaration --------------------------------------------
 
 (deftest per-sub-path-declaration-via-projection
-  ;; The `:sub/run` trace shape carries `{:sub-id :query-v :frame}` — not
+  ;; The `:rf.sub/run` trace shape carries `{:rf.sub/id :rf.sub/query-v :frame}` — not
   ;; the computed value (sub recompute keeps the value in the reaction).
   ;; Per-sub-path declarations apply downstream: wherever a tool lifts the
   ;; sub's value into an observable surface (Causa sub panel, MCP wire),
@@ -349,10 +349,10 @@
   ;; event also exercises this path.
   (let [coeffects-tag {:auth/jwt "real-jwt"}
         projected (marks/project-trace-event
-                    {:operation :event/some-emit
-                     :op-type :event
-                     :tags {:coeffects coeffects-tag :frame :rf/default}})]
-    (is (= :rf/redacted (get-in projected [:tags :coeffects :auth/jwt])))))
+                    {:operation :rf.event/some-emit
+                     :op-type :rf.event
+                     :tags {:rf.event/coeffects coeffects-tag :frame :rf/default}})]
+    (is (= :rf/redacted (get-in projected [:tags :rf.event/coeffects :auth/jwt])))))
 
 ;; ---- registrar interaction ---------------------------------------------
 

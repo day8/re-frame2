@@ -614,7 +614,7 @@
 (defn- effects-routed-from-traces
   "Derive the actual list of fx routings from the trace stream.
   Mirror of the JVM runner (per re-frame.fx/handle-one-fx every
-  successful routing emits :rf.fx/handled with :fx-id and :fx-args;
+  successful routing emits :rf.fx/handled with :rf.fx/id and :rf.fx/args;
   handler-throws emit :rf.error/fx-handler-exception with the same
   tag shape)."
   [traces]
@@ -624,8 +624,8 @@
                    (or (= op :rf.fx/handled)
                        (= op :rf.error/fx-handler-exception)))))
        (mapv (fn [t]
-               {:fx-id   (get-in t [:tags :fx-id])
-                :fx-args (get-in t [:tags :fx-args])}))))
+               {:fx-id   (get-in t [:tags :rf.fx/id])
+                :fx-args (get-in t [:tags :rf.fx/args])}))))
 
 (defn- check-effects-routed
   "Order-preserving subset match — every expected entry must appear in

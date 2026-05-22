@@ -4,8 +4,8 @@
   CLJS run the same suite.
 
   Per rf2-wvzgd: the projection was lifted from Story's trace panel.
-  The original Story version used synthetic op-types (`:event/do-fx`,
-  `:fx`, `:view/render` as op-type rather than operation) and the
+  The original Story version used synthetic op-types (`:rf.fx/do-fx`,
+  `:fx`, `:rf.view/render` as op-type rather than operation) and the
   invented `:event/run` operation; this rewrite tracks the
   framework's actual trace surface per Spec 009 §`:op-type`
   vocabulary."
@@ -15,43 +15,43 @@
 ;; ---- domino-bucket --------------------------------------------------------
 
 (deftest domino-bucket-classifies-event-ops
-  (testing ":event/dispatched buckets as :event (cascade root)"
+  (testing ":rf.event/dispatched buckets as :event (cascade root)"
     (is (= :event
-           (p/domino-bucket {:op-type :event :operation :event/dispatched}))))
-  (testing ":event :event buckets as :handler (the interceptor chain ran)"
+           (p/domino-bucket {:op-type :rf.event :operation :rf.event/dispatched}))))
+  (testing ":rf.event :rf.event buckets as :handler (the interceptor chain ran)"
     (is (= :handler
-           (p/domino-bucket {:op-type :event :operation :event}))))
-  (testing ":event :event/do-fx buckets as :fx (effects map computed)"
+           (p/domino-bucket {:op-type :rf.event :operation :rf.event}))))
+  (testing ":rf.fx :rf.fx/do-fx buckets as :fx (effects map computed)"
     (is (= :fx
-           (p/domino-bucket {:op-type :event :operation :event/do-fx}))))
-  (testing ":event :event/db-changed lands in :other (not a six-domino slot)"
+           (p/domino-bucket {:op-type :rf.fx :operation :rf.fx/do-fx}))))
+  (testing ":event :rf.event/db-changed lands in :other (not a six-domino slot)"
     (is (= :other
-           (p/domino-bucket {:op-type :event :operation :event/db-changed})))))
+           (p/domino-bucket {:op-type :rf.event :operation :rf.event/db-changed})))))
 
 (deftest domino-bucket-classifies-fx-as-effects
-  (testing "every :op-type :fx event — :rf.fx/handled, override-applied, etc. — buckets as :effect"
-    (is (= :effect (p/domino-bucket {:op-type :fx :operation :rf.fx/handled})))
-    (is (= :effect (p/domino-bucket {:op-type :fx :operation :rf.fx/override-applied})))
-    (is (= :effect (p/domino-bucket {:op-type :fx :operation :rf.fx/skipped-on-platform})))))
+  (testing "every :op-type :rf.fx event — :rf.fx/handled, override-applied, etc. — buckets as :effect"
+    (is (= :effect (p/domino-bucket {:op-type :rf.fx :operation :rf.fx/handled})))
+    (is (= :effect (p/domino-bucket {:op-type :rf.fx :operation :rf.fx/override-applied})))
+    (is (= :effect (p/domino-bucket {:op-type :rf.fx :operation :rf.fx/skipped-on-platform})))))
 
 (deftest domino-bucket-classifies-sub-ops
-  (testing "both :sub/run and :sub/create bucket as :sub"
-    (is (= :sub (p/domino-bucket {:op-type :sub/run    :operation :sub/run})))
-    (is (= :sub (p/domino-bucket {:op-type :sub/create :operation :sub/create})))))
+  (testing "both :rf.sub/run and :rf.sub/create bucket as :sub"
+    (is (= :sub (p/domino-bucket {:op-type :rf.sub :operation :rf.sub/run})))
+    (is (= :sub (p/domino-bucket {:op-type :rf.sub :operation :rf.sub/create})))))
 
 (deftest domino-bucket-classifies-view-render
-  (testing ":op-type :view + :operation :view/render buckets as :render"
+  (testing ":op-type :rf.view + :operation :rf.view/render buckets as :render"
     (is (= :render
-           (p/domino-bucket {:op-type :view :operation :view/render})))))
+           (p/domino-bucket {:op-type :rf.view :operation :rf.view/render})))))
 
 (deftest domino-bucket-non-domino-events-fall-through-to-other
   (testing "events outside the six-domino vocabulary land in :other"
     (is (= :other (p/domino-bucket {:op-type :error :operation :rf.error/no-such-handler})))
     (is (= :other (p/domino-bucket {:op-type :warning :operation :rf.warning/interceptors-in-metadata-map})))
     (is (= :other (p/domino-bucket {:op-type :machine :operation :rf.machine/transition})))
-    (is (= :other (p/domino-bucket {:op-type :frame :operation :frame/created})))
+    (is (= :other (p/domino-bucket {:op-type :rf.frame :operation :rf.frame/created})))
     (is (= :other (p/domino-bucket {:op-type :flow :operation :rf.flow/computed})))
-    (is (= :other (p/domino-bucket {:op-type :registry :operation :rf.registry/handler-registered})))))
+    (is (= :other (p/domino-bucket {:op-type :rf.registry :operation :rf.registry/handler-registered})))))
 
 (deftest domino-bucket-total-on-arbitrary-shapes
   (testing "the classification is total; an unknown op-type/operation pair returns :other"
@@ -65,22 +65,22 @@
   ([dispatch-id event-vec]
    (cascade-evs dispatch-id event-vec :rf/default))
   ([dispatch-id event-vec frame-id]
-   [{:id 1 :op-type :event    :operation :event/dispatched
-     :tags {:dispatch-id dispatch-id :event event-vec :frame frame-id}}
-    {:id 2 :op-type :event    :operation :event
-     :tags {:dispatch-id dispatch-id :phase :run-start :frame frame-id}}
-    {:id 3 :op-type :event    :operation :event
-     :tags {:dispatch-id dispatch-id :phase :run-end :frame frame-id}}
-    {:id 4 :op-type :event    :operation :event/do-fx
-     :tags {:dispatch-id dispatch-id :frame frame-id}}
-    {:id 5 :op-type :fx       :operation :rf.fx/handled
-     :tags {:dispatch-id dispatch-id :fx-id :db :frame frame-id}}
-    {:id 6 :op-type :fx       :operation :rf.fx/handled
-     :tags {:dispatch-id dispatch-id :fx-id :dispatch :frame frame-id}}
-    {:id 7 :op-type :sub/run  :operation :sub/run
-     :tags {:dispatch-id dispatch-id :sub-id :sub/foo :frame frame-id}}
-    {:id 8 :op-type :view     :operation :view/render
-     :tags {:dispatch-id dispatch-id :render-key [:app/root nil] :frame frame-id}}]))
+   [{:id 1 :op-type :rf.event    :operation :rf.event/dispatched
+     :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v event-vec :frame frame-id}}
+    {:id 2 :op-type :rf.event    :operation :rf.event
+     :tags {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-start :frame frame-id}}
+    {:id 3 :op-type :rf.event    :operation :rf.event
+     :tags {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-end :frame frame-id}}
+    {:id 4 :op-type :rf.fx       :operation :rf.fx/do-fx
+     :tags {:rf.trace/dispatch-id dispatch-id :frame frame-id}}
+    {:id 5 :op-type :rf.fx       :operation :rf.fx/handled
+     :tags {:rf.trace/dispatch-id dispatch-id :rf.fx/id :db :frame frame-id}}
+    {:id 6 :op-type :rf.fx       :operation :rf.fx/handled
+     :tags {:rf.trace/dispatch-id dispatch-id :rf.fx/id :dispatch :frame frame-id}}
+    {:id 7 :op-type :rf.sub      :operation :rf.sub/run
+     :tags {:rf.trace/dispatch-id dispatch-id :rf.sub/id :sub/foo :frame frame-id}}
+    {:id 8 :op-type :rf.view     :operation :rf.view/render
+     :tags {:rf.trace/dispatch-id dispatch-id :rf.view/render-key [:app/root nil] :frame frame-id}}]))
 
 (deftest group-cascades-one-cascade-six-buckets
   (testing "a representative cascade reduces to one record with the six
@@ -92,7 +92,7 @@
       (is (= :rf/default (:frame c)))
       (is (= [:user/login {:id 42}] (:event c)) ":event slot is the dispatched event vector")
       (is (some? (:handler c)) ":handler slot is populated by the :run-* emit")
-      (is (some? (:fx c))      ":fx slot is the :event/do-fx emit")
+      (is (some? (:fx c))      ":fx slot is the :rf.fx/do-fx emit")
       (is (= 2 (count (:effects c))) "both :rf.fx/handled events land in :effects")
       (is (= 1 (count (:subs c))))
       (is (= 1 (count (:renders c))))
@@ -124,9 +124,9 @@
 
 (deftest group-cascades-events-without-dispatch-id-land-in-ungrouped
   (testing "events emitted outside any drain (registry-time, frame
-            lifecycle) carry no :dispatch-id and group under :ungrouped"
-    (let [evs [{:id 1 :op-type :frame :operation :frame/created :tags {:frame :app}}
-               {:id 2 :op-type :registry :operation :rf.registry/handler-registered
+            lifecycle) carry no :rf.trace/dispatch-id and group under :ungrouped"
+    (let [evs [{:id 1 :op-type :rf.frame :operation :rf.frame/created :tags {:frame :app}}
+               {:id 2 :op-type :rf.registry :operation :rf.registry/handler-registered
                 :tags {:kind :event :id :user/login}}]
           cs (p/group-cascades evs)]
       (is (= 1 (count cs)))
@@ -137,10 +137,10 @@
 (deftest group-cascades-error-and-warning-events-ride-along-in-other
   (testing "an error fired inside a cascade lands in that cascade's
             :other slot, not as its own cascade (per rf2-g6ih4
-            :dispatch-id rides every event)"
+            :rf.trace/dispatch-id rides every event)"
     (let [evs (conj (cascade-evs 400 [:foo])
                     {:id 100 :op-type :error :operation :rf.error/handler-exception
-                     :tags {:dispatch-id 400 :event-id :foo}})
+                     :tags {:rf.trace/dispatch-id 400 :event-id :foo}})
           [c] (p/group-cascades evs)]
       (is (= 400 (:dispatch-id c)))
       (is (= 1 (count (:other c)))
@@ -151,7 +151,7 @@
             ends up as the :run-end event (reduce overwrites)"
     (let [evs (cascade-evs 500 [:foo])
           [c] (p/group-cascades evs)]
-      (is (= :run-end (get-in c [:handler :tags :phase]))))))
+      (is (= :run-end (get-in c [:handler :tags :rf.trace/phase]))))))
 
 (deftest group-cascades-empty-input-yields-empty-output
   (is (= [] (p/group-cascades [])))
@@ -160,8 +160,8 @@
 (deftest group-cascades-shape-is-stable
   (testing "every cascade record carries the documented keys with
             collection-shaped defaults"
-    (let [[c] (p/group-cascades [{:id 1 :op-type :event :operation :event/dispatched
-                                  :tags {:dispatch-id 1 :event [:e]}}])]
+    (let [[c] (p/group-cascades [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                                  :tags {:rf.trace/dispatch-id 1 :rf.event/v [:e]}}])]
       (is (= #{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other}
              (set (keys c))))
       (is (vector? (:effects c)))
@@ -170,12 +170,12 @@
       (is (vector? (:other c))))))
 
 (deftest group-cascades-dispatched-slot-carries-full-trace-event
-  (testing "the :dispatched slot preserves the full :event/dispatched
+  (testing "the :dispatched slot preserves the full :rf.event/dispatched
             trace so consumers (Causa Event lens) can read top-level
             hoisted slots like :rf.trace/call-site (rf2-twt7m Change 1)
             without scanning the raw buffer"
-    (let [evs [{:id 1 :op-type :event :operation :event/dispatched
-                :tags {:dispatch-id 42 :event [:cart/add-item]}
+    (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                :tags {:rf.trace/dispatch-id 42 :rf.event/v [:cart/add-item]}
                 :rf.trace/call-site {:file "src/views.cljs" :line 127}
                 :source :ui :origin :app}]
           [c] (p/group-cascades evs)]

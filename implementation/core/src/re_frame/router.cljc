@@ -445,8 +445,8 @@
           new-db     (:db effects)
           emit-event (privacy/redacted-event-from-ctx ctx)]
       (adapter/replace-container! container new-db)
-      (trace/emit! :event :event/db-changed
-                   {:event-id event-id :event emit-event :frame frame})
+      (trace/emit! :rf.event :rf.event/db-changed
+                   {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame})
       (if (run-post-commit-validation! new-db event-id frame)
         true
         (do
@@ -458,11 +458,11 @@
           ;; (in order): forward commit, schema-failure error,
           ;; rollback commit.
           (adapter/replace-container! container db-before)
-          (trace/emit! :event :event/db-changed
-                       {:event-id event-id
-                        :event    emit-event
-                        :frame    frame
-                        :phase    :rollback})
+          (trace/emit! :rf.event :rf.event/db-changed
+                       {:rf.trace/event-id event-id
+                        :rf.event/v        emit-event
+                        :frame             frame
+                        :rf.trace/phase    :rollback})
           false)))
     true))
 
@@ -822,11 +822,11 @@
   `:error`, `:rolled-back`, or `:flow-error` — and rides straight onto
   the event-emit record's `:outcome` slot (Spec 009 §Record shape)."
   [event-id event emit-event frame outcome start-ms]
-  (trace/emit! :event :event
-               {:event-id event-id
-                :event    emit-event
-                :frame    frame
-                :phase    :run-end})
+  (trace/emit! :rf.event :rf.event
+               {:rf.trace/event-id event-id
+                :rf.event/v        emit-event
+                :frame             frame
+                :rf.trace/phase    :run-end})
   ;; Sticky hook (rf2-f72pd) — always-on per-event observability fan-out
   ;; per rf2-rirbq; survives `:advanced` + `goog.DEBUG=false`.
   (when-let [emit-event! (late-bind/get-fn-cached :event-emit/dispatch-on-event)]
@@ -890,13 +890,13 @@
     (trace/with-handler-scope
       (trace/handler-scope-from-meta :event event-id scope-meta)
       (let [start-ms  (interop/now-ms)
-            _         (trace/emit! :event :event
-                                   {:event-id event-id
-                                    :event    emit-event
-                                    :frame    frame
-                                    :source   (:source envelope)
-                                    :trace-id (:trace-id envelope)
-                                    :phase    :run-start})
+            _         (trace/emit! :rf.event :rf.event
+                                   {:rf.trace/event-id event-id
+                                    :rf.event/v        emit-event
+                                    :frame             frame
+                                    :source            (:source envelope)
+                                    :rf.trace/trace-id (:trace-id envelope)
+                                    :rf.trace/phase    :run-start})
             event-ok? (validate-event! event-id event handler-meta)
             final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
             ;; `commit-and-flow!` returns the dispatch outcome keyword
@@ -1161,7 +1161,7 @@
         halt-reason {:operation     :rf.frame/drain-interrupted
                      :dropped-count dropped}]
     (swap! router assoc :queue interop/empty-queue :scheduled? false)
-    (trace/emit! :frame :rf.frame/drain-interrupted
+    (trace/emit! :rf.frame :rf.frame/drain-interrupted
                  {:frame         frame-id
                   :dropped-count dropped})
     (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
@@ -1407,17 +1407,17 @@
         no-emit?     (trace/no-emit?-from-meta handler-meta)]
     (when-not no-emit?
       (trace/with-call-site (:call-site envelope)
-        (trace/emit! :event :event/dispatched
-                     (cond-> {:event              event
+        (trace/emit! :rf.event :rf.event/dispatched
+                     (cond-> {:rf.event/v         event
                               :frame              (:frame envelope)
-                              :origin             (:origin envelope)
+                              :rf.event/origin    (:origin envelope)
                               :rf/dispatch-origin (:rf/dispatch-origin envelope)
                               :source             (:source envelope)
-                              :sync?              sync?}
+                              :rf.event/sync?     sync?}
                        (:dispatch-id envelope)
-                       (assoc :dispatch-id (:dispatch-id envelope))
+                       (assoc :rf.trace/dispatch-id (:dispatch-id envelope))
                        (:parent-dispatch-id envelope)
-                       (assoc :parent-dispatch-id (:parent-dispatch-id envelope))))))))
+                       (assoc :rf.trace/parent-dispatch-id (:parent-dispatch-id envelope))))))))
 
 (defn- front-insert-machine-internal
   "Return `q` (a PersistentQueue of envelopes) with `envelope` spliced in

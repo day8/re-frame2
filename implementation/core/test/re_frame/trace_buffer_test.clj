@@ -4,11 +4,11 @@
 
   rf2-smee — three deliverables in one suite:
     1. Trace ring buffer: append, filter, depth/eviction, clear, elision.
-    2. :dispatch-id allocation + :parent-dispatch-id linkage (top-level
+    2. :rf.trace/dispatch-id allocation + :rf.trace/parent-dispatch-id linkage (top-level
        dispatches have no parent; dispatches issued from within an fx
-       handler inherit the in-flight event's :dispatch-id).
+       handler inherit the in-flight event's :rf.trace/dispatch-id).
     3. :origin opt: defaults to :app, opt overrides to anything else,
-       lands on the :event/dispatched trace under :tags :origin.
+       lands on the :rf.event/dispatched trace under :tags :origin.
 
   JVM-only by intent — the trace + router machinery is platform-agnostic
   and CLJS adds no signal."
@@ -46,10 +46,10 @@
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- dispatched-events
-  "Return only the :event :event/dispatched events from a buffer/coll."
+  "Return only the :event :rf.event/dispatched events from a buffer/coll."
   [evs]
-  (filterv #(and (= :event (:op-type %))
-                 (= :event/dispatched (:operation %)))
+  (filterv #(and (= :rf.event (:op-type %))
+                 (= :rf.event/dispatched (:operation %)))
            evs))
 
 ;; ---- 1. Ring buffer --------------------------------------------------------
@@ -61,9 +61,9 @@
     (let [buf (rf/trace-buffer)]
       (is (vector? buf) "trace-buffer returns a vector")
       (is (seq buf) "buffer has entries after a dispatch")
-      ;; The :event/dispatched envelope is the most reliable signal.
-      (is (some #(= :event/dispatched (:operation %)) buf)
-          "the :event/dispatched trace lands in the buffer"))))
+      ;; The :rf.event/dispatched envelope is the most reliable signal.
+      (is (some #(= :rf.event/dispatched (:operation %)) buf)
+          "the :rf.event/dispatched trace lands in the buffer"))))
 
 (deftest trace-buffer-filters
   (testing "filter by :operation, :op-type, :since, :frame compose"
@@ -71,13 +71,13 @@
     (rf/dispatch-sync [:ping])
     (rf/dispatch-sync [:ping])
     (let [all       (rf/trace-buffer)
-          dispatched (rf/trace-buffer {:operation :event/dispatched})]
+          dispatched (rf/trace-buffer {:operation :rf.event/dispatched})]
       (is (seq dispatched))
-      (is (every? #(= :event/dispatched (:operation %)) dispatched)
+      (is (every? #(= :rf.event/dispatched (:operation %)) dispatched)
           ":operation filter narrows to one operation")
       (is (<= (count dispatched) (count all)))
-      (let [event-only (rf/trace-buffer {:op-type :event})]
-        (is (every? #(= :event (:op-type %)) event-only)
+      (let [event-only (rf/trace-buffer {:op-type :rf.event})]
+        (is (every? #(= :rf.event (:op-type %)) event-only)
             ":op-type filter narrows to the discriminator")))
     (testing ":since filters strictly greater than the given id"
       (let [pre-id (-> (rf/trace-buffer) last :id)]
@@ -99,10 +99,10 @@
                         (or (:frame %) (get-in % [:tags :frame])))
                     scoped))))
     (testing "filters compose"
-      (let [combo (rf/trace-buffer {:operation :event/dispatched
-                                    :op-type   :event})]
-        (is (every? #(and (= :event/dispatched (:operation %))
-                          (= :event (:op-type %)))
+      (let [combo (rf/trace-buffer {:operation :rf.event/dispatched
+                                    :op-type   :rf.event})]
+        (is (every? #(and (= :rf.event/dispatched (:operation %))
+                          (= :rf.event (:op-type %)))
                     combo))))))
 
 (deftest trace-buffer-respects-depth
@@ -154,56 +154,56 @@
       (is (re-find #"\(defn-? configure-trace-buffer![\s\S]*?interop/debug-enabled\?" src)
           "configure-trace-buffer! is gated"))))
 
-;; ---- 2. :dispatch-id correlation -------------------------------------------
+;; ---- 2. :rf.trace/dispatch-id correlation -------------------------------------------
 
 (deftest dispatch-id-allocated-on-every-dispatch
-  (testing "every :event/dispatched trace carries a numeric :dispatch-id under :tags"
+  (testing "every :rf.event/dispatched trace carries a numeric :rf.trace/dispatch-id under :tags"
     (rf/reg-event-db :ping (fn [db _] db))
     (rf/dispatch-sync [:ping])
     (rf/dispatch-sync [:ping])
     (let [evs (dispatched-events (rf/trace-buffer))
-          ids (map #(get-in % [:tags :dispatch-id]) evs)]
+          ids (map #(get-in % [:tags :rf.trace/dispatch-id]) evs)]
       (is (seq evs))
       (is (every? some? ids)
-          "every :event/dispatched has a :dispatch-id")
+          "every :rf.event/dispatched has a :rf.trace/dispatch-id")
       (is (every? number? ids)
-          ":dispatch-id values are numeric (counter-shaped)")
+          ":rf.trace/dispatch-id values are numeric (counter-shaped)")
       (is (= (count (distinct ids)) (count ids))
-          ":dispatch-id values are unique within a process"))))
+          ":rf.trace/dispatch-id values are unique within a process"))))
 
 (deftest top-level-dispatch-has-no-parent
-  (testing "a dispatch issued from outside any in-flight event has no :parent-dispatch-id"
+  (testing "a dispatch issued from outside any in-flight event has no :rf.trace/parent-dispatch-id"
     (rf/reg-event-db :standalone (fn [db _] db))
     (rf/dispatch-sync [:standalone])
     (let [ev (->> (rf/trace-buffer)
                   dispatched-events
-                  (filter #(= [:standalone] (get-in % [:tags :event])))
+                  (filter #(= [:standalone] (get-in % [:tags :rf.event/v])))
                   first)]
-      (is ev "the :event/dispatched trace was emitted")
-      (is (nil? (get-in ev [:tags :parent-dispatch-id]))
-          "top-level dispatch has no :parent-dispatch-id"))))
+      (is ev "the :rf.event/dispatched trace was emitted")
+      (is (nil? (get-in ev [:tags :rf.trace/parent-dispatch-id]))
+          "top-level dispatch has no :rf.trace/parent-dispatch-id"))))
 
 (deftest fx-dispatch-inherits-parent-dispatch-id
-  (testing "a dispatch issued from inside an event's fx walk inherits the parent's :dispatch-id"
+  (testing "a dispatch issued from inside an event's fx walk inherits the parent's :rf.trace/dispatch-id"
     (rf/reg-event-fx :outer (fn [_ _]
                               {:fx [[:dispatch [:inner]]]}))
     (rf/reg-event-db :inner (fn [db _] (assoc db :inner? true)))
     (rf/dispatch-sync [:outer])
     (let [evs   (dispatched-events (rf/trace-buffer))
           outer (->> evs
-                     (filter #(= [:outer] (get-in % [:tags :event])))
+                     (filter #(= [:outer] (get-in % [:tags :rf.event/v])))
                      first)
           inner (->> evs
-                     (filter #(= [:inner] (get-in % [:tags :event])))
+                     (filter #(= [:inner] (get-in % [:tags :rf.event/v])))
                      first)]
-      (is outer "outer :event/dispatched present")
-      (is inner "inner :event/dispatched present")
-      (is (number? (get-in outer [:tags :dispatch-id])))
-      (is (nil?    (get-in outer [:tags :parent-dispatch-id]))
+      (is outer "outer :rf.event/dispatched present")
+      (is inner "inner :rf.event/dispatched present")
+      (is (number? (get-in outer [:tags :rf.trace/dispatch-id])))
+      (is (nil?    (get-in outer [:tags :rf.trace/parent-dispatch-id]))
           "outer (top-level) has no parent")
-      (is (= (get-in outer [:tags :dispatch-id])
-             (get-in inner [:tags :parent-dispatch-id]))
-          "inner's :parent-dispatch-id == outer's :dispatch-id"))))
+      (is (= (get-in outer [:tags :rf.trace/dispatch-id])
+             (get-in inner [:tags :rf.trace/parent-dispatch-id]))
+          "inner's :rf.trace/parent-dispatch-id == outer's :rf.trace/dispatch-id"))))
 
 ;; ---- 1b. Extended filter vocabulary (rf2-97ah0) ----------------------------
 
@@ -232,18 +232,18 @@
                     scoped))))))
 
 (deftest trace-buffer-filter-event-id
-  (testing ":event-id filters by :tags :event-id"
+  (testing ":event-id filters by :tags :rf.trace/event-id"
     (rf/reg-event-db :ev/alpha (fn [db _] db))
     (rf/reg-event-db :ev/beta  (fn [db _] db))
     (rf/dispatch-sync [:ev/alpha])
     (rf/dispatch-sync [:ev/beta])
     (let [alpha (rf/trace-buffer {:event-id :ev/alpha})]
       (is (seq alpha))
-      (is (every? #(= :ev/alpha (get-in % [:tags :event-id])) alpha)
+      (is (every? #(= :ev/alpha (get-in % [:tags :rf.trace/event-id])) alpha)
           ":event-id filter narrows to one event-id"))
     (let [beta (rf/trace-buffer {:event-id :ev/beta})]
       (is (seq beta))
-      (is (every? #(= :ev/beta (get-in % [:tags :event-id])) beta)))))
+      (is (every? #(= :ev/beta (get-in % [:tags :rf.trace/event-id])) beta)))))
 
 (deftest trace-buffer-filter-handler-id
   (testing ":handler-id filters by :tags :handler-id"
@@ -279,26 +279,26 @@
     (rf/dispatch-sync [:ping] {:origin :story})
     (let [pair-evs (rf/trace-buffer {:origin :pair})]
       (is (seq pair-evs))
-      (is (every? #(= :pair (get-in % [:tags :origin])) pair-evs)
+      (is (every? #(= :pair (get-in % [:tags :rf.event/origin])) pair-evs)
           ":origin :pair narrows to pair-issued cascades"))
     (let [story-evs (rf/trace-buffer {:origin :story})]
       (is (seq story-evs))
-      (is (every? #(= :story (get-in % [:tags :origin])) story-evs)))))
+      (is (every? #(= :story (get-in % [:tags :rf.event/origin])) story-evs)))))
 
 (deftest trace-buffer-filter-dispatch-id
-  (testing ":dispatch-id narrows to one cascade (rf2-g6ih4 cascade-wide tag)"
+  (testing ":rf.trace/dispatch-id narrows to one cascade (rf2-g6ih4 cascade-wide tag)"
     (rf/reg-event-db :ping (fn [db _] db))
     (rf/dispatch-sync [:ping])
     (rf/dispatch-sync [:ping])
     (let [first-dispatch (->> (rf/trace-buffer)
                               dispatched-events
                               first)
-          target-id      (get-in first-dispatch [:tags :dispatch-id])
+          target-id      (get-in first-dispatch [:tags :rf.trace/dispatch-id])
           slice          (rf/trace-buffer {:dispatch-id target-id})]
       (is (number? target-id))
       (is (seq slice))
-      (is (every? #(= target-id (get-in % [:tags :dispatch-id])) slice)
-          "every event in the slice carries the same :dispatch-id"))))
+      (is (every? #(= target-id (get-in % [:tags :rf.trace/dispatch-id])) slice)
+          "every event in the slice carries the same :rf.trace/dispatch-id"))))
 
 (deftest trace-buffer-filter-since-ms
   (testing ":since-ms filters by :time host-clock millisecond bound"
@@ -336,47 +336,47 @@
     (rf/reg-event-db :ping (fn [db _] db))
     (rf/dispatch-sync [:ping])
     (let [errors-and-events (rf/trace-buffer {:pred (fn [ev]
-                                                      (#{:event :error}
+                                                      (#{:rf.event :error}
                                                        (:op-type ev)))})]
       (is (seq errors-and-events))
-      (is (every? #(#{:event :error} (:op-type %)) errors-and-events)
+      (is (every? #(#{:rf.event :error} (:op-type %)) errors-and-events)
           ":pred narrows to events matching the predicate"))
     (testing ":pred composes with named axes"
-      (let [evs (rf/trace-buffer {:op-type :event
+      (let [evs (rf/trace-buffer {:op-type :rf.event
                                   :pred    (fn [ev]
-                                             (= :event/dispatched
+                                             (= :rf.event/dispatched
                                                 (:operation ev)))})]
-        (is (every? #(and (= :event (:op-type %))
-                          (= :event/dispatched (:operation %)))
+        (is (every? #(and (= :rf.event (:op-type %))
+                          (= :rf.event/dispatched (:operation %)))
                     evs))))))
 
 (deftest trace-buffer-filters-compose-and-wise
   (testing "every filter axis composes; supplying many narrows further"
     (rf/reg-event-db :ev/x (fn [db _] db))
     (rf/dispatch-sync [:ev/x] {:origin :pair :source :repl})
-    ;; :event/dispatched carries :origin and :source (via top-level hoist)
+    ;; :rf.event/dispatched carries :origin and :source (via top-level hoist)
     ;; but NOT :event-id (it carries the full :event vector). :event-id
-    ;; lives on :event/db-changed and on error emits. Compose four axes
-    ;; that all coexist on :event/dispatched.
-    (let [evs (rf/trace-buffer {:op-type   :event
-                                :operation :event/dispatched
+    ;; lives on :rf.event/db-changed and on error emits. Compose four axes
+    ;; that all coexist on :rf.event/dispatched.
+    (let [evs (rf/trace-buffer {:op-type   :rf.event
+                                :operation :rf.event/dispatched
                                 :origin    :pair
                                 :source    :repl})]
       (is (seq evs))
-      (is (every? #(and (= :event           (:op-type %))
-                        (= :event/dispatched (:operation %))
-                        (= :pair            (get-in % [:tags :origin]))
+      (is (every? #(and (= :rf.event           (:op-type %))
+                        (= :rf.event/dispatched (:operation %))
+                        (= :pair            (get-in % [:tags :rf.event/origin]))
                         (= :repl            (or (:source %)
                                                 (get-in % [:tags :source]))))
                   evs)
           "all four axes match simultaneously"))
-    (testing ":event-id composes with the other axes on :event/db-changed"
-      (let [evs (rf/trace-buffer {:operation :event/db-changed
+    (testing ":event-id composes with the other axes on :rf.event/db-changed"
+      (let [evs (rf/trace-buffer {:operation :rf.event/db-changed
                                   :event-id  :ev/x
                                   :origin    :pair})]
-        (is (every? #(and (= :event/db-changed (:operation %))
-                          (= :ev/x            (get-in % [:tags :event-id]))
-                          (= :pair            (get-in % [:tags :origin])))
+        (is (every? #(and (= :rf.event/db-changed (:operation %))
+                          (= :ev/x            (get-in % [:tags :rf.trace/event-id]))
+                          (= :pair            (get-in % [:tags :rf.event/origin])))
                     evs))))))
 
 ;; ---- 3. :origin opt --------------------------------------------------------
@@ -387,10 +387,10 @@
     (rf/dispatch-sync [:ping])
     (let [ev (->> (rf/trace-buffer)
                   dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                   first)]
       (is ev)
-      (is (= :app (get-in ev [:tags :origin]))
+      (is (= :app (get-in ev [:tags :rf.event/origin]))
           "default :origin is :app per Spec 002 §Dispatch origin tagging"))))
 
 (deftest origin-opt-overrides-default
@@ -399,10 +399,10 @@
     (rf/dispatch-sync [:ping] {:origin :pair})
     (let [ev (->> (rf/trace-buffer)
                   dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                   first)]
       (is ev)
-      (is (= :pair (get-in ev [:tags :origin]))
+      (is (= :pair (get-in ev [:tags :rf.event/origin]))
           ":origin :pair lifted onto :tags :origin"))))
 
 (deftest origin-distinct-from-source
@@ -411,10 +411,10 @@
     (rf/dispatch-sync [:ping] {:origin :pair :source :repl})
     (let [ev (->> (rf/trace-buffer)
                   dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                   first)]
       (is ev)
-      (is (= :pair (get-in ev [:tags :origin]))   ":origin lands under :tags :origin")
+      (is (= :pair (get-in ev [:tags :rf.event/origin]))   ":origin lands under :tags :origin")
       ;; :source is hoisted to top-level by emit!, per the existing contract.
       (is (= :repl (:source ev))                  ":source is hoisted to top-level"))))
 
@@ -426,7 +426,7 @@
     (rf/dispatch-sync [:ping])
     (let [ev (->> (rf/trace-buffer)
                   dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                   first)]
       (is ev)
       (is (= :user (get-in ev [:tags :rf/dispatch-origin]))
@@ -438,7 +438,7 @@
     (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool})
     (let [ev (->> (rf/trace-buffer)
                   dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                   first)]
       (is ev)
       (is (= :tool (get-in ev [:tags :rf/dispatch-origin]))
@@ -452,11 +452,11 @@
                                :source             :repl})
     (let [ev (->> (rf/trace-buffer)
                   dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                   first)]
       (is ev)
       (is (= :tool (get-in ev [:tags :rf/dispatch-origin])))
-      (is (= :pair (get-in ev [:tags :origin])))
+      (is (= :pair (get-in ev [:tags :rf.event/origin])))
       (is (= :repl (:source ev))))))
 
 (deftest dispatch-origin-fx-emit-on-cascade
@@ -468,11 +468,11 @@
     (rf/dispatch-sync [:parent] {:rf/dispatch-origin :user})
     (let [parent-ev (->> (rf/trace-buffer)
                           dispatched-events
-                          (filter #(= [:parent] (get-in % [:tags :event])))
+                          (filter #(= [:parent] (get-in % [:tags :rf.event/v])))
                           first)
           child-ev  (->> (rf/trace-buffer)
                           dispatched-events
-                          (filter #(= [:child] (get-in % [:tags :event])))
+                          (filter #(= [:child] (get-in % [:tags :rf.event/v])))
                           first)]
       (is parent-ev)
       (is child-ev)
@@ -480,7 +480,7 @@
           "parent carries the explicit :user opt")
       (is (= :fx-emit (get-in child-ev [:tags :rf/dispatch-origin]))
           "child overrides to :fx-emit — origin is the IMMEDIATE source,
-           lineage rides on :parent-dispatch-id"))))
+           lineage rides on :rf.trace/parent-dispatch-id"))))
 
 (deftest trace-buffer-filter-dispatch-origin
   (testing ":rf/dispatch-origin filters by :tags :rf/dispatch-origin"

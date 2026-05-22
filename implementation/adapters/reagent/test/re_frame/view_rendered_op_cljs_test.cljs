@@ -1,6 +1,6 @@
 (ns re-frame.view-rendered-op-cljs-test
   "Per rf2-25zo2 — the substrate-agnostic `:rf.view/rendered` op fires
-  alongside `:view/render` for every render of a registered view, and
+  alongside `:rf.view/render` for every render of a registered view, and
   carries the cascade-attribution slots Causa's Reactive panel uses to
   graph cause→effect for re-renders.
 
@@ -13,10 +13,10 @@
   Locked tags (rf2-25zo2 acceptance):
 
     :frame          — the frame the render landed in
-    :view-id        — the registered view id
-    :render-key     — [view-id instance-token] (parity with :view/render)
-    :cause-event-id — (when in-cascade) the dispatching cascade's event-id
-    :cause-subs     — (when in-cascade) sub-ids that ran in the cascade,
+    :rf.view/id        — the registered view id
+    :rf.view/render-key     — [view-id instance-token] (parity with :rf.view/render)
+    :rf.view/cause-event-id — (when in-cascade) the dispatching cascade's event-id
+    :rf.view/cause-subs     — (when in-cascade) sub-ids that ran in the cascade,
                       distinct, first-seen order, capped at 100"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -58,20 +58,20 @@
 
 (deftest rf-view-rendered-fires-on-every-render
   (testing "every render of a registered view emits one :rf.view/rendered
-   alongside :view/render — same emit site, two ops"
-    (let [observed (record-by-op! #{:view/render :rf.view/rendered})]
+   alongside :rf.view/render — same emit site, two ops"
+    (let [observed (record-by-op! #{:rf.view/render :rf.view/rendered})]
       (rf/reg-view ^{:rf/id :rf2-25zo2/sample} sample-view []
         [:span "ok"])
       (let [render (rf/view :rf2-25zo2/sample)]
         (render)
         (render)
         (render))
-      (is (= 3 (count (:view/render @observed))) "three :view/render emits")
+      (is (= 3 (count (:rf.view/render @observed))) "three :rf.view/render emits")
       (is (= 3 (count (:rf.view/rendered @observed))) "three :rf.view/rendered emits")
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-carries-view-id-and-frame
-  (testing ":rf.view/rendered carries :view-id, :frame and :render-key
+  (testing ":rf.view/rendered carries :rf.view/id, :frame and :rf.view/render-key
    on every emit"
     (let [traces (record-traces!)]
       (rf/reg-view ^{:rf/id :rf2-25zo2/shape} shape-view []
@@ -80,16 +80,16 @@
       (let [ev (first @traces)
             t  (:tags ev)]
         (is (some? ev) "an :rf.view/rendered event was emitted")
-        (is (= :rf2-25zo2/shape (:view-id t)) ":view-id matches the registered id")
+        (is (= :rf2-25zo2/shape (:rf.view/id t)) ":rf.view/id matches the registered id")
         (is (some? (:frame t)) ":frame is present")
-        (is (vector? (:render-key t)) ":render-key is a tuple")
-        (is (= :rf2-25zo2/shape (first (:render-key t)))
-            ":render-key's first slot is the view-id"))
+        (is (vector? (:rf.view/render-key t)) ":rf.view/render-key is a tuple")
+        (is (= :rf2-25zo2/shape (first (:rf.view/render-key t)))
+            ":rf.view/render-key's first slot is the view-id"))
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-carries-cause-event-id-in-cascade
   (testing ":rf.view/rendered emitted inside a cascade carries
-   :cause-event-id — the in-flight cascade's :event/run-start event-id,
+   :rf.view/cause-event-id — the in-flight cascade's :event/run-start event-id,
    sourced from the epoch capture buffer at emit time (rf2-25zo2). The
    attribution is meant for Causa's Reactive panel to graph cause→effect
    for re-renders."
@@ -106,19 +106,19 @@
             {}))
         (rf/dispatch-sync [:rf2-25zo2/render-during-cascade]))
 
-      (let [ev (first (filter #(some? (get-in % [:tags :cause-event-id]))
+      (let [ev (first (filter #(some? (get-in % [:tags :rf.view/cause-event-id]))
                               @traces))]
         (is (some? ev)
             "at least one :rf.view/rendered fired inside a cascade with attribution")
         (when ev
           (is (= :rf2-25zo2/render-during-cascade
-                 (get-in ev [:tags :cause-event-id]))
-              ":cause-event-id matches the dispatching event-id")))
+                 (get-in ev [:tags :rf.view/cause-event-id]))
+              ":rf.view/cause-event-id matches the dispatching event-id")))
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-carries-cause-subs-in-cascade
   (testing ":rf.view/rendered emitted inside a cascade carries
-   :cause-subs — distinct sub-ids that ran in the cascade before the
+   :rf.view/cause-subs — distinct sub-ids that ran in the cascade before the
    render, sourced from the epoch capture buffer. A sub run by the
    event handler before the render kicked off is the canonical upstream-
    sub case the Reactive panel uses to attribute re-renders to the
@@ -132,27 +132,27 @@
       (let [render (rf/view :rf2-25zo2/with-upstream-sub)]
         (rf/reg-event-fx :rf2-25zo2/cascade-with-sub
           (fn [_ _]
-            ;; Run a sub from inside the handler so :sub/run lands in
+            ;; Run a sub from inside the handler so :rf.sub/run lands in
             ;; the cascade buffer BEFORE the render emits.
             @(rf/subscribe [:rf2-25zo2/n])
             (render)
             {}))
         (rf/dispatch-sync [:rf2-25zo2/cascade-with-sub]))
 
-      (let [ev (first (filter #(some? (get-in % [:tags :cause-subs]))
+      (let [ev (first (filter #(some? (get-in % [:tags :rf.view/cause-subs]))
                               @traces))]
-        (is (some? ev) "an :rf.view/rendered carries :cause-subs")
+        (is (some? ev) "an :rf.view/rendered carries :rf.view/cause-subs")
         (when ev
-          (let [subs (get-in ev [:tags :cause-subs])]
-            (is (vector? subs) ":cause-subs is a vector")
+          (let [subs (get-in ev [:tags :rf.view/cause-subs])]
+            (is (vector? subs) ":rf.view/cause-subs is a vector")
             (is (some #{:rf2-25zo2/n} subs)
-                ":cause-subs contains the sub-id that ran upstream of the render"))))
+                ":rf.view/cause-subs contains the sub-id that ran upstream of the render"))))
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest rf-view-rendered-omits-attribution-when-no-cascade
   (testing "a render outside any cascade (e.g. headless direct invocation
-   with no in-flight buffer) emits :rf.view/rendered with :cause-event-id
-   and :cause-subs simply absent — consumers see the marker but no
+   with no in-flight buffer) emits :rf.view/rendered with :rf.view/cause-event-id
+   and :rf.view/cause-subs simply absent — consumers see the marker but no
    misleading attribution"
     (let [traces (record-traces!)]
       (rf/reg-view ^{:rf/id :rf2-25zo2/no-cascade} no-cascade-view []
@@ -161,9 +161,9 @@
       (let [ev (first @traces)
             t  (:tags ev)]
         (is (some? ev) ":rf.view/rendered still fires outside a cascade")
-        (is (= :rf2-25zo2/no-cascade (:view-id t)) ":view-id present")
-        (is (not (contains? t :cause-event-id))
-            ":cause-event-id omitted when no cascade is in flight")
-        (is (not (contains? t :cause-subs))
-            ":cause-subs omitted when no cascade is in flight"))
+        (is (= :rf2-25zo2/no-cascade (:rf.view/id t)) ":rf.view/id present")
+        (is (not (contains? t :rf.view/cause-event-id))
+            ":rf.view/cause-event-id omitted when no cascade is in flight")
+        (is (not (contains? t :rf.view/cause-subs))
+            ":rf.view/cause-subs omitted when no cascade is in flight"))
       (trace-tooling/unregister-listener! ::recorder))))

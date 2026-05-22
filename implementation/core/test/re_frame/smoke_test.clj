@@ -125,7 +125,7 @@
           (is (= :replaced-with-default (:recovery ev)))
           (let [t (:tags ev)]
             (is (= :boom (:failing-id t)))
-            (is (= :boom (:sub-id t)))
+            (is (= :boom (:rf.sub/id t)))
             (is (= [:boom] (:sub-query t)))
             (is (= :compute-sub (:where t))
                 ":where distinguishes the pure-compute call site from the reactive memo path")
@@ -140,7 +140,7 @@
       (rf/unregister-listener! ::boom2)
       (is (some (fn [e]
                   (and (= :rf.error/sub-exception (:operation e))
-                       (= :n*2 (:sub-id (:tags e)))
+                       (= :n*2 (:rf.sub/id (:tags e)))
                        (= :compute-sub (:where (:tags e)))))
                 @traces)
           "layer-2 throw also emits :rf.error/sub-exception via compute-sub"))))

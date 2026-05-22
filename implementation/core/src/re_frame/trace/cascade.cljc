@@ -115,7 +115,7 @@
                 (let [op (:operation ev)
                       t  (:tags ev)]
                   (cond
-                    (= :sub/run op)
+                    (= :rf.sub/run op)
                     (-> acc
                         ;; Per rf2-l1jz8 — thread the reactive recompute's
                         ;; value-change + cascade attribution onto the
@@ -124,13 +124,13 @@
                         ;; record's `:sub-runs`. Slots are nil for the
                         ;; `compute-sub` base-shape emit (which omits them).
                         (assoc! :sr (conj-bounded (get acc :sr)
-                                                  {:sub-id         (:sub-id t)
-                                                   :query-v        (:query-v t)
-                                                   :value-changed? (:value-changed? t)
-                                                   :prev-value     (:prev-value t)
-                                                   :value          (:value t)
-                                                   :cascade?       (:cascade? t)
-                                                   :cause-sub      (:cause-sub t)}
+                                                  {:sub-id         (:rf.sub/id t)
+                                                   :query-v        (:rf.sub/query-v t)
+                                                   :value-changed? (:rf.sub/value-changed? t)
+                                                   :prev-value     (:rf.sub/prev-value t)
+                                                   :value          (:rf.sub/value t)
+                                                   :cascade?       (:rf.sub/cascade? t)
+                                                   :cause-sub      (:rf.sub/cause-sub t)}
                                                   sub-cap))
                         (cond->
                           (>= (count (get acc :sr)) sub-cap)
@@ -139,11 +139,11 @@
                     (= :rf.sub/skip op)
                     (-> acc
                         (assoc! :ss (conj-bounded (get acc :ss)
-                                                  {:sub-id  (:sub-id t)
-                                                   :query-v (:query-v t)
-                                                   :reason  (:reason t)
+                                                  {:sub-id  (:rf.sub/id t)
+                                                   :query-v (:rf.sub/query-v t)
+                                                   :reason  (:rf.sub/reason t)
                                                    :input-paths-unchanged
-                                                   (:input-paths-unchanged t)}
+                                                   (:rf.sub/input-paths-unchanged t)}
                                                   sub-cap))
                         (cond->
                           (>= (count (get acc :ss)) sub-cap)
@@ -162,10 +162,10 @@
                                     :input-paths-unchanged
                                     (:input-paths-unchanged t)}))
 
-                    (= :view/render op)
+                    (= :rf.view/render op)
                     (-> acc
                         (assoc! :vr (conj-bounded (get acc :vr)
-                                                  {:render-key   (:render-key t)
+                                                  {:render-key   (:rf.view/render-key t)
                                                    :triggered-by (:triggered-by t)}
                                                   view-cap))
                         (cond->
@@ -208,9 +208,9 @@
         (let [dag (aggregate-cascade events)]
           (trace/emit! :rf.cascade :rf.cascade/captured
                        (assoc dag
-                              :frame    frame-id
-                              :epoch-id epoch-id
-                              :event-id event-id)))))))
+                              :frame             frame-id
+                              :rf.epoch/id       epoch-id
+                              :rf.trace/event-id event-id)))))))
 
 ;; ---- late-bind publication ----------------------------------------------
 ;;

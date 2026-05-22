@@ -250,10 +250,10 @@
             "exactly one :rf.error/fx-handler-exception was emitted")
         (let [t (first exc-traces)]
           (is (= :error (:op-type t)))
-          (is (= :fx-test/boom (get-in t [:tags :fx-id])))
+          (is (= :fx-test/boom (get-in t [:tags :rf.fx/id])))
           (is (= :fx-test/boom (get-in t [:tags :failing-id])))
-          (is (= {:reason :first} (get-in t [:tags :fx-args]))
-              ":fx-args carry the offending args")
+          (is (= {:reason :first} (get-in t [:tags :rf.fx/args]))
+              ":rf.fx/args carry the offending args")
           (is (string? (get-in t [:tags :exception-message])))
           (is (some? (get-in t [:tags :exception]))))))))
 
@@ -288,7 +288,7 @@
             "exactly one :rf.error/no-such-fx trace was emitted")
         (let [t (first missing-traces)]
           (is (= :error (:op-type t)))
-          (is (= :fx-test/never-registered (get-in t [:tags :fx-id])))
+          (is (= :fx-test/never-registered (get-in t [:tags :rf.fx/id])))
           (is (= :rf/default (get-in t [:tags :frame]))))))))
 
 ;; ---- 5. :platforms gating -------------------------------------------------
@@ -320,9 +320,9 @@
         (let [t (first skip-traces)]
           (is (= :warning (:op-type t)))
           (is (= :skipped (:recovery t)))
-          (is (= :fx-test/local-storage (get-in t [:tags :fx-id])))
-          (is (= :server (get-in t [:tags :platform])))
-          (is (= #{:client} (get-in t [:tags :registered-platforms]))))))))
+          (is (= :fx-test/local-storage (get-in t [:tags :rf.fx/id])))
+          (is (= :server (get-in t [:tags :rf.fx/platform])))
+          (is (= #{:client} (get-in t [:tags :rf.fx/registered-platforms]))))))))
 
 ;; ---- 6. Effect-map shape policing (M-8) -----------------------------------
 ;;
@@ -369,7 +369,7 @@
           (is (= :logged-and-skipped (:recovery t)))
           (is (= :dispatch (get-in t [:tags :offending-key]))
               ":offending-key carries the legacy top-level key")
-          (is (= :fx-test/legacy-dispatch (get-in t [:tags :event-id]))
+          (is (= :fx-test/legacy-dispatch (get-in t [:tags :rf.trace/event-id]))
               ":event-id carries the dispatching event id")
           (is (= [:fx-test/sentinel] (get-in t [:tags :value]))
               ":value carries the offending key's value")
@@ -412,8 +412,8 @@
       (let [missing (filter #(= :rf.error/no-such-fx (:operation %)) @traces)]
         (is (pos? (count missing))
             "a :rf.error/no-such-fx trace fired for the cleared fx-id")
-        (is (some #(= :test.634y/touch (get-in % [:tags :fx-id])) missing)
-            ":fx-id in the trace identifies the cleared handler"))
+        (is (some #(= :test.634y/touch (get-in % [:tags :rf.fx/id])) missing)
+            ":rf.fx/id in the trace identifies the cleared handler"))
 
       ;; 4. Re-register and confirm idempotence: clear-fx didn't poison
       ;;    the registrar's per-kind slot machinery.
@@ -558,8 +558,8 @@
         (is (= 1 (count applied))
             "exactly one :rf.fx/override-applied trace for the fn-value override")
         (let [t (first applied)]
-          (is (= :fx-test/http-traced (get-in t [:tags :from]))
-              ":from carries the original fx-id"))))))
+          (is (= :fx-test/http-traced (get-in t [:tags :rf.fx/from]))
+              ":rf.fx/from carries the original fx-id"))))))
 
 (deftest fx-overrides-fn-value-receives-origin-event
   (testing "fn-value override receives :event in ctx when the dispatch carries one"
@@ -583,20 +583,20 @@
              (:event @captured-ctx))
           "ctx :event is the originating event vector"))))
 
-;; ---- rf2-twt7m Change 2 — :event/do-fx carries :fx + :db-present? ---------
+;; ---- rf2-twt7m Change 2 — :rf.fx/do-fx carries :fx + :db-present? ---------
 ;;
 ;; The handler's return shape is otherwise invisible at the trace level —
-;; the :db value already rides through :event/db-changed diffs (not
+;; the :db value already rides through :rf.event/db-changed diffs (not
 ;; stamped on the do-fx marker because it can be huge), and the :fx
 ;; vector lives in the interceptor context's :effects slot for the
 ;; duration of the cascade but never makes it onto a trace. Per
 ;; rf2-twt7m Change 2 we now stamp :fx (the vector) and :db-present?
-;; (boolean) onto the :event/do-fx marker that terminates the do-fx
+;; (boolean) onto the :rf.fx/do-fx marker that terminates the do-fx
 ;; walk. Stamps the SHAPE, not deep values; Event lens (rf2-zh2qc)
 ;; consumers can align cascade rows with handler returns.
 
 (deftest event-do-fx-stamps-fx-and-db-present
-  (testing "reg-event-fx returning {:db ... :fx [...]} fires :event/do-fx
+  (testing "reg-event-fx returning {:db ... :fx [...]} fires :rf.fx/do-fx
    with :fx (the vector) and :db-present? true under :tags (same slot
    placement as :frame — payload-shaped tags ride under :tags)"
     (rf/reg-fx :fx-test/do-fx-shape (fn [_ _] :ok))
@@ -607,13 +607,13 @@
     (let [acc (collect-traces! ::do-fx-shape)]
       (try
         (rf/dispatch-sync [:fx-test/returns-db-and-fx])
-        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+        (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
               tags  (:tags dof)]
-          (is (some? dof) ":event/do-fx fired")
-          (is (= true (:db-present? tags))
-              ":db-present? true because the handler returned a :db slot")
-          (is (= [[:fx-test/do-fx-shape {:k 1}]] (:fx tags))
-              ":fx vector matches what the handler returned"))
+          (is (some? dof) ":rf.fx/do-fx fired")
+          (is (= true (:rf.event/db-present? tags))
+              ":rf.event/db-present? true because the handler returned a :db slot")
+          (is (= [[:fx-test/do-fx-shape {:k 1}]] (:rf.event/fx tags))
+              ":rf.event/fx vector matches what the handler returned"))
         (finally
           (rf/unregister-listener! ::do-fx-shape))))))
 
@@ -627,13 +627,13 @@
     (let [acc (collect-traces! ::no-db)]
       (try
         (rf/dispatch-sync [:fx-test/fx-only])
-        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+        (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
               tags  (:tags dof)]
-          (is (some? dof) ":event/do-fx fired")
-          (is (= false (:db-present? tags))
-              ":db-present? false because the handler returned no :db slot")
-          (is (= [[:fx-test/no-db-fx {}]] (:fx tags))
-              ":fx vector matches what the handler returned"))
+          (is (some? dof) ":rf.fx/do-fx fired")
+          (is (= false (:rf.event/db-present? tags))
+              ":rf.event/db-present? false because the handler returned no :db slot")
+          (is (= [[:fx-test/no-db-fx {}]] (:rf.event/fx tags))
+              ":rf.event/fx vector matches what the handler returned"))
         (finally
           (rf/unregister-listener! ::no-db))))))
 
@@ -648,30 +648,30 @@
     (let [acc (collect-traces! ::top-level)]
       (try
         (rf/dispatch-sync [:fx-test/top-level-shape])
-        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+        (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
               tags  (:tags dof)]
-          (is (some? dof) ":event/do-fx fired")
-          (is (contains? tags :fx)          ":fx lives under :tags")
-          (is (contains? tags :db-present?) ":db-present? lives under :tags")
-          (is (contains? tags :frame)       ":frame is alongside (pre-existing)")
-          (is (not (contains? dof :fx))
-              ":fx is NOT at top level")
-          (is (not (contains? dof :db-present?))
-              ":db-present? is NOT at top level"))
+          (is (some? dof) ":rf.fx/do-fx fired")
+          (is (contains? tags :rf.event/fx)          ":rf.event/fx lives under :tags")
+          (is (contains? tags :rf.event/db-present?) ":rf.event/db-present? lives under :tags")
+          (is (contains? tags :frame)                ":frame is alongside (pre-existing)")
+          (is (not (contains? dof :rf.event/fx))
+              ":rf.event/fx is NOT at top level")
+          (is (not (contains? dof :rf.event/db-present?))
+              ":rf.event/db-present? is NOT at top level"))
         (finally
           (rf/unregister-listener! ::top-level))))))
 
-;; ---- rf2-jhhqt: :coeffects stamp on :event/do-fx -------------------------
+;; ---- rf2-jhhqt: :coeffects stamp on :rf.fx/do-fx -------------------------
 ;;
 ;; Per rf2-jhhqt the user-injected subset of the handler's final
-;; coeffects map rides under `:tags :coeffects` on :event/do-fx.
+;; coeffects map rides under `:tags :rf.event/coeffects` on :rf.fx/do-fx.
 ;; Mirrors the rf2-twt7m Change 2 stamping: substrate-side filter keeps
 ;; the framework defaults (:db :event :frame :source :trace-id) out so
 ;; the Event lens's COEFFECTS section reads a pre-filtered map.
 
 (deftest event-do-fx-stamps-user-injected-coeffects
   (testing "a handler whose chain injects user coeffects (:now etc.)
-   sees them stamped under :tags :coeffects on :event/do-fx; the
+   sees them stamped under :tags :rf.event/coeffects on :rf.fx/do-fx; the
    framework defaults (:db :event :frame) are filtered out at the
    substrate"
     (rf/reg-fx :fx-test/cofx-sink (fn [_ _] :ok))
@@ -689,13 +689,13 @@
     (let [acc (collect-traces! ::user-cofx)]
       (try
         (rf/dispatch-sync [:fx-test/uses-user-cofx])
-        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
-              cofx  (get-in dof [:tags :coeffects])]
-          (is (some? dof) ":event/do-fx fired")
+        (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
+              cofx  (get-in dof [:tags :rf.event/coeffects])]
+          (is (some? dof) ":rf.fx/do-fx fired")
           (is (= {:fx-test/now    "2026-05-18T19:00:00Z"
                   :fx-test/locale :en-AU}
                  cofx)
-              "only the user-injected coeffects ride under :tags :coeffects")
+              "only the user-injected coeffects ride under :tags :rf.event/coeffects")
           (is (not (contains? cofx :db))    "framework :db NOT stamped")
           (is (not (contains? cofx :event)) "framework :event NOT stamped")
           (is (not (contains? cofx :frame)) "framework :frame NOT stamped"))
@@ -703,7 +703,7 @@
           (rf/unregister-listener! ::user-cofx))))))
 
 (deftest event-do-fx-coeffects-stamp-absent-when-no-user-cofx
-  (testing "a handler with no inject-cofx has its :event/do-fx fire
+  (testing "a handler with no inject-cofx has its :rf.fx/do-fx fire
    WITHOUT a :coeffects stamp (silent-by-default — distinct from a
    stamped empty map)"
     (rf/reg-fx :fx-test/plain-sink (fn [_ _] :ok))
@@ -713,9 +713,9 @@
     (let [acc (collect-traces! ::no-cofx)]
       (try
         (rf/dispatch-sync [:fx-test/no-user-cofx])
-        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+        (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
               tags  (:tags dof)]
-          (is (some? dof) ":event/do-fx fired")
+          (is (some? dof) ":rf.fx/do-fx fired")
           (is (not (contains? tags :coeffects))
               ":coeffects key ABSENT on :tags when no user cofx injected"))
         (finally

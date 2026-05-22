@@ -305,10 +305,10 @@
         (capture frame-id (:epoch-id record) (:event-id record) events)
         (catch #?(:clj Throwable :cljs :default) _ nil)))
     (trace/emit! :rf.epoch :rf.epoch/snapshotted
-                 {:frame    frame-id
-                  :epoch-id (:epoch-id record)
-                  :event-id (:event-id record)
-                  :outcome  outcome})
+                 {:frame             frame-id
+                  :rf.epoch/id       (:epoch-id record)
+                  :rf.trace/event-id (:event-id record)
+                  :outcome           outcome})
     (listeners/notify-listeners! record)
     record))
 
@@ -522,8 +522,8 @@
       ;; this synthetic epoch rather than the next real cascade.
       (state/set-last-settled-epoch! frame-id (:epoch-id record))
       (trace/emit! :rf.epoch :rf.epoch/db-replaced
-                   {:frame    frame-id
-                    :epoch-id (:epoch-id record)})
+                   {:frame       frame-id
+                    :rf.epoch/id (:epoch-id record)})
       (listeners/notify-listeners! record))
     true))
 

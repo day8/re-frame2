@@ -125,8 +125,8 @@
           "each trace records the machine's last state")
       (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces)
           "each trace carries :reason :parent-frame-destroyed")
-      (is (some #(= :frame/destroyed (:operation %)) @traces)
-          ":frame/destroyed fires after the per-machine traces"))))
+      (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
+          ":rf.frame/destroyed fires after the per-machine traces"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 2 — Sub-cache hit inside a machine microstep
@@ -278,7 +278,7 @@
     (rf/dispatch-sync [:emit-nav] {:frame :req})
     (stop-traces ::xspec-6)
     (is (some #(and (= :rf.fx/skipped-on-platform (:operation %))
-                    (= :rf.nav/push-url (get-in % [:tags :fx-id])))
+                    (= :rf.nav/push-url (get-in % [:tags :rf.fx/id])))
               @traces)
         ":rf.nav/push-url emits :rf.fx/skipped-on-platform under :server"))
   (testing "routes round-trip the same as on the client"
@@ -400,10 +400,10 @@
               (str "render did not throw mid-destroy; got: " (pr-str @render-error)))
           (is (>= @render-count 1)
               "render fn ran at least once — mid-render destroy did not abort the render pass")
-          (is (some #(and (= :frame/destroyed (:operation %))
+          (is (some #(and (= :rf.frame/destroyed (:operation %))
                           (= target-frame (get-in % [:tags :frame])))
                     @traces)
-              ":frame/destroyed trace fired — destroy-frame! ran the disposal pipeline")
+              ":rf.frame/destroyed trace fired — destroy-frame! ran the disposal pipeline")
           (is (nil? (frame/frame target-frame))
               "the frame is gone from the registry after destroy")
           ;; Post-destroy dispatch raises :rf.error/frame-destroyed (per
@@ -849,7 +849,7 @@
         (rf/dispatch-sync [:test/m [:go]])
         (stop-traces ::xspec-12)
         (is (some #(and (= :rf.error/fx-handler-exception (:operation %))
-                        (= :throwy (get-in % [:tags :fx-id])))
+                        (= :throwy (get-in % [:tags :rf.fx/id])))
                   @traces)
             "the throwing fx surfaces as :rf.error/fx-handler-exception")
         (is (= [:b] @seen)

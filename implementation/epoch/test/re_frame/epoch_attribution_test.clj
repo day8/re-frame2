@@ -9,16 +9,16 @@
   (Causa's Views / Reactive panels), fixed in isolation, and shipped with its
   own inline test:
 
-    rf2-qs6dl (#1935) — a `:view/render` (`:rf.view/rendered`) fired at React
+    rf2-qs6dl (#1935) — a `:rf.view/render` (`:rf.view/rendered`) fired at React
                         COMMIT time, AFTER its causing cascade settled, landed
                         in the now-empty buffer, and was harvested by the NEXT
                         cascade's settle — every render mis-attributed by one
                         epoch. Causa showed a `counter-inc` epoch rendering
                         `title-view`, which is impossible.
-    rf2-wi900 (#1938) — the SUBS sibling. A reactive `:sub/run` recomputes
+    rf2-wi900 (#1938) — the SUBS sibling. A reactive `:rf.sub/run` recomputes
                         lazily at React deref time, post-settle, same lag — so
                         a `counter-inc 1→2` epoch reported the counter sub's
-                        PRIOR value. The `:value-changed?` / `:cause-sub`
+                        PRIOR value. The `:rf.sub/value-changed?` / `:rf.sub/cause-sub`
                         attribution landed on the wrong epoch.
     rf2-vh1k3 (#1939) — a late MOUNT render whose commit lands AFTER the first
                         user interaction settled was back-filled onto that
@@ -38,7 +38,7 @@
   emits INSIDE the cascade, so the lag is structurally unreproducible — which
   is exactly why every prior test missed it. We reproduce the real
   React-commit / React-deref timing directly: dispatch a cascade (it settles
-  and commits its record), THEN emit a `:sub/run` / `:view/render` via
+  and commits its record), THEN emit a `:rf.sub/run` / `:rf.view/render` via
   `trace/emit!` with NO `*handler-scope*` and an empty in-flight buffer —
   precisely what `capture-event!` sees when Reagent flushes a batched
   re-render / reaction recompute after the drain. The runtime's back-fill
@@ -49,17 +49,17 @@
   INVARIANTS COVERED (each `deftest` is keyed `inv-N-...` to the invariant
   it guards; each FAILS if its corresponding fix is reverted):
 
-    inv-1  `:sub/run` attributed to its OWN cascade across ≥2 distinct
+    inv-1  `:rf.sub/run` attributed to its OWN cascade across ≥2 distinct
            cascades (rf2-wi900).
-    inv-2  `:rf.view/rendered` / `:view/render` attributed to its CAUSING
+    inv-2  `:rf.view/rendered` / `:rf.view/render` attributed to its CAUSING
            cascade, not the commit-time / next epoch (rf2-qs6dl).
     inv-3  a late MOUNT render attributed to the mount/initialise epoch ONLY,
            not double-filed onto the first post-mount cascade (rf2-vh1k3).
-    inv-4  `:value-changed?` + `:cause-sub` land on the correct epoch
+    inv-4  `:rf.sub/value-changed?` + `:rf.sub/cause-sub` land on the correct epoch
            (rf2-wi900 / rf2-l1jz8).
     inv-5  a view re-render whose own subs did NOT change is NOT spuriously
            attributed (the rf2-vh1k3 value-change-per-view discriminator).
-    inv-6  an out-of-cascade ORPHAN emit (`:frame/created` and the general
+    inv-6  an out-of-cascade ORPHAN emit (`:rf.frame/created` and the general
            class) stays UNCORRELATED — never a new epoch, never folded into
            the NEXT dequeued event's `:trace-events` (rf2-avvwm, a P1
            regression from #1952's per-event epoch boundary). The fourth
@@ -119,53 +119,53 @@
 ;; it into the causing epoch. Factor the emits so cases stay terse.
 
 (defn- emit-render!
-  "Emit a `:view/render` at React-COMMIT timing — op-type `:view`, tags
-  carrying `:render-key` + `:frame`, fired post-settle (empty buffer).
-  Mirrors `re-frame.views/emit-render-trace!`'s `:view/render` emit. Pass a
+  "Emit a `:rf.view/render` at React-COMMIT timing — op-type `:view`, tags
+  carrying `:rf.view/render-key` + `:frame`, fired post-settle (empty buffer).
+  Mirrors `re-frame.views/emit-render-trace!`'s `:rf.view/render` emit. Pass a
   `view-id` (canonical `[view-id 0]` render-key) or a full render-key tuple."
   [frame-id view-or-rk]
   (let [render-key (if (vector? view-or-rk) view-or-rk [view-or-rk 0])]
-    (trace/emit! :view :view/render
-                 {:render-key render-key
+    (trace/emit! :rf.view :rf.view/render
+                 {:rf.view/render-key render-key
                   :frame      frame-id})))
 
 (defn- emit-sub-run!
-  "Emit a reactive `:sub/run` at React-DEREF timing — op-type `:sub/run`,
-  tags carrying `:sub-id` + `:query-v` + `:frame` plus the rf2-l1jz8
+  "Emit a reactive `:rf.sub/run` at React-DEREF timing — op-type `:rf.sub/run`,
+  tags carrying `:rf.sub/id` + `:rf.sub/query-v` + `:frame` plus the rf2-l1jz8
   value-change attribution, fired post-settle (empty buffer, NO
-  `:reader-render-key` — a post-settle reactive recompute fires outside any
+  `:rf.sub/reader-render-key` — a post-settle reactive recompute fires outside any
   render binding). Mirrors `re-frame.subs.memo/validate-and-trace`. Optional
-  `:cause-sub` for the cascade-attribution slot."
+  `:rf.sub/cause-sub` for the cascade-attribution slot."
   ([frame-id sub-id prev-value value]
    (emit-sub-run! frame-id sub-id prev-value value nil))
   ([frame-id sub-id prev-value value cause-sub]
-   (trace/emit! :sub/run :sub/run
-                {:sub-id         sub-id
-                 :query-v        [sub-id]
+   (trace/emit! :rf.sub :rf.sub/run
+                {:rf.sub/id         sub-id
+                 :rf.sub/query-v        [sub-id]
                  :frame          frame-id
-                 :value-changed? (not= prev-value value)
-                 :prev-value     prev-value
-                 :value          value
-                 :cascade?       (some? cause-sub)
-                 :cause-sub      cause-sub})))
+                 :rf.sub/value-changed? (not= prev-value value)
+                 :rf.sub/prev-value     prev-value
+                 :rf.sub/value          value
+                 :rf.sub/cascade?       (some? cause-sub)
+                 :rf.sub/cause-sub      cause-sub})))
 
 (defn- emit-mount-sub-run!
-  "Emit a `:sub/run` at MOUNT timing — the SYNCHRONOUS in-render deref at
+  "Emit a `:rf.sub/run` at MOUNT timing — the SYNCHRONOUS in-render deref at
   first-paint. `*render-key*` is bound on that path, so the runtime stamps
-  `:reader-render-key` (the rf2-vh1k3 read-set-learning signal that teaches
+  `:rf.sub/reader-render-key` (the rf2-vh1k3 read-set-learning signal that teaches
   which subs the view reads). The first recompute always reports
   value-changed? true."
   [frame-id sub-id reader-rk prev-value value]
-  (trace/emit! :sub/run :sub/run
-               {:sub-id            sub-id
-                :query-v           [sub-id]
+  (trace/emit! :rf.sub :rf.sub/run
+               {:rf.sub/id            sub-id
+                :rf.sub/query-v           [sub-id]
                 :frame             frame-id
-                :value-changed?    (not= prev-value value)
-                :prev-value        prev-value
-                :value             value
-                :cascade?          false
-                :cause-sub         nil
-                :reader-render-key reader-rk}))
+                :rf.sub/value-changed?    (not= prev-value value)
+                :rf.sub/prev-value        prev-value
+                :rf.sub/value             value
+                :rf.sub/cascade?          false
+                :rf.sub/cause-sub         nil
+                :rf.sub/reader-render-key reader-rk}))
 
 ;; ---- record-reading helpers -----------------------------------------------
 
@@ -203,7 +203,7 @@
 (def ^:private tv-rk "title-view render-key."   [:title-view 7])
 
 ;; ===========================================================================
-;; INVARIANT 1 — :sub/run attributed to its OWN cascade across ≥2 cascades
+;; INVARIANT 1 — :rf.sub/run attributed to its OWN cascade across ≥2 cascades
 ;;                (rf2-wi900)
 ;; ===========================================================================
 
@@ -259,11 +259,11 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :sub-during
       (fn [db _]
-        (trace/emit! :sub/run :sub/run
-                     {:sub-id :inline-sub :query-v [:inline-sub]
-                      :frame :test/main :value-changed? true
-                      :prev-value nil :value :computed
-                      :cascade? false :cause-sub nil})
+        (trace/emit! :rf.sub :rf.sub/run
+                     {:rf.sub/id :inline-sub :rf.sub/query-v [:inline-sub]
+                      :frame :test/main :rf.sub/value-changed? true
+                      :rf.sub/prev-value nil :rf.sub/value :computed
+                      :rf.sub/cascade? false :rf.sub/cause-sub nil})
         (update db :n inc)))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -289,7 +289,7 @@
           "no listener fan-out for a sub-run with no causing cascade"))))
 
 ;; ===========================================================================
-;; INVARIANT 2 — :rf.view/rendered / :view/render attributed to its CAUSING
+;; INVARIANT 2 — :rf.view/rendered / :rf.view/render attributed to its CAUSING
 ;;                cascade, not the commit-time / next epoch (rf2-qs6dl)
 ;; ===========================================================================
 
@@ -338,8 +338,8 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :render-during
       (fn [db _]
-        (trace/emit! :view :view/render
-                     {:render-key [:inline-view 0] :frame :test/main})
+        (trace/emit! :rf.view :rf.view/render
+                     {:rf.view/render-key [:inline-view 0] :frame :test/main})
         (update db :n inc)))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -485,14 +485,14 @@
                to the mount epoch"))))))
 
 ;; ===========================================================================
-;; INVARIANT 4 — :value-changed? + :cause-sub land on the correct epoch
+;; INVARIANT 4 — :rf.sub/value-changed? + :rf.sub/cause-sub land on the correct epoch
 ;;                (rf2-wi900 / rf2-l1jz8)
 ;; ===========================================================================
 
 (deftest inv-4-value-changed-and-cause-sub-land-on-correct-epoch
   (testing "rf2-wi900 / rf2-l1jz8 — a post-settle sub-run's value-change
-            attribution (`:value-changed?` / `:prev-value` / `:value`) AND its
-            cascade attribution (`:cause-sub` / `:cascade?`) ride the cascade
+            attribution (`:rf.sub/value-changed?` / `:rf.sub/prev-value` / `:value`) AND its
+            cascade attribution (`:rf.sub/cause-sub` / `:rf.sub/cascade?`) ride the cascade
             that CAUSED the recompute, not the next epoch. This is the exact
             defect Mike reproduced: a counter-inc 1→2 epoch must show the
             counter sub's NEW value (2), not the prior cascade's lagged result.
@@ -547,7 +547,7 @@
             corrected record out to epoch listeners so snapshot consumers
             (Causa's per-cascade Views subs table, which caches epoch-history
             at settle time) re-sync to the corrected :sub-runs +
-            :value-changed? attribution. Without the re-fan a cached panel
+            :rf.sub/value-changed? attribution. Without the re-fan a cached panel
             would show the stale settle-time record (the value-change absent)."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -651,7 +651,7 @@
              (its mount epoch), not this cascade")))))
 
 ;; ===========================================================================
-;; INVARIANT 6 — an out-of-cascade ORPHAN emit (:frame/created and the
+;; INVARIANT 6 — an out-of-cascade ORPHAN emit (:rf.frame/created and the
 ;;                general class) stays UNCORRELATED: not a new epoch, and not
 ;;                folded into the next dequeued event's :trace-events
 ;;                (rf2-avvwm — P1 regression from #1952 epoch-per-event)
@@ -660,10 +660,10 @@
 ;; The fourth member of this suite's "which epoch does an out-of-cascade emit
 ;; belong to?" family. The first three (renders / sub-runs / mount renders)
 ;; fire AFTER a cascade settled and are back-filled to their CAUSING cascade.
-;; This one is different: a `:frame/created` (or registry-time) emit belongs
+;; This one is different: a `:rf.frame/created` (or registry-time) emit belongs
 ;; to NO cascade at all — `reg-frame` runs `:on-create` via dispatch-sync
-;; FIRST (which settles its own epoch), THEN emits `:frame/created` with no
-;; in-flight cascade and no `:dispatch-id`. Per Spec 009 §Dispatch correlation
+;; FIRST (which settles its own epoch), THEN emits `:rf.frame/created` with no
+;; in-flight cascade and no `:rf.trace/dispatch-id`. Per Spec 009 §Dispatch correlation
 ;; it must stay uncorrelated. Pre-rf2-avvwm it lingered in the capture buffer
 ;; and the NEXT dequeued event's harvest vacuumed it in as that epoch's FIRST
 ;; :trace-events entry (the per-event-epoch boundary stranded it).
@@ -675,40 +675,40 @@
   (mapv (juxt :op-type :operation) (:trace-events record)))
 
 (deftest inv-6-frame-created-not-folded-into-next-epoch
-  (testing "rf2-avvwm — :frame/created, emitted by reg-frame AFTER :on-create's
+  (testing "rf2-avvwm — :rf.frame/created, emitted by reg-frame AFTER :on-create's
             epoch already settled, must NOT appear in the NEXT dequeued event's
             :trace-events. Mirrors the parallel-frames :below repro: boot the
             frame with an :on-create, then dispatch a user event; that event's
             :trace-events must begin with its OWN ops, not [:frame
-            :frame/created]."
+            :rf.frame/created]."
     (rf/reg-event-db :app/init (fn [_ _] {:booted true :n 0}))
     (rf/reg-event-db :inc      (fn [db _] (update db :n inc)))
     ;; reg-frame dispatch-syncs :on-create (settles epoch 1), THEN emits the
-    ;; orphan :frame/created.
+    ;; orphan :rf.frame/created.
     (rf/reg-frame :test/main {:on-create [:app/init]})
     ;; The next dequeued user event.
     (rf/dispatch-sync [:inc] {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)]
       (is (= [:app/init :inc] (mapv :event-id history))
-          "exactly two epochs — :on-create and the user :inc; :frame/created
+          "exactly two epochs — :on-create and the user :inc; :rf.frame/created
            is NOT a third epoch")
       (doseq [r history]
-        (is (not-any? #(= [:frame :frame/created] %) (trace-ops r))
-            (str "no epoch's :trace-events carries the orphan :frame/created — "
+        (is (not-any? #(= [:rf.frame :rf.frame/created] %) (trace-ops r))
+            (str "no epoch's :trace-events carries the orphan :rf.frame/created — "
                  "epoch " (:event-id r))))
       (let [inc-epoch (last history)
             ops       (trace-ops inc-epoch)]
         (is (seq ops) ":inc epoch retained its raw :trace-events")
-        (is (= :event (first (first ops)))
+        (is (= :rf.event (first (first ops)))
             ":inc epoch's :trace-events BEGIN with its OWN event op
-             (:event/dispatched), not the stranded [:frame :frame/created]")
-        (is (every? (fn [ev] (= [:inc] (-> ev :tags :event)))
-                    (filter #(= :event (:op-type %)) (:trace-events inc-epoch)))
+             (:rf.event/dispatched), not the stranded [:rf.frame :rf.frame/created]")
+        (is (every? (fn [ev] (= [:inc] (-> ev :tags :rf.event/v)))
+                    (filter #(= :rf.event (:op-type %)) (:trace-events inc-epoch)))
             "every :event-op trace in the :inc epoch belongs to [:inc]")))))
 
 (deftest inv-6-orphan-not-correlated-on-the-record
-  (testing "rf2-avvwm — the orphan carries no :dispatch-id, so no epoch's
+  (testing "rf2-avvwm — the orphan carries no :rf.trace/dispatch-id, so no epoch's
             :trace-events should reference it. Belt-and-braces on the
             correlation contract: walk every retained epoch's :trace-events
             and assert none is a :frame op."
@@ -719,32 +719,32 @@
     (rf/dispatch-sync [:inc] {:frame :test/main})
 
     (doseq [r (rf/epoch-history :test/main)]
-      (is (not-any? #(= :frame (:op-type %)) (:trace-events r))
+      (is (not-any? #(= :rf.frame (:op-type %)) (:trace-events r))
           (str "no :frame-op orphan in epoch " (:event-id r)
                "'s :trace-events")))))
 
 (deftest inv-6-harvest-leaves-orphan-uncorrelated
   (testing "rf2-avvwm — direct unit test on the harvest seam. An orphan event
-            (no :dispatch-id) that reaches the capture buffer is NOT folded
+            (no :rf.trace/dispatch-id) that reaches the capture buffer is NOT folded
             into the settling event's harvest; only the settling event's own
-            :dispatch-id traces are returned."
+            :rf.trace/dispatch-id traces are returned."
     (let [frame :test/harvest
-          ;; Hand-craft a buffer: an orphan with no :dispatch-id, then a
+          ;; Hand-craft a buffer: an orphan with no :rf.trace/dispatch-id, then a
           ;; run-start + a body trace for dispatch-id 42.
-          orphan    {:op-type :frame :operation :frame/created :tags {}}
-          run-start {:op-type :event :operation :event
-                     :tags {:phase :run-start :dispatch-id 42 :event-id :inc}}
-          body      {:op-type :event :operation :event/db-changed
-                     :tags {:dispatch-id 42}}]
+          orphan    {:op-type :rf.frame :operation :rf.frame/created :tags {}}
+          run-start {:op-type :rf.event :operation :rf.event
+                     :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 42 :rf.trace/event-id :inc}}
+          body      {:op-type :rf.event :operation :rf.event/db-changed
+                     :tags {:rf.trace/dispatch-id 42}}]
       (state/buffer-event! frame orphan)
       (state/buffer-event! frame run-start)
       (state/buffer-event! frame body)
       (let [harvested (state/harvest-buffer-for-event! frame)]
         (is (= [run-start body] harvested)
-            "harvest returns ONLY the settling event's (:dispatch-id 42)
+            "harvest returns ONLY the settling event's (:rf.trace/dispatch-id 42)
              traces — the orphan is left uncorrelated, not vacuumed in")
-        (is (not-any? #(= :frame/created (:operation %)) harvested)
-            "the orphan :frame/created is not in the settling epoch's harvest")
+        (is (not-any? #(= :rf.frame/created (:operation %)) harvested)
+            "the orphan :rf.frame/created is not in the settling epoch's harvest")
         ;; The orphan stays behind in the buffer (left, not swept forward).
         (is (= [orphan] (state/buffer-for frame))
             "the orphan remains in the buffer, uncorrelated — not folded into

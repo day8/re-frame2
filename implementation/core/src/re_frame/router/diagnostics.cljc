@@ -114,11 +114,11 @@
   [envelope event-id event frame]
   (emit-fallthrough-warning! envelope)
   (trace/emit-error! :rf.error/no-such-handler
-                     {:event-id event-id
-                      :event    event
-                      :frame    frame
-                      :kind     :event
-                      :recovery :replaced-with-default}))
+                     {:rf.trace/event-id event-id
+                      :rf.event/v        event
+                      :frame             frame
+                      :kind              :event
+                      :recovery          :replaced-with-default}))
 
 (defn other-frame-mid-drain
   "Per rf2-fp97 — Spec 002 §dispatch-sync cross-frame note. Return the

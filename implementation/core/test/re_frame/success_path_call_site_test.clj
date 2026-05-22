@@ -9,7 +9,7 @@
   `rf/inject-cofx`).
 
   Originally introduced (rf2-ts1a) for error events only; widened by
-  rf2-twt7m so success-path traces — starting with `:event/dispatched`
+  rf2-twt7m so success-path traces — starting with `:rf.event/dispatched`
   itself — also carry the dispatch-site coord. The Event lens redesign
   (rf2-zh2qc) and any consumer building click-to-source UX on the
   enqueue trace would otherwise lose the slot.
@@ -60,17 +60,17 @@
 (defn- events-of [evs op]
   (filterv #(= op (:operation %)) evs))
 
-;; ---- Change 1 — `:event/dispatched` carries `:rf.trace/call-site` ---------
+;; ---- Change 1 — `:rf.event/dispatched` carries `:rf.trace/call-site` ---------
 
 (deftest event-dispatched-success-carries-call-site
-  (testing ":event/dispatched (success path) carries :rf.trace/call-site
+  (testing ":rf.event/dispatched (success path) carries :rf.trace/call-site
    when the dispatch came in via the macro form"
     (rf/reg-event-db :rf2-twt7m/noop (fn [db _] db))
     (let [evs       (record-traces
                       (fn []
                         (rf/dispatch-sync [:rf2-twt7m/noop])))
-          [enqueue] (events-of evs :event/dispatched)]
-      (is (some? enqueue) ":event/dispatched fired")
+          [enqueue] (events-of evs :rf.event/dispatched)]
+      (is (some? enqueue) ":rf.event/dispatched fired")
       (is (contains? enqueue :rf.trace/call-site)
           ":rf.trace/call-site hoisted onto the success-path emit")
       (let [cs (:rf.trace/call-site enqueue)]
@@ -87,7 +87,7 @@
     (let [evs       (record-traces
                       (fn []
                         (rf/dispatch-sync [:rf2-twt7m/top-level])))
-          [enqueue] (events-of evs :event/dispatched)]
+          [enqueue] (events-of evs :rf.event/dispatched)]
       (is (contains? enqueue :rf.trace/call-site)
           ":rf.trace/call-site lives at top level")
       (is (not (contains? (:tags enqueue) :rf.trace/call-site))
@@ -95,14 +95,14 @@
 
 (deftest event-dispatched-fn-form-omits-call-site
   (testing "the fn-form `dispatch-sync*` does NOT stamp a call-site,
-   so :event/dispatched carries no slot — better no-data than
+   so :rf.event/dispatched carries no slot — better no-data than
    poison-data (mirrors the error-path contract)"
     (rf/reg-event-db :rf2-twt7m/fn-form (fn [db _] db))
     (let [evs       (record-traces
                       (fn []
                         (rf/dispatch-sync* [:rf2-twt7m/fn-form])))
-          [enqueue] (events-of evs :event/dispatched)]
-      (is (some? enqueue) ":event/dispatched fired")
+          [enqueue] (events-of evs :rf.event/dispatched)]
+      (is (some? enqueue) ":rf.event/dispatched fired")
       (is (not (contains? enqueue :rf.trace/call-site))
           ":rf.trace/call-site omitted on the fn-form path"))))
 
@@ -110,7 +110,7 @@
 
 (deftest cascade-success-traces-carry-call-site
   (testing "every success-path trace emitted INSIDE the cascade (e.g.
-   :event/db-changed, :event/do-fx, :rf.fx/handled) carries the
+   :rf.event/db-changed, :rf.fx/do-fx, :rf.fx/handled) carries the
    dispatch's call-site — rf2-twt7m Change 1 widens the hoist to
    match the trigger-handler treatment (rf2-lf84g)"
     (rf/reg-fx :rf2-twt7m/my-fx (fn [_ _] :ok))
@@ -119,18 +119,18 @@
     (let [evs       (record-traces
                       (fn []
                         (rf/dispatch-sync [:rf2-twt7m/cascade])))
-          [dbc]     (events-of evs :event/db-changed)
-          [dof]     (events-of evs :event/do-fx)
+          [dbc]     (events-of evs :rf.event/db-changed)
+          [dof]     (events-of evs :rf.fx/do-fx)
           [handled] (events-of evs :rf.fx/handled)]
-      (is (some? dbc) ":event/db-changed fired")
-      (is (some? dof) ":event/do-fx fired")
+      (is (some? dbc) ":rf.event/db-changed fired")
+      (is (some? dof) ":rf.fx/do-fx fired")
       (is (some? handled) ":rf.fx/handled fired")
       ;; The macro stamps a call-site onto the envelope;
       ;; `process-event!` binds it via `with-dispatch-id+call-site`;
       ;; every emit inside the cascade hoists it (rf2-twt7m).
       (is (contains? dbc :rf.trace/call-site)
-          ":event/db-changed carries the dispatch's call-site")
+          ":rf.event/db-changed carries the dispatch's call-site")
       (is (contains? dof :rf.trace/call-site)
-          ":event/do-fx carries the dispatch's call-site")
+          ":rf.fx/do-fx carries the dispatch's call-site")
       (is (contains? handled :rf.trace/call-site)
           ":rf.fx/handled carries the dispatch's call-site"))))

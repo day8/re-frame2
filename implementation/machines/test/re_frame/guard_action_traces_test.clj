@@ -209,13 +209,14 @@
                 (fn [] (rf/dispatch-sync [:ga/correlate [:go]])))
           g   (first (ops evs :rf.machine/guard-evaluated))
           a   (first (ops evs :rf.machine/action-ran))
-          ;; :event/dispatched is the cascade anchor; its :dispatch-id is
-          ;; the canonical id that flows through `*handler-scope*` into
-          ;; every nested emit. Cross-reference it directly here.
-          disp (first (ops evs :event/dispatched))
-          cascade-id (-> disp :tags :dispatch-id)]
+          ;; :rf.event/dispatched is the cascade anchor; its
+          ;; :rf.trace/dispatch-id is the canonical id that flows through
+          ;; `*handler-scope*` into every nested emit. Cross-reference it
+          ;; directly here.
+          disp (first (ops evs :rf.event/dispatched))
+          cascade-id (-> disp :tags :rf.trace/dispatch-id)]
       (is (some? cascade-id) "the originating cascade has a dispatch-id")
-      (is (= cascade-id (-> g :tags :dispatch-id))
+      (is (= cascade-id (-> g :tags :rf.trace/dispatch-id))
           "guard-evaluated picks up the cascade dispatch-id from *handler-scope*")
-      (is (= cascade-id (-> a :tags :dispatch-id))
+      (is (= cascade-id (-> a :tags :rf.trace/dispatch-id))
           "action-ran picks up the same cascade dispatch-id"))))

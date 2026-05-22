@@ -57,16 +57,16 @@
 
 (def ^:private effect-op-types
   "Op-types that classify as the fourth domino — fx invocation. The
-  framework emits `:op-type :fx` for every fx handler invocation
+  framework emits `:op-type :rf.fx` for every fx handler invocation
   (`:rf.fx/handled`), every override (`:rf.fx/override-applied`), and
   every platform-skip (`:rf.fx/skipped-on-platform`)."
-  #{:fx})
+  #{:rf.fx})
 
 (def ^:private sub-op-types
   "Op-types that classify as the fifth domino — subscription work.
-  `:sub/run` is the recompute path; `:sub/create` is the first-time
+  `:rf.sub/run` is the recompute path; `:rf.sub/create` is the first-time
   signal-graph build."
-  #{:sub/run :sub/create})
+  #{:rf.sub})
 
 (defn domino-bucket
   "Classify a trace event into one of the six domino buckets.
@@ -79,17 +79,22 @@
   The classification is total: every input maps to exactly one bucket."
   [{:keys [op-type operation]}]
   (cond
-    (= op-type :event)
+    (= op-type :rf.event)
     (case operation
-      :event/dispatched :event
-      :event            :handler
-      :event/do-fx      :fx
+      :rf.event/dispatched :event
+      :rf.event            :handler
       :other)
 
+    ;; `:rf.fx/do-fx` is the third domino (the effects-resolution pass
+    ;; boundary marker, folded into the fx family per Spec 009 §`:op-type`
+    ;; vocabulary); every other `:rf.fx` op (`:rf.fx/handled`,
+    ;; `:rf.fx/override-applied`, `:rf.fx/skipped-on-platform`) is the
+    ;; fourth domino — fx invocation.
+    (= operation :rf.fx/do-fx) :fx
     (contains? effect-op-types op-type) :effect
     (contains? sub-op-types op-type)    :sub
 
-    (and (= op-type :view) (= operation :view/render)) :render
+    (and (= op-type :rf.view) (= operation :rf.view/render)) :render
 
     :else :other))
 
@@ -122,7 +127,7 @@
   "Return an event's concrete dispatch id, or nil when the event was
   emitted outside a dispatch cascade."
   [ev]
-  (get-in ev [:tags :dispatch-id]))
+  (get-in ev [:tags :rf.trace/dispatch-id]))
 
 (defn- cascade-id
   "Extract the cascade identifier from an event. Per Spec 009 §Dispatch
@@ -186,7 +191,7 @@
   rf2-twt7m Change 1)."
   [acc ev]
   (case (domino-bucket ev)
-    :event   (assoc acc :event      (get-in ev [:tags :event])
+    :event   (assoc acc :event      (get-in ev [:tags :rf.event/v])
                        :dispatched  ev)
     :handler (assoc acc :handler ev)
     :fx      (assoc acc :fx ev)

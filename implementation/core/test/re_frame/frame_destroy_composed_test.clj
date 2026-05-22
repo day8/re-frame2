@@ -71,7 +71,7 @@
 ;;
 ;; The destroy cascade emits multiple trace events:
 ;;   * one or more :rf.machine.lifecycle/destroyed (per active machine)
-;;   * :frame/destroyed
+;;   * :rf.frame/destroyed
 ;;   * (post-destroy) :rf.epoch.cb/silenced-on-frame-destroy per
 ;;     observing epoch cb
 ;; A listener that throws on EVERY event during the cascade must not
@@ -89,7 +89,7 @@
     (rf/reg-frame :composed/scoped {:doc "scoped"})
     ;; Seed two machine snapshots so destroy emits multiple
     ;; :rf.machine.lifecycle/destroyed events in addition to
-    ;; :frame/destroyed.
+    ;; :rf.frame/destroyed.
     (rf/reg-event-db :composed/seed-machines
                      (fn [db _]
                        (assoc db :rf/machines
@@ -121,8 +121,8 @@
       (let [ops (set (map :operation @survivor))]
         (is (contains? ops :rf.machine.lifecycle/destroyed)
             "survivor saw :rf.machine.lifecycle/destroyed")
-        (is (contains? ops :frame/destroyed)
-            "survivor saw :frame/destroyed"))
+        (is (contains? ops :rf.frame/destroyed)
+            "survivor saw :rf.frame/destroyed"))
       (is (= 2 (count (filter #(= :rf.machine.lifecycle/destroyed
                                   (:operation %))
                               @survivor)))

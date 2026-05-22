@@ -165,9 +165,9 @@
             "each event carries that machine's last-state from the snapshot")
         (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) cascade)
             "each event carries :reason :parent-frame-destroyed (the unified discriminator)"))
-      ;; A :frame/destroyed trace is also emitted (after the cascade).
-      (is (some #(= :frame/destroyed (:operation %)) @traces)
-          "expected a :frame/destroyed trace"))))
+      ;; A :rf.frame/destroyed trace is also emitted (after the cascade).
+      (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
+          "expected a :rf.frame/destroyed trace"))))
 
 ;; ---- rf2-vsigt — frame destroy runs `:exit` cascades reverse-creation ----
 ;;
@@ -259,8 +259,8 @@
         (rf/unregister-listener! ::sub-destroy)
         (is (= 1 @dispose-fired)
             "on-dispose hook fired exactly once when destroy walked the sub-cache")
-        (is (some #(= :frame/destroyed (:operation %)) @traces)
-            "expected :frame/destroyed trace"))
+        (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
+            "expected :rf.frame/destroyed trace"))
 
       ;; Post-destroy subscribe returns nil with :replaced-with-default.
       (let [t-after (atom [])]
@@ -356,8 +356,8 @@
         (fn [_ [_ payload]]
           {:booted? true :payload payload :seq [:a :b :c]}))
       ;; Hook a trace listener so we can assert the ordering between
-      ;; :on-create dispatch and :frame/created emission. Per Spec 002
-      ;; §reg-frame is atomic — :on-create runs first, then :frame/created
+      ;; :on-create dispatch and :rf.frame/created emission. Per Spec 002
+      ;; §reg-frame is atomic — :on-create runs first, then :rf.frame/created
       ;; is emitted (the frame becomes observable to listeners).
       (let [traces (atom [])]
         (rf/register-listener! ::oc (fn [ev] (swap! traces conj ev)))
@@ -376,29 +376,29 @@
         (is (= [:a :b :c] (:seq @observed))
             "full :on-create handler body completed before reg-frame returned")
 
-        ;; Ordering: the :event/run-end for :boot precedes :frame/created
-        ;; (reg-frame emits :frame/created AFTER on-create dispatch-syncs).
+        ;; Ordering: the :event/run-end for :boot precedes :rf.frame/created
+        ;; (reg-frame emits :rf.frame/created AFTER on-create dispatch-syncs).
         (let [run-end-idx (->> @traces
                                (keep-indexed
                                  (fn [i ev]
-                                   (when (and (= :event (:op-type ev))
-                                              (= :event (:operation ev))
-                                              (= :boot (:event-id (:tags ev)))
-                                              (= :run-end (:phase (:tags ev))))
+                                   (when (and (= :rf.event (:op-type ev))
+                                              (= :rf.event (:operation ev))
+                                              (= :boot (:rf.trace/event-id (:tags ev)))
+                                              (= :run-end (:rf.trace/phase (:tags ev))))
                                      i)))
                                first)
               created-idx (->> @traces
                                (keep-indexed
                                  (fn [i ev]
-                                   (when (= :frame/created (:operation ev))
+                                   (when (= :rf.frame/created (:operation ev))
                                      i)))
                                first)]
           (is (some? run-end-idx)
               "expected an :event :run-end trace for the :on-create event")
           (is (some? created-idx)
-              "expected a :frame/created trace")
+              "expected a :rf.frame/created trace")
           (is (< run-end-idx created-idx)
-              ":on-create's :run-end precedes :frame/created — frame is fully booted before listeners observe it"))))))
+              ":on-create's :run-end precedes :rf.frame/created — frame is fully booted before listeners observe it"))))))
 
 ;; ---- rf2-68kok — destroy-frame! interrupts active drain on next dequeue --
 ;;
@@ -482,7 +482,7 @@
         (is (= 1 (count interrupts))
             "exactly one :rf.frame/drain-interrupted trace")
         (let [ev (first interrupts)]
-          (is (= :frame (:op-type ev))
+          (is (= :rf.frame (:op-type ev))
               ":op-type is :frame (lifecycle family, not :error)")
           (is (= :drain-int/worker (:frame (:tags ev)))
               ":tags carries the destroyed frame id")
@@ -1098,7 +1098,7 @@
 
 (deftest on-destroy-throw-does-not-abort-teardown
   (testing "a throwing :on-destroy event still results in a fully destroyed
-            frame — machine cascade, sub-cache, :frame/destroyed,
+            frame — machine cascade, sub-cache, :rf.frame/destroyed,
             registry dissoc all run regardless"
     (rf/reg-frame :throwy/worker
                   {:doc       "rf2-r1ciy throwy on-destroy frame"
@@ -1155,9 +1155,9 @@
       (is (= 1 @dispose-fired)
           "sub-cache disposal ran — on-dispose hook fired once")
 
-      ;; (d) :frame/destroyed trace was emitted (post-throw step still ran).
-      (is (some #(= :frame/destroyed (:operation %)) @traces)
-          ":frame/destroyed trace was emitted — teardown continued past the throw"))))
+      ;; (d) :rf.frame/destroyed trace was emitted (post-throw step still ran).
+      (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
+          ":rf.frame/destroyed trace was emitted — teardown continued past the throw"))))
 
 (deftest on-destroy-throw-then-fresh-reg-frame-clean
   (testing "after a throwy destroy, the same frame id can be re-registered
@@ -1209,10 +1209,10 @@
       (is (= 1 @on-destroy-count)
           ":on-destroy fired once; the re-entrant destroy-frame! did not re-run it")
 
-      ;; (b) Exactly one :frame/destroyed trace emitted.
-      (let [destroyed-traces (filter #(= :frame/destroyed (:operation %)) @traces)]
+      ;; (b) Exactly one :rf.frame/destroyed trace emitted.
+      (let [destroyed-traces (filter #(= :rf.frame/destroyed (:operation %)) @traces)]
         (is (= 1 (count destroyed-traces))
-            "exactly one :frame/destroyed trace — teardown ran end-to-end once"))
+            "exactly one :rf.frame/destroyed trace — teardown ran end-to-end once"))
 
       ;; (c) No :rf.error/on-destroy-handler-exception (the inner call
       ;;     was a silent no-op, not a throw).

@@ -1,12 +1,12 @@
 (ns re-frame.view-render-trigger-handler-cljs-test
-  "Per rf2-npm2p — `:rf.trace/trigger-handler` rides the `:view/render`
+  "Per rf2-npm2p — `:rf.trace/trigger-handler` rides the `:rf.view/render`
   trace event with the view's own registration coord.
 
   Spec 009 §:rf.trace/trigger-handler table — 'Inside a view render:
   the view's coord'. `views.cljs`'s `reg-view*` wraps the user render-fn
   in a frame-aware-view that rebinds `*current-trigger-handler*` to the
   view's `trigger-handler-from-meta` value around the body, and
-  `emit-render-trace!` fires `:view/render` from inside that binding.
+  `emit-render-trace!` fires `:rf.view/render` from inside that binding.
   The trace event therefore carries the view's registration coord on
   the top-level `:rf.trace/trigger-handler` slot — Causa's event-detail
   panel and re-frame2-pair's jump-to-source UX render click-to-jump links from
@@ -40,13 +40,13 @@
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- record-traces!
-  "Attach a listener that captures every `:view/render` trace into an
+  "Attach a listener that captures every `:rf.view/render` trace into an
   atom. Returns the atom; caller is responsible for `unregister-listener!`."
   []
   (let [recorded (atom [])]
     (trace-tooling/register-listener! ::recorder
       (fn [ev]
-        (when (= :view/render (:operation ev))
+        (when (= :rf.view/render (:operation ev))
           (swap! recorded conj ev))))
     recorded))
 
@@ -66,10 +66,10 @@
       (is (string? (:file c))  ":file is a string")
       (is (integer? (:line c)) ":line is an integer"))))
 
-;; ---- :view/render carries the view's registration coord -------------------
+;; ---- :rf.view/render carries the view's registration coord -------------------
 
 (deftest view-render-carries-trigger-handler
-  (testing ":view/render rides the view's own registration coord —
+  (testing ":rf.view/render rides the view's own registration coord —
    Causa / re-frame2-pair want jump-to-source on a view render trace to land
    on the reg-view site, the same way fx-handled / sub-run / machine-
    transition tests already pin"
@@ -78,12 +78,12 @@
         [:span "ok"])
       (let [render (rf/view :rf2-npm2p/sample)]
         (render))
-      (is (= 1 (count @traces)) "exactly one :view/render trace fired")
+      (is (= 1 (count @traces)) "exactly one :rf.view/render trace fired")
       (assert-trigger-shape (first @traces) :rf2-npm2p/sample)
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest view-render-trigger-rides-at-top-level
-  (testing ":rf.trace/trigger-handler on :view/render is a top-level
+  (testing ":rf.trace/trigger-handler on :rf.view/render is a top-level
    field, NOT nested under :tags — mirrors the error / fx-handled /
    sub-run / machine-transition shapes"
     (let [traces (record-traces!)]
@@ -100,7 +100,7 @@
 
 (deftest view-render-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on
-   :view/render equals what the registrar holds on the view's slot —
+   :rf.view/render equals what the registrar holds on the view's slot —
    same comparison the other scope tests do"
     (let [traces (record-traces!)]
       (rf/reg-view ^{:rf/id :rf2-npm2p/coord-view} coord-view []
@@ -117,7 +117,7 @@
       (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest each-render-carries-trigger-handler
-  (testing "every :view/render invocation carries the trigger-handler
+  (testing "every :rf.view/render invocation carries the trigger-handler
    — not just the first render. The wrapper rebinds the dynamic var on
    each invocation; the slot rides every emit."
     (let [traces (record-traces!)]
@@ -127,7 +127,7 @@
         (render 1)
         (render 2)
         (render 3))
-      (is (= 3 (count @traces)) "three :view/render traces fired")
+      (is (= 3 (count @traces)) "three :rf.view/render traces fired")
       (doseq [ev @traces]
         (assert-trigger-shape ev :rf2-npm2p/multi-render))
       (trace-tooling/unregister-listener! ::recorder))))
@@ -136,7 +136,7 @@
 
 (deftest programmatic-view-omits-trigger-on-render
   (testing "a view registered via `reg-view*` without macro-captured
-   coords emits :view/render with no :rf.trace/trigger-handler field —
+   coords emits :rf.view/render with no :rf.trace/trigger-handler field —
    better no-data than poison-data (mirrors the fx, sub, cofx
    programmatic paths)"
     (let [traces (record-traces!)]
@@ -148,7 +148,7 @@
         (fn [] [:span "x"]))
       ((rf/view :rf2-npm2p/programmatic))
       (let [ev (first @traces)]
-        (is (some? ev) ":view/render fired")
+        (is (some? ev) ":rf.view/render fired")
         (is (not (contains? ev :rf.trace/trigger-handler))
             "programmatic view-registration → no coord → field omitted"))
       (trace-tooling/unregister-listener! ::recorder))))

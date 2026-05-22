@@ -55,7 +55,7 @@
   (rf/reg-fx :sensitive/noop (fn [_ _] nil))
   (let [evs (record-traces #(rf/dispatch-sync
                                [:sensitive/cross-cutting {:token "secret"}]))]
-    (doseq [op #{:event/dispatched :event :event/db-changed :event/do-fx}]
+    (doseq [op #{:rf.event/dispatched :rf.event :rf.event/db-changed :rf.fx/do-fx}]
       (let [matches (filterv #(= op (:operation %)) evs)]
         (is (seq matches) (str op " was emitted"))
         (doseq [ev matches]
@@ -78,20 +78,20 @@
       (let [evs (record-traces
                   #(rf/dispatch-sync
                      [:auth/login {:username "ada" :password "shh"}]))
-            [run-start]  (filterv #(and (= :event (:operation %))
+            [run-start]  (filterv #(and (= :rf.event (:operation %))
                                         (= :run-start
-                                           (get-in % [:tags :phase])))
+                                           (get-in % [:tags :rf.trace/phase])))
                                   evs)
-            [db-changed] (events-of evs :event/db-changed)]
+            [db-changed] (events-of evs :rf.event/db-changed)]
         (is (= {:username "ada" :password "shh"} @seen)
             "handler body receives the unredacted event payload")
         (is (true? (:sensitive? run-start))
             "schema-sensitive handler scope is stamped")
         (is (= :rf/redacted
-               (get-in run-start [:tags :event 1 :password])))
+               (get-in run-start [:tags :rf.event/v 1 :password])))
         (is (= :rf/redacted
-               (get-in db-changed [:tags :event 1 :password])))
-        (is (= "ada" (get-in db-changed [:tags :event 1 :username])))))))
+               (get-in db-changed [:tags :rf.event/v 1 :password])))
+        (is (= "ada" (get-in db-changed [:tags :rf.event/v 1 :username])))))))
 
 (deftest schema-auto-redaction-stamps-handler-exception
   (rf/reg-app-schema [:auth]
@@ -117,10 +117,10 @@
   (let [evs (record-traces
               #(rf/dispatch-sync
                  [:profile/save {:password "not-auth"}]))
-        [db-changed] (events-of evs :event/db-changed)]
+        [db-changed] (events-of evs :rf.event/db-changed)]
     (is (not (true? (:sensitive? db-changed))))
     (is (= "not-auth"
-           (get-in db-changed [:tags :event 1 :password])))))
+           (get-in db-changed [:tags :rf.event/v 1 :password])))))
 
 (deftest trace-buffer-sensitive-filter
   (testing "Trace-buffer `:sensitive?` filter operates on the trace event's
