@@ -507,6 +507,18 @@
                      :border-radius "3px"
                      :padding     "8px 10px"
                      :margin      0
+                     ;; Clamp to the containing block + scroll long lines
+                     ;; WITHIN the panel rather than overflowing it. Without
+                     ;; `max-width:100%` the `white-space:pre` block grows to
+                     ;; its longest line's intrinsic width, expanding every
+                     ;; flex ancestor (the Event-panel pipeline is a flex
+                     ;; column) past the panel edge — the first line is then
+                     ;; clipped left under the step-rail gutter and later
+                     ;; lines run off the right (rf2-l7ha9). The `min-width:0`
+                     ;; companion lives on the flex-item ancestors so this
+                     ;; `overflow-x:auto` can actually engage.
+                     :max-width   "100%"
+                     :box-sizing  "border-box"
                      :overflow-x  "auto"
                      :white-space "pre"}}
        (into [:code]

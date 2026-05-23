@@ -1334,6 +1334,38 @@
         (is (or (some? body) (some? placeholder))
             "step [3] source slot renders one of body / placeholder")))))
 
+(deftest handler-source-not-clipped-at-narrow-panel-widths
+  (testing "rf2-l7ha9 — the EVENT HANDLER source must stay legible at narrow
+            panel widths. The pipeline is a flex column, so every flex-item
+            ancestor of the handler-source `<pre>` carries `min-width:0`;
+            without it the `white-space:pre` block grows to its longest
+            line's intrinsic width and expands the column past the panel
+            edge, clipping the first line and running later lines off the
+            right. We assert the shrink-permission chain end-to-end."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :widget/wide-src
+        {:rf.handler/source "(reg-event-db :widget/wide-src (fn [db _] (update db :counter/value inc)))"}
+        (fn [db _] db)))
+    (seed-buffer! (cascade-evs 100 [:widget/wide-src {:id 1}] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree         (event-detail/Panel)
+            step-section (find-by-testid tree
+                           "rf-causa-event-detail-section-handler")
+            section-body (find-by-testid tree
+                           "rf-causa-event-detail-section-handler-body")
+            source-div   (find-by-testid tree
+                           "rf-causa-event-detail-handler-source")
+            min-width    (fn [node] (some-> node second :style :min-width))]
+        (is (some? step-section)
+            "the EVENT HANDLER step renders")
+        (is (= "0" (min-width step-section))
+            "the step-section flex item can shrink below content width")
+        (is (= "0" (min-width section-body))
+            "the section body propagates the shrink-permission")
+        (is (= "0" (min-width source-div))
+            "the handler-source container keeps the shrink-permission to the pre")))))
+
 ;; ---- (14) DB CHANGES step — app-db diff via data-display renderer -----
 
 (deftest db-changes-step-present-in-pipeline-no-committed-footer

@@ -537,7 +537,11 @@
   [meta]
   (let [src (handler-source-string meta)]
     [:div {:data-testid "rf-causa-event-detail-handler-source"
+           ;; `min-width:0` keeps the shrink-permission unbroken right down
+           ;; to the syntax-highlighted `<pre>`, so it scrolls within the
+           ;; panel rather than clipping at narrow widths (rf2-l7ha9).
            :style {:margin-top "4px"
+                   :min-width "0"
                    :padding-left "16px"}}
      [:div {:data-testid "rf-causa-event-detail-handler-source-arrow"
             :style {:color        (:text-tertiary tokens)
@@ -1001,7 +1005,15 @@
   [n id title body]
   [:section {:data-testid (str "rf-causa-event-detail-section-" id)
              :data-step-number (str n)
+             ;; `min-width:0` lets this flex item (the pipeline is a flex
+             ;; column) shrink below its content's intrinsic width, so a
+             ;; wide handler-source `<pre>` scrolls within the panel
+             ;; instead of expanding the column past the panel edge
+             ;; (rf2-l7ha9). Flex items default to `min-width:auto`, which
+             ;; refuses to shrink — that is what clips the EVENT HANDLER
+             ;; source at narrow widths.
              :style {:position "relative"
+                     :min-width "0"
                      :padding  "0 12px 0 12px"}}
    ;; Numbered step circle — filled muted with a white numeral, pulled
    ;; left onto the rail (spec/021 §2.2 — "filled muted with white
@@ -1034,8 +1046,12 @@
                   :color          (:text-secondary tokens)}}
     title]
    [:div {:data-testid (str "rf-causa-event-detail-section-" id "-body")
+          ;; `min-width:0` propagates the shrink-permission down to the
+          ;; handler-source `<pre>` so its `overflow-x:auto` engages
+          ;; within the panel (rf2-l7ha9).
           :style {:font-family mono-stack
                   :font-size   "12px"
+                  :min-width   "0"
                   :color       (:text-primary tokens)}}
     body]])
 
