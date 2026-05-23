@@ -54,62 +54,52 @@
 ;; Atoms, defaults, and config-merge validation live in `re-frame.epoch.state`
 ;; (Phase-2 seam A, rf2-0wi86). The facade keeps the public docstrings and
 ;; the late-bind hook publication.
+;;
+;; Design provenance (kept out of the public `configure!` docstring per the
+;; rf2-ee38b clarity review):
+;;   * `:trace-events-keep` defaults to a FINITE 5 (rf2-mrsck / Security.md
+;;     §Epoch privacy posture): the most-recent five records per frame retain
+;;     raw `:trace-events`; older records keep only the cheap structured
+;;     projections — bounding dev-session heap from accumulated raw traces.
+;;     Apps that need the whole ring's raw streams pass a larger value (or
+;;     one >= the depth cap). `(rf/configure :epoch-history {:trace-events-keep
+;;     nil})` is a no-op against the explicit-value validation; use a numeric
+;;     value or omit the slot.
+;;   * Keys are validated at the boundary (refactor-audit r2 rf2-lwn4t
+;;     §rf2-douii): a `:depth` / `:trace-events-keep` that isn't a
+;;     non-negative integer is silently dropped rather than stored, so a
+;;     nil / non-numeric value can't survive into `record!` and explode at
+;;     the next `pos?` / `nat-int?`. Mirrors `re-frame.trace/configure-trace-
+;;     buffer!`'s own config-boundary validation.
 
 (defn configure!
   "Update the epoch-history configuration. Supported keys:
 
-    :depth              N — non-negative integer; ring-buffer depth
-                        per frame. 0 disables recording (assembled
-                        records can still fire on listeners but
-                        nothing lands in the ring buffer).
-    :trace-events-keep  N — non-negative integer; cap how many of
-                        the MOST-RECENT records per frame retain
-                        their raw `:trace-events` vector. Older
-                        records keep the cheap structured
-                        projections (`:sub-runs` / `:renders` /
-                        `:effects`) but drop `:trace-events` to
-                        bound memory. Per Spec-Schemas
-                        §`:rf/epoch-record` line 2224
-                        (`:trace-events` is optional —
-                        'implementations may choose to drop traces
-                        from older epochs') and refactor-audit r2
-                        (rf2-lwn4t) §F3.1.
-    :redact-fn          fn? or nil; per Tool-Pair §Time-travel
-                        §Redaction hook and Security.md §Epoch
-                        privacy posture (rf2-wp70d). When non-nil
-                        the runtime invokes the fn once per
-                        assembled record between `build-record` and
-                        ring-append / listener fan-out, so the ring
-                        and every listener see the SAME redacted
-                        shape. The `:rf.epoch/sensitive?` rollup is
-                        computed BEFORE the fn runs — the rollup
-                        remains accurate even when the fn erases
+    :depth              N — non-negative integer; ring-buffer depth per
+                        frame. 0 disables recording (assembled records can
+                        still fire on listeners but nothing lands in the
+                        ring buffer).
+    :trace-events-keep  N — non-negative integer; cap how many of the
+                        MOST-RECENT records per frame retain their raw
+                        `:trace-events` vector. Older records keep the cheap
+                        structured projections (`:sub-runs` / `:renders` /
+                        `:effects`) but drop `:trace-events` to bound memory.
+                        Default 5.
+    :redact-fn          fn? or nil. When non-nil the runtime invokes the fn
+                        once per assembled record between `build-record` and
+                        ring-append / listener fan-out, so the ring and every
+                        listener see the SAME redacted shape. The
+                        `:rf.epoch/sensitive?` rollup is computed BEFORE the
+                        fn runs, so it stays accurate even when the fn erases
                         the leaves it keyed on. A throwing fn emits
-                        `:rf.warning/epoch-redact-fn-exception` and
-                        falls back to the raw record for that drain
-                        only (the drain itself is not broken).
-                        Passing `nil` clears any previously-installed
-                        fn.
+                        `:rf.warning/epoch-redact-fn-exception` and falls back
+                        to the raw record for that drain only. Passing `nil`
+                        clears any previously-installed fn.
 
-  Per rf2-mrsck and Security.md §Epoch privacy posture: the default
-  `:trace-events-keep` is a FINITE value (5) — the most-recent five
-  records per frame retain raw `:trace-events`; older records keep
-  only the cheap `:sub-runs` / `:renders` / `:effects` projections.
-  Apps that need the whole ring's raw streams pass an explicit
-  larger value (or a value >= the depth cap). Passing `nil`
-  explicitly via `(rf/configure :epoch-history {:trace-events-keep
-  nil})` is a no-op against the explicit-value validation below;
-  use a numeric value or do not pass the slot at all.
-
-  Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: keys are validated at
-  the boundary. A `:depth` or `:trace-events-keep` that isn't a
-  non-negative integer is silently dropped from `opts` rather than
-  stored — a `nil` or non-numeric value would otherwise survive
-  configuration and explode at the next `record!` call when `pos?` /
-  `nat-int?` runs on the stored value. `:redact-fn` accepts `fn?`
-  or `nil` (explicit clear); other shapes are silently dropped.
-  Validation mirrors the pattern `re-frame.trace/configure-trace-
-  buffer!` applies at its own config boundary."
+  Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and
+  malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the
+  boundary. See Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
+  privacy posture for the full contract."
   [opts]
   (state/merge-config! opts))
 
@@ -152,17 +142,6 @@
   (state/reset-histories!)
   (state/reset-capture-buffers!)
   nil)
-
-(defn- clear-frame-history!
-  "Drop every recorded epoch for the named frame. Per rf2-sh5g6: no
-  late-bind hook is published for this; the fn is invoked only from
-  the in-artefact test pin (via the `#'epoch/clear-frame-history!`
-  var). The test fixture uses the unscoped `clear-history!`
-  hook so scoped clearing is not on the integration critical path —
-  marking `defn-` keeps the surface area of the epoch public API
-  tight without losing the pinned-seam test."
-  [frame-id]
-  (state/drop-frame-history! frame-id))
 
 ;; ---- listener registry ----------------------------------------------------
 ;;

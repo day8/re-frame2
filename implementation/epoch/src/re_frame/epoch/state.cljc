@@ -196,6 +196,19 @@
   (swap! histories dissoc frame-id)
   nil)
 
+(defn- epoch-index
+  "Return the index of the record matching `epoch-id` in the `history`
+  vector, or nil when absent (evicted, or the epoch never landed). The
+  one shared 'where is this epoch in the ring?' primitive — the
+  back-fills `assoc` at the returned index, and `render-key-already-in-
+  epoch?` reuses it for its record lookup. `write/find-epoch-in` answers
+  the sibling 'give me the record' question off a deref'd history."
+  [history epoch-id]
+  (some (fn [i]
+          (when (= epoch-id (:epoch-id (nth history i)))
+            i))
+        (range (count history))))
+
 ;; ---- post-settle render back-fill (rf2-qs6dl) -----------------------------
 ;;
 ;; A `:view/render` / `:rf.view/rendered` trace fires at React COMMIT
@@ -425,117 +438,87 @@
   (rf2-vh1k3). Reads the structured `:renders` projection (always
   present on a built record), not the optional `:trace-events`."
   [frame-id epoch-id render-key]
-  (let [history (history-for frame-id)]
+  (let [history (history-for frame-id)
+        idx     (epoch-index history epoch-id)]
     (boolean
-      (some (fn [r]
-              (and (= epoch-id (:epoch-id r))
-                   (some (fn [row] (= render-key (:render-key row)))
-                         (:renders r))))
-            history))))
+      (when idx
+        (some (fn [row] (= render-key (:render-key row)))
+              (:renders (nth history idx)))))))
 
-(defn back-fill-render!
-  "Append `render-event` and its projected `:renders` row into the
-  already-committed epoch record identified by `frame-id` + `epoch-id`
-  (rf2-qs6dl). Returns the updated record (so the caller can re-notify
-  listeners), or nil when the target epoch is no longer in the ring
-  (evicted, or the render fired before any cascade settled).
-
-  `render-row` is the structured `:renders` entry (or nil — a non-
-  `:view/render` render op such as `:rf.view/rendered` rides only the
-  `:trace-events` slot). The mutation rewrites the matching record in
-  the frame's history vector under a single `swap!`; the record stays at
-  its original ring position so epoch ordering is preserved."
-  [frame-id epoch-id render-event render-row]
-  (let [updated (atom nil)]
-    (swap! histories update frame-id
-           (fn [history]
-             (let [history (or history [])
-                   idx     (some (fn [i]
-                                   (when (= epoch-id (:epoch-id (nth history i)))
-                                     i))
-                                 (range (count history)))]
-               (if (nil? idx)
-                 history
-                 (let [r  (nth history idx)
-                       r' (cond-> r
-                            ;; Only records that retained their raw
-                            ;; trace stream (within :trace-events-keep)
-                            ;; carry the slot; back-fill it when present
-                            ;; so the Reactive panel's flow tally and any
-                            ;; raw-trace consumer see the post-settle
-                            ;; render in the right cascade.
-                            (contains? r :trace-events)
-                            (update :trace-events (fnil conj []) render-event)
-                            ;; The structured :renders projection is the
-                            ;; primary consumer surface (Causa Views /
-                            ;; Reactive panel). Always present on a built
-                            ;; record; append the projected row.
-                            (some? render-row)
-                            (update :renders (fnil conj []) render-row))]
-                   (reset! updated r')
-                   (assoc history idx r'))))))
-    @updated))
-
-;; ---- post-settle sub-run back-fill (rf2-wi900) ----------------------------
+;; ---- post-settle event back-fill (rf2-qs6dl render / rf2-wi900 sub-run) ----
 ;;
-;; The subs sibling of the render back-fill above. A `:sub/run` (or
-;; `:sub/skip`) trace fires when a reaction recomputes — and reactions
-;; recompute LAZILY at React render (deref) time, which Reagent batches
-;; onto a later tick AFTER the causing cascade settled. So a sub-run, like
-;; a render, lands in the now-empty buffer post-settle and — pre-rf2-wi900
-;; — was harvested by the NEXT cascade's settle, mis-attributing every
-;; reactive recompute (and its `:value-changed?` / `:prev-value` / `:value`
-;; attribution) to cascade N+1 (the one-epoch lag the bead documents,
-;; visibly wrong in Causa's per-cascade Views subs table).
+;; A `:view/render` (rf2-qs6dl) and a reactive `:sub/run` (rf2-wi900) both
+;; fire at React COMMIT / DEREF time, which Reagent batches onto a later
+;; tick AFTER the causing cascade settled. So each lands in the now-empty
+;; capture buffer post-settle and — pre-fix — was harvested by the NEXT
+;; cascade's settle, mis-attributing it to cascade N+1 (the one-epoch lag
+;; both beads document: a phantom render in the wrong cascade's
+;; `:renders`, a phantom sub-run + `:value-changed?` in the wrong
+;; cascade's `:sub-runs` / Causa Views subs table).
 ;;
-;; The fix mirrors the render path exactly: a sub-run that fires with no
-;; in-flight cascade for the frame is back-filled into that frame's
-;; most-recently-settled epoch record (the cascade that dirtied the
-;; reaction's inputs and scheduled the recompute), reusing the same
-;; `last-settled-epoch` map the render back-fill tracks.
+;; The fix back-fills the event into the cascade that CAUSED it (the
+;; frame's most-recently-settled epoch — the cascade that dirtied the
+;; view's / reaction's inputs and scheduled the re-render / recompute),
+;; reusing the `last-settled-epoch` map. The render and sub-run paths are
+;; byte-for-byte identical except for the structured projection slot they
+;; touch (`:renders` vs `:sub-runs`), so one private `back-fill-event!`
+;; does the ring mutation and the two public fns are thin wrappers
+;; pinning the slot.
 
-(defn back-fill-sub-run!
-  "Append `sub-event` and its projected `:sub-runs` row into the
-  already-committed epoch record identified by `frame-id` + `epoch-id`
-  (rf2-wi900). Returns the updated record (so the caller can re-notify
+(defn- back-fill-event!
+  "Append `event` and its projected `row` (into the `slot` projection)
+  on the already-committed epoch record identified by `frame-id` +
+  `epoch-id`. Returns the updated record (so the caller can re-notify
   listeners), or nil when the target epoch is no longer in the ring
-  (evicted, or the sub-run fired before any cascade settled).
+  (evicted, or the event fired before any cascade settled).
 
-  `sub-run-row` is the structured `:sub-runs` entry (or nil — a `:sub/skip`
-  op carries no `:sub-runs` row, exactly as `project-all` projects no
-  `:sub-runs` row for it; it rides only the `:trace-events` slot). The
+  `row` is the structured projection entry, or nil — a render op that
+  carries no `:renders` row (`:rf.view/rendered`) or a `:sub/skip` that
+  carries no `:sub-runs` row rides only the `:trace-events` slot, exactly
+  as `capture/project-all` projects no structured row for it. The
   mutation rewrites the matching record in the frame's history vector
   under a single `swap!`; the record stays at its original ring position
-  so epoch ordering is preserved. Symmetric with `back-fill-render!`."
-  [frame-id epoch-id sub-event sub-run-row]
+  so epoch ordering is preserved.
+
+    * `:trace-events` is back-filled only when the record retained its raw
+      trace stream (within `:trace-events-keep`) so raw-trace consumers
+      (the Reactive panel's flow tally) see the post-settle event in the
+      right cascade.
+    * the structured `slot` projection — the primary consumer surface
+      (Causa Views / Reactive panel) — is always present on a built
+      record; the projected row is appended when non-nil."
+  [frame-id epoch-id slot event row]
   (let [updated (atom nil)]
     (swap! histories update frame-id
            (fn [history]
              (let [history (or history [])
-                   idx     (some (fn [i]
-                                   (when (= epoch-id (:epoch-id (nth history i)))
-                                     i))
-                                 (range (count history)))]
+                   idx     (epoch-index history epoch-id)]
                (if (nil? idx)
                  history
                  (let [r  (nth history idx)
                        r' (cond-> r
-                            ;; Only records that retained their raw trace
-                            ;; stream (within :trace-events-keep) carry the
-                            ;; slot; back-fill it when present so raw-trace
-                            ;; consumers see the post-settle sub-run in the
-                            ;; right cascade.
                             (contains? r :trace-events)
-                            (update :trace-events (fnil conj []) sub-event)
-                            ;; The structured :sub-runs projection is the
-                            ;; primary consumer surface (Causa Views subs
-                            ;; table). Always present on a built record;
-                            ;; append the projected row.
-                            (some? sub-run-row)
-                            (update :sub-runs (fnil conj []) sub-run-row))]
+                            (update :trace-events (fnil conj []) event)
+                            (some? row)
+                            (update slot (fnil conj []) row))]
                    (reset! updated r')
                    (assoc history idx r'))))))
     @updated))
+
+(defn back-fill-render!
+  "Back-fill `render-event` and its projected `:renders` `render-row`
+  into the already-committed epoch `epoch-id` for `frame-id` (rf2-qs6dl).
+  Thin wrapper over `back-fill-event!` pinning the `:renders` slot."
+  [frame-id epoch-id render-event render-row]
+  (back-fill-event! frame-id epoch-id :renders render-event render-row))
+
+(defn back-fill-sub-run!
+  "Back-fill `sub-event` and its projected `:sub-runs` `sub-run-row` into
+  the already-committed epoch `epoch-id` for `frame-id` (rf2-wi900). Thin
+  wrapper over `back-fill-event!` pinning the `:sub-runs` slot. Symmetric
+  with `back-fill-render!`."
+  [frame-id epoch-id sub-event sub-run-row]
+  (back-fill-event! frame-id epoch-id :sub-runs sub-event sub-run-row))
 
 ;; ---- per-cascade capture buffer -------------------------------------------
 ;;
@@ -614,28 +597,43 @@
   [frame-id]
   (let [b (get @capture-buffers frame-id [])]
     (if-let [sid (settling-dispatch-id b)]
-      (let [{mine true theirs false}
-            (group-by (fn [ev]
-                        ;; Per rf2-avvwm: ONLY the settling event's own
-                        ;; traces (matching :dispatch-id) ride this epoch.
-                        ;; A nil-:dispatch-id orphan (out-of-cascade emit
-                        ;; such as :frame/created) is no longer folded in —
-                        ;; orphans are dropped at the capture seam
-                        ;; (capture/capture-event! out-of-cascade branch) so
-                        ;; they never reach this buffer; this predicate is
-                        ;; the matching guard (any nil-did event that did
-                        ;; slip through is LEFT in the buffer, not vacuumed
-                        ;; into the settling epoch). Pre-fix `(or (nil? did)
-                        ;; (= did sid))` swept an orphan in as the cascade's
-                        ;; first :trace-events entry — the regression closed.
-                        (= (-> ev :tags :rf.trace/dispatch-id) sid))
-                      b)]
+      ;; Three-way partition by the event's :rf.trace/dispatch-id:
+      ;;   * MINE   (= did sid)        — the settling event's own traces;
+      ;;                                  returned to ride this epoch.
+      ;;   * THEIRS (non-nil, ≠ sid)   — a child's `:event/dispatched`
+      ;;                                  marker fired during THIS event's
+      ;;                                  do-fx carrying the CHILD's id;
+      ;;                                  LEFT in the buffer for the child's
+      ;;                                  own settle (Spec 009 §Dispatch
+      ;;                                  correlation: one dispatch-id = one
+      ;;                                  epoch).
+      ;;   * ORPHAN (nil did)          — an out-of-cascade emit (e.g.
+      ;;                                  `:frame/created`) with no cascade
+      ;;                                  to ride. DISCARDED here.
+      ;;
+      ;; Per rf2-avvwm orphans are dropped at the capture seam
+      ;; (capture/capture-event! out-of-cascade branch) so in normal
+      ;; operation none arrive. This seam is the defensive backstop: a
+      ;; nil-did orphan that slips past the upstream guard has no settle
+      ;; event to ever reclaim it, so retaining it (the pre-rf2-ee38b
+      ;; behaviour) left it in the buffer indefinitely — re-grouped into
+      ;; `theirs` and re-retained on every subsequent harvest. Discarding
+      ;; it makes the harvest self-cleaning and removes reliance on the
+      ;; upstream guard being perfect (rf2-ee38b §correctness). The
+      ;; `did = sid` predicate already guarantees an orphan never folds
+      ;; into an epoch's `:trace-events`; this only changes whether it
+      ;; lingers in the buffer (no) vs. is dropped (yes).
+      (let [mine   (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) sid)) b)
+            theirs (filterv (fn [ev]
+                              (let [did (-> ev :tags :rf.trace/dispatch-id)]
+                                (and (some? did) (not= did sid))))
+                            b)]
         ;; Leave the other-event traces (non-nil, non-matching id) in the
-        ;; buffer for their own event's settle; take ours.
+        ;; buffer for their own event's settle; drop orphans + ours.
         (if (seq theirs)
-          (swap! capture-buffers assoc frame-id (vec theirs))
+          (swap! capture-buffers assoc frame-id theirs)
           (swap! capture-buffers dissoc frame-id))
-        (vec mine))
+        mine)
       ;; No run-start — rejected/aborted dispatch. Clear and return all.
       (do (swap! capture-buffers dissoc frame-id)
           b))))

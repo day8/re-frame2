@@ -2067,52 +2067,12 @@
         (is (= 1 (count silenced))
             "silencing fires for the observed frame")))))
 
-;; ---- rf2-jvrd: clear-frame-history! seam pin ------------------------------
-;;
-;; Per test-coverage-review-2026-05-12 P3-19. Public seam at
-;; `epoch.cljc:111`; covered transitively by `clear-history!` but no test
-;; pins the single-frame variant directly.
-
-(deftest clear-frame-history-isolates-to-the-named-frame
-  (testing "clear-frame-history! drops one frame's ring; other frames'
-            rings are untouched; calling against an unknown frame is a
-            silent no-op"
-    (rf/reg-frame :test/main  {})
-    (rf/reg-frame :test/other {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-
-    ;; Drain several epochs on each frame.
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-    (rf/dispatch-sync [:seed] {:frame :test/other})
-    (rf/dispatch-sync [:inc]  {:frame :test/other})
-
-    ;; Sanity: both rings carry records.
-    (is (= 3 (count (rf/epoch-history :test/main))))
-    (is (= 2 (count (rf/epoch-history :test/other))))
-
-    ;; Clear only :test/other. Per rf2-sh5g6 the seam is `defn-` (no
-    ;; late-bind hook) so the test reaches it via the private-var
-    ;; access form.
-    (is (nil? (#'epoch/clear-frame-history! :test/other))
-        "clear-frame-history! returns nil")
-
-    ;; :test/other is empty; :test/main untouched.
-    (is (= [] (rf/epoch-history :test/other))
-        ":test/other's ring is empty after clear")
-    (is (= 3 (count (rf/epoch-history :test/main)))
-        ":test/main's ring is unchanged — clear-frame-history! is scoped")
-
-    ;; Negative: clear-frame-history! against an unknown frame is a no-op
-    ;; (does not throw, does not affect other rings).
-    (is (nil? (#'epoch/clear-frame-history! :test/no-such-frame))
-        "clear-frame-history! on an unknown frame is a silent no-op")
-    (is (= 3 (count (rf/epoch-history :test/main)))
-        ":test/main's ring is still untouched after a no-op clear")
-    (is (= [] (rf/epoch-history :test/other))
-        ":test/other's ring stays empty (no re-population)")))
+;; rf2-ee38b: the `clear-frame-history!` seam pin (rf2-jvrd) was removed
+;; alongside the dead `defn-` it existed solely to test — scoped clearing
+;; is not on the integration critical path (the fixture uses the unscoped
+;; `clear-history!`), and `state/drop-frame-history!` is already exercised
+;; directly by the destroy path. Pre-alpha posture favours deleting
+;; unreferenced API surface over preserving a self-justifying seam.
 
 ;; ---- rf2-ronz: on-frame-destroyed! direct unit pin ------------------------
 ;;
@@ -2284,6 +2244,70 @@
            pre-destroy event can leak into a same-keyed frame's next
            cascade"))))
 
+;; ---- rf2-ee38b: live :halted-destroy partial-record commit ---------------
+;;
+;; Per the correctness review (ai/findings/review/correctness--
+;; implementation-epoch.md): the live `:halted-destroy` partial-record
+;; commit — the most intricate live destroy behaviour in the artefact —
+;; was only exercised by tests whose assertions were conditionally
+;; skipped (`(when @halted ...)` / `(when-let [halted ...] ...)`), so a
+;; regression in the live wiring (capture buffer empty / lacking a
+;; run-start by destroy time, or the `in-cascade?` gate regressing) would
+;; pass green with zero executed assertions. This test drives a REAL
+;; mid-drain `destroy-frame!` and asserts the full contract
+;; UNCONDITIONALLY: exactly one :halted-destroy record reaches a
+;; registered epoch listener, with :outcome :halted-destroy, a populated
+;; :event-id, nil dbs, the halt-reason descriptor, and — crucially — that
+;; the partial record was NOT appended to the ring (epoch-history carries
+;; no :halted-destroy record; per rf2-d656/rf2-v0jwt devtools receive it
+;; via the listener fan-out only, before the ring is dropped).
+
+(deftest live-halted-destroy-fires-partial-record-to-listeners-only
+  (testing "a mid-drain destroy-frame! fires exactly one :halted-destroy
+            partial record to listeners (NOT to the ring), carrying the
+            cascade's :event-id and halt-reason — the live capture-buffer
+            → in-cascade? gate → notify-listeners! chain"
+    (rf/reg-frame :test/main {})
+    (let [records (atom [])]
+      (rf/register-epoch-listener! ::watch (fn [r] (swap! records conj r)))
+      (rf/reg-event-fx :destroy-self
+                       (fn [_ _]
+                         (frame/destroy-frame! :test/main)
+                         {}))
+      (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
+           (catch Throwable _ nil))
+      (let [halted-records (filterv (fn [r] (= :halted-destroy (:outcome r)))
+                                    @records)]
+        ;; UNCONDITIONAL: exactly one :halted-destroy record reached the
+        ;; live listener fan-out via the capture-buffer → in-cascade?
+        ;; gate. If the wiring stops firing, this fails loudly (the
+        ;; old guarded form passed green with zero assertions).
+        (is (= 1 (count halted-records))
+            "exactly one :halted-destroy record reaches a registered
+             epoch listener from the live mid-drain destroy")
+        (let [halted (first halted-records)]
+          (is (= :halted-destroy (:outcome halted)))
+          (is (= :destroy-self (:event-id halted))
+              "the cascade's :event-id is pinned on the partial record
+               (the buffered :destroy-self run-start drove the commit)")
+          (is (nil? (:db-before halted))
+              "halted-destroy carries nil :db-before (the frame container
+               is gone — schema admits :any)")
+          (is (nil? (:db-after halted))
+              "halted-destroy carries nil :db-after")
+          (is (= {:operation :rf.frame/destroyed-mid-drain}
+                 (:halt-reason halted))
+              "the halt-reason descriptor rides the partial record"))
+        ;; The partial record is NOT appended to the ring — devtools
+        ;; receive it via the listener fan-out only, and the ring is
+        ;; dropped on destroy (epoch-history returns no :halted-destroy
+        ;; record).
+        (is (empty? (filter (fn [r] (= :halted-destroy (:outcome r)))
+                            (epoch/epoch-history :test/main)))
+            "the :halted-destroy record never lands in the ring buffer
+             (it is delivered to listeners only, before the ring is
+             dropped on destroy)")))))
+
 ;; ---- rf2-kl5p1: build-record omits :event-id / :trigger-event when
 ;; ---- find-trigger-event yields nothing -----------------------------------
 ;;
@@ -2415,6 +2439,66 @@
       (is (= :foo (:event-id trigger)))
       (is (= [:foo "bar" 42] (:event trigger))
           "the full event vector survives — payload is preserved"))))
+
+;; ---- rf2-ee38b: find-trigger-event fallback arm does not pin :dispatch-id --
+;;
+;; Per the correctness review (ai/findings/review/correctness--
+;; implementation-epoch.md): the run-start arm (rf2-rly4a) reads
+;; :dispatch-id from the canonical `:event/run-start` trace, which is
+;; correct. The fallback arm previously also surfaced the :dispatch-id of
+;; an arbitrary non-run-start trace (e.g. an error trace from a rejected
+;; dispatch). Spec-Schemas §`:rf/epoch-record` documents :dispatch-id as
+;; pinned from the run-start tag and ABSENT for a no-run-start cascade —
+;; so the fallback arm must NOT pin a dispatch-id; only the run-start arm
+;; does.
+
+(deftest find-trigger-event-fallback-omits-dispatch-id
+  (testing "find-trigger-event's fallback arm (no :event/run-start
+            buffered) does NOT surface :dispatch-id — even when the
+            fallback trace carries one — matching the spec's 'absent for
+            a no-run-start cascade' shape (rf2-ee38b)"
+    (let [fallback-with-did [{:op-type   :rf.event
+                              :operation :rf.event
+                              :tags      {:frame                :test/main
+                                          :rf.trace/event-id    :foo
+                                          :rf.trace/dispatch-id 99}}]
+          trigger           (#'capture/find-trigger-event fallback-with-did)]
+      (is (= :foo (:event-id trigger))
+          ":event-id is recovered from the fallback arm")
+      (is (nil? (:dispatch-id trigger))
+          ":dispatch-id is NOT pinned from the fallback (non-run-start)
+           trace — only the run-start arm is its canonical source"))
+    ;; build-record then omits the :dispatch-id slot entirely (the cond->
+    ;; drops nil), matching the schema's 'absent' shape.
+    (rf/reg-frame :test/main {})
+    (let [events [{:op-type   :rf.event
+                   :operation :rf.event
+                   :tags      {:frame                :test/main
+                               :rf.trace/event-id    :foo
+                               :rf.trace/dispatch-id 99}}]
+          record (#'assembly/build-record
+                  :test/main nil nil events
+                  :halted-destroy
+                  {:operation :rf.frame/destroyed-mid-drain})]
+      (is (not (contains? record :dispatch-id))
+          "the record omits :dispatch-id when only the fallback arm
+           resolved the trigger — no incidental id leaks onto the slot"))))
+
+(deftest find-trigger-event-run-start-arm-still-pins-dispatch-id
+  (testing "the run-start arm remains the canonical :dispatch-id source
+            (rf2-rly4a) — the rf2-ee38b fallback change must not regress
+            it"
+    (let [events  [{:op-type   :rf.event
+                    :operation :rf.event/run-start
+                    :tags      {:frame                :test/main
+                                :rf.trace/phase       :run-start
+                                :rf.trace/event-id    :foo
+                                :rf.event/v           [:foo]
+                                :rf.trace/dispatch-id 7}}]
+          trigger (#'capture/find-trigger-event events)]
+      (is (= 7 (:dispatch-id trigger))
+          "the run-start arm pins :dispatch-id from the canonical
+           :event/run-start trace"))))
 
 ;; ---- rf2-eo4pr: record-observation! guards its swap -----------------------
 ;;
