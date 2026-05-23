@@ -45,7 +45,7 @@
   it carries the `_rfMvChartState` seam, otherwise the nearest
   ancestor / descendant that does. Returns nil when no chart root is
   reachable."
-  [el]
+  [^js el]
   (when el
     (cond
       (some? (.-_rfMvChartState el)) el
@@ -53,7 +53,7 @@
       (and (.-closest el)
            (.closest el (str "[data-testid='" chart-testid "']"))
            (some? (.-_rfMvChartState
-                    (.closest el (str "[data-testid='" chart-testid "']")))))
+                    ^js (.closest el (str "[data-testid='" chart-testid "']")))))
       (.closest el (str "[data-testid='" chart-testid "']"))
       ;; descendant lookup (caller passed a wrapper)
       (and (.-querySelector el)
@@ -70,7 +70,7 @@
   state (a programmer error — the export was called on a non-chart
   element)."
   [chart-element]
-  (let [root (chart-root chart-element)
+  (let [^js root (chart-root chart-element)
         seam (some-> root .-_rfMvChartState)]
     (when-not (map? seam)
       (throw (ex-info ":rf.machines-viz.export/no-chart-state"

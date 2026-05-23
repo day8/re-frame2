@@ -433,13 +433,16 @@
                    ;; per-render mutation (no animation-clock coupling); it
                    ;; lives on the topology plane (definition-derived), so
                    ;; it does not violate Lock #11's plane separation.
-                   :ref (fn [el]
+                   :ref (fn [^js el]
                           (when el
                             ;; Store the CLJS chart-state map directly as
                             ;; an opaque JS property (NOT a #js object —
                             ;; that would munge the dashed keyword keys).
                             ;; `export/chart-state-of` reads it back as a
-                            ;; CLJS map.
+                            ;; CLJS map. The `^js` hint marks
+                            ;; `_rfMvChartState` as an extern so :advanced
+                            ;; does NOT munge the property name (it is read
+                            ;; back by literal name in `export`).
                             (set! (.-_rfMvChartState el)
                                   {:machine-id    machine-id
                                    :definition    definition
