@@ -1,80 +1,75 @@
 (ns day8.re-frame2-causa.panels.routing
-  "Routing tab — topology-plus-overlay shape (rf2-3kjlo).
+  "Routing tab — three stacked sections (rf2-ad7zx.7, reconciled to the
+  Figma design `tools/causa/design-reference/components/RoutesPanel.tsx`
+  + spec/021 §7.2).
 
-  ## Two verbs, two homes (Mike's decision, 2026-05-19)
+  ## Three stacked sections (post-rf2-ad7zx.7 reshape)
 
-  Routes appears in BOTH Dynamic AND Static surfaces with different
-  verbs:
+  The prior 'Active route tree first + This-epoch KV' shape is
+  superseded. The panel now reads top → bottom as three stacked
+  sections, each separated from the next by a 1px hairline:
 
-    - **Static Routes** — browse-all + Simulate-URL + per-row inline
-      expand + hermetic Simulate-navigation preview. Lives at
-      `static/routes/panel.cljs`.
-    - **Dynamic Routing** — topology-plus-overlay (this ns) per
-      spec/021 §7. The full route tree is ALWAYS visible; the focused
-      epoch's nav activity overlays as a `:to` / `:from` / `:here`
-      marker on the relevant nodes. A 'This epoch' detail block below
-      the tree surfaces Phase / From / To / Match / Events.
+      ┌─ ROUTING · epoch #38 ─────────────────────── [◀ Prev] [Next ▶] ─┐
+      │▌ stripe: mode accent (orange in Dynamic)                        │
+      │                                                                 │
+      │ CURRENT ROUTE                                                   │
+      │   :user/profile    params {:id 42}    /users/42                 │
+      │ ─────────────────────────────────────────────────────────────  │
+      │ NAVIGATION THIS EPOCH    (event-driven · quiet when not a nav)  │
+      │   :dashboard ──► :user/profile  params {:id 42}  transitioned   │
+      │ ─────────────────────────────────────────────────────────────  │
+      │ ROUTE TABLE   (registered · current highlighted · tree)        │
+      │   :home               /                                         │
+      │   :dashboard          /dashboard                                │
+      │   ▾ :users            /users                                    │
+      │       :user/profile   /users/:id            ◀ current          │
+      │   :settings           /settings                                 │
+      │                                                                 │
+      │ Empty (no route activity this epoch): CURRENT ROUTE + ROUTE     │
+      │   TABLE still render; NAVIGATION THIS EPOCH reads 'No route     │
+      │   activity in this epoch.'                                      │
+      └─────────────────────────────────────────────────────────────────┘
 
-  ## Topology-plus-overlay shape (post-rf2-3kjlo reshape)
+  ## Section 1 — CURRENT ROUTE (always shown)
 
-      ┌─ ROUTING · epoch #38 ────────────────────────── [◀ Prev] [Next ▶] ─┐
-      │ Stripe: yellow (:yellow)                                            │
-      │                                                                     │
-      │ Active route tree                                                   │
-      │  /                                                                  │
-      │  ├─ /cart      ◉  (active this epoch — :on-match)                   │
-      │  │  └─ /cart/:id                                                    │
-      │  ├─ /orders                                                         │
-      │  │  └─ /orders/:order-id                                            │
-      │  └─ /settings                                                       │
-      │                                                                     │
-      │ This epoch                                                          │
-      │   Phase     :on-match                                               │
-      │   From      /                                                       │
-      │   To        /cart                                                   │
-      │   Match     {:route :cart}                                          │
-      │   Events    [:rf.route/transitioned] [:cart/route-entered]                 │
-      │                                                                     │
-      │ Empty (no route activity this epoch):                               │
-      │   Shows tree with current active node highlighted; 'This epoch'     │
-      │   reads 'No route activity in this epoch.'                          │
-      └─────────────────────────────────────────────────────────────────────┘
+  The active route **id** (mode-accent, bold), its **params**, and the
+  **matched path / URL**. The 'where am I'. Renders even when the
+  focused epoch carried no navigation. When the host has no active
+  route slice the section reads a calm caption.
 
-  ## Per-epoch overlay markers
+  ## Section 2 — NAVIGATION THIS EPOCH (event-driven lens)
 
-  The overlay paints inline alongside each topology row via
-  `routing-helpers/assign-markers`:
+  When the focused event navigated: **FROM route ──► TO route**, the
+  **params**, and the **outcome** (transitioned · blocked · cancelled ·
+  not-found · fragment-changed; coloured by result). Quiet when the
+  focused event isn't a navigation — reads 'No route activity in this
+  epoch.' (the topology-plus-overlay contract: the table below still
+  shows the full registered graph).
 
-    - `:to` (green stripe) — the focused cascade navigated TO this
-      route (the new HERE)
-    - `:from` (cyan stripe) — the focused cascade navigated AWAY from
-      this route
-    - `:here` (yellow dot) — the current active route when no
-      navigation happened this epoch
+  ## Section 3 — ROUTE TABLE (registered route graph as a tree)
 
-  When the focused epoch has NO routing activity (`:activity` is nil)
-  the tree still renders with `:here` only; the 'This epoch' block
-  reads 'No route activity in this epoch.'
+  All registered routes (id → path pattern) drawn as an indented tree
+  when nested (`├─ └─` branch glyphs; flat list otherwise), with the
+  **current route highlighted** (mode-accent row + `◀ current` marker)
+  and the focused navigation's FROM→TO marked on it. The overlay
+  glyphs `◉ TO` / `◇ FROM` paint inline on the matching rows.
 
   ## Focus contract (rf2-h0120 alignment)
 
   The panel reads `:rf.causa/focus` per spec/018; that sub already
-  auto-resolves head-fallback via `spine/compose-focus` (when no user
-  focus is set, `:dispatch-id` snaps to the head focusable cascade).
-  No inline head-fallback needed at this layer — the spine sub IS the
-  head-fallback.
+  auto-resolves head-fallback via `spine/compose-focus`. No inline
+  head-fallback needed at this layer.
 
   ## Pure hiccup (rf2-tijr)
 
   Same contract as every other Causa panel — the view is pure hiccup,
   no Reagent / UIx / Helix references. Frame isolation comes from the
   enclosing `[rf/frame-provider {:frame :rf/causa}]` in `shell.cljs`.
-  Every `subscribe` / `dispatch` here resolves to `:rf/causa`.
 
   ## Helpers
 
   Pure-data projection (`project-topology`, `epoch-routing-activity`,
-  `project-topology-data`, plus the legacy lens helpers) lives in
+  `project-topology-data`, plus the lens helpers) lives in
   `routing_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
@@ -84,76 +79,241 @@
              :as t
              :refer [tokens mono-stack sans-stack]]))
 
-;; ---- visual primitives --------------------------------------------------
+;; ---- mode accent --------------------------------------------------------
+;;
+;; The Dynamic Routing panel's mode accent is the orange `:accent` token
+;; (per `panel-domain->token`). Both the CURRENT ROUTE id and the
+;; current row in the ROUTE TABLE ride this hue so the operator's eye
+;; ties the two surfaces together (RoutesPanel.tsx `--devtools-active`).
+
+(def ^:private mode-accent (:accent tokens))
+
+;; ---- shared section primitive -------------------------------------------
+
+(defn- section-caption
+  "Uppercase, tracked, muted section caption — the Figma
+  `devtools-caption uppercase tracking-wide text-muted` idiom
+  (RoutesPanel.tsx). Plain caption, no collapse glyph; the panel's
+  three sections are always visible per spec §7.2."
+  [label testid]
+  [:div {:data-testid testid
+         :style       {:color          (:text-tertiary tokens)
+                       :font-family    sans-stack
+                       :font-size      "10px"
+                       :font-weight    600
+                       :text-transform "uppercase"
+                       :letter-spacing "0.5px"
+                       :margin-bottom  "8px"}}
+   label])
+
+(defn- section
+  "Wrap a section caption + body. `first?` omits the top hairline (the
+  first section sits flush under the header). Sections after the first
+  carry a 1px solid `border-top` hairline — the RoutesPanel.tsx
+  `border-t border-[var(--devtools-border)]` separator."
+  [{:keys [first? testid]} caption body]
+  [:section {:data-testid testid
+             :style       (cond-> {:padding "12px 16px"}
+                            (not first?)
+                            (assoc :border-top
+                                   (str "1px solid " (:border-subtle tokens))))}
+   caption
+   body])
+
+;; ---- §1 CURRENT ROUTE ---------------------------------------------------
+
+(defn- current-route-section
+  "§1 — the active route id (mode-accent, bold), its params, and the
+  matched path. Always renders. When no active slice is present reads a
+  calm caption (the host has no current route)."
+  [{:keys [current]}]
+  (let [{:keys [id params path]} current]
+    (section
+      {:first? true :testid "rf-causa-routing-current"}
+      (section-caption "Current route" "rf-causa-routing-current-caption")
+      (if (nil? id)
+        [:div {:data-testid "rf-causa-routing-current-empty"
+               :style       {:color       (:text-tertiary tokens)
+                             :font-family sans-stack
+                             :font-style  "italic"
+                             :font-size   "12px"}}
+         "No active route."]
+        [:div {:style {:display      "flex"
+                       :align-items  "center"
+                       :gap          "12px"
+                       :flex-wrap    "wrap"
+                       :font-family  mono-stack
+                       :font-size    "12px"
+                       :color        (:text-primary tokens)}}
+         [:span {:data-testid "rf-causa-routing-current-id"
+                 :style       {:color       mode-accent
+                               :font-weight 600}}
+          (str id)]
+         [:span {:style {:color (:text-tertiary tokens)}} "params"]
+         [:span {:data-testid "rf-causa-routing-current-params"}
+          (pr-str (or params {}))]
+         (when path
+           [:span {:data-testid "rf-causa-routing-current-path"
+                   :style       {:color (:text-tertiary tokens)}}
+            path])]))))
+
+;; ---- §2 NAVIGATION THIS EPOCH -------------------------------------------
+
+(defn- nav-outcome
+  "Resolve the {:label :colour} outcome chip for the focused epoch's
+  navigation activity. Maps the routing phase (per
+  `routing-helpers/epoch-routing-activity`) onto the spec §7.2 outcome
+  vocabulary, coloured by result:
+
+    - :on-match           → 'transitioned' (green — a route landed)
+    - :navigation-blocked → 'blocked'      (warning — a guard refused)
+    - :fragment-changed   → 'fragment changed' (accent-static — anchor)
+    - navigated? but no destination resolved → 'not-found' (error)"
+  [{:keys [phase]} navigated? to-id]
+  (cond
+    (= phase :on-match)
+    {:label "transitioned" :colour (:green tokens)}
+
+    (= phase :navigation-blocked)
+    {:label "blocked" :colour (:warning tokens)}
+
+    (= phase :fragment-changed)
+    {:label "fragment changed" :colour (:accent-static tokens)}
+
+    (and navigated? (nil? to-id))
+    {:label "not-found" :colour (:error tokens)}
+
+    navigated?
+    {:label "transitioned" :colour (:green tokens)}
+
+    :else nil))
+
+(defn- navigation-section
+  "§2 — the event-driven lens. When the focused epoch navigated:
+  FROM ──► TO + params + an outcome chip coloured by result. Quiet
+  caption ('No route activity in this epoch.') when the focused event
+  isn't a navigation — the topology-plus-overlay contract keeps the
+  ROUTE TABLE below visible regardless."
+  [{:keys [activity from-id to-id navigated? current]}]
+  (section
+    {:first? false :testid "rf-causa-routing-nav"}
+    (section-caption "Navigation this epoch" "rf-causa-routing-nav-caption")
+    (if (or navigated? (some? activity))
+      (let [outcome (nav-outcome activity navigated? to-id)
+            params  (or (:match activity) (:params current))]
+        [:div {:data-testid "rf-causa-routing-nav-row"
+               :style       {:display     "flex"
+                             :align-items "center"
+                             :gap         "8px"
+                             :flex-wrap   "wrap"
+                             :font-family mono-stack
+                             :font-size   "12px"
+                             :color       (:text-primary tokens)}}
+         [:span {:data-testid "rf-causa-routing-nav-from"
+                 :style       {:color (if from-id
+                                        (:accent-static tokens)
+                                        (:text-tertiary tokens))}}
+          (if from-id (str from-id) "—")]
+         [:span {:style {:color (:text-tertiary tokens)}} "──►"]
+         [:span {:data-testid "rf-causa-routing-nav-to"
+                 :style       {:color       (if to-id mode-accent
+                                              (:text-tertiary tokens))
+                               :font-weight 600}}
+          (if to-id (str to-id) "—")]
+         (when params
+           [:<>
+            [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
+             "params"]
+            [:span {:data-testid "rf-causa-routing-nav-params"}
+             (pr-str params)]])
+         (when outcome
+           [:<>
+            [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
+             "outcome:"]
+            [:span {:data-testid "rf-causa-routing-nav-outcome"
+                    :style       {:color       (:colour outcome)
+                                  :font-weight 600}}
+             (:label outcome)]])])
+      [:div {:data-testid "rf-causa-routing-no-activity"
+             :style       {:color       (:text-tertiary tokens)
+                           :font-family sans-stack
+                           :font-style  "italic"
+                           :font-size   "12px"}}
+       "No route activity in this epoch."])))
+
+;; ---- §3 ROUTE TABLE -----------------------------------------------------
 
 (defn- marker-glyph
-  "Resolve the marker glyph + colour for a topology row. Returns a
+  "Resolve the overlay glyph + colour for a route-table row. Returns a
   `{:glyph :colour :label}` map; nil when the row carries no marker.
 
-  Per spec/021 §7.2 + §17.1.5:
-    - `:to` → green `◉` dot (navigation destination)
-    - `:from` → cyan `◇` outline diamond (navigation origin)
-    - `:here` → yellow `●` (current active route, no nav this epoch)"
+  Per spec/021 §7.2:
+    - `:to`   → green `◉` dot (navigation destination)
+    - `:from` → `◇` outline diamond (navigation origin)
+    - `:here` is folded into the mode-accent row highlight + the
+      `◀ current` marker (it is not painted as a glyph)."
   [marker]
   (case marker
-    :to   {:glyph "◉" :colour (:green tokens) :label "TO"}
-    :from {:glyph "◇" :colour (:accent-static tokens)  :label "FROM"}
-    :here {:glyph "●" :colour (:yellow tokens) :label "HERE"}
+    :to   {:glyph "◉" :colour (:green tokens)         :label "TO"}
+    :from {:glyph "◇" :colour (:accent-static tokens) :label "FROM"}
     nil))
 
 (defn- tree-prefix
-  "Compose the `├─ └─ │` prefix for a topology row at the given depth.
-
-  Depth-0 rows render with no prefix; deeper rows render
-  `<spacer>(└─|├─) ` — `└─` for last-sibling rows, `├─` for non-last.
-  This is the same box-drawing scheme the spec mockup uses (§7.2).
-
-  Pragmatic v1: the inter-depth `│` continuation pipes are omitted —
-  routing trees are shallow (≤ 4 levels per spec §7.1) so the depth
-  indentation + branch glyphs alone read cleanly. A future bead can
-  refine the prefix once the inspector has live route topologies to
-  tune against."
+  "Compose the `├─ └─` branch prefix for a route-table row at the given
+  depth. Depth-0 rows render with no prefix; deeper rows render
+  `<spacer>(└─|├─) ` — `└─` for last-sibling rows, `├─` otherwise.
+  Same box-drawing scheme the spec mockup uses (§7.2). Routing trees
+  are shallow (≤ 4 levels per §7.1) so the depth indentation + branch
+  glyphs alone read cleanly."
   [depth last-at-depth?]
-  (cond
-    (zero? depth) ""
-    :else         (let [indent (apply str (repeat (dec depth) "  "))
-                        branch (if last-at-depth? "└─ " "├─ ")]
-                    (str indent branch))))
+  (if (zero? depth)
+    ""
+    (let [indent (apply str (repeat (dec depth) "  "))
+          branch (if last-at-depth? "└─ " "├─ ")]
+      (str indent branch))))
 
-(defn- topology-row
-  "Render one route in the topology tree. The full row is mono so the
-  `├─ └─` glyphs line up; the marker (when present) renders to the
-  right of the path with its colour-coded glyph."
+(defn- route-table-row
+  "Render one route in the ROUTE TABLE. The current route's row rides
+  the mode accent (highlight background + accent id + `◀ current`
+  marker); other rows are quiet. The FROM/TO overlay glyph paints to
+  the right of the path when the focused epoch navigated to/from this
+  route."
   [{:keys [row depth last-at-depth?]}]
-  (let [{:keys [route-id path marker doc]} row
-        glyph (marker-glyph marker)
-        testid (str "rf-causa-routing-topology-row-"
-                    (when route-id (name route-id)))]
-    [:div {:data-testid testid
+  (let [{:keys [route-id path doc marker]} row
+        current?  (= marker :here)
+        glyph     (marker-glyph marker)
+        testid    (str "rf-causa-routing-table-row-"
+                       (when route-id (name route-id)))]
+    [:div {:data-testid   testid
            :data-route-id (when route-id (str route-id))
            :data-marker   (when marker (name marker))
+           :data-current  (when current? "true")
            :style {:display      "flex"
                    :align-items  "center"
                    :gap          "8px"
-                   :padding      "2px 16px"
+                   :padding      "3px 8px"
+                   :border-radius "3px"
                    :font-family  mono-stack
                    :font-size    "12px"
-                   :color        (:text-primary tokens)
-                   :background   (when (= marker :to)
-                                   (:bg-active tokens))
-                   :border-left  (str "2px solid "
-                                      (if glyph
-                                        (:colour glyph)
-                                        "transparent"))
+                   :color        (if current? mode-accent (:text-primary tokens))
+                   :font-weight  (if current? 600 400)
+                   :background   (cond
+                                   current?         (:bg-active tokens)
+                                   (= marker :to)   (:bg-active tokens)
+                                   :else            "transparent")
                    :white-space  "pre"}}
      [:span {:style {:color (:text-tertiary tokens)}}
       (tree-prefix depth last-at-depth?)]
-     [:span {:style {:color       (:text-primary tokens)
-                     :font-weight (if (= marker :to) 600 400)}}
+     [:span {:data-testid (str testid "-id")
+             :style       {:min-width "8rem"
+                           :color     (if current? mode-accent
+                                       (:text-primary tokens))}}
+      (str route-id)]
+     [:span {:data-testid (str testid "-path")
+             :style       {:color (:text-tertiary tokens)}}
       path]
      (when glyph
-       [:span {:data-testid (str "rf-causa-routing-topology-marker-"
-                                 (name marker))
+       [:span {:data-testid (str "rf-causa-routing-table-marker-" (name marker))
                :style       {:color       (:colour glyph)
                              :font-size   "11px"
                              :font-weight 600
@@ -165,127 +325,34 @@
                        :font-size   "11px"
                        :font-style  "italic"
                        :margin-left "8px"}}
-        doc])]))
+        doc])
+     (when current?
+       [:span {:data-testid "rf-causa-routing-table-current-marker"
+               :style       {:margin-left "auto"
+                             :color       mode-accent
+                             :font-family sans-stack
+                             :font-size   "10px"
+                             :font-weight 600
+                             :text-transform "uppercase"
+                             :letter-spacing "0.5px"}}
+        "◀ current"])]))
 
-(defn- topology-tree
-  "Render the full topology — the always-visible base layer per
-  spec/021 §7.2. Empty topology vector ⇒ render nothing (the silent-
-  by-default contract per rf2-g3ghh; the surrounding panel renders
-  its empty section instead)."
+(defn- route-table-section
+  "§3 — the full registered route graph as a tree (always visible per
+  the topology-plus-overlay contract). Empty topology vector ⇒ the
+  surrounding panel renders the silent state instead."
   [topology]
-  [:div {:data-testid "rf-causa-routing-topology"
-         :style       {:padding "8px 0"}}
-   [:div {:style {:padding        "0 16px 6px 16px"
-                  :color          (:text-tertiary tokens)
-                  :font-family    sans-stack
-                  :font-size      "10px"
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"}}
-    "Active route tree"]
-   (into [:<>]
-         (for [entry topology]
-           ^{:key (str (-> entry :row :route-id))}
-           (topology-row entry)))])
-
-;; ---- "This epoch" detail block ------------------------------------------
-
-(defn- epoch-detail-row
-  "Render one `Label  value` row in the 'This epoch' grid."
-  [label value-hiccup label-testid value-testid]
-  [:<>
-   [:span {:data-testid label-testid
-           :style {:color       (:text-tertiary tokens)
-                   :font-family sans-stack
-                   :font-size   "11px"}}
-    label]
-   [:span {:data-testid value-testid
-           :style {:color       (:text-primary tokens)
-                   :font-family mono-stack
-                   :font-size   "12px"}}
-    value-hiccup]])
-
-(defn- this-epoch-block
-  "Render the 'This epoch' detail block per spec/021 §7.2.
-
-  When `:activity` is nil renders the empty-state caption (' No route
-  activity in this epoch. ') — the topology still renders above (per
-  the topology-plus-overlay contract).
-
-  When `:activity` is present surfaces Phase / From / To / Match /
-  Events using the topology-row marker colors so the overlay reads
-  consistently across the tree + this block."
-  [{:keys [activity from-id to-id current navigated?]}]
-  [:div {:data-testid "rf-causa-routing-this-epoch"
-         :style       {:border-top  (str "1px solid " (:border-subtle tokens))
-                       :padding     "10px 16px 12px 16px"
-                       :font-family sans-stack
-                       :font-size   "12px"}}
-   [:div {:style {:color          (:text-tertiary tokens)
-                  :font-size      "10px"
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"
-                  :margin-bottom  "6px"}}
-    "This epoch"]
-   (if (nil? activity)
-     [:div {:data-testid "rf-causa-routing-no-activity"
-            :style       {:color      (:text-tertiary tokens)
-                          :font-style "italic"
-                          :font-size  "12px"}}
-      "No route activity in this epoch."]
-     (let [{:keys [phase events match]} activity]
-       [:div {:style {:display               "grid"
-                      :grid-template-columns "80px 1fr"
-                      :row-gap               "4px"
-                      :column-gap            "12px"
-                      :align-items           "baseline"}}
-        (epoch-detail-row
-          "Phase"
-          [:span {:style {:color (:yellow tokens) :font-weight 600}}
-           (pr-str phase)]
-          "rf-causa-routing-detail-phase-label"
-          "rf-causa-routing-detail-phase")
-        (epoch-detail-row
-          "From"
-          (if from-id
-            [:span {:style {:color (:accent-static tokens)}}
-             (str from-id)]
-            [:span {:style {:color (:text-tertiary tokens)}} "—"])
-          "rf-causa-routing-detail-from-label"
-          "rf-causa-routing-detail-from")
-        (epoch-detail-row
-          "To"
-          (if to-id
-            [:span {:style {:color (:green tokens) :font-weight 600}}
-             (str to-id)]
-            [:span {:style {:color (:text-tertiary tokens)}} "—"])
-          "rf-causa-routing-detail-to-label"
-          "rf-causa-routing-detail-to")
-        (epoch-detail-row
-          "Match"
-          (if (and navigated? (seq match))
-            [:span (pr-str match)]
-            [:span {:style {:color (:text-tertiary tokens)}}
-             (if (and navigated? current)
-               (pr-str (or (:params current) {}))
-               "—")])
-          "rf-causa-routing-detail-match-label"
-          "rf-causa-routing-detail-match")
-        (epoch-detail-row
-          "Events"
-          (if (seq events)
-            (into [:span {:style {:display "inline-flex" :gap "6px"
-                                  :flex-wrap "wrap"}}]
-                  (for [[idx ev] (map-indexed vector events)]
-                    ^{:key idx}
-                    [:span {:style {:color       (:accent tokens)
-                                    :background  (:bg-1 tokens)
-                                    :padding     "1px 6px"
-                                    :border-radius "2px"
-                                    :font-size   "11px"}}
-                     (pr-str ev)]))
-            [:span {:style {:color (:text-tertiary tokens)}} "—"])
-          "rf-causa-routing-detail-events-label"
-          "rf-causa-routing-detail-events")]))])
+  (section
+    {:first? false :testid "rf-causa-routing-table"}
+    (section-caption "Route table" "rf-causa-routing-table-caption")
+    [:div {:data-testid "rf-causa-routing-table-body"
+           :style       {:display        "flex"
+                         :flex-direction "column"
+                         :gap            "2px"}}
+     (into [:<>]
+           (for [entry topology]
+             ^{:key (str (-> entry :row :route-id))}
+             (route-table-row entry)))]))
 
 ;; ---- header --------------------------------------------------------------
 
@@ -299,17 +366,14 @@
                        :border-bottom   (str "1px solid " (:border-subtle tokens))
                        :font-family     sans-stack}}
    [:div
-    ;; rf2-5kfxe.8 — domain-coloured accent stripe (:yellow for
-    ;; Routing — side-channel attention tone, distinguished from
-    ;; app-db's main colour). Per rf2-6xezz / rf2-rb6js the panel no
-    ;; longer renders a heading that names itself ("Routing") — the L4
-    ;; tab strip is the single source of panel identity. The icon +
-    ;; description paragraph stay as orientation chrome.
+    ;; Per rf2-6xezz / rf2-rb6js the panel no longer renders a heading
+    ;; that names itself — the L4 tab strip is the single source of
+    ;; panel identity. The icon + orientation paragraph stay as chrome.
     [:div {:style {:display     "flex"
                    :align-items "center"
                    :gap         "8px"}}
-     ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. 🌐 in
-     ;; :yellow (Routing's domain colour via panel-domain->token).
+     ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. 🌐 in the
+     ;; routing domain colour via panel-icon-style.
      [:span {:data-testid "rf-causa-routing-panel-icon"
              :aria-hidden "true"
              :style       (t/panel-icon-style :routing)}
@@ -318,14 +382,9 @@
                  :color       (:text-tertiary tokens)
                  :font-size   "11px"
                  :line-height 1.4}}
-     "Full topology of registered routes with focused-epoch overlay. "
-     [:span {:style {:color (:green tokens) :font-weight 600}} "◉ TO"]
-     " / "
-     [:span {:style {:color (:accent-static tokens) :font-weight 600}} "◇ FROM"]
-     " / "
-     [:span {:style {:color (:yellow tokens) :font-weight 600}} "● HERE"]
-     " mark the per-epoch navigation overlay. For the full route catalogue browse + "
-     "Simulate-URL surface, switch to Static mode."]]
+     "Where am I, what navigated this epoch, and the full registered "
+     "route graph. For the route catalogue browse + Simulate-URL surface, "
+     "switch to Static mode."]]
    (when (and navigated? to-id (not silent?))
      [:span {:data-testid "rf-causa-routing-nav-summary"
              :style       {:color       (:green tokens)
@@ -355,17 +414,24 @@
     [:code {:style {:color       (:accent tokens)
                     :font-family mono-stack}}
      "re-frame.routing/reg-route"]
-    " — the topology will render once the host installs them."]])
+    " — the route table will render once the host installs them."]])
 
 ;; ---- public view --------------------------------------------------------
 
 (rf/reg-view Panel
-  "The Routing tab's root view — topology-plus-overlay shape per
-  spec/021 §7. Subscribes to `:rf.causa/routing-tab-data` and renders
-  the full route topology with a per-epoch overlay; below the tree
-  the 'This epoch' block surfaces Phase / From / To / Match / Events
-  (or 'No route activity in this epoch.' when the focused cascade
-  carries no routing trace events)."
+  "The Routing tab's root view — three stacked sections per spec/021 §7.2
+  (reconciled to RoutesPanel.tsx). Subscribes to
+  `:rf.causa/routing-tab-data` and renders, top → bottom:
+
+    1. CURRENT ROUTE          — active id + params + matched path.
+    2. NAVIGATION THIS EPOCH  — FROM ──► TO + params + outcome
+                                (quiet when the focused event isn't a nav).
+    3. ROUTE TABLE            — the full registered route graph as a
+                                tree, current row highlighted + FROM/TO
+                                overlay glyphs.
+
+  When the host has no routes registered the panel renders the
+  silent-by-default caption (no sections)."
   []
   (let [{:keys [silent? topology activity from-id to-id navigated? current]
          :as _data}
@@ -377,17 +443,19 @@
                              :background     (:bg-2 tokens)
                              :color          (:text-primary tokens)
                              :font-family    sans-stack
-                             :font-size      "14px"}}
+                             :font-size      "14px"
+                             :overflow       "auto"}}
      (header {:navigated? navigated? :to-id to-id :silent? silent?})
      (if silent?
        (silent-state)
        [:<>
-        (topology-tree topology)
-        (this-epoch-block {:activity   activity
-                           :from-id    from-id
-                           :to-id      to-id
-                           :current    current
-                           :navigated? navigated?})])]))
+        (current-route-section {:current current})
+        (navigation-section {:activity   activity
+                             :from-id    from-id
+                             :to-id      to-id
+                             :navigated? navigated?
+                             :current    current})
+        (route-table-section topology)])]))
 
 ;; ---- registration entry --------------------------------------------------
 

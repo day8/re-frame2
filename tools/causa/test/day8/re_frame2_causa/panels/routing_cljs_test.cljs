@@ -1,17 +1,24 @@
 (ns day8.re-frame2-causa.panels.routing-cljs-test
   "CLJS-side wiring + view tests for Causa's Dynamic Routing tab —
-  the topology-plus-overlay shape (rf2-3kjlo, refining rf2-o5f5f.3).
+  the three-section stack (rf2-ad7zx.7, reconciled to RoutesPanel.tsx
+  + spec/021 §7.2; refining rf2-3kjlo / rf2-o5f5f.3).
 
-  ## Scope (post-rf2-3kjlo)
+  ## Scope (post-rf2-ad7zx.7)
 
-  The Dynamic Routing tab is a topology-plus-overlay surface per
-  spec/021 §7: the FULL routing tree is always visible (registered
-  routes nested by `:parent` meta); the focused epoch's nav activity
-  overlays as a `:to` / `:from` / `:here` marker on the relevant
-  nodes. A 'This epoch' detail block below the tree surfaces
-  Phase / From / To / Match / Events; when the focused cascade
-  carries no routing activity, the tree still renders with `:here`
-  only and the detail block reads 'No route activity in this epoch.'.
+  The Dynamic Routing tab renders three stacked sections per spec/021
+  §7.2, top → bottom:
+
+    1. CURRENT ROUTE          — active id (mode-accent, bold) + params
+                                + matched path. Always shown.
+    2. NAVIGATION THIS EPOCH  — FROM ──► TO + params + outcome chip
+                                (coloured by result). Quiet caption
+                                ('No route activity in this epoch.')
+                                when the focused event isn't a nav.
+    3. ROUTE TABLE            — the full registered route graph as a
+                                tree (always visible per the topology-
+                                plus-overlay contract); current row
+                                highlighted + `◀ current` marker;
+                                FROM/TO overlay glyphs on matching rows.
 
   The browse + search + Simulate-URL surface lives on the Static
   Routes panel (see `static/routes/panel_cljs_test.cljs`).
@@ -19,28 +26,27 @@
   ## What's under test
 
     1. **Registry wires the subs** — every sub the panel reads gets
-       installed by `register-causa-handlers!`. The promoted browse /
-       search / Simulate-URL slots (now under
-       `:rf.causa.static.routes/*`) are NOT registered by
-       `routing/install!` anymore.
+       installed by `register-causa-handlers!`.
 
-    2. **Topology always renders** — when routes are registered, the
-       topology root + each route row render regardless of focused-
-       epoch activity.
+    2. **Three sections always render** — when routes are registered,
+       CURRENT ROUTE + NAVIGATION THIS EPOCH + ROUTE TABLE all render.
 
-    3. **Per-epoch overlay** — when the focused cascade carries a
-       `:rf.route.nav-token/allocated` emit, the destination row
-       gets a `:to` marker; the prior route (when distinct) gets a
-       `:from` marker; the 'This epoch' block surfaces the phase.
+    3. **Route table always renders** — every registered route gets a
+       table row regardless of focused-epoch activity.
 
-    4. **No-activity branch** — when focused cascade has no routing
-       trace events, 'This epoch' reads the empty caption and the
-       topology still renders.
+    4. **Per-epoch overlay** — when the focused cascade carries a
+       `:rf.route.nav-token/allocated` emit, the destination row gets a
+       `:to` marker, the NAVIGATION section surfaces FROM ──► TO + an
+       outcome chip, and the prior route (when distinct) gets `:from`.
 
-    5. **Silent state** — when no routes registered, panel renders the
-       silent-by-default caption (no topology, no detail block).
+    5. **No-activity branch** — when focused cascade has no routing
+       trace events, NAVIGATION reads the empty caption, CURRENT ROUTE
+       + ROUTE TABLE still render, and the current row is highlighted.
 
-    6. **Frame isolation** — every read targets `:rf/causa`'s frame."
+    6. **Silent state** — when no routes registered, panel renders the
+       silent-by-default caption (no sections).
+
+    7. **Frame isolation** — every read targets `:rf/causa`'s frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -90,12 +96,14 @@
             node))
         (hiccup-seq tree)))
 
-(defn- all-by-testid [tree testid]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (= testid (:data-testid (second node)))))
-          (hiccup-seq tree)))
+(defn- node-text
+  "Concatenate every string descendant of a hiccup node — used to
+  assert on a row's rendered text without coupling to its exact
+  child structure."
+  [node]
+  (->> (hiccup-seq node)
+       (filter string?)
+       (apply str)))
 
 (defn- setup-causa-frame! []
   (registry/register-causa-handlers!)
@@ -161,10 +169,10 @@
       (is (= 7 (count panels))
           "exactly 7 entries — Event / App DB / Views / Trace / Machines / Routing / Issues (rf2-4v67l removed the Chrome A11y dogfood in favour of Story's shipped panel; rf2-ga16q removed the Machines Canvas tab — its browse-all canvas relocated to the Static Machines sub-tab)"))))
 
-;; ---- (2) topology base layer (always visible) ---------------------------
+;; ---- (2) three sections render (always-visible base layer) --------------
 
-(deftest panel-renders-topology-when-routes-registered
-  (testing "topology base layer renders for every registered route"
+(deftest panel-renders-three-sections-when-routes-registered
+  (testing "CURRENT ROUTE + NAVIGATION + ROUTE TABLE all render top → bottom"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
@@ -179,19 +187,46 @@
             "header always renders")
         ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
         (is (some? (find-by-testid tree "rf-causa-routing-panel-icon"))
-            "panel header icon (🌐 in :yellow) present")
-        (is (some? (find-by-testid tree "rf-causa-routing-topology"))
-            "topology always renders when routes are registered")
-        ;; Each route gets a topology-row entry.
+            "panel header icon (🌐) present")
+        ;; §1 CURRENT ROUTE
+        (is (some? (find-by-testid tree "rf-causa-routing-current"))
+            "§1 CURRENT ROUTE section renders")
+        (is (some? (find-by-testid tree "rf-causa-routing-current-id"))
+            "current route id renders")
+        ;; §2 NAVIGATION THIS EPOCH
+        (is (some? (find-by-testid tree "rf-causa-routing-nav"))
+            "§2 NAVIGATION THIS EPOCH section renders")
+        ;; §3 ROUTE TABLE
+        (is (some? (find-by-testid tree "rf-causa-routing-table"))
+            "§3 ROUTE TABLE section renders")
+        ;; Each route gets a table row.
         (doseq [rid (keys cart-routes)]
           (is (some? (find-by-testid tree
-                       (str "rf-causa-routing-topology-row-" (name rid))))
-              (str "topology row rendered for " rid)))
-        (is (some? (find-by-testid tree "rf-causa-routing-this-epoch"))
-            "'This epoch' detail block always renders")))))
+                       (str "rf-causa-routing-table-row-" (name rid))))
+              (str "route-table row rendered for " rid)))))))
+
+(deftest current-route-section-shows-id-params-path
+  (testing "§1 surfaces the active id, params, and matched path"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/causa})
+      (rf/dispatch-sync [:rf.causa/set-current-route-slice-override-for-test
+                         {:id :route/cart :params {:id 42} :path "/cart"}]
+                        {:frame :rf/causa})
+      (let [tree (routing/Panel)
+            id   (find-by-testid tree "rf-causa-routing-current-id")
+            params (find-by-testid tree "rf-causa-routing-current-params")
+            path (find-by-testid tree "rf-causa-routing-current-path")]
+        (is (some? id) "current id present")
+        (is (re-find #":route/cart" (node-text id)) "id text shows :route/cart")
+        (is (some? params) "current params present")
+        (is (re-find #":id 42" (node-text params)) "params text shows {:id 42}")
+        (is (some? path) "matched path present")
+        (is (re-find #"/cart" (node-text path)) "path text shows /cart")))))
 
 (deftest panel-renders-silent-when-no-routes
-  (testing "no routes registered → silent caption + no topology"
+  (testing "no routes registered → silent caption + no sections"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test {}]
@@ -203,15 +238,17 @@
             "header still renders")
         (is (some? (find-by-testid tree "rf-causa-routing-silent"))
             "silent caption rendered for empty registrar")
-        (is (nil? (find-by-testid tree "rf-causa-routing-topology"))
-            "topology NOT rendered when no routes registered")
-        (is (nil? (find-by-testid tree "rf-causa-routing-this-epoch"))
-            "'This epoch' block NOT rendered when silent")))))
+        (is (nil? (find-by-testid tree "rf-causa-routing-table"))
+            "ROUTE TABLE NOT rendered when no routes registered")
+        (is (nil? (find-by-testid tree "rf-causa-routing-current"))
+            "CURRENT ROUTE NOT rendered when silent")
+        (is (nil? (find-by-testid tree "rf-causa-routing-nav"))
+            "NAVIGATION NOT rendered when silent")))))
 
 ;; ---- (3) no-activity branch (focused epoch with no routing trace) -------
 
 (deftest panel-renders-no-activity-when-cascade-has-no-routing
-  (testing "focused cascade with no routing trace events → topology renders + 'No route activity'"
+  (testing "no routing trace events → CURRENT ROUTE + ROUTE TABLE render; NAVIGATION quiet; current row highlighted"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
@@ -220,20 +257,22 @@
                          {:id :route/cart :params {} :query {}}]
                         {:frame :rf/causa})
       (let [tree (routing/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-routing-topology"))
-            "topology renders unconditionally")
+        (is (some? (find-by-testid tree "rf-causa-routing-current"))
+            "CURRENT ROUTE renders")
+        (is (some? (find-by-testid tree "rf-causa-routing-table"))
+            "ROUTE TABLE renders unconditionally")
         (is (some? (find-by-testid tree "rf-causa-routing-no-activity"))
-            "'No route activity' caption rendered")
-        ;; current-route highlight as `:here`
-        (is (some? (find-by-testid tree "rf-causa-routing-topology-marker-here"))
-            "current route gets :here marker when no nav this epoch")
-        (is (nil? (find-by-testid tree "rf-causa-routing-detail-phase"))
-            "phase detail NOT rendered when no activity")))))
+            "NAVIGATION reads 'No route activity in this epoch.'")
+        ;; current-route row highlight (:here marker → mode-accent row).
+        (is (some? (find-by-testid tree "rf-causa-routing-table-current-marker"))
+            "current route gets the '◀ current' marker when no nav this epoch")
+        (is (nil? (find-by-testid tree "rf-causa-routing-nav-outcome"))
+            "no outcome chip when no activity")))))
 
 ;; ---- (4) per-epoch overlay (focused cascade with nav-token emit) --------
 
-(deftest panel-paints-to-marker-when-cascade-navigated
-  (testing "focused cascade with nav-token emit → :to marker + Phase :on-match"
+(deftest panel-paints-to-marker-and-outcome-when-cascade-navigated
+  (testing "nav-token emit → :to marker on the table row + NAVIGATION FROM/TO + transitioned outcome"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
@@ -253,24 +292,27 @@
                           {:frame :rf/causa})
         (rf/dispatch-sync [:rf.causa/focus-cascade 99 nil] {:frame :rf/causa}))
       (let [tree (routing/Panel)]
-        ;; Topology still renders.
-        (is (some? (find-by-testid tree "rf-causa-routing-topology")))
-        ;; :to marker present on the destination row.
-        (is (some? (find-by-testid tree "rf-causa-routing-topology-marker-to"))
-            ":to marker rendered on destination route in the topology")
+        ;; ROUTE TABLE still renders.
+        (is (some? (find-by-testid tree "rf-causa-routing-table")))
+        ;; :to overlay glyph present on the destination table row.
+        (is (some? (find-by-testid tree "rf-causa-routing-table-marker-to"))
+            ":to overlay glyph rendered on destination route in the table")
         ;; Header summary surfaces the TO id.
         (is (some? (find-by-testid tree "rf-causa-routing-nav-summary"))
             "header carries → TO summary chip")
-        ;; This-epoch detail block surfaces Phase :on-match.
-        (is (some? (find-by-testid tree "rf-causa-routing-detail-phase"))
-            "'Phase' value rendered in This-epoch block")
-        (is (some? (find-by-testid tree "rf-causa-routing-detail-to"))
-            "'To' value rendered in This-epoch block")
+        ;; NAVIGATION section surfaces FROM ──► TO + outcome.
+        (is (some? (find-by-testid tree "rf-causa-routing-nav-to"))
+            "NAVIGATION TO id rendered")
+        (is (some? (find-by-testid tree "rf-causa-routing-nav-outcome"))
+            "NAVIGATION outcome chip rendered")
+        (let [outcome (find-by-testid tree "rf-causa-routing-nav-outcome")]
+          (is (re-find #"transitioned" (node-text outcome))
+              "outcome reads 'transitioned' for an :on-match nav"))
         (is (nil? (find-by-testid tree "rf-causa-routing-no-activity"))
             "empty-state caption NOT rendered when activity present")))))
 
 (deftest panel-paints-from-and-to-when-prior-slice-differs
-  (testing "focused cascade with distinct prior slice → both :from and :to markers"
+  (testing "distinct prior slice → both :from and :to markers + FROM in NAVIGATION"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
@@ -289,9 +331,12 @@
                           {:frame :rf/causa})
         (rf/dispatch-sync [:rf.causa/focus-cascade 99 nil] {:frame :rf/causa}))
       (let [tree (routing/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-routing-topology-marker-from"))
-            ":from marker rendered on origin route")
-        (is (some? (find-by-testid tree "rf-causa-routing-topology-marker-to"))
-            ":to marker rendered on destination route")
-        (is (some? (find-by-testid tree "rf-causa-routing-detail-from"))
-            "'From' value rendered in This-epoch block")))))
+        (is (some? (find-by-testid tree "rf-causa-routing-table-marker-from"))
+            ":from overlay glyph rendered on origin route in the table")
+        (is (some? (find-by-testid tree "rf-causa-routing-table-marker-to"))
+            ":to overlay glyph rendered on destination route in the table")
+        (is (some? (find-by-testid tree "rf-causa-routing-nav-from"))
+            "NAVIGATION FROM id rendered")
+        (let [from (find-by-testid tree "rf-causa-routing-nav-from")]
+          (is (re-find #":route/cart" (node-text from))
+              "FROM reads the prior route :route/cart"))))))
