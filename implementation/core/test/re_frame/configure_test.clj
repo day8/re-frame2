@@ -9,6 +9,7 @@
                        day8/re-frame2-epoch artefact via late-bind)
     :trace-buffer   — retain-N trace ring buffer depth (Spec 009)
     :sub-cache      — sub-cache deferred-disposal grace period (Spec 006)
+    :elision        — wire-elision runtime size threshold (Spec 009)
 
   This test pins the keys that ARE configurable and asserts that
   everything else is a silent no-op — `configure` returns `nil` and
@@ -21,6 +22,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.subs.cache :as subs-cache]
+            [re-frame.elision :as elision]
             [re-frame.trace :as trace]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -36,7 +38,8 @@
        (finally
          ;; Restore defaults so we do not leak tweaks into other suites.
          (rf/configure :trace-buffer {:depth 200})
-         (subs-cache/configure! {:grace-period-ms 50}))))
+         (subs-cache/configure! {:grace-period-ms 50})
+         (rf/configure :elision {:rf.size/threshold-bytes 16384}))))
 
 (use-fixtures :each reset-runtime)
 
@@ -50,7 +53,11 @@
   (testing ":sub-cache is wired"
     (rf/configure :sub-cache {:grace-period-ms 123})
     (is (= 123 (:grace-period-ms (subs-cache/current-config)))
-        ":sub-cache {:grace-period-ms N} reaches the subs config")))
+        ":sub-cache {:grace-period-ms N} reaches the subs config"))
+  (testing ":elision is wired (rf2-le2qu)"
+    (rf/configure :elision {:rf.size/threshold-bytes 4096})
+    (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
+        ":elision {:rf.size/threshold-bytes N} reaches the elision config")))
 
 (deftest configure-unknown-key-is-silent-no-op
   (testing "rf2-mmlci — unknown keys silently no-op; configure returns nil"
