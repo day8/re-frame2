@@ -85,7 +85,18 @@ on the server side surfaces as an SDK parse-error.
   the spawned `SHADOW_CLJS_NREPL_PORT`. Closes the CI-coverage gap
   the SKIP path leaves on each.
 - `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
-  with `--allow-writes` enabled)
+  with `--allow-writes` enabled) + closed-world read-path success
+  envelopes
+- `test/end-to-end-flag-gates.cjs` — cross-MCP operator-opt-in CLI
+  flag-vocabulary conformance (rf2-ee38b.20). Boots story-mcp without /
+  with / with-a-legacy `--allow-writes` spelling and asserts the
+  default-OFF write gate (`structuredContent.gated`) + the
+  hard-rename-rejection rule (an unrecognised flag must NOT open the
+  gate) over the MCP wire — the NAMING.md §"Operator-opt-in CLI flag
+  vocabulary" contract. Needs `clojure` (the JVM story-mcp server). The
+  pair-mcp `--allow-eval` default-OFF wire counterpart rides the live
+  `live-re-frame2-pair-subscribe.cjs` path (the one boot config where
+  pair-mcp's eval gate is observable — non-degraded, no `--allow-eval`).
 
 ## How to run
 
@@ -217,7 +228,9 @@ used to add on top of a hand-rolled copy of this same loop (rf2-2mx0q),
 so CI runs one JVM boot here instead of two near-identical ones.
 
 1. Connect — `clojure -M -m re-frame.story-mcp.server --allow-writes`
-2. `tools/list` — confirm the 19 advertised tools
+2. `tools/list` — confirm the advertised catalogue per story-mcp's
+   `tool-names.json` fixture (count-free per NAMING.md §"Single source
+   of truth for tool counts")
 3. `assertDescriptorShape` — every descriptor: `inputSchema`
    (type=object + `max-tokens`) + `outputSchema` + an `annotations`
    classification hint
@@ -251,7 +264,15 @@ The `mcp-conformance-re-frame2-pair` job runs three steps in sequence:
    path with a real over-budget eval. This is the path that catches
    cap-trigger threshold drift, marker shape regressions on real
    payloads, and SDK strict-schema rejection of cap-marker shapes
-   under CI's clean ephemeral runtime — not just on Mike's machine.
+   under CI's clean ephemeral runtime — not just on Mike's machine. The
+   hermetic suite also runs `live-re-frame2-pair-subscribe.cjs`, which
+   (booting non-degraded WITHOUT `--allow-eval`) pins pair-mcp's
+   `--allow-eval` default-OFF wire envelope (`:rf.error/eval-cljs-disabled`).
+
+The `mcp-conformance-story` job runs two steps: **`test:story`** (the
+write-loop + read-path conformance) and **`test:flag-gates`** (the
+cross-MCP CLI flag-vocabulary conformance — story-mcp `--allow-writes`
+default-OFF + opt-in + hard-rename rejection). Both need `clojure`.
 
 ## Why a separate artefact?
 

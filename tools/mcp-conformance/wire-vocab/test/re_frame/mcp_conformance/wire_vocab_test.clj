@@ -7,9 +7,11 @@
   server that adopts it. (causa-mcp was dropped in rf2-bu21t — causa
   now ships as a Clojars-only library, not an MCP server.)
 
-  Five top-level markers, plus the `:rf.elision/at` fetch-handle tag
-  (embedded inside the `:rf.size/large-elided` body's `:handle` slot —
-  not a standalone marker; pinned via the elision-marker body schema):
+  Six top-level wrapper markers (the `canonical-markers` table below is
+  the source of truth — see it rather than re-counting this list),
+  plus the `:rf.elision/at` fetch-handle tag (embedded inside the
+  `:rf.size/large-elided` body's `:handle` slot — not a standalone
+  marker; pinned via the elision-marker body schema):
 
   - `:rf.mcp/overflow`      — token-budget overflow marker
                               (re-frame2-pair-mcp `tools.cljs` `overflow-payload`)
@@ -29,6 +31,11 @@
   - `:rf.size/large-elided` — size-elision wire marker
                               (spec/Spec-Schemas §`:rf/elision-marker`,
                                re-frame2-pair-mcp Principles §\"Size-elision\")
+  - `:rf.mcp/cache-hit`     — per-session response-cache hit marker
+                              (re-frame2-pair-mcp `cache.cljs`
+                              `cache-hit-payload`; literal in
+                              `mcp-base/vocab.cljc` `cache-hit-key`,
+                              rf2-i3ffz F-GAP-4)
   - `:rf.elision/at`        — size-elision fetch-handle tag, embedded
                               inside the `:rf.size/large-elided` body's
                               `:handle` slot per `ElisionMarkerBody`
@@ -982,16 +989,7 @@
   ;; docstrings without inline-emitting either. Documentation is not
   ;; an emission — this tripwire fires only on bare-code occurrences
   ;; (rf2-xx42k).
-  (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]]
+  (let [story-files fx/story-mcp-source-files]
     (doseq [{:keys [key]} canonical-markers
             rel           story-files]
       (testing (str "story-mcp source " rel " — " key " absence")
@@ -1118,16 +1116,7 @@
   ;; `run-variant`), both envelope slots MUST land together. This
   ;; tripwire flips RED on the FIRST adoption so the reviewer can't
   ;; merge half the parity.
-  (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]
+  (let [story-files fx/story-mcp-source-files
         slots       [":dropped-sensitive" ":elided-large"]]
     (doseq [rel  story-files
             slot slots]
@@ -1432,14 +1421,26 @@
 
 (def ^:private re-frame2-pair-progress-js-required-grep-markers
   "Substrings the JS `assertProgressParams` MUST contain to pin every
-  required field on `ReFrame2PairProgressNotificationParams`. Each entry is
-  `[malli-path js-substring]` — the path for error reporting, the
-  substring as the grep target. Mirrors the ReFrame2PairOverflowBody table above:
-  a field added to the Malli schema MUST add a row here; a field
-  removed MUST remove a row."
-  [[":progressToken"
-    "'progressToken',  (v) => v !== undefined,"]
-   [":progress : int"
+  JS-OBSERVABLE required field on `ReFrame2PairProgressNotificationParams`.
+  Each entry is `[malli-path js-substring]` — the path for error
+  reporting, the substring as the grep target. Mirrors the
+  ReFrame2PairOverflowBody table above: a JS-observable field added to
+  the Malli schema MUST add a row here; one removed MUST remove a row.
+
+  `:progressToken` is INTENTIONALLY ABSENT (rf2-ee38b.20 correctness
+  fix). The MCP SDK strips `progressToken` out of `notification.params`
+  before invoking the `onprogress` callback, so the JS-side
+  `assertProgressParams` literally cannot observe the slot — a grep pin
+  here would assert a JS check that can never fail (it would only ever
+  see a value the test injected). The Malli schema still REQUIRES
+  `:progressToken` (the WIRE carries it; the fixture test
+  `re-frame2-pair-progress-fixture-conforms` + the negative-shape
+  `dissoc :progressToken` test pin that JVM-side). The slot's wire
+  presence is asserted operationally by the SDK's own numeric-token
+  routing: a renamed / dropped token fails to correlate, zero frames
+  arrive, and the live harness's \"at least one frame\" gate trips. This
+  table pins only the slots the JS callback can actually inspect."
+  [[":progress : int"
     "'progress',       (v) => typeof v === 'number',"]
    [":message : string"
     "'message',        (v) => typeof v === 'string',"]

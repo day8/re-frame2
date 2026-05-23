@@ -107,6 +107,45 @@
   #{:re-frame2-pair-mcp :story-mcp})
 
 ;; ---------------------------------------------------------------------------
+;; story-mcp source-file inventory — single source of truth (rf2-ee38b.20).
+;;
+;; Several absence-tripwires across the three conformance test namespaces
+;; grep the same canonical set of story-mcp source files (the day story-mcp
+;; adopts a cross-MCP marker / envelope slot / near-miss slot name, the
+;; tripwire flips RED). The list was duplicated verbatim across
+;; `wire_vocab_test.clj` (two deftests) and `slot_name_test.clj` — exactly
+;; the drift the gates exist to prevent, reproduced inside the gate: a new
+;; story-mcp tool file added to one tripwire's list silently escaped the
+;; others. Centralised here so "the files story-mcp ships" has one home.
+;; ---------------------------------------------------------------------------
+
+(def story-mcp-tool-source-files
+  "The story-mcp `tools/*.cljc` source files — the per-category tool
+  handlers plus the registry/cap/helpers/schemas plumbing they share.
+  This is the surface the slot-name and indicator near-miss tripwires
+  grep (the slots live in the tool bodies, not the wire framing)."
+  ["tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"])
+
+(def story-mcp-source-files
+  "Every story-mcp source file the cross-MCP-marker absence tripwires
+  grep — the tool handlers (`story-mcp-tool-source-files`) plus the
+  wire-framing `protocol.cljc` (which an overflow/elision adoption would
+  also plausibly touch). The wire-marker tripwires use this superset;
+  the slot-name / indicator near-miss tripwires use the tool-only subset
+  (`story-mcp-tool-source-files`) since the framing layer never names a
+  slot."
+  (into ["tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"]
+        story-mcp-tool-source-files))
+
+;; ---------------------------------------------------------------------------
 ;; Source-text helper. Conformance tests grep .cljs/.cljc/.md files for
 ;; canonical literals; some absence-pins want to distinguish *emissions*
 ;; from *documentation* (docstring mentions, comment references). This

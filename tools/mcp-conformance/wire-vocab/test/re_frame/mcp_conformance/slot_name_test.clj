@@ -356,17 +356,11 @@
                      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/elision.cljs"]
          ;; story-mcp's `:include-sensitive` parsing / schema lives in
          ;; `helpers.cljc` + `schemas.cljc` (no `sensitive.cljc` —
-         ;; that's re-frame2-pair-mcp's shape). The other entries below are the
-         ;; full tools/ surface, covered for near-miss-variant defence.
-         :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]}]
+         ;; that's re-frame2-pair-mcp's shape). The canonical story-mcp
+         ;; tool-source inventory lives in `fixtures.clj` (rf2-ee38b.20)
+         ;; so a new tool file added in one tripwire's list can't escape
+         ;; the others.
+         :story-mcp fx/story-mcp-tool-source-files}]
     (doseq [{:keys [slot]}     canonical-slots
             variant            (near-miss-variants slot)
             [server files]     impl-sources-by-server

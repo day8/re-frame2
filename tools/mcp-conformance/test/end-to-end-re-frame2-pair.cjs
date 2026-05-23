@@ -243,11 +243,21 @@ runWithWatchdog(
             "(rf2-hj3pi dual-slot conformance); got: " + JSON.stringify(resp),
         );
       }
-      // Sanity: structured slot must be a non-null object/value.
-      if (typeof resp.structuredContent !== 'object') {
+      // Sanity: structured slot must be a JSON object (map) — NOT an
+      // array. `typeof [] === 'object'`, so the bare typeof check admits
+      // a vector `structuredContent`; the MCP `structuredContent` slot is
+      // contractually a JSON object. Reject arrays explicitly so a server
+      // that regressed to emitting a vector there is caught (rf2-ee38b.20).
+      if (
+        typeof resp.structuredContent !== 'object' ||
+        Array.isArray(resp.structuredContent)
+      ) {
         throw new Error(
-          'tool ' + label + " :structuredContent should be an object; got: " +
-            typeof resp.structuredContent,
+          'tool ' + label + " :structuredContent should be a JSON object " +
+            '(not an array); got: ' +
+            (Array.isArray(resp.structuredContent)
+              ? 'array'
+              : typeof resp.structuredContent),
         );
       }
     }

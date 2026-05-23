@@ -85,20 +85,14 @@
   [:map {:closed false} [:elided-large pos-int?]])
 
 ;; ---------------------------------------------------------------------------
-;; Helper simulation. Mirror of
-;; `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs/with-indicators`.
-;; The CLJS implementation:
-;;
-;;   (defn with-indicators
-;;     [envelope {:keys [dropped elided]}]
-;;     (cond-> envelope
-;;       (pos? (or dropped 0)) (assoc :dropped-sensitive dropped)
-;;       (pos? (or elided  0)) (assoc :elided-large      elided)))
-;;
-;; The pure-Clojure reproduction below is byte-identical in semantics.
-;; If the CLJS helper drifts, the grep step (`helper-source-pin`) trips;
-;; if the contract drifts (e.g. someone changes "omit when zero" to
-;; "always include"), the fixture grid below trips.
+;; Helper simulation. Pure-Clojure mirror of
+;; `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs/with-indicators`
+;; — byte-identical in semantics (the two-arm omit-when-zero `cond->`).
+;; The canonical CLJS source is pinned verbatim by
+;; `helper-source-shape-matches-simulation` below (the grep step), so it
+;; isn't re-pasted here. If the CLJS helper drifts, that grep trips; if
+;; the contract drifts (e.g. "omit when zero" → "always include"), the
+;; fixture grid below trips.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-indicators

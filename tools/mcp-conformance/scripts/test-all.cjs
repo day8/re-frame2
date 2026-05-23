@@ -63,6 +63,10 @@ const TESTS = [
     name: 'story-mcp end-to-end',
     argv: ['test/end-to-end-story.cjs'],
   },
+  {
+    name: 'CLI flag-vocabulary conformance (story-mcp --allow-writes default-OFF + rename rejection)',
+    argv: ['test/end-to-end-flag-gates.cjs'],
+  },
 ];
 
 function banner(line) {

@@ -37,7 +37,12 @@
 //   - `notifications/progress` method-name drift (the SDK progress
 //     router rejects a rename before invoking `onprogress`).
 //   - `progressToken` slot rename / removal (agent-host correlation
-//     break).
+//     break) — caught INDIRECTLY: the SDK routes progress frames by
+//     numeric `progressToken` correlation, so a renamed / dropped /
+//     mangled token fails to route and zero frames arrive, tripping the
+//     "at least one frame" gate. The slot is unobservable in the
+//     `onprogress` callback (the SDK strips it before invoking us), so a
+//     direct JS-side presence check would be vacuous (rf2-ee38b.20).
 //   - `_meta.data` slot shape drift (`:dropped-events`, `:dropped-bytes`,
 //     `:overflow-reason` are the documented contract slots).
 //   - subscribe entirely failing to emit a progress frame on a
@@ -78,8 +83,24 @@ const MAX_MS = 1500;
 // `js-assertProgressParams-pins-every-re-frame2-pair-progress-required-field`
 // greps for each row's literal source form. A row renamed/deleted
 // trips the JVM gate.
+//
+// `progressToken` is deliberately ABSENT from this table (rf2-ee38b.20
+// correctness fix). The MCP SDK's `_onprogress` destructures
+// `progressToken` OUT of `notification.params` before invoking this
+// callback (`@modelcontextprotocol/sdk/.../shared/protocol.js`:
+// `const { progressToken, ...params } = notification.params`), so the
+// callback NEVER sees the slot — a JS-side `params.progressToken !==
+// undefined` check would only ever observe a value the test injected
+// itself, never a server regression. The token IS verified, just below
+// the SDK's surface: the SDK routes progress frames by `Number(
+// progressToken)` correlation against the outgoing call's token, so a
+// server that renamed / dropped / mangled the slot fails to route → zero
+// frames arrive → the "at least one frame" gate at the bottom of this
+// file catches it. The Malli schema keeps `:progressToken` (the WIRE
+// genuinely carries it; the fixture test pins that shape JVM-side); only
+// the JS-callback assertion is dropped, because at THAT layer the slot is
+// unobservable.
 const REQUIRED_PARAMS = [
-  ['progressToken',  (v) => v !== undefined,         'present (opaque)'],
   ['progress',       (v) => typeof v === 'number',   'int'],
   ['message',        (v) => typeof v === 'string',   'string'],
   ['_meta',          (v) => v && typeof v === 'object', 'map'],
@@ -170,10 +191,15 @@ runWithWatchdog(
     // `_meta`, then routes matching progress notifications here.
     const frames = [];
     const onProgress = (params) => {
-      // The SDK validates and strips progressToken before invoking the
-      // callback. Reattach a sentinel so the cross-MCP assertion table
-      // still pins the slot while the SDK pins the actual token match.
-      frames.push({ ...params, progressToken: '<sdk-validated>' });
+      // The SDK strips `progressToken` out of `notification.params`
+      // before invoking this callback (and routes by it internally), so
+      // `params` here carries `progress` / `message` / `_meta` only. We
+      // store params verbatim — `progressToken` correlation is asserted
+      // implicitly by the "at least one frame arrived" gate below (a
+      // renamed / dropped token fails the SDK's numeric correlation →
+      // zero frames). See the REQUIRED_PARAMS comment for why a JS-side
+      // `progressToken` presence check would be vacuous (rf2-ee38b.20).
+      frames.push(params);
     };
 
     // Fire `subscribe` and `dispatch` concurrently. subscribe blocks
@@ -261,6 +287,46 @@ runWithWatchdog(
     }
     console.log(
       'OK   every frame validates against ReFrame2PairProgressNotificationParams',
+    );
+
+    // ---- Operator-opt-in flag-gate WIRE conformance (rf2-ee38b.20) ----
+    //
+    // This server booted WITHOUT `--allow-eval` (see transportSpec
+    // above) AND has a live runtime attached — so it is NOT in degraded
+    // mode. That is the one configuration where pair-mcp's `eval-cljs`
+    // disabled-default gate is observable over the wire: the call reaches
+    // the tool body, the `--allow-eval` gate (default OFF) short-circuits
+    // BEFORE touching nREPL, and the canonical
+    // `:rf.error/eval-cljs-disabled` envelope crosses the wire. (In
+    // degraded mode the server's `degraded-handler` short-circuits every
+    // tool to `:nrepl-port-not-found` before the gate runs, so the
+    // disabled envelope is unreachable there — see end-to-end-flag-gates
+    // .cjs "Coverage boundary" for why the pair-mcp wire check lives
+    // here, not in the no-runtime degraded harness.) This pins the
+    // cross-MCP NAMING.md §"Operator-opt-in CLI flag vocabulary"
+    // contract: `--allow-eval` default OFF ⇒ documented refusal reason.
+    const evalResp = await client.callTool({
+      name: 'eval-cljs',
+      arguments: { form: '(+ 1 2)' },
+    });
+    if (!evalResp.isError) {
+      throw new Error(
+        'eval-cljs MUST isError when the server booted WITHOUT ' +
+          '--allow-eval (default-OFF gate per NAMING.md); got: ' +
+          JSON.stringify(evalResp).slice(0, 300),
+      );
+    }
+    const evalText = evalResp.content?.[0]?.text || '';
+    if (!evalText.includes(':rf.error/eval-cljs-disabled')) {
+      throw new Error(
+        'eval-cljs default-OFF envelope MUST carry ' +
+          ':rf.error/eval-cljs-disabled (NAMING.md flag-vocabulary ' +
+          'contract); got: ' + evalText.slice(0, 300),
+      );
+    }
+    console.log(
+      'OK   eval-cljs --allow-eval default-OFF -> isError + ' +
+        ':rf.error/eval-cljs-disabled (live, non-degraded)',
     );
 
     console.log('\nRE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN');

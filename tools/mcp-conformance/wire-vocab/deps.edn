@@ -2,13 +2,16 @@
 ;; conformance test (rf2-j2z7o).
 ;;
 ;; A pure-JVM Clojure test that pins the **cross-server wire-marker
-;; vocabulary** shared by re-frame2-pair-mcp and story-mcp:
+;; vocabulary** shared by re-frame2-pair-mcp and story-mcp (the
+;; `canonical-markers` table in wire_vocab_test.clj is the source of
+;; truth — six top-level wrapper markers):
 ;;
 ;;   :rf.mcp/overflow      — token-budget overflow (mechanism 1)
 ;;   :rf.mcp/summary       — tree-summary lazy mode (mechanism 4)
 ;;   :rf.mcp/dedup-table   — structural dedup (mechanism 5)
 ;;   :rf.mcp/diff-from     — diff-encoded epochs
 ;;   :rf.size/large-elided — size-elision wire marker
+;;   :rf.mcp/cache-hit     — per-session response-cache hit marker
 ;;   :rf.elision/at        — size-elision fetch handle
 ;;
 ;; The test asserts a single canonical schema per marker, validates
