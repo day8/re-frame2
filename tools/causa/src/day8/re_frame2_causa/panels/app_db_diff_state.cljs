@@ -31,8 +31,31 @@
   segment-inspector, Event lens, Static panels) keeps the default-on
   copy gesture.
 
+  ## Flat-hairline layout (spec/021 §4.2-4.3, Figma · rf2-ad7zx.11)
+
+  Reconciled to `tools/causa/design-reference/components/AppDbPanel.tsx`:
+  sections render FLAT — an uppercase caption label over the value body,
+  with adjacent sections separated by a 1px hairline (`border-t`), NOT
+  bordered cards. The old `:bg-3` card + radius + per-section header-rule
+  chrome is gone; the panel reads as one continuous scroll keyed by
+  caption labels.
+
+  ## Inline `← changed` annotation (spec/021 §4.3)
+
+  Each section carries a `:before` slice (from the cascade's `db-before`,
+  threaded by `app-db-diff-helpers/current-state-sections`'s 2-arity).
+  When a pre-image is present and differs, the value body routes through
+  the shared §10 diff renderer (`edn/diff`), which carries the inline
+  `← changed from X` annotation in place on the changed nodes and
+  force-expands the ancestor chain so the operator never expands to find
+  a change. When no pre-image is threaded (`no-diff` sentinel — LIVE at
+  boot, 1-arity model) the body falls back to the plain current-state
+  inspector (`edn/inspect`). The keyword-accent inside the diff renderer
+  is already orange (owned by rf2-ad7zx.3) — not touched here.
+
   Pure hiccup; reuses Causa's theme tokens so light/dark resolve."
   (:require [day8.re-frame2-causa.panels.app-db-diff-format :as f]
+            [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
@@ -40,36 +63,38 @@
 ;; ---- shared section chrome ----------------------------------------------
 
 (defn- section-shell
-  "A titled card surface used by every current-state section. `title`
-  is hiccup (so callers can colour the reserved-area / instance-id
-  label); `testid` hooks the section for tests; `body` is the section's
-  content hiccup. Reuses Causa's `:bg-3` card + subtle-border chrome so
-  light/dark resolve via the token CSS variables."
-  [{:keys [testid title body]}]
+  "A flat current-state section (spec/021 §4.2, Figma). `title` is hiccup
+  (so callers can colour the reserved-area / instance-id label);
+  `testid` hooks the section for tests; `body` is the section's content
+  hiccup; `first?` suppresses the leading hairline on the panel's top
+  section.
+
+  Renders FLAT — an uppercase caption label over the value body, no card
+  surface. Adjacent sections are separated by a 1px hairline drawn as a
+  `border-top` on every section after the first (Figma's `border-t`
+  dividers). Reuses Causa's token CSS variables so light/dark resolve."
+  [{:keys [testid title body first?]}]
   [:section {:data-testid testid
-             :style       {:margin        "12px"
-                           :background    (:bg-3 tokens)
-                           :border        (str "1px solid " (:border-subtle tokens))
-                           :border-radius "4px"
-                           :overflow      "hidden"}}
-   [:header {:style {:display         "flex"
-                     :align-items     "center"
-                     :gap             "8px"
-                     :padding         "6px 12px"
-                     :border-bottom   (str "1px solid " (:border-subtle tokens))
-                     :font-family     sans-stack
-                     :font-size       "11px"
-                     :font-weight     600
-                     :text-transform  "uppercase"
-                     :letter-spacing  "0.5px"
-                     :color           (:text-secondary tokens)}}
+             :style       (cond-> {:padding "12px 12px 4px"}
+                            (not first?)
+                            (assoc :border-top
+                                   (str "1px solid " (:border-subtle tokens))))}
+   [:h3 {:style {:display         "flex"
+                 :align-items     "center"
+                 :gap             "8px"
+                 :margin          "0 0 8px"
+                 :font-family     sans-stack
+                 :font-size       "11px"
+                 :font-weight     600
+                 :text-transform  "uppercase"
+                 :letter-spacing  "0.5px"
+                 :color           (:text-secondary tokens)}}
     [:span {:style {:overflow      "hidden"
                     :text-overflow "ellipsis"
                     :white-space   "nowrap"
                     :flex          1}}
      title]]
-   [:div {:style {:padding "8px 12px"}}
-    body]])
+   [:div body]])
 
 (defn- empty-body
   "Empty-state placeholder body for an absent / empty section. `label`
@@ -82,40 +107,61 @@
    label])
 
 (defn- value-body
-  "Render a current-state VALUE via the canonical EDN widget's
-  cljs-devtools inspect path (re-frame-10x look). `render-id` keeps
-  adjacent inspects' testids independent across the panel.
+  "Render a current-state VALUE, with the inline `← changed` diff
+  annotation when a pre-image is supplied (spec/021 §4.3). `render-id`
+  keeps adjacent renders' testids independent across the panel.
 
   `f/display-value` runs first so giant string leaves collapse to the
-  `:rf.size/large-elided` display marker before cljs-devtools renders —
-  the same display-side bound the old slice renderer applied. This keeps
-  a 20 KiB payload from flooding the inspector (and from leaking the raw
-  bytes into the rendered text); the data-classification sentinels
-  (`:rf/redacted` / `:rf/large`) still get their bespoke chip chrome via
-  `edn/inspect`.
+  `:rf.size/large-elided` display marker before rendering — the same
+  display-side bound the old slice renderer applied. This keeps a 20 KiB
+  payload from flooding the inspector (and from leaking the raw bytes
+  into the rendered text).
 
-  `:copy? false` (rf2-ilubp) opts this render out of the EDN widget's
-  universal ⎘ copy gesture — the app-db tab is a clean current-state
-  view, not a per-block toolbox. Other EDN-widget surfaces keep it on."
-  [value render-id]
-  (edn/inspect (f/display-value value)
-               (str "app-db-state/" render-id)
-               {:copy? false}))
+  ## Diff vs current-state routing
+
+  When `before` is the `h/no-diff` sentinel (no pre-image threaded —
+  LIVE at boot / 1-arity model) the value renders through the canonical
+  cljs-devtools current-state inspect path (`edn/inspect`,
+  re-frame-10x look), with `:copy? false` (rf2-ilubp) so the app-db tab
+  stays a clean current-state view with no per-block ⎘ copy gesture.
+
+  When a real pre-image is present the value renders through the shared
+  §10 diff renderer (`edn/diff`), which carries the inline
+  `← changed from X` annotation in place on changed nodes and
+  force-expands the ancestor chain (spec/021 §4.3 + §10.4). App-db's
+  depth heuristic is depth-3-collapsed by default (§10.4). The
+  keyword-accent inside `edn/diff` is already orange (owned by
+  rf2-ad7zx.3)."
+  [value before render-id]
+  (let [node-key (str "app-db-state/" render-id)]
+    (if (= h/no-diff before)
+      (edn/inspect (f/display-value value)
+                   node-key
+                   {:copy? false})
+      (edn/diff {:before        (f/display-value before)
+                 :after         (f/display-value value)
+                 :panel-id      :app-db
+                 :render-id     node-key
+                 :default-depth 3}))))
 
 ;; ---- top (user-domain) section ------------------------------------------
 
 (defn top-section
   "The TOP section — the app-db MINUS every reserved `:rf/*` key (the
   user-domain app-db). Renders the whole user-domain value as a
-  current-state tree. Empty-state when the user-domain app-db is empty
-  (e.g. boot value / reserved-keys-only db)."
-  [top]
-  (section-shell
-    {:testid "rf-causa-app-db-state-top"
-     :title  [:span "app-db"]
-     :body   (if (and (map? top) (empty? top))
-               (empty-body "app-db has no user-domain keys yet.")
-               (value-body top "top"))}))
+  current-state / diff tree. Empty-state when the user-domain app-db is
+  empty (e.g. boot value / reserved-keys-only db). `before` is the
+  prior user-domain value (or `h/no-diff`); `first?` suppresses the
+  panel-leading hairline."
+  ([top] (top-section top h/no-diff true))
+  ([top before first?]
+   (section-shell
+     {:testid "rf-causa-app-db-state-top"
+      :first? first?
+      :title  [:span "app-db"]
+      :body   (if (and (map? top) (empty? top))
+                (empty-body "app-db has no user-domain keys yet.")
+                (value-body top before "top"))})))
 
 ;; ---- reserved-area sections ---------------------------------------------
 
@@ -130,11 +176,15 @@
 (defn instance-section
   "One fan-out sub-section for a single instance of a map-of-instances
   reserved area — section title = the instance id. Used per machine
-  (`:rf/machines`) and per parent (`:rf/spawned`)."
-  [area {:keys [id value]}]
+  (`:rf/machines`) and per parent (`:rf/spawned`). The instance carries
+  its own `:before` pre-image so the body diff-annotates the changed
+  snapshot in place. Each instance section draws the leading hairline
+  (it is never the panel's first section — the TOP precedes it)."
+  [area {:keys [id value] :as inst}]
   (section-shell
     {:testid (str "rf-causa-app-db-state-instance-"
                   (pr-str area) "-" (pr-str id))
+     :first? false
      :title  [:span
               (area-label area)
               [:span {:style {:margin "0 6px" :color (:text-tertiary tokens)}}
@@ -142,7 +192,8 @@
               [:span {:style {:font-family mono-stack
                               :color       (:text-primary tokens)}}
                (pr-str id)]]
-     :body   (value-body value (str (pr-str area) "/" (pr-str id)))}))
+     :body   (value-body value (get inst :before h/no-diff)
+                         (str (pr-str area) "/" (pr-str id)))}))
 
 (defn instances-area
   "Render a map-of-instances reserved area (`:rf/machines`,
@@ -153,6 +204,7 @@
   (if empty?
     (section-shell
       {:testid (str "rf-causa-app-db-state-area-" (pr-str area))
+       :first? false
        :title  (area-label area)
        :body   (empty-body
                  (case area
@@ -168,10 +220,13 @@
   "Render a singleton-slice reserved area (`:rf/route`,
   `:rf/system-ids`, `:rf/pending-navigation`, `:rf/elision`) as ONE
   section. The section title is the singular slice name (e.g. `route`
-  for `:rf/route`). Empty/absent slices render the empty-state body."
-  [{:keys [area empty? value]}]
+  for `:rf/route`). Empty/absent slices render the empty-state body;
+  populated slices carry their `:before` pre-image for the inline diff
+  annotation."
+  [{:keys [area empty? value] :as area-entry}]
   (section-shell
     {:testid (str "rf-causa-app-db-state-area-" (pr-str area))
+     :first? false
      :title  (area-label area)
      :body   (if empty?
                (empty-body
@@ -181,7 +236,8 @@
                    :rf/pending-navigation "No navigation pending."
                    :rf/elision            "No elision declarations."
                    "Empty."))
-               (value-body value (pr-str area)))}))
+               (value-body value (get area-entry :before h/no-diff)
+                           (pr-str area)))}))
 
 (defn area-section
   "Dispatch one reserved-area section entry (from
@@ -201,11 +257,15 @@
   "Render the full current-state inspector body for the section model
   `current-state-sections` produces: the TOP user-domain section
   followed by one section group per reserved `:rf/*` area (in
-  `:areas` order). Pure hiccup; nil-safe (a nil model degrades to an
-  empty TOP + no areas)."
-  [{:keys [top areas]}]
+  `:areas` order). Adjacent sections are separated by 1px hairlines —
+  the TOP is the panel's first section (no leading hairline); every
+  reserved-area section after it draws the divider (spec/021 §4.2).
+  Each section threads its `:before` pre-image so changed nodes carry
+  the inline `← changed` annotation (spec/021 §4.3). Pure hiccup;
+  nil-safe (a nil model degrades to an empty TOP + no areas)."
+  [{:keys [top areas] :as model}]
   (into [:div {:data-testid "rf-causa-app-db-state"}
-         (top-section top)]
+         (top-section top (get model :before-top h/no-diff) true)]
         (for [{:keys [area] :as area-entry} areas]
           (with-meta (area-section area-entry)
                      {:key (pr-str area)}))))

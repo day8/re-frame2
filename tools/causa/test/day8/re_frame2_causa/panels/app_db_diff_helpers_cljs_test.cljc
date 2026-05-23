@@ -352,6 +352,80 @@
     (let [model (h/current-state-sections {})]
       (is (= h/reserved-area-order (mapv :area (:areas model)))))))
 
+;; ---- inline-diff section model (spec/021 §4.3, rf2-ad7zx.11) -------------
+;;
+;; The 2-arity `current-state-sections` threads a `db-before` pre-image
+;; so each section carries a `:before` slice for the inline `← changed`
+;; annotation. The 1-arity form (no pre-image) tags every section with
+;; the `no-diff` sentinel so the renderer falls back to plain
+;; current-state.
+
+(deftest current-state-sections-1-arity-is-no-diff-everywhere
+  (testing "the 1-arity form tags TOP + every section with the no-diff
+            sentinel (renderer renders plain current-state, no annotation)"
+    (let [model (h/current-state-sections
+                  {:counter 1
+                   :rf/route {:id :home}
+                   :rf/machines {:title/flow {:state :idle}}})]
+      (is (= h/no-diff (:before-top model)) "TOP carries the no-diff sentinel")
+      (doseq [a (:areas model)]
+        (if (= :instances (:kind a))
+          (doseq [inst (:instances a)]
+            (is (= h/no-diff (:before inst))
+                "each instance no-diff in 1-arity"))
+          (is (= h/no-diff (:before a))
+              "each singleton no-diff in 1-arity"))))))
+
+(deftest current-state-sections-2-arity-top-before-is-prior-user-domain
+  (testing ":before-top is the user-domain slice of db-before (reserved
+            keys stripped), so the TOP section diffs old → new"
+    (let [before {:counter 1 :rf/route {:id :home}}
+          after  {:counter 2 :rf/route {:id :home}}
+          model  (h/current-state-sections after before)]
+      (is (= {:counter 1} (:before-top model))
+          ":before-top excludes reserved keys, matching :top's shape")
+      (is (= {:counter 2} (:top model))))))
+
+(deftest current-state-sections-2-arity-instance-before-is-prior-snapshot
+  (testing "each machine instance carries its prior snapshot as :before;
+            an instance absent before-cascade gets the no-diff sentinel"
+    (let [before {:rf/machines {:title/flow {:state :idle}}}
+          after  {:rf/machines {:title/flow {:state :loaded}
+                                :auth       {:state :idle}}}
+          area   (area-by (h/current-state-sections after before) :rf/machines)
+          flow   (some #(when (= :title/flow (:id %)) %) (:instances area))
+          auth   (some #(when (= :auth (:id %)) %) (:instances area))]
+      (is (= {:state :idle} (:before flow))
+          "title/flow diffs against its prior snapshot")
+      (is (= {:state :loaded} (:value flow)))
+      (is (= h/no-diff (:before auth))
+          "a freshly-spawned machine has no pre-image → no-diff"))))
+
+(deftest current-state-sections-2-arity-singleton-before-is-prior-slice
+  (testing "a singleton slice carries its prior value as :before; an
+            absent-before singleton gets the no-diff sentinel"
+    (let [before {:rf/route {:id :home}}
+          after  {:rf/route {:id :cart} :rf/system-ids #{:app}}
+          model  (h/current-state-sections after before)
+          route  (area-by model :rf/route)
+          sysids (area-by model :rf/system-ids)]
+      (is (= {:id :home} (:before route)) "route diffs old → new")
+      (is (= {:id :cart} (:value route)))
+      (is (= h/no-diff (:before sysids))
+          "system-ids absent before-cascade → no-diff"))))
+
+(deftest current-state-sections-2-arity-nil-before-db-safe
+  (testing "a nil db-before (boot epoch — every slot is newly added) is
+            handled: before-db degrades to {}, every section's :before is
+            the no-diff sentinel for absent slots"
+    (let [model (h/current-state-sections {:counter 1 :rf/route {:id :home}}
+                                          nil)]
+      ;; nil db-before still flips diff? on (no-diff sentinel is the ONLY
+      ;; way to opt out), so the user-domain before is {} not the sentinel.
+      (is (= {} (:before-top model)))
+      (is (= h/no-diff (:before (area-by model :rf/route)))
+          "an added route slot (absent before) → no-diff"))))
+
 ;; ---- (4) 'Show me when this changed' walker -----------------------------
 
 (defn- mk-record

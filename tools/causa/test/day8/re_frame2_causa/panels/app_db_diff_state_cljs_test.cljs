@@ -182,3 +182,93 @@
           ids   (all-testids tree)]
       (is (not-any? #(.endsWith % "-copy") ids)
           "no copy affordance on any app-db section value block"))))
+
+;; ---- flat-hairline structure (spec/021 §4.2, Figma · rf2-ad7zx.11) -------
+;;
+;; Sections render FLAT — no bordered cards. The panel's first section
+;; (TOP) draws NO leading hairline; every section after it draws a 1px
+;; `border-top` hairline as the divider (the Figma `border-t` rule).
+
+(defn- section-styles
+  "Collect the inline `:style` map of every `<section>` node in the tree."
+  [tree]
+  (->> (hiccup-seq tree)
+       (keep (fn [node]
+               (when (and (vector? node)
+                          (= :section (first node))
+                          (map? (second node)))
+                 (:style (second node)))))))
+
+(deftest sections-are-flat-not-cards
+  (testing "no section carries the old card chrome (bg / border-radius /
+            full 1px border); the flat layout uses caption + body only"
+    (let [model (h/current-state-sections
+                  {:counter 1
+                   :rf/route    {:id :home}
+                   :rf/machines {:title/flow {:state :idle}}})
+          tree  (state/state-body model)
+          styles (section-styles tree)]
+      (is (seq styles) "sections render")
+      (doseq [s styles]
+        (is (nil? (:background s)) "no card background")
+        (is (nil? (:border-radius s)) "no card radius")
+        (is (nil? (:border s)) "no full card border (hairline is border-top)")))))
+
+(deftest top-section-has-no-leading-hairline
+  (testing "the panel's first section (TOP) draws no leading hairline"
+    (let [model (h/current-state-sections {:counter 1})
+          tree  (state/state-body model)
+          top   (find-by-testid tree "rf-causa-app-db-state-top")]
+      (is (some? top))
+      (is (nil? (:border-top (:style (second top))))
+          "TOP is first → no divider above it"))))
+
+(deftest reserved-area-sections-draw-hairline-divider
+  (testing "every reserved-area section after the TOP draws a 1px
+            `border-top` hairline divider"
+    (let [model (h/current-state-sections {:counter 1})
+          tree  (state/state-body model)]
+      (doseq [area h/reserved-app-db-keys]
+        (let [sec (find-by-testid tree (str "rf-causa-app-db-state-area-"
+                                            (pr-str area)))]
+          (is (some? sec) (str "section present for " area))
+          (is (re-find #"1px solid" (str (:border-top (:style (second sec)))))
+              (str area " draws a 1px border-top hairline")))))))
+
+;; ---- inline diff annotation (spec/021 §4.3 · rf2-ad7zx.11) ---------------
+;;
+;; When a section's `:before` pre-image differs from its `:value`, the
+;; value body routes through the shared §10 diff renderer (`edn/diff`),
+;; which carries the inline `← changed from X` annotation in place. With
+;; no pre-image (the no-diff sentinel) the body stays on the plain
+;; current-state inspect path (no annotation).
+
+(deftest changed-value-carries-inline-changed-annotation
+  (testing "a changed user-domain value renders the inline
+            `← changed from <prior>` annotation in the TOP section"
+    (let [model (h/current-state-sections {:counter 2} {:counter 1})
+          tree  (state/state-body model)
+          top   (find-by-testid tree "rf-causa-app-db-state-top")]
+      (is (re-find #"← changed from 1" (pr-str top))
+          "the inline diff annotation surfaces the prior value"))))
+
+(deftest changed-machine-snapshot-carries-annotation
+  (testing "a changed machine snapshot diff-annotates in its instance
+            section (ancestor chain force-expanded so the change shows)"
+    (let [before {:rf/machines {:title/flow {:state :idle}}}
+          after  {:rf/machines {:title/flow {:state :loaded}}}
+          model  (h/current-state-sections after before)
+          tree   (state/state-body model)
+          flow   (find-by-testid
+                   tree "rf-causa-app-db-state-instance-:rf/machines-:title/flow")]
+      (is (re-find #"← changed from :idle" (pr-str flow))
+          "the machine's :state change annotates inline"))))
+
+(deftest no-diff-model-renders-current-state-no-annotation
+  (testing "the 1-arity (no pre-image) model renders plain current-state —
+            no `← changed` annotation anywhere"
+    (let [model (h/current-state-sections
+                  {:counter 2 :rf/route {:id :home}})
+          tree  (state/state-body model)]
+      (is (not (re-find #"← changed" (pr-str tree)))
+          "no diff annotation without a pre-image"))))
