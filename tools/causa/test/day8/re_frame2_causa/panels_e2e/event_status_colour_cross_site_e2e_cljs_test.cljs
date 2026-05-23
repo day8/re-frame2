@@ -23,21 +23,23 @@
   This suite uses `with-host-and-causa-frames` — REAL `:rf/default`
   host frame, REAL `:rf/causa` panel frame, REAL trace-bus mirror
   + REAL `:rf.causa/select-dispatch-id` event — then walks the
-  three consumer-site hiccup trees and asserts the SAME
-  `data-rf-causa-status` keyword surfaces at all three.
+  consumer-site hiccup trees and asserts the SAME
+  `data-rf-causa-status` keyword surfaces at every site.
 
   ## Consumer sites under test
 
-  All three nodes carry `data-rf-causa-status` (the helper's
-  classifier output `(name kw)`) so the walker keys on the same
-  attribute everywhere:
+  Both nodes carry `data-rf-causa-status` (the helper's classifier
+  output `(name kw)`) so the walker keys on the same attribute
+  everywhere:
 
     1. L2 event-row             — `shell/shell-view` <li>
        `data-testid='rf-causa-event-row-<id>'`
-    2. L4 Event header dot      — `event-detail/Panel` <header>
-       `data-testid='rf-causa-event-detail-header'`
-    3. L4 Trace cascade-status  — `trace/Panel` <div>
+    2. L4 Trace cascade-status  — `trace/Panel` <div>
        `data-testid='rf-causa-trace-cascade-status-bar-<status>'`
+
+  The L4 Event header dot was a third site until rf2-ad7zx.17 removed
+  the Event panel's top ribbon (matching `EventPanel.tsx`); the Event
+  panel now carries no status dot.
 
   ## Cascades exercised
 
@@ -50,7 +52,6 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.test-helpers.e2e-multi-frame :as e2e]
@@ -84,38 +85,35 @@
                     {:frame :rf/causa}))
 
 (defn- read-status-at-each-site
-  "Render the three consumer views under `:rf/causa` and return a
-  map of `{:l2 <status-str>, :event <status-str>, :trace <status-str>}`,
-  reading `:data-rf-causa-status` off the canonical anchor node at
-  each site. Any missing site reads as nil so a failing assertion
-  pinpoints which surface fell off the helper.
+  "Render the consumer views under `:rf/causa` and return a map of
+  `{:l2 <status-str>, :trace <status-str>}`, reading
+  `:data-rf-causa-status` off the canonical anchor node at each site.
+  Any missing site reads as nil so a failing assertion pinpoints which
+  surface fell off the helper.
 
   Reads only — no state mutation. Safe to call repeatedly per
   focused cascade."
   [dispatch-id]
   (rf/with-frame :rf/causa
     (let [shell-tree   (shell/shell-view)
-          event-tree   (event-detail/Panel)
           trace-tree   (trace/Panel)
           l2-row       (th/find-by-attr shell-tree :data-testid
                                         (str "rf-causa-event-row-"
                                              (str dispatch-id)))
-          event-header (th/find-by-attr event-tree :data-testid
-                                        "rf-causa-event-detail-header")
           trace-bar    (first (th/find-by-attr-prefix
                                 trace-tree :data-testid
                                 "rf-causa-trace-cascade-status-bar-"))]
       {:l2    (get (th/attrs l2-row) :data-rf-causa-status)
-       :event (get (th/attrs event-header) :data-rf-causa-status)
        :trace (get (th/attrs trace-bar) :data-rf-causa-status)})))
 
 ;; ---- tests --------------------------------------------------------------
 
-(deftest success-cascade-status-agrees-across-all-three-sites
-  (testing "rf2-b8pui — happy-path host dispatch settles to
-            :settled-success at the L2 row, the L4 Event header dot,
-            and the L4 Trace cascade-status bar. One vocabulary,
-            one helper."
+(deftest success-cascade-status-agrees-across-sites
+  (testing "rf2-b8pui / rf2-ad7zx.17 — happy-path host dispatch settles
+            to :settled-success at the L2 row and the L4 Trace
+            cascade-status bar. One vocabulary, one helper. (The Event
+            header dot was a third site until rf2-ad7zx.17 removed the
+            top ribbon.)"
     (e2e/with-host-and-causa-frames
       {:install-host install-counter+throws!}
       (fn []
@@ -125,22 +123,19 @@
               status   (read-status-at-each-site focus-id)]
           (is (= "settled-success" (:l2 status))
               "L2 row did not classify a clean :counter/inc as :settled-success")
-          (is (= "settled-success" (:event status))
-              "L4 Event header did not classify a clean :counter/inc as :settled-success")
           (is (= "settled-success" (:trace status))
               "L4 Trace cascade-status bar did not classify a clean :counter/inc as :settled-success")
-          (is (= (:l2 status) (:event status) (:trace status))
+          (is (= (:l2 status) (:trace status))
               (str "consumer sites disagree on status — "
                    "l2: "    (:l2 status)
-                   " · event: " (:event status)
                    " · trace: " (:trace status))))))))
 
-(deftest error-cascade-status-agrees-across-all-three-sites
-  (testing "rf2-b8pui — a host handler-exception settles to
-            :settled-error at all three sites. Catches the
-            regression class where the trace projection drops the
-            error trace, or the spine focuses on the wrong cascade,
-            or one consumer rolls its own colour decision."
+(deftest error-cascade-status-agrees-across-sites
+  (testing "rf2-b8pui / rf2-ad7zx.17 — a host handler-exception settles
+            to :settled-error at both sites. Catches the regression
+            class where the trace projection drops the error trace, or
+            the spine focuses on the wrong cascade, or one consumer
+            rolls its own colour decision."
     (e2e/with-host-and-causa-frames
       {:install-host install-counter+throws!}
       (fn []
@@ -150,12 +145,9 @@
               status   (read-status-at-each-site focus-id)]
           (is (= "settled-error" (:l2 status))
               "L2 row did not classify a handler-throw as :settled-error")
-          (is (= "settled-error" (:event status))
-              "L4 Event header did not classify a handler-throw as :settled-error")
           (is (= "settled-error" (:trace status))
               "L4 Trace cascade-status bar did not classify a handler-throw as :settled-error")
-          (is (= (:l2 status) (:event status) (:trace status))
+          (is (= (:l2 status) (:trace status))
               (str "consumer sites disagree on status — "
                    "l2: "    (:l2 status)
-                   " · event: " (:event status)
                    " · trace: " (:trace status))))))))
