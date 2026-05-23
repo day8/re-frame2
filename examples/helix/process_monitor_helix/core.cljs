@@ -25,7 +25,6 @@
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
-            [helix.hooks        :as helix-hooks]
             [re-frame.core      :as rf]
             [re-frame.adapter.helix :as helix-adapter]))
 
@@ -174,15 +173,15 @@
 
 (defnc process-row [{:keys [p selected?]}]
   (let [dispatch (rf/dispatcher)
-        {:keys [id name status cpu mem pid]} p
+        {:keys [id status cpu mem pid] proc-name :name} p
         cpu-pct (min 100 cpu)]
     (d/li {:class (str "pm-row"
-                       " pm-row-" (clojure.core/name status)
+                       " pm-row-" (name status)
                        (when selected? " is-selected"))
-           :data-testid (str "monitor-row-" (clojure.core/name id))
+           :data-testid (str "monitor-row-" (name id))
            :on-click #(dispatch [:monitor/select-process id])}
-      (d/span {:class (str "pm-dot pm-dot-" (clojure.core/name status))})
-      (d/span {:class "pm-row-name"} name)
+      (d/span {:class (str "pm-dot pm-dot-" (name status))})
+      (d/span {:class "pm-row-name"} proc-name)
       (d/span {:class "pm-row-pid"} (str "[" pid "]"))
       (d/div  {:class "pm-row-meter"}
         (d/div {:class "pm-row-bar"

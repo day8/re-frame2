@@ -33,17 +33,17 @@
 
 (rf/reg-event-fx :counter/initialise
   (fn [_ctx _event]
-    {:db {:count 5}
+    {:db {:counter/value 5}
      :fx [[:counter/log :initialised]]}))
 
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 
 (rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :count dec)))
+  (fn [db _event] (update db :counter/value dec)))
 
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :counter/value
+  (fn [db _query] (:counter/value db)))
 
 ;; -- Views -------------------------------------------------------------------
 ;;
@@ -53,7 +53,7 @@
 ;; explicitly.
 
 (defnc counter-buttons []
-  (let [count    (helix-adapter/use-subscribe [:count])
+  (let [count    (helix-adapter/use-subscribe [:counter/value])
         dispatch (rf/dispatcher)]
     (d/div
        (d/button {:on-click #(dispatch [:counter/dec])} "-")
