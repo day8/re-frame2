@@ -995,23 +995,44 @@ ACTIVE FILTERS = (match-any-IN) AND NOT (match-any-OUT)
 
 Pill `✎` icon (pencil) = "click to edit." Whole pill is the clickable target.
 
-### Click-pill → edit popup
+### Add-filter dialog (click-pill → edit popup)
+
+The dialog copy is normative (rf2-ad7zx.19). The Add-filter form (the
+trailing-`+` / `:add` source) reads exactly:
 
 ```
-┌─ Edit filter ──────────────────────┐
-│ Mode    ◉ IN   ○ OUT               │
-│                                    │
-│ Pattern                            │
-│   :auth/*                          │
-│   (keyword · glob · namespace)     │
-│                                    │
-│ ──────────────────────────────────  │
-│ [Delete]      [Cancel]    [Apply]  │
-└────────────────────────────────────┘
+┌─ Filter events ─────────────────────────────────┐
+│ Action                                          │
+│   (•) Show only matching events                 │
+│   ( ) Hide matching events                      │
+│                                                 │
+│ Match events containing                         │
+│   [ :auth/*, :mouse-move, /login ]              │
+│   Matches keywords, namespaces, globs, or text. │
+│   Examples: :auth/*, :auth, :mouse-move, /login │
+│                                                 │
+│ ───────────────────────────────────────────────  │
+│                       [Cancel]    [Add filter]  │
+└─────────────────────────────────────────────────┘
 ```
 
-- **Mode toggle** flips IN ↔ OUT without delete/recreate.
-- **Pattern field** accepts: exact keyword (`:auth/login`), glob (`:auth/*`, `:order.cart/*`), namespace (`:order/*` matches namespace `order`), substring (`/login`).
+- **Title** is `Filter events` on the trailing-`+` (`:add`) source.
+  The `:pill` (edit existing) source titles `Edit filter` and exposes
+  the `[Delete]` button; the `:context` (right-click) source titles
+  `Add filter for this event`.
+- **Action radios** — `Show only matching events` (IN) /
+  `Hide matching events` (OUT) — toggle the mode (IN ↔ OUT) without
+  delete/recreate. The wording is presentation; the underlying
+  IN/OUT slot semantics are unchanged (§7 matcher algebra).
+- **`Match events containing` field** accepts: exact keyword
+  (`:auth/login`), glob (`:auth/*`, `:order.cart/*`), namespace
+  (`:order/*` matches namespace `order`), substring (`/login`). The
+  input placeholder is `:auth/*, :mouse-move, /login`; the two-line
+  helper under it reads `Matches keywords, namespaces, globs, or
+  text.` then `Examples: :auth/*, :auth, :mouse-move, /login`.
+- **Buttons** — `[Cancel]` discards the draft; the primary button is
+  `Add filter` on the `:add`/`:context` sources and `Apply` on the
+  `:pill` edit source.
 - **Event-id is the only scope.** The dialog produces exactly the `{:pattern <kw-or-str>}` shape keyed off the cascade's event-id (rf2-o8pjv). There is no match-scope selector — the matcher honours event-id exclusively.
 - **Trailing `+`** opens the same popup with empty pattern + default mode = IN.
 

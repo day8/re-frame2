@@ -330,9 +330,10 @@
 ;; (9) Dialog is event-id-only (rf2-o8pjv)
 ;; -------------------------------------------------------------------------
 ;;
-;; The Add-filter dialog reduces to exactly Mode (Only include /
-;; Filter out) + Pattern + footer. The Match-scope section
-;; (event-id / event-args / source-coord / tags checkboxes) and its
+;; The Add-filter dialog reduces to exactly the Action radios (Show
+;; only matching events / Hide matching events) + the Match-events
+;; field + footer. The Match-scope section (event-id / event-args /
+;; source-coord / tags checkboxes) and its
 ;; `:rf.causa/edit-popup-toggle-scope` plumbing are excised — event-id
 ;; is the implicit, only scope.
 
@@ -353,10 +354,93 @@
         (is (some? (find-by-testid rendered "rf-causa-edit-popup-cancel"))
             "Cancel button present")
         (is (some? (find-by-testid rendered "rf-causa-edit-popup-save"))
-            "Add/Apply button present")
+            "Add filter / Apply button present")
         ;; Excised surface — no scope checkboxes of any key.
         (is (= #{} (testids-with-prefix rendered "rf-causa-edit-popup-scope-"))
             "no match-scope checkboxes render")))))
+
+;; -------------------------------------------------------------------------
+;; (10) Dialog copy is Mike's normative wording (rf2-ad7zx.19)
+;; -------------------------------------------------------------------------
+;;
+;; The Add-filter dialog copy is normative in spec/018 §7. These tests
+;; lock the exact strings — title, Action radios, field label, the
+;; two-line helper, and the buttons — so a wording drift fails CI.
+
+(defn- all-strings
+  "Every string literal in the expanded hiccup tree."
+  [tree]
+  (->> (tree-seq (some-fn vector? seq?) seq (expand-tree tree))
+       (filter string?)
+       (into #{})))
+
+(defn- placeholder-values
+  "Every `:placeholder` attribute value in the expanded tree."
+  [tree]
+  (->> (tree-seq (some-fn vector? seq?) seq (expand-tree tree))
+       (keep (fn [node]
+               (when (and (vector? node) (map? (second node)))
+                 (:placeholder (second node)))))
+       (into #{})))
+
+(deftest add-filter-dialog-copy-is-normative
+  (testing "the Add-filter (trailing-+ / :add) dialog renders Mike's
+            exact copy per spec/018 §7"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
+    (rf/with-frame :rf/causa
+      (let [rendered     (filters/Modal)
+            strings      (all-strings rendered)
+            placeholders (placeholder-values rendered)]
+        (is (contains? strings "Filter events")
+            "title is 'Filter events' on the :add source")
+        (is (contains? strings "Action")
+            "section label is 'Action'")
+        (is (contains? strings "Show only matching events")
+            "IN radio reads 'Show only matching events'")
+        (is (contains? strings "Hide matching events")
+            "OUT radio reads 'Hide matching events'")
+        (is (contains? strings "Match events containing")
+            "field label is 'Match events containing'")
+        (is (contains? strings "Matches keywords, namespaces, globs, or text.")
+            "helper line 1")
+        (is (contains? strings "Examples: :auth/*, :auth, :mouse-move, /login")
+            "helper line 2 (examples)")
+        (is (contains? placeholders ":auth/*, :mouse-move, /login")
+            "input placeholder")
+        (is (contains? strings "Cancel") "Cancel button")
+        (is (contains? strings "Add filter")
+            "primary button reads 'Add filter' on the :add source")))))
+
+(deftest pill-edit-dialog-keeps-edit-title-and-apply
+  (testing "editing an existing pill (:pill source) keeps 'Edit filter'
+            + 'Apply' while sharing the same Action/field copy"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/open-edit-popup
+                     {:source :pill :mode :in :idx 0
+                      :pill {:pattern :auth/*}}])
+    (rf/with-frame :rf/causa
+      (let [strings (all-strings (filters/Modal))]
+        (is (contains? strings "Edit filter")
+            "title is 'Edit filter' on the :pill source")
+        (is (contains? strings "Apply")
+            "primary button is 'Apply' when editing")
+        (is (contains? strings "Show only matching events")
+            "Action radio copy shared with the add path")))))
+
+(deftest context-dialog-keeps-add-for-this-event-title
+  (testing "the right-click (:context) source titles 'Add filter for
+            this event' and uses the 'Add filter' primary button"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/hide-event-type :user/mouse-move])
+    (rf/with-frame :rf/causa
+      (let [strings (all-strings (filters/Modal))]
+        (is (contains? strings "Add filter for this event")
+            "title is 'Add filter for this event' on the :context source")
+        (is (contains? strings "Add filter")
+            "primary button reads 'Add filter'")
+        (is (contains? strings "Hide matching events")
+            "Action radio copy shared with the add path")))))
 
 (deftest toggle-scope-event-is-unregistered
   (testing "the `:rf.causa/edit-popup-toggle-scope` event is fully

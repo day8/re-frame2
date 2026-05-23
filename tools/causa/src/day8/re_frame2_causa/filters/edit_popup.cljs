@@ -2,18 +2,25 @@
   "Edit popup for IN/OUT filter pills (rf2-ak4ms).
 
   Per `tools/causa/spec/018-Event-Spine.md` §7 'Click-pill → edit
-  popup' the popup is a modal overlay with:
+  popup' the popup is a modal overlay with (Add-filter copy shown;
+  the title flips to 'Edit filter' on the :pill source and 'Add
+  filter for this event' on the :context source):
 
-      ┌─ Edit filter ──────────────────────┐
-      │ Mode    ◉ IN   ○ OUT               │
-      │                                    │
-      │ Pattern                            │
-      │   :auth/*                          │
-      │   (keyword · glob · namespace)     │
-      │                                    │
-      │ ──────────────────────────────────  │
-      │ [Delete]      [Cancel]    [Apply]  │
-      └────────────────────────────────────┘
+      ┌─ Filter events ─────────────────────────┐
+      │ Action                                  │
+      │   (•) Show only matching events         │
+      │   ( ) Hide matching events              │
+      │                                         │
+      │ Match events containing                 │
+      │   [ :auth/*, :mouse-move, /login ]      │
+      │   Matches keywords, namespaces, globs,  │
+      │   or text.                              │
+      │   Examples: :auth/*, :auth, :mouse-move,│
+      │   /login                                │
+      │                                         │
+      │ ───────────────────────────────────────  │
+      │              [Cancel]    [Add filter]   │
+      └─────────────────────────────────────────┘
 
   ## Scope
 
@@ -202,7 +209,7 @@
               :on-change #(rf/dispatch
                             [:rf.causa/edit-popup-set-mode mode]
                             {:frame :rf/causa})}]
-     (case mode :in "IN (show only)" :out "OUT (hide)")]))
+     (case mode :in "Show only matching events" :out "Hide matching events")]))
 
 (defn popup-view
   "The popup body. Caller (`filters/Modal`) gates the mount on
@@ -216,7 +223,7 @@
         title       (case (:source trigger)
                       :pill    "Edit filter"
                       :context "Add filter for this event"
-                      "Add filter")
+                      "Filter events")
         ;; Apply is enabled when the pattern is non-blank.
         can-apply?  (let [p (:pattern draft)]
                       (and (string? p) (seq (clojure.string/trim p))))]
@@ -253,20 +260,20 @@
         "✕"]]
 
       [:div {:style (section-style)}
-       [:label {:style (label-style)} "Mode"]
+       [:label {:style (label-style)} "Action"]
        [:div {:style (radio-row-style)}
         [mode-radio {:mode :in :current-mode mode}]
         [mode-radio {:mode :out :current-mode mode}]]]
 
       [:div {:style (section-style)}
        [:label {:style (label-style) :for "rf-causa-edit-popup-pattern"}
-        "Pattern"]
+        "Match events containing"]
        [:input {:data-testid  "rf-causa-edit-popup-pattern"
                 :id           "rf-causa-edit-popup-pattern"
                 :type         "text"
                 :auto-focus   true
                 :value        (or (:pattern draft) "")
-                :placeholder  ":auth/* or :mouse-move or /login"
+                :placeholder  ":auth/*, :mouse-move, /login"
                 :on-change    #(rf/dispatch
                                  [:rf.causa/edit-popup-set-pattern
                                   (.. % -target -value)]
@@ -287,8 +294,10 @@
        [:div {:style {:margin-top "4px"
                       :color (:text-tertiary tokens)
                       :font-family sans-stack
-                      :font-size (:caption type-scale)}}
-        "keyword · glob (:foo/*) · namespace (:foo) · substring"]]
+                      :font-size (:caption type-scale)
+                      :line-height 1.5}}
+        [:div "Matches keywords, namespaces, globs, or text."]
+        [:div "Examples: :auth/*, :auth, :mouse-move, /login"]]]
 
       [:div {:style (footer-style)}
        (if editing?
@@ -315,4 +324,4 @@
                   :style       (merge (btn-style {:primary? true})
                                       (when-not can-apply?
                                         {:opacity 0.4 :cursor "default"}))}
-         (if editing? "Apply" "Add")]]]]]))
+         (if editing? "Apply" "Add filter")]]]]]))
