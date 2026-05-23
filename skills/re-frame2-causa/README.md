@@ -31,7 +31,7 @@ Causa is the **human-facing** panel; for an AI agent surface against the running
 - [`re-frame2`](../re-frame2/) — authors host application code. The host app provides the `[data-rf-causa-host]` column Causa mounts into.
 - [`re-frame2-setup`](../re-frame2-setup/) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Causa's `:preloads` entry can mount on first run.
 
-This skill does **not** depend on or reference `re-frame-10x`. Causa is the structural successor — re-frame2's Tool-Pair surfaces (`register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas`) replace the v1 reliance on the 10x dev tool entirely.
+This skill does **not** depend on or reference `re-frame-10x`. Causa is the structural successor — re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely. The surface enumeration and the "supersedes re-frame-10x" claim live once in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (§Supersedes re-frame-10x); cite it rather than restating the surface list here.
 
 ## Status
 
