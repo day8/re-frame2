@@ -1098,4 +1098,29 @@
   {:target     :browser
    :output-dir "out/examples/adapter-testbeds/helix"
    :asset-path "."
-   :modules    {:main {:init-fn adapter-testbed-helix.core/init}}}}}
+   :modules    {:main {:init-fn adapter-testbed-helix.core/init}}}
+
+  ;; ============================================================================
+  ;; Machines-Viz read-only viewer (rf2-8wrzz.2 — wires PR #2013's viewer
+  ;; entry into an emittable bundle).
+  ;;
+  ;; tools/machines-viz/public/viewer.html is a statically-hostable single
+  ;; page that decodes a `#machine=<base64url>` URL fragment and renders the
+  ;; encoded chart read-only (per tools/machines-viz/spec/API.md §Read-only
+  ;; viewer). It loads a sibling `viewer.js` via `<script src="viewer.js">`
+  ;; and then calls `window.day8.re_frame2_machines_viz.viewer.run()` itself,
+  ;; so this build only needs to COMPILE the entry ns and preserve its
+  ;; `^:export run` symbol — NOT auto-invoke an :init-fn (that would double-
+  ;; render). The single `:viewer` module emits `viewer.js`; co-locate it
+  ;; with viewer.html at serve/release time (same staging pattern as the
+  ;; examples, whose hand-written index.html lives in the source tree and is
+  ;; placed next to the bundle by the orchestrator).
+  ;;
+  ;; Bundle-isolation holds: machines-viz is a tool jar, so emitting a tool
+  ;; bundle from this consumer build introduces no production-bundle leak
+  ;; (nothing under implementation/ :requires the viewer ns).
+  :machines-viz-viewer
+  {:target     :browser
+   :output-dir "out/machines-viz-viewer"
+   :asset-path "."
+   :modules    {:viewer {:entries [day8.re-frame2-machines-viz.viewer]}}}}}
