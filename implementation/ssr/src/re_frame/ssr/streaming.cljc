@@ -463,37 +463,6 @@
            :delta   nil
            :failed? true})))))
 
-(def ^:private default-pattern-protocol-version
-  "The v1 pattern-protocol version stamp (per Spec-Schemas
-  §`:rf/hydration-payload` — \"integer; v1 = 1\"). Terminal fallback in
-  `resolve-version` so the canonical `:rf/version` key is always present
-  (Malli `:int` slot, not `:optional`)."
-  1)
-
-(defn resolve-version
-  "Pick the `:rf/version` value for the streaming hydration payload.
-  Resolution order, identical to the non-streaming
-  `re-frame.ssr.ring.payload/resolve-version`:
-
-    1. an explicit `:version` opt from the caller (host-supplied stamp),
-    2. the framework-global `:rf2/runtime-version` late-bind hook — the
-       same source the client-side `:rf.ssr/check-version` fx reads, so
-       both sides of the wire pin one value with no extra wiring,
-    3. `default-pattern-protocol-version` (v1 = 1) as the terminal
-       numeric fallback (the schema slot is required).
-
-  Audit rf2-asmj1 S8 fixed the non-streaming path; rf2-via0g extends the
-  same fix here. The streaming path previously hard-coded `(or version 1)`
-  inline, which silently disagreed with whatever the client-side
-  `:rf2/runtime-version` hook returned and defeated the
-  `:rf.ssr/version-mismatch` check on every host that hadn't passed
-  `:version` explicitly."
-  [explicit-version]
-  (or explicit-version
-      (when-let [f (late-bind/get-fn :rf2/runtime-version)]
-        (f))
-      default-pattern-protocol-version))
-
 (defn build-final-payload
   "After every continuation has drained, construct the canonical
   `:rf/hydration-payload` for the `__rf_payload` final chunk. The
@@ -502,11 +471,17 @@
 
   Mirrors `re-frame.ssr.ring.payload/build-payload`'s shape so the
   client-side bootstrap can read either streaming or non-streaming
-  payloads with the same code path. Version source-of-truth:
-  `resolve-version` above — caller opt wins, falling back to the
-  `:rf2/runtime-version` late-bind hook so server and client read from
-  the same source (rf2-via0g, mirroring the non-streaming rf2-asmj1 S8
-  fix).
+  payloads with the same code path. Both are thin wrappers over the
+  shared `re-frame.ssr.payload-policy/build-payload` (rf2-8wrzz.4):
+  version resolution (`:rf/version`) and the four-key assembly live
+  once there. The streaming path differs only in sourcing `app-db` —
+  it reads the live frame's `app-db` after every continuation has
+  drained, where the non-streaming path is handed it directly.
+
+  Version source-of-truth: `re-frame.ssr.payload-policy/resolve-version`
+  — caller opt wins, falling back to the `:rf2/runtime-version`
+  late-bind hook so server and client read from the same source
+  (rf2-via0g, mirroring the non-streaming rf2-asmj1 S8 fix).
 
   The `:rf/app-db` slice is projected per the explicit, fail-closed
   policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9):
@@ -516,14 +491,13 @@
   `:rf.error/ssr-missing-payload-policy`. The Ring host adapter
   validates at handler-construction time so misconfigured deployments
   fail at boot rather than at first request."
-  [frame-id render-hash {:keys [version schema-digest] :as policy-opts}]
-  (let [app-db   (frame/frame-app-db-value frame-id)
-        db-slice (payload-policy/apply-policy app-db policy-opts)]
-    (cond-> {:rf/version     (resolve-version version)
-             :rf/frame-id    frame-id
-             :rf/app-db      db-slice
-             :rf/render-hash render-hash}
-      schema-digest (assoc :rf/schema-digest schema-digest))))
+  [frame-id render-hash {:as policy-opts}]
+  (let [app-db (frame/frame-app-db-value frame-id)]
+    (payload-policy/build-payload
+     frame-id
+     (payload-policy/apply-policy app-db policy-opts)
+     render-hash
+     policy-opts)))
 
 ;; ---- late-bind hook registration -----------------------------------------
 ;;
