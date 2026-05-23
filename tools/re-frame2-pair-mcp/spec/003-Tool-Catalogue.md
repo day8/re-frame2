@@ -6,11 +6,13 @@
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The fourteen MCP tools. All fourteen are catalogued below; the
+The sixteen MCP tools. All sixteen are catalogued below; the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
-rf2-4y595 for NAMING.md `list-<things>` conformance) live in the live
-registry at
+rf2-4y595 for NAMING.md `list-<things>` conformance) and the write pair
+`restore-epoch` + `reset-frame-db` (rf2-ee38b.18 — the Tool-Pair
+time-travel + state-injection primitives, gated behind `--allow-writes`)
+live in the live registry at
 [`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs)
 and have full per-tool sections here.
 
@@ -293,13 +295,14 @@ two-line preload entry.
 
 ## Universal: server launch flags
 
-Two default-OFF boot gates control authority surfaces (rf2-cxx5s,
-rf2-c2dtu). Operators pass them as MCP-server CLI flags:
+Three default-OFF boot gates control authority surfaces (rf2-cxx5s,
+rf2-c2dtu, rf2-ee38b.18). Operators pass them as MCP-server CLI flags:
 
 | Flag                      | Default | Effect when ON |
 |---------------------------|---------|----------------|
 | `--allow-eval`            | OFF     | Enables `eval-cljs`. Without the flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
 | `--allow-sensitive-reads` | OFF     | Honours caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
+| `--allow-writes`          | OFF     | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Same default-OFF posture as `--allow-eval`. |
 
 When `--allow-sensitive-reads` is OFF (the published-build default), the
 direct-read tools above:
@@ -439,6 +442,68 @@ Fire a re-frame2 event tagged with `:origin :pair`. Three modes:
 `fx-overrides` (object, e.g. `{:http :stub-http}`), `build` (string).
 
 **Returns**: the runtime's response, merged with `:mode`.
+
+## restore-epoch
+
+Time-travel undo — rewind a frame's `app-db` to a recorded prior
+epoch. The canonical pair-tool undo gesture per
+[`Tool-Pair.md` §Time-travel](../../../spec/Tool-Pair.md#time-travel);
+wraps the `restore-epoch` Tool-Pair write primitive
+(`(rf/restore-epoch frame-id epoch-id)`). Walk the ring with
+`trace-window` / `snapshot` (`:epochs` slice) to pick a target
+`:epoch-id`, then rewind to it.
+
+**Launch-flag gate (rf2-ee38b.18)**: `--allow-writes`. Default OFF;
+calls return `{:ok? false :reason :rf.error/writes-disabled}` without
+touching the nREPL socket. A write surface — replacing `app-db`
+wholesale is qualitatively more powerful than `dispatch` (which drives
+the app's own handlers).
+
+**`epoch-id` is `:any`**: parsed as EDN, NOT assumed `string?`. The
+reference epoch runtime emits **integer** epoch-ids (Spec-Schemas
+declares `:epoch-id` as `:any`), so an integer id `7` is passed as the
+string `"7"` and reads back as the number 7. The same `:any` contract
+drives the cursor-pagination fix.
+
+**Args**: `epoch-id` (string, required — EDN id), `frame` (string,
+e.g. `":foo"`; defaults to the operating frame), `build` (string).
+
+**Returns**: `{:ok? true :restored? true :epoch-id <id> :frame <id>}`
+on success, or `{:ok? false :restored? false :reason :restore-rejected
+...}` when the id is not in the ring or a drain is in flight (the
+documented `:rf.epoch/*` failure modes per
+[`Tool-Pair.md` §Restore failure modes](../../../spec/Tool-Pair.md#time-travel)).
+The `app-db` is unchanged on failure.
+
+## reset-frame-db
+
+State injection — replace a frame's `app-db` with an arbitrary EDN
+value the runtime never recorded; the explicit JSON-loaded-bug-repro
+case per
+[`Tool-Pair.md` §Pair-tool writes](../../../spec/Tool-Pair.md#pair-tool-writes--state-injection).
+Wraps the `reset-frame-db!` Tool-Pair write primitive
+(`(rf/reset-frame-db! frame-id new-db)`): bypasses the dispatch loop,
+replaces the container directly, and records a synthetic
+`:rf/epoch-record` (`:event-id :rf.epoch/db-replaced`) so a later
+`restore-epoch` can rewind past the injection.
+
+**Launch-flag gate (rf2-ee38b.18)**: `--allow-writes` (the same gate as
+`restore-epoch`). Default OFF.
+
+**`db` is EDN data, not host source**: parsed as EDN and emitted into
+the runtime call via the normal `pr-str` path (no `rt-raw` splice) —
+the same injection-closing posture `dispatch` takes (rf2-vflrg). A
+prompt-injected `(println :pwn)` string reads as a list literal (data),
+never executed.
+
+**Args**: `db` (string, required — EDN app-db value), `frame` (string,
+e.g. `":foo"`; defaults to the operating frame), `build` (string).
+
+**Returns**: the runtime's `app-db-reset!` envelope —
+`{:ok? true :frame <id>}` on success, or `{:ok? false :reason
+:reset-rejected ...}` on no-such-frame / drain-in-flight / app-schema
+mismatch (the documented `:rf.epoch/*` failure modes). The `app-db` is
+unchanged on failure.
 
 ## Universal: cursor pagination on epoch slices
 

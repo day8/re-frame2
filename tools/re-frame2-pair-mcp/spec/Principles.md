@@ -23,7 +23,7 @@ surfaces. It must not add:
 - New effect substrates.
 - New component substrates.
 
-The fourteen ops route through the existing `re-frame2-pair.runtime`
+The sixteen ops route through the existing `re-frame2-pair.runtime`
 namespace via `cljs-eval`. Nothing new is registered against the
 framework; nothing new is introduced into a consumer app's runtime.
 
@@ -121,11 +121,11 @@ transition. Existing skill docs and runbooks that reference the
 shims keep working; nothing breaks because the MCP server shipped.
 
 The op vocabulary overlaps cleanly: the bash shims cover six of the
-fourteen canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
+sixteen canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
 and arg shapes — only the transport differs. The MCP-only additions
-(`snapshot`, `get-path`, the streaming triad
-`subscribe` / `unsubscribe` / `list-subscriptions`, the
+(`restore-epoch`, `reset-frame-db`, `snapshot`, `get-path`, the
+streaming triad `subscribe` / `unsubscribe` / `list-subscriptions`, the
 registrar-introspection pair `handler-meta` / `list-handlers`, and
 `get-re-frame2-pair-instructions`) have no shim equivalent. This is what makes
 the back-compat tractable: the overlap is contract-identical; the
@@ -898,11 +898,12 @@ shared with story-mcp. The shared verbs the pair pins are
 mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
-Pair2-mcp's fourteen current tools (`discover-app`, `eval-cljs`,
-`dispatch`, `tail-build`, `snapshot`, `trace-window`, `watch-epochs`,
-`get-path`, `subscribe`, `unsubscribe`, `list-subscriptions`,
-`handler-meta`, `list-handlers`, `get-re-frame2-pair-instructions`) are all
-conformant against existing verbs after the rf2-4y595 rename
+Pair2-mcp's sixteen current tools (`discover-app`, `eval-cljs`,
+`dispatch`, `restore-epoch`, `reset-frame-db`, `tail-build`, `snapshot`,
+`trace-window`, `watch-epochs`, `get-path`, `subscribe`, `unsubscribe`,
+`list-subscriptions`, `handler-meta`, `list-handlers`,
+`get-re-frame2-pair-instructions`) are all conformant against existing
+verbs after the rf2-4y595 rename
 (`subscription-info` → `list-subscriptions`, `registry-list` →
 `list-handlers` — see NAMING.md's audit table). New tools land
 against an existing verb, or via a Lock entry in
@@ -914,7 +915,7 @@ the canonical table.
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
 
 - **Regularity over cleverness** — one obvious way to do a thing.
-  The fourteen op names and shapes are stable.
+  The sixteen op names and shapes are stable.
 - **Named things over anonymous things** — every op has a stable
   name; every reason keyword in an `:ok? false` response is stable.
 - **Public query surfaces** — re-frame2-pair-mcp reads only what the

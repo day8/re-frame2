@@ -122,13 +122,23 @@ _STORY_MCP_LEAVES = tuple(
 MAPPINGS: list[Mapping] = [
     Mapping(
         name="re-frame2-pair-mcp <-> re-frame2-pair",
-        # Post rf2-47g8l the eleven-tool catalogue data lives in a dedicated
+        # Post rf2-47g8l the catalogue data lives in a dedicated
         # `descriptors_data.cljs` leaf — the sibling `descriptors.cljs` is
         # now a slim splicer/façade with no `{:name "..."}` literals. Point
         # the gate at the data file.
         server_src=(REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "src" / "re_frame2_pair_mcp" / "tools" / "descriptors_data.cljs",),
         host_prefix="re-frame2-pair",
         skill_md=REPO_ROOT / "skills" / "re-frame2-pair" / "SKILL.md",
+        intentional_server_only=frozenset({
+            # Write-authority tools (rf2-ee38b.18) — gated behind the
+            # server's default-OFF `--allow-writes` launch flag. A stock
+            # skill session runs against a gate-OFF server and cannot
+            # reach them, so they are deliberately not allow-listed; the
+            # operator who opts in at launch can add them to the skill's
+            # allowed-tools for that deployment.
+            "restore-epoch",
+            "reset-frame-db",
+        }),
     ),
     # story-mcp consumers (rf2-1v7tu HYBRID): both skills consume the
     # 17-tool surface, split along the authoring vs live-runtime axis.

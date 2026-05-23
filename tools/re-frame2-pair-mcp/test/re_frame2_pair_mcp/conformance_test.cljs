@@ -69,7 +69,8 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.writes :as writes]))
 
 ;; ---------------------------------------------------------------------------
 ;; Test infrastructure — args coercion, result extraction, stub installation.
@@ -262,6 +263,8 @@
     | discover-app           | yes   | n/a         | yes               |
     | eval-cljs              | yes   | yes         | (covered by ↑ )   |
     | dispatch               | yes   | yes         | yes               |
+    | restore-epoch          | yes   | yes         | gated-default     |
+    | reset-frame-db         | yes   | yes         | gated-default     |
     | trace-window           | yes   | n/a         | n/a               |
     | watch-epochs           | yes   | n/a         | n/a               |
     | tail-build             | yes   | n/a         | n/a               |
@@ -383,6 +386,84 @@
      [:default                    nil]]
     :fixture/expect
     {:edn-submap {:ok? false :reason :runtime-not-preloaded}}}
+
+   ;; ---------- restore-epoch (rf2-ee38b.18 — gated write) ----------------
+   ;; The --allow-writes gate ships DEFAULT-OFF. The disabled fixture pins
+   ;; the gate-closed envelope (no nREPL round-trip); the happy fixture
+   ;; flips :fixture/allow-writes? and pins the success shape. epoch-id is
+   ;; parsed as EDN so the integer id "7" reads as the number 7.
+   {:fixture/id    :restore-epoch/disabled-default
+    :fixture/doc   "restore-epoch with --allow-writes OFF returns :rf.error/writes-disabled without touching the runtime."
+    :fixture/tool  "restore-epoch"
+    :fixture/args  {:epoch-id "7"}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :rf.error/writes-disabled}}
+
+   {:fixture/id    :restore-epoch/happy
+    :fixture/doc   "restore-epoch with --allow-writes ON wraps the runtime's true into {:ok? true :restored? true :epoch-id <int>}."
+    :fixture/tool  "restore-epoch"
+    :fixture/allow-writes? true
+    :fixture/args  {:epoch-id "7"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["restore-epoch"             true]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["restore-epoch 7"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :restored? true :epoch-id 7}}}
+
+   {:fixture/id    :restore-epoch/missing-id
+    :fixture/doc   "restore-epoch with --allow-writes ON but no :epoch-id surfaces :missing-epoch-id."
+    :fixture/tool  "restore-epoch"
+    :fixture/allow-writes? true
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-epoch-id}}
+
+   ;; ---------- reset-frame-db (rf2-ee38b.18 — gated write) ---------------
+   {:fixture/id    :reset-frame-db/disabled-default
+    :fixture/doc   "reset-frame-db with --allow-writes OFF returns :rf.error/writes-disabled without touching the runtime."
+    :fixture/tool  "reset-frame-db"
+    :fixture/args  {:db "{:k :v}"}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :rf.error/writes-disabled}}
+
+   {:fixture/id    :reset-frame-db/happy
+    :fixture/doc   "reset-frame-db with --allow-writes ON passes the runtime's app-db-reset! envelope through; db rides as EDN data."
+    :fixture/tool  "reset-frame-db"
+    :fixture/allow-writes? true
+    :fixture/args  {:db "{:counter 0}"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["app-db-reset!"             {:ok? true :frame :rf/default}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["app-db-reset! {:counter 0}"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :frame :rf/default}}}
+
+   {:fixture/id    :reset-frame-db/missing-db
+    :fixture/doc   "reset-frame-db with --allow-writes ON but no :db surfaces :missing-db."
+    :fixture/tool  "reset-frame-db"
+    :fixture/allow-writes? true
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-db}}
 
    ;; ---------- trace-window -----------------------------------------------
    {:fixture/id    :trace-window/happy
@@ -734,14 +815,17 @@
   posture; opt-in fixtures verify that an operator who passed
   `--allow-sensitive-reads` gets the legacy per-call-arg-wins behaviour."
   [{:fixture/keys [id tool args eval-script expect allow-eval? allow-raw-state?
+                    allow-writes?
                     eval-form-must-contain eval-form-must-not-contain]}]
   (cache/clear!)
-  (let [js-args        (args->js args)
-        forms-seen     (atom [])
-        prev-eval-gate (eval-cljs/allow-eval-enabled?)
-        prev-raw-gate  (raw-state/allow-raw-state-enabled?)]
+  (let [js-args         (args->js args)
+        forms-seen      (atom [])
+        prev-eval-gate  (eval-cljs/allow-eval-enabled?)
+        prev-raw-gate   (raw-state/allow-raw-state-enabled?)
+        prev-write-gate (writes/allow-writes-enabled?)]
     (eval-cljs/set-allow-eval! (boolean allow-eval?))
     (raw-state/set-allow-raw-state! (boolean allow-raw-state?))
+    (writes/set-allow-writes! (boolean allow-writes?))
     ;; Reset the per-build runtime-signal cache so each fixture exercises
     ;; the signal path freshly. `signal-runtime!` rides one extra nREPL
     ;; round-trip on first call per build per server-lifetime — the
@@ -788,7 +872,8 @@
                        :exception  err}))
             (.finally (fn []
                         (eval-cljs/set-allow-eval! prev-eval-gate)
-                        (raw-state/set-allow-raw-state! prev-raw-gate))))))))
+                        (raw-state/set-allow-raw-state! prev-raw-gate)
+                        (writes/set-allow-writes! prev-write-gate))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The single deftest — walks the corpus serially (each fixture's stub

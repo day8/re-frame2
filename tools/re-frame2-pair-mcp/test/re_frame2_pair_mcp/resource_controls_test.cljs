@@ -262,17 +262,22 @@
                      :RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS    ""}]
     (is (empty? (resource/read-resource-env env-obj)))))
 
-(deftest merge-config-flags-win-over-env
-  ;; Precedence contract: a CLI flag on the command line is the more
-  ;; deliberate choice than an inherited env var.
+(deftest apply-resource-config-flags-win-over-env-on-conflict
+  ;; Precedence contract (rf2-ee38b.18 — was the merge-config passthrough
+  ;; test): a CLI flag on the command line is the more deliberate choice
+  ;; than an inherited env var. Asserted end-to-end through
+  ;; `apply-resource-config!` + `current-config` rather than a named
+  ;; `merge` wrapper — the precedence IS `merge`'s rightmost-wins
+  ;; contract, so we pin the behaviour at the real call site.
   (let [env-cfg  {:max-concurrent-streams 5
                   :max-events-per-sec     50}
-        flag-cfg {:max-concurrent-streams 20}
-        merged   (resource/merge-config env-cfg flag-cfg)]
-    (is (= 20 (:max-concurrent-streams merged))
-        "Flag wins on conflict")
-    (is (= 50 (:max-events-per-sec merged))
-        "Env passes through when no conflicting flag")))
+        flag-cfg {:max-concurrent-streams 20}]
+    (resource/apply-resource-config! env-cfg flag-cfg)
+    (let [cfg (resource/current-config)]
+      (is (= 20 (:max-concurrent-streams cfg))
+          "Flag wins on conflict")
+      (is (= 50 (:max-events-per-sec cfg))
+          "Env passes through when no conflicting flag"))))
 
 (deftest apply-resource-config-writes-into-runtime-state
   (resource/apply-resource-config!

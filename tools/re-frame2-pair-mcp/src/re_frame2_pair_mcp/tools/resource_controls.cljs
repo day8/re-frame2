@@ -151,9 +151,12 @@
 
 (defn set-config!
   "Replace the resource-control configuration map. Unknown keys are
-  ignored; missing keys fall back to defaults. Coerces values via
-  `parse-positive-int` so string-form configuration (env vars, JSON
-  args) flows through one parser. Returns the new merged config."
+  ignored; missing keys fall back to defaults. Coerces each value with
+  an inline `(parse-long (str v))` + `(pos? n)` filter so string-form
+  configuration (env vars, JSON args) is normalised and any
+  non-positive / unparseable value is DROPPED (the default for that key
+  stands) rather than overriding the default with junk. Returns the new
+  merged config."
   [m]
   (let [coerced (into {} (for [[k v] m
                                :when (contains? defaults k)
@@ -435,18 +438,13 @@
                         [k n]))))))
         (into {}))))
 
-(defn merge-config
-  "Merge the env + CLI-flag config maps. CLI flags win on conflict —
-  the operator who passes the flag at the command line is making the
-  more deliberate choice than one inherited from environment.
-
-  Public so tests can pin the precedence directly."
-  [env-cfg flag-cfg]
-  (merge env-cfg flag-cfg))
-
 (defn apply-resource-config!
   "Wire the parsed configuration into the runtime atoms. Called once
   by `server.cljs/main` after `parse-resource-flags` + `read-resource-env`.
+
+  CLI flags win over env vars on conflict (rightmost `merge` arg) — the
+  operator who passes the flag at the command line is making the more
+  deliberate choice than one inherited from the environment.
 
   Returns the applied map — `set-config!`'s post-merge value so the
   caller sees the actual gates in force (with defaults filled in for
@@ -454,7 +452,7 @@
   overrides (without defaults) caused a startup-banner regression
   where unset gates printed as blank values."
   [env-cfg flag-cfg]
-  (set-config! (merge-config env-cfg flag-cfg)))
+  (set-config! (merge env-cfg flag-cfg)))
 
 ;; ---------------------------------------------------------------------------
 ;; Test-fixture helpers — full reset between tests.

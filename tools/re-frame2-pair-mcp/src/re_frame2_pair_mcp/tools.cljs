@@ -10,6 +10,10 @@
   | discover-app  | Verify nREPL + confirm the preloaded runtime + health     |
   | eval-cljs     | Eval a CLJS form, return the value                        |
   | dispatch      | Fire a re-frame2 event with :origin :pair                 |
+  | restore-epoch | Time-travel undo — rewind a frame to a prior epoch        |
+  |               | (gated behind --allow-writes; rf2-ee38b.18)              |
+  | reset-frame-db| State injection — replace a frame's app-db with EDN data  |
+  |               | (gated behind --allow-writes; rf2-ee38b.18)              |
   | trace-window  | Epochs in the last N ms                                   |
   | watch-epochs  | Pull-mode live epoch streaming                            |
   | tail-build    | Wait for a hot-reload to land                             |
@@ -29,16 +33,18 @@
   ## Per-tool / per-concern layout (rf2-vrbwx, rf2-47g8l)
 
   This namespace is the public façade — `invoke` glue, internal
-  dispatch, and re-exported descriptor surface. The fourteen tool
-  bodies and the seven cross-cutting concerns each live in
+  dispatch, and re-exported descriptor surface. The sixteen tool
+  bodies and the cross-cutting concerns each live in
   `tools/<concern>` or `tools/<tool>` files:
 
   - Concerns: `wire`, `probe`, `cap`, `dedup`, `elision`, `sensitive`,
-    `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`.
-  - Tools: `discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
-    `watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`,
-    `unsubscribe`, `list-subscriptions`, `handler-meta`,
-    `list-handlers`, `get-re-frame2-pair-instructions`.
+    `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`,
+    `writes` (the --allow-writes gate, rf2-ee38b.18).
+  - Tools: `discover-app`, `eval-cljs`, `dispatch`, `restore-epoch`,
+    `reset-frame-db`, `trace-window`, `watch-epochs`, `tail-build`,
+    `snapshot`, `get-path`, `subscribe`, `unsubscribe`,
+    `list-subscriptions`, `handler-meta`, `list-handlers`,
+    `get-re-frame2-pair-instructions`.
   - Descriptors: `descriptors-knobs` (universal knob property data),
     `descriptors-data` (per-tool descriptor maps), `descriptors`
     (`tool-descriptors-js` + the knob splicers).
@@ -62,7 +68,7 @@
             [re-frame2-pair-mcp.tools.descriptors :as descriptors]))
 
 ;; Re-export the descriptor catalogue + JS-shape builder. Tests
-;; (`subscription_info_test.cljs`, `typical_tokens_test.cljs`) and
+;; (`list_subscriptions_test.cljs`, `typical_tokens_test.cljs`) and
 ;; `server.cljs` consume these names off the façade ns; the split must
 ;; not break their resolution.
 (def tool-descriptors descriptors/tool-descriptors)

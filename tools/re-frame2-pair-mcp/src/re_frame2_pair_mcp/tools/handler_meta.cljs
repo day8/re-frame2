@@ -132,7 +132,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Tool — handler-meta.
 ;;
-;; Eval-form composition: for the six registrar kinds we route through
+;; Eval-form composition: for the ten registrar kinds we route through
 ;; `re-frame2-pair.runtime/registrar-describe` (already published; carries
 ;; the `:not-registered` envelope on miss). For `:machine` we wrap
 ;; `re-frame.core/machine-meta` directly — the runtime ns has no
@@ -218,7 +218,7 @@
 
 (defn- list-form
   "Build the eval form returning the sorted id vector for a kind. For
-  the six registrar kinds we route through
+  the ten registrar kinds we route through
   `re-frame2-pair.runtime/registrar-list`; for `:machine` we wrap
   `re-frame.core/machines` (Spec 005 §Querying machines — every event
   handler with `:rf/machine? true`)."

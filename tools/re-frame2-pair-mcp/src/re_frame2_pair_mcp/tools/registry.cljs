@@ -65,6 +65,8 @@
   (:require [re-frame2-pair-mcp.tools.discover-app :as discover-app]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]
+            [re-frame2-pair-mcp.tools.restore-epoch :as restore-epoch]
+            [re-frame2-pair-mcp.tools.reset-frame-db :as reset-frame-db]
             [re-frame2-pair-mcp.tools.trace-window :as trace-window]
             [re-frame2-pair-mcp.tools.watch-epochs :as watch-epochs]
             [re-frame2-pair-mcp.tools.tail-build :as tail-build]
@@ -94,8 +96,8 @@
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. Thirteen of the
-  fourteen registered tools ignore `extra` (only `subscribe`
+  3-arity convention `(fn [conn args _extra])`. Fifteen of the
+  sixteen registered tools ignore `extra` (only `subscribe`
   consults it);
   this adapter collapses the verbatim `(fn [conn args _extra]
   (per-tool-fn conn args))` boilerplate at the call sites.
@@ -113,11 +115,11 @@
 ;; preserves it for the `tools/list` wire surface so AI hosts see a
 ;; stable listing (discover-app first, mega-ops in the middle, streaming
 ;; tools last). Don't shuffle without checking the `typical_tokens_test`
-;; and `subscription_info_test` order-sensitive expectations.
+;; and `list_subscriptions_test` order-sensitive expectations.
 ;; ---------------------------------------------------------------------------
 
 (def tools
-  "The fourteen-tool catalogue. Single source of truth for the
+  "The sixteen-tool catalogue. Single source of truth for the
   `tools/list` descriptors, the `tools/call` dispatcher, and the
   per-tool cache opt-in. See ns docstring for the entry shape.
 
@@ -139,6 +141,14 @@
     :handler    (ignoring-extra #(dispatch/dispatch-tool %1 %2))
     :cacheable? false
     :descriptor data/dispatch}
+   {:name       "restore-epoch"
+    :handler    (ignoring-extra #(restore-epoch/restore-epoch-tool %1 %2))
+    :cacheable? false
+    :descriptor data/restore-epoch}
+   {:name       "reset-frame-db"
+    :handler    (ignoring-extra #(reset-frame-db/reset-frame-db-tool %1 %2))
+    :cacheable? false
+    :descriptor data/reset-frame-db}
    {:name       "trace-window"
     :handler    (ignoring-extra #(trace-window/trace-window-tool %1 %2))
     :cacheable? true

@@ -1,5 +1,5 @@
 {
-  "_doc": "Canonical tool-name list for re-frame2-pair-mcp (per spec/003-Tool-Catalogue.md). Shared fixture (rf2-drke0, mirrors story-mcp's rf2-36upq TE7) so the upstream stdio-roundtrip and the cross-server `tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs` harness agree on the expected `tools/list` response without two hand-maintained lists drifting. Sorted alphabetically — both consumers compare against the sorted form. `list-subscriptions` / `list-handlers` were renamed from `subscription-info` / `registry-list` per rf2-4y595 (NAMING.md conformance).",
+  "_doc": "Canonical tool-name list for re-frame2-pair-mcp (per spec/003-Tool-Catalogue.md). Shared fixture (rf2-drke0, mirrors story-mcp's rf2-36upq TE7) so the upstream stdio-roundtrip and the cross-server `tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs` harness agree on the expected `tools/list` response without two hand-maintained lists drifting. Sorted alphabetically — both consumers compare against the sorted form. `list-subscriptions` / `list-handlers` were renamed from `subscription-info` / `registry-list` per rf2-4y595 (NAMING.md conformance). `restore-epoch` / `reset-frame-db` are the gated write tools (rf2-ee38b.18) — they appear in tools/list unconditionally; the --allow-writes gate is enforced at tools/call time, not by hiding the descriptor.",
   "names": [
     "discover-app",
     "dispatch",
@@ -9,6 +9,8 @@
     "handler-meta",
     "list-handlers",
     "list-subscriptions",
+    "reset-frame-db",
+    "restore-epoch",
     "snapshot",
     "subscribe",
     "tail-build",

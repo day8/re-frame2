@@ -68,6 +68,47 @@
         decoded (cursor/decode-cursor encoded)]
     (is (= payload decoded))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-ee38b.18 — INTEGER epoch-ids (the real-runtime fidelity fix).
+;;
+;; The reference epoch runtime (`re-frame/epoch/state.cljc`
+;; `next-epoch-id` = `(swap! counter inc)`) emits INTEGER epoch-ids, and
+;; Spec-Schemas declares `:epoch-id` as `:any`. The prior local
+;; `decode-cursor` required `(string? (:after-id v))`, so an
+;; integer-bearing second-page cursor decoded as `::malformed` →
+;; spurious `:rf.mcp/cursor-stale`, breaking pagination against the
+;; actual runtime. These pin the contract to `:any` — the tests use REAL
+;; integer ids, not synthesised strings, so a regression to a `string?`
+;; guard fails here.
+;; ---------------------------------------------------------------------------
+
+(deftest cursor-round-trips-integer-after-id
+  ;; The headline fix: an integer :after-id survives encode→decode and
+  ;; is NOT rejected as malformed.
+  (let [payload {:v 1 :after-id 7 :ms 1000 :until-ms 1234567890 :frame :rf/default}
+        encoded (cursor/encode-cursor payload)
+        decoded (cursor/decode-cursor encoded)]
+    (is (string? encoded) "encode emits a token for an integer after-id")
+    (is (not= malformed decoded) "integer after-id must NOT decode as malformed")
+    (is (= payload decoded) "the integer after-id round-trips losslessly")
+    (is (integer? (:after-id decoded)) "after-id stays an integer, not coerced to string")
+    (is (= 7 (:after-id decoded)))))
+
+(deftest cursor-round-trips-keyword-after-id
+  ;; :epoch-id is :any — a keyword id (a less-common but legal opaque
+  ;; shape) must also survive.
+  (let [payload {:v 1 :after-id :ev/login :ms nil :until-ms nil :frame nil}
+        decoded (cursor/decode-cursor (cursor/encode-cursor payload))]
+    (is (not= malformed decoded))
+    (is (= :ev/login (:after-id decoded)))))
+
+(deftest encode-cursor-emits-token-for-integer-after-id
+  ;; encode-cursor's "is there an after-id?" guard must accept an
+  ;; integer (not silently drop it as it would if it required string?).
+  (is (string? (cursor/encode-cursor {:v 1 :after-id 0}))
+      "integer 0 is a valid after-id (some?, not string?)")
+  (is (string? (cursor/encode-cursor {:v 1 :after-id 42}))))
+
 (deftest decode-cursor-nil-on-nil-input
   (is (nil? (cursor/decode-cursor nil)))
   (is (nil? (cursor/decode-cursor "")))
@@ -213,6 +254,84 @@
         "All epoch-ids distinct")
     (is (= (map :epoch-id hist) (map :epoch-id all-records))
         "Records returned in original order")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ee38b.18 — second-page pagination with REAL integer epoch-ids.
+;;
+;; This is the scenario the prior `string?` guard broke: the runtime
+;; emits integer epoch-ids, so the cursor carries an integer :after-id,
+;; and the second-page decode previously failed as `::malformed`. The
+;; `make-int-epoch` helper builds records keyed by INTEGER ids (mirroring
+;; `re-frame/epoch/state.cljc`'s `(swap! counter inc)`), so this walks
+;; the exact shape the real runtime produces.
+;; ---------------------------------------------------------------------------
+
+(defn- make-int-epoch [n]
+  {:epoch-id     n                       ; INTEGER id, like the real runtime
+   :committed-at (+ 1000000 n)
+   :event-id     :test/ev
+   :db-before    {}
+   :db-after     {}})
+
+(deftest second-page-with-integer-cursor-resumes-after-watermark
+  (let [hist (vec (for [n (range 50)] (make-int-epoch n)))
+        ;; First call: limit 10 ⇒ next-id is the INTEGER 9
+        page-1 (runtime-form-output hist {:after-id nil
+                                          :cutoff-ms 0
+                                          :until-ms 99999999
+                                          :limit 10})
+        next-id (:next-id page-1)
+        ;; The cursor carries the integer id — the exact shape the prior
+        ;; string? guard rejected on decode.
+        cursor-str (cursor/encode-cursor {:v 1 :after-id next-id
+                                          :until-ms 99999999 :ms nil :frame nil})
+        decoded (cursor/decode-cursor cursor-str)
+        page-2 (runtime-form-output hist {:after-id (:after-id decoded)
+                                          :cutoff-ms 0
+                                          :until-ms 99999999
+                                          :limit 10})]
+    (is (= 9 next-id) "first-page next-id is the integer 9")
+    (is (not= malformed decoded) "the integer-bearing cursor is NOT stale")
+    (is (= 9 (:after-id decoded)) "decoded after-id stays an integer")
+    (is (= 10 (count (:epochs page-2))))
+    (is (= 10 (-> page-2 :epochs first :epoch-id)) "page 2 resumes at integer 10")
+    (is (= 19 (-> page-2 :epochs last :epoch-id)))
+    (is (= 19 (:next-id page-2)))
+    (is (= 30 (:remaining page-2)))))
+
+(deftest five-page-walk-over-integer-id-ring-returns-distinct-records-in-order
+  ;; The full acceptance walk with REAL integer ids — pagination over 5
+  ;; batches returns 50 distinct integer-keyed records in order. Pre-fix
+  ;; this would have aborted after page 1 (the page-2 cursor decoding as
+  ;; stale).
+  (let [hist (vec (for [n (range 50)] (make-int-epoch n)))
+        walk (loop [cursor-str nil
+                    pages      []
+                    safety     10]
+               (if (zero? safety)
+                 pages
+                 (let [decoded (cursor/decode-cursor cursor-str)
+                       _       (when (= malformed decoded)
+                                 (throw (ex-info "integer cursor decoded as malformed — the rf2-ee38b.18 regression"
+                                                 {:cursor cursor-str})))
+                       after-id (:after-id decoded)
+                       out (runtime-form-output hist {:after-id after-id
+                                                      :cutoff-ms 0
+                                                      :until-ms 99999999
+                                                      :limit 10})
+                       pages' (conj pages (:epochs out))]
+                   (if-let [next-id (:next-id out)]
+                     (recur (cursor/encode-cursor {:v 1 :after-id next-id
+                                                   :until-ms 99999999 :ms nil :frame nil})
+                            pages'
+                            (dec safety))
+                     pages'))))
+        all-records (vec (mapcat identity walk))]
+    (is (= 5 (count walk)) "exactly 5 pages of 10")
+    (is (= 50 (count all-records)) "50 records walked total")
+    (is (apply distinct? (map :epoch-id all-records)) "all integer epoch-ids distinct")
+    (is (= (map :epoch-id hist) (map :epoch-id all-records)) "records returned in original integer order")
+    (is (every? integer? (map :epoch-id all-records)) "all ids stayed integers across the walk")))
 
 ;; ---------------------------------------------------------------------------
 ;; Stale cursor — the bead's acceptance scenario #3.
