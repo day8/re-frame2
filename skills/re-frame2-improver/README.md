@@ -21,6 +21,7 @@ If 1 holds but 2 doesn't, the skill declines and asks for a snippet rather than 
 - `evals/evals.json` — trigger-eval fixtures (8 should-trigger + 8 should-not-trigger entries, per skill-creator's description-optimisation contract)
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
 - `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill)
+- `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) that let a future pass re-author the skill from committed inputs. Not loaded during normal operation.
 - `../shared/retro-protocol.md` — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Consumed jointly by this skill and `re-frame2-pair-retro`.
 
 ## Relationship to other skills
