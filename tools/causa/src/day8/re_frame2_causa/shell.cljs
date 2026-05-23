@@ -362,6 +362,55 @@
       http?    (conj "🌐")
       machine? (conj "🤖"))))
 
+;; rf2-ad7zx.15 — ONE shared column layout for the L2 event list, so the
+;; column-header row (`l2-column-header`) and every data row (`event-row`)
+;; reference the SAME constants and align column-for-column under the
+;; Figma EventList (`design-reference/components/EventList.tsx`). The
+;; header was hand-authored with copied numbers in rf2-ad7zx.12 and drifted
+;; out of alignment (Mike, live step-deck verify); these defs make the
+;; two surfaces literally share the same column structure.
+;;
+;; Layout (left → right), matching the Figma EventList columns plus Causa's
+;; leading focus gutter (a Causa affordance the mock didn't carry):
+;;
+;;   [gutter 14px] gap [source 52px] gap [event id flex-1] gap [time →right]
+;;
+;; Both surfaces use the SAME flex container gap + horizontal padding, and
+;; a matching `1px solid transparent` border so the row's focused/ungrouped
+;; border (which paints 1px) never shifts the data 1px right of the header
+;; (default content-box would otherwise offset every bordered row).
+;;
+;; Declared here — above the relative-time chip (which references the time
+;; column width) and above `event-row` / `l2-column-header`, all later in
+;; the file — so the symbols resolve at every use site (CLJS top-level
+;; defs must precede use).
+(def ^:private l2-gutter-col-width
+  "Width of the leading FOCUS gutter cell — shared by the header spacer
+  and every row's gutter so the `source` column starts at the same x."
+  "14px")
+
+(def ^:private l2-source-col-width
+  "Fixed width for the `source` column so the header label and every
+  row's origin tag align on the same left edge."
+  "52px")
+
+(def ^:private l2-time-col-min-width
+  "Min-width / right-aligned slot for the trailing time column — shared
+  by the header `timestamp` label and every row's relative-time chip so
+  the two right-align on the same edge."
+  "44px")
+
+(def ^:private l2-col-gap
+  "Inter-column gap for both the header row and every data row. ONE
+  value keeps the columns lined up across the two surfaces."
+  "6px")
+
+(def ^:private l2-row-h-padding
+  "Horizontal padding for both the header row and every data row — the
+  left value sets where the gutter starts, the right where the time
+  column ends. Shared so neither surface drifts."
+  "6px")
+
 ;; ---- Relative-time chip (rf2-vbbq0 / rf2-0s2at) --------------------------
 ;;
 ;; Each L2 row carries a small right-aligned chip showing how long ago the
@@ -457,12 +506,17 @@
       [:span {:data-testid     "rf-causa-row-time-chip"
               :data-then-ms    (str then-ms)
               :title           tooltip
+              ;; rf2-ad7zx.15 — the trailing time column. Shares the
+              ;; header `timestamp` column's right-aligned min-width slot
+              ;; (`l2-time-col-min-width`) so the chip right-aligns under
+              ;; the header label. Spacing from the preceding column comes
+              ;; from the row's shared flex `gap` — no extra `margin-left`,
+              ;; which used to push the chip 4px past the header column.
               :style {:color         (:text-tertiary tokens)
                       :flex-shrink   0
                       :font-family   mono-stack
                       :font-size     (:caption type-scale)
-                      :margin-left   "4px"
-                      :min-width     "30px"
+                      :min-width     l2-time-col-min-width
                       :text-align    "right"
                       :white-space   "nowrap"}}
        label])))
@@ -984,12 +1038,6 @@
       (rf/dispatch [:rf.causa/set-focus dimension value (:dispatch-id cascade)]
                    {:frame :rf/causa}))))
 
-;; rf2-ad7zx.12 — shared fixed width for the L2 `source` column so the
-;; column-header label (`l2-column-header`) and every row's origin tag
-;; (`event-row`) align on the same left edge. Declared above both use
-;; sites (event-row sits earlier in the file than the header / list).
-(def ^:private l2-source-col-width "52px")
-
 (defn- event-row
   "One row in the L2 event list. Single line per spec/018 §4 Row
   anatomy + Round-3 rf2-cmtkw — minimal default render.
@@ -1243,8 +1291,17 @@
                   :data-rf-causa-status   (name status-kw)
                   :style {:display       "flex"
                           :align-items   "center"
-                          :gap           "6px"
-                          :padding       "1px 6px"
+                          ;; rf2-ad7zx.15 — shared column gap + horizontal
+                          ;; padding so the data columns line up under the
+                          ;; header's columns. Vertical padding stays 1px
+                          ;; (row density); only the column-defining axes
+                          ;; (gap + h-padding) are shared with the header.
+                          ;; `border-box` matches the header so the 1px
+                          ;; border below resolves identically on both
+                          ;; surfaces (no 1px column drift).
+                          :box-sizing    "border-box"
+                          :gap           l2-col-gap
+                          :padding       (str "1px " l2-row-h-padding)
                           :height        "22px"
                           :line-height   "20px"
                           :cursor        "pointer"
@@ -1297,7 +1354,7 @@
      ;; the cascade timeline). The thread is `align-self: stretch` so
      ;; it spans the full row height edge-to-edge.
      [:span (cond-> {:data-testid (str "rf-causa-row-gutter-" (str id))
-                     :style       {:width        "14px"
+                     :style       {:width        l2-gutter-col-width
                                    :flex-shrink  0
                                    :display      "inline-flex"
                                    :align-items  "center"
@@ -1623,19 +1680,29 @@
               :white-space "nowrap"}]
     [:div {:data-testid "rf-causa-event-list-header"
            :role        "row"
+           ;; rf2-ad7zx.15 — the header shares the EXACT column structure
+           ;; of the data rows (`event-row`): same flex `gap`, same
+           ;; horizontal `padding`, and the SAME per-column widths via the
+           ;; shared `l2-*-col-*` constants. It also carries a matching
+           ;; `1px solid transparent` border so the rows' focused/ungrouped
+           ;; 1px border (content-box) never offsets the data columns 1px
+           ;; right of the header. Result: source / event id / timestamp
+           ;; sit directly above their data columns (Figma EventList).
            :style {:position      "sticky"
                    :top           0
                    :z-index       1
                    :display       "flex"
                    :align-items   "center"
-                   :gap           "6px"
-                   :padding       "2px 6px"
+                   :box-sizing    "border-box"
+                   :gap           l2-col-gap
+                   :padding       (str "2px " l2-row-h-padding)
+                   :border        "1px solid transparent"
                    :background    (:bg-1 tokens)
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     ;; Leading focus-gutter spacer — keeps the header columns aligned
-     ;; with the rows' 14px focus gutter (the gutter itself is a Causa
-     ;; affordance, unlabeled in the header).
-     [:span {:aria-hidden "true" :style {:width "14px" :flex-shrink 0}}]
+     ;; Leading focus-gutter spacer — same width as the rows' focus gutter
+     ;; (the gutter itself is a Causa affordance, unlabeled in the header).
+     [:span {:aria-hidden "true"
+             :style {:width l2-gutter-col-width :flex-shrink 0}}]
      [:span {:data-testid "rf-causa-event-list-col-source"
              :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
       "source"]
@@ -1644,7 +1711,7 @@
       "event id"]
      [:span {:data-testid "rf-causa-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
-                                 :min-width "30px"})}
+                                 :min-width l2-time-col-min-width})}
       "timestamp"]]))
 
 (rf/reg-view event-list

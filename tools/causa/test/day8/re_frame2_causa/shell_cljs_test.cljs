@@ -660,6 +660,101 @@
         (is (some? (find-by-testid tree "rf-causa-event-list-col-timestamp"))
             "the `timestamp` column label is present")))))
 
+(defn- style-of
+  "Read the inline `:style` map off a hiccup node (`[tag attrs …]`)."
+  [node]
+  (get-in node [1 :style]))
+
+(deftest event-list-header-shares-row-column-layout
+  (testing "rf2-ad7zx.15 — the column-header row and the data rows share
+            ONE column structure (per design-reference/components/
+            EventList.tsx). The header's `source` / `event id` /
+            `timestamp` columns MUST sit directly above the rows' columns,
+            so the header cells and the row cells reference the same fixed
+            widths, the same leading gutter width, and the containers
+            share the same flex gap + horizontal padding. rf2-ad7zx.12 had
+            hand-copied numbers that drifted out of alignment (Mike, live
+            step-deck verify)."
+    (causa-setup!)
+    ;; A cascade with a dispatched-time so the row renders its trailing
+    ;; relative-time chip (the column the header's `timestamp` aligns to),
+    ;; and a :timer origin so the `source` column tag renders.
+    (trace-bus/collect-trace!
+      (-> (dispatch-trace-ev 1 [:poll/tick])
+          (assoc :time 1000)
+          (assoc-in [:tags :rf/dispatch-origin] :timer)))
+    (rf/with-frame :rf/causa
+      (let [tree        (shell/shell-view)
+            ;; header cells
+            header      (find-by-testid tree "rf-causa-event-list-header")
+            h-source    (find-by-testid tree "rf-causa-event-list-col-source")
+            h-event-id  (find-by-testid tree "rf-causa-event-list-col-event-id")
+            h-timestamp (find-by-testid tree "rf-causa-event-list-col-timestamp")
+            ;; row cells (the :timer row)
+            row         (first (find-all-by-testid-prefix
+                                 tree "rf-causa-event-row-"))
+            r-gutter    (first (find-all-by-testid-prefix
+                                 tree "rf-causa-row-gutter-"))
+            r-source    (find-by-testid tree "rf-causa-row-origin-timer")
+            r-event-id  (find-by-testid tree "rf-causa-row-event-id")
+            r-time      (find-by-testid tree "rf-causa-row-time-chip")
+            ;; the header's leading gutter spacer is the first :span child
+            ;; of the header div (aria-hidden, no testid).
+            h-gutter    (some (fn [n]
+                                (when (and (vector? n)
+                                           (map? (second n))
+                                           (= "true" (:aria-hidden (second n))))
+                                  n))
+                              header)]
+        ;; sanity — every cell we compare exists
+        (is (some? header)      "header row renders")
+        (is (some? row)         "the :timer data row renders")
+        (is (some? r-source)    "the row's source-tag cell renders")
+        (is (some? r-time)      "the row's time chip renders (it carries :time)")
+        ;; SOURCE column — header label width == row tag width
+        (is (= (:width (style-of h-source))
+               (:width (style-of r-source)))
+            "header `source` column width == row source-tag width")
+        ;; GUTTER — header spacer width == row gutter width (so the
+        ;; `source` column starts at the same x on both surfaces)
+        (is (= (:width (style-of h-gutter))
+               (:width (style-of r-gutter)))
+            "header gutter spacer width == row gutter width")
+        ;; EVENT-ID column — both flex-grow with min-width 0
+        (is (= (:flex (style-of h-event-id))
+               (:flex (style-of r-event-id)))
+            "header `event id` column and row event-id both flex-grow")
+        ;; TIMESTAMP / time column — header label min-width == chip min-width,
+        ;; both right-aligned, so the timestamp header sits over the chip
+        (is (= (:min-width (style-of h-timestamp))
+               (:min-width (style-of r-time)))
+            "header `timestamp` min-width == row time-chip min-width")
+        (is (= "right"
+               (:text-align (style-of h-timestamp))
+               (:text-align (style-of r-time)))
+            "header timestamp and row time chip both right-align")
+        ;; the chip carries NO extra margin-left (it used to push the chip
+        ;; 4px past the header column — the shared flex gap is the spacing)
+        (is (nil? (:margin-left (style-of r-time)))
+            "row time chip has no margin-left that would drift it past the header")
+        ;; CONTAINER — header + row share the same column gap + h-padding
+        (let [h-style (style-of header)
+              r-style (style-of row)]
+          (is (= (:gap h-style) (:gap r-style))
+              "header + row share the same flex column gap")
+          ;; both pad 6px horizontally (vertical may differ); compare the
+          ;; trailing px token which both build from l2-row-h-padding.
+          (is (re-find #"6px$" (str (:padding h-style)))
+              "header right padding is the shared 6px")
+          (is (re-find #"6px$" (str (:padding r-style)))
+              "row right padding is the shared 6px")
+          ;; both account for a 1px border via border-box so a bordered
+          ;; (focused/ungrouped) row never shifts 1px right of the header
+          (is (= "border-box" (:box-sizing h-style))
+              "header is border-box")
+          (is (= "border-box" (:box-sizing r-style))
+              "row is border-box"))))))
+
 (deftest event-list-omits-column-header-when-empty
   (testing "rf2-ad7zx.12 — the empty state stays a clean `No events.`
             message with no column-header chrome above it."
