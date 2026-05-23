@@ -50,7 +50,7 @@
 (defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   ;; rf/init! takes the adapter spec map directly. Each adapter
   ;; ns exports an `adapter` var; consumers require the ns and pass the
   ;; var explicitly. There is no default-adapter registry.
