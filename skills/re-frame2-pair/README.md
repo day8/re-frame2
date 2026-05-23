@@ -39,6 +39,7 @@ re-frame2-pair is a clean port: same vocabulary (read / write / trace / watch / 
 - [re-frame-pair](https://github.com/day8/re-frame-pair) — the v1 skill (re-frame + re-frame-10x; this is its source).
 - [re-frame2-pair-retro](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) — the retrospective skill that reviews pair sessions and proposes improvements to re-frame2-pair itself. Sibling to v1's [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver).
 - [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the canonical surface contract this skill consumes.
+- [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) — the skills-corpus pointer at the Tool-Pair surface enumeration (and the "supersedes re-frame-10x" claim) that sibling skills cite when routing an upstream finding. This README carries the fullest surface list; the shared leaf points back here for it.
 
 ## Which technical stack?
 
@@ -53,7 +54,7 @@ You don't need to make any changes to your code/project to use it — the MCP se
 
 ## No re-frame-10x dependency
 
-re-frame2-pair does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame2-pair` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)).
+re-frame2-pair does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame2-pair` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)). The underlying "these surfaces are first-class in re-frame2, superseding 10x" claim is stated once for the whole skills corpus in [`../shared/tool-pair-surfaces.md` §Supersedes re-frame-10x](../shared/tool-pair-surfaces.md); this section is the re-frame2-pair-specific framing of it.
 
 If your app uses both re-frame2-pair and Causa, they coexist as parallel listeners over re-frame2's Tool-Pair surfaces. Causa's default UI is the app-provided `[data-rf-causa-host]` true-inline panel; re-frame2-pair has no UI panel and neither tool depends on the other.
 
