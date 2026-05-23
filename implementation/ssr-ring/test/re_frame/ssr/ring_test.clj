@@ -287,6 +287,37 @@
           "redirect short-circuits — no body, no payload script")
       (is (not (str/includes? (:body response) "should not render"))))))
 
+(deftest handler-redirect-no-target-warns
+  (testing "rf2-ee38b.11: a :rf.server/redirect with no :location/:url/:to
+            produces a 3xx with no Location header (malformed redirect —
+            the runtime accepts a target-less redirect since location is
+            caller-trusted/optional at the fx boundary). The adapter is
+            the last line: it emits :rf.ssr/ssr-redirect-no-target so the
+            defect is observable rather than silently shipping a broken
+            redirect."
+    (rf/reg-event-fx :init/redirect-no-target
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:status 302}]]}))
+    (rf/reg-view* :pages/noop-rt (fn [] [:div]))
+    (let [traces (atom [])]
+      (rf/register-listener! ::redirect-no-target-watch
+        (fn [ev] (when (= :rf.ssr/ssr-redirect-no-target (:operation ev))
+                   (swap! traces conj ev))))
+      (let [handler  (ssr-ring/ssr-handler
+                       {:on-create [:init/redirect-no-target]
+                        :root-view [:pages/noop-rt]
+                        :payload-policy :rf.ssr.payload/whole-app-db})
+            response (handler {:uri "/secret" :request-method :get})
+            headers  (:headers response)]
+        (rf/unregister-listener! ::redirect-no-target-watch)
+        (is (= 302 (:status response)) "still emits the redirect status")
+        (is (nil? (or (get headers "Location") (get headers "location")))
+            "no Location header — there is no target to write")
+        (is (seq @traces)
+            ":rf.ssr/ssr-redirect-no-target warning fired so the malformed
+             redirect is observable")))))
+
 ;; ===========================================================================
 ;; ssr-handler — cookies serialise to Set-Cookie headers
 ;; ===========================================================================
@@ -419,6 +450,97 @@
            (HTML-escaped — `escape-html` over the message text)")
       (is (str/includes? (:body response) "teapot")
           "the custom projector's :code rides the wire body."))))
+
+;; ===========================================================================
+;; rf2-ee38b.11 — :error-view caller hook (Spec 011 §Server error
+;; projection step 5 — "a registered view (or the host's default error
+;; template) … receiving the public-error map as its prop")
+;; ===========================================================================
+
+(deftest handler-render-error-renders-registered-error-view
+  (testing "rf2-ee38b.11: a caller-registered :error-view (keyword) is
+            rendered through the SSR emitter, receiving the public-error
+            map as its single prop — replacing the hardcoded default
+            error template. The public-error's :message rides the wire
+            HTML-escaped (the emitter escapes text-node children)."
+    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/broken-ev
+      (fn [] (throw (ex-info "boom-internal" {}))))
+    (rf/reg-view* :myapp/error-page
+      (fn [{:keys [status code message]}]
+        [:div.error-page
+         [:h1 "Custom error page"]
+         [:p.code (name code)]
+         [:p.status (str status)]
+         [:p.msg message]]))
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create  [:init/ok]
+                      :root-view  [:pages/broken-ev]
+                      :error-view :myapp/error-page
+                      :payload-policy :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/broken" :request-method :get})
+          body     (:body response)]
+      (is (= 500 (:status response)) "projector status rides the response")
+      (is (str/includes? body "Custom error page")
+          "the caller's :error-view rendered, not the default template")
+      (is (str/includes? body "class=\"error-page\"")
+          "the error view's own markup / styling reaches the wire")
+      (is (str/includes? body "internal-error")
+          "the public-error :code flows to the error view")
+      (is (str/includes? body "Something went wrong")
+          "the public-error :message flows to the error view")
+      (is (not (str/includes? body "boom-internal"))
+          "rf2-kzvwq: the throwable message text MUST NOT reach the wire"))))
+
+(deftest handler-render-error-view-as-fn
+  (testing "rf2-ee38b.11: :error-view accepts a 1-arity fn receiving the
+            public-error map and returning hiccup"
+    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/broken-evf
+      (fn [] (throw (ex-info "boom" {}))))
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create  [:init/ok]
+                      :root-view  [:pages/broken-evf]
+                      :error-view (fn [public]
+                                    [:section.fn-error
+                                     [:h2 "fn error view"]
+                                     [:span (:message public)]])
+                      :payload-policy :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/broken" :request-method :get})
+          body     (:body response)]
+      (is (= 500 (:status response)))
+      (is (str/includes? body "fn error view") "fn-form error view rendered")
+      (is (str/includes? body "class=\"fn-error\"") "fn view markup on the wire"))))
+
+(deftest handler-error-view-throw-falls-back-to-default-template
+  (testing "rf2-ee38b.11: a buggy :error-view (itself throwing) MUST NOT
+            bypass the error boundary — the host falls back to the
+            default error template and emits
+            :rf.error/ssr-ring-error-view-failed on the trace bus."
+    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/broken-evt
+      (fn [] (throw (ex-info "boom" {}))))
+    (let [traces (atom [])]
+      (rf/register-listener! ::error-view-throw-watch
+        (fn [ev] (when (= :rf.error/ssr-ring-error-view-failed (:operation ev))
+                   (swap! traces conj ev))))
+      (let [handler  (ssr-ring/ssr-handler
+                       {:on-create  [:init/ok]
+                        :root-view  [:pages/broken-evt]
+                        :error-view (fn [_public]
+                                      (throw (ex-info "error-view itself broke" {})))
+                        :payload-policy :rf.ssr.payload/whole-app-db})
+            response (handler {:uri "/broken" :request-method :get})
+            body     (:body response)]
+        (rf/unregister-listener! ::error-view-throw-watch)
+        (is (= 500 (:status response)) "still a 500 — boundary holds")
+        (is (str/includes? body "Something went wrong")
+            "fell back to the default error template's public :message")
+        (is (not (str/includes? body "error-view itself broke"))
+            "the error-view's own throwable message MUST NOT reach the wire")
+        (is (seq @traces)
+            ":rf.error/ssr-ring-error-view-failed trace fired for the
+             buggy error view")))))
 
 ;; ===========================================================================
 ;; ssr-handler — fn-form :root-view invoked exactly once per request (rf2-6t36h)
@@ -717,6 +839,50 @@
              :root-view [:pages/no-policy-stream]}))
         "stream-handler MUST throw at construction time when the
          policy is unset — same fail-closed contract as ssr-handler")))
+
+;; rf2-ee38b.11 — stream-handler MUST run the SAME required-opt
+;; (:on-create / :root-view) construction-time validation ssr-handler
+;; does. Pre-fix it only checked the policy + trusted-shell opts, so a
+;; misconfigured streaming handler shipped and failed per-request
+;; (missing :on-create → 500; missing :root-view → silently-truncated
+;; chunked response from the writer thread) instead of refusing to
+;; construct. Now both share `lifecycle/validate-required-opts!`.
+
+(deftest ssr-handler-construction-fails-closed-when-missing-on-create
+  (testing "rf2-ee38b.11: ssr-handler with no :on-create throws
+            :rf.error/ssr-ring-missing-on-create at construction"
+    (rf/reg-view* :pages/no-oncreate (fn [] [:div]))
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-ring-missing-on-create"
+          (ssr-ring/ssr-handler
+            {:root-view [:pages/no-oncreate]
+             :payload-policy :rf.ssr.payload/whole-app-db})))))
+
+(deftest stream-handler-construction-fails-closed-when-missing-on-create
+  (testing "rf2-ee38b.11: stream-handler with no :on-create throws
+            :rf.error/ssr-ring-missing-on-create at construction — same
+            fail-closed contract as ssr-handler (was missing pre-fix)"
+    (rf/reg-view* :pages/no-oncreate-stream (fn [] [:div]))
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-ring-missing-on-create"
+          (ssr-ring/stream-handler
+            {:root-view [:pages/no-oncreate-stream]
+             :payload-policy :rf.ssr.payload/whole-app-db})))))
+
+(deftest stream-handler-construction-fails-closed-when-missing-root-view
+  (testing "rf2-ee38b.11: stream-handler with no :root-view throws
+            :rf.error/ssr-ring-missing-root-view at construction — pre-fix
+            this surfaced only inside the writer thread, truncating the
+            chunked response instead of failing at boot"
+    (rf/reg-event-fx :init/no-rootview-stream {:platforms #{:server}} (fn [_ _] {}))
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-ring-missing-root-view"
+          (ssr-ring/stream-handler
+            {:on-create [:init/no-rootview-stream]
+             :payload-policy :rf.ssr.payload/whole-app-db})))))
 
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
   (testing "rf2-gtgf9 FAIL-CLOSED PROOF: a server-only app-db key NOT in
@@ -1311,34 +1477,41 @@
             "X-Audit append-header reached the wire (multi-valued)")))))
 
 ;; ===========================================================================
-;; rf2-depii — ensure-content-type case-insensitive normalisation
+;; rf2-depii — Content-Type default is case-insensitive (no duplicate)
 ;;
-;; The helper documents itself as case-insensitive but the prior check
-;; only matched "content-type" / "Content-Type", so any other casing
-;; (CONTENT-TYPE, CoNtEnT-TyPe) would duplicate the header. RFC 7230 §3.2
-;; — header names are tokens; tokens are case-insensitive.
+;; `headers->ring-map+default-content-type` defaults Content-Type only
+;; when the pairs don't already declare one — and the detection is
+;; case-insensitive, so any casing (CONTENT-TYPE, CoNtEnT-TyPe) of a
+;; caller-supplied header suppresses the default. RFC 7230 §3.2 —
+;; header names are tokens; tokens are case-insensitive.
+;;
+;; rf2-ee38b.11 — re-pointed at the live single-pass fn (the prior
+;; `ensure-content-type` / `headers->ring-map` helpers were orphaned by
+;; the rf2-uj9z8 single-pass refactor and have been deleted). The live
+;; fn is the production path, so the test now gives real confidence.
 ;; ===========================================================================
 
-(deftest ensure-content-type-no-duplicate-on-mixed-case
+(deftest content-type-default-no-duplicate-on-mixed-case
   (testing "rf2-depii: a preexisting Content-Type pair in ANY casing
-            short-circuits ensure-content-type — no duplicate appended"
-    (let [headers-ns (requiring-resolve 're-frame.ssr.ring.headers/ensure-content-type)]
+            suppresses the default — exactly one content-type key in the
+            folded Ring header map, carrying the CALLER's value"
+    (let [fold (requiring-resolve
+                 're-frame.ssr.ring.headers/headers->ring-map+default-content-type)]
       (doseq [casing ["content-type"
                       "Content-Type"
                       "CONTENT-TYPE"
                       "CoNtEnT-TyPe"
                       "content-Type"]]
-        (let [pairs   [[casing "application/json"]]
-              result  (headers-ns pairs "text/html; charset=utf-8")]
-          (is (= pairs result)
+        (let [pairs  [[casing "application/json"]]
+              result (fold pairs "text/html; charset=utf-8")
+              ct-keys (filter (fn [k] (= "content-type" (str/lower-case (str k))))
+                              (keys result))]
+          (is (= 1 (count ct-keys))
               (str "casing " (pr-str casing)
-                   " short-circuits — pairs returned unchanged, no duplicate"))
-          (is (= 1 (count (filter
-                            (fn [[k _v]]
-                              (= "content-type" (str/lower-case (str k))))
-                            result)))
+                   " — exactly one content-type key after the fold, no duplicate"))
+          (is (= "application/json" (get result (first ct-keys)))
               (str "casing " (pr-str casing)
-                   " — exactly one content-type pair after ensure-content-type")))))))
+                   " — the caller's Content-Type value wins, not the default")))))))
 
 ;; ===========================================================================
 ;; rf2-7ksyr — hydration payload </script> injection (security audit §P1)
