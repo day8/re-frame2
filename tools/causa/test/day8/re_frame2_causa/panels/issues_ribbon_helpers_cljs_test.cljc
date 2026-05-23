@@ -16,13 +16,14 @@
     1. **op-type → severity mapping** — every issue op-type maps to
        the correct severity bucket; non-issue op-types return nil.
     2. **issue-event?** — classifies trace events.
-    3. **category-prefix** — projects `:operation`'s keyword namespace.
+    3. **category-prefix / category-label** — project `:operation`'s
+       keyword namespace + unqualified name (the Figma row cell).
     4. **project-issue** — projects raw trace events onto row cells.
-    5. **filter axes** — severity / prefix are independent; empty
-       filters disable the axis.
+    5. **severity-badge-label** — uppercase ERROR/WARNING/ADVISORY badge.
     6. **project-feed** — top-level composite over a focused epoch
-       record; empty-kind classifier (incl. :no-focus, :epoch-evicted,
-       :no-issues, :no-matches branches per spec/021 §10.7).
+       record; empty-kind classifier (:no-focus, :epoch-evicted,
+       :no-issues branches per spec/021 §10.7). No filtering
+       (rf2-ad7zx.9 — pure rows per the Figma design).
     7. **resolve-focus-status / find-epoch-record** — focus + history
        resolver.
     8. **epoch-has-issues?** — film-strip filter-fn callback.
@@ -103,22 +104,22 @@
 (deftest severity-colour-mapping-honours-tokens
   (testing "each severity gets the shell.cljs token-equivalent colour
             (resolved through `theme/tokens` so the rf2-0fr6v
-            `:text-tertiary` contrast bump round-trips automatically)"
+            `:text-tertiary` contrast bump round-trips automatically).
+            Drives both the row's 3px left-border and the text badge
+            per the Figma design (rf2-ad7zx.9)."
     (is (= (:error    tokens/tokens) (h/severity-colour :error)))
     (is (= (:warning  tokens/tokens) (h/severity-colour :warning)))
     (is (= (:advisory tokens/tokens) (h/severity-colour :advisory)))
     (is (= (:text-tertiary tokens/tokens) (h/severity-colour :unknown)))))
 
-(deftest severity-label-stable
-  (is (= "error"    (h/severity-label :error)))
-  (is (= "warning"  (h/severity-label :warning)))
-  (is (= "advisory" (h/severity-label :advisory))))
-
-(deftest severity-glyph-stable
-  (is (= "▲" (h/severity-glyph :error)))
-  (is (= "●" (h/severity-glyph :warning)))
-  (is (= "·" (h/severity-glyph :advisory)))
-  (is (= "○" (h/severity-glyph :unknown))))
+(deftest severity-badge-label-uppercase
+  (testing "rf2-ad7zx.9 — the per-row TEXT badge is uppercase
+            ERROR / WARNING / ADVISORY per the Figma design
+            (design-reference/components/IssuesPanel.tsx)"
+    (is (= "ERROR"    (h/severity-badge-label :error)))
+    (is (= "WARNING"  (h/severity-badge-label :warning)))
+    (is (= "ADVISORY" (h/severity-badge-label :advisory)))
+    (is (= "UNKNOWN"  (h/severity-badge-label :unknown)))))
 
 ;; ---- (2) issue-event? -------------------------------------------------
 
@@ -162,58 +163,35 @@
       (is (= :error                     (:severity row)))
       (is (= :error                     (:op-type row)))
       (is (= :rf.error/handler-exception    (:operation row)))
+      (is (= "handler-exception"        (:category row))
+          "rf2-ad7zx.9 — the muted category cell is the unqualified op name")
       (is (= "rf.error"                 (:category-prefix row)))
       (is (re-find #"kaboom"            (:description row)))
       (is (some?                        (:raw row))))))
 
-;; ---- (5) filter application -----------------------------------------
+;; ---- (5) category-label / category-prefix ----------------------------
+;;
+;; rf2-ad7zx.9 — the chip-filter helpers (`passes-severity?`,
+;; `passes-category-prefix?`, `apply-filters`) and the
+;; `distinct-prefixes` enumeration were removed with the Issues panel's
+;; filter-chrome reconcile to the Figma design (pure rows, no filtering
+;; — spec/021 §8.2). The Figma row's muted `category` cell is the
+;; unqualified op name; `category-prefix` still carries the domain
+;; provenance (used for the row's title affordance).
 
-(deftest passes-severity-empty-filter-passes-all
-  (is (true? (h/passes-severity? #{} {:severity :error}))))
-
-(deftest passes-severity-filters-by-membership
-  (is (true?  (h/passes-severity? #{:error} {:severity :error})))
-  (is (false? (h/passes-severity? #{:error} {:severity :warning}))))
-
-(deftest passes-category-prefix-empty-filter-passes-all
-  (is (true? (h/passes-category-prefix? #{} {:category-prefix "rf.error"}))))
-
-(deftest passes-category-prefix-filters-by-membership
-  (is (true?  (h/passes-category-prefix? #{"rf.error"}
-                                         {:category-prefix "rf.error"})))
-  (is (false? (h/passes-category-prefix? #{"rf.error"}
-                                         {:category-prefix "rf.ssr"}))))
-
-(deftest apply-filters-composes-axes-intersectively
-  (let [issues [{:id 1 :severity :error    :category-prefix "rf.error"}
-                {:id 2 :severity :warning  :category-prefix "rf.error"}
-                {:id 3 :severity :error    :category-prefix "rf.ssr"}
-                {:id 4 :severity :advisory :category-prefix "rf.info"}]]
-    (testing "no filters → every issue passes"
-      (is (= 4 (count (h/apply-filters issues {})))))
-    (testing "severity only narrows"
-      (is (= #{1 3} (set (map :id (h/apply-filters issues
-                                                   {:severities #{:error}}))))))
-    (testing "prefix only narrows"
-      (is (= #{1 2} (set (map :id (h/apply-filters issues
-                                                   {:prefixes #{"rf.error"}}))))))
-    (testing "severity AND prefix"
-      (is (= #{1} (set (map :id (h/apply-filters
-                                  issues
-                                  {:severities #{:error}
-                                   :prefixes   #{"rf.error"}}))))))))
-
-;; ---- (6) distinct-prefixes ----------------------------------------
-
-(deftest distinct-prefixes-first-seen-order
-  (let [issues [{:category-prefix "rf.error"}
-                {:category-prefix "rf.ssr"}
-                {:category-prefix "rf.error"}
-                {:category-prefix "rf.warning"}
-                {:category-prefix nil}
-                {:category-prefix "rf.ssr"}]]
-    (is (= ["rf.error" "rf.ssr" "rf.warning"]
-           (h/distinct-prefixes issues)))))
+(deftest category-label-is-unqualified-op-name
+  (testing "the muted category cell is the operation's unqualified name"
+    (is (= "handler-exception"
+           (h/category-label (error-ev 1 :rf.error/handler-exception))))
+    (is (= "hydration-mismatch"
+           (h/category-label (warning-ev 2 :rf.ssr/hydration-mismatch))))
+    (is (= "note"
+           (h/category-label (advisory-ev 3 :rf.info/note)))))
+  (testing "falls back to the literal string for a non-keyword op"
+    (is (= "literal-string"
+           (h/category-label {:operation "literal-string"}))))
+  (testing "nil operation yields nil"
+    (is (nil? (h/category-label {:operation nil})))))
 
 ;; ---- (7) resolve-focus-status + find-epoch-record -------------------
 
@@ -277,7 +255,7 @@
 ;; ---- (8) project-feed top-level composite ---------------------------
 
 (deftest project-feed-no-focus-renders-empty
-  (let [feed (h/project-feed nil {} :no-focus)]
+  (let [feed (h/project-feed nil :no-focus)]
     (is (= []  (:issues feed)))
     (is (= 0   (:total feed)))
     (is (= 0   (:rendered feed)))
@@ -287,14 +265,14 @@
 (deftest project-feed-evicted-renders-canonical-placeholder
   (testing "spec/021 §10.7 — :epoch-evicted is the discriminator the
             view branches on to render the canonical placeholder."
-    (let [feed (h/project-feed nil {} :epoch-evicted)]
+    (let [feed (h/project-feed nil :epoch-evicted)]
       (is (= :epoch-evicted (:empty-kind feed)))
       (is (= 0 (:total feed))))))
 
 (deftest project-feed-no-issues-empty-trace-events
   (testing "focused epoch with empty :trace-events → :no-issues"
     (let [record (epoch-record 42 [])
-          feed   (h/project-feed record {} :focused)]
+          feed   (h/project-feed record :focused)]
       (is (= [] (:issues feed)))
       (is (= 0  (:total feed)))
       (is (= :no-issues (:empty-kind feed)))
@@ -304,7 +282,7 @@
   (testing "trace-events with no issue ops → :no-issues"
     (let [record (epoch-record 42 [(non-issue-ev 1)
                                    (non-issue-ev 2)])
-          feed   (h/project-feed record {} :focused)]
+          feed   (h/project-feed record :focused)]
       (is (= [] (:issues feed)))
       (is (= :no-issues (:empty-kind feed))))))
 
@@ -317,7 +295,7 @@
                     (warning-ev 3 :rf.warning/recoverable)
                     (non-issue-ev 4)
                     (advisory-ev 5 :rf.info/note)])
-          feed   (h/project-feed record {} :focused)]
+          feed   (h/project-feed record :focused)]
       (is (= 3 (:total feed)))
       (is (= 3 (:rendered feed)))
       (is (= #{1 3 5} (set (map :id (:issues feed)))))
@@ -338,7 +316,7 @@
           focus-epoch-id   nil
           focus-status     (h/resolve-focus-status focus-epoch-id hist)
           record           (h/find-epoch-record   focus-epoch-id hist)
-          feed             (h/project-feed record {} focus-status)]
+          feed             (h/project-feed record focus-status)]
       (is (= :focused focus-status))
       (is (= 6 (:epoch-id record)) "head record is the most-recent epoch")
       (is (nil? (:empty-kind feed))
@@ -380,19 +358,18 @@
     (let [record (epoch-record 2 [(non-issue-ev 1)
                                   (hydration-mismatch-ev 9)
                                   (non-issue-ev 2)])
-          feed   (h/project-feed record {} :focused)]
+          feed   (h/project-feed record :focused)]
       (is (nil? (:empty-kind feed)) "feed renders, not an empty state")
       (is (= 1 (:total feed)))
       (is (= 1 (:rendered feed)))
       (is (= [9] (mapv :id (:issues feed))))
       (let [row (first (:issues feed))]
         (is (= :error               (:severity row)))
+        (is (= "hydration-mismatch" (:category row)))
         (is (= "rf.ssr"             (:category-prefix row)))
         (is (= :rf.ssr/hydration-mismatch (:operation row)))
         (is (re-find #"Hydration mismatch" (:description row))))
-      (is (= 2 (:epoch-id feed)) "feed epoch-id reflects the focused cascade")
-      (is (= {:error 1} (:severity-counts feed)))
-      (is (= ["rf.ssr"] (:distinct-prefixes feed))))))
+      (is (= 2 (:epoch-id feed)) "feed epoch-id reflects the focused cascade"))))
 
 (deftest project-feed-hydration-mismatch-head-fallback-sub-call-site
   (testing "rf2-djuf3 — the panel's sub call-site shape: nil focus +
@@ -404,89 +381,60 @@
           focus-epoch-id nil
           focus-status   (h/resolve-focus-status focus-epoch-id hist)
           record         (h/find-epoch-record   focus-epoch-id hist)
-          feed           (h/project-feed record {} focus-status)]
+          feed           (h/project-feed record focus-status)]
       (is (= :focused focus-status))
       (is (= 2 (:epoch-id record)))
       (is (nil? (:empty-kind feed)))
       (is (= [9] (mapv :id (:issues feed)))))))
 
 (deftest project-feed-always-renders-feed-or-empty-state
-  (testing "rf2-djuf3 invariant — under EVERY focus-status the panel sub
+  (testing "rf2-djuf3 invariant (rf2-ad7zx.9 — :no-matches dropped with
+            the filter chrome) — under EVERY focus-status the panel sub
             yields a renderable shape: either the feed (empty-kind nil)
-            or exactly one of the four empty-state discriminators. The
+            or exactly one of the three empty-state discriminators. The
             feature-gate scenario waits on this union; an unhandled
             empty-kind would silently render nothing."
-    (let [renderable? #{nil :no-focus :epoch-evicted :no-issues :no-matches}]
+    (let [renderable? #{nil :no-focus :epoch-evicted :no-issues}]
       (testing ":no-focus → :no-focus empty-state"
-        (is (= :no-focus (:empty-kind (h/project-feed nil {} :no-focus)))))
+        (is (= :no-focus (:empty-kind (h/project-feed nil :no-focus)))))
       (testing ":epoch-evicted → :epoch-evicted empty-state"
         (is (= :epoch-evicted
-               (:empty-kind (h/project-feed nil {} :epoch-evicted)))))
+               (:empty-kind (h/project-feed nil :epoch-evicted)))))
       (testing ":focused + no issues → :no-issues empty-state"
         (is (= :no-issues
-               (:empty-kind (h/project-feed (epoch-record 1 []) {} :focused)))))
-      (testing ":focused + issues hidden by filters → :no-matches empty-state"
-        (is (= :no-matches
-               (:empty-kind (h/project-feed
-                              (epoch-record 1 [(hydration-mismatch-ev 9)])
-                              {:severities #{:advisory}}
-                              :focused)))))
+               (:empty-kind (h/project-feed (epoch-record 1 []) :focused)))))
       (testing ":focused + visible issue → feed (empty-kind nil)"
         (is (nil? (:empty-kind (h/project-feed
                                  (epoch-record 1 [(hydration-mismatch-ev 9)])
-                                 {}
                                  :focused)))))
       (testing "every branch's empty-kind is in the view's renderable set"
-        (doseq [[record filters status]
-                [[nil {} :no-focus]
-                 [nil {} :epoch-evicted]
-                 [(epoch-record 1 []) {} :focused]
-                 [(epoch-record 1 [(hydration-mismatch-ev 9)])
-                  {:severities #{:advisory}} :focused]
-                 [(epoch-record 1 [(hydration-mismatch-ev 9)]) {} :focused]]]
+        (doseq [[record status]
+                [[nil :no-focus]
+                 [nil :epoch-evicted]
+                 [(epoch-record 1 []) :focused]
+                 [(epoch-record 1 [(hydration-mismatch-ev 9)]) :focused]]]
           (is (contains? renderable?
-                         (:empty-kind (h/project-feed record filters status)))))))))
+                         (:empty-kind (h/project-feed record status)))))))))
 
 (deftest project-feed-newest-first
   (testing "the feed reverses the trace-events stream — newest first"
     (let [record (epoch-record 1 [(error-ev   1 :rf.error/a {:time 100})
                                   (warning-ev 2 :rf.warning/b {:time 200})
                                   (error-ev   3 :rf.error/c {:time 300})])
-          feed   (h/project-feed record {} :focused)]
+          feed   (h/project-feed record :focused)]
       (is (= [3 2 1] (mapv :id (:issues feed)))))))
 
-(deftest project-feed-empty-kind-no-matches-when-filters-hide-all
-  (testing "issues exist in the focused epoch but the chip filters hide
-            them all → :no-matches"
-    (let [record (epoch-record 1 [(error-ev 1 :rf.error/handler-exception)])
-          feed   (h/project-feed record {:severities #{:advisory}} :focused)]
-      (is (= 1 (:total feed)))
-      (is (= 0 (:rendered feed)))
-      (is (= :no-matches (:empty-kind feed))))))
-
-(deftest project-feed-histograms-are-epoch-scoped
-  (testing "severity-counts and distinct-prefixes reflect the focused
-            epoch's :trace-events — NOT a global stream"
-    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-exception)
-                                  (warning-ev 2 :rf.warning/recoverable)
-                                  (error-ev   3 :rf.ssr/hydration-mismatch)])
-          feed   (h/project-feed record {} :focused)]
-      (is (= {:error 2 :warning 1} (:severity-counts feed)))
-      (is (= ["rf.error" "rf.warning" "rf.ssr"]
-             (:distinct-prefixes feed))))))
-
-(deftest project-feed-chip-filter-anding
-  (testing "chip filters AND on top of the focused-epoch projection"
+(deftest project-feed-no-filtering-renders-every-issue
+  (testing "rf2-ad7zx.9 — the panel renders pure rows with NO filtering;
+            every issue in the focused epoch surfaces, :rendered = :total"
     (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-exception)
                                   (warning-ev 2 :rf.warning/missing-doc)
-                                  (error-ev   3 :rf.ssr/hydration-mismatch)])
-          feed   (h/project-feed record
-                                 {:severities #{:error}
-                                  :prefixes   #{"rf.error"}}
-                                 :focused)]
-      (is (= 3 (:total feed)))
-      (is (= 1 (:rendered feed)))
-      (is (= [1] (map :id (:issues feed)))))))
+                                  (advisory-ev 3 :rf.info/note)
+                                  (error-ev   4 :rf.ssr/hydration-mismatch)])
+          feed   (h/project-feed record :focused)]
+      (is (= 4 (:total feed)))
+      (is (= 4 (:rendered feed)))
+      (is (= #{1 2 3 4} (set (map :id (:issues feed))))))))
 
 ;; ---- (9) film-strip filter-fn slot ----------------------------------
 

@@ -1,15 +1,16 @@
 (ns day8.re-frame2-causa.panels.issues-ribbon-view-cljs-test
   "CLJS-side wiring + view tests for Causa's Issues panel
-  (rf2-jio48 rebuild; spec/021 §8).
+  (rf2-jio48 rebuild; Figma reconcile rf2-ad7zx.9; spec/021 §8).
 
   ## What's under test (in addition to the pure-data tests in
   `issues_ribbon_helpers_cljs_test.cljc`)
 
     1. **Registry wires the composite sub** under
-       `:rf.causa/issues-ribbon` + every filter event.
+       `:rf.causa/issues-ribbon`.
 
-    2. **Render contract** — the section + header + chip rows +
-       counts + data-testid wiring matches the production view tree.
+    2. **Render contract** — the section + feed + per-row cells +
+       data-testid wiring matches the production view tree. NO filter
+       chrome (rf2-ad7zx.9 — the Figma design renders pure rows).
 
     3. **Focused-epoch scope** (spec/021 §1.2 + §8) — when the spine
        focuses an epoch the panel surfaces ONLY that epoch's
@@ -20,25 +21,24 @@
        paints the canonical placeholder block.
 
     5. **Empty states** — `:no-focus`, `:no-issues` (positive),
-       `:epoch-evicted` (placeholder), `:no-matches` (filters hide
-       everything) each render their distinct container.
+       `:epoch-evicted` (placeholder) each render their distinct
+       container.
 
     6. **Sub-driven rendering** — when issues live in the focused
        epoch the panel renders one `<li>` per issue.
 
-    7. **Severity filter** — `:rf.causa.issues/toggle-severity` adds/
-       removes severities from the active set and the rendered rows
-       narrow to match.
+    7. **Per-row Figma chrome** — each row carries a 3px
+       severity-coloured LEFT-BORDER, an uppercase TEXT severity badge
+       in its severity colour, a muted category cell, a description, a
+       RIGHT-aligned mono timestamp, and an `↗` source affordance.
 
-    8. **Prefix filter** — `:rf.causa.issues/toggle-prefix` works the
-       same way for category prefixes.
+    8. **No filter chrome** — the severity / prefix chip rows, the
+       per-epoch counts, and the clear-filters control are GONE
+       (rf2-ad7zx.9).
 
     9. **Row interactions** — clicking a row pivots to event-detail;
-       clicking the source chip fires :open-in-editor and does NOT
+       clicking the source `↗` fires :open-in-editor and does NOT
        also pivot.
-
-   10. **Frame isolation** — the panel's filter state lives on
-       `:rf/causa`, never on `:rf/default`.
 
   ## Pure hiccup
 
@@ -51,7 +51,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-causa.preload :as preload]
+            [day8.re-frame2-causa.panels.issues-ribbon-helpers :as h]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]))
@@ -122,35 +122,38 @@
 ;; ---- (1) registry wiring ------------------------------------------------
 
 (deftest registry-installs-issues-panel-handlers
-  (testing "register-causa-handlers! installs the rf2-jio48 rebuild's
-            composite sub + every supporting event"
+  (testing "register-causa-handlers! installs the composite sub"
     (registry/register-causa-handlers!)
     (is (some? (registrar/handler :sub :rf.causa/issues-ribbon))
-        ":rf.causa/issues-ribbon sub registered")
-    (is (some? (registrar/handler :sub :rf.causa/issues-filters))
-        ":rf.causa/issues-filters sub registered")
-    (is (some? (registrar/handler :event :rf.causa.issues/toggle-severity))
-        ":rf.causa.issues/toggle-severity event registered")
-    (is (some? (registrar/handler :event :rf.causa.issues/toggle-prefix))
-        ":rf.causa.issues/toggle-prefix event registered")
-    (is (some? (registrar/handler :event :rf.causa.issues/clear-filters))
-        ":rf.causa.issues/clear-filters event registered")))
+        ":rf.causa/issues-ribbon sub registered")))
+
+(deftest legacy-filter-machinery-is-gone
+  (testing "rf2-ad7zx.9 dropped the filter chrome — the chip-filter sub +
+            events MUST NOT register (the Figma design renders pure rows)"
+    (registry/register-causa-handlers!)
+    (is (nil? (registrar/handler :sub :rf.causa/issues-filters))
+        ":rf.causa/issues-filters sub NOT registered post-reconcile")
+    (is (nil? (registrar/handler :event :rf.causa.issues/toggle-severity))
+        "toggle-severity event NOT registered post-reconcile")
+    (is (nil? (registrar/handler :event :rf.causa.issues/toggle-prefix))
+        "toggle-prefix event NOT registered post-reconcile")
+    (is (nil? (registrar/handler :event :rf.causa.issues/clear-filters))
+        "clear-filters event NOT registered post-reconcile")))
 
 (deftest legacy-since-ms-axis-is-gone
-  (testing "rf2-jio48 dropped the since-ms axis (focused-epoch scoping
-            makes it meaningless) — `:rf.causa.issues/set-since-seconds`
-            MUST NOT register"
+  (testing "the since-ms axis (dropped at rf2-jio48) stays gone —
+            `:rf.causa.issues/set-since-seconds` MUST NOT register"
     (registry/register-causa-handlers!)
     (is (nil? (registrar/handler :event :rf.causa.issues/set-since-seconds))
-        "since-seconds event NOT registered post-rebuild")))
+        "since-seconds event NOT registered")))
 
 (deftest legacy-ungrouped-lane-sub-is-gone
-  (testing "rf2-jio48 dropped the `:ungrouped` lane (focused-epoch
-            scoping renders it redundant — L2 row badges per spec/021
-            §1.2 carry the cross-epoch navigation)"
+  (testing "the `:ungrouped` lane (dropped at rf2-jio48) stays gone —
+            L2 row badges per spec/021 §1.2 carry the cross-epoch
+            navigation"
     (registry/register-causa-handlers!)
     (is (nil? (registrar/handler :sub :rf.causa.issues/ungrouped))
-        ":ungrouped lane sub NOT registered post-rebuild")))
+        ":ungrouped lane sub NOT registered")))
 
 ;; ---- (2) defaults & render contract -----------------------------------
 
@@ -171,25 +174,29 @@
     (rf/with-frame :rf/causa
       (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-ribbon"))
-            "panel container present")
-        (is (some? (find-by-testid tree "rf-causa-issues-counts"))
-            "counts span in header present")
-        (is (some? (find-by-testid tree "rf-causa-issues-severity-chips"))
-            "severity chip row present")
-        ;; rf2-6xezz · Mike-direction 2026-05-21 — the per-panel header
-        ;; icon lived inside the deleted h1 heading. The L4 tab is now
-        ;; the panel-name source-of-truth.
-        (is (nil? (find-by-testid tree "rf-causa-issues-panel-icon"))
-            "panel header icon is gone (lived in the scrubbed h1)")))))
+            "panel container present")))))
 
-(deftest since-input-removed
-  (testing "rf2-jio48 dropped the since-ms axis — the since input MUST
-            NOT render in the header"
+(deftest no-filter-chrome-renders
+  (testing "rf2-ad7zx.9 — the panel renders NO filter chrome: no chip
+            rows, no counts, no clear-filters control (the Figma design
+            renders pure rows)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (nil? (find-by-testid (issues-ribbon/Panel)
-                                "rf-causa-issues-since-input"))
-          "since-ms input is gone post-rebuild"))))
+      (seed-history!
+        [(mk-epoch 1 11 [(mk-issue {:id 1 :op-type :error
+                                    :operation :rf.error/handler-exception})])])
+      (focus! 11)
+      (let [tree (issues-ribbon/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-issues-severity-chips"))
+            "severity chip row gone")
+        (is (nil? (find-by-testid tree "rf-causa-issues-prefix-chips"))
+            "prefix chip row gone")
+        (is (nil? (find-by-testid tree "rf-causa-issues-counts"))
+            "per-epoch counts gone")
+        (is (nil? (find-by-testid tree "rf-causa-issues-clear-filters"))
+            "clear-filters control gone")
+        (is (nil? (find-by-testid tree "rf-causa-issues-epoch-chip"))
+            "header epoch chip gone")))))
 
 ;; ---- (3) empty states ---------------------------------------------------
 
@@ -241,27 +248,6 @@
         (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
             "no feed list when the focused epoch has been evicted")))))
 
-(deftest empty-state-no-matches-renders-when-filters-hide-all
-  (testing "with issues in the focused epoch but a chip filter that
-            matches nothing the panel renders the :no-matches empty-
-            state with clear-filters button"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (seed-history!
-        [(mk-epoch 1 11
-                   [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-exception})])])
-      (focus! 11)
-      ;; Toggle in a severity the issue doesn't carry — filter excludes it.
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :advisory])
-      (let [tree (issues-ribbon/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-issues-empty-no-matches"))
-            ":no-matches empty-state container present")
-        (is (some? (find-by-testid tree "rf-causa-issues-empty-clear-filters"))
-            "clear-filters button surfaces in :no-matches state")
-        (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
-            "no feed list when no rows survive filtering")))))
-
 ;; ---- (4) sub-driven rendering -------------------------------------------
 
 (deftest feed-list-renders-when-focused-epoch-has-issues
@@ -284,27 +270,11 @@
         (is (some? (find-by-testid tree "rf-causa-issues-row-2"))
             "row for issue id 2 present")))))
 
-(deftest header-surfaces-focused-epoch-id
-  (testing "the header carries the focused epoch's id chip so the
-            operator sees which epoch is in view"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (seed-history!
-        [(mk-epoch 42 142
-                   [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-exception})])])
-      (focus! 142)
-      (let [tree (issues-ribbon/Panel)
-            chip (find-by-testid tree "rf-causa-issues-epoch-chip")]
-        (is (some? chip)
-            "epoch chip rendered when focus resolves")
-        (is (re-find #"#42" (last chip))
-            "chip surfaces the focused :epoch-id")))))
+;; ---- (5) per-row Figma chrome (rf2-ad7zx.9) ----------------------------
 
-;; ---- (5) per-row chrome ---------------------------------------------
-
-(deftest each-row-surfaces-severity-glyph-and-category
-  (testing "every row surfaces the severity glyph + the category prefix"
+(deftest each-row-surfaces-figma-cells
+  (testing "every row surfaces the severity badge + category +
+            description + RIGHT-aligned timestamp"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (seed-history!
@@ -313,73 +283,19 @@
                                :operation :rf.error/handler-exception})])])
       (focus! 11)
       (let [tree (issues-ribbon/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-issues-row-3-time"))
-            "row timestamp span present")
         (is (some? (find-by-testid tree "rf-causa-issues-row-3-severity"))
-            "row severity glyph present")
+            "row severity badge present")
         (is (some? (find-by-testid tree "rf-causa-issues-row-3-category"))
-            "row category prefix span present")
+            "row category cell present")
         (is (some? (find-by-testid tree "rf-causa-issues-row-3-description"))
-            "row description span present")))))
+            "row description cell present")
+        (is (some? (find-by-testid tree "rf-causa-issues-row-3-time"))
+            "row timestamp cell present")))))
 
-(deftest severity-chip-row-renders-three-buckets
-  (testing "the severity chip-row renders one chip per bucket in
-            severity-order — error / warning / advisory"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [tree (issues-ribbon/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-error")))
-        (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-warning")))
-        (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-advisory")))))))
-
-(deftest prefix-chip-row-suppressed-when-no-issues
-  (testing "the prefix chip-row only renders when at least one issue
-            carries a prefix — with an empty focused epoch the chip-
-            row is suppressed"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (seed-history! [(mk-epoch 1 11 [])])
-      (focus! 11)
-      (is (nil? (find-by-testid (issues-ribbon/Panel)
-                                "rf-causa-issues-prefix-chips"))
-          "no prefix chip-row when focused epoch carries no issues"))))
-
-(deftest prefix-chip-row-renders-when-issues-have-prefixes
-  (testing "with an issue carrying a category prefix the chip-row
-            renders the corresponding prefix chip"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (seed-history!
-        [(mk-epoch 1 11
-                   [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-exception})])])
-      (focus! 11)
-      (let [tree (issues-ribbon/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-issues-prefix-chips"))
-            "prefix chip-row renders once at least one prefix exists")
-        (is (some? (find-by-testid tree "rf-causa-issues-prefix-chip-rf.error"))
-            "rf.error prefix chip surfaces")))))
-
-;; ---- (6) severity filter ------------------------------------------------
-
-(deftest toggle-severity-mutates-causa-frame
-  (testing ":rf.causa.issues/toggle-severity toggles set membership on
-            the Causa frame"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (is (= #{:error}
-             (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :warning])
-      (is (= #{:error :warning}
-             (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (is (= #{:warning}
-             (:severities @(rf/subscribe [:rf.causa/issues-filters])))
-          "second toggle removes the severity"))))
-
-(deftest severity-filter-narrows-rendered-rows
-  (testing "an active severity filter cuts the row list down to matching rows"
+(deftest severity-badge-is-uppercase-text-in-severity-colour
+  (testing "rf2-ad7zx.9 — the severity cell is an uppercase TEXT badge
+            (ERROR / WARNING / ADVISORY) coloured by severity, NOT a
+            glyph"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (seed-history!
@@ -387,64 +303,61 @@
                    [(mk-issue {:id 1 :op-type :error
                                :operation :rf.error/handler-exception})
                     (mk-issue {:id 2 :op-type :warning
-                               :operation :rf.warning/recoverable})
+                               :operation :rf.warning/missing-doc})
                     (mk-issue {:id 3 :op-type :info
                                :operation :rf.info/note})])])
       (focus! 11)
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :warning])
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= 3 (:total data)))
-        (is (= 1 (:rendered data)))
-        (is (= [2] (mapv :id (:issues data))))))))
+      (let [tree (issues-ribbon/Panel)
+            badge (fn [id] (find-by-testid tree (str "rf-causa-issues-row-" id "-severity")))]
+        (is (= "ERROR"    (last (badge 1))) "error badge text uppercase")
+        (is (= "WARNING"  (last (badge 2))) "warning badge text uppercase")
+        (is (= "ADVISORY" (last (badge 3))) "advisory badge text uppercase")
+        (is (= (h/severity-colour :error)
+               (-> (badge 1) second :style :color))
+            "error badge painted in the error severity colour")
+        (is (= (h/severity-colour :warning)
+               (-> (badge 2) second :style :color))
+            "warning badge painted in the warning severity colour")
+        (is (= (h/severity-colour :advisory)
+               (-> (badge 3) second :style :color))
+            "advisory badge painted in the advisory severity colour")))))
 
-;; ---- (7) prefix filter --------------------------------------------------
-
-(deftest toggle-prefix-mutates-causa-frame
-  (testing ":rf.causa.issues/toggle-prefix toggles set membership on
-            the Causa frame"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
-      (is (= #{"rf.error"}
-             (:prefixes @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
-      (is (= #{} (:prefixes @(rf/subscribe [:rf.causa/issues-filters])))
-          "second toggle removes the prefix"))))
-
-(deftest prefix-filter-narrows-rendered-rows
-  (testing "an active prefix filter cuts the row list down to matching prefixes"
+(deftest each-row-carries-severity-left-border
+  (testing "rf2-ad7zx.9 — each row carries a 3px severity-coloured
+            LEFT-BORDER per the Figma design"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
                                :operation :rf.error/handler-exception})
-                    (mk-issue {:id 2 :op-type :error
-                               :operation :rf.ssr/hydration-mismatch})])])
+                    (mk-issue {:id 2 :op-type :info
+                               :operation :rf.info/note})])])
       (focus! 11)
-      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.ssr"])
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= 1 (:rendered data)))
-        (is (= [2] (mapv :id (:issues data))))))))
+      (let [tree (issues-ribbon/Panel)
+            row  (fn [id] (find-by-testid tree (str "rf-causa-issues-row-" id)))]
+        (is (= (str "3px solid " (h/severity-colour :error))
+               (-> (row 1) second :style :border-left))
+            "error row left-border is 3px in the error colour")
+        (is (= (str "3px solid " (h/severity-colour :advisory))
+               (-> (row 2) second :style :border-left))
+            "advisory row left-border is 3px in the advisory colour")))))
 
-(deftest clear-filters-button-renders-when-filter-active
-  (testing "the header's Clear filters button surfaces iff at least one
-            filter axis is active"
+(deftest timestamp-is-right-aligned-mono
+  (testing "rf2-ad7zx.9 — the timestamp cell is mono + RIGHT-aligned
+            (Figma drops the legacy left-aligned timestamp)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (seed-history!
-        [(mk-epoch 1 11 [(mk-issue {:id 1 :op-type :error
+        [(mk-epoch 1 11 [(mk-issue {:id 7 :op-type :error
                                     :operation :rf.error/handler-exception})])])
       (focus! 11)
-      (is (nil? (find-by-testid (issues-ribbon/Panel)
-                                "rf-causa-issues-clear-filters"))
-          "no Clear filters button when no axis is active")
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (is (some? (find-by-testid (issues-ribbon/Panel)
-                                 "rf-causa-issues-clear-filters"))
-          "Clear filters button surfaces once a severity is active"))))
+      (let [tree (issues-ribbon/Panel)
+            ts   (find-by-testid tree "rf-causa-issues-row-7-time")]
+        (is (= "right" (-> ts second :style :text-align))
+            "timestamp is right-aligned")))))
 
-;; ---- (8) focused-epoch scope (spec/021 §1.2 + §8) ---------------------
+;; ---- (6) focused-epoch scope (spec/021 §1.2 + §8) ---------------------
 
 (deftest issues-panel-scopes-to-focused-epoch
   (testing "with two epochs in history the composite renders only
@@ -492,28 +405,7 @@
       (let [data-b @(rf/subscribe [:rf.causa/issues-ribbon])]
         (is (= [2] (mapv :id (:issues data-b))))))))
 
-(deftest issues-panel-focused-epoch-ands-with-chip-filters
-  (testing "user chip filters AND on top of focused-epoch scope —
-            both axes restrict the rendered feed"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (seed-history!
-        [(mk-epoch 1 11
-                   [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-exception})
-                    (mk-issue {:id 2 :op-type :warning
-                               :operation :rf.warning/recoverable})])
-         (mk-epoch 2 12
-                   [(mk-issue {:id 3 :op-type :error
-                               :operation :rf.error/handler-exception})])])
-      (focus! 11)
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
-        (is (= 2 (:total data)) "focused-epoch scope: 2 in epoch 1")
-        (is (= 1 (:rendered data)) "severity chip narrows to 1")
-        (is (= [1] (mapv :id (:issues data))))))))
-
-;; ---- (9) row interactions ------------------------------------------------
+;; ---- (7) row interactions ------------------------------------------------
 
 (deftest row-click-pivots-to-event-tab
   (testing "clicking an issue row dispatches :rf.causa/select-tab :event
@@ -539,7 +431,7 @@
             "select-tab fired to flip the visible tab to Event")))))
 
 (deftest source-coord-click-fires-open-in-editor
-  (testing "clicking the source-coord chip fires :rf.causa/open-in-editor;
+  (testing "clicking the source-coord `↗` fires :rf.causa/open-in-editor;
             stopPropagation prevents the row's pivot from also firing"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
@@ -558,7 +450,7 @@
           (let [tree    (issues-ribbon/Panel)
                 node    (find-by-testid tree "rf-causa-issues-row-8-source")
                 handler (:on-click (second node))]
-            (is (some? node) "source-coord chip rendered")
+            (is (some? node) "source-coord `↗` rendered")
             (when handler
               (handler #js {:stopPropagation #(reset! stop-evt true)}))))
         (is (some (fn [ev]
@@ -569,25 +461,6 @@
             ":rf.causa/open-in-editor fired with the projected coord")
         (is @stop-evt "stopPropagation was called so the row's pivot
                        handler doesn't also fire")))))
-
-;; ---- (10) frame isolation ----------------------------------------------
-
-(deftest issues-filter-state-does-not-leak-into-default-frame
-  (testing "the panel's filter state lives on :rf/causa, never :rf/default"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"]))
-    (let [causa-db   (frame/frame-app-db-value :rf/causa)
-          default-db (frame/frame-app-db-value :rf/default)]
-      (is (= #{:error} (:issues-active-severities causa-db))
-          "severities land on Causa")
-      (is (= #{"rf.error"} (:issues-active-prefixes causa-db))
-          "prefixes land on Causa")
-      (is (nil? (:issues-active-severities default-db))
-          "severities did NOT leak into :rf/default")
-      (is (nil? (:issues-active-prefixes default-db))
-          "prefixes did NOT leak into :rf/default"))))
 
 ;; ---- evicted-focus helper ---------------------------------------------
 

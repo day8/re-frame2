@@ -64,8 +64,9 @@
   ;; ----- 4. hydration-mismatch ---------------------------------------
   (story/reg-variant :story.causa.issues/hydration-mismatch
     {:doc        "Two `:rf.ssr/hydration-mismatch` warnings + one
-                 HTTP error. Prefix chip row surfaces the `:rf.ssr`
-                 prefix as its own axis with ≥2 chips."
+                 HTTP error. The rows surface the `hydration-mismatch`
+                 + `request-timeout` categories with their severity
+                 left-borders."
      :events     [[:rf.causa/sync-trace-buffer (fixtures/ssr-hydration-mismatch-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -101,8 +102,9 @@
   ;; ----- 8. severity mix --------------------------------------------
   (story/reg-variant :story.causa.issues/severity-mix
     {:doc        "Six issues — two of each severity. Exercises the
-                 chip-row counts at exact balance so the chip ladder
-                 is readable at a glance."
+                 three severity tiers (error / warning / advisory)
+                 side-by-side so the left-border + badge colours are
+                 readable at a glance."
      :events     [[:rf.causa/sync-trace-buffer (fixtures/severity-mix-buffer)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})

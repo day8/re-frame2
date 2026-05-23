@@ -168,7 +168,9 @@
    :rf.causa/view-scope-frame-slot
    :rf.causa/target-frame-slot
    :rf.causa/focused-slice-path
-   :rf.causa/issues-filters
+   ;; rf2-ad7zx.9 — the `:rf.causa/issues-filters` sub was dropped with
+   ;; the Issues panel's filter-chrome reconcile to the Figma design
+   ;; (pure rows, no filtering — spec/021 §8.2).
    :rf.causa/issues-ribbon
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
@@ -358,9 +360,10 @@
    :rf.causa.data-inspector/request-large-confirm
    :rf.causa.data-inspector/set-expanded
    :rf.causa.data-inspector/toggle-expanded
-   :rf.causa.issues/clear-filters
-   :rf.causa.issues/toggle-prefix
-   :rf.causa.issues/toggle-severity
+   ;; rf2-ad7zx.9 — the `:rf.causa.issues/toggle-severity` /
+   ;; `toggle-prefix` / `clear-filters` events were dropped with the
+   ;; Issues panel's filter-chrome reconcile to the Figma design (pure
+   ;; rows, no filtering — spec/021 §8.2).
    :rf.causa/add-filter
    ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
    ;; `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3.
@@ -1033,14 +1036,10 @@
       (is (false? @(rf/subscribe [:rf.causa/segment-inspector-open?])))
       (is (nil? @(rf/subscribe [:rf.causa/segment-inspector-path]))))))
 
-(deftest sub-issues-filters-default-disabled
-  (testing ":rf.causa/issues-filters has empty axes on a fresh frame"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [filters @(rf/subscribe [:rf.causa/issues-filters])]
-        (is (= #{} (:severities filters)))
-        (is (= #{} (:prefixes filters)))
-        (is (nil? (:since-ms filters)))))))
+;; rf2-ad7zx.9 — `sub-issues-filters-default-disabled` was removed with
+;; the Issues panel's filter-chrome reconcile to the Figma design (pure
+;; rows, no filtering — spec/021 §8.2). The `:rf.causa/issues-filters`
+;; sub no longer exists.
 
 (deftest sub-reactive-show-unchanged-defaults-false
   (testing ":rf.causa/reactive-show-unchanged? defaults to false
@@ -1157,31 +1156,11 @@
       (rf/dispatch-sync [:rf.causa/select-epoch nil])
       (is (nil? @(rf/subscribe [:rf.causa/selected-epoch-id]))))))
 
-(deftest event-toggle-issues-severity-roundtrip
-  (testing ":rf.causa.issues/toggle-severity adds + removes a chip"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (is (= #{:error} (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :warning])
-      (is (= #{:error :warning}
-             (:severities @(rf/subscribe [:rf.causa/issues-filters]))))
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (is (= #{:warning}
-             (:severities @(rf/subscribe [:rf.causa/issues-filters])))))))
-
-(deftest event-clear-issues-filters
-  (testing ":rf.causa.issues/clear-filters drops both chip-filter axes
-            (rf2-jio48 — since-ms axis dropped with focused-epoch
-            re-scoping; spec/021 §8)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (rf/dispatch-sync [:rf.causa.issues/toggle-prefix "rf.error"])
-      (rf/dispatch-sync [:rf.causa.issues/clear-filters])
-      (let [f @(rf/subscribe [:rf.causa/issues-filters])]
-        (is (= #{} (:severities f)))
-        (is (= #{} (:prefixes f)))))))
+;; rf2-ad7zx.9 — `event-toggle-issues-severity-roundtrip` and
+;; `event-clear-issues-filters` were removed with the Issues panel's
+;; filter-chrome reconcile to the Figma design (pure rows, no filtering
+;; — spec/021 §8.2). The `:rf.causa.issues/toggle-severity` /
+;; `toggle-prefix` / `clear-filters` events no longer exist.
 
 (deftest event-reactive-toggle-unchanged-flips-slot
   (testing ":rf.causa/reactive-toggle-unchanged toggles the panel's
