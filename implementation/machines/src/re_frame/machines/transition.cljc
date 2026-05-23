@@ -306,14 +306,30 @@
   [machine snapshot]
   (stamp-tags snapshot (compute-tags machine (:state snapshot))))
 
-(defn- normalise-on-clause
-  "The value at [:on event-id] may be:
-    a keyword              -> treat as {:target <kw>}
-    a vector of state ids  -> treat as {:target <vec>}  (absolute path)
-    a vector of maps       -> multiple guarded transitions
+(defn- normalise-candidates
+  "Normalise a transition-table value into a vector of candidate
+  transition maps. The single source of truth for the value-form grammar
+  shared by `:on`, `:after` (and, by extension, any future slot whose
+  value is a transition spec — `:always` already carries the explicit
+  candidate-vector form). Per Spec 005 §Transitions §Multiple-candidate
+  transitions and §Delayed `:after` transitions, the value may be:
+
+    a keyword              -> treat as {:target <kw>}        (sibling target)
+    a vector of state ids  -> treat as {:target <vec>}       (absolute path)
+    a vector of maps       -> multiple guarded candidates    (first guard-pass wins)
     a single transition map
-   Returns a vector of transition maps."
-  [v]
+
+  Returns a vector of candidate transition maps (possibly empty for a nil
+  value). Keeping `:on` and `:after` on this ONE normaliser is what stops
+  the two value-form grammars drifting apart — the guarded candidate-vector
+  form (`[{:guard g :target s} {:target s2 :action a}]`) resolves
+  identically whether it is reached through an `:on` clause or an `:after`
+  delay entry.
+
+  `bad-value-id` names the error category to throw for an unrecognised
+  value form so each caller surfaces its own slot-specific taxonomy
+  (`:on` → `machine-bad-on-clause`, `:after` → `machine-bad-after-spec`)."
+  [v bad-value-id]
   (cond
     (nil? v)                        []
     (keyword? v)                    [{:target v}]
@@ -322,7 +338,22 @@
          (seq v))                   v
     (vector? v)                     [{:target v}]
     (map? v)                        [v]
-    :else (throw (ex-info ":rf.error/machine-bad-on-clause" {:value v}))))
+    :else (throw (ex-info (str bad-value-id) {:value v}))))
+
+(defn- select-passing-candidate
+  "Walk `candidates` (already normalised by `normalise-candidates`) in
+  declaration order and return the first whose `:guard` passes against
+  `snapshot`/`event`, or nil if none pass. Per Spec 005 §Transition
+  resolution — first-match-wins over the candidate list, applied
+  identically wherever a transition-table value is resolved (`:on`,
+  `:after`, `:always`). An unguarded candidate (no `:guard`) always
+  passes — it is the documented unconditional fallback that ends a
+  guarded candidate list."
+  [machine candidates snapshot event]
+  (some (fn [t]
+          (when (evaluate-guard machine (:guard t) snapshot event)
+            t))
+        candidates))
 
 (defn- after-epoch-path
   "Return the path inside the snapshot's `:data` map where the
@@ -419,18 +450,29 @@
                             region (vec (rest raw-carried-decl-path))
                             :else  (vec raw-carried-decl-path))
         resolve-hit
-        (fn [prefix tspec]
-          (let [guard-ref (:guard tspec)
-                pass?     (evaluate-guard machine guard-ref snapshot event)]
-            (if pass?
+        ;; `t` is the RAW `:after` table value at this delay-key — a bare
+        ;; keyword target, a single transition map, a vector-of-state-ids
+        ;; absolute target, OR a guarded candidate-vector
+        ;; `[{:guard g :target s} {:target s2 :action a}]`. It is normalised
+        ;; and walked through the SAME candidate machinery as an `:on`
+        ;; clause (`normalise-candidates` + `select-passing-candidate`), so
+        ;; the value-form grammar can never drift between the two slots.
+        ;; Per Spec 005 §Multiple-candidate transitions / §Delayed `:after`
+        ;; transitions: first guard-pass wins; an unguarded candidate is the
+        ;; unconditional fallback.
+        (fn [prefix t]
+          (let [cands  (normalise-candidates t :rf.error/machine-bad-after-spec)
+                tspec  (select-passing-candidate machine cands snapshot event)]
+            (if tspec
               {:transition tspec
                :decl-path  prefix
                :delay      delay-key
                :epoch      carried-epoch}
-              ;; Guard returned false. Per Spec 005 §Multi-stage
-              ;; interaction with :guard: the timer is "fired and
-              ;; discarded" — no transition, no epoch advance; sibling
-              ;; :after timers continue.
+              ;; No candidate's guard passed (every guarded candidate's
+              ;; guard returned false and there is no unguarded fallback).
+              ;; Per Spec 005 §Multi-stage interaction with :guard: the
+              ;; timer is "fired and discarded" — no transition, no epoch
+              ;; advance; sibling :after timers continue.
               {:guard-suppressed? true
                :state             (last prefix)
                :delay             delay-key
@@ -451,7 +493,7 @@
           ;; Node still active and its per-path epoch matches the carried
           ;; epoch → the timer is live; resolve its transition + guard.
           (and t (= carried-epoch cur-epoch))
-          (resolve-hit decl-path (if (keyword? t) {:target t} t))
+          (resolve-hit decl-path t)
 
           ;; Node still active but the per-path epoch advanced (a re-entry
           ;; scheduled a fresh timer) → this in-flight timer is stale.
@@ -473,7 +515,7 @@
                 (when-let [t (get-in n [:after delay-key])]
                   (let [cur-epoch (node-epoch machine snapshot prefix)]
                     (if (= carried-epoch cur-epoch)
-                      (resolve-hit prefix (if (keyword? t) {:target t} t))
+                      (resolve-hit prefix t)
                       {:stale?          true
                        :state           (last prefix)
                        :delay           delay-key
@@ -498,13 +540,11 @@
   per-level matching rule applied identically at every state-node and at
   the machine root."
   [machine node event-id event snapshot]
-  (let [cands (normalise-on-clause
+  (let [cands (normalise-candidates
                 (or (get-in node [:on event-id])
-                    (get-in node [:on :*])))]
-    (some (fn [t]
-            (when (evaluate-guard machine (:guard t) snapshot event)
-              t))
-          cands)))
+                    (get-in node [:on :*]))
+                :rf.error/machine-bad-on-clause)]
+    (select-passing-candidate machine cands snapshot event)))
 
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
