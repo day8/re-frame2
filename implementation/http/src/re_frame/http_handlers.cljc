@@ -92,9 +92,11 @@
 
   The `:or {timeout-ms 30000}` clause below substitutes only when the
   key is ABSENT (Clojure destructuring semantics — `:or` does not
-  fire on an explicit `nil` value). The downstream JVM/CLJS transport
-  treats nil/0 as opt-out, so the three-way contract is preserved
-  end-to-end without any reshaping here."
+  fire on an explicit `nil` value). Both `nil` and `0` thread through
+  unchanged; the downstream JVM/CLJS transport collapses them to the
+  no-timeout opt-out via a `(pos? timeout-ms)` guard (NOT a bare
+  truthiness check — `0` is truthy in Clojure). The three-way contract
+  is thus preserved end-to-end without any reshaping here."
   [{:keys [request decode accept retry timeout-ms
            on-success on-failure request-id abort-signal]
     :or   {timeout-ms 30000}

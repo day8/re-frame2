@@ -2,11 +2,11 @@
   "URL handling for the http artefact — query-string redaction surface
   (Spec 014 §Privacy, rf2-2p8wr) plus the query-param denylist.
 
-  This namespace owns URLs end-to-end for the http artefact. Today it
-  hosts the redaction half (split, walk, redact, denylist). When the
-  http-encoding split lands (rf2-5ijhk), `url-encode`, `params->query`,
-  and `merge-params` move here too — making `http-url` the single
-  authority for URL parsing, building, and scrubbing across the artefact.
+  This namespace owns URL *redaction / scrubbing* for the http artefact
+  (split, walk, redact, denylist). URL *building* — `url-encode`,
+  `params->query`, `merge-params` — lives in `re-frame.http-encoding`
+  (the rf2-5ijhk encoding split). The two halves stay separate: redaction
+  is a privacy-leaf surface, building is an encoding concern.
 
   ## Query-param denylist (rf2-2p8wr)
 
@@ -34,6 +34,22 @@
   through), but no walker runs without the trace surface."
   (:require [clojure.set :as set]
             [clojure.string :as str]))
+
+;; ---- canonical redaction sentinel -----------------------------------------
+;;
+;; rf2-ee38b.7 — single source of truth for the framework-reserved
+;; redaction sentinel per Spec 009 §Privacy. Sits in the `:rf/` reserved-
+;; keyword namespace so apps cannot legitimately produce it as a payload
+;; value. `http-url` is the natural owner: it is the privacy leaf with no
+;; intra-privacy dependencies, so `http-privacy` and `http-privacy-headers`
+;; can both refer to it without creating a leaf→parent cycle. Consumers
+;; wanting "was this redacted?" check `(= :rf/redacted v)`.
+
+(def redacted-sentinel
+  "The framework-reserved redaction sentinel keyword per Spec 009 §Privacy.
+  Canonical home (rf2-ee38b.7) — `http-privacy` re-exports it and
+  `http-privacy-headers` refers to it."
+  :rf/redacted)
 
 ;; ---- query-param denylist (rf2-2p8wr) -------------------------------------
 
@@ -116,8 +132,11 @@
   token they can detect (`:rf%2Fredacted` once URL-encoded into the wire
   string we serialise). The unencoded form is `:rf/redacted` — identical
   text to the keyword's `pr-str` — chosen so a human inspecting a trace
-  event reads the same sentinel they see in any other redacted slot."
-  ":rf/redacted")
+  event reads the same sentinel they see in any other redacted slot.
+
+  rf2-ee38b.7 — derived from the canonical `redacted-sentinel` keyword so
+  the two forms can never drift."
+  (str redacted-sentinel))
 
 (defn- split-url-on-query
   "Split `url-str` into `[base query-string]`. `query-string` is nil
@@ -205,6 +224,11 @@
 (defn redact-url
   "Convenience wrapper around `redact-url-query-string` that returns only
   the redacted URL string. Use when the caller does not need the
-  any-redacted? flag (e.g. inside a generic tag-walker)."
+  any-redacted? flag (e.g. inside a generic tag-walker).
+
+  rf2-ee38b.7 — public for direct test assertion only; production reaches
+  URL redaction via `re-frame.http-privacy`'s `prepare-emit-*` composers
+  (which use `redact-url-query-string` directly for the flag). No
+  production caller invokes this single-value wrapper."
   [url-str sensitive?]
   (first (redact-url-query-string url-str sensitive?)))

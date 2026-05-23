@@ -11,7 +11,7 @@
             [re-frame.http-handlers]
             [re-frame.http-transport]
             [re-frame.trace :as trace])
-  (:import [java.net.http HttpRequest]
+  (:import [java.net.http HttpClient HttpClient$Redirect HttpRequest]
            [java.time Duration]
            [java.util Optional]))
 
@@ -122,6 +122,22 @@
       (is (nil? (request-timeout-ms req))
           "nil timeout-ms produces an HttpRequest with no per-request timeout"))))
 
+(deftest jvm-build-request-zero-timeout-ms-omits-jdk-timeout
+  (testing "rf2-ee38b.7 — `:timeout-ms 0` is the SECOND opt-out per Spec
+  014 §`:timeout-ms` security defaults (semantically identical to nil:
+  no per-attempt timeout). Pre-fix this was broken: `0` is truthy in
+  Clojure, so `(when timeout-ms …)` armed `(Duration/ofMillis 0)`, which
+  throws `IllegalArgumentException` on the JDK and surfaced the opt-out
+  as a spurious `:rf.http/transport` failure. The `(pos? timeout-ms)`
+  guard now collapses `0` to no-timeout. This builds the request to
+  prove it neither throws nor stamps a per-request deadline."
+    (let [req (jvm-build-request
+                {:method     :get
+                 :url        "https://example.invalid/"
+                 :timeout-ms 0})]
+      (is (nil? (request-timeout-ms req))
+          "zero timeout-ms produces an HttpRequest with no per-request timeout (and does not throw)"))))
+
 ;; ---- rf2-it1cd — normalise-args applies the 30000 default ---------------
 
 (def ^:private normalise-args @#'re-frame.http-handlers/normalise-args)
@@ -156,8 +172,12 @@
           "nil opt-out threads through unchanged"))))
 
 (deftest normalise-args-passes-explicit-zero-timeout-ms-through
-  (testing "rf2-it1cd — `:timeout-ms 0` is also an explicit opt-out
-  (the JVM transport's `(when timeout-ms ...)` skips on falsy)"
+  (testing "rf2-it1cd — `:timeout-ms 0` is also an explicit opt-out and
+  threads through normalisation unchanged. The transport then collapses
+  it to no-timeout via a `(pos? timeout-ms)` guard — NOT a bare
+  truthiness check, since `0` is truthy in Clojure. (The transport-level
+  opt-out is pinned by `jvm-build-request-zero-timeout-ms-omits-jdk-timeout`
+  below.)"
     (let [ctx (normalise-args {:request    {:url "/x"}
                                :timeout-ms 0}
                               {:event [:some/event]})]
@@ -253,6 +273,63 @@
             (is (= "https://example.invalid/v1?q=:rf/redacted&page=:rf/redacted"
                    (:url tags)))
             (is (true? (:sensitive? w)))))))))
+
+;; ---- rf2-ee38b.7 — JVM honours the spec's `:redirect` envelope key -------
+
+(def ^:private redirect->policy
+  @#'re-frame.http-transport/redirect->policy)
+
+(def ^:private jvm-http-client-for
+  @#'re-frame.http-transport/jvm-http-client-for)
+
+(deftest jvm-redirect-policy-maps-spec-values
+  (testing "rf2-ee38b.7 — `:redirect` maps onto the JDK redirect policy.
+  Spec 014 §Request envelope defaults `:redirect` to `:follow`; the JVM
+  transport previously dropped the key entirely (JDK default NEVER), so a
+  request relying on the spec default did NOT follow redirects on JVM/SSR.
+  `:follow` → NORMAL, `:error`/`:manual` → NEVER, and the default (nil /
+  unknown) → NORMAL to honour the spec default."
+    (is (= HttpClient$Redirect/NORMAL (redirect->policy :follow))
+        ":follow → NORMAL")
+    (is (= HttpClient$Redirect/NEVER  (redirect->policy :error))
+        ":error → NEVER")
+    (is (= HttpClient$Redirect/NEVER  (redirect->policy :manual))
+        ":manual → NEVER (no JDK manual analogue)")
+    (is (= HttpClient$Redirect/NORMAL (redirect->policy nil))
+        "absent :redirect → NORMAL (the spec default :follow)")
+    (is (= HttpClient$Redirect/NORMAL (redirect->policy :unknown))
+        "unknown value → NORMAL (the spec default :follow)")))
+
+(deftest jvm-http-client-honours-follow-by-default
+  (testing "rf2-ee38b.7 — the per-policy memoised client carries the right
+  `followRedirects` setting. The spec default (`:follow`/nil) yields a
+  client set to NORMAL (NOT the JDK's bare-builder default NEVER)."
+    (let [^HttpClient default-client (jvm-http-client-for nil)
+          ^HttpClient follow-client  (jvm-http-client-for :follow)
+          ^HttpClient never-client   (jvm-http-client-for :error)]
+      (is (= HttpClient$Redirect/NORMAL (.followRedirects default-client))
+          "default (nil :redirect) client follows redirects per the spec default")
+      (is (= HttpClient$Redirect/NORMAL (.followRedirects follow-client))
+          ":follow client follows redirects")
+      (is (= HttpClient$Redirect/NEVER (.followRedirects never-client))
+          ":error/:manual client does not auto-follow")
+      (is (identical? follow-client (jvm-http-client-for :follow))
+          "clients are memoised per policy — connection pool is preserved"))))
+
+;; ---- rf2-ee38b.7 — JVM timeout failure carries :limit-ms -----------------
+
+(deftest jvm-timeout-failure-carries-limit-ms
+  (testing "rf2-ee38b.7 — a JVM `:rf.http/timeout` failure now carries the
+  configured `:limit-ms` (Spec 014 §Failure categories types
+  `:rf.http/timeout` with `:elapsed-ms` / `:limit-ms`). The CLJS path
+  always populated both; the JVM path emitted nil for both. `:elapsed-ms`
+  legitimately stays nil on JVM (the JDK exposes no elapsed value)."
+    (let [classify @#'re-frame.http-transport/classify-jvm-error
+          t   (java.net.http.HttpTimeoutException. "request timed out")
+          out (classify t 5000)]
+      (is (= :rf.http/timeout (:kind out)))
+      (is (= 5000 (:limit-ms out)) ":limit-ms is threaded from the configured timeout-ms")
+      (is (nil? (:elapsed-ms out)) ":elapsed-ms stays nil on JVM"))))
 
 ;; ---- rf2-q3ts4 — classify-jvm-error no longer string-matches "abort"/"timed out" ----
 

@@ -59,20 +59,23 @@
 
   Returns the (possibly-stamped) handle so the natural-completion
   sites can hold a reference for the 2-arg `clear-in-flight!` cleanup
-  path. `request-id` and `actor-id` are both optional. When both are
-  nil the handle is unindexed and only reachable via natural
-  completion."
-  ([request-id handle]
-   (record-in-flight! request-id nil handle))
-  ([request-id actor-id handle]
-   (let [stamped (cond-> handle
-                   request-id (assoc :request-id request-id)
-                   actor-id   (assoc :actor-id actor-id))]
-     (when request-id
-       (swap! in-flight assoc request-id stamped))
-     (when actor-id
-       (swap! actor-in-flight update actor-id (fnil conj []) stamped))
-     stamped)))
+  path. `request-id` and `actor-id` are both optional (pass nil). When
+  both are nil the handle is unindexed and only reachable via natural
+  completion.
+
+  rf2-ee38b.7 — the convenience 2-arity `[request-id handle]` was
+  dropped; it had no production caller (the single call site in
+  `http-transport/run-attempt!` always passes the 3-arity with an
+  actor-id, possibly nil) and no test depended on it."
+  [request-id actor-id handle]
+  (let [stamped (cond-> handle
+                  request-id (assoc :request-id request-id)
+                  actor-id   (assoc :actor-id actor-id))]
+    (when request-id
+      (swap! in-flight assoc request-id stamped))
+    (when actor-id
+      (swap! actor-in-flight update actor-id (fnil conj []) stamped))
+    stamped))
 
 (defn- remove-from-actor-index! [actor-id handle]
   (when actor-id
