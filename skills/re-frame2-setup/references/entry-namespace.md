@@ -101,12 +101,30 @@ src/your_app/
 
 then `(:require [your-app.events] [your-app.subs] [your-app.views :as views])` in `core.cljs` so the registrations happen at load time. Use `[views/root-view]` in `rdc/render`. The folder shape is a convention; re-frame2 has no opinion about it.
 
+When you split this way, the `[re-frame.views]` require **and** the `(:require-macros [re-frame.core :refer [reg-view]])` move into `views.cljs` (they belong wherever the `reg-view` forms live, not in `core.cljs`). This matches the template, whose `core.cljs` requires neither — only the side-effecting `[your-app.views :as views]` — while `views.cljs` carries `[re-frame.views]` + the `reg-view` macro-require. The single-file counter in `first-counter.md` keeps all three in `core.cljs` because the views live there.
+
 ## UIx / Helix greenfield
 
 This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield app the wiring is the same shape with three substitutions:
 
 - **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), and swap the substrate npm/Maven deps: UIx uses `com.pitch/uix.core` + `com.pitch/uix.dom`; Helix uses `lilactown/helix`. (Drop the `reagent/reagent` pin.)
-- **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, and mount with the substrate's own root API (`uix.dom/create-root` + `render-root` for UIx) instead of `reagent.dom.client`.
+- **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, and mount with the substrate's own root API instead of `reagent.dom.client`. For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, and the view must be wrapped in the `$` element macro from `uix.core`:
+  ```clojure
+  (ns your-app.core
+    (:require [uix.core             :refer [$]]
+              [uix.dom              :as uix-dom]
+              [re-frame.core        :as rf]
+              [re-frame.adapter.uix :as uix-adapter]
+              [your-app.views       :as views]))
+
+  (defonce root (uix-dom/create-root (js/document.getElementById "app")))
+
+  (defn ^:export init []
+    (rf/init! uix-adapter/adapter)
+    (rf/dispatch-sync [:counter/initialise])
+    (uix-dom/render-root ($ views/counter-app) root))
+  ```
+  (Helix uses `(.render root ($ views/counter-app))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`.)
 - everything else (events, subs, schemas, Causa wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates.
 
 The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).

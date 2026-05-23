@@ -1,6 +1,6 @@
 # re-frame2-setup
 
-> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+> ↑ [`skills/`](../) — index of all re-frame2 skills.
 
 A `Skill` that helps `Claude Code` **scaffold a fresh [re-frame2](https://github.com/day8/re-frame2) ClojureScript project** — from an empty directory to a working, mounted counter.
 
@@ -41,7 +41,7 @@ The canonical seven-step greenfield path:
 1. Discover the current re-frame2 VERSION (the eleven artefacts ship in lockstep; Causa rides the same line).
 2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-causa`, plus an explicit `reagent/reagent`.
 3. Add `react`, `react-dom`, `shadow-cljs` to `package.json`. Run `npm install`.
-4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Causa `:devtools/preloads` wiring), plus `public/index.html` carrying the `[data-rf-causa-host]` column.
+4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Causa `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-causa-host]` column.
 5. Write the entry namespace — `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`.
 6. Write the first counter — registered event, registered sub, `reg-view`-defined view, mount.
 7. Run `shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
