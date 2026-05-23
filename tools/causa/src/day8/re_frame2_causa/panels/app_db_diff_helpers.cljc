@@ -298,15 +298,36 @@
   [db]
   (apply dissoc (or db {}) reserved-app-db-keys))
 
+(def no-diff
+  "Sentinel `:before` value meaning 'no pre-image available, render
+  current-state (no `← changed` annotation)'. Distinct from a real
+  `nil` before-image (a slot that was genuinely absent / nil before the
+  cascade) so the renderer can tell 'don't diff' apart from 'diff
+  against nil'. Pure data."
+  ::no-diff)
+
 (defn- instances-of
   "Decompose a map-of-instances reserved-area value into an ordered
-  vector of `{:id <instance-id> :value <per-instance-state>}` maps,
-  sorted by `(pr-str id)` for stable render order. Returns `[]` when
-  the value is absent / not a map / empty. Pure data → data."
-  [area-value]
+  vector of `{:id <instance-id> :value <per-instance-state>
+  :before <prior-per-instance-state-or-no-diff>}` maps, sorted by
+  `(pr-str id)` for stable render order. Returns `[]` when the value is
+  absent / not a map / empty.
+
+  `before-area` is the SAME reserved-area value from the cascade's
+  `db-before` (or `no-diff` when no pre-image is threaded). Each
+  instance's `:before` is the prior value at that instance id, so the
+  renderer can carry the inline `← changed` annotation (spec/021 §4.3).
+  When `before-area` is `no-diff` every instance is tagged `no-diff` —
+  current-state only. Pure data → data."
+  [area-value before-area]
   (if (and (map? area-value) (seq area-value))
     (->> area-value
-         (map (fn [[id v]] {:id id :value v}))
+         (map (fn [[id v]]
+                {:id     id
+                 :value  v
+                 :before (if (= no-diff before-area)
+                           no-diff
+                           (get before-area id no-diff))}))
          (sort-by (comp pr-str :id))
          vec)
     []))
@@ -333,32 +354,58 @@
   `:kind :instances` + an `:instances` vector (one entry per id);
   every other reserved area is `:kind :singleton` + a `:value`.
 
+  ## Inline diff (spec/021 §4.3, rf2-ad7zx.11)
+
+  Every section ALSO carries a `:before` slot — the SAME slice from the
+  cascade's `db-before` (the TOP user-domain section, each instance, each
+  singleton). The renderer threads `:before` + `:value` into the shared
+  §10 diff renderer so changed nodes carry the inline `← changed from X`
+  annotation in place (ancestor chain force-expanded). When no pre-image
+  is threaded — the 1-arity form, or LIVE-at-boot with no prior epoch —
+  `:before` is the `no-diff` sentinel and the renderer falls back to the
+  plain current-state inspector (no annotation). A `:before` that equals
+  `:value` is a real (non-diff) match — the renderer skips the
+  annotation but stays on the diff engine, which renders identically to
+  current-state for unchanged trees.
+
   Pure data → data. JVM-runnable. nil-safe throughout (absent db,
-  empty db, absent reserved keys, empty registries)."
-  [db]
-  (let [db (or db {})]
-    {:top   (user-domain-db db)
-     :areas (vec
-              (for [area reserved-area-order]
-                (let [present?    (contains? db area)
-                      area-value  (get db area)]
-                  (if (contains? map-of-instances-areas area)
-                    (let [instances (instances-of area-value)]
-                      {:area      area
-                       :kind      :instances
-                       :empty?    (empty? instances)
-                       :instances instances})
-                    {:area   area
-                     :kind   :singleton
-                     ;; A singleton is empty when the key is absent, or
-                     ;; present-but-nil, or present-but-empty-collection
-                     ;; (e.g. `{}` pending-nav). Scalars / non-empty
-                     ;; collections are non-empty.
-                     :empty? (or (not present?)
-                                 (nil? area-value)
-                                 (and (coll? area-value)
-                                      (empty? area-value)))
-                     :value  area-value}))))}))
+  empty db, absent reserved keys, empty registries, absent before-db)."
+  ([db] (current-state-sections db no-diff))
+  ([db db-before]
+   (let [db          (or db {})
+         diff?       (not= no-diff db-before)
+         before-db   (if diff? (or db-before {}) no-diff)
+         before-area (fn [area]
+                       (if diff?
+                         (get before-db area no-diff)
+                         no-diff))]
+     {:top   (user-domain-db db)
+      :before-top (if diff?
+                    (user-domain-db before-db)
+                    no-diff)
+      :areas (vec
+               (for [area reserved-area-order]
+                 (let [present?    (contains? db area)
+                       area-value  (get db area)]
+                   (if (contains? map-of-instances-areas area)
+                     (let [instances (instances-of area-value
+                                                    (before-area area))]
+                       {:area      area
+                        :kind      :instances
+                        :empty?    (empty? instances)
+                        :instances instances})
+                     {:area   area
+                      :kind   :singleton
+                      ;; A singleton is empty when the key is absent, or
+                      ;; present-but-nil, or present-but-empty-collection
+                      ;; (e.g. `{}` pending-nav). Scalars / non-empty
+                      ;; collections are non-empty.
+                      :empty? (or (not present?)
+                                  (nil? area-value)
+                                  (and (coll? area-value)
+                                       (empty? area-value)))
+                      :value  area-value
+                      :before (before-area area)}))))})))
 
 ;; ---- 'Show me when this changed' walker ---------------------------------
 

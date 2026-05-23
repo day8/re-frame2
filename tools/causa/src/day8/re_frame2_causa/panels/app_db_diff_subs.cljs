@@ -304,21 +304,34 @@
         (h/epochs-touching-path history focused-path)
         [])))
 
-  ;; ---- rf2-okvit — current-state section model -------------------------
+  ;; ---- rf2-okvit / rf2-ad7zx.11 — current-state + inline-diff sections -
   ;;
-  ;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style),
-  ;; not a diff. This sub decomposes the observed frame's LIVE app-db
+  ;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style)
+  ;; that ALSO carries the focused epoch's diff inline (spec/021 §4.1 —
+  ;; "what does state LOOK LIKE — and what just changed?"). This sub
+  ;; decomposes the observed frame's LIVE app-db
   ;; (`:rf.causa/target-frame-db`, which follows the picker / focused
   ;; frame) into the section model `current-state-sections` produces:
   ;; the TOP user-domain section (app-db minus reserved keys) + one
   ;; section per reserved `:rf/*` area (machines/spawned fan out per
-  ;; instance; route + the other slices are singletons). nil-safe — an
-  ;; absent / empty db yields an empty TOP + every reserved area flagged
-  ;; `:empty?`.
+  ;; instance; route + the other slices are singletons).
+  ;;
+  ;; The focused epoch record's `:db-before` is threaded as the diff
+  ;; PRE-IMAGE (spec/021 §4.3) so each section's changed nodes carry the
+  ;; inline `← changed from X` annotation in place. When no epoch is
+  ;; focusable (cold boot, no cascades) the record is nil and the
+  ;; sections render plain current-state — `current-state-sections`
+  ;; falls back to its `no-diff` sentinel automatically.
+  ;;
+  ;; nil-safe — an absent / empty db yields an empty TOP + every
+  ;; reserved area flagged `:empty?`.
   (rf/reg-sub :rf.causa/app-db-state
     :<- [:rf.causa/target-frame-db]
-    (fn [db _query]
-      (h/current-state-sections db)))
+    :<- [:rf.causa/selected-epoch-record]
+    (fn [[db record] _query]
+      (if-let [before (:db-before record)]
+        (h/current-state-sections db before)
+        (h/current-state-sections db))))
 
   ;; rf2-fvplw — `:target-frame` in the composite output is the
   ;; *observed* frame (picker-selected / focused-cascade frame), not
