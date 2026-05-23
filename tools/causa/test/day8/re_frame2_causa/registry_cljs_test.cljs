@@ -327,6 +327,9 @@
    :rf.causa/trace-buffer
    ;; rf2-7dyi8 — per-row inline payload expansion state (spec/021 §5.4).
    :rf.causa/trace-expanded-row-ids
+   ;; rf2-ad7zx.8 — per-group reactive-aftermath collapse state
+   ;; (spec/021 §5.2 — collapsible reactive aftermath group).
+   :rf.causa/trace-expanded-group-ids
    ;; rf2-td380 — epoch-scoped feed (reads the focused epoch record's
    ;; `:trace-events` directly). The `:rf.causa/trace-feed-state`
    ;; buffer snapshot + `:rf.causa/trace-filters` chip-filter slot were
@@ -584,6 +587,9 @@
    ;; rf2-7dyi8 — toggle the inline payload expansion for one trace row
    ;; (per spec/021 §5.4 — Row → expand payload · Inline in panel).
    :rf.causa/toggle-trace-row-expand
+   ;; rf2-ad7zx.8 — toggle one reactive-aftermath collapse group open
+   ;; (per spec/021 §5.2 — ▸ reactive aftermath (N subs, M renders)).
+   :rf.causa/toggle-trace-group-expand
    ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
    ;; Views per §11.5; tab key stays `:views`).
    :rf.causa/reactive-set-unchanged
