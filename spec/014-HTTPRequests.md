@@ -103,7 +103,7 @@ The `:request` map carries the wire shape. Keys are minimal and chosen to be hos
 | `:params` | no | map | Query-string params. Encoded URL-safely; merged onto `:url`. Per Spec 012 §URL-encoding rules. |
 | `:body` | no | clj coll / string / `FormData` / `Blob` / `ArrayBuffer` / **thunk `(fn [] body)`** | The request body. See [§Body encoding](#body-encoding). A thunk is invoked at request-send time (after backoff delays elapse), so very-large payloads aren't held in memory between dispatch and send and retries can re-invoke for a fresh handle. |
 | `:request-content-type` | no | `:json` / `:form` / `:text` / explicit MIME / `nil` | Sugar for setting `Content-Type` + serialising `:body`. `:json` runs `pr-str → JSON.stringify` (CLJS) / Cheshire (JVM). `:form` URL-encodes a clj map. |
-| `:credentials` | no | `:omit` / `:same-origin` / `:include` | Default: `:same-origin`. |
+| `:credentials` | no | `:omit` / `:same-origin` / `:include` | Default: `:same-origin`. CLJS-only; JVM ignores (see [§JVM transport](#jvm-transport--degraded-behaviour-for-cljs-only-options)). |
 | `:mode` | no | `:cors` / `:no-cors` / `:same-origin` / `:navigate` | CLJS-only; Fetch passthrough. JVM ignores. |
 | `:redirect` | no | `:follow` / `:error` / `:manual` | Default: `:follow`. |
 | `:cache` | no | Fetch cache directive | CLJS-only passthrough. |
@@ -112,7 +112,7 @@ The `:request` map carries the wire shape. Keys are minimal and chosen to be hos
 
 #### JVM transport — degraded behaviour for CLJS-only options
 
-Five keys on the args map / request envelope are **CLJS-only** — semantically meaningful against the browser Fetch API and ignored by the JVM's `java.net.http.HttpClient`-backed transport. A request that carries any of them on the JVM proceeds normally; the option is **silently no-op** and the runtime emits one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace per occurrence so consumers (Causa, Story, off-box monitors) can spot the degraded code path:
+Six keys on the args map / request envelope are **CLJS-only** — semantically meaningful against the browser Fetch API and ignored by the JVM's `java.net.http.HttpClient`-backed transport. A request that carries any of them on the JVM proceeds normally; the option is **silently no-op** and the runtime emits one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace per occurrence so consumers (Causa, Story, off-box monitors) can spot the degraded code path:
 
 | Key | Where | JVM behaviour |
 |---|---|---|
@@ -121,8 +121,9 @@ Five keys on the args map / request envelope are **CLJS-only** — semantically 
 | `:cache` | `:request` map | Ignored. The Fetch cache directive has no `HttpClient` equivalent. |
 | `:referrer` | `:request` map | Ignored. Browser-only request-context. |
 | `:integrity` | `:request` map | Ignored. Subresource-integrity is a browser-only verification path. |
+| `:credentials` | `:request` map | Ignored. The browser same-origin/`:include` cookie model has no faithful `HttpClient` analogue — the shared client configures no `CookieHandler`, so cookies are neither sent nor stored regardless of the value. (Unlike `:redirect`, which IS honoured on the JVM via the redirect-policy client.) |
 
-The trace event's `:tags` carry the key name, the request URL, and `:sensitive?` from the request envelope per [§Privacy](#privacy); a request whose URL falls under the query-param denylist or whose handler is marked `:sensitive?` has the URL redacted on the way to the trace surface. The trace is informational only — there is no `:rf.error/*` for this path, and the request is not classified as a failure. Cross-host portable code SHOULD avoid these five keys when JVM support matters, or feature-flag them at the call site. See also [§`:rf.http/cors` is CLJS-only](#rfhttpcors-is-cljs-only) for the symmetric failure-category asymmetry.
+The trace event's `:tags` carry the key name, the request URL, and `:sensitive?` from the request envelope per [§Privacy](#privacy); a request whose URL falls under the query-param denylist or whose handler is marked `:sensitive?` has the URL redacted on the way to the trace surface. The trace is informational only — there is no `:rf.error/*` for this path, and the request is not classified as a failure. Cross-host portable code SHOULD avoid these six keys when JVM support matters, or feature-flag them at the call site. See also [§`:rf.http/cors` is CLJS-only](#rfhttpcors-is-cljs-only) for the symmetric failure-category asymmetry.
 
 ### Body encoding
 
