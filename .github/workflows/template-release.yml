@@ -126,6 +126,7 @@ jobs:
         uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
         with:
           cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
