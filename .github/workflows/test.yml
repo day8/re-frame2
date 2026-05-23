@@ -1817,6 +1817,16 @@ jobs:
       - name: Run story-mcp end-to-end MCP-client conformance
         run: npm run test:story
 
+      # Cross-MCP operator-opt-in CLI flag-vocabulary conformance
+      # (rf2-ee38b.20). Boots story-mcp without / with / with-a-legacy
+      # `--allow-writes` spelling and asserts the default-OFF write gate +
+      # the hard-rename-rejection rule over the MCP wire. Lives in this
+      # job because it needs `clojure` (the JVM story-mcp server), same as
+      # `test:story`. The pair-mcp `--allow-eval` wire counterpart rides
+      # the hermetic live-subscribe path in `mcp-conformance-re-frame2-pair`.
+      - name: Run cross-MCP CLI flag-vocabulary conformance
+        run: npm run test:flag-gates
+
   # ---------------------------------------------------------------------------
   # MCP conformance — JVM wire-vocab gates (rf2-rto1l).
   #

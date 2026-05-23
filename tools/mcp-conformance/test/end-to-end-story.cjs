@@ -22,7 +22,9 @@
 // CI for no loss of coverage:
 //
 //   1. connect (initialize + notifications/initialized via SDK)
-//   2. tools/list — confirm 19 tools advertised
+//   2. tools/list — confirm the advertised catalogue matches story-mcp's
+//      own `tool-names.json` fixture (count-free per NAMING.md
+//      §"Single source of truth for tool counts")
 //   3. register-variant — write a fixture variant
 //   4. get-variant — read it back; assert the body :doc round-trips
 //      through the EDN text payload (ex-live-server smoke #1)
@@ -128,6 +130,48 @@ runWithWatchdog(
       'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
     );
 
+    // 2e. Closed-world read-path SUCCESS-envelope conformance
+    // (rf2-ee38b.20). The completeness lens noted the harness walked
+    // only the write-loop tools and asserted error-only shapes elsewhere
+    // — no story-mcp `list-*` read was ever invoked, so a success-path
+    // `CallToolResultSchema` parse / structuredContent drift on the read
+    // surface (the exact bug class this harness exists to catch) could
+    // ship unobserved. story-mcp's `list-*` reads are closed-world (no
+    // runtime needed) and return a non-error envelope regardless of the
+    // write gate, so they cover the success path here with zero extra
+    // setup. Each routes through the SDK's `CallToolResultSchema` parse.
+    //
+    // NOTE: `get-story-instructions` is deliberately NOT walked here. It
+    // declares an `:outputSchema` but returns text-only (no
+    // structuredContent), so the SDK's high-level `callTool` rejects it
+    // with `-32600` ("has an output schema but did not return structured
+    // content"). That is a latent story-mcp tool defect surfaced by this
+    // very broadening (the tool was never SDK-driven before) — tracked
+    // separately, out of scope for the conformance-harness bead. The
+    // `list-*` reads below DO emit structuredContent and are the clean
+    // success-envelope coverage.
+    for (const readTool of ['list-substrates', 'list-modes', 'list-tags']) {
+      const r = await client.callTool({ name: readTool, arguments: {} });
+      if (r.isError) {
+        throw new Error(
+          'closed-world read ' + readTool + ' MUST succeed (isError=false) ' +
+            'with no runtime; got: ' + JSON.stringify(r),
+        );
+      }
+      if (r.structuredContent === undefined || r.structuredContent === null ||
+          typeof r.structuredContent !== 'object' ||
+          Array.isArray(r.structuredContent)) {
+        throw new Error(
+          readTool + ' success envelope MUST carry a JSON-object ' +
+            ':structuredContent slot; got: ' + JSON.stringify(r),
+        );
+      }
+    }
+    console.log(
+      'OK   closed-world reads (list-substrates/list-modes/list-tags) ' +
+        '-> success envelopes',
+    );
+
     // 3. register-variant — body as an EDN string so JSON's lack of
     // keyword support doesn't dilute the assertion (Cheshire would
     // coerce {"doc": "..."} into a string-keyed map, which Story's
@@ -147,9 +191,16 @@ runWithWatchdog(
       throw new Error('register-variant failed: ' + JSON.stringify(regResp));
     }
     const regStruct = regResp.structuredContent || {};
-    if (regStruct.registered !== true && regStruct['registered?'] !== true) {
+    // Pin the SINGLE canonical key story-mcp emits: `:registered?`
+    // (Cheshire keeps the `?` on the keyword → JSON key `registered?`;
+    // pinned JVM-side by tools_test.clj `(-> reg :structuredContent
+    // :registered?)`). The earlier `registered || registered?`
+    // alternation tolerated two spellings — masking exactly the
+    // envelope-key drift the rest of this harness pins single-spelling
+    // (`unregistered?`, `passing?`, `content-hash`). rf2-ee38b.20.
+    if (regStruct['registered?'] !== true) {
       throw new Error(
-        'register-variant did not report registered=true: ' + JSON.stringify(regResp),
+        "register-variant did not report :registered? true: " + JSON.stringify(regResp),
       );
     }
     console.log('OK   register-variant -> ' + FIXTURE_VARIANT + ' registered');

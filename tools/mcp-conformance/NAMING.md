@@ -248,6 +248,7 @@ pair-mcp's data shape) and reads at the operator semantic level.
 |---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|------------------|
 | `--allow-eval`            | Enable an arbitrary-CLJS-form evaluator tool (`eval-cljs`). Default OFF; calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` when the flag is absent. | re-frame2-pair-mcp               | rf2-zyoj2 / rf2-cxx5s |
 | `--allow-sensitive-reads` | Honour caller-supplied `:include-sensitive true` (and pair-mcp's `:elision false`) on direct-read tools. Default OFF; sensitive slots return `:rf/redacted` and large slots elide regardless of the per-call arg when the flag is absent. | re-frame2-pair-mcp, story-mcp    | rf2-2x3ql (alignment), rf2-c2dtu (pair-mcp impl), rf2-uaymx / rf2-g9fje (story-mcp impl) |
+| `--allow-writes`          | Enable the registry write surface (`register-variant` / `unregister-variant`). Default OFF; gated calls return `isError: true` + `structuredContent {:gated true :tool "<name>"}` when the flag is absent. | story-mcp                        | story-mcp IMPL-SPEC §7.3 (003-Write-Surface-Gating.md) |
 
 ### Rules
 
@@ -269,6 +270,26 @@ pair-mcp's data shape) and reads at the operator semantic level.
   surfaces that don't require cross-server lockstep. pair-mcp retains
   `raw-state-allowed?` / `:allow-raw-state?` internally even though the
   CLI flag aligned on `--allow-sensitive-reads`.
+
+### Wire-level conformance (rf2-ee38b.20)
+
+The flag table's default-OFF posture and the hard-rename rule are pinned
+end-to-end (over the real MCP wire) by the conformance harness:
+
+- **story-mcp `--allow-writes`** — `test/end-to-end-flag-gates.cjs`
+  boots story-mcp without / with / with-a-legacy spelling and asserts the
+  gate stays closed by default (`structuredContent.gated`), opens only on
+  the canonical spelling, and is NOT re-opened by an unrecognised flag
+  (the no-alias rule). Runs on CI in the `mcp-conformance-story` job.
+- **re-frame2-pair-mcp `--allow-eval`** — `test/live-re-frame2-pair-subscribe.cjs`
+  (which boots a non-degraded server WITHOUT `--allow-eval`) asserts the
+  `:rf.error/eval-cljs-disabled` envelope crosses the wire. This is the
+  one boot configuration where pair-mcp's eval gate is observable: in
+  degraded mode (no nREPL) every tool short-circuits to
+  `:nrepl-port-not-found` before the gate runs, so the wire check needs a
+  live runtime (the hermetic orchestrator provides one on CI). The
+  pair-mcp parser rename-rejection (legacy `--allow-raw-state` ⇒ gate
+  stays closed) is pinned unit-side by `raw_state_test.cljs`.
 
 ## How to extend this table
 

@@ -14,10 +14,11 @@ it was dropped per rf2-hvl1g — AI agent access to Causa state flows via
 A prior false-start drop was tracked under rf2-bu21t; rf2-hvl1g is the
 final close-out.)
 
-There are **five top-level wire markers** plus one embedded fetch-handle
-tag (`:rf.elision/at`, pinned inside the `:rf.size/large-elided` body's
-`:handle` slot — not a standalone marker an agent encounters at the top
-level of a payload):
+There are **six top-level wire markers** (the `canonical-markers` table
+in `wire_vocab_test.clj` is the source of truth) plus one embedded
+fetch-handle tag (`:rf.elision/at`, pinned inside the
+`:rf.size/large-elided` body's `:handle` slot — not a standalone marker
+an agent encounters at the top level of a payload):
 
 ```
 :rf.mcp/overflow       — token-budget overflow marker
@@ -25,6 +26,7 @@ level of a payload):
 :rf.mcp/dedup-table    — structural-dedup wrapper
 :rf.mcp/diff-from      — diff-encoded :db-after marker
 :rf.size/large-elided  — size-elision wire marker
+:rf.mcp/cache-hit      — per-session response-cache hit marker
 :rf.elision/at         — embedded fetch-handle tag inside the
                          :rf.size/large-elided body's :handle slot
                          (pinned via ElisionMarkerBody, not a

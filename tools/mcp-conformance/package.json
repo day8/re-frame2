@@ -10,6 +10,7 @@
     "test:re-frame2-pair-live-subscribe": "node test/live-re-frame2-pair-subscribe.cjs",
     "test:re-frame2-pair-live-overflow-hermetic": "node scripts/run-live-re-frame2-pair-overflow-hermetic.cjs",
     "test:story": "node test/end-to-end-story.cjs",
+    "test:flag-gates": "node test/end-to-end-flag-gates.cjs",
     "test:exec-safety": "node --test test/exec-safety.test.cjs",
     "test": "node scripts/test-all.cjs"
   },
