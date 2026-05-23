@@ -45,13 +45,18 @@
 
   ## Single, URL-bound frame
 
-  The step-deck registers ONE frame and lets it own the browser URL
-  (the default — `:url-bound? true`). Because there is exactly one
-  routed frame, tab navigation (`:rf.route/navigate`, fired by the
-  panel's tab bar) syncs the address bar and the back button with no
-  two-frame URL race (contrast the two-frame testbed, which registers
-  both frames non-url-bound per Spec 012 §Multi-frame routing). Open
-  `/machine` directly and the frame lands on the Machine tab.
+  The step-deck registers ONE content frame (`:step-deck`) and makes it
+  the sole owner of the browser URL. Per Spec 012 §Multi-frame routing a
+  non-default frame is `:url-bound? false` by default, so this mount must
+  do TWO things to claim the URL (rf2-6qgbs.3): register `:rf/default`
+  `:url-bound? false` to release the auto-registered default frame's
+  implicit ownership, then register `:step-deck` `:url-bound? true` so it
+  becomes the one explicit URL owner. Because there is then exactly one
+  routed, url-bound frame, tab navigation (`:rf.route/navigate`, fired by
+  the panel's tab bar) syncs the address bar and the back button with no
+  two-frame URL race (contrast the two-frame testbed, which keeps BOTH
+  frames non-url-bound). Open `/machine` directly and the frame lands on
+  the Machine tab.
 
   ## Shared testdeck modules — reused verbatim
 
@@ -246,11 +251,29 @@
   ;; the right project-root on its first paint of any chip.
   (causa-config/configure! {:rf.causa/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
-  ;; Register the single frame URL-bound (the default). With exactly one
-  ;; routed frame there is no URL race — tab nav (the panel's
-  ;; `:rf.route/navigate`) syncs the address bar and back button. The
-  ;; `:on-create` boot (`:testdeck/initialise`, registered once globally
-  ;; in `testdeck.panel`) seeds the frame's app-db for all four tabs and
-  ;; lands it on the default tab.
-  (rf/reg-frame frame-id {:on-create [:testdeck/initialise]})
+  ;; URL ownership (Spec 012 §Multi-frame routing). The content lives in
+  ;; the NON-DEFAULT frame :step-deck, but a non-default frame defaults to
+  ;; `:url-bound? false` — its route changes would stay in-memory and the
+  ;; address bar would never move (rf2-6qgbs.3). The step-deck is
+  ;; single-frame and OWNS the URL, so it must be the one URL-bound frame:
+  ;;
+  ;;   - :rf/default is registered `:url-bound? false` to RELEASE the
+  ;;     implicit ownership the auto-registered default frame holds. Without
+  ;;     this opt-out `url-owner-frame-id` keeps awarding the URL to
+  ;;     :rf/default (its missing `:url-bound?` reads as default-true), so a
+  ;;     bare `:step-deck {:url-bound? true}` would lose the tie.
+  ;;   - :step-deck is registered `:url-bound? true` so it becomes the sole
+  ;;     URL owner: `:rf.nav/push-url` now fires for its tab nav and the
+  ;;     address bar + back button track the active tab.
+  ;;
+  ;; With default opted out and exactly one explicit owner there is no
+  ;; two-frame URL race (contrast `two-frame-isolation.core`, which keeps
+  ;; BOTH frames non-url-bound for per-frame in-memory routing). The
+  ;; `:on-create` boot (`:testdeck/initialise`, registered once globally in
+  ;; `testdeck.panel`) seeds the frame's app-db for all four tabs and lands
+  ;; it on the default tab — its `[:rf.route/navigate …]` now also pushes
+  ;; the initial `/counter` URL.
+  (rf/reg-frame :rf/default {:url-bound? false})
+  (rf/reg-frame frame-id {:url-bound? true
+                          :on-create  [:testdeck/initialise]})
   (rdc/render react-root [root]))
