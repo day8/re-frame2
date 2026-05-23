@@ -284,7 +284,7 @@ Precedence inside the standard transition lookup, **at each level**:
 1. Explicit event match at this level.
 2. `:*` wildcard at this level.
 
-The wildcard fires after specific matches **at the same level**. Only if neither matches does the runtime walk up to the next level and try again — so `:*` at the leaf shadows an explicit match on the parent for the same event. The full leaf-up-to-root walk is canonically specified at [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough); for a flat machine the path is one level deep and the two-step rule above is the whole story. If no level matches, the snapshot is unchanged and the runtime emits a single `:rf.warning/machine-unhandled-event` trace (see [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough) for the canonical name; consistent with the other `:rf.warning/machine-*` advisory categories).
+The wildcard fires after specific matches **at the same level**. Only if neither matches does the runtime walk up to the next level and try again — so `:*` at the leaf shadows an explicit match on the parent for the same event. The full leaf-up-to-root walk is canonically specified at [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough); for a flat machine the path is one level deep and the two-step rule above is the whole story. If no level matches, the snapshot is unchanged and the runtime emits a single `:rf.error/machine-unhandled-event` trace (see [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough) for the canonical name; consistent with the other `:rf.error/machine-*` advisory categories).
 
 ### Self-transitions (external vs internal)
 
@@ -1025,7 +1025,7 @@ To resolve an event, the runtime walks the active path from **leaf up to root**,
 6. Top-level (root) `:on` — explicit match.
 7. Top-level `:on` — `:*` wildcard.
 
-If no level matches, the snapshot is unchanged and the runtime emits `:rf.warning/machine-unhandled-event` (see [009](009-Instrumentation.md)). This is the canonical name; older drafts used `:rf.machine.event/unhandled` — that form is superseded.
+If no level matches, the snapshot is unchanged and the runtime emits `:rf.error/machine-unhandled-event` (see [009](009-Instrumentation.md)). This is the canonical name; older drafts used `:rf.warning/machine-unhandled-event` and `:rf.machine.event/unhandled` — those forms are superseded.
 
 The deepest-wins rule means a child state can **override** a parent's transition for the same event by declaring its own. Combined with parent fallthrough, this is how hierarchy factors common behaviour to the parent (every authenticated descendant inherits `:logout`) while still allowing local override.
 
@@ -1165,10 +1165,10 @@ Every event delivered to a parallel-region machine is **broadcast** to every reg
 Three outcomes per region:
 
 - **Region's state has a matching `:on` entry whose guard passes.** That region transitions: exit cascade → action → entry cascade. `:fx` accumulated by the region's actions joins the macrostep's `:fx` vector.
-- **Region's state has no matching `:on` entry.** That region's `:state` is unchanged. No `:rf.warning/machine-unhandled-event` fires *unless every region declines the event* (see below).
+- **Region's state has no matching `:on` entry.** That region's `:state` is unchanged. No `:rf.error/machine-unhandled-event` fires *unless every region declines the event* (see below).
 - **Region's matching `:on` entry has a guard that returns false.** Same as "no match" — region stays put, no warning fires for that region alone.
 
-If **every region** declines the event (no region matched a transition), the machine as a whole emits `:rf.warning/machine-unhandled-event` exactly once, matching the flat-machine semantics. If **any** region handled the event, the snapshot commits with that region's transition applied and the warning is suppressed.
+If **every region** declines the event (no region matched a transition), the machine as a whole emits `:rf.error/machine-unhandled-event` exactly once, matching the flat-machine semantics. If **any** region handled the event, the snapshot commits with that region's transition applied and the warning is suppressed.
 
 The post-broadcast snapshot's `:state` is the map of region-name → that region's new state value. Regions that didn't transition keep their prior value in place.
 
@@ -1572,7 +1572,7 @@ A state may have multiple in-flight transition triggers concurrently:
 2. The transition's exit cascade runs (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)).
 3. As part of the exit cascade, the runtime advances the exited node's per-path `:rf/after-epoch` entry — every other in-flight `:after` timer from the just-exited state goes stale on its eventual firing.
 4. Any `:spawn`-spawned child is destroyed via `:rf.machine/destroy` (the desugared `:exit` action). Per the [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) contract (rf2-wvkn), in-flight `:rf.http/managed` requests inside the destroyed child cascade to abort — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
-5. User-dispatched events queued for the just-exited state but not yet drained are processed by the now-current state's `:on` map (which may handle them, route to `:*` wildcard, or emit `:rf.warning/machine-unhandled-event`).
+5. User-dispatched events queued for the just-exited state but not yet drained are processed by the now-current state's `:on` map (which may handle them, route to `:*` wildcard, or emit `:rf.error/machine-unhandled-event`).
 
 The cancellation cascade is **uniform across triggers** — the runtime does not distinguish "the timer fired" from "the user dispatched" from "the child completed" at the cascade level; each is just an event at the parent's handler boundary that resolves to a transition out of the state. The `:rf.machine.timer/stale-after` traces ([§Trace events](#trace-events)) are how observers see "this `:after` was racing and lost."
 
@@ -1777,7 +1777,7 @@ For a parent state with `:spawn {:machine-id :child …}` (or for a hand-emitted
 5. **`:rf.machine/spawn` fx handler runs.** The child's spec is resolved (registered `:machine-id` or inline `:definition`); `synthesise-initial-snapshot` produces the child's initial snapshot with `:rf/bootstrap-pending? true`, the runtime-stamped `:data` keys (`:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` — per [§Runtime stamps](#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7)), and the user-supplied initial `:data` merged on top; the snapshot is installed at `[:rf/machines <spawned-id>]`; the child's event handler is registered at the spawned-id. The runtime spawn-registry slot at `[:rf/spawned <parent-id> <invoke-id>]` is written for the declarative-`:spawn` case.
 6. **Child's first event is dispatched** — `[<spawned-id> <:start arg>]` when the spawn args carried `:start`, otherwise the synthetic `[<spawned-id> [:rf.machine/spawned]]` (per rf2-ijm7). The two paths are mutually exclusive; the child receives exactly one of the two as its first event, never both.
 7. **Child's initial-entry cascade fires** (per [§Initial-state `:entry` fires on machine bootstrap (rf2-0z73)](#initial-state-entry-fires-on-machine-bootstrap-rf2-0z73)). For a flat child the single initial state's `:entry` runs; for a compound child every `:entry` along the initial chain runs shallowest-first. This cascade runs **before** the first event's `:on` lookup, so `:entry`-emitted `:fx` is concatenated ahead of the first event's transition fx. `:rf/bootstrap-pending?` is cleared by the same drain.
-8. **Child processes the first event.** The event vector arrived in step 6 is now resolved through the child's `:on` map (deepest-wins per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). For the synthetic `[:rf.machine/spawned]` path with no matching handler this resolves as a benign no-op (`:rf.warning/machine-unhandled-event` is NOT emitted for `:rf.machine/spawned` — it's the canonical kick-off shape).
+8. **Child processes the first event.** The event vector arrived in step 6 is now resolved through the child's `:on` map (deepest-wins per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). For the synthetic `[:rf.machine/spawned]` path with no matching handler this resolves as a benign no-op (`:rf.error/machine-unhandled-event` is NOT emitted for `:rf.machine/spawned` — it's the canonical kick-off shape).
 
 The same skeleton applies to `:spawn-all`'s N children (per [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all)) with steps 2–5 fanning out once per child and a single join-bookkeeping write at `[:rf/spawned <parent-id> <invoke-all-id>]`.
 

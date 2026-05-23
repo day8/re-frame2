@@ -72,14 +72,14 @@ Causa's chrome is two zones, one purpose each:
 ┌──────────────────────────────────────────────────────────────────────┐
 │  L1 ribbon · L2 epoch timeline                ← MOVING BETWEEN epochs│
 ├──────────────────────────────────────────────────────────────────────┤
-│  L4 panels (8 lenses on the focused epoch)    ← DEPTH INTO one epoch │
+│  L4 panels (7 lenses on the focused epoch)    ← DEPTH INTO one epoch │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 **Top** carries the only cross-epoch signal — the L2 epoch timeline + its
 per-row badges (`⚠ ◆ 🌐 ⚡ 💧 🌊 ⏲`) and the dispatch-origin tag prefix
 (`user / fx / route / hyd / ws / timer / tool / internal`). **Bottom** is
-eight L4 panels each answering "what happened in this epoch?" through its
+seven L4 panels each answering "what happened in this epoch?" through its
 own lens. **No third axis. No cross-epoch L4 panels.**
 
 ### §1.1 The epoch — eight steps, two perspectives
@@ -1511,7 +1511,7 @@ h1/h2 face.
 
 ## §15 What's deliberately NOT in this design
 
-- **No 4th L4 panel.** The 8-panel set is the contract; sub-layer
+- **No 4th L4 panel.** The 7-panel set is the contract; sub-layer
   surfaces inline in Reactive + App-db (§3.3).
 - **No cross-epoch L4 views.** Per §1.2. Aggregate signals live on L2
   badges only.
@@ -1669,8 +1669,8 @@ The mockups in §1-§9 already pick these. §17.1.5 binds them.
 |---|---|---|
 | ⚠ | Issue (error or warning) emitted this epoch | `:red` |
 | ◆ | State machine transition this epoch | `:green` |
-| 🌐 | Route navigation this epoch | `:yellow` |
-| ⚡ | HTTP request lifecycle touched | `:orange` |
+| 🌐 | HTTP request lifecycle touched (managed-HTTP settle / response) | `:orange` |
+| ⚡ | fx-emit child — dispatched from a parent's `do-fx` | `:magenta` |
 | 💧 | SSR hydration phase | `:cyan` |
 | 🌊 | A flow recomputed | `:accent-violet` |
 | ⏲ | Timer-triggered dispatch | `:text-tertiary` |
