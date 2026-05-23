@@ -71,8 +71,8 @@
 (defn- edge-stroke
   [{:keys [active? focused?]}]
   (cond
-    focused? (:accent-static tokens/tokens)
-    active?  (:accent-static tokens/tokens)
+    focused? (:info tokens/tokens)
+    active?  (:info tokens/tokens)
     :else    (:border-default tokens/tokens)))
 
 (defn- edge-stroke-width

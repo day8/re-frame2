@@ -171,7 +171,7 @@
             is replaced by `tokens/with-alpha` which builds a CSS-Color-4
             color-mix(...) string that composites the active theme's
             CSS variable with `transparent`."
-    (doseq [k [:accent :red :green :accent-static :yellow]
+    (doseq [k [:accent :red :green :info :yellow]
             pct [10 33 50 75]]
       (let [v (tokens/with-alpha k pct)]
         (is (string? v))

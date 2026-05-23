@@ -24,10 +24,11 @@ When implementing Causa (CLJS / hiccup) against this:
 
 1. **Translate faithfully** — match this layout, these components, this structure. Do **not**
    redesign, "improve", or revert to the prior Causa look.
-2. **Swap the colour identity to ORANGE.** The export shipped a generic GitHub-blue accent
-   (`--devtools-active: #0969da`); the real identity is **orange** per
-   [`../spec/022-Design-Tokens.md`](../spec/022-Design-Tokens.md) (`accent #F97316`/`#EA580C`,
-   `accent-static` cyan for Static mode). The blue is the *only* deliberate divergence.
+2. **Keep the Figma blue/neutral colour identity (rf2-ad7zx.13).** The export ships a
+   GitHub-style blue accent (`--devtools-active: #539bf5` dark / `#0969da` light); that single
+   blue **is** the identity per [`../spec/022-Design-Tokens.md`](../spec/022-Design-Tokens.md)
+   (`accent #539bf5`/`#0969da`). There is no per-mode colour swap — match the export's palette
+   exactly.
 3. **Where the prior spec (007-UX-IA / 021-Dynamic-Panel-Designs) differs from this design,
    the Figma design wins** — they reconcile to it. The lone carve-out is functional semantic
    colours the mock didn't render (redacted / pair-origin / perf tiers), kept because the

@@ -50,68 +50,67 @@
 ;; ---- per-theme palettes -------------------------------------------------
 
 (def dark-palette
-  "Dark-theme colour tokens lifted from `spec/007-UX-IA.md` §Dark theme
-  tokens. The default Causa palette; `tokens` is an alias of this map
-  so the 357 inline `(:bg-1 tokens)` call sites keep resolving without
-  a runtime switch (the CSS-variable migration is the v1.0 styling
-  pass)."
+  "Dark-theme colour tokens — the GitHub-style blue/neutral palette the
+  Figma export ships (`tools/causa/design-reference/styles/devtools.css`
+  + `theme.css`, rf2-ad7zx.13). The default Causa palette; `tokens` is
+  an alias of this map so the inline `(:bg-1 tokens)` call sites keep
+  resolving without a runtime switch (the CSS-variable migration is the
+  v1.0 styling pass).
+
+  ## Single accent (rf2-ad7zx.13)
+
+  The earlier orange-identity scheme (`brand`=orange, per-mode
+  `accent-dynamic`/`accent-static` with a Dynamic-orange/Static-cyan
+  swap) is removed — the Figma design carries a SINGLE accent (blue
+  `#539bf5` dark / `#0969da` light). The Dynamic/Static MODE stays as a
+  functional mode; it no longer drives accent colour."
   {;; ── surfaces ──
-   :bg-0           "#0E0F12"
-   :bg-1           "#15171B"
-   :bg-2           "#1B1E24"
-   :bg-3           "#232730"
-   :bg-active      "#2A2F3D"
+   ;; Neutral GitHub-dark ramp anchored on the Figma chrome-bg (#1c1c1c).
+   :bg-0           "#161616"   ; deepest recess (below chrome)
+   :bg-1           "#1c1c1c"   ; chrome-bg (Figma --devtools-chrome-bg)
+   :bg-2           "#242424"   ; panel surface (raised)
+   :bg-3           "#2a2a2a"   ; popovers / strip (= Figma --devtools-hover)
+   :bg-active      "#2a2a2a"
 
    ;; ── borders ──
-   :border-subtle  "#232730"
-   :border-default "#2F3441"
+   :border-subtle  "#2a2a2a"
+   :border-default "#373737"   ; Figma --devtools-border
 
-   ;; ── text ──
-   ;; `:text-tertiary` was bumped from `#6B7080` to `#8990A0`
-   ;; (rf2-0fr6v, audit finding #7). The old hex landed at ~3.5:1 on
-   ;; `:bg-1` — below WCAG 2.1 AA's 4.5:1 floor for body text. The
-   ;; token is used in ~50 inline-style call sites (relative-time
-   ;; chip, hint text, settings field hints, inactive tab labels,
-   ;; "no events" empty state, palette result-count, etc.) — most
-   ;; at the caption / micro size where the small-text 4.5:1
-   ;; threshold applies. The new hex lands at ~4.7:1 on `:bg-1`
-   ;; (passes AA) without flipping the visual rhythm — still
-   ;; reads as muted/secondary against the dark surfaces.
-   :text-primary   "#E8EAF0"
-   :text-secondary "#A8AEC0"
-   :text-tertiary  "#8990A0"
+   ;; ── text ── (Causa carries three text levels; Figma ships two
+   ;; — `--devtools-text` + `--devtools-text-muted`. Primary = Figma
+   ;; text; tertiary = Figma text-muted (#8b949e); secondary is a
+   ;; brighter mid (#adbac7, GitHub fg.muted) so all three clear WCAG
+   ;; AA on the dark surfaces — AAA for primary/secondary.)
+   :text-primary   "#e6edf3"   ; Figma --devtools-text (AAA on bg-1)
+   :text-secondary "#adbac7"   ; brighter mid (AAA ≥7:1 on bg-1)
+   :text-tertiary  "#8b949e"   ; Figma --devtools-text-muted (AA ≥4.5:1 on bg-1/bg-2)
 
-   ;; ── brand + mode accents (orange identity — rf2-ad7zx / spec/022) ──
-   ;; `brand` is the logo/wordmark colour and is ALWAYS orange in either
-   ;; mode. `accent-dynamic` / `accent-static` are the per-mode accents;
-   ;; `accent` is the RUNTIME ALIAS the `.mode-dynamic` / `.mode-static`
-   ;; root class points at the active mode's accent (active tab · mode
-   ;; stripe · selected states · focus ring · changed/recompute). Its
-   ;; default value here is the Dynamic (orange) accent — `themes-css`
-   ;; re-points the `--rf-causa-accent` variable at `accent-static`
-   ;; under `.mode-static` so the whole shell turns cyan in Static.
-   :brand          "#F97316"
-   :accent-dynamic "#F97316"
-   :accent-static  "#43C3D0"
-   :accent         "#F97316"   ; runtime alias → accent-dynamic by default
+   ;; ── accent (single blue — Figma --devtools-active / --devtools-changed) ──
+   ;; `accent` is the SINGLE accent every chrome surface reads (active
+   ;; tab · mode stripe · selected states · focus ring · changed/
+   ;; recompute · L4 header stripe). Figma has no per-mode colour swap.
+   :accent         "#539bf5"
 
-   ;; ── semantic + change (spec/022 §Semantic & change) ──
-   :error          "#F85149"
-   :warning        "#FBBF24"   ; warnings; also the filter "N hidden" chrome
-   :advisory       "#79A6D2"   ; lowest Issues severity — calm, cool, ≠ warning
-   :success        "#3FB950"
-   :dim            "#6E7681"   ; dimmed / inert / unchanged
-   :hover          "#232730"   ; hover background (= bg-3)
+   ;; ── semantic + change (Figma devtools.css) ──
+   :error          "#f85149"   ; Figma --devtools-error
+   :warning        "#d29922"   ; Figma --devtools-warning
+   :advisory       "#79c0ff"   ; lowest Issues severity — calm cool blue (= syntax-number)
+   :success        "#3fb950"   ; Figma --devtools-success
+   :dim            "#6e7681"   ; dimmed / inert / unchanged (Figma --devtools-unchanged)
+   :hover          "#2a2a2a"   ; hover background (Figma --devtools-hover, = bg-3)
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    ;; These do REAL semantic work — perf tiers, machine state, route
    ;; side-channel, redaction, op-family legends — and are NOT collapsed
-   ;; into the brand/mode accent.
-   :green          "#4ADE80"
-   :yellow         "#FBBF24"
-   :orange         "#FB923C"
+   ;; into the accent. `:info` is the cool informational blue (Figma
+   ;; syntax-number) used as a fixed categorical hue DISTINCT from the
+   ;; primary `:accent` (e.g. spine-paused, sub-run, route-from).
+   :green          "#3fb950"
+   :yellow         "#d29922"
+   :orange         "#FB923C"   ; functional amber — long-task / perf-slow tier
    :red            "#F87171"
    :magenta        "#E879F9"
+   :info           "#79c0ff"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
    ;; ── deep variants (rf2-5kfxe.4) ──
    ;; Darker variant of `:red` used as a danger-button background. The
@@ -128,64 +127,54 @@
    :white          "#ffffff"})
 
 (def light-palette
-  "Light-theme colour tokens per `spec/007-UX-IA.md` §Colour system —
-  'Light theme inverts lightness (bg-0 #FAFBFC, bg-1 #F1F3F6, bg-2
-  #FFFFFF); accents darken slightly to maintain contrast'. (rf2-5kfxe.6)
+  "Light-theme colour tokens — the GitHub-style blue/neutral light
+  palette the Figma export ships (`design-reference/styles/devtools.css`
+  + `theme.css`, rf2-ad7zx.13).
 
   Surfaces invert (bg-0 is the *lightest* deepest-canvas tone, bg-3
-  the most saturated chrome); text inverts so primary is near-black;
-  borders subtle in greys; accents darken ~15-20% to maintain AA
-  contrast on the white canvas.
+  the chrome strip); text inverts so primary is near-black; borders are
+  light mid-greys; the single accent darkens to GitHub blue `#0969da`
+  to maintain AA contrast on the white canvas.
 
   Consumed via the per-theme CSS custom-property block emitted by
   `theme/global-styles/themes-css`. The class toggle
   (`rf-causa-theme-light` on the shell root, written by
-  `settings/effects/apply-theme!`) flips which block is in scope. The
-  357 inline-style call sites that read `(:bg-1 tokens)` continue to
-  resolve against the dark palette — the light-theme surface is the
-  CSS-variable layer until the v1.0 sweep migrates inline styles
-  through to it."
+  `settings/effects/apply-theme!`) flips which block is in scope."
   {;; ── surfaces ── (lighter as the depth increases — bg-2 is the
    ;; brightest 'top' canvas, bg-0 the gentlest 'recess')
-   :bg-0           "#FAFBFC"
-   :bg-1           "#F1F3F6"
-   :bg-2           "#FFFFFF"
-   :bg-3           "#E6E9EE"
-   :bg-active      "#DCE0E7"
+   :bg-0           "#fbfbfb"
+   :bg-1           "#f5f5f5"   ; chrome-bg (Figma --devtools-chrome-bg)
+   :bg-2           "#ffffff"   ; panel surface
+   :bg-3           "#e8e8e8"   ; popovers / strip (= Figma --devtools-hover)
+   :bg-active      "#e8e8e8"
 
-   ;; ── borders ── (lighter mid-greys; the gap between subtle and
-   ;; default mirrors the dark palette's discrimination)
-   :border-subtle  "#E6E9EE"
-   :border-default "#CFD4DC"
+   ;; ── borders ── (light mid-greys)
+   :border-subtle  "#e8e8e8"
+   :border-default "#d1d1d1"   ; Figma --devtools-border
 
    ;; ── text ── (near-black down to mid-grey)
-   :text-primary   "#15171B"
-   :text-secondary "#4B5160"
-   :text-tertiary  "#8B92A1"
+   :text-primary   "#24292f"   ; Figma --devtools-text
+   :text-secondary "#656d76"   ; Figma --devtools-text-muted
+   :text-tertiary  "#8c959f"   ; deeper muted (= Figma --devtools-unchanged)
 
-   ;; ── brand + mode accents (orange identity — rf2-ad7zx / spec/022) ──
-   ;; Each ~15-20% darker than the dark palette to maintain ≥4.5:1 large-
-   ;; text contrast on the white canvas. `accent` default = the Dynamic
-   ;; (orange) accent; `.mode-static` re-points it at `accent-static`.
-   :brand          "#EA580C"
-   :accent-dynamic "#EA580C"
-   :accent-static  "#2A8B96"
-   :accent         "#EA580C"   ; runtime alias → accent-dynamic by default
+   ;; ── accent (single blue — Figma --devtools-active / --devtools-changed) ──
+   :accent         "#0969da"
 
-   ;; ── semantic + change (spec/022 §Semantic & change) ──
-   :error          "#CF222E"
-   :warning        "#B07A05"
-   :advisory       "#3B6EA5"
-   :success        "#1A7F37"
-   :dim            "#8C959F"
-   :hover          "#E6E9EE"
+   ;; ── semantic + change (Figma devtools.css) ──
+   :error          "#cf222e"   ; Figma --devtools-error
+   :warning        "#9a6700"   ; Figma --devtools-warning
+   :advisory       "#0550ae"   ; cool advisory blue (= syntax-number)
+   :success        "#1a7f37"   ; Figma --devtools-success
+   :dim            "#8c959f"   ; Figma --devtools-unchanged
+   :hover          "#e8e8e8"   ; Figma --devtools-hover
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
-   :green          "#2F9E5C"
-   :yellow         "#B07A05"
-   :orange         "#C2570F"
+   :green          "#1a7f37"
+   :yellow         "#9a6700"
+   :orange         "#C2570F"   ; functional amber — long-task / perf-slow tier
    :red            "#C84444"
    :magenta        "#B146C2"
+   :info           "#0550ae"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
    ;; ── deep variants ──
    ;; On the light canvas the danger button stays close to the
@@ -509,23 +498,22 @@
   "Pure semantic map from L4 tab keyword → token keyword for the
   panel's header stripe colour.
 
-  ## Orange identity (rf2-ad7zx / spec/022 · spec/007 §L4 panel accent
+  ## Single accent (rf2-ad7zx.13 / spec/022 · spec/007 §L4 panel accent
   stripe)
 
   The prior per-panel DOMAIN-colour mapping (`:event` violet ·
   `:app-db`/`:views` cyan · `:trace` orange · `:machines` green ·
   `:routing` yellow · `:issues` red) is **superseded**. The Figma
-  export carries a SINGLE accent identity — every panel's 3px header
-  stripe reads the mode `accent` (orange in Dynamic, cyan in Static),
-  so the stripe is the MODE signal, not a per-panel domain colour. This
-  keeps the whole devtool reading orange in Dynamic / cyan in Static,
-  with surfaces neutral so the accent pops.
+  export carries a SINGLE accent identity (GitHub blue) — every panel's
+  3px header stripe reads `:accent`, so the stripe is a consistent
+  signal, not a per-panel domain colour. Surfaces stay neutral so the
+  blue accent pops.
 
-  Every tab therefore maps to the runtime `:accent` alias. Domain
-  colour still does load-bearing work INSIDE each panel where it is
-  semantic (`error` red in Issues, machine `green`, route `yellow`,
-  the op-family bands in Trace, the per-panel header icons §021
-  §17.1.5) — but the HEADER STRIPE is the mode accent.
+  Every tab therefore maps to the `:accent` token. Domain colour still
+  does load-bearing work INSIDE each panel where it is semantic
+  (`error` red in Issues, machine `green`, route `yellow`, the
+  op-family bands in Trace, the per-panel header icons §021 §17.1.5) —
+  but the HEADER STRIPE is the single accent.
 
   The map is retained (rather than collapsed to a constant) so the
   per-tab inventory stays explicit and a future per-panel signal can
@@ -544,14 +532,13 @@
 
 (defn panel-accent
   "Resolve the L4 panel's header-stripe accent CSS-variable string —
-  the mode `accent` (orange in Dynamic, cyan in Static) per spec/007
-  §L4 panel accent stripe + spec/022. Falls back to the `:accent`
-  variable for unknown tab keywords so the stripe always renders.
+  the single `:accent` (GitHub blue) per spec/007 §L4 panel accent
+  stripe + spec/022. Falls back to the `:accent` variable for unknown
+  tab keywords so the stripe always renders.
 
   Returns a `\"var(--rf-causa-<key>)\"` string post rf2-on4cm — the
   active theme class scope on the shell root decides which palette's
-  hex resolves at paint time, and the `.mode-dynamic` / `.mode-static`
-  root class decides whether `--rf-causa-accent` is orange or cyan."
+  hex (`#539bf5` dark / `#0969da` light) resolves at paint time."
   [tab]
   (get tokens
        (get panel-domain->token tab :accent)))

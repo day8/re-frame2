@@ -34,7 +34,7 @@
   [kind]
   (let [{:keys [letter colour title]}
         (case kind
-          :on-match  {:letter "M" :colour (:accent-static tokens) :title ":on-match"}
+          :on-match  {:letter "M" :colour (:info tokens)          :title ":on-match"}
           :can-leave {:letter "L" :colour (:yellow tokens)        :title ":can-leave"}
           :tags      {:letter "T" :colour (:magenta tokens)       :title ":tags"}
           :parent    {:letter "P" :colour (:accent tokens) :title ":parent"}

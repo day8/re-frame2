@@ -97,10 +97,10 @@ Wireframe at default (reconciled to the Figma design — `design-reference/App.t
 The four layers, top to bottom:
 
 1. **L1 — Two ribbons (rf2-4vp5j).** A **chrome ribbon** carries the **`❖ Causa`
-   logo/wordmark** (always orange `brand`), then scope selectors (`Frame ▾` view-scope
+   logo/wordmark** (the single blue `accent`), then scope selectors (`Frame ▾` view-scope
    dropdown + `Dynamic / Static ▾` **mode dropdown**) on the left, and chrome actions
    (`⚙` settings + `✕` close) on the right. Below it an **events ribbon** carries the spine
-   + filter chrome: `Events:` label · nav (`◀` `▶` `⏭`) · the focus chip (`🎯 focus`, mode
+   + filter chrome: `Events:` label · nav (`◀` `▶` `⏭`) · the focus chip (`🎯 focus`, the
    accent) · the active filter pills (each removable, `×`) + a `[+]` add-pill · and `Clear
    Filters` at the far right. (`⛶` popout is omitted — silent-by-default until the
    second-window UX lands.) LIVE/RETRO surfaces in the L2 event-list spine itself; the chrome
@@ -114,8 +114,8 @@ The four layers, top to bottom:
 3. **L3 — Tab bar (40px).** Seven tabs in the order the Figma export fixes:
    **Event · app-db · Views · Trace · Machine · Routes · Issues**. Letter mnemonics:
    `e` `a` `v` `t` `m` `r` `i`. Each tab renders its **label only** (no `◉`/`○` glyph — Figma
-   design rf2-ad7zx); the **active tab fills with the mode `accent`** (orange in Dynamic, cyan in
-   Static) + white text, inactive tabs are plain with a hover background. (The Figma export labels
+   design rf2-ad7zx); the **active tab fills with the single `accent`** (GitHub blue) + white
+   text, inactive tabs are plain with a hover background. (The Figma export labels
    the reactive tab `Views` and the machines tab `Machine`; the spec elsewhere uses the
    rf2-e33ad display label `View` and `Machines`. The export wins on the rendered label per
    rf2-ad7zx; the internal panel-registry keys stay `:views` / `:machines`.) Routes was promoted
@@ -157,7 +157,7 @@ source of truth.
 | Property | Default | Purpose |
 |---|---|---|
 | `--rf-causa-inline-width` | `560px` | `flex-basis` of the inline host. Default bumped 420 → 560 under rf2-9ovfb. |
-| `--rf-causa-accent` | `#F97316` | Causa's brand **orange** (matches `brand` / `accent` in §Colour system; rf2-ad7zx — the brand moved violet → orange). Published on `:root` in the recommended host snippet so host stylesheets can colour their own dev chrome to harmonise with Causa (rf2-9ovfb). |
+| `--rf-causa-accent` | `#539bf5` | Causa's single **GitHub blue** accent (matches `accent` in §Colour system; rf2-ad7zx.13). Published on `:root` in the recommended host snippet so host stylesheets can colour their own dev chrome to harmonise with Causa (rf2-9ovfb). |
 
 Override either property anywhere up the cascade; the closest
 declaration wins as usual. The published spelling is also exported
@@ -260,9 +260,9 @@ the two scope dropdowns, then the chrome actions at the far right.
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Logo** | left | `❖ Causa` wordmark — the brand anchor, **always orange** (`brand`), semibold. | — |
+| **Logo** | left | `❖ Causa` wordmark — the brand anchor, the single blue `accent`, semibold. | — |
 | **Frame** | left | `Frame ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Mode** | left | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the mode-accent stripe carries the mode signal. | `Cmd/Ctrl-Shift-M` |
+| **Mode** | left | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the dropdown's active option + `data-active-mode` carry the mode signal (the chrome stripe is the single blue accent in both modes — rf2-ad7zx.13). | `Cmd/Ctrl-Shift-M` |
 | **Right-icons** | right | `⚙` settings popup · `✕` close shell (`:rf.causa/close-shell`). `⛶` popout is omitted (reserved for the second-window UX — silent by default). | `,` or `s` · `Esc` |
 
 The silent-by-default `🔇 N` mute + `● N` REDACTED indicators are **functional surfaces painted
@@ -556,7 +556,7 @@ walkthrough locks the list (rf2-ttnst):
 | # | Tab | Mnemonic | Content |
 |---|---|---|---|
 | 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Power user:** "Show tool frames in picker" toggle (off by default) |
-| 2 | **Theme** | `t` | Dark / Light (the accent follows the mode — orange in Dynamic, cyan in Static, per §Colour system; per-tab default-expansion knob dropped) |
+| 2 | **Theme** | `t` | Dark / Light (a single GitHub-blue accent in both modes, per §Colour system; per-tab default-expansion knob dropped) |
 | 3 | **Filters** | `f` | Active filter pills mirror · auto-filter-UI quick-open |
 | 4 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
 | 5 | **Buffer** | `b` | `:buffer/retained-epochs` · `:trace-buffer/keep` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
@@ -579,7 +579,7 @@ typing into numeric knobs is not interrupted.
 | Actions tab + factory-reset BIG RED BUTTON | Factory-reset stays code-only (`config/reset-settings!`) — a destructive UI button has no use case the confirm modal beneath "Clear buffer" does not already cover. |
 | Density Comfy tier | Two tiers cover the rhythm need; the third was a styling-pass aspiration with no observed demand. |
 | Per-tab default expansion (`:bookish` / `:dense`) | Each tab owns its expansion default; no global knob. |
-| Accent user-swap | The accent is fixed by mode (orange Dynamic / cyan Static, per §Colour system); light/dark theme is the only user colour axis. |
+| Accent user-swap | The accent is a single fixed GitHub blue (per §Colour system); light/dark theme is the only user colour axis. |
 | Sub-output diff layout (`:unified` / `:split` toggle) | Fixed unified. |
 | Section-grouping threshold | Fixed defaults; not user-tuneable. |
 | Popout as its own tab | Folds into General's Panel-position sub-section. |
@@ -751,43 +751,43 @@ high-contrast.
 ### Dark theme tokens
 
 ```
-Surfaces:  bg-0 #0E0F12  (backdrop)
-           bg-1 #15171B  (sidebar, top strip)
-           bg-2 #1B1E24  (panels)
-           bg-3 #232730  (popovers)
-           bg-active #2A2F3D  (hover, selected)
+Surfaces:  bg-0 #161616  (backdrop)
+           bg-1 #1c1c1c  (sidebar, top strip — Figma --devtools-chrome-bg)
+           bg-2 #242424  (panels)
+           bg-3 #2a2a2a  (popovers — Figma --devtools-hover)
+           bg-active #2a2a2a  (hover, selected)
 
-Borders:   subtle #232730  · default #2F3441  · strong #444B5B
+Borders:   subtle #2a2a2a  · default #373737 (Figma --devtools-border)
 
-Text:      primary #E8EAF0  · secondary #A8AEC0  · tertiary #6B7080  · disabled #494E5A
+Text:      primary #e6edf3 (Figma --devtools-text)  · secondary #adbac7  · tertiary #8b949e (Figma --devtools-text-muted)
 
-Accents:   orange  #F97316  BRAND, current epoch, Dynamic-mode accent (the identity — rf2-ad7zx)
-           cyan    #43C3D0  Static-mode accent; :story / :test origin; info
+Accents:   blue    #539bf5  ACCENT — active tab, chrome stripe, selected, focus ring, changed (the identity — rf2-ad7zx.13)
+           info    #79c0ff  fixed cool categorical blue; :story / :test origin; spine-paused; syntax-number
            indigo  #5570FF  :pair-origin
-           green   #4ADE80  success, additions, machine-active
-           yellow  #FBBF24  warnings, schema-replaced-with-default, :rf/large elision
-           amber   #FB923C  long-task / perf-slow (renamed from `orange` to free the brand name)
+           green   #3fb950  success, additions, machine-active
+           yellow  #d29922  warnings, schema-replaced-with-default, :rf/large elision
+           amber   #FB923C  long-task / perf-slow (functional perf-amber)
            red     #F87171  errors, schema-violations, hydration-mismatches
            magenta #E879F9  classification: :rf/redacted
 
-Perf:      fast     #4ADE80  (<16ms)
-           medium   #FBBF24  (16-50)
+Perf:      fast     #3fb950  (<16ms)
+           medium   #d29922  (16-50)
            slow     #FB923C  (50-100)
            blocking #F87171  (>100ms, INP threshold)
 ```
 
-**Brand identity = orange (rf2-ad7zx).** The brand / current-epoch / **Dynamic**-mode accent
-moved **violet → orange** (`#F97316`). The mode signal is **orange in Dynamic, cyan in
-Static** (active tab, mode stripe, active states); the logo / wordmark is **always orange**.
-The retired `violet #7C5CFF` is freed; the prior long-task `orange #FB923C` is renamed
-`amber`. Every accent is a single CSS-custom-property token, so the identity is a one-line
-change per token. The orange-identity decision + the cross-panel **visual-encoding rules**
-live in [022-Design-Tokens](022-Design-Tokens.md); the **full palette above is
-authoritative**. (Impl ripple — the ~357 token call sites that read `(:violet …)` etc. —
-is scoped under rf2-ad7zx.)
+**Accent identity = GitHub-style blue (rf2-ad7zx.13).** The accent is the single GitHub blue
+(`#539bf5` dark / `#0969da` light) the Figma export ships (`design-reference/styles/devtools.css`).
+There is **one** accent — active tab, chrome stripe, active states, focus ring, the L4 header
+stripe, and the logo / wordmark all read it. The **Dynamic / Static MODE stays functional** (it
+gates motion) but **no longer drives accent colour**: the shell reads the same blue in either
+mode. The earlier orange-identity scheme (an always-orange `brand` + per-mode orange/cyan accent
+swap) is **removed**. Every accent is a single CSS-custom-property token, so the identity is a
+one-line change per token. The accent decision + the cross-panel **visual-encoding rules** live
+in [022-Design-Tokens](022-Design-Tokens.md); the **full palette above is authoritative**.
 
-Light theme inverts lightness (`bg-0 #FAFBFC`, `bg-1 #F1F3F6`, `bg-2
-#FFFFFF`); accents darken slightly to maintain contrast.
+Light theme inverts lightness (`bg-0 #fbfbfb`, `bg-1 #f5f5f5`, `bg-2
+#ffffff`); the accent darkens to `#0969da` to maintain contrast.
 
 ### CSS custom-property surface (rf2-on4cm)
 
@@ -851,25 +851,23 @@ lives in `theme/global-styles/grain-css`; injection is via a single
 `<style id="rf-causa-grain">` block, idempotent + id-keyed DOM
 probe.
 
-### L4 panel accent stripe (mode accent — Figma design rf2-ad7zx)
+### L4 panel accent stripe (single accent — Figma design rf2-ad7zx.13)
 
-Every L4 panel renders a **3-px left-border** on its `<h1>` in the **mode `accent`** (orange in
-Dynamic, cyan in Static). The prior per-panel **domain-colour** mapping (`:event` violet ·
-`:app-db`/`:views` cyan · `:trace` orange · `:machines` green · `:routing` yellow · `:issues`
-red) is **superseded**: the Figma export carries a **single accent identity** (App.tsx's active
-tab + every panel reads `--devtools-active` → the mode accent), so the stripe is the mode signal,
-not a per-panel domain colour. This keeps the whole devtool reading orange in Dynamic / cyan in
-Static, with surfaces neutral so the accent pops.
+Every L4 panel renders a **3-px left-border** on its `<h1>` in the **single `accent`** (GitHub
+blue). The prior per-panel **domain-colour** mapping (`:event` violet · `:app-db`/`:views` cyan ·
+`:trace` orange · `:machines` green · `:routing` yellow · `:issues` red) is **superseded**: the
+Figma export carries a **single accent identity** (App.tsx's active tab + every panel reads
+`--devtools-active` → the accent), so the stripe is a consistent signal, not a per-panel domain
+colour. Surfaces stay neutral so the blue accent pops.
 
 Domain colour still does load-bearing work **inside** each panel where it is semantic — `error`
 red in Issues, machine `green`, route `yellow`, the op-family colour-bands in Trace (§021 §5.2),
-the per-panel header icons (§021 §17.1.5) — but the **header stripe** is the mode accent.
+the per-panel header icons (§021 §17.1.5) — but the **header stripe** is the single accent.
 
 The helper `theme/tokens/accent-stripe-style` emits the inline-style map (`:border-left "3px
 solid <accent>"` + `:padding-left "10px"`); per-panel call sites merge it into the `<h1>`
-`:style`. This is the same mode-accent signal as the Static-mode 2-px ribbon-edge stripe (§Static
-mode below) — the L1 stripe is the mode signal at chrome, this is the mode signal at the L4
-header.
+`:style`. This is the same accent as the chrome's 2-px ribbon-edge stripe (§Static mode below) —
+the L1 stripe is the accent at chrome, this is the accent at the L4 header.
 
 (rf2-4v67l — `:chrome-a11y` was dropped alongside the panel itself.
 A11y dogfooding is now Story's concern per rf2-18t6p + rf2-qgms1.)
@@ -886,7 +884,7 @@ glance.
 | Added | `+` | green | `success` |
 | Removed | `-` | red | `error` |
 | Modified | `~` | amber | `warning` |
-| Children (recursive descent) | `◴` | mode accent | `accent` (orange in Dynamic) |
+| Children (recursive descent) | `◴` | accent | `accent` (GitHub blue) |
 | Same (rendered for context) | (space) | tertiary | `:text-tertiary` |
 
 The gutter is a single shared idiom across the App-db diff, the
@@ -1071,7 +1069,7 @@ Every value display in every tab's L4 detail panel uses
 
 - `inspect <value>` — the hero: expandable inspector. Maps `{ … }`,
   vecs `[ … ]`, sets `#{ … }`, lists `( … )`. **Keywords are the single
-  coloured type — the mode `accent`** (orange in Dynamic, cyan in Static), per
+  coloured type — the single `accent`** (GitHub blue), per
   [022-Design-Tokens](022-Design-Tokens.md) §Visual encoding + the §021 §10.1
   minimal-coloring lock; other scalars (strings / numbers / booleans / nil) render
   in `text-primary` mono, unchanged values in `dim`. Expand carets per node;
@@ -1097,7 +1095,7 @@ The cljs-devtools-shaped surface (rf2-x9fzk):
 
 **Colour palette** (mapped onto Causa's theme tokens so the renderer
 reads as native shell chrome): **keywords are the single coloured type —
-the mode `accent`** (orange in Dynamic, cyan in Static), per the §021 §10.1
+the single `accent`** (GitHub blue), per the §021 §10.1
 minimal-coloring lock + [022-Design-Tokens](022-Design-Tokens.md); other
 scalars render in `text-primary` mono, `dim` for unchanged. Punctuation +
 meta render in `text-tertiary` / `text-secondary` to recede.
@@ -1626,12 +1624,12 @@ they telegraph the mode without the user needing to look at the dropdown:
    Lives in both modes (it's the toggle, not the indicator). Cmd-Shift-M
    (the global chord) fires the same `:rf.causa/toggle-mode` event so
    chord and dropdown share the handler. The mode SIGNAL is carried by
-   the accent stripe (#2) so the control itself recedes.
-2. **2-px left-edge ribbon stripe** — the mode `accent`: **orange**
-   (`accent-dynamic`) in Dynamic, **cyan** (`accent-static`) in Static
-   (per §Colour system + [022-Design-Tokens](022-Design-Tokens.md)). At
-   runtime the `.mode-dynamic` / `.mode-static` root class points `accent`
-   at the right token, so the stripe is a one-token signal.
+   the dropdown's active option + `data-active-mode` (the stripe is the
+   single accent in both modes — rf2-ad7zx.13).
+2. **2-px left-edge ribbon stripe** — the single `accent` (**GitHub blue**)
+   in both modes (per §Colour system + [022-Design-Tokens](022-Design-Tokens.md);
+   rf2-ad7zx.13 — the Figma export carries one accent, no per-mode colour
+   swap). The stripe is a one-token chrome-edge accent.
 3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-active
    pulse + 180ms tab fade. Static drops the continuous pulses entirely
    and collapses the 180ms tab fade to instant (so cluster swaps land
@@ -1726,12 +1724,12 @@ motion — live ONCE in the HCM token registry (`theme/tokens.cljc`,
 `theme/global-styles/*`) and apply across both modes. Visual cohesion
 between Dynamic and Static is achieved at the token layer, not by
 shell-ns reuse. The mode-signal mechanism (mode dropdown, 2-px ribbon
-stripe colour, motion-dampening, chrome silhouette — see §Mode-signal
-mechanism above) reads from tokens; the divergence is in which tokens
-each shell selects (Dynamic's orange `accent-dynamic` stripe vs Static's
-cyan `accent-static` stripe — aliased through `accent` by the mode root
-class), not in the token system itself. **Zero new tokens introduced per
-mode** is the standing constraint.
+stripe, motion-dampening, chrome silhouette — see §Mode-signal mechanism
+above) reads from tokens. Post rf2-ad7zx.13 both shells paint the same
+single `accent` (GitHub blue) stripe — the divergence is in motion +
+chrome silhouette, NOT in stripe colour (the Figma export carries one
+accent). **Zero new tokens introduced per mode** is the standing
+constraint.
 
 **Cycle-avoidance rule.** When one shell needs to reach into another
 mode's chrome (the canonical case today: Static's ribbon needs the

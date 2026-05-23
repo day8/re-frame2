@@ -62,7 +62,7 @@
   follows the active theme."
   [kind]
   (case kind
-    :parent-decision (:accent-static tokens)     ; fixed cyan/blue category (≠ mode accent)
+    :parent-decision (:info tokens)              ; fixed cool-blue category (≠ accent)
     :child-teardown  (or (:accent-orange tokens)
                          (:warning-amber tokens)
                          (:yellow tokens))

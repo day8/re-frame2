@@ -34,33 +34,32 @@
 
       Status            Token            Hex (dark)  When
       ----------------  ---------------  ----------  -----------------------
-      :in-flight        :accent          #F97316     cascade still building
+      :in-flight        :accent          #539bf5     cascade still building
                                                      (LIVE head, not yet
-                                                     settled). The mode
-                                                     accent (orange in
-                                                     Dynamic / cyan in
-                                                     Static) — the LIVE
-                                                     head IS the current-
-                                                     epoch accent (§007).
-      :settled-success  :green           #4ADE80     handler ran, no
+                                                     settled). The single
+                                                     accent (GitHub blue) —
+                                                     the LIVE head IS the
+                                                     current-epoch accent
+                                                     (§007).
+      :settled-success  :green           #3fb950     handler ran, no
                                                      exception, no warnings.
       :settled-error    :red             #F87171     handler threw, or an
                                                      :rf.error/* trace
                                                      landed in the cascade.
-      :paused-by-tool   :accent-static   #43C3D0     spine paused
+      :paused-by-tool   :info            #79c0ff     spine paused
                                                      (LIVE+paused) — e.g.
                                                      a tool has claimed
                                                      the buffer. TanStack
                                                      uses purple for
                                                      paused; the in-flight
-                                                     head now owns the mode
+                                                     head owns the primary
                                                      accent, so paused picks
-                                                     the fixed cyan
-                                                     `accent-static` as a
-                                                     distinct peer. Magenta
-                                                     is reserved for the
-                                                     `▥` whole-redacted
-                                                     row marker.
+                                                     the fixed cool blue
+                                                     `:info` as a distinct
+                                                     peer. Magenta is
+                                                     reserved for the `▥`
+                                                     whole-redacted row
+                                                     marker.
       :stale            :yellow          #FBBF24     cascade replayed via
                                                      time-travel / RETRO
                                                      mode. The TanStack
@@ -143,7 +142,7 @@
   {:in-flight       :accent
    :settled-success :green
    :settled-error   :red
-   :paused-by-tool  :accent-static   ; fixed cyan — distinct from :in-flight (mode accent)
+   :paused-by-tool  :info            ; fixed cool blue — distinct from :in-flight (accent)
    :stale           :yellow})
 
 ;; ---- classification ------------------------------------------------------

@@ -466,22 +466,25 @@
       (is (re-find #"\.rf-causa-theme-dark\s*\{[^}]*--rf-causa-bg-1:\s*#15171B" css))
       (is (re-find #"\.rf-causa-theme-light\s*\{[^}]*--rf-causa-bg-1:\s*#F1F3F6" css)))))
 
-(deftest themes-css-emits-mode-accent-alias
-  (testing "rf2-ad7zx / spec/022 — the themes-css block appends the
-            mode-accent runtime alias: `.mode-dynamic` re-points
-            `--rf-causa-accent` at the orange `--rf-causa-accent-
-            dynamic`; `.mode-static` re-points it at the cyan
-            `--rf-causa-accent-static`. This is the SINGLE-token swap
-            that turns the whole chrome orange in Dynamic / cyan in
-            Static off one variable."
-    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B"}
-                                  :light {:bg-1 "#F1F3F6"}})]
-      (is (re-find #"\.mode-dynamic[^{]*\{[^}]*--rf-causa-accent:\s*var\(--rf-causa-accent-dynamic\)"
-                   css)
-          ".mode-dynamic points --rf-causa-accent at accent-dynamic")
-      (is (re-find #"\.mode-static[^{]*\{[^}]*--rf-causa-accent:\s*var\(--rf-causa-accent-static\)"
-                   css)
-          ".mode-static points --rf-causa-accent at accent-static"))))
+(deftest themes-css-has-no-per-mode-accent-swap
+  (testing "rf2-ad7zx.13 — the Figma export carries a SINGLE accent
+            (GitHub blue), so the themes-css block no longer emits a
+            per-mode accent re-point. There must be NO `.mode-dynamic` /
+            `.mode-static` rule that re-points `--rf-causa-accent` at a
+            removed `accent-dynamic` / `accent-static` variable."
+    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#1c1c1c" :accent "#539bf5"}
+                                  :light {:bg-1 "#f5f5f5" :accent "#0969da"}})]
+      (is (not (re-find #"--rf-causa-accent-dynamic" css))
+          "no reference to the removed accent-dynamic variable")
+      (is (not (re-find #"--rf-causa-accent-static" css))
+          "no reference to the removed accent-static variable")
+      (is (not (re-find #"\.mode-dynamic" css))
+          "no .mode-dynamic accent re-point rule")
+      (is (not (re-find #"\.mode-static" css))
+          "no .mode-static accent re-point rule")
+      ;; The single accent is published in each theme's palette block.
+      (is (re-find #"\.rf-causa-theme-dark\s*\{[^}]*--rf-causa-accent:\s*#539bf5" css))
+      (is (re-find #"\.rf-causa-theme-light\s*\{[^}]*--rf-causa-accent:\s*#0969da" css)))))
 
 (deftest themes-css-uses-rf-causa-prefix
   (testing "every variable name is namespaced under `--rf-causa-` so

@@ -503,7 +503,7 @@
 (deftest highlight-clojure-token-mapping
   (is (= :accent        (w/highlight-clojure-token :keyword)))
   (is (= :green         (w/highlight-clojure-token :string)))
-  (is (= :accent-static (w/highlight-clojure-token :number)))
+  (is (= :info          (w/highlight-clojure-token :number)))
   (is (= :text-tertiary (w/highlight-clojure-token :comment)))
   (is (= :text-primary  (w/highlight-clojure-token :symbol)))
   (is (= :accent        (w/highlight-clojure-token :builtin)))

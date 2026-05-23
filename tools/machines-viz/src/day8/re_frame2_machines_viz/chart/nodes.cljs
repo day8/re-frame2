@@ -102,18 +102,18 @@
   [{:keys [active? from-highlight? to-highlight? sim?]}]
   (cond
     sim?            (tokens/with-alpha :yellow         0.18)
-    to-highlight?   (tokens/with-alpha :accent-static           0.22)
+    to-highlight?   (tokens/with-alpha :info           0.22)
     from-highlight? (tokens/with-alpha :accent  0.14)
-    active?         (tokens/with-alpha :accent-static           0.18)
+    active?         (tokens/with-alpha :info           0.18)
     :else           (:bg-2 tokens/tokens)))
 
 (defn- node-stroke
   [{:keys [active? from-highlight? to-highlight? sim? final?]}]
   (cond
     sim?            (:yellow tokens/tokens)
-    to-highlight?   (:accent-static tokens/tokens)
+    to-highlight?   (:info tokens/tokens)
     from-highlight? (:accent tokens/tokens)
-    active?         (:accent-static tokens/tokens)
+    active?         (:info tokens/tokens)
     final?          (:green tokens/tokens)
     :else           (:border-default tokens/tokens)))
 
@@ -228,7 +228,7 @@
                      :user-select      "none"
                      :box-shadow       (when active-affordance?
                                          (str "0 0 0 2px "
-                                              (tokens/with-alpha :accent-static 0.18)))
+                                              (tokens/with-alpha :info 0.18)))
                      :transition       "border-color 120ms ease, background 120ms ease"}}
        ;; Final-state double-ring (outer)
        (when final?

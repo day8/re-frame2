@@ -45,7 +45,7 @@
             [day8.re-frame2-causa.panels.managed-fx-helpers :as h]
             [day8.re-frame2-causa.chart.timing-waterfall :as waterfall]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack sans-stack]]
+             :refer [tokens mono-stack sans-stack with-alpha]]
             [day8.re-frame2-causa.theme.section :as section]
             [day8.re-frame2-causa.views.edn-widget.widget :as edn]))
 
@@ -174,8 +174,8 @@
                    :gap           "4px"
                    :padding       "1px 8px"
                    :border-radius "3px"
-                   :background    "rgba(67, 195, 208, 0.12)"
-                   :color         (:accent-static tokens)
+                   :background    (with-alpha :info 12)
+                   :color         (:info tokens)
                    :font-family   mono-stack
                    :font-size     "11px"
                    :font-weight   700

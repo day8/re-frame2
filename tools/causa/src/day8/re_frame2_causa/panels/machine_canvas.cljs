@@ -249,7 +249,7 @@
                           mode-accent border.
     :to-highlight       — focused-event lens landing state. Optional;
                           xyflow renders the landing state with an
-                          emphasised fixed-cyan (`accent-static`)
+                          emphasised fixed cool-blue (`:info`)
                           border. Wins over `:current-state`.
     :current-state      — live snapshot state for the active-state
                           highlight. Optional; nil renders no
@@ -257,7 +257,7 @@
     :sim?               — rf2-u422r. When true the active-state
                           highlight uses the amber sim palette (so the
                           on-chart hermetic simulator reads distinct
-                          from the live cyan highlight). Forwarded to
+                          from the live cool-blue highlight). Forwarded to
                           `mv-chart/MachineChart`.
     :on-edge-click      — rf2-u422r. `(fn [#js {:eventId :fromPath
                           :toPath}] ...)` invoked when a transition

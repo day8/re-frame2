@@ -381,7 +381,7 @@
   (case tok-type
     :keyword  :accent
     :string   :green
-    :number   :accent-static          ; fixed cyan syntax hue, distinct from the keyword accent
+    :number   :info                   ; fixed cool-blue syntax hue, distinct from the keyword accent
     :comment  :text-tertiary
     :symbol   :text-primary
     :paren    :text-tertiary

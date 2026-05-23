@@ -63,49 +63,47 @@
 ;; ---- palette -----------------------------------------------------------
 
 (def dark-palette
-  "Dark-theme colour tokens. Mirrors `day8.re-frame2-causa.theme.tokens`
-  at the values level so the chart renders identically whether embedded
-  by Causa, Story, the read-only viewer, or a user dev shell."
-  {:bg-0           "#0E0F12"
-   :bg-1           "#15171B"
-   :bg-2           "#1B1E24"
-   :bg-3           "#232730"
-   :bg-active      "#2A2F3D"
+  "Dark-theme colour tokens — the GitHub-style blue/neutral Figma
+  palette (rf2-ad7zx.13). Mirrors `day8.re-frame2-causa.theme.tokens`
+  at the values level (drift-gate `causa-and-machines-viz-dark-palettes-
+  match-values`, rf2-z7ms8) so the chart renders identically whether
+  embedded by Causa, Story, the read-only viewer, or a user dev shell.
 
-   :border-subtle  "#232730"
-   :border-default "#2F3441"
+  The orange-identity scheme (`brand`, `accent-dynamic`, `accent-static`,
+  the per-mode colour swap) is removed; the Figma export carries a
+  SINGLE accent (blue). `:info` is the cool categorical blue distinct
+  from `:accent`."
+  {:bg-0           "#161616"
+   :bg-1           "#1c1c1c"
+   :bg-2           "#242424"
+   :bg-3           "#2a2a2a"
+   :bg-active      "#2a2a2a"
 
-   :text-primary   "#E8EAF0"
-   :text-secondary "#A8AEC0"
-   ;; `:text-tertiary` mirrors Causa's rf2-0fr6v WCAG-AA bump (from
-   ;; `#6B7080` to `#8990A0`). The drift-gate test
-   ;; `causa-and-machines-viz-dark-palettes-match-values` (rf2-z7ms8)
-   ;; locks this value to Causa's at the .cljc test surface.
-   :text-tertiary  "#8990A0"
+   :border-subtle  "#2a2a2a"
+   :border-default "#373737"
 
-   ;; brand + mode accents (orange identity — rf2-ad7zx / spec/022).
-   ;; Mirrors Causa's `theme/tokens` at the values level; `accent`
-   ;; defaults to the Dynamic (orange) accent — the host re-points it
-   ;; per the `.mode-dynamic`/`.mode-static` root class.
-   :brand          "#F97316"
-   :accent-dynamic "#F97316"
-   :accent-static  "#43C3D0"
-   :accent         "#F97316"
+   :text-primary   "#e6edf3"
+   :text-secondary "#adbac7"
+   :text-tertiary  "#8b949e"
 
-   ;; semantic + change (spec/022 §Semantic & change)
-   :error          "#F85149"
-   :warning        "#FBBF24"
-   :advisory       "#79A6D2"
-   :success        "#3FB950"
-   :dim            "#6E7681"
-   :hover          "#232730"
+   ;; single accent (GitHub blue — Figma --devtools-active).
+   :accent         "#539bf5"
+
+   ;; semantic + change (Figma devtools.css)
+   :error          "#f85149"
+   :warning        "#d29922"
+   :advisory       "#79c0ff"
+   :success        "#3fb950"
+   :dim            "#6e7681"
+   :hover          "#2a2a2a"
 
    ;; functional categorical hues (spec/022 carve-out)
-   :green          "#4ADE80"
-   :yellow         "#FBBF24"
+   :green          "#3fb950"
+   :yellow         "#d29922"
    :orange         "#FB923C"
    :red            "#F87171"
    :magenta        "#E879F9"
+   :info           "#79c0ff"
 
    :red-deep       "#a83a3a"
    :white          "#ffffff"})
@@ -116,46 +114,45 @@
   so the chart renders identically whether embedded by Causa, Story,
   the read-only viewer, or a user dev shell whose host runs a light
   theme. Surfaces invert (`bg-2` is the brightest 'top' canvas, `bg-0`
-  the gentlest 'recess'); text inverts so primary is near-black;
-  accents darken ~15-20% to maintain AA contrast on a white canvas.
+  the gentlest 'recess'); text inverts so primary is near-black; the
+  single accent darkens to GitHub blue `#0969da` to maintain AA
+  contrast on a white canvas.
 
   Hosts that want the chart to render against a light background pass
   this palette through the `:palette` render option (or via the
   `:theme :light` prop on the substrate-adapter `MachineChart`
   re-exports — wiring lives downstream)."
-  {:bg-0           "#FAFBFC"
-   :bg-1           "#F1F3F6"
-   :bg-2           "#FFFFFF"
-   :bg-3           "#E6E9EE"
-   :bg-active      "#DCE0E7"
+  {:bg-0           "#fbfbfb"
+   :bg-1           "#f5f5f5"
+   :bg-2           "#ffffff"
+   :bg-3           "#e8e8e8"
+   :bg-active      "#e8e8e8"
 
-   :border-subtle  "#E6E9EE"
-   :border-default "#CFD4DC"
+   :border-subtle  "#e8e8e8"
+   :border-default "#d1d1d1"
 
-   :text-primary   "#15171B"
-   :text-secondary "#4B5160"
-   :text-tertiary  "#8B92A1"
+   :text-primary   "#24292f"
+   :text-secondary "#656d76"
+   :text-tertiary  "#8c959f"
 
-   ;; brand + mode accents (orange identity — rf2-ad7zx / spec/022)
-   :brand          "#EA580C"
-   :accent-dynamic "#EA580C"
-   :accent-static  "#2A8B96"
-   :accent         "#EA580C"
+   ;; single accent (GitHub blue — Figma --devtools-active)
+   :accent         "#0969da"
 
    ;; semantic + change
-   :error          "#CF222E"
-   :warning        "#B07A05"
-   :advisory       "#3B6EA5"
-   :success        "#1A7F37"
-   :dim            "#8C959F"
-   :hover          "#E6E9EE"
+   :error          "#cf222e"
+   :warning        "#9a6700"
+   :advisory       "#0550ae"
+   :success        "#1a7f37"
+   :dim            "#8c959f"
+   :hover          "#e8e8e8"
 
    ;; functional categorical hues
-   :green          "#2F9E5C"
-   :yellow         "#B07A05"
+   :green          "#1a7f37"
+   :yellow         "#9a6700"
    :orange         "#C2570F"
    :red            "#C84444"
    :magenta        "#B146C2"
+   :info           "#0550ae"
 
    :red-deep       "#9A3030"
    :white          "#ffffff"})
@@ -295,10 +292,10 @@
 
 (def tag-pill-palette
   "Deterministic colour rotation for state-tag pills (rf2-m1b88).
-  Skips `:red`, `:accent` and `:accent-static` — all reserved for
-  chart semantics (`:red` for cancellation glyphs, the mode `:accent`
-  for the initial-state marker + FROM-highlight, `:accent-static` for
-  the TO-highlight / active state). The remaining five spread across
+  Skips `:red`, `:accent` and `:info` — all reserved for chart
+  semantics (`:red` for cancellation glyphs, the single `:accent` for
+  the initial-state marker + FROM-highlight, `:info` for the
+  TO-highlight / active state). The remaining five spread across
   cool/warm/neutral so a typical 2-4 tag count reads distinctly."
   [:advisory :green :yellow :orange :magenta])
 

@@ -203,45 +203,17 @@
        (map (fn [[k v]] (str "  " (token-key->css-var k) ": " v ";\n")))
        (apply str)))
 
-(def ^:private mode-accent-css
-  "Mode-accent runtime alias (rf2-ad7zx / spec/022 §Colour identity).
-
-  `--rf-causa-accent` is the SINGLE token every chrome accent reads
-  (active tab · mode stripe · selected states · focus ring ·
-  changed/recompute · L4 header stripe). The dark/light palette blocks
-  publish its default = the Dynamic (orange) accent. These two root-
-  class rules re-point it per the current MODE so the whole shell reads
-  orange in Dynamic and cyan in Static, while `--rf-causa-brand` (the
-  logo/wordmark) stays orange in either mode.
-
-  The class is written on BOTH the `<html>` root and the shell node
-  (mount.cljs / the shells), so a higher-specificity single-class
-  selector outranks the `:root` default. The `:where()` wrapper keeps
-  specificity at zero so the theme-class palette blocks (which also set
-  `--rf-causa-accent` via `palette->declarations`) do not win over the
-  mode flip — `:where(.mode-static)` and the bare `.mode-static` shell
-  node both resolve, and the assignment is identical, so either landing
-  works."
-  (str
-    ;; Dynamic mode (default) — accent follows the orange Dynamic accent.
-    ".mode-dynamic, :root.mode-dynamic {\n"
-    "  --rf-causa-accent: var(--rf-causa-accent-dynamic);\n"
-    "}\n"
-    ;; Static mode — accent follows the cyan Static accent. Brand stays
-    ;; orange (it reads --rf-causa-brand, untouched here).
-    ".mode-static, :root.mode-static {\n"
-    "  --rf-causa-accent: var(--rf-causa-accent-static);\n"
-    "}\n"))
-
 (defn- themes-css
   "Build the per-theme CSS block. The dark palette publishes at `:root`
   (the safe fallback) AND at `.rf-causa-theme-dark` (so the class
   toggle has a matched landing). The light palette publishes at
-  `.rf-causa-theme-light` so the class toggle activates it. The
-  `mode-accent-css` block then re-points `--rf-causa-accent` at the
-  Dynamic / Static accent under the `.mode-dynamic` / `.mode-static`
-  root class (rf2-ad7zx / spec/022) so the whole shell turns orange in
-  Dynamic, cyan in Static, off ONE token."
+  `.rf-causa-theme-light` so the class toggle activates it.
+
+  `--rf-causa-accent` is the SINGLE accent token (GitHub blue `#539bf5`
+  dark / `#0969da` light — the Figma export's `--devtools-active`).
+  Per rf2-ad7zx.13 there is NO per-mode accent colour swap: the
+  Dynamic/Static mode is functional only and no longer re-points the
+  accent, so the whole shell reads the same blue accent in both modes."
   [themes]
   (str
     ;; Default — :root carries the dark palette so any descendant
@@ -257,9 +229,7 @@
     "}\n"
     ".rf-causa-theme-light {\n"
     (palette->declarations (:light themes))
-    "}\n"
-    ;; Mode-accent alias — flips --rf-causa-accent orange↔cyan by mode.
-    mode-accent-css))
+    "}\n"))
 
 (defn- inject-themes-style!
   "Append the per-theme `<style>` block to `<head>`. Idempotent —
@@ -511,17 +481,17 @@
     "}\n"
     ;; rf2-ad7zx.10 — active-state DOUBLE-CIRCLE pulse (spec/021
     ;; §6.2 Case C + §17.4.2). The Figma reconcile draws the focused
-    ;; TO / current state as a concentric double-circle in the mode
-    ;; accent (orange Dynamic / cyan Static), not the former green
-    ;; single ring. The `:current` node (`panels/machines/xyflow_style`)
+    ;; TO / current state as a concentric double-circle in the single
+    ;; `:accent` (GitHub blue), not the former green single ring. The
+    ;; `:current` node (`panels/machines/xyflow_style`)
     ;; carries `:animation rf-causa-machine-pulse-active 1.2s …`.
     ;;
     ;; box-shadow sets the WHOLE property each frame, so the keyframe
     ;; must re-state the STATIC concentric rings (inner `:bg-1` gap +
     ;; inner accent ring — matching the `:current` node's base
     ;; box-shadow) on every stop, then ADD the breathing outer halo as
-    ;; the trailing layer. `--rf-causa-accent` tracks the active mode so
-    ;; the halo is orange in Dynamic and cyan in Static. Runs through
+    ;; the trailing layer. `--rf-causa-accent` is the single GitHub-blue
+    ;; accent, so the halo is blue in both modes. Runs through
     ;; `--rf-causa-motion-scale` like the green pulse, so the
     ;; `prefers-reduced-motion` seam collapses it to a resolved frame.
     "@keyframes rf-causa-machine-pulse-active {\n"
@@ -566,14 +536,14 @@
     ;; its own palette (Canvas / CanvasText / Highlight / …), which
     ;; collapses every author-encoded signal across the Causa chrome:
     ;;
-    ;;   - L1 ribbon mode stripe (orange Dynamic / cyan Static accent
-    ;;     on the left edge)
-    ;;   - L2 row focused border (mode accent)
+    ;;   - L1 ribbon stripe (the single GitHub-blue accent on the left
+    ;;     edge)
+    ;;   - L2 row focused border (accent)
     ;;   - L2 row status accent (the 2px inset box-shadow on the
     ;;     trailing edge — box-shadow itself is also dropped in HCM)
-    ;;   - L2 row gutter causal-chain thread (1px mode-accent inset)
-    ;;   - L4 panel header accent stripes (3px left border — the mode
-    ;;     accent: orange Dynamic / cyan Static, rf2-ad7zx)
+    ;;   - L2 row gutter causal-chain thread (1px accent inset)
+    ;;   - L4 panel header accent stripes (3px left border — the single
+    ;;     GitHub-blue accent, rf2-ad7zx.13)
     ;;   - Focus-visible amber outline (the #FBBF24 hex above; the UA
     ;;     forces this to its own Highlight regardless of author intent)
     ;;   - Secondary / tertiary text (drifted greys collapse to a
@@ -619,9 +589,9 @@
     "  [data-testid=\"rf-causa-palette-backdrop\"] *:focus-visible {\n"
     "    outline-color: Highlight !important;\n"
     "  }\n"
-    ;; L1 ribbon mode stripe (orange Dynamic / cyan Static) → Highlight.
-    ;; The 2px left border is the operator's "which mode am I in"
-    ;; signal; preserve it as the user's selected-emphasis hue.
+    ;; L1 ribbon stripe (single GitHub-blue accent) → Highlight.
+    ;; The 2px left border is the operator's chrome-edge accent signal;
+    ;; preserve it as the user's selected-emphasis hue.
     "  [data-testid=\"rf-causa-ribbon\"] {\n"
     "    border-left-color: Highlight !important;\n"
     "  }\n"
@@ -674,7 +644,7 @@
     "    color: Highlight !important;\n"
     "  }\n"
     ;; L4 panel header accent stripes (3px left border on the panel
-    ;; <h1>) — the mode accent (orange Dynamic / cyan Static)
+    ;; <h1>) — the single GitHub-blue accent
     ;; collapses to CanvasText so the stripe still paints as a
     ;; visible left edge. Panels remain visually distinguishable by
     ;; their L3 tab label and their content; the stripe drops its

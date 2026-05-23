@@ -47,7 +47,7 @@
 ;; families, not the full op-type vocabulary:
 ;;
 ;;     :dispatch  — the event side (`:rf.event/dispatched` / run-start /
-;;                  run-end). Mode accent (orange / cyan).
+;;                  run-end). The single GitHub-blue accent.
 ;;     :db        — `:rf.event/db-changed`. The "changed" tone.
 ;;     :fx        — the effect side (`:rf.fx/*`). Warning tone.
 ;;     :reactive  — the post-cascade reactive aftermath (`:rf.sub/*` /
@@ -86,10 +86,10 @@
 
   Family → token (spec/021 §5.2 · design-reference/TracePanel.tsx):
 
-    :dispatch → :accent         (mode accent — orange / cyan)
-    :db       → :accent-static  (the cyan 'changed/recompute' partner,
-                                 visually distinct from the orange
-                                 event accent now that events ride it)
+    :dispatch → :accent         (the single GitHub-blue accent)
+    :db       → :info           (the cool-blue 'changed/recompute' partner,
+                                 visually distinct from the primary
+                                 accent now that dispatch rides it)
     :fx       → :warning        (the effect/warning tone)
     :reactive → :dim            (dimmed / inert reactive aftermath)
     :machine  → :green          (the machine-domain tone — Causa's
@@ -97,7 +97,7 @@
     :error    → :red
     :warning  → :yellow"
   {:dispatch :accent
-   :db       :accent-static
+   :db       :info
    :fx       :warning
    :reactive :dim
    :machine  :green
@@ -652,15 +652,15 @@
   {:error                :red
    :warning              :yellow
    ;; op-family colour bands (spec/007 §Colour system). Events ride the
-   ;; mode `accent` (the spine); the sub family + info keep a fixed cyan
-   ;; (`accent-static`) so the two bands stay visually distinct now that
-   ;; the event band is the orange accent (rf2-ad7zx).
-   :info                 :accent-static
+   ;; single `:accent` (the spine); the sub family + info keep a fixed
+   ;; cool blue (`:info`) so the two bands stay visually distinct from
+   ;; the GitHub-blue event accent (rf2-ad7zx.13).
+   :info                 :info
    :rf.event             :accent
    :rf.event/db-changed  :accent
    :rf.fx                :green
-   :rf.sub/run           :accent-static
-   :rf.sub/create        :accent-static
+   :rf.sub/run           :info
+   :rf.sub/create        :info
    :rf.view/render       :magenta
    :rf.frame             :text-secondary})
 
