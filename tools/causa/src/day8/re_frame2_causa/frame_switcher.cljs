@@ -317,10 +317,13 @@
   popup all work out of the box (rf2-lbutp). The `<select>` carries the
   `aria-label` so assistive tech announces 'Select frame, combobox'.
 
-  When fewer than two frames are pickable the button still renders (the
-  chrome ALWAYS shows a Frame control per Figma — the prior 'collapse to
-  a flat label' branch is gone, rf2-ad7zx.12), but the overlaid select is
-  disabled so there is no inert popup.
+  The button ALWAYS renders (the chrome shows a Frame control per Figma
+  — the prior 'collapse to a flat label' branch is gone, rf2-ad7zx.12).
+  The overlaid select is interactive whenever there is at least one frame
+  (rf2-ad7zx.14): a native `<select>` with a lone option still opens and
+  shows it, so a single-frame host (e.g. the step-deck, with one
+  `:step-deck` frame) gets a working 1-entry dropdown. Only a zero-frame
+  state disables the control.
 
   Reads `:rf.causa/current-frame` + `:rf.causa/available-frames`; writes
   via `:rf.causa/select-frame <frame-id>` — the canonical contract
@@ -335,7 +338,12 @@
   (let [selected-frame  @(rf/subscribe [:rf.causa/current-frame])
         frames          @(rf/subscribe [:rf.causa/available-frames])
         active          (or selected-frame (first frames))
-        pickable?       (> (count frames) 1)]
+        ;; rf2-ad7zx.14 — interactive whenever there is >=1 frame. A native
+        ;; <select> with one option opens + shows it (not inert), which is
+        ;; what Mike expects in the step-deck (a single :step-deck frame).
+        ;; The prior `(> (count frames) 1)` left the control disabled (and
+        ;; click-dead) with a lone frame. STRICTLY single-select.
+        pickable?       (pos? (count frames))]
     [:div {:data-testid "rf-causa-ribbon-frame"
            :title       (if active
                           (str "Frame scope: " active " — pick a frame to scope the inspector")

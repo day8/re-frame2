@@ -166,7 +166,7 @@ Carries only scope selectors (left) and chrome actions (right):
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Frame** | left | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
+| **Frame** | left | `Frame ▾` dropdown — ALWAYS rendered (rf2-ad7zx.12); the selected value is surfaced INSIDE the option list (the active option carries a `✓`), not inlined on the button. Interactive whenever ≥1 frame is available (rf2-ad7zx.14): a single-frame host gets a working 1-entry dropdown listing that lone frame; only the zero-frame state disables the control. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
 | **Mode** | left | `Dynamic ▾` / `Static ▾` **dropdown** (`<select>`) — compact, understated; shares the frame picker's control weight (rf2-4vp5j). The 2-px left-edge accent stripe (violet Dynamic / cyan Static) carries the mode SIGNAL so the control itself recedes. | `Cmd/Ctrl-Shift-M` |
 | **Indicators** | right | Silent-by-default `🔇 N` mute indicator + `● N` REDACTED indicator (each painted only when its count > 0). | — |
 | **Right-icons** | right | `⚙` settings popup · `✕` close shell | `,` or `s` · `Esc` |
@@ -230,7 +230,7 @@ When the Settings "Show tool frames in picker" power-user toggle is on, tool fra
 └────────────────────────┘
 ```
 
-Single-frame apps collapse the dropdown to a flat label (`Frame: :rf/default`) — no chevron, no click target.
+Single-frame apps still get the full `Frame ▾` dropdown — it is interactive and opens a 1-entry list naming that lone frame (rf2-ad7zx.14). The earlier "collapse to a flat label" behaviour is gone (rf2-ad7zx.12 always renders the dropdown). Only a zero-frame state disables the overlaid `<select>` (no inert popup).
 
 ### Filter pills
 
