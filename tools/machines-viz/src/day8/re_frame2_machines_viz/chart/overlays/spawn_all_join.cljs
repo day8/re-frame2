@@ -51,7 +51,7 @@
   (when (and root node-id)
     (let [container (anchor/rect->map (.getBoundingClientRect root))
           node      (anchor/query-node-rect-by-testid
-                      root (anchor/node->card-testid node-id))]
+                      root (anchor/node->testid node-id))]
       (anchor/anchor-right-of node container))))
 
 ;; ---- child-row glyph ----------------------------------------------------

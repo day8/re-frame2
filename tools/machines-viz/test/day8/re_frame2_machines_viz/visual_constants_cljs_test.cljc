@@ -63,8 +63,9 @@
     :edge-label-backplate-opacity
     :final-glyph-px
     :compound-title-px
-    :caption-strip-px
-    :caption-text-px
+    ;; rf2-ee38b.21 — :caption-strip-px / :caption-text-px removed:
+    ;; no renderer ever read them (there is no caption strip in the
+    ;; chart). They were carried only to satisfy this parity test.
     ;; state-tag pills (rf2-m1b88; rf2-k647w drift reconciled to shipped)
     :tag-pill-height
     :tag-pill-pad-x

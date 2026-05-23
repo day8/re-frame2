@@ -84,9 +84,6 @@
                                 (rf2-gg7ws — collision-avoidance v1)
     :final-glyph-px           — final-state ✓ glyph font-size
     :compound-title-px        — compound container title font-size
-    :caption-strip-px         — chart-level caption strip height
-                                (rf2-3zdzw)
-    :caption-text-px          — caption strip text font-size
     :compound-radius          — compound container corner radius
                                 (rf2-k647w — distinct from the
                                 state-node `:corner-radius` lock; the
@@ -121,8 +118,6 @@
    :edge-label-backplate-opacity 0.85
    :final-glyph-px         13
    :compound-title-px      13
-   :caption-strip-px       28
-   :caption-text-px        11
 
    ;; ── state-tag pills (rf2-m1b88; rf2-k647w drift reconciled to
    ;;    the SHIPPED renderer numbers — height 16 / pad-x 6 / px 9 /
@@ -173,8 +168,6 @@
    :edge-label-backplate-opacity 0.85
    :final-glyph-px         11
    :compound-title-px      11
-   :caption-strip-px       22
-   :caption-text-px        9
 
    ;; ── state-tag pills (tighter than the regular 16/6/9/8) ──────
    :tag-pill-height        13
@@ -220,8 +213,6 @@
    :edge-label-backplate-opacity 0.85
    :final-glyph-px         15
    :compound-title-px      15
-   :caption-strip-px       34
-   :caption-text-px        13
 
    ;; ── state-tag pills (looser than the regular 16/6/9/8) ───────
    :tag-pill-height        19

@@ -31,7 +31,8 @@
       `chart.cljs`; they touch JS objects and are not portable to the
       JVM.
     - **Topology parsing** — lives in `chart.layout`."
-  (:require [day8.re-frame2-machines-viz.theme.tokens :as tokens]
+  (:require [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- node-size floor constants -----------------------------------------
@@ -119,21 +120,7 @@
   children surface through the `chart.overlays.spawn-all-join`
   inspector, not as an edge in this chart."
   [edge]
-  (cond
-    (:after edge) "after"
-    :else         "transition"))
-
-(defn- safe-name
-  "Coerce a guard / action ref to a string WITHOUT throwing on fn
-  values. `cljs.core/name` blows up on fns (`Doesn't support name:
-  function …`), and re-frame2 machines may inline a fn guard / action,
-  so fns surface their `:name` meta (or `fn` when anonymous)."
-  [v]
-  (cond
-    (nil? v)     nil
-    (keyword? v) (name v)
-    (fn? v)      (or (some-> v meta :name str) "fn")
-    :else        (str v)))
+  (if (:after edge) "after" "transition"))
 
 (defn xyflow-graph
   "Project the parsed graph + a `{node-id position}` map into the
@@ -209,6 +196,14 @@
                                           :final          (boolean (:final? n))
                                           :compound       (boolean (:compound? n))
                                           :tags           (vec (:tags n))
+                                          ;; rf2-ee38b.21 — :entry / :exit
+                                          ;; state actions (Spec 005
+                                          ;; §State nodes) ride the payload
+                                          ;; so state-node paints
+                                          ;; `entry / <name>` rows. nil when
+                                          ;; the state declares none.
+                                          :entry          (:entry n)
+                                          :exit           (:exit n)
                                           :chart          chart
                                           :onClick        on-state-click}
                                    region? (assoc :regionId    (:region n)
@@ -238,9 +233,16 @@
                       marker-color (if (or focused? from-active?)
                                      (:cyan tokens/tokens)
                                      (:border-default tokens/tokens))
+                      ;; A `:*` wildcard `:on` arm is a real transition
+                      ;; but NOT a fireable event (Spec 005 §Wildcard —
+                      ;; it matches "any otherwise-unhandled event").
+                      ;; Excluding it keeps `:eventId` nil so the on-chart
+                      ;; sim can't dispatch a literal `[:* ...]` (same
+                      ;; inert posture as `:after` / `:always`).
                       fireable?    (and (nil? (:after e))
                                         (not (:always? e))
-                                        (keyword? (:event e)))
+                                        (keyword? (:event e))
+                                        (not= :* (:event e)))
                       event-id     (when fireable? (:event e))]
                   {:id     (:id e)
                    :source (:source e)
@@ -254,9 +256,17 @@
                             :active     from-active?
                             :focused    focused?
                             :afterMs    (:after e)
-                            :guard      (safe-name (:guard e))
-                            :action     (safe-name (:action e))
+                            :guard      (layout/name-of (:guard e))
+                            :action     (layout/name-of (:action e))
                             :selfLoop   self-loop?
+                            ;; rf2-ee38b.21 — an internal self-transition
+                            ;; (omit :target) runs only :action; the
+                            ;; renderer draws it as a self-loop with no
+                            ;; exit/entry re-trigger affordance.
+                            :internal     (boolean (:internal? e))
+                            ;; A machine-level (top-level :on) fallback
+                            ;; transition every state inherits.
+                            :machineLevel (boolean (:machine-level? e))
                             :eventId    event-id
                             :fromPath   (:from-path e)
                             :toPath     (:to-path e)
@@ -303,6 +313,7 @@
                  :data        {:eventLabel "" :entry true
                                :active false :focused false :afterMs nil
                                :guard nil :action nil :selfLoop false
+                               :internal false :machineLevel false
                                :eventId nil :fromPath nil :toPath nil
                                :onClick on-edge-click :chart chart}})
               initial-nodes)]

@@ -120,6 +120,11 @@
         to-path    (.-toPath d)
         clickable? (and (fn? on-click) (some? event-id))
         self-loop? (boolean (.-selfLoop d))
+        ;; rf2-ee38b.21 — an INTERNAL self-transition (Spec 005:
+        ;; omit :target) runs only :action; :exit / :entry do NOT fire.
+        ;; Render it WITHOUT the re-entry arrowhead + with a dashed loop
+        ;; so it reads as "no exit/entry re-trigger" (Stately parity).
+        internal?  (boolean (.-internal d))
         {:keys [edge-label-px edge-label-backplate-opacity]} vc
         ;; A self-transition (source == target) renders as a small loop
         ;; off the node's edge instead of xyflow's degenerate near-zero
@@ -147,9 +152,12 @@
       [:<>
        [:> BaseEdge {:id (.-id props)
                      :path path
-                     :markerEnd marker-end
+                     ;; Internal self-transitions suppress the arrowhead
+                     ;; (no exit/entry re-trigger to point back at).
+                     :markerEnd (when-not internal? marker-end)
                      :style #js {:stroke stroke
                                  :strokeWidth stroke-w
+                                 :strokeDasharray (when internal? "4 3")
                                  :animation (when focused?
                                               "mv-chart-transition-glow 720ms ease-out infinite")}}]
        (when (seq label)
@@ -159,6 +167,11 @@
                :data-active (str active?)
                :data-focused-edge (str focused?)
                :data-after-ms (when after-ms (str after-ms))
+               ;; rf2-ee38b.21 — surface internal / machine-level so the
+               ;; DOM suite + a host can distinguish self-transition kind
+               ;; + inherited fallbacks.
+               :data-internal (str internal?)
+               :data-machine-level (str (boolean (.-machineLevel d)))
                ;; rf2-u422r — clickable edges surface their fireable
                ;; event-id so a host (Causa on-chart sim) + tests can
                ;; address them; inert (auto / no-callback) edges omit it.

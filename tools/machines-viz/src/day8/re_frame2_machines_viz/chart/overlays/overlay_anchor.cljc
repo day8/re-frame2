@@ -29,11 +29,15 @@
   overlay card so the card sits clear of the node + its affordance."
   12)
 
-(defn node->card-testid
+(defn node->testid
   "The xyflow node `data-testid` an overlay queries for a bearing
   node-id. Mirrors `chart.nodes/state-node`'s `(str \"rf-mv-chart-node-
   <id>\")` contract. Returns nil for a nil / blank node-id so the
-  overlay skips rather than querying a garbage selector."
+  overlay skips rather than querying a garbage selector.
+
+  rf2-ee38b.21 — this is the SINGLE canonical helper for the
+  node-id → testid string. `after_rings_geometry` previously carried a
+  byte-identical `state->node-testid`; it now points here."
   [node-id]
   (when (and node-id (not (str/blank? (str node-id))))
     (str "rf-mv-chart-node-" node-id)))

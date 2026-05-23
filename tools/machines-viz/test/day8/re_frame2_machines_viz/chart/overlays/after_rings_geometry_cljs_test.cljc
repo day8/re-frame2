@@ -63,17 +63,10 @@
                             {:left 0 :top 0 :width 10 :height 10}))
       "zero-width node (not laid out yet) → no ring"))
 
-;; ---- state->node-testid -------------------------------------------------
-
-(deftest state->node-testid-matches-state-node-contract
-  (is (= "rf-mv-chart-node-idle" (geo/state->node-testid "idle")))
-  (is (= "rf-mv-chart-node-auth_login__idle"
-         (geo/state->node-testid "auth_login__idle"))))
-
-(deftest state->node-testid-nil-on-blank
-  (is (nil? (geo/state->node-testid nil)))
-  (is (nil? (geo/state->node-testid "")))
-  (is (nil? (geo/state->node-testid "   "))))
+;; rf2-ee38b.21 — the byte-identical `state->node-testid` helper was
+;; removed from `after_rings_geometry`; the canonical node-id → testid
+;; helper now lives once on `overlay-anchor/node->testid` (pinned by
+;; `overlay_anchor_cljs_test`).
 
 ;; ---- overlay-rings (the seam the CLJS overlay drives) ------------------
 
