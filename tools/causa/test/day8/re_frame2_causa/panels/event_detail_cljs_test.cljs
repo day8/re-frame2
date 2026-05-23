@@ -30,7 +30,6 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.config :as config]
-            [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
@@ -190,31 +189,28 @@
       (let [data @(rf/subscribe [:rf.causa/event-detail])]
         (is (= 200 (:selected-dispatch-id data)))))))
 
-;; ---- (2) the 7 sections render in order --------------------------------
+;; ---- (2) numbered-pipeline steps render in spec order ------------------
 
 (def ^:private ^:const section-root-testids
-  "The section root testids (post-rf2-zv9r9 §2 canonical) in the order
-  they SHOULD appear top-to-bottom in the rendered Event lens. Used by
-  `section-testids-in-order` to filter out section-header / section-
-  body children testids the `section/section-row` primitive emits.
+  "The numbered-pipeline step ROOT testids (spec/021 §2.2 · Figma
+  reconcile rf2-ad7zx.5). Used by `section-testids-in-order` to filter
+  out the per-step `*-label` / `*-body` children testids `step-section`
+  emits.
 
-  Per spec/021 §2 the canonical 6-step layout adds FLOWS + `:db + :fx`
-  as steps [5] and [6]; INTERCEPTORS becomes a silent-by-default
-  diagnostic peer under [3] HANDLER."
+  Section order: DISPATCH → COEFFECTS? → EVENT HANDLER → DB CHANGES →
+  AFTER INTERCEPTORS? → FLOWS? → FX (optional steps shown when present)."
   #{"rf-causa-event-detail-section-dispatch"
-    "rf-causa-event-detail-section-event"
     "rf-causa-event-detail-section-coeffects"
-    "rf-causa-event-detail-section-interceptors"
     "rf-causa-event-detail-section-handler"
-    "rf-causa-event-detail-section-effects-returned"
-    "rf-causa-event-detail-section-effects-ran"
+    "rf-causa-event-detail-section-db-changes"
+    "rf-causa-event-detail-section-after-interceptors"
     "rf-causa-event-detail-section-flows"
-    "rf-causa-event-detail-section-db-fx"})
+    "rf-causa-event-detail-section-fx"})
 
 (defn- section-testids-in-order
   "Walk the rendered hiccup tree and return the data-testids of every
-  section ROOT in document order. Filters out the per-section
-  `*-header` / `*-body` children testids `section/section-row` emits."
+  step ROOT in document order. Filters out the per-step `*-label` /
+  `*-body` children testids `step-section` emits."
   [tree]
   (->> (hiccup-seq tree)
        (keep (fn [node]
@@ -225,53 +221,56 @@
        (distinct)
        (vec)))
 
-(deftest event-lens-renders-all-seven-sections-when-fully-populated
-  (testing "a cascade with call-site + fx + interceptors + user
-            coeffects yields the full 7-section layout in the
-            rf2-jhhqt-shipped order: DISPATCH SITE, EVENT, COEFFECTS,
-            INTERCEPTORS, HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS
-            RAN"
+(deftest event-lens-renders-all-seven-steps-when-fully-populated
+  (testing "rf2-ad7zx.5 — a cascade with call-site + fx + after-
+            interceptors + user coeffects + a flow yields the full
+            7-step numbered pipeline (spec/021 §2.2): DISPATCH,
+            COEFFECTS, EVENT HANDLER, DB CHANGES, AFTER INTERCEPTORS,
+            FLOWS, FX"
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
         [(rf/->interceptor :id :auth/require-login)]
-        (fn [_ _] {})))
+        (fn [_ _] {}))
+      (rf/reg-flow {:id :a-flow :inputs [[:in]] :output identity :path [:a]}))
     (seed-buffer!
-      (cascade-evs 100 [:widget/poke {:id 1}] 0
-                   {:call-site {:file "src/widget.cljs" :line 42}
-                    :source :ui :origin :app
-                    :fx [[:db nil] [:dispatch [:bar]]]
-                    :db-present? true
-                    :coeffects {:now "2026-05-18T19:00:00Z"
-                                :local-storage {:user/last-cart-id "cart-42"}}}))
+      (concat
+        (cascade-evs 100 [:widget/poke {:id 1}] 0
+                     {:call-site {:file "src/widget.cljs" :line 42}
+                      :source :ui :origin :app
+                      :fx [[:db nil] [:dispatch [:bar]]]
+                      :db-present? true
+                      :coeffects {:now "2026-05-18T19:00:00Z"
+                                  :local-storage {:user/last-cart-id "cart-42"}}})
+        ;; A flow firing in the cascade's :other bucket → FLOWS step
+        ;; present. Inlined (rather than via the `flow-computed-ev`
+        ;; helper defined later in this ns) to keep top-level def order.
+        ;; `:rf.trace/dispatch-id` on :tags is what `group-cascades`
+        ;; keys on to bucket the trace into cascade 100's :other slot.
+        [{:id 50 :op-type :flow :operation :rf.flow/computed
+          :tags {:rf.trace/dispatch-id 100
+                 :flow-id :a-flow :path [:a] :input-values [1]
+                 :result 1 :frame :rf/default}}]))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-dispatch"))
-            "§1 DISPATCH SITE section present")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-event"))
-            "§2 EVENT section present")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-coeffects"))
-            "§3 COEFFECTS section present")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-interceptors"))
-            "§4 INTERCEPTORS section present")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-handler"))
-            "§5 HANDLER section present")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-effects-returned"))
-            "§6 EFFECTS RETURNED section present")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-effects-ran"))
-            "§7 EFFECTS HANDLERS RAN section present")))))
+        (doseq [[id label] [["dispatch" "DISPATCH"]
+                            ["coeffects" "COEFFECTS"]
+                            ["handler" "EVENT HANDLER"]
+                            ["db-changes" "DB CHANGES"]
+                            ["after-interceptors" "AFTER INTERCEPTORS"]
+                            ["flows" "FLOWS"]
+                            ["fx" "FX"]]]
+          (is (some? (find-by-testid tree (str "rf-causa-event-detail-section-" id)))
+              (str "step " label " present"))
+          (is (some? (find-by-testid tree (str "rf-causa-event-detail-step-circle-" id)))
+              (str "step " label " carries a numbered step circle")))))))
 
-(deftest event-lens-section-order-matches-spec-021-section-2
-  (testing "rf2-zv9r9 — sections render top-to-bottom in spec/021 §2's
-            canonical 6-step pipeline order: [1] DISPATCH (event+dispatch
-            sub-sections) → [2] COEFFECTS → [3] HANDLER (+INTERCEPTORS
-            silent-by-default peer) → [4] EFFECTS RETURNED (+EFFECTS
-            HANDLERS RAN peer) → [5] FLOWS → [6] :db + :fx.
-
-            Flows are silent-by-default — the section is absent when the
-            cascade carries no `:rf.flow/computed` traces (this fixture
-            doesn't seed any), so it doesn't appear in the expected
-            ordering."
+(deftest event-lens-step-order-matches-spec-021-section-2-2
+  (testing "rf2-ad7zx.5 — steps render top-to-bottom in spec/021 §2.2
+            order: DISPATCH → COEFFECTS → EVENT HANDLER → DB CHANGES →
+            AFTER INTERCEPTORS → FLOWS → FX (optional steps shown when
+            present). This fixture seeds no flow, so FLOWS is OMITTED —
+            absence by omission, dynamic numbering closes the gap."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
         [(rf/->interceptor :id :auth/require-login)]
@@ -286,111 +285,112 @@
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree  (event-detail/Panel)
             order (section-testids-in-order tree)]
-        ;; rf2-n4ad0 (Mike-direction 2026-05-21) — section order:
-        ;;   DISPATCH ORIGIN (call-site + origin) appears first so the
-        ;;     operator reads "where did this come from" before "what
-        ;;     was dispatched"; EVENT vector sits right under it.
-        ;;   COEFFECTS · HANDLER (+INTERCEPTORS silent peer) ·
-        ;;     EFFECTS (returned · :db+:fx diff) · FLOWS · FX HANDLERS
-        ;;     RUN — top-to-bottom one-way pipeline.
         (is (= ["rf-causa-event-detail-section-dispatch"
-                "rf-causa-event-detail-section-event"
                 "rf-causa-event-detail-section-coeffects"
                 "rf-causa-event-detail-section-handler"
-                "rf-causa-event-detail-section-interceptors"
-                "rf-causa-event-detail-section-effects-returned"
-                "rf-causa-event-detail-section-db-fx"
-                "rf-causa-event-detail-section-effects-ran"]
+                "rf-causa-event-detail-section-db-changes"
+                "rf-causa-event-detail-section-after-interceptors"
+                "rf-causa-event-detail-section-fx"]
                order)
-            "section testids appear in rf2-n4ad0's canonical pipeline order")))))
+            "step testids appear in spec/021 §2.2 order (FLOWS omitted)")))))
 
-(deftest cascade-outcome-line-replaces-literal-event-detail-h1
-  (testing "the literal 'Event detail' h1 is gone; the cascade-outcome
-            line carries the event-id + outcome glyph + duration"
+(deftest event-lens-dynamic-step-numbering-renumbers-on-omission
+  (testing "rf2-ad7zx.5 — step numbers are assigned DYNAMICALLY 1..N
+            over the PRESENT steps. With no coeffects / after-
+            interceptors / flows, the sparse pipeline reads DISPATCH=1,
+            EVENT HANDLER=2, DB CHANGES=3, FX=4 — the absent optional
+            steps consume no number."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :poll/tick (fn [db _] db)))
+    (seed-buffer! (cascade-evs 100 [:poll/tick] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            step-of (fn [id]
+                      (-> (find-by-testid tree
+                            (str "rf-causa-event-detail-section-" id))
+                          second
+                          :data-step-number))]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-coeffects"))
+            "COEFFECTS omitted (no user coeffects)")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-after-interceptors"))
+            "AFTER INTERCEPTORS omitted (no non-standard interceptors)")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-flows"))
+            "FLOWS omitted (no flows fired)")
+        (is (= "1" (step-of "dispatch")) "DISPATCH numbered 1")
+        (is (= "2" (step-of "handler")) "EVENT HANDLER numbered 2")
+        (is (= "3" (step-of "db-changes")) "DB CHANGES numbered 3")
+        (is (= "4" (step-of "fx")) "FX numbered 4 (contiguous despite omissions)")))))
+
+(deftest panel-header-replaces-literal-event-detail-h1-and-has-no-outcome-badge
+  (testing "rf2-ad7zx.5 — spec/021 §2.2 forbids the outcome badge. The
+            header carries the event-id (no `✓ ok` glyph/label cluster,
+            no duration tier-dot); the literal 'Event detail' h1 stays
+            gone."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)
-            outcome (find-by-testid tree "rf-causa-event-detail-outcome")
-            event-id (find-by-testid tree "rf-causa-event-detail-outcome-event-id")
-            ok-glyph (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")
+            header   (find-by-testid tree "rf-causa-event-detail-header")
+            event-id (find-by-testid tree "rf-causa-event-detail-header-event-id")
             text     (->> (hiccup-seq tree) (filter string?) (apply str))]
-        (is (some? outcome) "outcome line present")
-        (is (some? event-id) "event-id shown in outcome line")
-        (is (some? ok-glyph) "✓ glyph rendered for happy path")
+        (is (some? header) "header present")
+        (is (some? event-id) "event-id shown in header")
         (is (not (re-find #"Event detail" text))
-            "literal 'Event detail' h1 has been removed")))))
+            "literal 'Event detail' h1 stays removed")
+        ;; spec/021 §2.2 — NO outcome badge.
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok"))
+            "no ✓ ok outcome glyph")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome"))
+            "the prior outcome badge container is gone")))))
 
-;; ---- (3) cascade-outcome glyph + SSR badge -----------------------------
+;; ---- (3) header status dot + SSR badge (no outcome badge) --------------
 
-(deftest cascade-outcome-error-glyph-when-handler-threw
-  (testing "a handler exception flips the outcome to ✗ error (red)"
+(deftest header-status-dot-flips-to-error-when-handler-threw
+  (testing "rf2-ad7zx.5 — the outcome badge is gone; a handler exception
+            now surfaces via the lifecycle status dot (settled-error) on
+            the header, NOT a `✗ error` glyph."
     (seed-buffer!
       (conj (cascade-evs 100 [:foo] 0)
             {:id 99 :op-type :error :operation :rf.error/handler-exception
              :tags {:rf.trace/dispatch-id 100 :rf.trace/event-id :foo}}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-error")))
-        (is (nil?  (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")))))))
+      (let [tree   (event-detail/Panel)
+            header (find-by-testid tree "rf-causa-event-detail-header")]
+        (is (= "settled-error" (:data-rf-causa-status (second header)))
+            "header lifecycle status reads settled-error")
+        (is (some? (find-by-testid tree
+                     "rf-causa-event-detail-status-dot-settled-error"))
+            "settled-error status dot rendered")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-error"))
+            "no `✗ error` outcome glyph (forbidden by spec/021 §2.2)")))))
 
-(deftest cascade-outcome-error-glyph-for-non-handler-exception-error
-  (testing "rf2-ee38b.2 — an error trace that is NOT a handler exception
-            (e.g. :rf.error/drain-depth-exceeded, a real substrate op)
-            still flips the outcome to ✗. The glyph is driven by the
-            universal severity axis (:op-type :error), not by an
-            enumerated handler-exception set."
-    (seed-buffer!
-      (conj (cascade-evs 100 [:foo] 0)
-            {:id 99 :op-type :error :operation :rf.error/drain-depth-exceeded
-             :tags {:rf.trace/dispatch-id 100}}))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-error")))
-        (is (nil?  (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")))))))
-
-(deftest cascade-outcome-warning-glyph-for-real-substrate-warning
-  (testing "rf2-ee38b.2 — a REAL warning op the substrate actually emits
-            (:rf.warning/large-value-unschema) flips the outcome to ⚠.
-            Previously the test fabricated :rf.warning/depth-exceeded —
-            an op the runtime never produces — and the production code
-            matched the same phantom keyword, so the ⚠ branch was
-            structurally dead. Now classified by :op-type :warning."
-    (seed-buffer!
-      (conj (cascade-evs 100 [:foo] 0)
-            {:id 99 :op-type :warning :operation :rf.warning/large-value-unschema
-             :tags {:rf.trace/dispatch-id 100}}))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-warning")))
-        (is (nil?  (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")))))))
-
-(deftest cascade-outcome-ssr-badge-when-hydrated
-  (testing ":rf.ssr/hydrated event surfaces the SSR✓ badge on the
-            outcome line"
+(deftest header-ssr-badge-when-hydrated
+  (testing "rf2-ad7zx.5 — a :rf.ssr/hydrated event surfaces the SSR✓
+            origin badge on the header (the badge is an origin marker,
+            not the forbidden outcome badge)."
     (seed-buffer! (cascade-evs 100 [:rf.ssr/hydrated {:duration-ms 87 :mismatches 0}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-ssr-badge")))))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-header-ssr-badge")))))))
 
-(deftest cascade-outcome-no-ssr-badge-for-ordinary-event
+(deftest header-no-ssr-badge-for-ordinary-event
   (testing "ordinary client-only cascades do NOT carry the SSR badge"
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome-ssr-badge")))))))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-header-ssr-badge")))))))
 
-;; ---- (4) DISPATCH SITE section -----------------------------------------
+;; ---- (4) DISPATCH step (event vector + FROM origin) -------------------
 
-(deftest dispatch-site-renders-call-site-coord-and-open-chip
-  (testing "the DISPATCH SITE section reads :rf.trace/call-site off the
-            :rf.event/dispatched trace (rf2-twt7m Change 1) and renders
-            both the coord display + the open-in-editor chip"
+(deftest dispatch-step-renders-call-site-coord-and-open-chip
+  (testing "rf2-ad7zx.5 — the DISPATCH step (spec/021 §2.2 step 1) reads
+            :rf.trace/call-site off the :rf.event/dispatched trace and
+            renders the FROM caption + the coord + the click-to-source ↗
+            link"
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0
                                 {:call-site {:file "src/views.cljs" :line 127}
                                  :source :ui :origin :app}))
@@ -400,16 +400,18 @@
             coord (find-by-testid tree "rf-causa-event-detail-dispatch-coord")
             chip  (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip")
             caption (find-by-testid tree "rf-causa-event-detail-dispatch-caption")
-            text  (->> (hiccup-seq coord) (filter string?) (apply str))]
+            caption-text (->> (hiccup-seq caption) (filter string?) (apply str))
+            coord-text  (->> (hiccup-seq coord) (filter string?) (apply str))]
         (is (some? coord) "dispatch coord rendered")
-        (is (some? chip)  "open-in-editor chip rendered alongside coord")
-        (is (re-find #"src/views\.cljs:127" text)
+        (is (some? chip)  "click-to-source ↗ link rendered alongside coord")
+        (is (re-find #"src/views\.cljs:127" coord-text)
             "coord display includes the file:line")
-        (is (some? caption) "via :source · origin :origin caption rendered")))))
+        (is (re-find #"FROM:" caption-text) "FROM: origin caption rendered")
+        (is (re-find #"ui" caption-text) "dispatch source surfaced in caption")))))
 
-(deftest dispatch-site-without-call-site-renders-placeholder
-  (testing "when no :rf.trace/call-site is captured the DISPATCH SITE
-            section renders the absent placeholder (not the open chip)"
+(deftest dispatch-step-without-call-site-renders-placeholder
+  (testing "when no :rf.trace/call-site is captured the DISPATCH step
+            renders the absent placeholder (not the open chip)"
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0 {:call-site nil}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
@@ -417,24 +419,35 @@
         (is (some? (find-by-testid tree "rf-causa-event-detail-dispatch-coord-absent")))
         (is (nil? (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip")))))))
 
-;; ---- (5) INTERCEPTORS section — silent-by-default ----------------------
+(deftest dispatch-step-renders-event-vector
+  (testing "rf2-ad7zx.5 — the DISPATCH step carries the dispatched event
+            vector (the prior standalone EVENT section is merged in)"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-event-vector"))
+            "event vector rendered inside the DISPATCH step")))))
 
-(deftest interceptors-section-absent-when-zero-non-standard
-  (testing "per §4.2 + §7.2 — when the event has no non-standard
-            interceptors the INTERCEPTORS section is ABSENT entirely
-            (silent-by-default, NOT '(none)' placeholder)"
+;; ---- (5) AFTER INTERCEPTORS step — optional, omitted when empty -------
+
+(deftest after-interceptors-step-absent-when-zero-non-standard
+  (testing "rf2-ad7zx.5 — spec/021 §2.2: the optional AFTER INTERCEPTORS
+            step is OMITTED entirely when the event has no non-standard
+            interceptors (absence by omission, NOT a '(none)' line)"
     (rf/with-frame :rf/default
       (rf/reg-event-db :counter/inc (fn [db _] db)))
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-interceptors"))
-            "INTERCEPTORS section absent when zero user interceptors")))))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-after-interceptors"))
+            "AFTER INTERCEPTORS step omitted when zero user interceptors")))))
 
-(deftest interceptors-section-renders-user-interceptors
-  (testing "with a user interceptor on the chain INTERCEPTORS is
-            shown with one row per non-default interceptor"
+(deftest after-interceptors-step-renders-user-interceptors
+  (testing "rf2-ad7zx.5 — with user interceptors on the chain the AFTER
+            INTERCEPTORS step is shown with one row per non-default
+            interceptor"
     (rf/with-frame :rf/default
       (rf/reg-event-fx :auth/login
         [(rf/->interceptor :id :auth/require-login)
@@ -444,18 +457,18 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)
-            section (find-by-testid tree "rf-causa-event-detail-section-interceptors")]
-        (is (some? section) "section rendered")
+            section (find-by-testid tree "rf-causa-event-detail-section-after-interceptors")]
+        (is (some? section) "step rendered")
         (is (some? (find-by-testid tree
                                     "rf-causa-event-detail-interceptor-row-auth/require-login")))
         (is (some? (find-by-testid tree
                                     "rf-causa-event-detail-interceptor-row-auth/log-action")))))))
 
-;; ---- (6) HANDLER section -----------------------------------------------
+;; ---- (6) EVENT HANDLER step --------------------------------------------
 
-(deftest handler-section-shows-flavour-and-source-coord
-  (testing "HANDLER section shows reg-event-* flavour (per Q2 — does
-            NOT duplicate the event-id)"
+(deftest handler-step-shows-flavour-and-source-coord
+  (testing "EVENT HANDLER step shows reg-event-* flavour (does NOT
+            duplicate the event-id)"
     (rf/with-frame :rf/default
       (rf/reg-event-fx :cart/add-item (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:cart/add-item {:id 1}] 0))
@@ -468,43 +481,38 @@
         (is (= "reg-event-fx" flav-text)
             "shows reg-event-fx flavour for :fx-kind handler")))))
 
-(deftest handler-section-absent-coord-when-no-registration
+(deftest handler-step-absent-coord-when-no-registration
   (testing "an event with no registered handler renders the absent
-            placeholder (the lens never crashes on an unregistered id)"
+            placeholder (the panel never crashes on an unregistered id)"
     (seed-buffer! (cascade-evs 100 [:never-registered/event] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-handler-coord-absent")))))))
 
-;; ---- (7) EFFECTS RETURNED — silent-by-default + hydration row ----------
+;; ---- (7) EFFECTS RETURNED retired (spec/021 §2.2) ---------------------
 
-(deftest effects-returned-renders-db-marker-and-fx-vector
-  (testing "rf2-twt7m Change 2 stamps :fx + :db-present? on
-            :rf.fx/do-fx — EFFECTS RETURNED surfaces both rows"
+(deftest effects-returned-step-retired
+  (testing "rf2-ad7zx.5 — spec/021 §2.2 retires the standalone EFFECTS
+            RETURNED step (which duplicated :db against DB CHANGES and
+            :fx against FX). It must not render."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0
                                 {:fx [[:dispatch [:bar]]]
                                  :db-present? true}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-db"))
-            ":db marker row present")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-fx"))
-            ":fx vector row present")))))
-
-(deftest effects-returned-section-absent-when-no-effects
-  (testing "per §7.3 — when neither :fx nor :db is present, §5 is ABSENT"
-    (seed-buffer! (cascade-evs 100 [:noop/event] 0
-                                {:fx nil :db-present? false}))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-returned")))))))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-returned"))
+            "EFFECTS RETURNED step absent")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-db"))
+            ":db marker row absent (DB CHANGES owns the db diff)")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-fx"))
+            ":fx vector row absent (the FX step owns fx)")))))
 
 (deftest hydration-outcome-row-renders-for-rf-ssr-hydrated
-  (testing "the hydration-outcome addendum surfaces a dedicated row
-            when the focused event is :rf.ssr/hydrated"
+  (testing "rf2-ad7zx.5 — the SSR hydration-outcome addendum surfaces a
+            dedicated row inside the DB CHANGES step when the focused
+            event is :rf.ssr/hydrated"
     (seed-buffer!
       (concat (cascade-evs 100
                             [:rf.ssr/hydrated {:duration-ms 87 :subs-ran 142 :mismatches 0}]
@@ -515,8 +523,10 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-db-changes"))
+            "DB CHANGES step hosts the hydration addendum")
         (is (some? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-hydration"))
-            "hydration-outcome row renders inside §5")
+            "hydration-outcome row renders inside DB CHANGES")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-hydration-issues-jump"))
             "no jump-to-Issues affordance when :mismatches is 0")))))
 
@@ -534,29 +544,37 @@
         (is (some? (find-by-testid tree "rf-causa-event-detail-hydration-issues-jump"))
             "jump-to-Issues affordance renders when mismatches > 0")))))
 
-;; ---- (8) EFFECTS HANDLERS RAN — silent-by-default + managed-fx inline -
+;; ---- (8) FX step — required, renders one row per fx + managed inline --
 
-(deftest effects-handlers-ran-renders-one-row-per-fx
-  (testing "EFFECTS HANDLERS RAN renders one row per :rf.fx/handled
+(deftest fx-step-renders-one-row-per-fx
+  (testing "rf2-ad7zx.5 — the FX step renders one row per :rf.fx/handled
             trace, keyed by trace :id"
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-fx"))
+            "FX step present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-effects-ran-row-db")))
         (is (some? (find-by-testid tree "rf-causa-event-detail-effects-ran-row-dispatch")))))))
 
-(deftest effects-handlers-ran-section-absent-when-no-fx-ran
-  (testing "per §7.3 — when no fx-handlers ran, §6 is ABSENT"
+(deftest fx-step-shows-none-when-no-fx-ran
+  (testing "rf2-ad7zx.5 — spec/021 §2.2: FX is a REQUIRED step (unlike
+            the optional COEFFECTS / AFTER INTERCEPTORS / FLOWS). When no
+            fx handlers ran the step still renders, with a `(none)` line
+            (matching the sparse-case mockup)."
     (let [evs (filterv #(not= :rf.fx/handled (:operation %))
                        (cascade-evs 100 [:noop/event] 0))]
       (seed-buffer! evs))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-ran")))))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-fx"))
+            "FX step still present (required step)")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-fx-none"))
+            "(none) line shown when no fx handlers ran")))))
 
-(deftest effects-handlers-ran-mounts-managed-fx-record-inline
+(deftest fx-step-mounts-managed-fx-record-inline
   (testing "per §8.3 — when an fx-handler is a managed-fx surface
             (:rf.http/* etc.) the managed-fx record-panel mounts
             INLINE beneath its causing row, not in a trailing block"
@@ -779,14 +797,9 @@
                row-tids)
             "flow rows appear in cascade firing order")))))
 
-(deftest flows-section-sits-between-effects-handlers-ran-and-handler-threw-footer
-  (testing "rf2-n4ad0 — Mike-direction 2026-05-21: FLOWS now sits
-            BEFORE FX HANDLERS RUN in the pipeline (the prior ordering
-            had FLOWS after EFFECTS HANDLERS RAN; the new ordering puts
-            EFFECTS RETURNED → FLOWS → FX HANDLERS RUN so the operator
-            reads the cascade chronologically: handler returns effects ·
-            framework auto-fires dependent flows · fx handlers execute
-            the effect map)"
+(deftest flows-step-sits-before-fx-step
+  (testing "rf2-ad7zx.5 — spec/021 §2.2 step order: FLOWS (step 6) sits
+            BEFORE FX (step 7) in the pipeline."
     (rf/with-frame :rf/default
       (rf/reg-flow {:id     :a-flow
                     :inputs [[:in]] :output identity :path [:a]}))
@@ -801,16 +814,16 @@
                         (keep (fn [n]
                                 (when (and (vector? n) (map? (second n)))
                                   (let [tid (str (or (:data-testid (second n)) ""))]
-                                    (when (#{"rf-causa-event-detail-section-effects-ran"
+                                    (when (#{"rf-causa-event-detail-section-fx"
                                              "rf-causa-event-detail-section-flows"}
                                             tid)
                                       tid)))))
                         (distinct)
                         (vec))]
         (is (= ["rf-causa-event-detail-section-flows"
-                "rf-causa-event-detail-section-effects-ran"]
+                "rf-causa-event-detail-section-fx"]
                tids)
-            "FLOWS appears BEFORE FX HANDLERS RUN in document order")))))
+            "FLOWS appears BEFORE FX in document order")))))
 
 (deftest flows-section-absent-when-handler-threw
   (testing "rf2-lo37i — when the handler threw, the effects walk never
@@ -938,11 +951,14 @@
     (is (nil? (event-detail/user-coeffects {:fx nil}))
         "no do-fx trace → nil")))
 
-;; ---- (9) handler-threw footer + suppression of §5/§6 -------------------
+;; ---- (9) handler-threw — omits post-handler steps, NO footer ----------
 
-(deftest handler-threw-suppresses-effects-sections-and-renders-footer
-  (testing "per §7.5 — when the handler threw, §5 + §6 are absent and
-            the footer caption pointing at Issues tab renders"
+(deftest handler-threw-omits-post-handler-steps-and-has-no-footer
+  (testing "rf2-ad7zx.5 — spec/021 §2.2: a throwing handler simply has no
+            DB CHANGES / AFTER INTERCEPTORS / FLOWS / FX steps (absence by
+            omission). There is NO handler-threw footer. DISPATCH +
+            EVENT HANDLER still render; the header status dot carries the
+            error signal."
     (seed-buffer!
       (concat (cascade-evs 100 [:checkout/submit] 0
                             {:fx nil :db-present? false})
@@ -952,16 +968,23 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-handler-threw-footer"))
-            "footer caption renders when handler threw")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-returned"))
-            "§5 EFFECTS RETURNED absent — handler never returned")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-ran"))
-            "§6 EFFECTS HANDLERS RAN absent — fx walk never started")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-event"))
-            "§1 EVENT still present")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-handler-threw-footer"))
+            "NO handler-threw footer (spec/021 §2.2 forbids the footer)")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-db-changes"))
+            "DB CHANGES step omitted — handler never returned")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-fx"))
+            "FX step omitted — fx walk never started")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-flows"))
+            "FLOWS step omitted")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-dispatch"))
+            "DISPATCH step still present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-handler"))
-            "§4 HANDLER still present")))))
+            "EVENT HANDLER step still present")
+        ;; Error signalled via the lifecycle status dot, not a badge.
+        (is (= "settled-error"
+               (:data-rf-causa-status
+                (second (find-by-testid tree "rf-causa-event-detail-header"))))
+            "header status dot reads settled-error")))))
 
 ;; ---- (10) pure projection helpers --------------------------------------
 
@@ -1078,10 +1101,10 @@
             rows (find-all-by-testid tree "rf-causa-event-detail-effects-ran-row-db")]
         (is (= 1 (count rows))
             "exactly one :db row rendered (sanity)")
-        (let [section (find-by-testid tree "rf-causa-event-detail-section-effects-ran")
+        (let [section (find-by-testid tree "rf-causa-event-detail-section-fx")
               body    (some #(when (and (vector? %)
                                         (map? (second %))
-                                        (= "rf-causa-event-detail-section-effects-ran-body"
+                                        (= "rf-causa-event-detail-section-fx-body"
                                            (:data-testid (second %))))
                                %)
                             (hiccup-seq section))
@@ -1096,30 +1119,32 @@
           (is (every? #(some? (:key (meta %))) row-elts)
               "every fx row vector carries a :key in its meta"))))))
 
-;; ---- (12) rf2-n4ad0 vertical-flow pipeline chrome ----------------------
+;; ---- (12) rf2-ad7zx.5 numbered vertical-flow pipeline chrome -----------
 
-(deftest event-lens-renders-six-pipeline-section-labels-in-canonical-order
-  (testing "rf2-n4ad0 — the Event panel renders six bare-label pipeline
-            sections (DISPATCH ORIGIN, COEFFECTS, HANDLER, EFFECTS, FLOWS,
-            FX HANDLERS RUN) in top-to-bottom order. No [N] numbering —
-            chevrons + the left rail carry the rhythm."
+(deftest event-lens-renders-numbered-step-circles-with-labels
+  (testing "rf2-ad7zx.5 — each present step renders a numbered step
+            CIRCLE on the rail + an uppercase section label. This fixture
+            (widget/poke with the default fx) lands DISPATCH / EVENT
+            HANDLER / DB CHANGES / FX (no coeffects / after-interceptors /
+            flows), each with a circle + label."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (doseq [id ["dispatch" "coeffects" "handler" "effects" "flows" "fx-handlers"]]
+        (doseq [id ["dispatch" "handler" "db-changes" "fx"]]
+          (is (some? (find-by-testid tree
+                                      (str "rf-causa-event-detail-step-circle-" id)))
+              (str "step circle for '" id "' present"))
           (is (some? (find-by-testid tree
                                       (str "rf-causa-event-detail-section-"
                                            id "-label")))
               (str "section label '" id "' present")))))))
 
-(deftest event-lens-renders-pipeline-chevrons-between-sections
-  (testing "rf2-n4ad0 — small downward chevrons separate adjacent
-            pipeline sections (one chevron after each section EXCEPT the
-            last; five chevrons in total). The chevrons live under the
-            left rail and carry the ordering rhythm."
+(deftest event-lens-no-chevrons-in-numbered-pipeline
+  (testing "rf2-ad7zx.5 — the prior chevron chrome (rf2-n4ad0) is gone;
+            numbered step circles + the rail carry the ordering rhythm."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
@@ -1127,14 +1152,14 @@
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
         (doseq [from-id ["dispatch" "coeffects" "handler" "effects" "flows"]]
-          (is (some? (find-by-testid tree
-                                      (str "rf-causa-event-detail-chevron-" from-id)))
-              (str "chevron after section '" from-id "' present")))))))
+          (is (nil? (find-by-testid tree
+                                     (str "rf-causa-event-detail-chevron-" from-id)))
+              (str "no chevron after section '" from-id "'")))))))
 
 (deftest event-lens-pipeline-has-left-rail-container
-  (testing "rf2-n4ad0 — the pipeline body sits inside a left-rail
-            container that draws the thin vertical line per Mike-direction
-            2026-05-21. The rail is `1px solid var(:border-subtle)`."
+  (testing "rf2-ad7zx.5 — the pipeline body sits inside a left-RAIL
+            container that draws the thin vertical line (spec/021 §2.2).
+            The rail is `1px solid var(:border-subtle)`."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
@@ -1148,10 +1173,9 @@
             "left rail is a 1px solid border")))))
 
 (deftest event-lens-omits-cascade-id-label
-  (testing "rf2-n4ad0 — Mike-direction 2026-05-21: the `cascade #NNN`
-            label is REMOVED from the top-left outcome line. It was
-            internal-only info, not human-relevant. The dispatch-id is
-            still available on the lens root via `data-dispatch-id`."
+  (testing "rf2-ad7zx.5 — the `cascade #NNN` label is not surfaced. The
+            dispatch-id is still available on the lens root via
+            `data-dispatch-id`."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
@@ -1263,36 +1287,36 @@
         (is (or (some? body) (some? placeholder))
             "step [3] source slot renders one of body / placeholder")))))
 
-;; ---- (14) spec/021 §2 step 6 — :db + :fx via data-display renderer ---
+;; ---- (14) DB CHANGES step — app-db diff via data-display renderer -----
 
-(deftest db-fx-section-present-in-canonical-pipeline
-  (testing "rf2-zv9r9 — the canonical step [6] :db + :fx section is
-            present in the rendered pipeline (the new section testid
-            distinct from all prior sections). When no epoch record is
-            registered (test harness emits trace events but no epoch
-            assembly), the evicted-buffer branch surfaces."
+(deftest db-changes-step-present-in-pipeline-no-committed-footer
+  (testing "rf2-ad7zx.5 — the DB CHANGES step (spec/021 §2.2 step 4) is
+            present in the rendered pipeline. The prior `:db + :fx`
+            combined shape + the `db committed for epoch #N` close-rule
+            footer are RETIRED. When no epoch record is registered the
+            evicted-buffer branch surfaces."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-db-fx"))
-            "step [6] :db + :fx section root rendered")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-step-6-body"))
-            "step [6] body wrapper rendered")
-        ;; One of three sub-branches MUST render: committed close-rule
-        ;; (record present), evicted notice (selection-but-no-record),
-        ;; or empty-state (record but no db change). The test seeds
-        ;; trace events only (no epoch record), so the evicted branch
-        ;; is expected here.
-        (is (or (some? (find-by-testid tree "rf-causa-event-detail-step-6-committed"))
-                (some? (find-by-testid tree "rf-causa-event-detail-step-6-evicted"))
-                (some? (find-by-testid tree "rf-causa-event-detail-step-6-empty")))
-            "exactly one of [committed | evicted | empty] sub-branches renders")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-db-changes"))
+            "DB CHANGES step root rendered")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-db-changes-body"))
+            "DB CHANGES body wrapper rendered")
+        ;; NO `db committed for epoch #N` close-rule footer (spec/021 §2.2).
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-step-6-committed"))
+            "no `db committed` close-rule footer (retired)")
+        ;; One of two sub-branches renders: evicted (selection-but-no-
+        ;; record) or empty (record but no db change). The test seeds
+        ;; trace events only (no epoch record) → evicted branch.
+        (is (or (some? (find-by-testid tree "rf-causa-event-detail-db-changes-evicted"))
+                (some? (find-by-testid tree "rf-causa-event-detail-db-changes-empty")))
+            "one of [evicted | empty] sub-branches renders")))))
 
-(deftest db-fx-section-suppressed-when-handler-threw
-  (testing "rf2-n4ad0 — when the handler threw, the EFFECTS section
-            renders the 'no effects returned' suppression notice and
-            the `:db + :fx` diff is NOT mounted at all."
+(deftest db-changes-step-omitted-when-handler-threw
+  (testing "rf2-ad7zx.5 — when the handler threw, the DB CHANGES step is
+            simply OMITTED (absence by omission; no suppression notice,
+            no footer)."
     (seed-buffer!
       (conj (cascade-evs 100 [:foo] 0)
             {:id 99 :op-type :error :operation :rf.error/handler-exception
@@ -1300,27 +1324,16 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree
-                                    "rf-causa-event-detail-effects-suppressed"))
-            "EFFECTS section renders the handler-threw notice")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-db-fx"))
-            "the inline data-display section is NOT rendered on the threw branch")))))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-db-changes"))
+            "DB CHANGES step omitted on the threw branch")))))
 
-(deftest db-fx-evicted-helper-detects-aged-out-record
-  (testing "rf2-zv9r9 — `db-fx-evicted?`-equivalent: when the selected
-            epoch record is nil but the selection id exists, the section
-            renders the §10.7 evicted placeholder"
-    ;; Asserted via the helper-export path — the eviction branch is
-    ;; pure-data; we verify the (private) predicate semantics by checking
-    ;; that nil record + non-nil id → evicted notice would render. The
-    ;; testbed for full integration lives in app_db_diff_subs tests; here
-    ;; we cover the branch presence.
+(deftest db-changes-step-renders-even-with-no-epoch-record
+  (testing "rf2-ad7zx.5 — when the selected epoch record is nil but the
+            selection id exists, the DB CHANGES step still renders (the
+            §10.7 evicted placeholder) rather than crashing."
     (rf/with-frame :rf/causa
-      ;; Use a clean buffer + no record-installed sub → empty render
-      ;; surface; the step [6] section still appears (renders 'no app-db
-      ;; change this epoch' empty caption rather than crashing).
       (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-db-fx"))
-            "the section renders even when no epoch record is registered")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-db-changes"))
+            "the step renders even when no epoch record is registered")))))

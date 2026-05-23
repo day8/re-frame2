@@ -224,7 +224,7 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 1])
       (let [tree   (event-detail/Panel)
-            header (find-by-testid tree "rf-causa-event-detail-outcome")
+            header (find-by-testid tree "rf-causa-event-detail-header")
             attrs  (second header)]
         (is (= "settled-success" (:data-rf-causa-status attrs)))))))
 
@@ -285,7 +285,7 @@
             trace-tree   (trace/Panel)
             l2-row       (find-by-testid shell-tree "rf-causa-event-row-1")
             event-header (find-by-testid event-tree
-                                         "rf-causa-event-detail-outcome")
+                                         "rf-causa-event-detail-header")
             trace-bar    (find-by-testid-prefix
                            trace-tree
                            "rf-causa-trace-cascade-status-bar-")

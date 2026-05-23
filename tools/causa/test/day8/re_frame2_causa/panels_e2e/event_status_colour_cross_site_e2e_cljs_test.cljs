@@ -35,7 +35,7 @@
     1. L2 event-row             — `shell/shell-view` <li>
        `data-testid='rf-causa-event-row-<id>'`
     2. L4 Event header dot      — `event-detail/Panel` <header>
-       `data-testid='rf-causa-event-detail-outcome'`
+       `data-testid='rf-causa-event-detail-header'`
     3. L4 Trace cascade-status  — `trace/Panel` <div>
        `data-testid='rf-causa-trace-cascade-status-bar-<status>'`
 
@@ -101,7 +101,7 @@
                                         (str "rf-causa-event-row-"
                                              (str dispatch-id)))
           event-header (th/find-by-attr event-tree :data-testid
-                                        "rf-causa-event-detail-outcome")
+                                        "rf-causa-event-detail-header")
           trace-bar    (first (th/find-by-attr-prefix
                                 trace-tree :data-testid
                                 "rf-causa-trace-cascade-status-bar-"))]
