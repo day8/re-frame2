@@ -198,41 +198,47 @@ default density on a 1080p screen (the cosy case in §2.2 lands at ~36
 lines including arrows). Per-step collapse stays available via header
 click for the operator who wants to focus, but is opt-out, not default.
 
-### §2.2 Layout — vertical-flow pipeline (rf2-n4ad0)
+### §2.2 Layout — numbered vertical-flow pipeline (Figma design — rf2-ad7zx)
 
-Per Mike-direction 2026-05-21 (rf2-n4ad0) the Event panel expresses
-its top-to-bottom one-way pipeline visually as a **thin vertical line
-down the panel's left edge** with a small downward chevron `⋁` at
-each section boundary. Both the line and the chevrons are muted
-(`var(--border-subtle)` / `var(--text-tertiary)`) — the pipeline reads
-as rhythm; the section content is the foreground.
+> Reconciled to the Figma design (`tools/causa/design-reference/components/EventPanel.tsx`),
+> the later iteration. The prior chevron/bare-label/`EFFECTS RETURNED+APPLIED` shape and the
+> brief's outcome-badge proposal are **superseded**.
 
-Section labels are **bare body-text** (sans-stack 11px, weight 600,
-letter-spacing 0.6px, uppercase) — NOT `[N]` numbered headers; the
-chevrons + the left rail carry the ordering rhythm. Empty states are
-ALWAYS visible (`(none injected)` / `(no flows triggered)`) so the
-pipeline rhythm holds even when a section is empty.
+The Event panel expresses its top-to-bottom one-way pipeline as a **thin vertical line down
+the panel's left edge** with a small **numbered step circle** (`1`, `2`, …) at each section.
+The line is muted (`var(--border-subtle)`); the circles are filled muted with white numerals.
+Steps are numbered **dynamically** — an absent optional section consumes no number, so the
+visible steps always read `1..N` contiguously. Section labels are uppercase caption-weight,
+muted (`var(--text-secondary)`); the numbered circles + the rail carry the ordering.
 
-Section order:
+The **mode-accent stripe** (orange in Dynamic, cyan in Static) sits at the panel's edge.
 
-  1. **DISPATCH ORIGIN** — call-site coord + `[code]` chip + event vector
-  2. **COEFFECTS** — user-injected coeffects (empty: `(none injected)`)
-  3. **HANDLER** — flavour + coord + `[code]` chip + handler source
-     (rendered via the canonical EDN widget's `code-block` for keyword/
-     string/builtin highlighting)
-  4. **EFFECTS** — `:db` slot embeds the App-DB diff via the EDN
-     widget's `diff` variant; `:fx` list renders alongside
-  5. **FLOWS** — auto-fired flow recomputes (empty: `(no flows triggered)`)
-  6. **FX HANDLERS RUN** — per-fx-handler row detail
+Optional sections (COEFFECTS, AFTER INTERCEPTORS, FLOWS) are **shown only when present** —
+absence is conveyed by omission, not an empty-state line. A throwing handler therefore simply
+has no DB CHANGES / later sections; there is **no outcome badge** and **no "db committed"
+footer**.
 
-The `cascade #NNN` label is **removed** from the top-left of the
-outcome line — Mike's direction was that the cascade-id is internal-
-only info, not human-relevant. The dispatch-id is still available on
-the lens root via the `data-dispatch-id` attribute for tests / agents
-that need it.
+Section order (numbered; optional sections shown only when present):
 
-The 8 steps form a one-way pipeline. The Event panel MUST present it as
-such — **linear flow with arrows, not a flat list of independent sections.**
+  1. **DISPATCH** — the event vector + `FROM: <source>` (the dispatch-origin, a
+     click-to-source link).
+  2. **COEFFECTS** *(optional)* — user-injected coeffects: each id (click-to-source) + the
+     value it added to context (`+ [:now] #inst…`).
+  3. **EVENT HANDLER** — the flavour (`reg-event-db` / `reg-event-fx`) as a click-to-source
+     link + the **syntax-highlighted handler source** in a code block.
+  4. **DB CHANGES** — the app-db diff: `~ [path] old → new` · `+ [path] value` · `- [path]`.
+  5. **AFTER INTERCEPTORS** *(optional)* — non-standard after-interceptors: each id
+     (click-to-source) + the effect it contributed (`+ [:fx :local-storage] {…}`).
+  6. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote.
+  7. **FX** — the fx handlers that ran (`:dispatch → […]` · `:http-xhrio → {…}`).
+
+The cascade-id stays internal (`data-dispatch-id` on the lens root for tests/agents); not
+shown. The sections form a one-way pipeline — **linear numbered flow, not a flat list.**
+
+> **Note (rf2-ad7zx):** the two ASCII sketches below predate the Figma reconciliation — they
+> still show the prior chevron / `EFFECTS RETURNED+APPLIED` / violet-stripe shape. They are
+> being **regenerated** to match the numbered section order above +
+> `tools/causa/design-reference/components/EventPanel.tsx`. The prose above is authoritative.
 
 Dense case (default — focused epoch is a normal event with effects):
 
