@@ -73,7 +73,7 @@
 
 (defonce ^:private mock-server-state (atom {:sockets {} :sync? false}))
 
-(defn ^:export set-mock-sync!
+(defn set-mock-sync!
   "Toggle the mock server between async (default, microtask-delivered)
    and sync (immediate-delivery) modes. Sync mode is used by the
    headless tests so `rf/dispatch-sync` observes the full
@@ -81,7 +81,7 @@
   [sync?]
   (swap! mock-server-state assoc :sync? sync?))
 
-(defn ^:export reset-mock-server!
+(defn reset-mock-server!
   "Clear every stored mock socket. Used by the headless test fixture
    to ensure each test starts with a fresh mock-server side-table —
    without this, the `:sockets` map accumulates across tests and
@@ -185,7 +185,7 @@
       (rf/dispatch-sync [actor-id [kind payload]])
       (rf/dispatch       [actor-id [kind payload]]))))
 
-(defn ^:export send-server-push!
+(defn send-server-push!
   "Deliver a synthetic server push to every live mock socket. Used by
    the Playwright spec and the example's 'Trigger server push' button
    to demonstrate the inbound translation path."
@@ -194,7 +194,7 @@
     (when @open?
       (deliver-external! actor-id :received body))))
 
-(defn ^:export simulate-disconnect!
+(defn simulate-disconnect!
   "Force every live mock socket closed, triggering the reconnect
    cascade in the parent. Used by the 'Drop connection' button."
   []

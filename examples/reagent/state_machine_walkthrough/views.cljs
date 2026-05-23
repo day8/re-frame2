@@ -98,7 +98,7 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   ;; Install the canned-failure override on the default frame so every

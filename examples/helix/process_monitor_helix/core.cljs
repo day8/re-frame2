@@ -239,7 +239,7 @@
 (defonce root
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   (rf/init! helix-adapter/adapter)
   (rf/dispatch-sync [:monitor/initialise])
   (.render root ($ monitor)))

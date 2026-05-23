@@ -83,7 +83,7 @@
 (defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   ;; Slim adapter — the difference from `examples/reagent/counter` is
   ;; right here. Same `rf/init!` signature; different adapter Var.
   (rf/init! reagent-slim-adapter/adapter)

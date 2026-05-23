@@ -124,7 +124,7 @@
 ;; `create-root` calls onto the same shared `#app` element.
 (defonce react-root (atom nil))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
 

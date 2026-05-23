@@ -277,7 +277,7 @@
      (rdc/create-root (js/document.getElementById "app"))))
 
 #?(:cljs
-   (defn ^:export run []
+   (defn run []
      ;; Boot the runtime against the Reagent substrate. Idempotent — the
      ;; first call installs the adapter and creates :rf/default; subsequent
      ;; calls (e.g. shadow-cljs hot reloads) are no-ops.

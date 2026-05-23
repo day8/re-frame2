@@ -101,7 +101,7 @@
 
 (defonce react-root (atom nil))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:app/initialise])

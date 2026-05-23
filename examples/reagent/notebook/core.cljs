@@ -275,7 +275,7 @@
 
 (defonce react-root (atom nil))
 
-(defn ^:export run []
+(defn run []
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:notebook/initialise])
   (when (exists? js/document)
