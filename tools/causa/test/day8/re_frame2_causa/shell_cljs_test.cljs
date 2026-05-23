@@ -286,6 +286,24 @@
         (is (nil? (find-by-testid ribbon "rf-causa-focus-chip"))
             "focus-chip is NOT in the chrome ribbon")))))
 
+(deftest chrome-ribbon-carries-causa-logo-top-left
+  (testing "rf2-ad7zx.12 — the chrome ribbon's LEFT cluster opens with
+            the `❖ Causa` wordmark per the Figma design-reference
+            (ChromeRibbon.tsx). It was MISSING pre-Figma (the ribbon
+            jumped straight to the Frame selector). The wordmark renders
+            inside the selector cluster, before the Frame dropdown."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [ribbon    (shell/ribbon nil)
+            selectors (find-by-testid ribbon "rf-causa-ribbon-selectors")
+            logo      (find-by-testid ribbon "rf-causa-ribbon-logo")]
+        (is (some? logo) "the `❖ Causa` wordmark renders in the chrome ribbon")
+        (is (some? selectors) "the selector cluster is present")
+        (is (re-find #"❖" (text-nodes logo))
+            "the diamond `❖` glyph is present")
+        (is (re-find #"Causa" (text-nodes logo))
+            "the `Causa` wordmark text is present")))))
+
 (deftest events-ribbon-carries-label-nav-and-pills
   (testing "rf2-4vp5j Workstream B — the events ribbon
             (rf-causa-events-ribbon) carries the `Events:` label, the
@@ -623,6 +641,53 @@
             rows (find-all-by-testid-prefix tree "rf-causa-event-row-")]
         (is (= 2 (count rows))
             "one row per cascade")))))
+
+(deftest event-list-renders-figma-column-header
+  (testing "rf2-ad7zx.12 — the L2 list carries the Figma EventList
+            column-header row (source · event id · timestamp) above the
+            rows. It was MISSING pre-Figma (Mike: 'does not match the
+            Figma mock'). Rendered only with rows present."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            header (find-by-testid tree "rf-causa-event-list-header")]
+        (is (some? header) "the column-header row renders when rows exist")
+        (is (some? (find-by-testid tree "rf-causa-event-list-col-source"))
+            "the `source` column label is present")
+        (is (some? (find-by-testid tree "rf-causa-event-list-col-event-id"))
+            "the `event id` column label is present")
+        (is (some? (find-by-testid tree "rf-causa-event-list-col-timestamp"))
+            "the `timestamp` column label is present")))))
+
+(deftest event-list-omits-column-header-when-empty
+  (testing "rf2-ad7zx.12 — the empty state stays a clean `No events.`
+            message with no column-header chrome above it."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (some? (find-by-testid tree "rf-causa-event-list-empty"))
+            "empty state renders")
+        (is (nil? (find-by-testid tree "rf-causa-event-list-header"))
+            "no column header on the empty state")))))
+
+(deftest event-row-source-tag-surfaces-non-user-origin
+  (testing "rf2-ad7zx.12 — a non-:user dispatch-origin renders a text
+            SOURCE tag (the Figma `source` column) carrying the origin
+            name. :user rows stay blank (silent-by-default)."
+    (causa-setup!)
+    ;; A :timer-origin cascade — the source column should read `timer`.
+    (trace-bus/collect-trace!
+      (assoc-in (dispatch-trace-ev 1 [:poll/tick])
+                [:tags :rf/dispatch-origin] :timer))
+    ;; A plain (:user / untagged) cascade — source column blank.
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree    (shell/shell-view)
+            tagged  (find-by-testid tree "rf-causa-row-origin-timer")]
+        (is (some? tagged) "the :timer row carries an origin source tag")
+        (is (re-find #"timer" (text-nodes tagged))
+            "the source tag reads the origin name `timer`")))))
 
 (deftest event-row-gutter-carries-cascade-chain-thread
   (testing "rf2-5kfxe.10 — every L2 event-row gutter carries an inset

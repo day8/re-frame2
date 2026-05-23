@@ -786,10 +786,30 @@
                                           (static-shell/stripe-hex-for-mode :dynamic))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; LEFT cluster — scope selectors (Frame + Dynamic/Static), one
-     ;; shared compact control style so they read as one stratum.
+     ;; LEFT cluster — the `❖ Causa` wordmark, then the scope selectors
+     ;; (Frame + Dynamic/Static), one shared compact control style so the
+     ;; selectors read as one stratum.
      [:div {:data-testid "rf-causa-ribbon-selectors"
             :style {:display "flex" :align-items "center" :gap "8px"}}
+      ;; rf2-ad7zx.12 — the `❖ Causa` wordmark, top-left of the chrome
+      ;; ribbon per the Figma design-reference (`design-reference/
+      ;; components/ChromeRibbon.tsx`). Semibold, `:body-tight`, the
+      ;; ALWAYS-orange `:brand` token (the diamond glyph + the word stay
+      ;; orange in both Dynamic and Static modes — it is the product
+      ;; identity, not the mode accent). `aria-hidden` on the decorative
+      ;; `❖` glyph keeps the wordmark from announcing its unicode name.
+      [:div {:data-testid "rf-causa-ribbon-logo"
+             :style {:display      "flex"
+                     :align-items  "center"
+                     :gap          "5px"
+                     :color        (:brand tokens)
+                     :font-family  sans-stack
+                     :font-size    (:body-tight type-scale)
+                     :font-weight  600
+                     :white-space  "nowrap"
+                     :user-select  "none"}}
+       [:span {:aria-hidden "true"} "❖"]
+       [:span "Causa"]]
       ;; L1 frame-switcher slot (rf2-iwwou) — single contractually-
       ;; anchored surface. The view itself reads `:rf.causa/current-
       ;; frame` + `:rf.causa/available-frames` and writes via
@@ -964,6 +984,12 @@
       (rf/dispatch [:rf.causa/set-focus dimension value (:dispatch-id cascade)]
                    {:frame :rf/causa}))))
 
+;; rf2-ad7zx.12 — shared fixed width for the L2 `source` column so the
+;; column-header label (`l2-column-header`) and every row's origin tag
+;; (`event-row`) align on the same left edge. Declared above both use
+;; sites (event-row sits earlier in the file than the header / list).
+(def ^:private l2-source-col-width "52px")
+
 (defn- event-row
   "One row in the L2 event list. Single line per spec/018 §4 Row
   anatomy + Round-3 rf2-cmtkw — minimal default render.
@@ -1040,6 +1066,9 @@
         origin         (l2-timeline/dispatch-origin-of cascade)
         origin-prefix  (l2-timeline/origin-prefix-glyph origin)
         origin-title   (l2-timeline/origin-prefix-title origin)
+        ;; rf2-ad7zx.12 — the Figma `source` column tag (origin name as
+        ;; text; nil for :user / unknown so the cell stays blank).
+        source-tag     (l2-timeline/origin-source-tag origin)
         badges         (l2-timeline/activity-badges cascade)
         badges-tooltip (l2-timeline/activity-badges-tooltip cascade)
         ev-id       (event-id-of-cascade cascade)
@@ -1306,23 +1335,36 @@
               gutter-click (assoc :on-click gutter-click))
       (or focus-marker
           [:span {:style {:color glyph-col}} glyph])]
-     ;; rf2-gf58j — dispatch-origin prefix. Renders a per-origin
-     ;; glyph (`R` / `🌐` / `💧` / `⚡` / `⏲` / `T` / `🔧` / `i` /
-     ;; `🌊`) before the event-id when the origin is non-`:user`;
-     ;; `:user` stays silent so the common case doesn't clutter the
-     ;; row. The `:title` carries the closed-enum value as a hover
-     ;; affordance. Suppressed for the `:ungrouped` pseudo-cascade
-     ;; (no real dispatch envelope, no origin tag to surface).
-     (when (and origin-prefix (not ungrouped?))
-       [:span {:data-testid (str "rf-causa-row-origin-" (name origin))
-               :data-rf-causa-origin (name origin)
-               :title origin-title
-               :style {:flex-shrink 0
-                       :color (:accent tokens)
-                       :font-size (:caption type-scale)
-                       :min-width "12px"
-                       :text-align "center"}}
-        origin-prefix])
+     ;; rf2-ad7zx.12 — the `source` COLUMN, reconciled to the Figma
+     ;; EventList. A fixed-width cell aligned under the header's `source`
+     ;; label, carrying the dispatch-origin as a short text tag plus its
+     ;; glyph (`R fx-emit` etc). `:user` stays blank (silent-by-default —
+     ;; the dominant app-code origin doesn't clutter every row); the
+     ;; cell still occupies its column width so the `event id` column
+     ;; stays left-aligned across rows. `:ungrouped` rows render an empty
+     ;; spacer cell (no dispatch envelope, no origin to surface). The
+     ;; `:title` carries the closed-enum value as a hover affordance
+     ;; (rf2-gf58j origin glyphs preserved as the leading mark).
+     [:span {:data-testid (when (and source-tag (not ungrouped?))
+                            (str "rf-causa-row-origin-" (name origin)))
+             :data-rf-causa-origin (when (and source-tag (not ungrouped?))
+                                     (name origin))
+             :title (when (and source-tag (not ungrouped?)) origin-title)
+             :style {:flex-shrink 0
+                     :width l2-source-col-width
+                     :display "inline-flex"
+                     :align-items "center"
+                     :gap "3px"
+                     :overflow "hidden"
+                     :text-overflow "ellipsis"
+                     :white-space "nowrap"
+                     :color (:accent tokens)
+                     :font-family sans-stack
+                     :font-size (:caption type-scale)}}
+      (when (and source-tag (not ungrouped?))
+        (list
+         (when origin-prefix ^{:key "g"} [:span {:aria-hidden "true"} origin-prefix])
+         ^{:key "t"} [:span source-tag]))]
      ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the
      ;; bare event-id keyword (e.g. `:cart/add-item`). The full event
      ;; vector with args moves to the row's hover tooltip + the L4
@@ -1557,6 +1599,54 @@
         (filters-hidden-message hidden-summary)
         [clear-filters-button]])]))
 
+;; rf2-ad7zx.12 — the L2 list's column-header row, reconciled to the
+;; Figma EventList (`design-reference/components/EventList.tsx`). The
+;; Figma mock renders a sticky header naming the four columns the rows
+;; align to: `source` · `event id` · `timestamp` · `duration`. The
+;; header was MISSING pre-Figma (the list was a bare row stack), which
+;; is the gap Mike flagged ("does not match the Figma mock"). The
+;; column widths mirror the row layout below: a fixed leading FOCUS
+;; gutter (14px, unlabeled — it is a Causa affordance the mock didn't
+;; have), a fixed `source` tag column, the flexible `event id` column,
+;; then the right-aligned `timestamp`/`duration` cluster.
+
+(defn- l2-column-header
+  "Sticky column-header row for the L2 event list (rf2-ad7zx.12, Figma
+  EventList). Caption-weight, muted, on the chrome surface so it reads
+  as chrome rather than data. Pure hiccup."
+  []
+  (let [cell {:color       (:text-tertiary tokens)
+              :font-family sans-stack
+              :font-size   (:caption type-scale)
+              :font-weight 500
+              :text-transform "lowercase"
+              :white-space "nowrap"}]
+    [:div {:data-testid "rf-causa-event-list-header"
+           :role        "row"
+           :style {:position      "sticky"
+                   :top           0
+                   :z-index       1
+                   :display       "flex"
+                   :align-items   "center"
+                   :gap           "6px"
+                   :padding       "2px 6px"
+                   :background    (:bg-1 tokens)
+                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
+     ;; Leading focus-gutter spacer — keeps the header columns aligned
+     ;; with the rows' 14px focus gutter (the gutter itself is a Causa
+     ;; affordance, unlabeled in the header).
+     [:span {:aria-hidden "true" :style {:width "14px" :flex-shrink 0}}]
+     [:span {:data-testid "rf-causa-event-list-col-source"
+             :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
+      "source"]
+     [:span {:data-testid "rf-causa-event-list-col-event-id"
+             :style (merge cell {:flex "1 1 auto" :min-width "0"})}
+      "event id"]
+     [:span {:data-testid "rf-causa-event-list-col-timestamp"
+             :style (merge cell {:flex-shrink 0 :text-align "right"
+                                 :min-width "30px"})}
+      "timestamp"]]))
+
 (rf/reg-view event-list
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
   latest-on-bottom, ~8 visible at the tightened 22px row height
@@ -1664,7 +1754,13 @@
                        :font-family sans-stack
                        :font-size (:body type-scale)}}
          "No events."]
-        (into [:ul {:style {:list-style "none" :margin 0 :padding 0
+        ;; rf2-ad7zx.12 — the Figma column-header row above the row
+        ;; stack. Rendered only with rows present so the empty state
+        ;; stays a clean "No events." message.
+        (list
+         ^{:key "header"} [l2-column-header]
+         (into ^{:key "rows"}
+               [:ul {:style {:list-style "none" :margin 0 :padding 0
                             :display "flex" :flex-direction "column"
                             :gap "2px"}}]
               (for [cascade event-cascades]
@@ -1679,7 +1775,7 @@
                             ;; can read `:mode` (RETRO → :stale) and
                             ;; `:paused?` (paused-by-tool → :cyan).
                             :focus       focus
-                            :now-ms      now-ms}])))]]))
+                            :now-ms      now-ms}]))))]]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 

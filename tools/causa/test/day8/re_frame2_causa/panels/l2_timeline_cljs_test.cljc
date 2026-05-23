@@ -90,6 +90,30 @@
              :test-harness :tool :internal :websocket}
            (set (keys l2/origin-glyphs))))))
 
+;; ---- 2b. origin → source-tag (Figma `source` column, rf2-ad7zx.12) -------
+
+(deftest origin-source-tag-test
+  (testing ":user is blank — the dominant app-code origin doesn't clutter
+            every row's source column (silent-by-default)"
+    (is (nil? (l2/origin-source-tag :user))))
+
+  (testing "every non-user closed-enum value renders its bare name as the tag"
+    (is (= "router"       (l2/origin-source-tag :router)))
+    (is (= "http"         (l2/origin-source-tag :http)))
+    (is (= "ssr"          (l2/origin-source-tag :ssr)))
+    (is (= "fx-emit"      (l2/origin-source-tag :fx-emit)))
+    (is (= "timer"        (l2/origin-source-tag :timer)))
+    (is (= "test-harness" (l2/origin-source-tag :test-harness)))
+    (is (= "tool"         (l2/origin-source-tag :tool)))
+    (is (= "internal"     (l2/origin-source-tag :internal)))
+    (is (= "websocket"    (l2/origin-source-tag :websocket))))
+
+  (testing "unknown / nil → nil (defence-in-depth, never throws)"
+    (is (nil? (l2/origin-source-tag nil)))
+    ;; an unknown keyword still yields its name — the column is the bare
+    ;; origin axis, not gated on the closed-enum glyph map.
+    (is (= "unknown-axis" (l2/origin-source-tag :unknown-axis)))))
+
 ;; ---- 3. origin → title text ---------------------------------------------
 
 (deftest origin-prefix-title-test

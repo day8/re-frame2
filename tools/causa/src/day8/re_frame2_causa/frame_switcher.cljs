@@ -296,17 +296,36 @@
 ;; ---- view ----------------------------------------------------------------
 
 (rf/reg-view frame-switcher-view
-  "L1 ribbon frame-switcher — STRICTLY single-select per spec/018 §1
-  Non-goals + §3 Frame dropdown + Round-3 rf2-i74n7. No 'All frames
-  (merged)' option; no `:multiple` attribute on the `<select>`.
-  Excludes `:rf/causa` by default per spec/018 §8 I1. When the only
-  available frame is the current selection, the dropdown collapses to
-  a flat label (no chevron — no click target).
+  "L1 chrome-ribbon frame-switcher — the `Frame ▾` dropdown BUTTON per
+  the Figma design-reference (`design-reference/components/ChromeRibbon
+  .tsx`) + spec/018 §3 Frame dropdown. STRICTLY single-select (spec/018
+  §1 Non-goals + Round-3 rf2-i74n7): no 'All frames (merged)' option, no
+  `:multiple` attribute. Excludes `:rf/causa` by default per spec/018 §8
+  I1.
 
-  Reads `:rf.causa/current-frame` + `:rf.causa/available-frames`;
-  writes via `:rf.causa/select-frame <frame-id>` — the canonical
-  contract documented at ns-top. Other frame-aware features (Cmd-K
-  palette, future panels) reach through the same surface.
+  ## Figma shape (rf2-ad7zx.12)
+
+  The control reads `Frame ▾` — the literal word `Frame` followed by a
+  chevron, NOT the selected value inline (`Frame: :step-deck`). The
+  current selection is surfaced INSIDE the option list (the active
+  option is `:value`-bound + carries a `✓`), not as the button label,
+  matching Chrome DevTools' device-toolbar + the Figma chrome ribbon.
+
+  Implementation is the overlay pattern: a styled `Frame ▾` button face
+  is the visible affordance; a native `<select>` is layered transparently
+  on top so keyboard + screen-reader navigation + the native option
+  popup all work out of the box (rf2-lbutp). The `<select>` carries the
+  `aria-label` so assistive tech announces 'Select frame, combobox'.
+
+  When fewer than two frames are pickable the button still renders (the
+  chrome ALWAYS shows a Frame control per Figma — the prior 'collapse to
+  a flat label' branch is gone, rf2-ad7zx.12), but the overlaid select is
+  disabled so there is no inert popup.
+
+  Reads `:rf.causa/current-frame` + `:rf.causa/available-frames`; writes
+  via `:rf.causa/select-frame <frame-id>` — the canonical contract
+  documented at ns-top. Other frame-aware features (Cmd-K palette, future
+  panels) reach through the same surface.
 
   `reg-view`-registered (rf2-in6l2) so its rendered React component
   carries `:contextType frame-context` and the closest enclosing
@@ -315,40 +334,64 @@
   [_props]
   (let [selected-frame  @(rf/subscribe [:rf.causa/current-frame])
         frames          @(rf/subscribe [:rf.causa/available-frames])
-        label-style     {:color       (:text-primary tokens)
-                         :font-family sans-stack
-                         :font-size   (:body type-scale)}]
-    (if (<= (count frames) 1)
-      [:span {:data-testid "rf-causa-ribbon-frame"
-              :style (merge label-style {:color (:text-secondary tokens)})}
-       (str "Frame: " (or selected-frame (first frames) ":rf/default"))]
-      ;; rf2-lbutp — native `<select>` is keyboard- and screen-
-      ;; reader-accessible by default, but assistive tech needs an
-      ;; accessible NAME to read on focus. The visible "Frame:"
-      ;; prefix lives inside each `<option>`, not as a sibling
-      ;; `<label>`, so the picker arrives "blank, combobox" without
-      ;; this `aria-label`. Matches the convention the audit
-      ;; flagged (#16) — frame-switcher gets an explicit accessible
-      ;; name.
-      [:select {:data-testid "rf-causa-ribbon-frame-picker"
-                :aria-label  "Select frame"
-                :value       (str (or selected-frame (first frames)))
-                :on-change   (fn [^js e]
-                               (let [v   (.. e -target -value)
-                                     kw  (when (and v (.startsWith v ":"))
-                                           (keyword (subs v 1)))]
-                                 (when kw
-                                   (rf/dispatch [:rf.causa/select-frame kw]
-                                                {:frame :rf/causa}))))
-                :style       (merge label-style
-                               {:background    (:bg-2 tokens)
-                                :border        (str "1px solid "
-                                                    (:border-default tokens))
-                                :border-radius "4px"
-                                :padding       "2px 6px"})}
-       (for [f frames]
-         ^{:key (str f)}
-         [:option {:value (str f)} (str "Frame: " f)])])))
+        active          (or selected-frame (first frames))
+        pickable?       (> (count frames) 1)]
+    [:div {:data-testid "rf-causa-ribbon-frame"
+           :title       (if active
+                          (str "Frame scope: " active " — pick a frame to scope the inspector")
+                          "Frame scope")
+           :style {:position      "relative"
+                   :display       "inline-flex"
+                   :align-items   "center"
+                   :gap           "4px"
+                   :background    (:bg-2 tokens)
+                   :border        (str "1px solid " (:border-default tokens))
+                   :border-radius "4px"
+                   :padding       "2px 8px"
+                   :color         (:text-primary tokens)
+                   :font-family   sans-stack
+                   :font-size     (:body-tight type-scale)
+                   :line-height   "1.3"
+                   :cursor        (if pickable? "pointer" "default")
+                   :flex-shrink   0}}
+     ;; Figma `Frame ▾` button face — the literal word + a chevron. The
+     ;; selected value is surfaced inside the option list, never on the
+     ;; button (rf2-ad7zx.12).
+     [:span {:data-testid "rf-causa-ribbon-frame-label"} "Frame"]
+     [:span {:data-testid "rf-causa-ribbon-frame-chevron"
+             :aria-hidden "true"
+             :style {:font-size (:caption type-scale)
+                     :color     (:text-secondary tokens)
+                     :line-height "1"}}
+      "▾"]
+     ;; rf2-lbutp — native `<select>` layered transparently over the
+     ;; button face so keyboard + screen-reader + the native option
+     ;; popup all work; the visible `Frame ▾` is the design affordance.
+     [:select {:data-testid "rf-causa-ribbon-frame-picker"
+               :aria-label  "Select frame"
+               :disabled    (not pickable?)
+               :value       (str active)
+               :on-change   (fn [^js e]
+                              (let [v   (.. e -target -value)
+                                    kw  (when (and v (.startsWith v ":"))
+                                          (keyword (subs v 1)))]
+                                (when kw
+                                  (rf/dispatch [:rf.causa/select-frame kw]
+                                               {:frame :rf/causa}))))
+               :style       {:position   "absolute"
+                             :top        0
+                             :left       0
+                             :width      "100%"
+                             :height     "100%"
+                             :opacity    0
+                             :cursor     (if pickable? "pointer" "default")
+                             :border     "none"
+                             :margin     0
+                             :padding    0}}
+      (for [f frames]
+        ^{:key (str f)}
+        [:option {:value (str f)}
+         (str (if (= f active) "✓ " "  ") f)])]]))
 
 ;; ---- install -------------------------------------------------------------
 
