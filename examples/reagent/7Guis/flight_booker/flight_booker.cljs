@@ -187,7 +187,7 @@
 (defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:flight/initialise])

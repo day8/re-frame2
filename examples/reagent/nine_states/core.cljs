@@ -688,7 +688,7 @@
 
 (defonce react-root (atom nil))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   ;; Install the demo override so `:rf.http/managed` calls route to the

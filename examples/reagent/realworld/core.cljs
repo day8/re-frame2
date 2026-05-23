@@ -379,7 +379,7 @@
       token (assoc-in [:request :headers "Authorization"]
                       (str "Token " token)))))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   ;; Override :rf.http/managed on the default frame so all the realworld

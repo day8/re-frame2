@@ -194,7 +194,7 @@
      (rdc/create-root (js/document.getElementById "app"))))
 
 #?(:cljs
-   (defn ^:export run []
+   (defn run []
      (rf/init! reagent-slim-adapter/adapter)
      (when-let [payload (read-server-payload)]
        (rf/dispatch-sync [:rf/hydrate payload]))

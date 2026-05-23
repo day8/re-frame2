@@ -81,7 +81,17 @@ cljs.test summary prints). But the convention examples follow is:
 
 > **Do not perform DOM mount side effects at namespace-load time.**
 > Defer `create-root` (or your substrate's equivalent) to the example's
-> `^:export run` fn.
+> `run` fn.
+
+Each example's `run` fn is its bundle entry point, wired as the
+`:init-fn` of the example's shadow-cljs build target in
+[`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn)
+(e.g. `:examples/realworld` → `:init-fn realworld.core/run`). shadow-cljs
+emits a call to that fn as the bundle's bootstrap, resolving the symbol
+*inside* the compiled bundle — so the fn needs **no** `^:export` metadata.
+`^:export` only matters for symbols called by name from outside the bundle
+(hand-written HTML/JS via `window....`); the example host pages just load
+`main.js` and let the `:init-fn` fire, so no example needs it.
 
 The shape every Reagent example uses:
 
@@ -90,7 +100,9 @@ The shape every Reagent example uses:
 ;; once `run` has materialised it.
 (defonce react-root (atom nil))
 
-(defn ^:export run []
+;; Bundle entry point — wired as this example's :init-fn in
+;; implementation/shadow-cljs.edn. No ^:export needed (see above).
+(defn run []
   (rf/init! adapter)
   ;; ... per-example app boot ...
   (when (exists? js/document)
@@ -146,7 +158,8 @@ non-overlapping.
 A new example added to the `test:browser` surface needs:
 
 1. **Namespace-load side effects only register, never mount.** All DOM
-   creation lives in `^:export run`. Per the convention above.
+   creation lives in the example's `run` fn (the bundle's `:init-fn`).
+   Per the convention above.
 2. **A prefixed id namespace.** Pick a stem (your example's folder name
    in `kebab-case` is a good default) and stick to it for every
    `reg-event-*`, `reg-sub`, `reg-machine`, `reg-frame`, schema, etc.

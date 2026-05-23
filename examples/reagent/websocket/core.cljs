@@ -133,7 +133,7 @@
 
 (defonce react-root (atom nil))
 
-(defn ^:export run []
+(defn run []
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:ws.app/initialise])
   (when (exists? js/document)

@@ -68,7 +68,7 @@
 (defonce root
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! helix-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
