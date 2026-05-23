@@ -114,6 +114,24 @@
   [origin]
   (get origin-glyphs origin))
 
+(defn origin-source-tag
+  "Pure-data SOURCE column label (rf2-ad7zx.12). The Figma EventList
+  (`design-reference/components/EventList.tsx`) renders a left-most
+  `source` column as a short text tag — `fx` / `view` / `timer` /
+  `machine` in the mock. Causa's real source axis is the closed-enum
+  dispatch-origin (`:rf/dispatch-origin`), so the tag is the bare
+  origin name (`router` / `http` / `timer` / `fx-emit` / …).
+
+  `:user` is the default app-code origin; the Figma mock never tagged
+  the common case loudly, and Causa's silent-by-default posture keeps
+  the `:user` source column blank rather than cluttering every row with
+  the dominant value. Returns nil for `:user`, unknown, and nil origins
+  so the renderer omits the tag — the column reads as a sparse signal,
+  exactly the rows whose source is NOT plain app code."
+  [origin]
+  (when (and origin (not= :user origin))
+    (name origin)))
+
 (defn origin-prefix-title
   "Hover-title text for a given origin, or nil when the origin has
   no prefix to title."

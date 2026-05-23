@@ -286,21 +286,33 @@
             node))
         (hiccup-seq tree)))
 
-(deftest view-collapses-to-label-when-only-one-frame
-  (testing "the view renders a flat label (no dropdown) when only one
-            distinct frame is available — there's nothing to pick"
+(deftest view-renders-frame-dropdown-button-always
+  (testing "rf2-ad7zx.12 — the Figma chrome ribbon ALWAYS shows a
+            `Frame ▾` dropdown button (logo + Frame + Dynamic/Static is
+            the chrome). Even with a single pickable frame the button
+            renders; only the overlaid <select> goes disabled so there's
+            no inert popup."
     (dispatch-trace 1 :app/main)
     (setup!)
     (rf/with-frame :rf/causa
-      (let [tree (frame-switcher/frame-switcher-view {})]
-        (is (some? (find-by-testid tree "rf-causa-ribbon-frame"))
-            "label-only branch renders")
-        (is (nil? (find-by-testid tree "rf-causa-ribbon-frame-picker"))
-            "no <select> when only one frame is selectable")))))
+      (let [tree   (frame-switcher/frame-switcher-view {})
+            button (find-by-testid tree "rf-causa-ribbon-frame")
+            label  (find-by-testid tree "rf-causa-ribbon-frame-label")
+            picker (find-by-testid tree "rf-causa-ribbon-frame-picker")]
+        (is (some? button) "the Frame dropdown button always renders")
+        (is (some? label) "the literal `Frame` label renders (not the value inline)")
+        (is (= "Frame" (last label))
+            "the button reads `Frame`, NOT `Frame: <value>` (Mike's flag)")
+        (is (some? (find-by-testid tree "rf-causa-ribbon-frame-chevron"))
+            "the `▾` chevron renders, marking it a dropdown")
+        (is (some? picker) "the native <select> overlay is present for a11y")
+        (is (true? (:disabled (second picker)))
+            "single-frame — the overlaid select is disabled (no inert popup)")))))
 
 (deftest view-renders-dropdown-when-multiple-frames
-  (testing "the view renders a strictly-single-select <select> when
-            multiple distinct frames are present"
+  (testing "the view renders a strictly-single-select <select> overlay
+            when multiple distinct frames are present; the visible
+            affordance stays the `Frame ▾` button (rf2-ad7zx.12)"
     (dispatch-trace 1 :app/main)
     (dispatch-trace 2 :app/admin)
     (setup!)
@@ -311,7 +323,11 @@
         (is (= :select (first picker))
             "it's a <select>, not a custom multi-select")
         (is (nil? (:multiple (second picker)))
-            "strictly single-select — no :multiple attribute")))))
+            "strictly single-select — no :multiple attribute")
+        (is (not (:disabled (second picker)))
+            "multi-frame — the select is enabled so the popup opens")
+        (is (= "Frame" (last (find-by-testid tree "rf-causa-ribbon-frame-label")))
+            "the button still reads `Frame` (the value is not inlined)")))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Storage-key plumbing — per-instance isolation
