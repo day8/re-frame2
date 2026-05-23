@@ -8,7 +8,7 @@ This chapter covers the event-emit listener surface, the error-emit listener sur
 
 ## Event-emit (always-on, production-survivable)
 
-A minimal always-on listener surface that survives `:advanced` + `goog.DEBUG=false` and delivers one tight record per processed event. The intended consumers are hosted observability back-ends (Datadog, Honeycomb, Sentry, …). **Parallel to (not a fallback for) the dev-only trace surface; per-event only — no per-sub, per-fx, or per-`:event/db-changed` records.**
+A minimal always-on listener surface that survives `:advanced` + `goog.DEBUG=false` and delivers one tight record per processed event. The intended consumers are hosted observability back-ends (Datadog, Honeycomb, Sentry, …). **Parallel to (not a fallback for) the dev-only trace surface; per-event only — no per-sub, per-fx, or per-`:rf.event/db-changed` records.**
 
 Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:event` slot is passed through `elide-wire-value` (see below) once before fan-out, so schema-marked `:sensitive?` paths land as `:rf/redacted` and `:large?` paths land as `:rf.size/large-elided`.
 

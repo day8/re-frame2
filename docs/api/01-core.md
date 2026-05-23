@@ -250,13 +250,13 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-flow flow)
   (reg-flow flow opts)
   ```
-- **Description**: Register a derived flow — `{:id :inputs :output :path}` — that auto-recomputes when its inputs change and writes the result into `:path` in `app-db`. See [05 — Flows](05-flows.md).
+- **Description**: Register a derived flow — `{:id :inputs :output :path}` — that auto-recomputes when its inputs change and writes the result into `:path` in `app-db`. `:inputs` is a positional vector of `app-db` paths; the values arrive as positional args to `:output`. See [05 — Flows](05-flows.md).
 - **Example**:
   ```clojure
   (rf/reg-flow
     {:id     :cart/total
-     :inputs {:items [:cart :items]}
-     :output (fn [{:keys [items]}] (reduce + (map :price items)))
+     :inputs [[:cart :items]]
+     :output (fn [items] (reduce + (map :price items)))
      :path   [:cart :total]})
   ```
 
