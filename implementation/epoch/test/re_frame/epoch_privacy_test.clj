@@ -166,9 +166,14 @@
 (deftest rollup-strict-boolean-on-halted-destroy
   (testing "halted-destroy records carry nil :db-before / :db-after
             (per rf2-v0jwt); the rollup must still produce a strict
-            boolean (no NPE on the nil-db sensitive-leaf walk)"
-    ;; Synthesise a halted-destroy record by calling build-record's
-    ;; private path through the destroy hook surface.
+            boolean (no NPE on the nil-db sensitive-leaf walk).
+
+            Per the rf2-ee38b correctness review: this drives a REAL
+            mid-drain `destroy-frame!` and asserts UNCONDITIONALLY that
+            exactly one :halted-destroy record reached the listener. The
+            prior `(when-let [halted ...] ...)` guard silently no-op'd if
+            the live wiring stopped firing the partial record, passing
+            green with zero executed assertions."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     ;; Trigger a real cascade so capture-buffers carries a run-start;
@@ -184,16 +189,21 @@
       ;; emits a :halted-destroy partial record carrying nil dbs.
       (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
            (catch Throwable _ nil))
-      (when-let [halted (some (fn [r]
-                                (when (= :halted-destroy (:outcome r)) r))
-                              @seen)]
-        (is (or (false? (:rf.epoch/sensitive? halted))
-                (true?  (:rf.epoch/sensitive? halted)))
-            "rollup is a strict boolean on the halted-destroy path")
-        (is (nil? (:db-before halted))
-            "halted-destroy carries nil :db-before")
-        (is (nil? (:db-after halted))
-            "halted-destroy carries nil :db-after")))))
+      (let [halted-records (filterv (fn [r] (= :halted-destroy (:outcome r)))
+                                    @seen)]
+        ;; UNCONDITIONAL: the live mid-drain destroy fires exactly one
+        ;; :halted-destroy record at the listener.
+        (is (= 1 (count halted-records))
+            "the live mid-drain destroy fires exactly one :halted-destroy
+             record to listeners")
+        (let [halted (first halted-records)]
+          (is (or (false? (:rf.epoch/sensitive? halted))
+                  (true?  (:rf.epoch/sensitive? halted)))
+              "rollup is a strict boolean on the halted-destroy path")
+          (is (nil? (:db-before halted))
+              "halted-destroy carries nil :db-before")
+          (is (nil? (:db-after halted))
+              "halted-destroy carries nil :db-after"))))))
 
 ;; ---- 2. projected-record ---------------------------------------------------
 ;;

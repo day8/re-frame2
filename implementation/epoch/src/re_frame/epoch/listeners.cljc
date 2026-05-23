@@ -35,6 +35,7 @@
   here; the listener-registry atom + record-observation bookkeeping
   live in `re-frame.epoch.state` (seam A)."
   (:require [re-frame.epoch.assembly :as assembly]
+            [re-frame.epoch.capture :as capture]
             [re-frame.epoch.state :as state]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]))
@@ -72,20 +73,6 @@
                               :recovery :no-recovery}))))))
 
 ;; ---- post-settle render back-fill (rf2-qs6dl) -----------------------------
-
-(defn- render-row
-  "Project a `:view/render` trace event into its structured `:renders`
-  row, mirroring `capture/project-all`'s `:view/render` arm. Returns nil
-  for non-`:view/render` render ops (`:rf.view/rendered` /
-  `:rf.view/rendered-cap-reached`) — those ride only the `:trace-events`
-  slot, exactly as `project-all` already treats them (it projects no
-  `:renders` row for them)."
-  [event]
-  (when (= :rf.view/render (:operation event))
-    (let [t (:tags event)]
-      {:render-key   (or (:rf.view/render-key t) [:rf.view/anonymous nil])
-       :triggered-by (:triggered-by t)
-       :elapsed-ms   (:elapsed-ms t)})))
 
 (defn record-render!
   "Attribute a post-settle render emit to the cascade that CAUSED it
@@ -143,7 +130,7 @@
                        (state/render-key-already-in-epoch?
                          frame-id target render-key))
           (when-let [updated (state/back-fill-render! frame-id target
-                                                      event (render-row event))]
+                                                      event (capture/render-row event))]
             ;; Re-fan the corrected record so snapshot consumers re-read
             ;; the ring. The fan-out is failure-isolated per listener
             ;; (same contract as the settle-time fan-out); a render-driven
@@ -153,25 +140,6 @@
             (notify-listeners! updated)))))))
 
 ;; ---- post-settle sub-run back-fill (rf2-wi900) ----------------------------
-
-(defn- sub-run-row
-  "Project a `:sub/run` trace event into its structured `:sub-runs` row,
-  mirroring `capture/project-all`'s `:sub/run` arm VERBATIM (same slot set
-  + same value-change/cascade attribution threading per rf2-l1jz8).
-  Returns nil for `:rf.sub/skip` — `project-all` projects no `:sub-runs`
-  row for a memo hit, so a skip rides only the `:trace-events` slot
-  (symmetric with `render-row` returning nil for `:rf.view/rendered`)."
-  [event]
-  (when (= :rf.sub/run (:operation event))
-    (let [t (:tags event)]
-      {:sub-id         (:rf.sub/id t)
-       :query-v        (:rf.sub/query-v t)
-       :recomputed?    true
-       :value-changed? (:rf.sub/value-changed? t)
-       :prev-value     (:rf.sub/prev-value t)
-       :value          (:rf.sub/value t)
-       :cascade?       (:rf.sub/cascade? t)
-       :cause-sub      (:rf.sub/cause-sub t)})))
 
 (defn record-sub-run!
   "Attribute a post-settle sub-run emit to the cascade that CAUSED it
@@ -192,7 +160,7 @@
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
       (when-let [updated (state/back-fill-sub-run! frame-id epoch-id
-                                                   event (sub-run-row event))]
+                                                   event (capture/sub-run-row event))]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render back-fill above.

@@ -444,13 +444,24 @@
   (testing "on-frame-destroyed!'s :halted-destroy partial-record
             commit runs the redact-fn — devtools observing the
             halted-cascade record see the same redacted shape they
-            would for an :ok cascade"
+            would for an :ok cascade.
+
+            Per the rf2-ee38b correctness review: this drives a REAL
+            mid-drain `destroy-frame!` (the handler destroys its own
+            frame, matching the live wiring) and asserts UNCONDITIONALLY
+            that exactly one :halted-destroy record reached the listener.
+            The prior `(when @halted ...)` guard silently no-op'd if the
+            live wiring stopped firing the partial record (e.g. an
+            ordering regression leaving the capture buffer without a
+            run-start by destroy time, or an `in-cascade?` gate
+            regression) — both would have passed green with zero executed
+            assertions."
     (rf/reg-frame :test/main {})
-    (let [halted (atom nil)]
+    (let [halted-records (atom [])]
       (rf/register-epoch-listener! ::watch
                              (fn [r]
                                (when (= :halted-destroy (:outcome r))
-                                 (reset! halted r))))
+                                 (swap! halted-records conj r))))
       (rf/configure :epoch-history
                     {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
       (rf/reg-event-fx :destroy-self
@@ -459,11 +470,17 @@
                          {}))
       (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
            (catch Throwable _ nil))
-      (when @halted
-        (is (= :halted-destroy (:outcome @halted)))
-        (is (= :redacted (:rf/test-tag @halted))
+      ;; UNCONDITIONAL: the live mid-drain destroy must fire exactly one
+      ;; :halted-destroy record at the listener.
+      (is (= 1 (count @halted-records))
+          "the live mid-drain destroy fires exactly one :halted-destroy
+           record to listeners")
+      (let [halted (first @halted-records)]
+        (is (= :halted-destroy (:outcome halted)))
+        (is (= :redacted (:rf/test-tag halted))
             "halted-destroy path: listener received the redacted
-             partial record")))))
+             partial record (redact-fn ran on the live partial commit,
+             not just a synthetic build-record call)")))))
 
 ;; ============================================================================
 ;;  Default no-op posture

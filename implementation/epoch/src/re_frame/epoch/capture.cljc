@@ -309,6 +309,56 @@
          (seq (:subs result))     (assoc :cause-subs (:subs result)))))))
 
 ;; ---- record projection ----------------------------------------------------
+;;
+;; The two structured-row projectors below are shared between
+;; `project-all`'s fused reducer (the settle-time projection) and the
+;; post-settle back-fill in `re-frame.epoch.listeners` (which projects a
+;; single late-arriving event into the same row shape). Keeping the row
+;; literal in ONE place means a future field added to the `:sub/run` /
+;; `:view/render` projection lands on both surfaces automatically — the
+;; rf2-ee38b clarity review flagged the prior verbatim duplication as a
+;; lockstep maintenance hazard.
+
+(defn sub-run-row
+  "Project a `:rf.sub/run` trace event into its structured `:sub-runs`
+  row, or nil for any non-`:sub/run` op (a `:rf.sub/skip` memo hit
+  projects no `:sub-runs` row — it rides only `:trace-events`).
+
+  Per rf2-l1jz8 the reactive recompute path enriches the `:sub/run` tag
+  with value-change + cascade attribution (`:value-changed?` /
+  `:prev-value` / `:value` / `:cascade?` / `:cause-sub`); they are
+  threaded onto the structured projection so Causa's Reactive panel reads
+  them off the epoch record (not the raw trace). `compute-sub`'s base-
+  shape emit omits them — the slots are simply absent there, which the
+  panel's `sub-changed?` / `sub-cascaded?` predicates tolerate (false /
+  not-cascaded). The `:sensitive?` stamp on the trace event (rf2-isdwf)
+  governs whether `:prev-value` / `:value` already carry the
+  `:rf/redacted` sentinel — they ride elide-wire-value at the emit site."
+  [event]
+  (when (= :rf.sub/run (:operation event))
+    (let [t (:tags event)]
+      {:sub-id         (:rf.sub/id t)
+       :query-v        (:rf.sub/query-v t)
+       :recomputed?    true
+       :value-changed? (:rf.sub/value-changed? t)
+       :prev-value     (:rf.sub/prev-value t)
+       :value          (:rf.sub/value t)
+       :cascade?       (:rf.sub/cascade? t)
+       :cause-sub      (:rf.sub/cause-sub t)})))
+
+(defn render-row
+  "Project a `:rf.view/render` trace event into its structured `:renders`
+  row, or nil for any non-`:view/render` render op (`:rf.view/rendered` /
+  `:rf.view/rendered-cap-reached` ride only `:trace-events`).
+
+  `:render-key` is the `[<view-id> <instance-token>]` tuple; renders
+  bypassing reg-view (plain Reagent fns) use `[:rf.view/anonymous nil]`
+  as the documented fallback (Spec-Schemas §`:rf/epoch-record`)."
+  [event]
+  (when (= :rf.view/render (:operation event))
+    (let [t (:tags event)]
+      {:render-key (or (:rf.view/render-key t)
+                       [:rf.view/anonymous nil])})))
 
 (defn project-all
   "Walk the captured trace events ONCE and emit the three `:sub-runs`,
@@ -359,44 +409,16 @@
                 (let [op (:operation ev)
                       t  (:tags ev)]
                   (cond
+                    ;; Per rf2-l1jz8 — the reactive recompute path enriches
+                    ;; the `:sub/run` tag with value-change + cascade
+                    ;; attribution; `sub-run-row` threads them onto the
+                    ;; structured projection (shared with the post-settle
+                    ;; back-fill in `listeners`).
                     (= :rf.sub/run op)
-                    (assoc! acc :s
-                            (conj! (get acc :s)
-                                   ;; Per rf2-l1jz8 — the reactive recompute
-                                   ;; path enriches the `:sub/run` tag with
-                                   ;; value-change + cascade attribution
-                                   ;; (`:value-changed?` / `:prev-value` /
-                                   ;; `:value` / `:cascade?` / `:cause-sub`).
-                                   ;; Thread them onto the structured
-                                   ;; projection so Causa's Reactive panel
-                                   ;; reads them off the epoch record (not
-                                   ;; the raw trace). `compute-sub`'s base-
-                                   ;; shape emit omits them — the slots are
-                                   ;; simply absent there, which the panel's
-                                   ;; `sub-changed?` / `sub-cascaded?`
-                                   ;; predicates tolerate (false / not-
-                                   ;; cascaded). The `:sensitive?` stamp on
-                                   ;; the trace event (rf2-isdwf) governs
-                                   ;; whether `:prev-value` / `:value`
-                                   ;; already carry the `:rf/redacted`
-                                   ;; sentinel — they ride elide-wire-value
-                                   ;; at the emit site.
-                                   {:sub-id         (:rf.sub/id t)
-                                    :query-v        (:rf.sub/query-v t)
-                                    :recomputed?    true
-                                    :value-changed? (:rf.sub/value-changed? t)
-                                    :prev-value     (:rf.sub/prev-value t)
-                                    :value          (:rf.sub/value t)
-                                    :cascade?       (:rf.sub/cascade? t)
-                                    :cause-sub      (:rf.sub/cause-sub t)}))
+                    (assoc! acc :s (conj! (get acc :s) (sub-run-row ev)))
 
                     (= :rf.view/render op)
-                    (assoc! acc :r
-                            (conj! (get acc :r)
-                                   {:render-key   (or (:rf.view/render-key t)
-                                                      [:rf.view/anonymous nil])
-                                    :triggered-by (:triggered-by t)
-                                    :elapsed-ms   (:elapsed-ms t)}))
+                    (assoc! acc :r (conj! (get acc :r) (render-row ev)))
 
                     (= :rf.fx/handled op)
                     (assoc! acc :e
@@ -487,17 +509,24 @@
                                       :dispatch-id (:rf.trace/dispatch-id tags)}})
                 ;; Capture the first :event-id we see as the fallback.
                 ;; Per rf2-7kxxx: do NOT fabricate `:event` — when the
-                ;; tag is absent we leave the field nil, and downstream
-                ;; misleading synthesised vector. The fallback also
-                ;; carries its `:dispatch-id` (rf2-rly4a) so a no-run-
-                ;; start cascade still pins the slot when its trace
-                ;; carried an id — read off the namespaced :rf.* tags
-                ;; (rf2-y4qpy.2).
+                ;; tag is absent we leave the field nil so downstream
+                ;; build-record omits a misleading synthesised vector.
+                ;;
+                ;; Per rf2-ee38b (§correctness): the fallback arm does NOT
+                ;; pin `:dispatch-id`. Spec-Schemas §`:rf/epoch-record`
+                ;; documents `:dispatch-id` as "pinned from the
+                ;; `:event/run-start` tag … absent when the cascade carried
+                ;; no dispatch-id (rejected dispatch / pre-run-start halt)"
+                ;; — the strictly-spec shape for a no-run-start cascade is
+                ;; ABSENT. The prior fallback could surface the dispatch-id
+                ;; of an arbitrary non-run-start trace (e.g. an error trace
+                ;; from a rejected dispatch), which the run-start arm
+                ;; (rf2-rly4a) is the canonical source for. Only the
+                ;; run-start arm above pins `:dispatch-id`.
                 (if (or (:fallback acc) (nil? (:rf.trace/event-id tags)))
                   acc
-                  (assoc acc :fallback {:event-id    (:rf.trace/event-id tags)
-                                        :event       (:rf.event/v tags)
-                                        :dispatch-id (:rf.trace/dispatch-id tags)})))))
+                  (assoc acc :fallback {:event-id (:rf.trace/event-id tags)
+                                        :event    (:rf.event/v tags)})))))
           {}
           events)]
     (or (:run-start result) (:fallback result))))

@@ -723,11 +723,19 @@
           (str "no :frame-op orphan in epoch " (:event-id r)
                "'s :trace-events")))))
 
-(deftest inv-6-harvest-leaves-orphan-uncorrelated
-  (testing "rf2-avvwm — direct unit test on the harvest seam. An orphan event
-            (no :rf.trace/dispatch-id) that reaches the capture buffer is NOT folded
-            into the settling event's harvest; only the settling event's own
-            :rf.trace/dispatch-id traces are returned."
+(deftest inv-6-harvest-discards-orphan-uncorrelated
+  (testing "rf2-avvwm + rf2-ee38b — direct unit test on the harvest seam. An
+            orphan event (no :rf.trace/dispatch-id) that reaches the capture
+            buffer is NOT folded into the settling event's harvest; only the
+            settling event's own :rf.trace/dispatch-id traces are returned.
+
+            Per the rf2-ee38b correctness review: the harvest is now
+            self-cleaning — an orphan (nil dispatch-id) has no settle event to
+            ever reclaim it, so retaining it (the prior behaviour) left it in
+            the buffer indefinitely (re-grouped + re-retained on every
+            subsequent harvest). It is now DISCARDED at this seam, so the
+            harvest no longer relies on the upstream capture guard being
+            perfect."
     (let [frame :test/harvest
           ;; Hand-craft a buffer: an orphan with no :rf.trace/dispatch-id, then a
           ;; run-start + a body trace for dispatch-id 42.
@@ -745,9 +753,36 @@
              traces — the orphan is left uncorrelated, not vacuumed in")
         (is (not-any? #(= :rf.frame/created (:operation %)) harvested)
             "the orphan :rf.frame/created is not in the settling epoch's harvest")
-        ;; The orphan stays behind in the buffer (left, not swept forward).
-        (is (= [orphan] (state/buffer-for frame))
-            "the orphan remains in the buffer, uncorrelated — not folded into
-             any epoch's :trace-events")
-        ;; Clean up the hand-seeded buffer so it doesn't leak to siblings.
+        ;; The orphan is DISCARDED (self-cleaning harvest), not retained —
+        ;; it has no settle event to ever reclaim it.
+        (is (empty? (state/buffer-for frame))
+            "the orphan is dropped from the buffer — the harvest is
+             self-cleaning, not reliant on the upstream guard")))))
+
+(deftest inv-6b-harvest-retains-child-marker-for-its-own-settle
+  (testing "rf2-ee38b — the self-cleaning harvest must NOT discard a CHILD's
+            dispatch-id marker: a non-nil dispatch-id that differs from the
+            settling event's id is a child's `:event/dispatched` marker (fired
+            during the parent's do-fx) and stays buffered for the child's own
+            settle (Spec 009 §Dispatch correlation: one dispatch-id = one
+            epoch). Only nil-id orphans are dropped."
+    (let [frame      :test/harvest-child
+          run-start  {:op-type :rf.event :operation :rf.event/run-start
+                      :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 1 :rf.trace/event-id :parent}}
+          body       {:op-type :rf.event :operation :rf.event/db-changed
+                      :tags {:rf.trace/dispatch-id 1}}
+          child-mark {:op-type :rf.event :operation :rf.event/dispatched
+                      :tags {:rf.trace/dispatch-id 2 :rf.trace/event-id :child}}
+          orphan     {:op-type :rf.frame :operation :rf.frame/created :tags {}}]
+      (state/buffer-event! frame run-start)
+      (state/buffer-event! frame body)
+      (state/buffer-event! frame child-mark)
+      (state/buffer-event! frame orphan)
+      (let [harvested (state/harvest-buffer-for-event! frame)]
+        (is (= [run-start body] harvested)
+            "the parent's harvest takes only its own (dispatch-id 1) traces")
+        ;; The child marker (dispatch-id 2) is RETAINED; the orphan is DROPPED.
+        (is (= [child-mark] (state/buffer-for frame))
+            "the child's dispatch-id marker stays buffered for the child's own
+             settle; the nil-id orphan is discarded")
         (state/drop-frame-buffer! frame)))))
