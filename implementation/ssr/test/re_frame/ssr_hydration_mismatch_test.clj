@@ -250,3 +250,89 @@
            handler → db-update → sub-recompute pipeline; the
            warn-and-replace recovery is degraded-but-running, not
            crash"))))
+
+;; ===========================================================================
+;; rf2-ee38b.10 — frame `:ssr` hydration-mismatch config knobs
+;; (:on-mismatch :hard-error strict mode + :detect-mismatch? false)
+;; ===========================================================================
+
+(deftest mismatch-strict-mode-throws-with-structured-payload
+  (testing "rf2-ee38b.10 — a frame with :ssr {:on-mismatch :hard-error}
+            escalates a detected mismatch to a thrown structured
+            exception (Spec 011 §Mismatch recovery and configuration
+            item 2). The thrown ex-info carries the same server/client
+            hash + failing-id payload as the trace, and :recovery is
+            :hard-error."
+    (register-handlers!)
+    (let [client-frame (rf/make-frame {:doc "ssr strict-mode frame"
+                                       :platform :client
+                                       :ssr {:on-mismatch :hard-error}})]
+      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
+      (let [thrown (try (ssr/verify-hydration! client-frame "0badf00d")
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? thrown)
+            "strict mode throws on a detected mismatch")
+        (let [data (ex-data thrown)]
+          (is (= :rf.ssr/hydration-mismatch (:rf.error/id data))
+              "the thrown exception is the structured hydration-mismatch")
+          (is (= "deadbeef" (:server-hash data)))
+          (is (= "0badf00d" (:client-hash data)))
+          (is (= :rf/hydrate (:failing-id data)))
+          (is (= :hard-error (:recovery data))
+              ":recovery reflects the strict-mode escalation"))))))
+
+(deftest mismatch-strict-mode-still-emits-trace-before-throwing
+  (testing "rf2-ee38b.10 — strict mode emits the :rf.ssr/hydration-mismatch
+            trace (monitoring integrations rely on it) AND throws — the
+            two are not mutually exclusive."
+    (register-handlers!)
+    (let [client-frame (rf/make-frame {:doc "ssr strict-mode frame"
+                                       :platform :client
+                                       :ssr {:on-mismatch :hard-error}})]
+      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
+      (let [traces (capture-traces!
+                     (fn []
+                       (try (ssr/verify-hydration! client-frame "0badf00d")
+                            (catch clojure.lang.ExceptionInfo _ nil))))
+            mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                    traces))]
+        (is (some? mismatch)
+            "the mismatch trace fires even in strict mode")
+        (is (= :hard-error (:recovery mismatch))
+            "the trace's :recovery reflects strict mode")))))
+
+(deftest mismatch-detection-disabled-skips-comparison
+  (testing "rf2-ee38b.10 — a frame with :ssr {:detect-mismatch? false}
+            short-circuits the hash comparison entirely (Spec 011 item 4):
+            no trace, no throw, even when the hashes diverge."
+    (register-handlers!)
+    (let [client-frame (rf/make-frame {:doc "ssr detection-off frame"
+                                       :platform :client
+                                       :ssr {:detect-mismatch? false}})]
+      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
+      (let [traces (capture-traces!
+                     (fn []
+                       (is (nil? (ssr/verify-hydration! client-frame "0badf00d"))
+                           "verify-hydration! is a no-op when detection is off")))
+            mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                               traces)]
+        (is (empty? mismatches)
+            "no mismatch trace fires when :detect-mismatch? is false")))))
+
+(deftest mismatch-detection-defaults-on-when-knob-absent
+  (testing "rf2-ee38b.10 — absence of the :detect-mismatch? knob (the
+            common case) leaves detection ON; a divergent hash still
+            warns. Pins the default so a future refactor can't silently
+            flip detection off."
+    (register-handlers!)
+    (let [client-frame (rf/make-frame {:doc "ssr default frame"
+                                       :platform :client})]
+      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
+      (let [traces (capture-traces!
+                     (fn [] (ssr/verify-hydration! client-frame "0badf00d")))
+            mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                    traces))]
+        (is (some? mismatch) "detection defaults on")
+        (is (= :warned-and-replaced (:recovery mismatch))
+            "the default recovery is warn-and-replace (not hard-error)")))))

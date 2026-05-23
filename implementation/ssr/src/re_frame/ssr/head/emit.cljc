@@ -92,30 +92,54 @@
                                         :value    v
                                         :recovery :no-recovery}))
                        :else (str v)))
+                   (emit-string [v]
+                     (str "\""
+                          (-> v
+                              (str/replace "\\" "\\\\")
+                              (str/replace "\"" "\\\"")
+                              ;; rf2-m5u23 — escape `<` so user-controlled
+                              ;; string contents can't close the
+                              ;; surrounding <script>.
+                              html/escape-script-body-string)
+                          "\""))
+                   (emit-key [k]
+                     ;; rf2-ee38b.10 — JSON object keys MUST be quoted
+                     ;; strings. `js/JSON.stringify` (the CLJS branch)
+                     ;; coerces every key to a string; the JVM branch must
+                     ;; match or the two reader-conditional arms diverge on
+                     ;; non-string keys. A bare `(emit k)` emitted invalid
+                     ;; JSON for number/boolean/nil keys (`1:"a"`,
+                     ;; `true:"a"`, `null:"a"`). Coerce every key to a quoted
+                     ;; string; nil keys throw (no JSON representation —
+                     ;; same fail-fast posture as the non-finite-number gate).
+                     (cond
+                       (string? k)  (emit-string k)
+                       (keyword? k) (emit-string (if-let [ns (namespace k)]
+                                                   (str ns "/" (name k))
+                                                   (name k)))
+                       (nil? k)
+                       (throw (ex-info ":rf.error/invalid-json-ld-key"
+                                       {:rf.error/id :rf.error/invalid-json-ld-key
+                                        :where    'rf.ssr.head/emit
+                                        :reason   (str "JSON-LD object key is nil"
+                                                       " — JSON object keys must be"
+                                                       " strings; nil has no key"
+                                                       " representation")
+                                        :recovery :no-recovery}))
+                       (number? k)  (emit-string (emit-number k))
+                       :else        (emit-string (str k))))
                    (emit [v]
                      (cond
                        (nil? v)     "null"
                        (boolean? v) (if v "true" "false")
                        (number? v)  (emit-number v)
-                       (string? v)  (str "\""
-                                         (-> v
-                                             (str/replace "\\" "\\\\")
-                                             (str/replace "\"" "\\\"")
-                                             ;; rf2-m5u23 — escape `<` so
-                                             ;; user-controlled string
-                                             ;; contents can't close the
-                                             ;; surrounding <script>.
-                                             html/escape-script-body-string)
-                                         "\"")
+                       (string? v)  (emit-string v)
                        (keyword? v) (emit (if-let [ns (namespace v)]
                                             (str ns "/" (name v))
                                             (name v)))
-                       ;; Keyword keys delegate to the keyword branch above
-                       ;; so namespaces are preserved — fixes the asymmetric
-                       ;; key/value handling reported in rf2-a50nz.
                        (map? v)     (str "{"
                                          (str/join "," (map (fn [[k val]]
-                                                              (str (emit k)
+                                                              (str (emit-key k)
                                                                    ":"
                                                                    (emit val)))
                                                             v))

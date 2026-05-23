@@ -120,8 +120,20 @@
   failures (tag-name validator, view-fn throw, hiccup-walk error)
   with drain-time failures (fx-handler, sub-handler exceptions)
   under the same projector pipeline (rf2-zwgsv / rf2-i9f0g
-  Option B)."
+  Option B).
+
+  Dev escape-hatch (Spec 011 §View-time exceptions, rf2-ee38b.10):
+  when the frame declares `:ssr {:on-view-exception :throw}`, the
+  exception is RE-THROWN unchanged instead of projected — hosts that
+  prefer eager exceptions during dev (to surface bugs early) opt in
+  per-frame. Production should always project (the default)."
   [frame-id ^Throwable t]
+  (when (and frame-id (error-projector/server-frame? frame-id)
+             (= :throw (get-in (frame/frame-meta frame-id)
+                               [:ssr :on-view-exception])))
+    ;; Dev opt-in — surface the original throwable to the host's outer
+    ;; handler rather than projecting it to a sanitised public-error.
+    (throw t))
   (when (and frame-id (error-projector/server-frame? frame-id))
     (let [tags {:frame             frame-id
                 :exception         t
@@ -164,28 +176,21 @@
         public))))
 
 (defn error-projection-listener
-  "Trace-event listener — captures error trace events bound to a server
-  frame in the per-frame pending-error-traces buffer. Buffering avoids
-  the race where an in-flight handler's `{:db ...}` would clobber an
-  inline :rf/response write. Registered in the `re-frame.ssr` façade
+  "Dev-only trace-cb listener — captures error trace events bound to a
+  server frame in the per-frame pending-error-traces buffer. Buffering
+  avoids the race where an in-flight handler's `{:db ...}` would clobber
+  an inline :rf/response write. Registered in the `re-frame.ssr` façade
   under `::error-projection`.
 
-  NOTE (rf2-fb598): the production-survivable install site is
-  `error-emit-projection-listener` (below) which rides the always-on
-  `register-error-listener!` substrate. This trace-cb listener
-  is preserved for the dev-only `:rf.error/*` categories that fire
-  only through `trace/emit-error!` — `:rf.error/no-such-handler`,
-  `:rf.error/no-such-route`, `:rf.error/schema-validation-failure`,
-  `:rf.error/sub-exception`, `:rf.error/drain-depth-exceeded`. These
-  do not have an always-on emission path; they elide under
-  `interop/debug-enabled? = false` along with the trace surface they
-  ride. The 500-class errors (`:rf.error/handler-exception`,
-  `:rf.error/fx-handler-exception` family, `:rf.error/flow-eval-
-  exception`) DO have an always-on emission path and reach the
-  projector via `error-emit-projection-listener` regardless of the
-  dev/prod gate. In dev both listeners fire and buffer the same logical
-  error twice — apply-error-projection! 1-arity is last-write-wins and
-  the projector is idempotent, so the duplicate is benign."
+  This listener covers ONLY the `:rf.error/*` categories that fire
+  exclusively through `trace/emit-error!` (no always-on emission path):
+  `:rf.error/no-such-handler`, `:rf.error/no-such-route`,
+  `:rf.error/schema-validation-failure`, `:rf.error/sub-exception`,
+  `:rf.error/drain-depth-exceeded`. They elide under
+  `interop/debug-enabled? = false`. The production-survivable channel for
+  the 500-class errors is `error-emit-projection-listener` (below). In
+  dev both fire for those — last-write-wins + idempotent projection makes
+  the duplicate benign (rf2-fb598)."
   [event]
   (when (= :error (:op-type event))
     (let [op (:operation event)]

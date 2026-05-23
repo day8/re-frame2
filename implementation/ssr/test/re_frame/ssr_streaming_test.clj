@@ -110,6 +110,44 @@
       (is (= "<ul><li>comment</li></ul>" html))
       (is (map? delta) "delta is a map (possibly empty when no app-db keys changed during render)"))))
 
+(deftest render-continuation-delta-ships-full-value-for-changed-nested-key
+  (testing "rf2-ee38b.10: a CHANGED nested top-level key ships its FULL
+            after-db value in the delta — not clojure.data/diff's partial
+            second-slot sub-map — so the client's documented top-level
+            (into existing delta) merge is lossless (untouched sibling
+            sub-keys are not silently dropped). Per Spec 011 §Hydration
+            interleaving."
+    (rf/reg-event-db :rf.test/change-nested
+      (fn [db _] (assoc-in db [:user :name] "after")))
+    (let [;; before-db: {:user {:name "before" :role "admin"}}
+          fid     (make-frame {:db {:user {:name "before" :role "admin"}
+                                    :other :unchanged}})
+          ;; A view that mutates ONLY [:user :name] during render — the
+          ;; canonical "changed nested key" shape that exposes the lossy
+          ;; partial-diff merge.
+          _       (rf/reg-view ^{:rf/id :rf.test/nested-mutator} nested-mutator []
+                    (rf/dispatch-sync [:rf.test/change-nested] {:frame fid})
+                    [:p "mutated"])
+          tree    [:rf/suspense-boundary {:id :n :fallback [:p "..."]}
+                   [:rf.test/nested-mutator]]
+          {:keys [continuations]} (streaming/render-shell tree)
+          entry   (first continuations)
+          {:keys [delta]} (streaming/render-continuation fid entry)]
+      (is (contains? delta :user)
+          ":user is a changed top-level key, so it is in the delta")
+      (is (= {:name "after" :role "admin"} (:user delta))
+          "the delta ships the FULL after-db :user value (with :role
+           preserved) — NOT the partial {:name \"after\"} sub-diff that
+           would drop :role under the client's top-level into-merge")
+      (is (not (contains? delta :other))
+          "unchanged top-level keys are omitted from the delta")
+      ;; Prove the documented client merge is lossless with this delta.
+      (is (= {:user {:name "after" :role "admin"} :other :unchanged}
+             (into {:user {:name "before" :role "admin"} :other :unchanged}
+                   delta))
+          "(into existing delta) over the top-level keys reconstructs the
+           full after-db with no sub-key loss"))))
+
 (deftest render-continuation-failure-emits-trace-and-inlines-fallback
   (testing "Subtree-render throw → :rf.ssr/suspense-boundary-failed trace + fallback materialised"
     (let [fid    (make-frame {:db {}})

@@ -25,8 +25,10 @@
   The :rf.server/* fx (set-status / set-header / append-header /
   set-cookie / delete-cookie / redirect) are registered by the runtime
   at re-frame.ssr namespace-load time (per Spec 011 §HTTP response
-  contract; resolved in rf2-8pif). The accumulator lives in app-db
-  under the [:rf/response] path; tests read the resolved shape via
+  contract; resolved in rf2-8pif). The accumulator lives in a framework-
+  private side-channel atom keyed by frame-id (rf2-jbcmt — Spec 011
+  §Response storage substrate; NOT in app-db, so it never rides the
+  hydration payload); tests read the resolved shape via
   re-frame.ssr/get-response."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]

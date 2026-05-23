@@ -66,26 +66,31 @@
 ;; how to flush (Ring chunked OutputStream, edge-runtime ReadableStream,
 ;; etc).
 
+(defn- suspense-template
+  "The shared `<template data-rf2-suspense-id=\"…\" MARKERS>BODY</template>`
+  scaffold. `markers` is the marker-attribute fragment that distinguishes
+  the three chunk kinds (fallback / resolved / failed); the id-escaping
+  and open/close-tag wrapping live here once. The three public builders
+  below are thin one-liners over this."
+  [id markers body-html]
+  (str "<template data-rf2-suspense-id=\""
+       (html/escape-attr (str id))
+       "\" " markers ">"
+       body-html
+       "</template>"))
+
 (defn fallback-template
   "The fallback chunk shape — emitted inline in the shell HTML so the
   browser paints a placeholder immediately."
   [id fallback-html]
-  (str "<template data-rf2-suspense-id=\""
-       (html/escape-attr (str id))
-       "\" data-rf2-suspense-fallback=\"1\">"
-       fallback-html
-       "</template>"))
+  (suspense-template id "data-rf2-suspense-fallback=\"1\"" fallback-html))
 
 (defn resolved-template
   "The resolved-subtree chunk shape — flushed when a continuation drains
   successfully. The client-side streaming runtime swaps the matching
   fallback placeholder for this resolved content in DOM."
   [id resolved-html]
-  (str "<template data-rf2-suspense-id=\""
-       (html/escape-attr (str id))
-       "\" data-rf2-suspense-resolved=\"1\">"
-       resolved-html
-       "</template>"))
+  (suspense-template id "data-rf2-suspense-resolved=\"1\"" resolved-html))
 
 (defn failed-template
   "The failed-continuation chunk shape — same wire shape as
@@ -93,12 +98,9 @@
   client-side runtime can surface the failure observably without
   surfacing a 500. Per Spec 011 §Failure semantics — inline fallback."
   [id fallback-html]
-  (str "<template data-rf2-suspense-id=\""
-       (html/escape-attr (str id))
-       "\" data-rf2-suspense-resolved=\"1\""
-       " data-rf2-suspense-failed=\"1\">"
-       fallback-html
-       "</template>"))
+  (suspense-template id
+                     "data-rf2-suspense-resolved=\"1\" data-rf2-suspense-failed=\"1\""
+                     fallback-html))
 
 (defn hydrate-delta-script
   "The per-subtree hydration delta chunk — application/edn. The client
@@ -113,6 +115,45 @@
        ;; Same shape as the final-payload escape in default-html-shell.
        (html/escape-script-body-string delta-edn)
        "</script>"))
+
+;; ---- per-subtree hydration delta -----------------------------------------
+;;
+;; Per Spec 011 §Hydration interleaving — per-subtree deltas. The delta
+;; carries the top-level `app-db` keys present-or-changed in `after-db`,
+;; and for each such key its FULL `after-db` value.
+;;
+;; Why the full value, not `(clojure.data/diff …)`'s partial second slot:
+;; the client merges the delta via `(into existing delta)` over the
+;; TOP-LEVEL keys (Spec 011 line 912). `data/diff`'s second slot returns
+;; only the changed SUB-portion of a changed nested-map value
+;; (`{:user {:a 1 :b 2}}` → `{:user {:a 1 :b 3}}` yields `{:user {:b 3}}`),
+;; so `(into existing {:user {:b 3}})` would REPLACE `:user` with
+;; `{:b 3}`, dropping `:a 1`. Shipping the full `after-db` value for each
+;; changed top-level key makes the documented top-level `into` merge
+;; lossless: a changed nested key is replaced wholesale with its complete
+;; new value, a new top-level key is added, and unchanged keys are
+;; omitted (the client already holds them). This satisfies both line 911
+;; ("keys present-or-changed in after-db") and line 912 (top-level
+;; `into`-merge) without the deep-merge corruption window.
+
+(defn- subtree-delta
+  "Compute the per-subtree hydration delta between `before-db` and
+  `after-db`. Returns a map of the top-level keys whose value changed or
+  is new in `after-db`, each mapped to its FULL `after-db` value. An
+  unchanged db yields `{}`. See the contract comment above for why the
+  full value (not `data/diff`'s partial slot) is shipped — it keeps the
+  client's documented `(into existing delta)` top-level merge lossless."
+  [before-db after-db]
+  (let [[_only-in-before only-in-after _in-both]
+        (clojure.data/diff before-db after-db)]
+    ;; `only-in-after` enumerates the top-level keys that changed or are
+    ;; new (its value for a changed nested map is the partial sub-diff —
+    ;; we use only its KEY SET and re-project the full value from
+    ;; `after-db`). Falsy keys (`false` / `nil`) survive `data/diff`'s
+    ;; slot as map entries, so `keys` is the correct extractor.
+    (reduce (fn [acc k] (assoc acc k (get after-db k)))
+            {}
+            (keys only-in-after))))
 
 ;; ---- continuation registry (per-request, transient) -----------------------
 ;;
@@ -223,9 +264,15 @@
         void?                 (contains? emit/void-elements (keyword tag-name))]
     (if void?
       (str "<" tag-name (emit/attr-string merged-attrs) ">")
-      (str "<" tag-name (emit/attr-string merged-attrs) ">"
-           (walk-children children acc)
-           "</" tag-name ">"))))
+      (do
+        ;; rf2-ee38b.10 — mirror the non-streaming emitter's raw-text body
+        ;; guard so a body-position `<script>`/`<style>` with raw string
+        ;; content fails loud in the shell walk too (rather than silently
+        ;; `escape-html`-ing it via the standard emitter).
+        (emit/reject-raw-text-string-children! tag-name children head)
+        (str "<" tag-name (emit/attr-string merged-attrs) ">"
+             (walk-children children acc)
+             "</" tag-name ">")))))
 
 (defn- suspense-attrs? [m]
   (and (map? m) (contains? m :id) (contains? m :fallback)))
@@ -284,9 +331,17 @@
     (and (vector? el) (keyword? (first el)))
     (let [head (first el)]
       (cond
-        ;; Fragment / Reagent-native — splice children, recurse.
-        (or (= :<> head) (= :> head))
+        ;; Fragment — splice children, recurse.
+        (= :<> head)
         (walk-children (rest el) acc)
+
+        ;; Reagent-native interop head `:>` — cannot be rendered on the
+        ;; JVM (no React). rf2-ee38b.10 — mirror the non-streaming
+        ;; emitter and fail loud rather than splice the component+props
+        ;; as raw text. Delegate to the standard emitter so the single
+        ;; `:rf.error/ssr-reagent-native-head` throw lives in one place.
+        (= :> head)
+        (emit/emit-element el)
 
         ;; Registered view — resolve and recurse on the body. Note that
         ;; subscribe calls inside the view body run synchronously
@@ -383,15 +438,8 @@
   (let [before-db (frame/frame-app-db-value frame-id)]
     (try
       (let [resolved-html (emit/render-to-string subtree nil)
-            after-db     (frame/frame-app-db-value frame-id)
-            [_a only-in-after in-both] (clojure.data/diff before-db after-db)
-            ;; The "delta" is the after-db keys that changed OR are
-            ;; new. `data/diff` returns [only-in-a only-in-b in-both]
-            ;; where the third slot is the shared structure. We keep
-            ;; what's NEW in after-db (only-in-after) since the client
-            ;; already has the before-state from the prior chunk /
-            ;; payload.
-            delta         (or only-in-after {})]
+            after-db      (frame/frame-app-db-value frame-id)
+            delta         (subtree-delta before-db after-db)]
         {:id      id
          :html    resolved-html
          :delta   delta

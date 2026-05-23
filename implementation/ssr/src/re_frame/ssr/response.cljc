@@ -23,14 +23,12 @@
     `(dissoc :rf/response)` before serialising the payload — a privacy
     boundary that's a constant caller-vigilance burden is a leak waiting
     to happen. Side-channel storage makes the boundary self-enforcing.
-  - **Perf.** Pre-rf2-jbcmt every `:rf.server/*` fx swapped the WHOLE
-    app-db container (`read-container → assoc → replace-container!`)
-    just to update the accumulator. For a 7-fx response shape (typical
-    login flow: `set-status` + 2× `set-cookie` + 3× `set-header` +
-    `redirect`), that's seven full-app-db replacements per request —
-    each one allocating a fresh container value with one key changed.
-    The side-channel swap is O(small-map): one atom CAS against a
-    `{frame-id → response-map}` table.
+  - **Perf.** Each `:rf.server/*` fx writes the accumulator with an
+    O(small-map) atom CAS against the `{frame-id → response-map}` table.
+    Storing it in `app-db` would instead swap the WHOLE app-db container
+    per fx — for a typical 7-fx login flow (`set-status` + 2× `set-cookie`
+    + 3× `set-header` + `redirect`), seven full-app-db replacements per
+    request, each allocating a fresh container value for one changed key.
 
   Default shape (Spec 011 §HTTP response contract):
 
