@@ -12,14 +12,14 @@ Path: `migration/from-re-frame-v1/README.md` in the re-frame2 repo.
 
 Structure of MIGRATION.md the skill depends on:
 
-- **Part 1** — the rule corpus. M-rules (required) M-0 through M-49, plus O-rules (opt-in) O-1 through O-15. Each rule has: type (A/B/hybrid), "What to look for", "What to do", "Why", and inline rule-id cross-refs. The "What stays the same" section near the end of Part 1 is also load-bearing — the skill cites it.
+- **Part 1** — the rule corpus. M-rules (required, `M-0` onward) plus O-rules (opt-in, `O-1` onward). Do not pin a hard numeric range here — it is a guaranteed drift point; the corpus grows. The skill's own [`references/breaking-changes.md`](../references/breaking-changes.md) carries the live index of every rule. Each rule has: type (A/B/hybrid), "What to look for", "What to do", "Why", and inline rule-id cross-refs. The "What stays the same" section near the end of Part 1 is also load-bearing — the skill cites it.
 - **Part 2** — the AI-agent execution procedure. Written in second person to an agent performing the migration. Carries: "Your task", "How to apply rules — Type A vs Type B", "Verification steps", "What you must not do", "Output format for your report", "Maintainer note". The skill's kickoff prompt and output-format leaf both reference Part 2 directly.
 
 When MIGRATION.md adds a new rule, the skill's `breaking-changes.md` index needs a new row. When MIGRATION.md changes a rule's type (Type A → Type B or vice versa), the skill's `sequencing.md` may need to move the rule between groups. When a new per-feature artefact is split out, the skill's `setup.md` "pay-as-you-go" table needs a row. Drift between MIGRATION.md and the skill is the maintenance burden; periodic audits (manual or beadwise) keep them aligned.
 
-## 2. Secondary input — `docs/guide/08-from-re-frame-v1.md`
+## 2. Secondary input — `docs/guide/20-migration.md`
 
-(Or whatever the current numbering is in `docs/guide/` — at authoring time this was chapter 08; the chapter may have been renumbered since.)
+The v1→v2 chapter in the narrative guide (the runtime leaves `causa-replaces-10x.md` and `README.md` link to this path).
 
 This is the **human-facing** v1→v2 chapter in the narrative guide. It's not normative for the skill — it's pedagogy aimed at humans reading the guide. Useful as a sanity check that the skill's framing matches the guide's framing. Useful as a place to link to from the kickoff prompt ("if you want the human-readable overview before kicking off the agent, read this chapter first").
 
@@ -27,7 +27,7 @@ This is the **human-facing** v1→v2 chapter in the narrative guide. It's not no
 
 These shape the skill's discipline but aren't quoted directly.
 
-- **`ai/findings/re-frame2-skill-design-v2.md`** — the design rationale for the `re-frame2` skill. The `re-frame-migration` skill inherits the four pillars, the leaf-loading shape, and the Q14 lock (NO verification module) from this doc.
+- **The four-pillar design rationale + Q14 lock** — inherited from the `re-frame2` skill family (the leaf-loading shape, the four pillars, and the Q14 NO-verification-module lock). The original derivation lived in a local-only `ai/findings/` exploration doc (gitignored, not in-repo); the pillars and the Q14 lock are reproduced in full in [`design.md` §2 and §3 (L3)](design.md) so this `spec/` folder is self-contained.
 - **`skills/re-frame2/SKILL.md`** + **`skills/re-frame2/references/**`** — the canonical example of the authoring pattern. Voice, structure, density, "load-bearing-rules" style all mirror this skill.
 - **`skills/re-frame2-setup/SKILL.md`** + **`skills/re-frame2-setup/references/**`** — the closest structural analogue. Per-build-tool detail, the `LICENSE`/`package.json`/`.claude-plugin/plugin.json` triad, the README shape.
 - **`docs/the-mayor-method.md`** — the methodology context for how Mike works with AI. Influences the "the user runs their tests; the skill teaches them what's likely to break" framing (Q14 lock).
@@ -54,7 +54,7 @@ These are deliberately out of the loop:
 - **`spec/000-Vision.md`** through **`spec/014-HTTPRequests.md`** (the EP corpus) — the skill doesn't teach re-frame2; the `re-frame2` skill does. The migration skill assumes the author knows v2 conceptually (or will read the EPs separately).
 - **`implementation/**`** — implementation is the ground truth for the `re-frame2` skill (what surfaces exist, what their signatures are). For the migration skill, MIGRATION.md is the ground truth, and MIGRATION.md is itself verified against implementation. The migration skill is downstream of that verification.
 - **`examples/reagent/**`** — worked examples are for authoring new code, not for migrating. The migration skill does not point at examples.
-- **The narrative guide** (other than chapter 08) — too discursive for the migration agent's needs.
+- **The narrative guide** (other than `docs/guide/20-migration.md`) — too discursive for the migration agent's needs.
 
 ## 6. Update procedure
 

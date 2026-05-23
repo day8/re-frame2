@@ -9,11 +9,13 @@ description: >
   re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2",
   or any prompt referencing a v1 surface (re-frame.db, dispatch-with,
   reg-global-interceptor, reg-sub-raw, ^:flush-dom, re-frame.alpha,
-  re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys).
-  **Do not use** for: greenfield bootstrap (use `re-frame2-setup`),
-  writing v2 application code (use `re-frame2`), live v2-app inspection
-  (use `re-frame2-pair`), or porting re-frame2 itself (use
-  `re-frame2-implementor`).
+  re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys),
+  or a v1 add-on library (http-fx / :http-xhrio, async-flow-fx /
+  :async-flow).
+  **Do not use** for: greenfield bootstrap, writing v2 application code,
+  live v2-app inspection, static critique, devtools tours, or porting
+  re-frame2 itself — see the full routing table in `skills/README.md`
+  §Skill routing for the right sibling skill.
 allowed-tools:
   - Bash(rg *)
   - Bash(rg -l *)
@@ -74,7 +76,7 @@ If the project's dev deps hold `day8.re-frame/re-frame-10x` (the v1 devtools pan
 
 **Phase 4 — Verify.** The **author** recompiles, re-runs unit tests, and smoke-tests boot / dispatch / sub / hot-reload. The skill prints the exact compile / test commands for the author's project shape (e.g. `shadow-cljs compile app`, `clj -M:test`, the npm script), waits for the author to paste the output, and only then proceeds. If a step fails, find the rule, apply it, ask the author to re-verify. The skill never executes build/test commands — see cardinal rule 10.
 
-**Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:spawn-all`, etc.). Never auto-applied as part of a routine migration. (O-5 was promoted to M-51 — binary fx is now required, not opt-in.)
+**Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:spawn-all`). The three **v1 add-on-library** modernisations are the highest-value O-rules for a real migration: O-16 (`day8.re-frame/async-flow-fx` / `:async-flow` → `reg-machine`), O-17 (`day8.re-frame/http-fx` / `:http-xhrio` → `:rf.http/managed`), and O-18 (security + operational logging sweep on the observer surfaces M-13/M-17 hand off). Each is Type B (ask first) and detected by Maven coord + fx-key fingerprint; see `references/breaking-changes.md`. Never auto-applied as part of a routine migration. (O-5 was promoted to M-51 — binary fx is now required, not opt-in.)
 
 **Phase 6 — Report.** Produce the migration report per `MIGRATION.md` Part 2 §"Output format for your report". → [`references/output-format.md`](references/output-format.md) — the format restated with one filled-in example.
 
@@ -115,7 +117,8 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - **Don't migrate plain-Reagent fns to `reg-view`** — that's O-2 (opt-in), never required. Plain Reagent fns work in v2 with a runtime warning only under non-default frames (M-11).
 - **Don't touch `re-frame-test` namespaces eagerly** — renamed to `re-frame.test-support` (M-25); apply as a mechanical pass. Don't rewrite test bodies unless they trip a separate rule.
 - **Don't claim "migrated" before the report is written** — the report is the contract.
-- **Don't sweep dozens of files without warning** — every Type A sweep that will touch more than a single file gets a one-line announcement first (rule id, file count, diff-shape example). The author can Ctrl-C; they cannot un-edit fifty files silently. See Cardinal rule 9.
+
+(The "announce before a mass rewrite" and "author runs builds/tests, not the skill" rules are Cardinal rules 9 and 10 — owned there, not restated here.)
 
 ---
 

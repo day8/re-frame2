@@ -71,6 +71,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 21 | **M-7** | `reg-fx` / `reg-cofx` `:platforms` default; add `:platforms #{:client}` for browser-only fx. |
 | 21a | **M-58** | Trace-redaction factory rename. `with-redacted` → `redact-interceptor`. Single-symbol mechanical rename. v2-pre-rename only. |
 | 21b | **M-59** | Interceptor-value family suffix. `at-boundary` → `validate-at-boundary-interceptor`; `unwrap` → `unwrap-interceptor`. Two-symbol Var rename — interceptor `:id` keywords unchanged. v2-pre-rename only. |
+| 21c | **M-55 / M-66** | Listener-registration verb + namespace consolidation. Apply **M-66**'s table (`register-trace-listener!` → `register-listener!`, `register-event-emit-listener!` → `register-event-listener!`, `register-error-emit-listener!` → `register-error-listener!`); M-66 supersedes M-55's event/error-emit targets. Closed mechanical rename. v2-pre-rename only — a v1→v2 migration lands on the current names via M-26. |
 
 ### Group 6 — Run-to-completion / cache / counts (behaviour)
 
@@ -114,6 +115,9 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 |---|---|---|
 | 39 | **M-14** | Only if the user is adopting Spec 012's routing surface (paired with M-29). Otherwise N/A. |
 | 40 | **M-19** | Opt-in shift to map-payload event vectors. Off by default; only run if the user has explicitly asked to modernise. |
+| 41 | **O-16** | v1 add-on-lib modernisation (opt-in). Detected by `day8.re-frame/async-flow-fx` coord + `:async-flow` fx fingerprint. Convert flows → `reg-machine`. Type B (ask first). The add-on continues to work against v2, so this only runs when the operator wants the modernisation. |
+| 42 | **O-17** | v1 add-on-lib modernisation (opt-in). Detected by `day8.re-frame/http-fx` coord + `:http-xhrio` fx fingerprint. Convert `:http-xhrio` → `:rf.http/managed` (pairs with M-31's `day8/re-frame2-http` artefact add). Type B (ask first). |
+| 43 | **O-18** | Security + operational logging sweep (opt-in). Detected by the observability sites M-13 / M-17 surface (audit loggers, telemetry forwarders). Compose privacy + oversize defenses per observer egress + propose `{:sensitive? true}` schema annotations. Type B (flag per site). Run after M-13 / M-17 have classified the observers. |
 
 ## When to pause for human review
 

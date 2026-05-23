@@ -107,15 +107,15 @@ No mechanical rewrite — the author updates the expected numbers.
 **Risk**: v1's process-wide error-handler is gone. The right replacement depends on the role the handler played:
 
 - If it was **per-frame ergonomic policy** ("when an event handler throws in this frame, route to this recovery"), it moves into the frame-level `:on-error` slot on `reg-frame` metadata.
-- If it was a **process-wide observer** (audit logging, metrics, Sentry forwarding), it moves to `register-listener!` filtering on `:op-type :error`.
+- If it was a **process-wide observer** (audit logging, metrics, Sentry forwarding), it moves to a listener filtering on `:op-type :error`. Pick the surface by environment: `register-listener!` is **dev-only** (production-elided); for **always-on production** error egress (Sentry / Honeybadger / Datadog) use `register-error-listener!` — see [`error-events.md` §Production elision](error-events.md#production-elision--what-elides-and-what-stays-always-on).
 
 A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for logging) needs both rewrites at once.
 
 **Decision shape**:
 
-1. Read the handler body. If it modifies state or dispatches recovery events, that's `:on-error` policy.
-2. If it only logs / reports / metrics, that's a trace listener.
-3. If it does both, split the body — recovery to `:on-error`, observation to `register-listener!`.
+1. Read the handler body. If it modifies state or dispatches recovery events, that's `:on-error` policy (return a closed-shape recovery map, not a raw effect-map — see `error-events.md`).
+2. If it only logs / reports / metrics, that's a listener — `register-error-listener!` if it must run in production, `register-listener!` if dev-only.
+3. If it does both, split the body — recovery to `:on-error`, observation to the appropriate listener surface.
 
 Present the categorisation; confirm with the author; apply.
 
@@ -148,7 +148,7 @@ If the author declines, document the warning in the report.
 
 **Decision shape**:
 
-1. **Author the `:on-create` event**. `(rf/reg-frame :rf/default {:on-create [[:app/seed initial-state]]})` plus the `[:app/seed initial]` event handler that writes the seed into `app-db`.
+1. **Author the `:on-create` event**. `(rf/reg-frame :rf/default {:on-create [:app/seed initial-state]})` plus the `[:app/seed initial]` event handler that writes the seed into `app-db`. (`:on-create` accepts a **single** event vector, not a vector of event vectors — per [`spec/002-Frames.md` §reg-frame metadata grammar](../../../spec/002-Frames.md). To fire multiple seed events, the single `:on-create` handler dispatches them via its `:fx` slot.)
 2. **Move the seed to test fixtures only** if the seed is test-specific. Seed the test frame the same way — via `:on-create` — never a top-level `app-db` poke: `(rf/with-frame [f (rf/make-frame {:on-create [:test/seed initial]})] ...)`.
 
 Present the seed value and the proposed rewrite; confirm with the author; apply both the M-1 require-removal and the M-15 `:on-create` rewrite together.
