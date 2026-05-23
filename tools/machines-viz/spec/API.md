@@ -676,7 +676,7 @@ payload from the element's bound props + the live snapshot.
 ### Mermaid `stateDiagram-v2`
 
 ```clojure
-(:require [day8.re-frame2-machines-viz.mermaid :as mermaid]
+(:require [re-frame.machines.mermaid :as mermaid]
           [day8.re-frame2-machines-viz.export  :as export])
 
 (mermaid/emit definition)
@@ -914,7 +914,7 @@ day8.re-frame2-machines-viz.adapters.uix/MachineChart   ; rf2-yg9he — UIx shel
 day8.re-frame2-machines-viz.adapters.helix/MachineChart ; rf2-yg9he — Helix shell ($-mountable)
 day8.re-frame2-machines-viz.share/encode-share-url
 day8.re-frame2-machines-viz.share/decode-share-url
-day8.re-frame2-machines-viz.mermaid/emit          ; pure fn — definition → string
+re-frame.machines.mermaid/emit                    ; pure fn — definition → string (lives in implementation/machines per rf2-yamkm)
 day8.re-frame2-machines-viz.scxml/spec->scxml     ; v1.1 — pure fn
 day8.re-frame2-machines-viz.scxml/scxml->spec     ; v1.1 — pure fn
 day8.re-frame2-machines-viz.ai-generate/generate-machine ; v1.1 — pluggable LLM seam
