@@ -220,6 +220,58 @@
         (is (= :story.x/no-such-parent (:parent (ex-data e))))))))
 
 ;; ===========================================================================
+;; EXTENDS — PLAY-SURFACE OVERRIDE (rf2-ee38b.3)
+;; ===========================================================================
+;;
+;; :play-script and :plays are mutually-exclusive sibling encodings of
+;; the play surface. A child overriding a parent's :play-script with
+;; :plays (or vice versa) used to FAIL: the straight merge carried BOTH
+;; keys and the schema's mutual-exclusion :fn rejected a body the author
+;; never wrote with both. resolve-extends now drops the inherited sibling
+;; when the child declares the other encoding.
+
+(deftest reg-variant-extends-child-plays-overrides-parent-play-script
+  (testing "a child declaring :plays while inheriting :play-script from
+            its parent resolves to ONLY :plays (no mutual-exclusion error)"
+    (story/reg-variant :story.extplay/parent
+      {:events      []
+       :play-script {:script [[:dispatch [:p/legacy]]]}})
+    ;; This used to throw :rf.error/variant-shape (both keys present).
+    (story/reg-variant :story.extplay/child
+      {:extends :story.extplay/parent
+       :plays   [{:name "happy" :script [[:dispatch [:c/happy]]]}]})
+    (let [body (story/handler-meta :variant :story.extplay/child)]
+      (is (contains? body :plays)      "child's :plays survived")
+      (is (not (contains? body :play-script))
+          "the inherited :play-script was dropped — no double-encoding"))))
+
+(deftest reg-variant-extends-child-play-script-overrides-parent-plays
+  (testing "the symmetric case — child :play-script overrides parent :plays"
+    (story/reg-variant :story.extplay/parent2
+      {:events []
+       :plays  [{:name "p" :script [[:dispatch [:p/plays]]]}]})
+    (story/reg-variant :story.extplay/child2
+      {:extends     :story.extplay/parent2
+       :play-script {:script [[:dispatch [:c/legacy]]]}})
+    (let [body (story/handler-meta :variant :story.extplay/child2)]
+      (is (contains? body :play-script) "child's :play-script survived")
+      (is (not (contains? body :plays))
+          "the inherited :plays was dropped"))))
+
+(deftest reg-variant-extends-inherits-play-surface-when-child-silent
+  (testing "a child that declares NEITHER play encoding inherits the
+            parent's :play-script unchanged"
+    (story/reg-variant :story.extplay/parent3
+      {:events      []
+       :play-script {:script [[:dispatch [:p/keep]]]}})
+    (story/reg-variant :story.extplay/child3
+      {:extends :story.extplay/parent3
+       :doc     "no play override"})
+    (let [body (story/handler-meta :variant :story.extplay/child3)]
+      (is (contains? body :play-script) "inherited :play-script kept")
+      (is (= [[:dispatch [:p/keep]]] (:script (:play-script body)))))))
+
+;; ===========================================================================
 ;; CANONICAL-ID-GRAMMAR ERROR
 ;; ===========================================================================
 

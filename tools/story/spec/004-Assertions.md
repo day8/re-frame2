@@ -27,13 +27,19 @@ into `:assertions` (see below) rather than throwing.
 Each handler returns a map of the form:
 
 ```clojure
-{:assertion :rf.assert/path-equals
- :payload   [[:auth :status] :authenticated]
- :passed?   true
- :actual    :authenticated
- :expected  :authenticated
- :source    {:file "..." :line ...}}             ; from source-coord stamping
+{:assertion    :rf.assert/path-equals
+ :payload      [[:auth :status] :authenticated]
+ :passed?      true
+ :actual       :authenticated
+ :expected     :authenticated
+ :source-coord {:file "..." :line ...}}          ; from source-coord stamping
 ```
+
+> **Record slot name (rf2-ee38b.3).** The per-record source slot is
+> `:source-coord` (the impl's `assertion-record` builder writes this
+> key; the variant *body*'s coord slot is `:source`, per spec/001). The
+> test-mode reader accepts either for robustness, but `:source-coord` is
+> canonical for assertion records.
 
 The play-runner collects these into `:assertions`. The list survives
 the `run-variant` return.
@@ -179,17 +185,23 @@ path-level data-classification contract
 ([spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md)).
 The rules:
 
-1. **`:actual` / `:expected` / `:payload` pass through
-   `re-frame.elision/elide-wire-value` before landing in
-   `:assertions`.** If a variant declared per-frame marks via
+1. **`:actual` passes through `re-frame.elision/elide-wire-value`
+   before landing in `:assertions`** (wired by rf2-ee38b.3). If a
+   variant declared per-frame marks via
    `(re-frame.core/add-marks <variant-id> {path mark, ...})` or
    `(re-frame.core/set-marks <variant-id> {path mark, ...})` (per
    [spec/015 §2. App-db marks (per frame)](../../../spec/015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks)),
-   then a `:rf.assert/path-equals [:auth :token] :rf/redacted` lookup
-   against a path-marked-sensitive slot records `:actual :rf/redacted`,
-   NOT the raw value. Same posture for `:rf.assert/sub-equals` against
-   a sub whose output is sensitive (per
-   [spec/015 §2. App-db → subs](../../../spec/015-Data-Classification.md#2-app-db--subs)).
+   then a `:rf.assert/path-equals [:auth :token] ...` lookup against a
+   path-marked-sensitive slot records `:actual :rf/redacted`, NOT the
+   raw value. The `assertions/evaluate-path-equals` /
+   `evaluate-path-matches` evaluators project `:actual` keyed on the
+   asserted path; `evaluate-sub-equals` projects keyed on the sub-vec's
+   args path (`(rest sub-vec)`), so a parameterised sub
+   `[:sub/id :user :ssn]` reading a marked `[:user :ssn]` redacts. A
+   bare sub-id whose args carry no app-db path relies on sub-engine
+   marker propagation (spec/015 §App-db → subs) — tracked separately.
+   `:expected` is author-supplied (typically the sentinel itself) and is
+   not projected.
 2. **The sentinel literal is a legal `:expected` value.** Authors
    write the `:rf/redacted` sentinel directly into the assertion to
    pin the redaction contract: a passing
@@ -214,30 +226,39 @@ See also:
   — the symmetric posture for `:rf.error/exception` assertion records.
 - The `Assertion-with-redaction` row in
   [`015-Test-Coverage.md`](015-Test-Coverage.md) §Assertion vocabulary
-  scenarios — substrate state and the deferred bd:rf2-shy6n integration.
+  scenarios — exercised live by
+  `assertion_redaction_cljs_test.cljs` (rf2-ee38b.3 wired the
+  evaluator → `elide-wire-value` projection; bd:rf2-shy6n).
 
 ## Test-runner integration
 
-Stage 5 ships a `cljs.test` adapter:
+Stage 5 ships the `story/assertions-passing?` predicate as the canonical
+`cljs.test` / `clojure.test` surface:
 
 ```clojure
 (deftest my-component-test
-  (run-variant-as-test :story.auth.login-form/happy-path))
+  (let [result @(story/run-variant :story.auth.login-form/happy-path {})]
+    (is (story/assertions-passing? result))))
 ```
 
-The adapter:
+`assertions-passing?` accepts either the `run-variant` result map or its
+`:assertions` vector and returns true iff every record has `:passed?
+true` (an empty vector is vacuously passing — the
+[spec/007 §Story-as-test duality](../../../implementation/...) contract:
+a variant with no `:play-script` still "passes"). The result map's
+`:assertions` slot now carries EVERY assertion outcome — both the
+`:rf.assert/*` dispatch-step records AND the rich-DSL `:assert-db` /
+`:assert-dom` step records (rf2-ee38b.3 closed the false-green gap where
+rich-DSL assert failures landed only in the runner's `run-state` atom).
 
-1. Runs the variant via `run-variant` (see
-   [`002-Runtime.md`](002-Runtime.md) §Programmatic API).
-2. Iterates the returned `:assertions` list.
-3. Calls `cljs.test/is` for each — passing assertion → `is` pass;
-   failing assertion → `is` fail with the assertion's `:expected` /
-   `:actual` shape.
-4. The `:source` slot on each assertion drives `is`-style
-   file/line reporting.
-
-A generic adapter shape covers kaocha and other test frameworks via
-their reporter protocols.
+> **Per-assertion `is` granularity (deferred — rf2-ee38b.3).** A
+> higher-fidelity `run-variant-as-test` adapter that iterates the
+> `:assertions` list and calls `cljs.test/is` per record (one failing
+> assertion → one `is` failure, with `:source-coord`-driven file/line
+> reporting + a generic kaocha-reporter shape) is a planned enhancement.
+> It is NOT yet shipped — `assertions-passing?` is the canonical surface
+> today. The adapter needs async-cljs.test plumbing (`run-variant`
+> returns a Promise) and is tracked separately.
 
 ## Cross-references
 

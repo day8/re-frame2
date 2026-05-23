@@ -37,7 +37,9 @@
   (:require [clojure.string             :as str]
             [re-frame.core              :as rf]
             #?(:cljs [reagent.core      :as r])
+            [re-frame.story.assertions  :as assertions]
             [re-frame.story.config      :as config]
+            [re-frame.story.late-bind   :as late-bind]
             [re-frame.story.play        :as play]
             [re-frame.story.play.dom    :as dom]
             [re-frame.story.play.runner :as runner]
@@ -248,6 +250,7 @@
 ;; ---- step executors ------------------------------------------------------
 
 (declare read-frame-db)
+(declare record-assertion-slot!)
 
 (defn- assertion-count
   "Count of records currently in the frame's `:rf.story/assertions`. Tolerant."
@@ -488,6 +491,40 @@
     :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
     (runner/unknown-step idx step)))
 
+;; ---- single-step driver (rf2-ee38b.3 — step-debugger re-base) ------------
+;;
+;; The play step-debugger (`re-frame.story.ui.test-mode.stepper-state`)
+;; used to drive ONLY `:dispatch` / `:dispatch-sync` steps via the
+;; legacy `play/variant-play-events` projection — `:wait` / `:click` /
+;; `:type` / `:assert-db` / `:assert-dom` steps were silently dropped, so
+;; the stepper walked a TRUNCATED sequence with a wrong cursor/total and
+;; no assert outcomes. `run-step!` re-bases the stepper on the SAME rich-
+;; DSL executor the canvas auto-run path uses, so every step type runs in
+;; the debugger exactly as it does live.
+
+(defn run-step!
+  "Execute ONE coerced rich-DSL `step` (at index `idx`) against
+  `frame-id`, mirror assertion-class outcomes into the
+  `:rf.story/assertions` slot, emit the per-step trace event, and return
+  the step-result record. Synchronous on both runtimes (`:wait` records
+  a step-skip rather than blocking — the interactive stepper does not
+  sleep).
+
+  Public so the step-debugger substrate (`play/step-once!`) can drive a
+  full rich-DSL step without re-implementing the executor. Reached from
+  `play.cljc` via the `:run-play-step` late-bind hook to avoid the
+  play ↔ runner-events require cycle."
+  [frame-id idx step]
+  (let [result (try
+                 (exec-step! frame-id idx step)
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (runner/step-exception idx step
+                                          #?(:clj  (.getMessage ^Throwable e)
+                                             :cljs (str e)))))]
+    (record-assertion-slot! frame-id step result)
+    (emit-trace! frame-id nil idx step result)
+    result))
+
 ;; ---- async scheduler -----------------------------------------------------
 
 (defn- schedule!
@@ -500,11 +537,81 @@
                (f)
                nil)))
 
+;; ---- assertion-slot bridge (rf2-ee38b.3 / rf2-uhq5j extension) ----------
+;;
+;; Rich-DSL `:assert-db` / `:assert-dom` step outcomes used to land ONLY
+;; in the runner's `run-state` atom. The `:rf.story/assertions` app-db
+;; slot — read by `run-variant`'s result map, `assertions-passing?`, the
+;; test-mode pane, the inline assertion strip, and the Causa assertions
+;; panel — never saw them, so a failing rich-DSL assertion read as a
+;; false GREEN through every slot consumer (only the toolbar chip + the
+;; CI/Playwright runner, which read `run-state` directly, observed it).
+;;
+;; The `:rf.assert/*` events (which ride `:dispatch-sync` steps) DO write
+;; the slot via their reg-event-fx handlers, so the contract was silently
+;; style-dependent. We close the gap by mirroring every assertion-class
+;; step result into `:rf.story/assertions` — the same record shape the
+;; `:rf.assert/*` handlers + the runtime's exception projection use.
+
+(def ^:const assert-db-id
+  "Synthetic assertion id stamped on `:rf.story/assertions` records for
+  rich-DSL `:assert-db` steps. In the `:rf.assert/*` reserved namespace
+  so `predicates/assertion-id?` and the pane's status logic treat it
+  uniformly with the canonical seven."
+  :rf.assert/db)
+
+(def ^:const assert-dom-id
+  "Synthetic assertion id for rich-DSL `:assert-dom` steps."
+  :rf.assert/dom)
+
+(defn- assertion-step-record
+  "Project an assertion-class step-result (`:assert-db` / `:assert-dom`)
+  into the `:rf.story/assertions` record shape. Returns nil for non-
+  assertion-class steps (`:dispatch` / `:wait` / `:click` / ...), whose
+  pass/fail is already represented by the `:rf.assert/*` records their
+  dispatched events recorded.
+
+  A `:skipped?` DOM step (no-DOM JVM context) is NOT recorded as a
+  failure — the step couldn't run, so it contributes no assertion
+  outcome to the slot (matching the run-state's `:passed? false` +
+  `:skipped? true` shape, which `finish` already tolerates)."
+  [frame-id step result]
+  (let [stype (runner/step-type step)]
+    (when (contains? runner/assertion-step-types stype)
+      (let [aid (case stype
+                  :assert-db  assert-db-id
+                  :assert-dom assert-dom-id)]
+        (cond->
+          {:assertion    aid
+           :passed?      (boolean (:passed? result))
+           :payload      (vec (rest step))
+           :source-coord (:source (registrar/handler-meta :variant frame-id))}
+          (contains? result :expected) (assoc :expected (:expected result))
+          (contains? result :actual)   (assoc :actual   (:actual result))
+          (:message result)            (assoc :reason   (:message result))
+          (:skipped? result)           (assoc :skipped? true))))))
+
+(defn- record-assertion-slot!
+  "Mirror an assertion-class step result into the frame's
+  `:rf.story/assertions` slot so every slot consumer agrees with the
+  run-state. No-op for non-assertion steps and for skipped DOM steps
+  (which record no outcome)."
+  [frame-id step result]
+  (when-let [rec (assertion-step-record frame-id step result)]
+    ;; A skipped DOM step ran but produced no pass/fail — keep it out of
+    ;; the slot so it doesn't read as a vacuous pass (slot consumers treat
+    ;; `:passed? true` as a pass).
+    (when-not (:skipped? rec)
+      (assertions/record! frame-id rec)))
+  nil)
+
 (defn- record-result!
-  "Append `result` to the run-state for `frame-id` and emit the trace
-  event."
+  "Append `result` to the run-state for `frame-id`, mirror assertion-
+  class outcomes into the `:rf.story/assertions` app-db slot, and emit
+  the trace event."
   [frame-id play-key name idx step result]
   (update-state! frame-id play-key runner/record-step-result result)
+  (record-assertion-slot! frame-id step result)
   (emit-trace! frame-id name idx step result)
   nil)
 
@@ -742,3 +849,12 @@
    (let [plays (variant-plays variant-id)]
      (when (seq plays)
        (run-plays-sequentially! variant-id (vec plays) done-cb)))))
+
+;; ---- step-debugger seam (rf2-ee38b.3) ------------------------------------
+;;
+;; `play.cljc` owns the step-debugger substrate but cannot `:require`
+;; this ns (the cycle: runner-events → play). It fetches `run-step!` via
+;; the `:run-play-step` late-bind hook. Registered at ns load so it is
+;; available as soon as the play module drives a stepped run.
+
+(late-bind/set-fn! :run-play-step run-step!)

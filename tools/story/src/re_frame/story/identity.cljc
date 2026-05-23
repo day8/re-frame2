@@ -67,6 +67,28 @@
   through `pr-str` deterministically across hosts."
   (-canon [x]))
 
+;; Shared canon bodies (rf2-ee38b.3) — the typed map/set cases AND the
+;; Object/default fallback must canonicalise maps + sets identically.
+;; Lifting the bodies into one private fn each keeps the two paths in
+;; lockstep instead of carrying verbatim copies.
+
+(defn- canon-map-entries
+  "Map canon: sort by the canonicalised key (via `pr-str` of the
+  canon-key) then flatten into a `[k v k v ...]` vector. Symmetric
+  across JVM + CLJS because `pr-str` over canonical scalars is
+  host-identical."
+  [m]
+  (let [entries (->> m
+                     (map (fn [[k v]] [(-canon k) (-canon v)]))
+                     (sort-by (fn [[k _]] (pr-str k))))]
+    (into [] (mapcat identity) entries)))
+
+(defn- canon-set
+  "Set canon: sort canonicalised elements by their `pr-str` into a
+  stable vector."
+  [s]
+  (vec (sort-by pr-str (map -canon s))))
+
 (extend-protocol Canonicalise
   nil
   (-canon [_] nil)
@@ -87,15 +109,7 @@
   (-canon [x] x)
 
   #?(:clj  clojure.lang.IPersistentMap  :cljs IMap)
-  (-canon [x]
-    ;; Map canon: sort by the canonicalised key (via pr-str of the
-    ;; canon-key). The serialisation is symmetric — both JVM and CLJS
-    ;; sort the same way because `pr-str` over canonical scalars is
-    ;; identical across hosts.
-    (let [entries (->> x
-                       (map (fn [[k v]] [(-canon k) (-canon v)]))
-                       (sort-by (fn [[k _]] (pr-str k))))]
-      (into [] (mapcat identity) entries)))
+  (-canon [x] (canon-map-entries x))
 
   #?(:clj  clojure.lang.IPersistentVector :cljs PersistentVector)
   (-canon [x] (mapv -canon x))
@@ -104,9 +118,7 @@
   (-canon [x] (mapv -canon x))
 
   #?(:clj  clojure.lang.IPersistentSet  :cljs PersistentHashSet)
-  (-canon [x]
-    ;; Stable set order: sort canonicalised elements by their pr-str.
-    (vec (sort-by pr-str (map -canon x))))
+  (-canon [x] (canon-set x))
 
   #?(:clj  Object             :cljs default)
   (-canon [x]
@@ -114,11 +126,8 @@
     ;; canonical recursion. `pr-str` over the result is deterministic.
     (cond
       (sequential? x) (mapv -canon x)
-      (set? x)        (vec (sort-by pr-str (map -canon x)))
-      (map? x)        (let [entries (->> x
-                                         (map (fn [[k v]] [(-canon k) (-canon v)]))
-                                         (sort-by (fn [[k _]] (pr-str k))))]
-                        (into [] (mapcat identity) entries))
+      (set? x)        (canon-set x)
+      (map? x)        (canon-map-entries x)
       :else           x)))
 
 (defn canonical-form

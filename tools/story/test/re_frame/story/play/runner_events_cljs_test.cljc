@@ -235,6 +235,94 @@
            (is (= :wrong  (:expected (nth assert-results 1))))
            (is (= :loaded (:actual   (nth assert-results 1)))))))))
 
+;; ---- rf2-ee38b.3: rich-DSL assert outcomes reach :rf.story/assertions ----
+;;
+;; Before this fix a failing `:assert-db` / `:assert-dom` step landed
+;; ONLY in run-state; the `:rf.story/assertions` app-db slot stayed empty
+;; so `run-variant`'s :assertions slot, `assertions-passing?`, the test
+;; pane, the inline strip, and the Causa panel all read FALSE-GREEN. The
+;; bridge in `record-result!` mirrors assertion-class outcomes into the
+;; slot. These tests must FAIL without the bridge.
+
+#?(:clj
+   (deftest assert-db-failure-lands-in-assertions-slot
+     (testing "a failing rich-DSL :assert-db step records a :passed? false
+              entry into :rf.story/assertions (not just run-state) so the
+              slot consumers + assertions-passing? observe the failure"
+       (rf/reg-event-db :rt/set-status
+         (fn [db [_ v]] (assoc db :status v)))
+       (story/reg-variant :story.bridge/db-fail
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/set-status :idle]]
+                                    [:assert-db [:status] :loaded]]}})
+       (async/deref-blocking (story/run-variant :story.bridge/db-fail) 5000)
+       (run-blocking :story.bridge/db-fail)
+       (let [slot (story/read-assertions :story.bridge/db-fail)
+             db-recs (filterv #(= :rf.assert/db (:assertion %)) slot)]
+         (is (= 1 (count db-recs))
+             "the failing rich-DSL :assert-db landed exactly one slot record")
+         (is (false? (:passed? (first db-recs)))
+             "the slot record carries :passed? false")
+         (is (= :loaded (:expected (first db-recs))))
+         (is (= :idle   (:actual   (first db-recs))))
+         (is (false? (story/assertions-passing? slot))
+             "assertions-passing? now sees the rich-DSL failure (was
+              false-green before rf2-ee38b.3)")))))
+
+#?(:clj
+   (deftest assert-db-pass-lands-in-assertions-slot
+     (testing "a passing rich-DSL :assert-db step records a :passed? true
+              entry so the slot is non-empty + still passes"
+       (rf/reg-event-db :rt/set-status
+         (fn [db [_ v]] (assoc db :status v)))
+       (story/reg-variant :story.bridge/db-pass
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/set-status :loaded]]
+                                    [:assert-db [:status] :loaded]]}})
+       (async/deref-blocking (story/run-variant :story.bridge/db-pass) 5000)
+       (run-blocking :story.bridge/db-pass)
+       (let [slot    (story/read-assertions :story.bridge/db-pass)
+             db-recs (filterv #(= :rf.assert/db (:assertion %)) slot)]
+         (is (= 1 (count db-recs)))
+         (is (true? (:passed? (first db-recs))))
+         (is (true? (story/assertions-passing? slot)))))))
+
+#?(:clj
+   (deftest run-variant-result-reflects-rich-dsl-assert-failure
+     (testing "the run-variant result map's :assertions slot carries the
+              rich-DSL failure — the cljs.test adapter path (assertions-
+              passing? on the result) is no longer false-green"
+       (rf/reg-event-db :rt/set-status
+         (fn [db [_ v]] (assoc db :status v)))
+       (story/reg-variant :story.bridge/result
+         {:events      []
+          :play-script {:script [[:dispatch-sync [:rt/set-status :idle]]
+                                 [:assert-db [:status] :loaded]]}})
+       (let [result (async/deref-blocking
+                      (story/run-variant :story.bridge/result) 5000)]
+         (is (some (fn [r] (and (= :rf.assert/db (:assertion r))
+                                (false? (:passed? r))))
+                   (:assertions result))
+             "the result map's :assertions slot includes the failed assert-db")
+         (is (false? (story/assertions-passing? result))
+             "assertions-passing? on the result map flips to false")))))
+
+#?(:clj
+   (deftest assert-db-skipped-dom-not-recorded-as-slot-pass
+     (testing "a no-DOM :assert-dom step (JVM) records NO slot entry —
+              it must not read as a vacuous slot pass (false-green)"
+       (story/reg-variant :story.bridge/dom-skip
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:assert-dom "div.foo" :visible]]}})
+       (async/deref-blocking (story/run-variant :story.bridge/dom-skip) 5000)
+       (run-blocking :story.bridge/dom-skip)
+       (let [slot (story/read-assertions :story.bridge/dom-skip)]
+         (is (empty? (filterv #(= :rf.assert/dom (:assertion %)) slot))
+             "a skipped (no-DOM) :assert-dom contributes no slot record")))))
+
 #?(:clj
    (deftest assert-db-pred-form
      (testing ":assert-db :pred resolves a symbol and applies it"

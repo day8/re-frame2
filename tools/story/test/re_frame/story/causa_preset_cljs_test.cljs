@@ -24,11 +24,14 @@
     `keybinding/detach!` so the listener Causa's preload installed
     under the default-true posture is removed at runtime (the slot
     alone is read only at attach time).
-  - `ensure-causa-mounted!` (rf2-q7who.1 + rf2-ycrt2): calls
+  - `wire-cross-host!` (rf2-q7who.1 + rf2-ycrt2): calls
     `disable-keybinding!` then `detach-keybinding!` as part of the
-    mount edge so Story's RHS-mounted Causa never swallows the host's
-    Cmd/Ctrl+K command palette — both the intent declaration (slot
-    flip) and the runtime mechanism (detach!) fire together."
+    cross-host bridge so Story's RHS-mounted Causa never swallows the
+    host's Cmd/Ctrl+K command palette — both the intent declaration
+    (slot flip) and the runtime mechanism (detach!) fire together.
+    (rf2-ee38b.3 removed the DEPRECATED `ensure-causa-mounted!` shim;
+    the legacy whole-shell-open composes
+    `(do (wire-cross-host!) (apply-open!))` directly.)"
   (:require [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-causa.config :as causa-config]
             [day8.re-frame2-causa.keybinding :as causa-keybinding]
@@ -103,22 +106,21 @@
       (is (nil? (causa-preset/detach-keybinding!))
           "no Causa → no work → nil"))))
 
-;; ---- ensure-causa-mounted! drives the bridges ----------------------------
+;; ---- wire-cross-host! drives the bridges (rf2-ee38b.3) -------------------
+;;
+;; The shim `ensure-causa-mounted!` was removed; the legacy whole-shell
+;; open is `(do (wire-cross-host!) (apply-open!))`. These tests pin the
+;; same bridge ordering against that composition.
 
-(deftest ensure-causa-mounted-disables-keybinding
-  (testing "ensure-causa-mounted! drives disable-keybinding! on the mount edge"
-    ;; The shell calls ensure-causa-mounted! on every variant-selection
-    ;; edge. Verify the keybinding-disable bridge is invoked as part of
-    ;; that flow. We shim the Causa-availability gate AND
-    ;; `disable-keybinding!` itself so we can assert the wiring without
-    ;; depending on the underlying configure! plumbing (covered by the
-    ;; shimmed-configure test above). We also stub `detach-keybinding!`
-    ;; and `apply-open!` directly so we don't actually try to mount a
-    ;; shell. (rf2-ibpwr: the pre-fix tests stubbed `resolve-fn` to
-    ;; intercept the `mount/open!` lookup; after rf2-ibpwr `apply-open!`
-    ;; references `causa-mount/open!` directly via compile-time symbol
-    ;; resolution — there is no `resolve-fn` call to intercept, so the
-    ;; cleaner seam is the `apply-open!` var itself.)
+(deftest wire-cross-host-disables-keybinding
+  (testing "wire-cross-host! drives disable-keybinding! + detach-keybinding!;
+            the composed (wire-cross-host! + apply-open!) still opens"
+    ;; The embed wires cross-host config on every variant-selection edge.
+    ;; Verify the keybinding bridges fire. We shim the Causa-availability
+    ;; gate AND the bridges so we can assert the wiring without depending
+    ;; on the underlying configure! plumbing (covered by the shimmed-
+    ;; configure test above), and shim `apply-open!` so we don't actually
+    ;; mount a shell.
     (let [disable-called? (atom false)
           detach-called?  (atom false)
           open-called?    (atom false)]
@@ -130,21 +132,21 @@
                     (fn [] (reset! detach-called? true) true)
                     causa-preset/apply-open!
                     (fn [] (reset! open-called? true) nil)]
-        (causa-preset/ensure-causa-mounted!)
+        (causa-preset/wire-cross-host!)
+        (causa-preset/apply-open!)
         (is (true? @disable-called?)
-            "disable-keybinding! is part of the mount edge")
+            "disable-keybinding! is part of the cross-host bridge")
         (is (true? @detach-called?)
-            "detach-keybinding! is part of the mount edge")
+            "detach-keybinding! is part of the cross-host bridge")
         (is (true? @open-called?)
-            "apply-open! still fires (keybinding wire-up does not break mount)")))))
+            "the composed open still fires (keybinding wire-up does not break mount)")))))
 
-(deftest ensure-causa-mounted-sequences-slot-then-detach
-  (testing "rf2-ycrt2 — ensure-causa-mounted! flips the slot BEFORE
-            removing the listener; sequencing matters because a host
-            (or test runner) inspecting the slot mid-flow must always
-            see the declared intent. We capture the order via a shared
-            log and assert disable-keybinding! ran before
-            detach-keybinding!."
+(deftest wire-cross-host-sequences-slot-then-detach
+  (testing "rf2-ycrt2 — wire-cross-host! flips the slot BEFORE removing
+            the listener; sequencing matters because a host (or test
+            runner) inspecting the slot mid-flow must always see the
+            declared intent. We capture the order via a shared log and
+            assert disable-keybinding! ran before detach-keybinding!."
     (let [calls (atom [])]
       (with-redefs [causa-preset/causa-available?
                     (fn [] true)
@@ -152,29 +154,28 @@
                     (fn [] (swap! calls conj :disable) true)
                     causa-preset/detach-keybinding!
                     (fn [] (swap! calls conj :detach) true)
-                    ;; rf2-ibpwr: shim apply-open! directly — see the
-                    ;; rationale on the disables-keybinding test above.
                     causa-preset/apply-open!
                     (fn [] (swap! calls conj :open) nil)]
-        (causa-preset/ensure-causa-mounted!)
+        (causa-preset/wire-cross-host!)
+        (causa-preset/apply-open!)
         (is (= [:disable :detach :open] @calls)
             "slot flip (intent) lands before detach! (runtime removal)
-             which lands before apply-open!")))))
+             which lands before the composed apply-open!")))))
 
 ;; ---- runtime integration: slot + detach! together (rf2-ycrt2) ------------
 
-(deftest ensure-causa-mounted-clears-attached-listener
+(deftest wire-cross-host-clears-attached-listener
   (testing "rf2-ycrt2 — simulate Causa's preload-time attach! under the
-            default-true posture, then drive ensure-causa-mounted!;
-            after the mount edge the keybinding sentinel must be false
-            (the listener was removed). This is the runtime contract
-            rf2-q7who.1 declared but did not close — the slot flip
-            alone wouldn't detach the listener; rf2-ycrt2 closes the
-            gap via detach-keybinding!."
+            default-true posture, then drive wire-cross-host!; after the
+            bridge the keybinding sentinel must be false (the listener
+            was removed). This is the runtime contract rf2-q7who.1
+            declared but did not close — the slot flip alone wouldn't
+            detach the listener; rf2-ycrt2 closes the gap via
+            detach-keybinding!."
     ;; Restore baseline so attach! sees the default-true slot. Then
     ;; simulate the preload: attach!. Without rf2-ycrt2 the listener
-    ;; would survive past ensure-causa-mounted!; with the fix the
-    ;; sentinel flips back to false.
+    ;; would survive past wire-cross-host!; with the fix the sentinel
+    ;; flips back to false.
     (causa-config/set-keybinding-enabled! true)
     (try
       ;; Skip the inner attach when js/document is unstubbable (real
@@ -184,24 +185,18 @@
         (causa-keybinding/attach!)
         (is (true? (causa-keybinding/attached?))
             "precondition: preload-style attach! installed the listener"))
-      ;; Drive the mount edge. We shim Causa-availability + apply-open!
-      ;; so we don't try to mount a shell. `disable-keybinding!` and
-      ;; `detach-keybinding!` run for real (with-redefs unchanged) and
-      ;; their inner `resolve-fn` lookups resolve against Causa's live
-      ;; config/keybinding namespaces (both on the test classpath).
-      ;; rf2-ibpwr: after the fix, `apply-open!` references
-      ;; `causa-mount/open!` directly via compile-time symbol
-      ;; resolution — no `resolve-fn` call to intercept. Shim
-      ;; `apply-open!` itself as the no-op seam so the test's intent
-      ;; (don't actually mount a shell, but DO run the real
-      ;; keybinding bridges) is preserved.
-      (with-redefs [causa-preset/causa-available? (fn [] true)
-                    causa-preset/apply-open!      (fn [] nil)]
-        (causa-preset/ensure-causa-mounted!))
+      ;; Drive the cross-host bridge. We shim Causa-availability so the
+      ;; gate passes; `disable-keybinding!` and `detach-keybinding!` run
+      ;; for real (their inner `resolve-fn` lookups resolve against
+      ;; Causa's live config/keybinding namespaces, both on the test
+      ;; classpath). No shell mount happens — `wire-cross-host!` never
+      ;; calls `apply-open!`.
+      (with-redefs [causa-preset/causa-available? (fn [] true)]
+        (causa-preset/wire-cross-host!))
       (is (false? (causa-config/keybinding-attach-enabled?))
-          "ensure-causa-mounted! flipped the slot to false")
+          "wire-cross-host! flipped the slot to false")
       (is (false? (causa-keybinding/attached?))
-          "ensure-causa-mounted! removed the listener (rf2-ycrt2 runtime gap closed)")
+          "wire-cross-host! removed the listener (rf2-ycrt2 runtime gap closed)")
       (finally
         ;; Restore defaults so neighbouring tests see the baseline.
         (causa-config/set-keybinding-enabled! true)

@@ -108,17 +108,25 @@
   (let [story-str (subs (str story-id) 1)]    ; strip leading colon
     (keyword story-str (name variant-name))))
 
-(defn gen-reg-call
-  "Emit a single `(when enabled? (binding [*pending-coords* coords]
-  (registrar/<reg-fn>* id body)))` form. `reg-fn-sym` is a fully-qualified
-  symbol like `re-frame.story.registrar/reg-story*`. `form-meta` is the
-  caller's `(meta &form)`; `file` is the caller's `*file*`; `ns-sym` is
-  the consumer's `(ns-name *ns*)`."
-  [form-meta file ns-sym reg-fn-sym id body]
+(defn emit-reg
+  "Emit the canonical `(when enabled? (binding [*pending-coords* coords]
+  (<reg-fn> id body)))` wrapper. `coords` is a pre-computed coords FORM
+  (per `coords-form`); `reg-fn-sym` is a fully-qualified registrar helper
+  like `re-frame.story.registrar/reg-story*`. The single place the
+  elision-gate + source-coord binding shape is laid down (rf2-ee38b.3 —
+  was open-coded in three sites)."
+  [coords reg-fn-sym id body]
   `(when re-frame.story.config/enabled?
-     (binding [re-frame.story.registrar/*pending-coords*
-               ~(coords-form form-meta file ns-sym)]
+     (binding [re-frame.story.registrar/*pending-coords* ~coords]
        (~reg-fn-sym ~id ~body))))
+
+(defn gen-reg-call
+  "Emit a single registration form for `reg-fn-sym`. `reg-fn-sym` is a
+  fully-qualified symbol like `re-frame.story.registrar/reg-story*`.
+  `form-meta` is the caller's `(meta &form)`; `file` is the caller's
+  `*file*`; `ns-sym` is the consumer's `(ns-name *ns*)`."
+  [form-meta file ns-sym reg-fn-sym id body]
+  (emit-reg (coords-form form-meta file ns-sym) reg-fn-sym id body))
 
 ;; ---- reg-story Form-B desugaring -----------------------------------------
 
@@ -139,17 +147,15 @@
         body-form   (if variants
                       (dissoc literal-map :variants)
                       metadata)
-        story-call  `(when re-frame.story.config/enabled?
-                       (binding [re-frame.story.registrar/*pending-coords*
-                                 ~coords]
-                         (re-frame.story.registrar/reg-story* ~id ~body-form)))]
+        story-call  (emit-reg coords
+                              're-frame.story.registrar/reg-story*
+                              id body-form)]
     (if variants
       `(do
          ~story-call
          ~@(for [[v-name v-body] variants]
              (let [v-id (variant-id-for id v-name)]
-               `(when re-frame.story.config/enabled?
-                  (binding [re-frame.story.registrar/*pending-coords*
-                            ~coords]
-                    (re-frame.story.registrar/reg-variant* ~v-id ~v-body))))))
+               (emit-reg coords
+                         're-frame.story.registrar/reg-variant*
+                         v-id v-body))))
       story-call)))

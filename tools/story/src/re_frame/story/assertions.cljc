@@ -56,6 +56,7 @@
     consumer tests via the public `assertions-passing?`).
   - `canonical-assertion-ids` — the set of registered event ids."
   (:require [re-frame.core             :as rf]
+            [re-frame.elision          :as elision]
             [re-frame.interop          :as interop]
             [re-frame.subs             :as subs]
             [re-frame.story.config     :as config]
@@ -261,6 +262,32 @@
     :else                    false))
 
 ;; ---------------------------------------------------------------------------
+;; Redaction projection (spec/004 §Privacy, rf2-shy6n / rf2-ee38b.3)
+;;
+;; A value captured from a path / sub the frame marked sensitive (via
+;; `re-frame.core/add-marks` / `set-marks`, or a schema entry with
+;; `{:sensitive? true}`) MUST NOT land raw on the assertion record's
+;; `:actual` slot — the record serialises into observation surfaces (the
+;; test-mode pane, MCP `read-assertions`, JSON-log egress) per spec/015
+;; §Data-Classification. We project the captured value through
+;; `re-frame.elision/elide-wire-value` (the frame-aware wire-egress
+;; projection) so a sensitive path records `:rf/redacted`, not the secret.
+;; A path with no sensitive declaration passes through unchanged.
+;; ---------------------------------------------------------------------------
+
+(defn- redact-at
+  "Project `v` through `elision/elide-wire-value` as if it lives at
+  `path` in `frame-id`'s app-db, so sensitive sub-paths (or a sensitive
+  root path) substitute `:rf/redacted`. Tolerant — any elision error or
+  a nil frame-id returns `v` unchanged (record-don't-throw: redaction
+  failure must never break the assertion)."
+  [frame-id path v]
+  (try
+    (elision/elide-wire-value v (cond-> {:path (vec path)}
+                                  frame-id (assoc :frame frame-id)))
+    (catch #?(:clj Throwable :cljs :default) _ v)))
+
+;; ---------------------------------------------------------------------------
 ;; The canonical seven — defined as plain helper fns that produce the
 ;; assertion record. The `install-canonical-assertions!` boot fn wraps
 ;; each in a `reg-event-fx` shell that consults the cofx for the frame
@@ -268,9 +295,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- evaluate-path-equals
-  [db [path expected]]
-  (let [actual (get-in db path)
-        passed? (= expected actual)]
+  [frame-id db [path expected]]
+  (let [raw     (get-in db path)
+        passed? (= expected raw)
+        actual  (redact-at frame-id path raw)]
     {:passed?  passed?
      :expected expected
      :actual   actual
@@ -299,9 +327,10 @@
                      :cljs (str e)))])))
 
 (defn- evaluate-path-matches
-  [db [path schema]]
-  (let [actual              (get-in db path)
-        [passed? explanation] (malli-validate schema actual)]
+  [frame-id db [path schema]]
+  (let [raw                 (get-in db path)
+        [passed? explanation] (malli-validate schema raw)
+        actual              (redact-at frame-id path raw)]
     (cond-> {:passed?  passed?
              :path     path
              :expected schema
@@ -313,24 +342,33 @@
       explanation (assoc :explanation explanation))))
 
 (defn- evaluate-sub-equals
-  [_frame-id db [sub-vec expected]]
+  [frame-id db [sub-vec expected]]
   ;; Use compute-sub against the snapshot — bypasses the reactive cache
   ;; per Spec 008. Subscriptions registered against the variant's frame
   ;; resolve the same way they would in the running app.
-  (let [actual  (try
+  ;;
+  ;; Redaction: a sub reading a sensitive path propagates the sensitive
+  ;; marker into its output value (spec/015 §reg-sub). We project the
+  ;; sub's value through `elide-wire-value` keyed on the SUB's root path
+  ;; (`(rest sub-vec)` is the args; the first element is the sub-id, not
+  ;; an app-db path). Where the sub-vec carries an app-db path (the
+  ;; common `[:sub/id & path]` shape) the projection redacts; otherwise
+  ;; the value passes through unchanged.
+  (let [raw     (try
                   (subs/compute-sub sub-vec db)
                   (catch #?(:clj Throwable :cljs :default) _
                     ::compute-error))
-        passed? (and (not= actual ::compute-error)
-                     (= actual expected))]
+        passed? (and (not= raw ::compute-error)
+                     (= raw expected))
+        actual  (cond
+                  (= raw ::compute-error) :rf.assert/sub-threw
+                  :else                   (redact-at frame-id (vec (rest sub-vec)) raw))]
     {:passed?  passed?
      :expected expected
-     :actual   (if (= actual ::compute-error)
-                 :rf.assert/sub-threw
-                 actual)
+     :actual   actual
      :sub-vec  sub-vec
      :reason   (cond
-                 (= actual ::compute-error) "subscription threw during evaluation"
+                 (= raw ::compute-error) "subscription threw during evaluation"
                  passed? "subscription returned expected value"
                  :else (str "expected " (pr-str expected)
                             " from " (pr-str sub-vec)
@@ -443,8 +481,8 @@
           frame-id     (frame-id-from-cofx cofx)
           dispatch-id  (dispatch-id-from-cofx cofx)
           extras       (case evaluator-kind
-                         :path-equals     (evaluate-path-equals     db payload)
-                         :path-matches    (evaluate-path-matches    db payload)
+                         :path-equals     (evaluate-path-equals     frame-id db payload)
+                         :path-matches    (evaluate-path-matches    frame-id db payload)
                          :sub-equals      (evaluate-sub-equals      frame-id db payload)
                          :dispatched?     (evaluate-dispatched?     frame-id payload)
                          :state-is        (evaluate-state-is        db payload)

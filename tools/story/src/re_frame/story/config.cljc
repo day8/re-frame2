@@ -94,19 +94,11 @@
 ;; The actual DCE happens because the macro expansion threads through
 ;; `(when re-frame.story.config/enabled? ...)`: in CLJS-advanced mode
 ;; with `enabled?` defined as `false`, Closure sees the boolean
-;; constant and removes the branch. The macro's job is to lay down that
-;; `(when enabled? ...)` form; the closure compiler does the rest.
-
-#?(:clj
-   (defn elide-form
-     "Wrap `expansion` in `(when re-frame.story.config/enabled? ...)` so
-     the closure compiler can prune the registration call under
-     `:advanced` builds where `enabled?` is defined as `false`.
-
-     Returns the wrapped form."
-     [expansion]
-     `(when re-frame.story.config/enabled?
-        ~expansion)))
+;; constant and removes the branch. The macro layer (`re-frame.story.
+;; macros`) lays down that `(when enabled? ...)` form inline; the
+;; closure compiler does the rest. (rf2-ee38b.3 removed a dead
+;; `elide-form` helper here — the macros open-code the wrapper and never
+;; called it.)
 
 ;; ---- *global-args* (Stage 3, rf2-von3) ----------------------------------
 ;;

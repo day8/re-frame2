@@ -53,6 +53,7 @@
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
   (:require [reagent.core                              :as r]
+            [re-frame.story.predicates                 :as pred]
             [re-frame.story.ui.open-in-editor          :as open-in-editor]
             [re-frame.story.ui.state                   :as shell-state]
             [re-frame.story.ui.test-mode.pure          :as pure]
@@ -76,7 +77,7 @@
         ran-at-ms  (:ran-at-ms slot)
         result     (:result slot)
         elapsed    (:elapsed-ms result)
-        story-id   (pure/parent-story-id variant-id)]
+        story-id   (pred/parent-story-id variant-id)]
     [:div
      [:h1 {:style (:h1 styles)} (str variant-id)]
      [:div {:style     (:sub styles)

@@ -16,7 +16,56 @@
   - `re-frame.story.ui.test-mode.stepper-styles` — pure style map.
   - `re-frame.story.ui.test-mode.stepper-view`   — CLJS Reagent component."
   (:require [re-frame.story.predicates :as pred]
+            [re-frame.story.play.runner :as runner]
             [re-frame.story.ui.test-mode.pure :as test-mode-pure]))
+
+;; ---- step-outcome (rf2-ee38b.3 — full-script step list) ------------------
+;;
+;; The step-debugger now walks the FULL coerced :play-script (every step
+;; type), driving each through the rich-DSL executor. Each step that has
+;; run carries a result record (`runner/step-pass` / `step-fail` /
+;; `step-skip` / `step-exception`); steps not yet reached carry no result.
+;; This fold maps the full step vector + the per-step result records onto
+;; one row per step, so the cursor / total are honest and EVERY step type
+;; (incl. `:wait` / `:click` / `:type` / `:assert-db` / `:assert-dom`)
+;; renders a row. Pure data → data; JVM-testable.
+
+(defn- step-outcome
+  "Outcome glyph class for a step given its result record (or nil when
+  the step has not yet run). `:pass` / `:fail` / `:skip` for assertion-
+  class + DOM-skipped steps; `:event` (neutral) for dispatch / wait
+  steps and for not-yet-run steps."
+  [result]
+  (cond
+    (nil? result)               :event
+    (:skipped? result)          :skip
+    (true? (:passed? result))   :pass
+    (false? (:passed? result))  :fail
+    :else                       :event))
+
+(defn step-statuses
+  "Pure: given the FULL coerced step vector + the per-step result records
+  (in run order — `:results` from `play/stepper-state`), return a vector
+  of step-status maps, one per step:
+
+      {:index   <0-based step index>
+       :step    <the coerced step vector>
+       :label   <runner/step-summary string>
+       :status  :pass | :fail | :skip | :event}
+
+  A step at `index < (count results)` has run and takes its outcome from
+  `(nth results index)`; a step at or beyond the results length has not
+  run yet and renders neutral (`:event`). rf2-ee38b.3."
+  [steps results]
+  (let [recs (vec (or results []))]
+    (vec
+      (map-indexed
+        (fn [idx step]
+          {:index  idx
+           :step   step
+           :label  (runner/step-summary step)
+           :status (step-outcome (nth recs idx nil))})
+        (or steps [])))))
 
 ;; ---- step status -------------------------------------------------------
 ;;

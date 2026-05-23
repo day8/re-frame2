@@ -139,6 +139,30 @@
     (story/destroy-variant! :story.reset/v)))
 
 ;; ===========================================================================
+;; rf2-ee38b.3 — framework :db / :fx fx-ids are excluded from :emitted-fx
+;; ===========================================================================
+
+(deftest effect-emitted-db-is-not-vacuously-true
+  (testing "the ubiquitous framework :db effect is NOT recorded into the
+            :emitted-fx accumulator, so :rf.assert/effect-emitted :db
+            FAILS rather than vacuously passing on every variant"
+    ;; A plain event that returns {:db ...} — emits the framework :db fx
+    ;; but no user fx-id.
+    (rf/reg-event-db :ee/touch (fn [db _] (assoc db :touched? true)))
+    (story/reg-variant :story.ee/db
+      {:events []
+       :play-script [[:dispatch-sync [:ee/touch]]
+                     [:dispatch-sync [:rf.assert/effect-emitted :db]]]})
+    (let [result (async/deref-blocking (story/run-variant :story.ee/db) 5000)
+          ee-rec (first (filter #(= :rf.assert/effect-emitted (:assertion %))
+                                (:assertions result)))]
+      (is (some? ee-rec) "the effect-emitted assertion recorded")
+      (is (false? (:passed? ee-rec))
+          ":db is excluded from :emitted-fx, so the assertion fails (was
+           vacuously true before rf2-ee38b.3)"))
+    (story/destroy-variant! :story.ee/db)))
+
+;; ===========================================================================
 ;; Frame teardown clears accumulator entries
 ;; ===========================================================================
 
@@ -156,7 +180,9 @@
 ;; ===========================================================================
 
 (deftest play-stepper-step-by-step
-  (testing "begin-stepper! + step-once! drives the play one event at a time"
+  (testing "begin-stepper! + step-once! drives the play one STEP at a time
+            (rf2-ee38b.3: step-once! returns the executed STEP, not the
+            bare event vector)"
     (rf/reg-event-db :step/one (fn [db _] (assoc db :one? true)))
     (rf/reg-event-db :step/two (fn [db _] (assoc db :two? true)))
     (story/reg-variant :story.stepper/v
@@ -170,17 +196,59 @@
       (loaders/finish-loaders! :story.stepper/v)
       (play/begin-stepper! :story.stepper/v)
       (is (play/play-stepper-active? :story.stepper/v))
-      (let [ev1 (play/step-once! :story.stepper/v)]
-        (is (= [:step/one] ev1))
+      (let [s1 (play/step-once! :story.stepper/v)]
+        (is (= [:dispatch-sync [:step/one]] s1))
         (is (true? (-> (rf/get-frame-db :story.stepper/v) :one?))))
-      (let [ev2 (play/step-once! :story.stepper/v)]
-        (is (= [:step/two] ev2))
+      (let [s2 (play/step-once! :story.stepper/v)]
+        (is (= [:dispatch-sync [:step/two]] s2))
         (is (true? (-> (rf/get-frame-db :story.stepper/v) :two?))))
       ;; Stepper exhausted.
       (is (nil? (play/step-once! :story.stepper/v)))
       (play/end-stepper! :story.stepper/v)
       (is (not (play/play-stepper-active? :story.stepper/v)))
       (story/destroy-variant! :story.stepper/v))))
+
+(deftest play-stepper-walks-every-step-type
+  (testing "rf2-ee38b.3: the step-debugger walks ALL step types — :wait,
+            :assert-db, :assert-dom, :click, :type — not just the dispatch
+            steps the legacy variant-play-events projection surfaced. The
+            cursor/total count every step and assert outcomes surface."
+    (rf/reg-event-db :st/set-n (fn [db [_ v]] (assoc db :n v)))
+    (story/reg-variant :story.stepper/full
+      {:events []
+       :play-script {:auto-run? false
+                     :script    [[:dispatch-sync [:st/set-n 5]]
+                                 [:wait 0]
+                                 [:assert-db [:n] 5]              ; pass
+                                 [:assert-db [:n] 99]             ; fail
+                                 [:assert-dom "div.x" :visible]   ; skip (no DOM)
+                                 [:click "button.y"]]}})          ; fail (no DOM)
+    (let [decorator-stack (story/resolve-decorators :story.stepper/full)]
+      (re-frame.story.frames/allocate! :story.stepper/full decorator-stack)
+      (loaders/start-loaders! :story.stepper/full)
+      (loaders/finish-loaders! :story.stepper/full)
+      (play/begin-stepper! :story.stepper/full)
+      ;; The substrate seeds the FULL six-step script.
+      (is (= 6 (count (:remaining (get @play/stepper-state :story.stepper/full))))
+          "all six steps (incl. :wait / :assert-* / :click) are queued")
+      ;; Walk every step.
+      (dotimes [_ 6] (play/step-once! :story.stepper/full))
+      (is (nil? (play/step-once! :story.stepper/full)) "exhausted after six steps")
+      (let [results (:results (get @play/stepper-state :story.stepper/full))]
+        (is (= 6 (count results)) "one result recorded per step")
+        (is (= :dispatch-sync (:type (nth results 0))))
+        (is (= :wait          (:type (nth results 1))))
+        (is (true?  (:passed? (nth results 2))) ":assert-db [:n] 5 passes")
+        (is (false? (:passed? (nth results 3))) ":assert-db [:n] 99 fails")
+        (is (:skipped? (nth results 4)) ":assert-dom records :skipped? (no DOM)"))
+      ;; The failing :assert-db landed in the :rf.story/assertions slot.
+      (let [slot (story/read-assertions :story.stepper/full)]
+        (is (some (fn [r] (and (= :rf.assert/db (:assertion r))
+                               (false? (:passed? r))))
+                  slot)
+            "the stepped rich-DSL :assert-db failure reached the slot too"))
+      (play/end-stepper! :story.stepper/full)
+      (story/destroy-variant! :story.stepper/full))))
 
 ;; ===========================================================================
 ;; :loaders-complete-when non-default forms — Stage 5 (rf2-h8et)

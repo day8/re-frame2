@@ -18,29 +18,22 @@
 
 ;; ---- aliases on the leaf predicates ns ----------------------------------
 ;;
-;; `assertion-event?` + `parent-story-id` both live canonically in
-;; `re-frame.story.predicates` (a pure leaf ns the rest of Story consumes
-;; without cycle risk). Aliased here so internal call sites stay textually
-;; identical and external test fixtures keep their qualified shape.
+;; `assertion-event?` lives canonically in `re-frame.story.predicates`
+;; (a pure leaf ns the rest of Story consumes without cycle risk).
+;; Aliased here so internal call sites stay textually identical.
+;;
+;; rf2-ee38b.3: the `parent-story-id` re-export was DROPPED — its sole
+;; caller (`test-mode.view`) now calls `pred/parent-story-id` directly.
 
 (def ^:private assertion-event? pred/assertion-event?)
-(def parent-story-id            pred/parent-story-id)
 
 ;; ---- pure: variant-has-tests? -------------------------------------------
 
-(defn variant-has-tests?
-  "True iff `variant-id`'s registered body declares a non-empty
-  `:play-script` body. Used by the pane to gate between the
-  run-and-render path and the empty-state placeholder.
-
-  Per rf2-0wrud (2026-05-20) `:play-script` is the canonical AND ONLY
-  phase-4 slot. The body is a map `{:auto-run? ... :script [...]}`; we
-  consider the variant 'has tests' iff `:script` is non-empty.
-
-  Pure data → data; JVM-testable."
-  [variant-id]
-  (let [vb     (registrar/handler-meta :variant variant-id)
-        script (:play-script vb)]
+(defn- has-play-script?
+  "True iff `vb` carries a non-empty `:play-script` (map `:script` or
+  bare vector)."
+  [vb]
+  (let [script (:play-script vb)]
     (boolean
       (cond
         ;; Map form — {:auto-run? ... :script [...]}
@@ -49,6 +42,30 @@
         ;; the script vector directly; the runner normalises both.
         (vector? script) (seq script)
         :else            false))))
+
+(defn- has-plays?
+  "True iff `vb` carries a non-empty `:plays` vector (rf2-tl7zk multi-play)."
+  [vb]
+  (let [plays (:plays vb)]
+    (boolean (and (vector? plays) (seq plays)))))
+
+(defn variant-has-tests?
+  "True iff `variant-id`'s registered body declares a non-empty
+  `:play-script` OR a non-empty `:plays` vector. Used by the pane to
+  gate between the run-and-render path and the empty-state placeholder.
+
+  Per rf2-0wrud (2026-05-20) `:play-script` is the canonical phase-4
+  slot; rf2-tl7zk added the multi-play `:plays` slot. rf2-ee38b.3: this
+  predicate now recognises BOTH (it previously checked only
+  `:play-script`, so a `:plays`-only variant rendered the
+  'no tests registered' empty-state even though the runner + CI runner
+  see its runnable plays — matching `ci-runner/has-any-play?`).
+
+  Pure data → data; JVM-testable."
+  [variant-id]
+  (let [vb (registrar/handler-meta :variant variant-id)]
+    (or (has-play-script? vb)
+        (has-plays? vb))))
 
 ;; ---- pure: aggregate-summary --------------------------------------------
 ;;

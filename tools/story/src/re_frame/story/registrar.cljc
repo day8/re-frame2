@@ -64,8 +64,7 @@
   - Snapshot identity computation"
   (:require [re-frame.story.late-bind :as late-bind]
             [re-frame.story.schemas   :as schemas]
-            #?(:clj [re-frame.story.extends :as extends]
-               :cljs [re-frame.story.extends :as extends])))
+            [re-frame.story.extends   :as extends]))
 
 ;; ---- source-coord plumbing ------------------------------------------------
 ;;
@@ -331,8 +330,15 @@
   [id body]
   (maybe-auto-install!)
   (assert-id! :variant id)
-  (let [resolved (extends/resolve-extends body
-                                          (fn [pid] (handler-meta :variant pid)))
+  (let [resolved (extends/resolve-extends
+                   body
+                   (fn [pid] (handler-meta :variant pid))
+                   ;; rf2-ee38b.3: :play-script and :plays are sibling
+                   ;; encodings of the play surface. When the child
+                   ;; overrides one, drop the inherited other so the
+                   ;; merged body doesn't carry both (which the schema's
+                   ;; mutual-exclusion :fn would reject).
+                   [#{:play-script :plays}])
         body     (-> resolved
                      merge-coords
                      (->> (validate-shape! :variant id)))

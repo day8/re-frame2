@@ -70,6 +70,7 @@
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
             [re-frame.story.frames     :as frames]
+            [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.registrar  :as registrar]))
 
@@ -89,6 +90,21 @@
   ;; Per Spec 009 §Per-frame routing: the canonical tag key is :frame
   ;; (rf2-shaa1 dropped the :frame-id alias from impl emit sites).
   (get-in ev [:tags :frame]))
+
+;; rf2-ee38b.3: `:db` (and `:fx`) are framework fx-ids that nearly every
+;; handler emits — including the assertion handlers themselves. Recording
+;; them into the per-frame `:emitted-fx` accumulator made
+;; `[:rf.assert/effect-emitted :db]` vacuously always-true. We exclude
+;; the framework fx-ids so `:rf.assert/effect-emitted` reflects USER fx
+;; only. (`:fx`, the effect-vector aggregator, is similarly ubiquitous +
+;; not a meaningful assertion target.)
+(def ^:private framework-fx-ids
+  "Framework fx-ids excluded from the `:emitted-fx` accumulator."
+  #{:db :fx})
+
+(defn- framework-fx-id?
+  [fx-id]
+  (contains? framework-fx-ids fx-id))
 
 ;; Per-frame pending-exception accumulator. The listener captures
 ;; `:rf.error/handler-exception` synchronously (from inside the running
@@ -142,10 +158,11 @@
           :rf.fx        (case (:operation ev)
                           :rf.fx/do-fx (let [fx-map (get-in ev [:tags :rf.event/fx])]
                                          (when (map? fx-map)
-                                           (doseq [fx-id (keys fx-map)]
+                                           (doseq [fx-id (keys fx-map)
+                                                   :when (not (framework-fx-id? fx-id))]
                                              (assertions/record-emitted-fx! frame-id fx-id))))
                           (let [fx-id (get-in ev [:tags :rf.fx/id])]
-                            (when fx-id
+                            (when (and fx-id (not (framework-fx-id? fx-id)))
                               (assertions/record-emitted-fx! frame-id fx-id))))
           nil)))))
 
@@ -329,15 +346,42 @@
 
 ;; ---------------------------------------------------------------------------
 ;; UI play-stepper hook (Stage 4 placeholder, finalised here)
+;;
+;; rf2-ee38b.3 re-base: the stepper now walks the FULL coerced
+;; `:play-script` (every step type — `:dispatch` / `:dispatch-sync` /
+;; `:wait` / `:click` / `:type` / `:assert-db` / `:assert-dom`), driving
+;; each step through the SAME rich-DSL executor the canvas auto-run path
+;; uses (`runner-events/run-step!`, fetched via the `:run-play-step`
+;; late-bind hook to avoid the play ↔ runner-events cycle). Previously it
+;; dispatched only the `:dispatch`/`:dispatch-sync` events from
+;; `variant-play-events` and silently dropped the rest — so the cursor /
+;; total were wrong and assert outcomes never surfaced during a stepped
+;; run. The slot now holds STEPS, not bare event vectors.
 ;; ---------------------------------------------------------------------------
 
 (defonce
   ^{:doc "Per-frame play-stepper state. `{frame-id → {:remaining vec,
-         :ran vec}}`. The UI shell consumes this to render the
-         stepper widget. Used only when the play sequence is being
-         driven step-by-step rather than via `execute-play!`."}
+         :ran vec, :results vec}}` where `:remaining` / `:ran` carry
+         coerced `:play-script` STEPS (rf2-ee38b.3 — was bare event
+         vectors) and `:results` carries the per-step result records the
+         rich-DSL executor returned. The UI shell consumes this to
+         render the stepper widget. Used only when the play sequence is
+         being driven step-by-step rather than via `execute-play!`."}
   stepper-state
   (atom {}))
+
+(defn variant-play-steps
+  "Resolve the FULL coerced `:play-script` step vector for `variant-id`'s
+  default play (rf2-ee38b.3). Unlike `variant-play-events` (which drops
+  every non-dispatch step) this returns EVERY step the rich-DSL runner
+  recognises, in order, so the step-debugger walks the same sequence the
+  auto-run path executes.
+
+  Pure data → data; works on JVM + CLJS."
+  [variant-id]
+  (let [body (registrar/handler-meta :variant variant-id)
+        spec (runner/parse-spec (:play-script body))]
+    (vec (:script spec))))
 
 (defn play-stepper-active?
   [frame-id]
@@ -345,30 +389,89 @@
 
 (defn begin-stepper!
   "Initialise a step-by-step play run for `frame-id`. The UI's
-  play-stepper widget calls `step-once!` to advance one event."
+  play-stepper widget calls `step-once!` to advance one step.
+
+  rf2-ee38b.3: seeds the FULL coerced script (all step types), not just
+  the dispatch-bearing events."
   [frame-id]
   (when config/enabled?
     (assertions/reset-trace-accumulators! frame-id)
     (install-trace-listener! frame-id)
     (swap! stepper-state assoc frame-id
-           {:remaining (vec (variant-play-events frame-id))
-            :ran       []})
+           {:remaining (variant-play-steps frame-id)
+            :ran       []
+            :results   []})
     nil))
 
 (defn step-once!
-  "Advance the play stepper for `frame-id` by one event. Returns the
-  event that was dispatched, or nil when no events remain."
+  "Advance the play stepper for `frame-id` by one step. Executes the
+  step through the rich-DSL executor (`runner-events/run-step!` via the
+  `:run-play-step` late-bind hook) so EVERY step type runs in the
+  debugger exactly as it does on the live canvas. Returns the step that
+  ran, or nil when no steps remain.
+
+  rf2-ee38b.3: previously this dispatched only `:dispatch`/`:dispatch-
+  sync` events and dropped the rest. If the executor hook is absent (a
+  Stage-3-only build where `runner-events` never loaded) it falls back
+  to the legacy `dispatch-one!` for dispatch steps and a no-op record
+  for the rest, so the cursor stays honest."
   [frame-id]
   (when config/enabled?
     (let [{:keys [remaining]} (get @stepper-state frame-id)
-          ev (first remaining)]
-      (when ev
-        (dispatch-one! frame-id ev)
-        (swap! stepper-state update frame-id
-               (fn [s] (-> s
-                           (update :remaining subvec 1)
-                           (update :ran conj ev)))))
-      ev)))
+          step (first remaining)]
+      (when step
+        (let [idx     (count (:ran (get @stepper-state frame-id)))
+              run-fn  (late-bind/get-fn :run-play-step)
+              result  (cond
+                        run-fn (run-fn frame-id idx step)
+
+                        ;; Fallback: executor unavailable. Drive dispatch
+                        ;; steps the legacy way; record nothing for the
+                        ;; other step types but still advance the cursor.
+                        (#{:dispatch :dispatch-sync} (runner/step-type step))
+                        (do (dispatch-one! frame-id (runner/step-event step))
+                            (runner/step-skip idx step))
+
+                        :else (runner/step-skip idx step))]
+          (swap! stepper-state update frame-id
+                 (fn [s] (-> s
+                             (update :remaining subvec 1)
+                             (update :ran conj step)
+                             (update :results (fnil conj []) result))))))
+      step)))
+
+(defn stepper-step-back!
+  "Pop the most-recently-run step back into `:remaining` and drop its
+  recorded result, so a subsequent `step-once!` re-runs it cleanly. The
+  UI's step-back also restores the prior epoch (db state); this keeps the
+  substrate's remaining/ran/results cursor consistent with that restore.
+  No-op when no step has run. rf2-ee38b.3."
+  [frame-id]
+  (when config/enabled?
+    (swap! stepper-state update frame-id
+           (fn [s]
+             (if (seq (:ran s))
+               (let [last-step (peek (:ran s))]
+                 (-> s
+                     (update :ran pop)
+                     (update :results (fn [r] (if (seq r) (pop r) r)))
+                     (update :remaining (fn [rem] (into [last-step] rem)))))
+               s))))
+  nil)
+
+(defn stepper-rewind!
+  "Reset the substrate's run cursor to the start: every step back into
+  `:remaining`, `:ran` + `:results` emptied. The UI's rewind also
+  restores the pre-play epoch + clears the assertion accumulator.
+  rf2-ee38b.3."
+  [frame-id]
+  (when config/enabled?
+    (swap! stepper-state update frame-id
+           (fn [s]
+             (when s
+               (let [full (into (vec (:ran s)) (:remaining s))]
+                 (assoc s :remaining full :ran [] :results []))))))
+  nil)
 
 (defn end-stepper!
   "Tear down the play stepper for `frame-id`. The UI calls this when

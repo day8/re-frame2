@@ -527,7 +527,8 @@
   panel), and Event-tab cascade view (replaces actions panel). Causa
   mounts into the `[data-rf-causa-host]` slot below via its standard
   `mount/open!` flow — driven from the selection-watcher whenever a
-  variant becomes focused (see `ensure-causa-mounted!`).
+  variant becomes focused (config bridges via
+  `causa-preset/wire-cross-host!`).
 
   Stage 6 (rf2-zhwd) adds `panels/render-panels-at-placement` so any
   `reg-story-panel` registration with `:placement :right` appears here.

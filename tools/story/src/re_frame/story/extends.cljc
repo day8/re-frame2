@@ -92,6 +92,25 @@
                                           "unregistered variant " parent-id)
                            :parent   parent-id})))))))
 
+(defn- drop-shadowed-siblings
+  "For each mutual-exclusion group in `exclusive-groups` (a coll of
+  key-sets), if `child` declares ANY key in the group then strip EVERY
+  key in that group from `inherited` before the merge. This lets a child
+  override a parent's alternative encoding wholesale — e.g. a parent's
+  `:play-script` and a child's `:plays` are sibling encodings of the
+  same play surface (rf2-tl7zk); without this the straight merge would
+  carry BOTH keys and the schema's mutual-exclusion `:fn` would reject a
+  body the author never wrote with both keys (rf2-ee38b.3)."
+  [inherited child exclusive-groups]
+  (reduce
+    (fn [acc group]
+      (let [group-set (set group)]
+        (if (some #(contains? child %) group-set)
+          (apply dissoc acc group-set)
+          acc)))
+    inherited
+    exclusive-groups))
+
 (defn resolve-extends
   "Resolve `:extends` on `body` against `lookup` (a fn from parent-id to
   parent-body). Returns the merged body with `:extends` stripped.
@@ -104,13 +123,28 @@
   recurse — the final body is the result of merging every ancestor in
   root-first order.
 
+  `exclusive-groups` (optional) is a coll of key-sets that are mutually-
+  exclusive ENCODINGS of one slot — when the child declares any key in a
+  group, the whole group is stripped from every inherited layer before
+  the merge so the child's encoding wins wholesale (per rf2-ee38b.3 the
+  Story play surface `#{:play-script :plays}` is one such group). Layers
+  closer to the child still shadow farther ones key-by-key as usual.
+
   Per IMPL-SPEC §4.6: 'Resolution at registration time. Cycles raise
   `:rf.error/extends-cycle`.'"
-  [body lookup]
-  (if-let [_parent-id (:extends body)]
-    (let [chain    (chain-of body lookup)
-          ;; Reduce parent-first: every parent's keys are overridden by
-          ;; the next (more specific) layer, ending with the child.
-          merged   (reduce merge {} (conj (vec chain) body))]
-      (dissoc merged :extends))
-    body))
+  ([body lookup] (resolve-extends body lookup nil))
+  ([body lookup exclusive-groups]
+   (if-let [_parent-id (:extends body)]
+     (let [chain  (chain-of body lookup)
+           ;; Reduce parent-first: every parent's keys are overridden by
+           ;; the next (more specific) layer, ending with the child. For
+           ;; each layer, strip any inherited mutual-exclusion group the
+           ;; more-specific layer overrides with its sibling encoding.
+           merged (reduce
+                    (fn [acc layer]
+                      (merge (drop-shadowed-siblings acc layer exclusive-groups)
+                             layer))
+                    {}
+                    (conj (vec chain) body))]
+       (dissoc merged :extends))
+     body)))
