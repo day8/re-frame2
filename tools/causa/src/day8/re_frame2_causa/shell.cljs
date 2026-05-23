@@ -1483,65 +1483,31 @@
 ;; silently suppress L2 rows; this ribbon makes them a VISIBLE cause +
 ;; one-click reset (`:rf.causa/clear-all-filters`).
 
-(defn- filter-cause-chip
-  "One small chip naming an active suppressing surface (a pill or the
-  mute set) inside the hidden-count message. Frame is NOT a cause —
-  it is a view scope (rf2-4vp5j Workstream C)."
-  [{:keys [testid tone label title]}]
-  [:span {:data-testid testid
-          :title       title
-          :style {:display        "inline-flex"
-                  :align-items    "center"
-                  :gap            "3px"
-                  :border         (str "1px solid " tone)
-                  :color          tone
-                  :padding        "0 5px"
-                  :border-radius  "8px"
-                  :font-family    mono-stack
-                  :font-size      (:caption type-scale)
-                  :white-space    "nowrap"}}
-   label])
-
 (defn filters-hidden-message
-  "Pure hiccup. The `N events hidden by filters` message + its pill /
-  mute cause chips — the RIGHT-side signal of the events ribbon. Renders
+  "Pure hiccup. The `N events hidden by filters` count — the RIGHT-side
+  signal of the events ribbon, sitting beside `Clear Filters`. Renders
   nil unless the hidden count is positive (`:visible?`). Keeps rf2-jvghz's
   prominent yellow accent. Counts pill/mute suppression ONLY — the frame
-  is a view scope, never counted as hidden (rf2-4vp5j Workstream C)."
-  [{:keys [hidden visible? pills muted-count] :as _summary}]
+  is a view scope, never counted as hidden (rf2-4vp5j Workstream C).
+
+  rf2-ad7zx.18 — per the Figma mock (`design-reference/components/
+  EventsRibbon.tsx`) the hidden-state is a plain count beside `Clear
+  Filters`; it no longer re-renders the active pills/mute as cause chips.
+  The committed pills already live in the LEFT cluster (via
+  `ribbon-filter-pills` → `filters.pills/pills-view`); re-rendering them
+  here duplicated every pill in front of `Clear Filters`."
+  [{:keys [hidden visible?] :as _summary}]
   (when visible?
     [:div {:data-testid "rf-causa-filters-hidden-indicator"
            :role        "status"
            :style {:display     "inline-flex"
                    :align-items "center"
-                   :flex-wrap   "wrap"
-                   :gap         "6px"
                    :font-family sans-stack
                    :font-size   (:caption type-scale)
                    :color       (:text-primary tokens)}}
      [:span {:data-testid "rf-causa-filters-hidden-count"
              :style {:font-weight 600 :color (:yellow tokens) :white-space "nowrap"}}
-      (str hidden " event" (when (not= 1 hidden) "s") " hidden by filters")]
-     ;; Cause chips — the active pills + the mute set (NOT the frame).
-     (into [:span {:data-testid "rf-causa-filters-hidden-causes"
-                   :style {:display "flex" :align-items "center"
-                           :flex-wrap "wrap" :gap "4px"}}]
-           (concat
-             (for [[idx {:keys [mode label glyph]}] (map-indexed vector pills)]
-               ^{:key (str "pill-" idx)}
-               [filter-cause-chip
-                {:testid (str "rf-causa-filters-hidden-pill-" idx)
-                 :tone   (if (= mode :out) (:magenta tokens) (:green tokens))
-                 :title  (str (name mode) " filter pill")
-                 :label  (str (if (= mode :out) "× " "+ ")
-                              (when glyph (str glyph ":")) label)}])
-             (when (pos? muted-count)
-               [^{:key "muted"}
-                [filter-cause-chip
-                 {:testid "rf-causa-filters-hidden-muted"
-                  :tone   (:text-secondary tokens)
-                  :title  "Muted event-ids hidden from the spine"
-                  :label  (str "🔇 " muted-count)}]])))]))
+      (str hidden " event" (when (not= 1 hidden) "s") " hidden by filters")]]))
 
 (defn- clear-filters-button
   "Restrained outline `Clear Filters` button — resets pills + mutes (NOT
