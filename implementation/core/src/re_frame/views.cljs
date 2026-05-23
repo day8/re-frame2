@@ -243,6 +243,21 @@
                       First-seen order; absent when the view derefs no
                       subs (a pure structural render). Distinct from
                       cascade-wide `:cause-subs` (which over-reports).
+    :triggered-by   — (when derivable) the SINGLE sub-id that caused THIS
+                      view to re-render (rf2-8wrzz.1): the first sub in the
+                      view's own read-set (`deref-subs`) whose value
+                      changed in the cascade. The precise per-view cause
+                      Causa's Views panel shows as the re-render reason.
+                      Absent on a structural re-render (no own sub changed)
+                      or outside a cascade. Distinct from `:cause-subs`
+                      (cascade-wide) and from `:deref-subs` (the full
+                      per-view read-set, changed-or-not).
+    :elapsed-ms     — wall-clock duration of the user render-fn for THIS
+                      render, in fractional milliseconds (rf2-8wrzz.1).
+                      Threaded in from the wrapper (measured around the
+                      `mark-and-measure` bracket). Always present in dev
+                      builds; the timing reads ride `interop/debug-enabled?`
+                      so production DCEs them with the rest of the emit.
     :cause-event-id — (when in-cascade) the dispatching cascade's event-id.
     :cause-subs     — (when in-cascade) distinct sub-ids that ran in the
                       cascade, first-seen order, capped at 100.
@@ -254,7 +269,7 @@
   100 `:rf.view/rendered` per cascade with a one-shot
   `:rf.view/rendered-cap-reached` marker (carries `:frame` +
   `:dropped-after`)."
-  [view-id render-key frame-id mount? deref-subs]
+  [view-id render-key frame-id mount? deref-subs elapsed-ms]
   (when interop/debug-enabled?
     (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
       ;; rf2-25zo2: :rf.view/rendered carries cascade-attribution.
@@ -262,7 +277,20 @@
       ;; (or returns nil) when re-frame.epoch is not on the classpath.
       (let [cause-fn (late-bind/get-fn-cached :epoch/cascade-cause)
             cause    (when cause-fn (cause-fn frame-id))
-            n-so-far (long (or (:rendered-so-far cause) 0))]
+            n-so-far (long (or (:rendered-so-far cause) 0))
+            ;; rf2-8wrzz.1 — the per-view re-render cause: the first sub in
+            ;; THIS view's read-set whose value changed in the cascade.
+            ;; `deref-subs` are query-vectors `[query-id args]`;
+            ;; `:value-changed-subs` is a set of query-ids — match on the
+            ;; query-id (head of each deref'd query-vector). nil on a
+            ;; structural re-render (no own sub changed) or outside a
+            ;; cascade (`:value-changed-subs` absent → nil set).
+            changed       (:value-changed-subs cause)
+            triggered-by  (when (seq changed)
+                            (some (fn [qv]
+                                    (let [qid (if (vector? qv) (first qv) qv)]
+                                      (when (contains? changed qid) qid)))
+                                  deref-subs))]
         (cond
           ;; Past the cap — emit a one-shot marker on the threshold
           ;; cross. The marker rides the same per-cascade buffer so
@@ -278,8 +306,12 @@
                           :rf.view/id         view-id
                           :frame              frame-id
                           :rf.view/mount?     mount?}
+                   (some? elapsed-ms)
+                   (assoc :rf.view/elapsed-ms elapsed-ms)
                    (seq deref-subs)
                    (assoc :rf.view/deref-subs deref-subs)
+                   (some? triggered-by)
+                   (assoc :rf.view/triggered-by triggered-by)
                    (:cause-event-id cause)
                    (assoc :rf.view/cause-event-id (:cause-event-id cause))
                    (:cause-subs cause)
@@ -470,7 +502,13 @@
               ;; updated here, not in the post-render emit).
               (when interop/debug-enabled?
                 (maybe-arm-unmount! id render-key frame-id))
-              (let [mount? (when interop/debug-enabled? (first-render?! render-key))]
+              (let [mount? (when interop/debug-enabled? (first-render?! render-key))
+                    ;; rf2-8wrzz.1: wall-clock the user render-fn (dev-only)
+                    ;; so `:rf.view/rendered` can carry `:elapsed-ms` — the
+                    ;; per-view render timing Causa's Views panel shows. The
+                    ;; read rides `interop/debug-enabled?` so production
+                    ;; DCEs it alongside the rest of the emit; nil in prod.
+                    t0     (when interop/debug-enabled? (interop/now-ms))]
                 (emit-view-render-trace! render-key frame-id)
                 ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
                 ;; every render of a registered view brackets the user
@@ -480,12 +518,15 @@
                 ;; `re-frame.performance/enabled?=false` the bracket DCEs
                 ;; and the form collapses to the bare `(apply render-fn
                 ;; args)` call.
-                (let [out (performance/mark-and-measure :render id
-                            (apply render-fn args))]
+                (let [out        (performance/mark-and-measure :render id
+                                   (apply render-fn args))
+                      elapsed-ms (when interop/debug-enabled?
+                                   (- (interop/now-ms) t0))]
                   ;; rf2-9hoos: emit AFTER the render so the deref sink is
                   ;; populated; carry the mount flag + the view's read-set.
+                  ;; rf2-8wrzz.1: also carry the render's `:elapsed-ms`.
                   (emit-view-rendered-trace! id render-key frame-id mount?
-                                             (when sink @sink))
+                                             (when sink @sink) elapsed-ms)
                   (if (and interop/debug-enabled? (not wrap-applied?))
                     (source-coord/inject-source-coord-attr id coord-attr out)
                     out))))))))

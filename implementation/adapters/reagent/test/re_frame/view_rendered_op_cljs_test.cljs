@@ -149,6 +149,73 @@
                 ":rf.view/cause-subs contains the sub-id that ran upstream of the render"))))
       (trace-tooling/unregister-listener! ::recorder))))
 
+(deftest rf-view-rendered-carries-elapsed-ms
+  (testing ":rf.view/rendered carries :rf.view/elapsed-ms — the wall-clock
+   duration of the user render-fn for this render (rf2-8wrzz.1). Present on
+   every dev-build render (the timing rides interop/debug-enabled?)."
+    (let [traces (record-traces!)]
+      (rf/reg-view ^{:rf/id :rf2-8wrzz1/timed} timed-view []
+        [:span "x"])
+      ((rf/view :rf2-8wrzz1/timed))
+      (let [ev (first @traces)
+            t  (:tags ev)]
+        (is (some? ev) "an :rf.view/rendered event was emitted")
+        (is (contains? t :rf.view/elapsed-ms) ":rf.view/elapsed-ms is present")
+        (is (number? (:rf.view/elapsed-ms t)) ":rf.view/elapsed-ms is a number")
+        (is (>= (:rf.view/elapsed-ms t) 0) ":rf.view/elapsed-ms is non-negative"))
+      (trace-tooling/unregister-listener! ::recorder))))
+
+(deftest rf-view-rendered-carries-triggered-by-when-own-sub-changed
+  (testing ":rf.view/rendered carries :rf.view/triggered-by — the single
+   sub-id in THIS view's read-set whose value changed in the cascade, the
+   precise per-view re-render cause (rf2-8wrzz.1). A view that derefs a sub
+   which the cascade recomputed with a changed value names that sub. A sub's
+   FIRST recompute in a cascade reports value-changed? true (the ::unset
+   sentinel), so running + reading the sub fresh inside the handler before
+   the render lands a value-changed :rf.sub/run in the in-flight buffer and
+   the view's deref-sink carries the matching query-vector."
+    (let [traces (record-traces!)]
+      (rf/reg-sub :rf2-8wrzz1/n (fn [_ _] 42))
+
+      (rf/reg-view ^{:rf/id :rf2-8wrzz1/reader} reader-view []
+        [:span @(rf/subscribe [:rf2-8wrzz1/n])])
+
+      ;; Render INSIDE a cascade: run the sub from the handler (its first
+      ;; recompute reports value-changed? true into the in-flight buffer),
+      ;; then render the view (its deref-sink records [:rf2-8wrzz1/n]). The
+      ;; intersection resolves :triggered-by to the changed own-sub.
+      (let [render (rf/view :rf2-8wrzz1/reader)]
+        (rf/reg-event-fx :rf2-8wrzz1/run-then-render
+          (fn [_ _]
+            @(rf/subscribe [:rf2-8wrzz1/n])
+            (render)
+            {}))
+        (rf/dispatch-sync [:rf2-8wrzz1/run-then-render]))
+
+      (let [ev (first (filter #(some? (get-in % [:tags :rf.view/triggered-by]))
+                              @traces))]
+        (is (some? ev)
+            ":rf.view/triggered-by present when an own sub changed value in-cascade")
+        (when ev
+          (is (= :rf2-8wrzz1/n (get-in ev [:tags :rf.view/triggered-by]))
+              ":rf.view/triggered-by names the sub that caused the re-render")))
+      (trace-tooling/unregister-listener! ::recorder))))
+
+(deftest rf-view-rendered-omits-triggered-by-on-structural-render
+  (testing ":rf.view/triggered-by is ABSENT on a structural render — a view
+   with no subs (or whose subs did not change) names no cause (rf2-8wrzz.1).
+   The consumer reads its absence as the `← parent re-render` reason."
+    (let [traces (record-traces!)]
+      (rf/reg-view ^{:rf/id :rf2-8wrzz1/no-subs} no-subs-view []
+        [:span "static"])
+      ((rf/view :rf2-8wrzz1/no-subs))
+      (let [ev (first @traces)
+            t  (:tags ev)]
+        (is (some? ev) ":rf.view/rendered still fires")
+        (is (not (contains? t :rf.view/triggered-by))
+            ":rf.view/triggered-by omitted when no own sub changed (structural)"))
+      (trace-tooling/unregister-listener! ::recorder))))
+
 (deftest rf-view-rendered-omits-attribution-when-no-cascade
   (testing "a render outside any cascade (e.g. headless direct invocation
    with no in-flight buffer) emits :rf.view/rendered with :rf.view/cause-event-id
