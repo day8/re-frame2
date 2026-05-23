@@ -42,6 +42,7 @@
     :adapter/dispose!
     :adapter/reactive?
     :adapter/after-render
+    :adapter/derived-container?
     :reagent/set-hiccup-emitter!})
 
 (defn- producers
