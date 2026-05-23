@@ -216,7 +216,15 @@
             ;; main.js falls through to out/examples/two-frame-isolation
             ;; per the same cascade as :testbeds/panel-gallery above.
             8030 ["../tools/causa/testbeds/two_frame_isolation"
-                  "out/examples/two-frame-isolation"]}
+                  "out/examples/two-frame-isolation"]
+            ;; Single-frame step-deck testbed (rf2-6qgbs.2). The
+            ;; single-frame counterpart to two-frame-isolation; mounts
+            ;; the SAME shared testdeck modules once. Source dir first so
+            ;; the hand-written index.html resolves at `/`; the compiled
+            ;; main.js falls through to out/examples/step-deck per the
+            ;; same cascade as the entries above.
+            8031 ["../tools/causa/testbeds/step_deck"
+                  "out/examples/step-deck"]}
 
  :builds
  {:node-test
@@ -582,6 +590,25 @@
    :output-dir "out/examples/two-frame-isolation"
    :asset-path "."
    :modules    {:main {:init-fn two-frame-isolation.core/run}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-causa.preload]}}
+
+  ;; Single-frame step-deck testbed (rf2-6qgbs.2) — the single-frame
+  ;; counterpart to :examples/two-frame-isolation above. Mounts the SAME
+  ;; shared testdeck modules (tools/causa/testbeds/testdeck/) ONCE, in
+  ;; one URL-bound frame, wrapped in an action→check card framing. A TEST
+  ;; surface — no deliberate bugs, no teaching layers, no anti-pattern
+  ;; demos (feedback_testbeds_are_test_surfaces).
+  ;;
+  ;; Sources live under tools/causa/testbeds/step_deck/; the Causa
+  ;; preload auto-mounts inline so every lens reads the single
+  ;; :step-deck frame. Served at http://localhost:8031 via the top-level
+  ;; `:dev-http` map.
+  :examples/step-deck
+  {:target     :browser
+   :output-dir "out/examples/step-deck"
+   :asset-path "."
+   :modules    {:main {:init-fn step-deck.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-causa.preload]}}
 
