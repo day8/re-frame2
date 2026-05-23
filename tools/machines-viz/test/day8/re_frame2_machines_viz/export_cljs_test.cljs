@@ -30,7 +30,7 @@
   stores it) directly, so `chart-root` returns it without calling
   `closest` / `querySelector`."
   [chart-state]
-  (let [el #js {}]
+  (let [^js el #js {}]
     (set! (.-_rfMvChartState el) chart-state)
     el))
 
