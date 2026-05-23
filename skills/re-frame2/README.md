@@ -27,15 +27,15 @@ skills/re-frame2/
 ├── .claude-plugin/
 │   └── plugin.json                   Claude Code plugin metadata.
 ├── references/
-│   ├── fundamentals/                 events, fx, cofx, subs, frames, schemas, event-state-cycle, project-structure.
-│   ├── state-machines/               reg-machine, regions, tags, invoke, cancellation.
-│   ├── tooling/                      Stories, routing.
-│   └── cross-cutting/                Testing, API cheatsheet.
+│   ├── fundamentals/                 events, fx, cofx, subs, flows, frames, schemas, event-state-cycle, project-structure.
+│   ├── state-machines/               reg-machine, regions, tags, spawn, cancellation.
+│   ├── tooling/                      stories, routing, story-recorder, story-mcp-loop, causa.
+│   └── cross-cutting/                testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring.
 ├── patterns/                         One leaf per canonical pattern (9 leaves).
 └── decision-trees/                   pick-a-pattern, slice-or-machine.
 ```
 
-The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the nine canonical patterns, and the two decision trees. An integration pass reconciles the loading map and adds derived-from-implementation footers.
+The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the nine canonical patterns, and the two decision trees. Footers pin each leaf to the implementation it derives from, re-verified after refactors.
 
 ## Install
 
@@ -80,7 +80,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The integration pass reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example is linked; the evals harness and the `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight but are not blockers for skill use.
+**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/` (including the Flows leaf), `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The loading map is reconciled and the derived-from-implementation footers are pinned at main `89bd9c3`. All worked examples the leaves cite — including `examples/reagent/{websocket,long_running_work,flows}/` — have shipped; the evals harness is the only in-flight item and is not a blocker for skill use.
 
 ## License
 

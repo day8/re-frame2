@@ -19,7 +19,7 @@ Reach for this leaf when a state hosts an asynchronous activity whose lifetime m
            :failed    :auth-failed}}}
 ```
 
-Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the parent machine sits in `:authenticating`, an actor of `:rf.http/managed` exists at `[:rf/machines <id>]`. The runtime spawns it on entry and destroys it on exit (Spec 005 §Desugaring rules; implementation at `implementation/machines/src/re_frame/machines.cljc:796-872`).
+Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the parent machine sits in `:authenticating`, an actor of `:rf.http/managed` exists at `[:rf/machines <id>]`. The runtime spawns it on entry and destroys it on exit (Spec 005 §Desugaring rules; implementation in `re-frame.machines.lifecycle-fx.registration` desugar + `re-frame.machines.lifecycle-fx.destroy`).
 
 ## `:spawn` spec keys
 
@@ -33,7 +33,7 @@ Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the par
 | `:spawn-id` | explicit id instead of gensym (per-state singleton) | optional |
 | `:id-prefix` | base for the gensym'd actor id; defaults to `:machine-id` | optional |
 
-Verbatim from Spec 005 §Spec-spec keys (`spec/005-StateMachines.md:1821`). The runtime stamps `:rf/parent-id` (the parent's registration id) + `:rf/spawn-id` (the absolute prefix-path of the `:spawn`-bearing state node) onto the spawn args so the destroy fx can locate the actor on exit.
+Verbatim from Spec 005 §Spec-spec keys. The runtime stamps `:rf/parent-id` (the parent's registration id) + `:rf/spawn-id` (the absolute prefix-path of the `:spawn`-bearing state node) onto the spawn args so the destroy fx can locate the actor on exit.
 
 ## Final states — `:final?` / `:on-done` / `:output-key`
 
@@ -97,7 +97,7 @@ Per Spec 005 §Final states (`spec/005-StateMachines.md`) for the full sub-decis
 
 ## Composition with explicit `:entry` / `:exit`
 
-A state may declare both `:spawn` AND user-supplied `:entry` / `:exit`. Ordering is **wire-level concatenation**: user-entry runs first, then the auto-spawn; user-exit runs first, then the auto-destroy (Spec 005 §Composition with explicit `:entry` / `:exit`; `machines.cljc:889`). The user's `:exit` action gets to read the actor's final snapshot before auto-destroy clears it.
+A state may declare both `:spawn` AND user-supplied `:entry` / `:exit`. Ordering is **wire-level concatenation**: user-entry runs first, then the auto-spawn; user-exit runs first, then the auto-destroy (Spec 005 §Composition with explicit `:entry` / `:exit`; `re-frame.machines.lifecycle-fx.exit-cascade`). The user's `:exit` action gets to read the actor's final snapshot before auto-destroy clears it.
 
 ## `:spawn-all` — spawn-and-join
 
@@ -123,17 +123,17 @@ When the parent needs to fan out N children and resume on a join condition (boot
 
 Child id is the `:id` field inside each `:children` entry (NOT the `:machine-id`); each child dispatches `[:child/done :cfg & extra]` (or `:child/error`) back to the parent. The runtime intercepts these at the parent's machine boundary, updates join-state at `[:rf/spawned <parent-id> <invoke-id>]`, evaluates the join condition, and fires the resolved parent event — automatically cancelling surviving siblings (`:cancel-on-decision?` defaults to `true`).
 
-Validation happens at registration (`machines.cljc:1653`): `:on-child-done` / `:on-child-error` are required keywords, `:on-all-complete` is required when `:join :all` (the default), `:on-some-complete` is required for `:any` / `{:n N}` / `{:fn pred}`.
+Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`): `:on-child-done` / `:on-child-error` are required keywords, `:on-all-complete` is required when `:join :all` (the default), `:on-some-complete` is required for `:any` / `{:n N}` / `{:fn pred}`.
 
 ## Common gotchas
 
-- **Pick exactly one of `:machine-id` or `:definition`.** Registration rejects both forms or neither (`spec/005-StateMachines.md:1920`).
+- **Pick exactly one of `:machine-id` or `:definition`.** Registration rejects both forms or neither (Spec 005 §Spec-spec keys; validated in `re-frame.machines.lifecycle-fx.validation`).
 - **No `:timeout-ms` on `:spawn` or `:spawn-all`.** Wall-clock guards live on the parent state's `:after`. Use `:after {30000 :timeout-target}` — when the timer fires, the standard exit cascade destroys the in-flight child and the parent transitions. The `:timeout-ms` slot is dropped; registration throws `:rf.error/spawn-timeout-ms-removed`.
 - **`:on-spawn` is advisory.** The runtime tracks the spawn-id at `[:rf/spawned <parent-id> <invoke-id>]` itself — you no longer need `:on-spawn` to write the id under any specific `:data` slot for destroy to work. Most apps still set `:on-spawn (fn [{data :data id :id}] (assoc data :pending id))` so other transitions can address the child by name.
-- **`:data` is a literal map or `(fn [snap ev] data)` — not arbitrary code.** When the fn form is used, it runs at state entry against the post-action snapshot (`machines.cljc:782`). If it throws, the transition halts with `:rf.error/machine-action-exception` and the snapshot does NOT commit.
+- **`:data` is a literal map or `(fn [snap ev] data)` — not arbitrary code.** When the fn form is used, it runs at state entry against the post-action snapshot (spawn desugar in `re-frame.machines.lifecycle-fx.registration`). If it throws, the transition halts with `:rf.error/machine-action-exception` and the snapshot does NOT commit.
 - **`:start` runs after spawn; if absent the runtime dispatches a synthetic `[:rf.machine/spawned]`.** Every spawned actor receives `[:rf.machine/spawned]` if no `:start` was declared — generic child machines can declare a leaf `:on :rf.machine/spawned :target ...` transition that fires the actor's first work on entry.
 - **Path convention for `:on-spawn`:** the callback receives `:data` directly. Write `(assoc data :pending id)`, not `(assoc-in snap [:data :pending] id)`. Uniform with `:guard` and `:action`.
-- **One `:spawn` per state.** Multiple children per state → refactor into a compound state where each substate invokes one of the actors, or use `:spawn-all`. Validated at registration; `:spawn` + `:spawn-all` together throws `:rf.error/machine-spawn-all-with-spawn` (`machines.cljc:1669`).
+- **One `:spawn` per state.** Multiple children per state → refactor into a compound state where each substate invokes one of the actors, or use `:spawn-all`. Validated at registration; `:spawn` + `:spawn-all` together throws `:rf.error/machine-spawn-all-with-spawn` (`re-frame.machines.lifecycle-fx.validation`).
 
 ## Deeper material
 
@@ -141,4 +141,4 @@ For the full declarative-`:spawn` desugaring rules, composition with hierarchica
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (declarative-`:spawn` desugar, `:spawn-all` join engine, `:on-spawn` stamping) @ main `89bd9c3`, and `spec/conformance/fixtures/spawn-all-*` fixtures. Re-verify after `:spawn`/`:spawn-all` runtime changes.*
+*Derived from the `re-frame.machines.lifecycle-fx.*` sub-namespaces (`registration` desugar, `join` engine, `destroy` / `exit-cascade`, `validation`) @ main `89bd9c3`, and `spec/conformance/fixtures/spawn-all-*` fixtures. Citations are symbol-level (machines.cljc was split); re-verify after `:spawn`/`:spawn-all` runtime changes.*

@@ -56,6 +56,15 @@ A search-as-you-type input where each keystroke spawns a lookup; only the latest
                     :on-success [:search/results-received next-epoch]
                     :on-error   [:search/load-failed       next-epoch]}]]})))
 
+;; A user-registered feature fx that wraps the trace-emit fn. There is no
+;; `:rf/trace-event` fx — `rf/emit-trace-event!` is a fn, and `:rf/*` is
+;; reserved for the framework. Register your own feature-prefixed fx and
+;; call the fn from inside it. Signature is (op-type operation tags).
+(rf/reg-fx :search/log-stale
+  (fn [_ {:keys [carried current]}]
+    (rf/emit-trace-event! :info :search/stale-result
+                          {:carried carried :current current})))
+
 (rf/reg-event-fx :search/results-received
   (fn handler-search-results-received [{:keys [db]} [_ carried-epoch results]]
     (let [current-epoch (get-in db [:search :epoch] 0)]
@@ -64,9 +73,8 @@ A search-as-you-type input where each keystroke spawns a lookup; only the latest
                  (assoc-in [:search :status] :loaded)
                  (assoc-in [:search :results] results))}
         ;; Mismatch — supersede. Drop the result; emit a trace event.
-        {:fx [[:rf/trace-event {:operation :search/stale-result
-                                :tags      {:carried carried-epoch
-                                            :current current-epoch}}]]}))))
+        {:fx [[:search/log-stale {:carried carried-epoch
+                                  :current current-epoch}]]}))))
 ```
 
 Three load-bearing points:

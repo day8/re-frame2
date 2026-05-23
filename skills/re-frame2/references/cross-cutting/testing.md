@@ -92,7 +92,7 @@ Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story 
 (ts/assert-db-equals   {:n 0} {:frame :stories})        ;; same for the full-db form
 ```
 
-`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:play` blocks; the shared name root is deliberate so a reader navigating between the two surfaces does not need a translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
+`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:play-script` blocks; the shared name root is deliberate so a reader navigating between the two surfaces does not need a translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
 
 Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an assertion:
 
@@ -173,7 +173,31 @@ This is the dominant shape for an app-developer e2e view test — it compresses 
 
 `opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape** (matching `poll-until`): on **JVM** it is synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/wait-until-timeout`) on timeout. On **CLJS** it returns a `js/Promise` — resolves with the truthy value, rejects on timeout; compose with `cljs.test/async`. For sync cascades, `expect-text` after `dispatch-sync` is enough — only reach for `wait-until` when the cascade is genuinely async. It is not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
 
-The lower-level walk helpers (`find-by-testid`, `find-all-by-testid`, `text-content`, `invoke-handler`, and the `testid` attrs-authoring helper) are documented in SKILL.md §Testing your views — use them directly when you need the `:on-click`-fires-the-right-event assertion or a tree that no fixture stashed.
+### Lower-level walk helpers — the hiccup-walk pattern
+
+When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-right-event assertion rather than a text check, walk the hiccup directly. The view-fn returns hiccup; that's just data. Dispatch via `dispatch-sync` into the test frame, call the view-fn, then walk the returned tree by `:data-testid`:
+
+```clojure
+(deftest counter-view-shows-and-fires
+  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+    (let [tree (counter-view {:n 0})
+          btn  (h/find-by-testid tree "counter-inc")]
+      (h/invoke-handler btn :on-click nil)              ;; fire the handler as the DOM would
+      (is (= 1 (:n (rf/get-frame-db f)))))))
+```
+
+- `find-by-testid` / `find-all-by-testid` — locate node(s) by `:data-testid`.
+- `text-content` — the rendered text under a node.
+- `invoke-handler` — call an attr handler (`:on-click`, `:on-change`, …) with an event arg, as the DOM would.
+- `testid` — the **authoring** helper that standardises the attrs fragment at view call sites; use it whenever you write a new view that wants a test handle:
+
+```clojure
+[:button (h/testid "counter-inc" {:on-click #(rf/dispatch [:counter/inc])}) "+"]
+```
+
+**Why walk the view, not just assert state?** State-only assertions (`(is (= 2 (:n db)))`) catch handler bugs but miss two classes the hiccup-walk catches — *state-correct, view-broken* (handler updated db, view reads the wrong path / forgets a branch) and *wrong-frame dispatch* (`:on-click` dispatches into the wrong frame; host-frame state never changes). Both surface on JVM and Node-CLJS with no browser.
+
+**Single-frame discipline.** Application view tests use ONE frame — the host frame. Views, events, subs, and asserts all reference the same frame. Multi-frame harnesses (e.g. `tools/causa/.../e2e_multi_frame.cljs`) are for **observer / tool code** that watches another frame — never for a regular application view. Full walkthrough at [`docs/guide/15-testing.md` §Asserting the view shows the right thing](../../../../docs/guide/15-testing.md).
 
 ## Machine snapshots and tag queries
 
@@ -210,8 +234,12 @@ For `:rf.http/managed`, install per-call stubs around the body:
 
 ```clojure
 (rf/with-managed-request-stubs
-  {[:get "/api/items"] {:reply :ok :body {:items [...]}}
-   [:post "/api/cart"] {:reply :failure :status 500}}
+  ;; :reply is a MAP — {:ok <value>} for success, {:failure {:kind ...}} for
+  ;; failure. The runtime branches on (contains? reply :ok) / (:failure);
+  ;; a bare keyword like :reply :ok matches nothing and falls through to the
+  ;; "no stub matched" transport failure.
+  {[:get "/api/items"] {:reply {:ok {:items [...]}}}
+   [:post "/api/cart"] {:reply {:failure {:kind :rf.http/http-5xx :status 500}}}}
   (rf/dispatch-sync [:cart/fetch])
   (ts/assert-path-equals [:cart :status] :ready))
 ```

@@ -88,7 +88,7 @@ Verbatim from `examples/reagent/realworld/tags.cljs:71-142`. The slice's separat
 (rf/reg-machine :ui/nine-states nine-states-machine)
 ```
 
-From `examples/reagent/nine_states/core.cljs:197-333`. Three orthogonal axes, one machine. `(rf/dispatch [:ui/nine-states [:fetch-started]])` reaches **every** region; the `:data` region advances; the `:form` and `:mode` regions ignore the event (their `:on` tables don't list it). The runtime is validated by `validate-parallel!` (`implementation/machines/src/re_frame/machines.cljc:1725`).
+From `examples/reagent/nine_states/core.cljs` (the `nine-states-machine` declaration). Three orthogonal axes, one machine. `(rf/dispatch [:ui/nine-states [:fetch-started]])` reaches **every** region; the `:data` region advances; the `:form` and `:mode` regions ignore the event (their `:on` tables don't list it). The runtime is validated by `validate-parallel!` (`re-frame.machines.lifecycle-fx.validation`).
 
 ## Snapshot shape with parallel regions
 
@@ -101,16 +101,16 @@ For a parallel machine the snapshot's `:state` is a **map** keyed by region-name
 ;;                    :tags  #{:data/loading :form/neutral :mode/active}}
 ```
 
-`:data` is shared across regions (same map). `:tags` is the union of every active state's `:tags` set across every region. Per Spec 005 §Parallel regions §Snapshot shape and `machines.cljc:295` (Stage 2 broadens the tag union to cover all active regions).
+`:data` is shared across regions (same map). `:tags` is the union of every active state's `:tags` set across every region. Per Spec 005 §Parallel regions §Snapshot shape and `compute-tags` in `re-frame.machines.parallel` (broadens the tag union to cover all active regions).
 
 ## Common gotchas
 
-- **`:type :parallel` is mutually exclusive with root `:initial` / `:states`.** Use one or the other at the top level. Registration throws `:rf.error/machine-parallel-bad-shape` if both are present (`machines.cljc:1746`).
-- **Each region needs its own `:initial`.** Region bodies are themselves transition tables; a missing `:initial` keyword is a registration-time error (`machines.cljc:1762`).
-- **Region names are keywords.** `:regions {:data {...} :form {...}}` — not strings, not symbols. Validated at registration (`machines.cljc:1750`).
-- **No nested parallel regions in v1.** A region body declaring its own `:type :parallel` throws `:rf.error/machine-parallel-nested-not-supported` (`machines.cljc:1758`).
+- **`:type :parallel` is mutually exclusive with root `:initial` / `:states`.** Use one or the other at the top level. Registration throws `:rf.error/machine-parallel-bad-shape` if both are present (validated in `re-frame.machines.lifecycle-fx.validation`).
+- **Each region needs its own `:initial`.** Region bodies are themselves transition tables; a missing `:initial` keyword is a registration-time error (`re-frame.machines.lifecycle-fx.validation`).
+- **Region names are keywords.** `:regions {:data {...} :form {...}}` — not strings, not symbols. Validated at registration (`re-frame.machines.lifecycle-fx.validation`).
+- **No nested parallel regions in v1.** A region body declaring its own `:type :parallel` throws `:rf.error/machine-parallel-nested-not-supported` (`re-frame.machines.lifecycle-fx.validation`).
 - **Broadcast is to every region.** One event-keyword goes to every region's `:on` table; regions whose tables don't list that event are no-ops for that dispatch. Don't broadcast a region-private event with a generic name — namespace it (`:form/submit-valid`, not `:submit-valid`) to make the per-region intent visible.
-- **`:after` and `:spawn` are scoped per region.** Each region carries its own `:after`-epoch counter at `[:data :rf/after-epoch-by-region <region-name>]` — a sibling region's transition does NOT invalidate this region's in-flight `:after` timers (`machines.cljc:362`, Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping).
+- **`:after` and `:spawn` are scoped per region.** Each region carries its own `:after`-epoch counter at `[:data :rf/after-epoch-by-region <region-name>]` — a sibling region's transition does NOT invalidate this region's in-flight `:after` timers (per-region scoping in `re-frame.machines.transition`, Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping).
 
 ## When to reach for parallel regions vs N machines
 
@@ -122,4 +122,4 @@ For the full parallel-regions contract — broadcast routing, per-region scoping
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (parallel-regions validator, broadcast, tag union) @ main `89bd9c3`, and the worked examples `examples/reagent/realworld/tags.cljs` and `examples/reagent/nine_states/core.cljs`. Re-verify after parallel-regions or broadcast-routing changes.*
+*Derived from the `re-frame.machines.*` sub-namespaces (`lifecycle-fx.validation` for the parallel-regions validator, `parallel` / `transition` for broadcast + tag union) @ main `89bd9c3`, and the worked examples `examples/reagent/realworld/tags.cljs` and `examples/reagent/nine_states/core.cljs`. Citations are symbol-level (machines.cljc was split); re-verify after parallel-regions or broadcast-routing changes.*

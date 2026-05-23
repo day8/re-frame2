@@ -2,6 +2,8 @@
 
 The standard form-lifecycle convention. A 7-key slice (or one machine region) carries the form runtime — **draft / submitted / submit-attempted? / status / errors / touched / submit-error** — and seven events drive the lifecycle (**initialise / edit-field / blur-field / submit / submit-success / submit-error / reset**). Per-field error visibility hinges on a single rule: show a field's error when the field is in `:touched` OR `:submit-attempted?` is `true`.
 
+> **Mental-model anchor:** this is the **Formik / React-Hook-Form** model — `draft` / `touched` / `errors` / `isSubmitting` (here `:status`) map one-to-one onto the slice keys. Map that intuition onto the re-frame2 events + subs below.
+
 Forms is an **app-side** lifecycle slice composed on top of a **managed external effect** — almost always `:rf.http/managed` for the submit. The slice carries draft/touched/errors; the submit fx is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; the `:errors` vs `:submit-error` split here is exactly the seam where the umbrella's structured failure taxonomy hands off to app-level field-error UI.
 
 ## When to load this leaf
@@ -36,25 +38,31 @@ Password, TOTP, recovery-code, and similar secret fields are a **different lifec
 Worked auth example — minimal diff from the slice form above:
 
 ```clojure
+;; `(rf/path :auth :login)` focuses the handler's :db onto the [:auth :login]
+;; slice — the body reads/writes slice-relative paths ([:draft], [:status]),
+;; NOT full app-db paths, and the returned :db is spliced back into the slice.
+;; The slot's `:sensitive? true` schema metadata is what drives trace/error
+;; redaction; `path` itself only focuses the slice. The handler body still
+;; sees the real password via the unredacted :event coeffect.
 (rf/reg-event-fx :form.login/submit
-  [(rf/path :auth :login)]                                      ;; schema redaction maps draft.password to payload password
-  (fn [{:keys [db]} _]
-    (let [draft  (get-in db [:auth :login :draft])
+  [(rf/path :auth :login)]
+  (fn [{:keys [db]} _]                          ;; db here IS the [:auth :login] slice
+    (let [draft  (:draft db)
           errors (validate-against LoginForm draft)
-          db'    (assoc-in db [:auth :login :submit-attempted?] true)]
+          db'    (assoc db :submit-attempted? true)]
       (if (empty? errors)
         {:db (-> db'
-                 (assoc-in [:auth :login :status]              :submitting)
-                 (assoc-in [:auth :login :errors]              {})
-                 (assoc-in [:auth :login :submit-error]        nil)
+                 (assoc :status       :submitting)
+                 (assoc :errors       {})
+                 (assoc :submit-error nil)
                  ;; Clear the password out of :draft on submit — handler still
                  ;; has it via :event coeffect; app-db drops it.
-                 (assoc-in [:auth :login :draft :password]     nil))
+                 (assoc-in [:draft :password] nil))
          :fx [[:rf.http/managed
                {:request    {:method :post :url "/api/login" :body draft}
                 :on-success [:form.login/submit-success]
                 :on-failure [:form.login/submit-error]}]]}
-        {:db (assoc-in db' [:auth :login :errors] errors)}))))
+        {:db (assoc db' :errors errors)}))))
 ```
 
 For 2FA flows, the same shape applies to the TOTP / recovery-code field. The `[:auth :2fa-verify :draft :totp-code]` path is schema `:sensitive? true` and cleared after submit.
@@ -181,7 +189,7 @@ Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-
 - **Machine form**: `examples/reagent/realworld/settings.cljs` — single-region `reg-machine` with `:neutral / :incorrect / :submitting / :correct`.
 - **Compose with NineStates**: `examples/reagent/nine_states/core.cljs` — `:form` region as one axis of a parallel machine, with the `Incorrect` / `Correct` rendering folded into the page's render-priority.
 
-## Pillar 5 — why error visibility hinges on `submit-attempted? OR touched`
+## Why error visibility hinges on `submit-attempted? OR touched`
 
 Three options exist for "when do per-field errors show?":
 

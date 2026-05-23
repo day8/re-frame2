@@ -32,6 +32,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   ├── fx.md                (reg-fx, :fx vector shape)
 > │   │   ├── cofx.md              (reg-cofx, inject-cofx)
 > │   │   ├── subs.md              (reg-sub, layered subs, dynamic args, machine subs)
+> │   │   ├── flows.md             (reg-flow, materialised computed state, flow-vs-sub)
 > │   │   ├── schemas.md           (reg-app-schema, boundary validation)
 > │   │   ├── frames.md            (frame ids, default frame, per-frame config)
 > │   │   ├── event-state-cycle.md (the 12-step walk)

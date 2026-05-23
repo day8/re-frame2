@@ -92,10 +92,10 @@ skills/re-frame2/
 ├── package.json                 (npm metadata)
 ├── examples-map.md              (pattern → worked-example cross-ref)
 ├── references/
-│   ├── fundamentals/            (events, fx, cofx, subs, schemas, frames, event-state-cycle, project-structure)
-│   ├── state-machines/          (reg-machine, regions, tags, invoke, cancellation)
-│   ├── tooling/                 (stories, routing)
-│   └── cross-cutting/           (testing, api-cheatsheet)
+│   ├── fundamentals/            (events, fx, cofx, subs, flows, schemas, frames, event-state-cycle, project-structure)
+│   ├── state-machines/          (reg-machine, regions, tags, spawn, cancellation)
+│   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, causa)
+│   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring)
 ├── patterns/                    (one leaf per canonical pattern)
 ├── decision-trees/              (pick-a-pattern, slice-or-machine)
 ├── evals/                       (eval harness inputs)
@@ -105,11 +105,11 @@ skills/re-frame2/
     └── authoring-prompt.md      (one-shot reauthor prompt)
 ```
 
-Each reference / pattern / decision-tree leaf is ≤250 lines, target ~150. A typical authoring session reads SKILL.md (~180) + one reference leaf (~150) + one pattern leaf (~150) ≈ ~480 LoC — well under any reasonable context budget.
+Each reference / pattern / decision-tree leaf targets ~150 lines; in practice they range ~80–260, with `testing.md` the one deliberate over-ceiling leaf (it owns the full view-test recipe SKILL.md routes to). A typical authoring session reads SKILL.md (~180) + one reference leaf + one pattern leaf ≈ ~480 LoC — well under any reasonable context budget.
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, plus the natural-language framing "writing tests for a re-frame2 app". The description also explicitly carves out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) so the AI routes correctly.
+The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `flows`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, plus the natural-language framing "writing tests for a re-frame2 app". The description also explicitly carves out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) so the AI routes correctly.
 
 ## 7. Anti-patterns the skill explicitly resists
 

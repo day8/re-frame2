@@ -43,22 +43,30 @@ Dispatch is non-blocking — events queue and drain run-to-completion. `dispatch
 
 ## Canonical mini-example
 
-From `examples/reagent/counter/core.cljs`:
+From `examples/reagent/counter/core.cljs` — the simplest shape, `reg-event-db`:
 
 ```clojure
-(rf/reg-event-fx :counter/initialise
-  (fn [_ctx _event]
-    {:db {:count 5}
-     :fx [[:counter/log :initialised]]}))
+(rf/reg-event-db :counter/initialise
+  (fn [_db _event] {:counter/value 5}))
 
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 
 (rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :count dec)))
+  (fn [db _event] (update db :counter/value dec)))
 ```
 
-The `:db` and `:fx` keys are the **only** legal top-level keys in an `fx`-handler return map (see [fx.md](fx.md) for the closed-shape rationale). The `_ctx` parameter is the coeffect map — `{:db <current-db-value> :event <event-vec>}` by default, plus anything `inject-cofx` injected (see [cofx.md](cofx.md)).
+`reg-event-db` returns the new `app-db` directly. When a handler also needs to fire effects, use `reg-event-fx`, which returns an **effect map**. From `examples/reagent/todomvc/events.cljs`, an `fx`-handler that commits `:db` and persists via an fx:
+
+```clojure
+(rf/reg-event-fx :todo/delete
+  (fn [{:keys [db]} [_ id]]
+    (let [next-db (update db :todos dissoc id)]
+      {:db next-db
+       :fx [[:todo.storage/save (:todos next-db)]]})))
+```
+
+The `:db` and `:fx` keys are the **only** legal top-level keys in an `fx`-handler return map (see [fx.md](fx.md) for the closed-shape rationale). The coeffect first argument is the cofx map — `{:db <current-db-value> :event <event-vec>}` by default, plus anything `inject-cofx` injected (see [cofx.md](cofx.md)).
 
 ## Common gotchas
 

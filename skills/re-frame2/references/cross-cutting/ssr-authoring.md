@@ -121,6 +121,17 @@ All three are catalogued in [`009 §Error event catalogue`](../../../../spec/009
 
 These are **trace** events — DCE-eligible in CLJS production builds. To ship them off-box, wire `register-error-listener!` per [`production-observability.md`](production-observability.md); the error-emit substrate carries `:rf.ssr/*` records through to production.
 
+## Streaming SSR (advanced — most apps skip this)
+
+When the page shell + header should render immediately while slow subtrees stream in as their data resolves, mark each streamed subtree with the `:rf/suspense-boundary` hiccup marker. The server emits the shell plus per-subtree fallback hiccup first, then streams each subtree's real content as its fetch resolves; the client hydrates per-subtree as each chunk arrives (interleaved, not all-at-once). Inline-fallback failure semantics apply per boundary.
+
+```clojure
+[:rf/suspense-boundary {:fallback [card-skeleton]}
+ [slow-card card-id]]                         ;; renders the fallback until the card's data resolves, then streams in
+```
+
+Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card dashboard) — read it for the `:rf/suspense-boundary` marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Spec: [`spec/011-SSR.md §Streaming`](../../../../spec/011-SSR.md#streaming-ssr). For the parallel data-fetch fan-out an SSR request needs, see `Pattern-SSR-Loaders` (reachable via `boot.md`'s `:spawn-all` fan-out shape). Low priority — skip unless the task is explicitly streaming SSR.
+
 ## Common gotchas
 
 - **`reg-head` fns subscribe like sub fns.** Inside the fn, `(subscribe ...)` derefs against the static `app-db` value (same path as views via `compute-sub`). No reactive deref.
