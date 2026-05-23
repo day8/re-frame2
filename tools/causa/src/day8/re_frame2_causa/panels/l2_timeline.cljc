@@ -114,22 +114,35 @@
   [origin]
   (get origin-glyphs origin))
 
-(defn origin-source-tag
-  "Pure-data SOURCE column label (rf2-ad7zx.12). The Figma EventList
-  (`design-reference/components/EventList.tsx`) renders a left-most
-  `source` column as a short text tag — `fx` / `view` / `timer` /
-  `machine` in the mock. Causa's real source axis is the closed-enum
-  dispatch-origin (`:rf/dispatch-origin`), so the tag is the bare
-  origin name (`router` / `http` / `timer` / `fx-emit` / …).
+(def ui-source-tag
+  "SOURCE-column label for the default app-code origin. The Figma
+  EventList (`design-reference/components/EventList.tsx`) renders a
+  concrete `source` tag for EVERY row — the mock's `view` rows are the
+  UI-triggered dispatches (the common case). Causa's closed-enum source
+  axis names that origin `:user`; the visible column label for it is
+  `ui` (the dispatch came from app/UI code, not a substrate)."
+  "ui")
 
-  `:user` is the default app-code origin; the Figma mock never tagged
-  the common case loudly, and Causa's silent-by-default posture keeps
-  the `:user` source column blank rather than cluttering every row with
-  the dominant value. Returns nil for `:user`, unknown, and nil origins
-  so the renderer omits the tag — the column reads as a sparse signal,
-  exactly the rows whose source is NOT plain app code."
+(defn origin-source-tag
+  "Pure-data SOURCE column label (rf2-ad7zx.12, rf2-lnod7). The Figma
+  EventList (`design-reference/components/EventList.tsx`) renders a
+  left-most `source` column as a short text tag — `fx` / `view` /
+  `timer` / `machine` in the mock — and tags EVERY row, never a blank
+  cell. Causa's real source axis is the closed-enum dispatch-origin
+  (`:rf/dispatch-origin`): substrate origins render the bare origin
+  name (`router` / `http` / `timer` / `fx-emit` / …) and the default
+  app-code origin (`:user`, plus nil/unknown for synthetic or pre-
+  origin-tag cascades) renders `ui`.
+
+  Pre-rf2-lnod7 this returned nil for `:user`, which left the source
+  column BLANK for the dominant ui-origin rows — the gap audit
+  (rf2-4297k) flagged that http-origin rows showed their tag while
+  default rows showed nothing. Tagging every row with a concrete
+  source (the reference's posture) restores the column's signal.
+  Never throws."
   [origin]
-  (when (and origin (not= :user origin))
+  (if (or (nil? origin) (= :user origin))
+    ui-source-tag
     (name origin)))
 
 (defn origin-prefix-title
@@ -138,6 +151,49 @@
   [origin]
   (when (origin-prefix-glyph origin)
     (get origin-titles origin)))
+
+;; ---- 1b. duration column (rf2-lnod7) ------------------------------------
+;;
+;; The Figma EventList's fourth (right-most) column is `duration` — the
+;; handler's wall-time, right-aligned, rendered as `1.2 ms` / `0.4 ms`.
+;; Causa stamps the handler's elapsed time on the cascade's `:handler`
+;; trace event (`:rf.event/run-end`) under `[:tags :duration-ms]` — the
+;; SAME field the L4 Event-detail cascade-outcome reads. Surfacing it on
+;; the L2 row restores the reference's four-column layout; the column was
+;; clipped off the live list pre-rf2-lnod7 (gap audit rf2-4297k).
+
+(defn cascade-duration-ms
+  "Pluck the handler wall-time (ms) from a cascade's `:handler` trace
+  event (`[:handler :tags :duration-ms]`). Returns the number or nil
+  when the slot is absent / non-numeric (synthetic fixtures, cascades
+  whose handler trace predates duration tagging). Nil-safe at every
+  level; pure data, JVM-runnable."
+  [cascade]
+  (when (map? cascade)
+    (let [d (get-in cascade [:handler :tags :duration-ms])]
+      (when (number? d) d))))
+
+(defn format-duration-ms
+  "Format a handler duration (ms) for the L2 `duration` column, matching
+  the Figma EventList's `1.2 ms` / `0.4 ms` style — one decimal place
+  plus a ` ms` suffix. The platform formatter (`format \"%.1f\"` on the
+  JVM, `.toFixed` in CLJS) does the rounding so both runtimes agree.
+  Returns nil for a nil/non-numeric input so the renderer leaves the
+  cell empty (a cascade with no measured handler time has nothing to
+  show). Pure data, JVM-runnable."
+  [duration-ms]
+  (when (number? duration-ms)
+    (str
+     #?(:clj  (format "%.1f" (double duration-ms))
+        :cljs (.toFixed (js/Number duration-ms) 1))
+     " ms")))
+
+(defn cascade-duration-label
+  "Convenience: read + format a cascade's handler duration in one step.
+  Returns the `N.N ms` string or nil when the cascade carries no
+  measured handler time. Pure data, JVM-runnable."
+  [cascade]
+  (format-duration-ms (cascade-duration-ms cascade)))
 
 ;; ---- 2. activity badges -------------------------------------------------
 ;;

@@ -395,10 +395,19 @@
   "52px")
 
 (def ^:private l2-time-col-min-width
-  "Min-width / right-aligned slot for the trailing time column — shared
+  "Min-width / right-aligned slot for the `timestamp` column — shared
   by the header `timestamp` label and every row's relative-time chip so
   the two right-align on the same edge."
   "44px")
+
+(def ^:private l2-duration-col-min-width
+  "Min-width / right-aligned slot for the trailing `duration` column
+  (rf2-lnod7) — shared by the header `duration` label and every row's
+  handler-duration cell so the two right-align on the same edge. The
+  Figma EventList's fourth column; restored after the gap audit
+  (rf2-4297k) found it clipped off the live list's right edge. Sized to
+  hold `1234.5 ms` without wrapping."
+  "60px")
 
 (def ^:private l2-col-gap
   "Inter-column gap for both the header row and every data row. ONE
@@ -520,6 +529,32 @@
                       :text-align    "right"
                       :white-space   "nowrap"}}
        label])))
+
+(defn duration-cell
+  "Render the L2 row's trailing `duration` column (rf2-lnod7) — the
+  Figma EventList's fourth column. Right-aligned handler wall-time
+  (`1.2 ms`), sourced from the cascade's `:handler` trace event via
+  `l2-timeline/cascade-duration-label`. Shares the header `duration`
+  column's right-aligned min-width slot (`l2-duration-col-min-width`)
+  so the value right-aligns under the header label; spacing from the
+  preceding timestamp column comes from the row's shared flex `gap`.
+
+  ALWAYS renders the cell span (occupying its column width) so the
+  columns stay aligned row-to-row; when the cascade carries no measured
+  handler duration the cell is simply blank rather than collapsing the
+  column."
+  [cascade]
+  (let [label (l2-timeline/cascade-duration-label cascade)]
+    [:span {:data-testid   "rf-causa-row-duration"
+            :data-duration (str (l2-timeline/cascade-duration-ms cascade))
+            :style {:color         (:text-tertiary tokens)
+                    :flex-shrink   0
+                    :font-family   mono-stack
+                    :font-size     (:caption type-scale)
+                    :min-width     l2-duration-col-min-width
+                    :text-align    "right"
+                    :white-space   "nowrap"}}
+     label]))
 
 ;; ---- Relative-time anchor (rf2-0s2at) ------------------------------------
 ;;
@@ -1390,20 +1425,22 @@
               gutter-click (assoc :on-click gutter-click))
       (or focus-marker
           [:span {:style {:color glyph-col}} glyph])]
-     ;; rf2-ad7zx.12 — the `source` COLUMN, reconciled to the Figma
-     ;; EventList. A fixed-width cell aligned under the header's `source`
-     ;; label, carrying the dispatch-origin as a short text tag plus its
-     ;; glyph (`R fx-emit` etc). `:user` stays blank (silent-by-default —
-     ;; the dominant app-code origin doesn't clutter every row); the
-     ;; cell still occupies its column width so the `event id` column
-     ;; stays left-aligned across rows. `:ungrouped` rows render an empty
-     ;; spacer cell (no dispatch envelope, no origin to surface). The
+     ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN, reconciled to the
+     ;; Figma EventList. A fixed-width cell aligned under the header's
+     ;; `source` label, carrying the dispatch-origin as a short text tag
+     ;; plus its glyph (`R fx-emit` etc). The reference tags EVERY row, so
+     ;; the default app-code origin (`:user`, plus nil/unknown synthetic
+     ;; cascades) renders `ui` rather than a blank cell — the gap audit
+     ;; (rf2-4297k) flagged the pre-rf2-lnod7 blank ui-origin column.
+     ;; `:ungrouped` rows still render an empty spacer cell (no dispatch
+     ;; envelope, no origin to surface) while occupying the column width
+     ;; so the `event id` column stays left-aligned across rows. The
      ;; `:title` carries the closed-enum value as a hover affordance
      ;; (rf2-gf58j origin glyphs preserved as the leading mark).
      [:span {:data-testid (when (and source-tag (not ungrouped?))
-                            (str "rf-causa-row-origin-" (name origin)))
+                            (str "rf-causa-row-origin-" source-tag))
              :data-rf-causa-origin (when (and source-tag (not ungrouped?))
-                                     (name origin))
+                                     source-tag)
              :title (when (and source-tag (not ungrouped?)) origin-title)
              :style {:flex-shrink 0
                      :width l2-source-col-width
@@ -1453,13 +1490,16 @@
                 badges-tooltip (assoc :title badges-tooltip))
         (for [b badges]
           ^{:key b} [:span b])])
-     ;; Relative-time chip (rf2-vbbq0). Right-aligned per Mike's design
-     ;; (2026-05-19 Q10) — "active-cascade-visibility" calls for the chip
-     ;; to ride on the row body rather than hide behind a hover tooltip.
-     ;; The chip itself carries an absolute-time `:title` tooltip as the
-     ;; power-user reveal. Rendered LAST so it sits flush right against
-     ;; the row's trailing edge.
-     (relative-time-chip cascade now-ms)]))
+     ;; Relative-time chip (rf2-vbbq0) — the `timestamp` column. Right-
+     ;; aligned per Mike's design (2026-05-19 Q10): "active-cascade-
+     ;; visibility" calls for the chip to ride on the row body rather
+     ;; than hide behind a hover tooltip. The chip carries an absolute-
+     ;; time `:title` tooltip as the power-user reveal.
+     (relative-time-chip cascade now-ms)
+     ;; Duration cell (rf2-lnod7) — the trailing `duration` column,
+     ;; restoring the Figma EventList's fourth column. Handler wall-time
+     ;; (`1.2 ms`), right-aligned, flush against the row's trailing edge.
+     (duration-cell cascade)]))
 
 ;; ---- events ribbon (rf2-4vp5j) -----------------------------------------
 ;;
@@ -1620,21 +1660,25 @@
         (filters-hidden-message hidden-summary)
         [clear-filters-button]])]))
 
-;; rf2-ad7zx.12 — the L2 list's column-header row, reconciled to the
-;; Figma EventList (`design-reference/components/EventList.tsx`). The
-;; Figma mock renders a sticky header naming the four columns the rows
-;; align to: `source` · `event id` · `timestamp` · `duration`. The
+;; rf2-ad7zx.12 + rf2-lnod7 — the L2 list's column-header row, reconciled
+;; to the Figma EventList (`design-reference/components/EventList.tsx`).
+;; The Figma mock renders a sticky header naming the FOUR columns the
+;; rows align to: `source` · `event id` · `timestamp` · `duration`. The
 ;; header was MISSING pre-Figma (the list was a bare row stack), which
-;; is the gap Mike flagged ("does not match the Figma mock"). The
-;; column widths mirror the row layout below: a fixed leading FOCUS
-;; gutter (14px, unlabeled — it is a Causa affordance the mock didn't
-;; have), a fixed `source` tag column, the flexible `event id` column,
-;; then the right-aligned `timestamp`/`duration` cluster.
+;; is the gap Mike flagged ("does not match the Figma mock"); the gap
+;; audit (rf2-4297k) then found the `duration` column clipped off the
+;; right edge — only three columns rendered. The column widths mirror
+;; the row layout below: a fixed leading FOCUS gutter (14px, unlabeled —
+;; it is a Causa affordance the mock didn't have), a fixed `source` tag
+;; column, the flexible `event id` column, then the right-aligned
+;; `timestamp` chip and `duration` cells.
 
 (defn- l2-column-header
-  "Sticky column-header row for the L2 event list (rf2-ad7zx.12, Figma
-  EventList). Caption-weight, muted, on the chrome surface so it reads
-  as chrome rather than data. Pure hiccup."
+  "Sticky column-header row for the L2 event list (rf2-ad7zx.12 + rf2-
+  lnod7, Figma EventList). Names the FOUR columns the rows align to —
+  `source` · `event id` · `timestamp` · `duration`. Caption-weight,
+  muted, on the chrome surface so it reads as chrome rather than data.
+  Pure hiccup."
   []
   (let [cell {:color       (:text-tertiary tokens)
               :font-family sans-stack
@@ -1676,7 +1720,14 @@
      [:span {:data-testid "rf-causa-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
                                  :min-width l2-time-col-min-width})}
-      "timestamp"]]))
+      "timestamp"]
+     ;; rf2-lnod7 — the fourth Figma column. Restored after the gap
+     ;; audit (rf2-4297k) found the live header carried only three
+     ;; columns and the duration was clipped off the right edge.
+     [:span {:data-testid "rf-causa-event-list-col-duration"
+             :style (merge cell {:flex-shrink 0 :text-align "right"
+                                 :min-width l2-duration-col-min-width})}
+      "duration"]]))
 
 (rf/reg-view event-list
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
