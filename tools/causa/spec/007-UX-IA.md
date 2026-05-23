@@ -9,12 +9,13 @@ event**:
 
 | Tab | Bug-class it answers |
 |---|---|
-| **Event** (`e`) | "What does this event do?" — six dominoes + wire-boundary diff per managed fx. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
-| **App-db** (`a`) | "What changed because of this event?" — slice diff. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §4.) |
-| **View** (`v`) | "Why did these views re-render?" — sub invalidation chain + hover-to-highlight on rendered DOM. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §3. The tab was named `Views` (pre-rf2-wyvf2), then `Reactive` (rf2-wyvf2 / 021 §11.5), and is now `View` per rf2-e33ad (Mike-direction 2026-05-21).) |
-| **Trace** (`t`) | "What raw events fired in this cascade?" — wall-clock axis grows future. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §5.) |
-| **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §6.) |
-| **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8.) |
+| **Event** (`e`) | "What does this event do?" — the handling pipeline (DISPATCH → COEFFECTS → EVENT HANDLER → DB CHANGES → AFTER INTERCEPTORS → FLOWS → FX; optional sections omitted when absent) + wire-boundary diff per managed fx. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
+| **app-db** (`a`) | "What changed because of this event?" — the complete app-db, sectioned by reserved `:rf/*` area, with inline diff annotations. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §4.) |
+| **Views** (`v`) | "Why did these views re-render?" — the left → right reactive-flow graph (app-db → subs → views) + hover-to-highlight on rendered DOM. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §3. Rendered tab label follows the Figma export `Views` (rf2-ad7zx); the spec's rf2-e33ad display label was `View`; key stays `:views`.) |
+| **Trace** (`t`) | "What raw events fired in this cascade?" — readable-line timeline, op-family colour bands, relative timing. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §5.) |
+| **Machine** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §6.) |
+| **Routes** (`r`) | "What did this event do to my routes?" — current route + this-epoch navigation + the registered route table. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §7. Promoted to its own L3 tab per rf2-nrbs9.) |
+| **Issues** (`i`) | "What's wrong here?" — errors · warnings · advisories (severity-coded rows). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8.) |
 
 (rf2-4v67l — the Chrome A11y dogfood tab was removed. A11y
 dogfooding is properly Story's domain, where it already ships as
@@ -61,9 +62,9 @@ the left because normal layout owns the relationship.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ LAYER 1  Two ribbons — chrome (40px) + events ribbon (rf2-4vp5j)        │  scope + spine controls
+│ LAYER 1  Two ribbons — chrome (~32px) + events ribbon (~36px) (rf2-4vp5j)│  scope + spine controls
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
+│ LAYER 2  Event list (4-col table; 6 rows default; resize bottom edge)   │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -71,23 +72,23 @@ the left because normal layout owns the relationship.
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Wireframe at default (800px popout, "cosy" density):
+Wireframe at default (reconciled to the Figma design — `design-reference/App.tsx` +
+`ChromeRibbon` / `EventsRibbon` / `EventList`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ Frame: :app/main ▾   Dynamic ▾                          🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
-│ Events: [◀ ▶ ⏭]  🎯 :order/retry  [+ :auth/* ✎] [× :mouse-move ✎] [+]   │   L1.5 events ribbon
+│ ❖ Causa   Frame ▾   Dynamic / Static ▾                            ⚙  ✕  │   L1 chrome ribbon
+│ Events:  [◀ ▶ ⏭]  🎯 focus   [source: view ×] [+]          Clear Filters │   L1.5 events ribbon
 ├─────────────────────────────────────────────────────────────────────────┤
-│ ● :auth/login                                          [● REDACTED 1]   │   L2 — 8 rows default
-│ ● :app/route-changed                                                    │      single-line
-│ ● :input/changed                                                        │      latest-on-bottom
-│ ● :form/submit-clicked                              🤖                  │
-│ ● :order/submit                                     🌐                  │
-│ x :checkout/finalize                          ⚠                         │
-│ ● :cart/recalculate                                                     │
-│ ◉ :order/retry                                      🌐  ← head/sel      │
-├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App DB ○Views ○Trace ○Machines ○Routes ○Issues                  │              L3 — 7 tabs
+│ source │ event id        │ timestamp      │ duration                     │   L2 — 4-col table
+│ fx     │ :title/flow     │ 12:30:05.123   │  1.2 ms                      │      6 rows default
+│ view   │ :counter-inc    │ 12:30:06.456   │  0.4 ms        ← focused row  │      latest-on-bottom
+│ timer  │ :poll/tick      │ 12:30:07.001   │  0.2 ms                      │
+│ view   │ :user/profile   │ 12:30:07.892   │  0.6 ms                      │
+│ machine│ :title/loaded   │ 12:30:08.234   │  0.3 ms                      │
+│ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms     ↕ resize edge     │
+├─────────────────────────────────────────────────────────────────────────┤   drag bottom edge
+│ [Event]  app-db   Views   Trace   Machine   Routes   Issues              │              L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -95,26 +96,30 @@ Wireframe at default (800px popout, "cosy" density):
 
 The four layers, top to bottom:
 
-1. **L1 — Two ribbons (rf2-4vp5j).** A **chrome ribbon** (40px) carries
-   scope selectors (frame view-scope dropdown + Dynamic/Static **mode
-   dropdown**) on the left and chrome actions (silent `🔇`/`●` indicators
-   + `⚙` settings + `✕` close) on the right. Below it an **events ribbon**
-   carries the spine + filter chrome that moved down: `Events:` label · nav
-   (`◀` `▶` `⏭`) · focus-chip · filter pills (IN/OUT) · the `N hidden` +
-   `Clear Filters` action cluster. (`⛶` popout is omitted — silent-by-
-   default until the second-window UX lands.) LIVE/RETRO surfaces in the
-   L2 event-list spine itself; the chrome ribbon's mode dropdown toggles
-   Dynamic ↔ Static (a separate axis). Anatomy in §The L1 ribbon below.
-2. **L2 — Event list.** 8 single-line rows default; vertically
-   resizable (min 2); latest-on-bottom; virtualised. Single row shape
-   decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
-   `🌐` `🤖`) + trailing redaction marker (`[● REDACTED N]`). The
-   spine sub `:rf.causa/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Seven tabs: Event / App DB / Views / Trace /
-   Machines / Routes / Issues. Letter mnemonics:
-   `e` `a` `v` `t` `m` `r` `i`. Each tab renders glyph (`◉`
-   active / `○` inactive) + label only. Routes was promoted to its
-   own L3 tab in rf2-nrbs9 — it follows the cohesive-sub-domain rule
+1. **L1 — Two ribbons (rf2-4vp5j).** A **chrome ribbon** carries the **`❖ Causa`
+   logo/wordmark** (always orange `brand`), then scope selectors (`Frame ▾` view-scope
+   dropdown + `Dynamic / Static ▾` **mode dropdown**) on the left, and chrome actions
+   (`⚙` settings + `✕` close) on the right. Below it an **events ribbon** carries the spine
+   + filter chrome: `Events:` label · nav (`◀` `▶` `⏭`) · the focus chip (`🎯 focus`, mode
+   accent) · the active filter pills (each removable, `×`) + a `[+]` add-pill · and `Clear
+   Filters` at the far right. (`⛶` popout is omitted — silent-by-default until the
+   second-window UX lands.) LIVE/RETRO surfaces in the L2 event-list spine itself; the chrome
+   ribbon's mode dropdown toggles Dynamic ↔ Static (a separate axis). Anatomy in §The L1
+   ribbon below.
+2. **L2 — Event list.** A **four-column table** (`source · event id · timestamp · duration`);
+   **6 rows visible by default**, the **bottom edge a drag handle for vertical resize**;
+   latest-on-bottom; virtualised; sticky header. The active/focused row takes a subtle
+   background; functional semantic markers (redaction / issue / pin) ride as subtle per-row
+   signals (§Event-list rows). The spine sub `:rf.causa/focus` reads from this layer.
+3. **L3 — Tab bar (40px).** Seven tabs in the order the Figma export fixes:
+   **Event · app-db · Views · Trace · Machine · Routes · Issues**. Letter mnemonics:
+   `e` `a` `v` `t` `m` `r` `i`. Each tab renders its **label only** (no `◉`/`○` glyph — Figma
+   design rf2-ad7zx); the **active tab fills with the mode `accent`** (orange in Dynamic, cyan in
+   Static) + white text, inactive tabs are plain with a hover background. (The Figma export labels
+   the reactive tab `Views` and the machines tab `Machine`; the spec elsewhere uses the
+   rf2-e33ad display label `View` and `Machines`. The export wins on the rendered label per
+   rf2-ad7zx; the internal panel-registry keys stay `:views` / `:machines`.) Routes was promoted
+   to its own L3 tab in rf2-nrbs9 — it follows the cohesive-sub-domain rule
    (sub-domains earn their own lens tab). The spine-INDEPENDENT
    browse-all canvas relocated to the Static Machines sub-tab in
    rf2-ga16q (the Runtime Machines tab is the event-driven lens per
@@ -152,7 +157,7 @@ source of truth.
 | Property | Default | Purpose |
 |---|---|---|
 | `--rf-causa-inline-width` | `560px` | `flex-basis` of the inline host. Default bumped 420 → 560 under rf2-9ovfb. |
-| `--rf-causa-accent` | `#7C5CFF` | Causa's brand violet (matches `:accent-violet` below). Published on `:root` in the recommended host snippet so host stylesheets can colour their own dev chrome to harmonise with Causa (rf2-9ovfb). |
+| `--rf-causa-accent` | `#F97316` | Causa's brand **orange** (matches `brand` / `accent` in §Colour system; rf2-ad7zx — the brand moved violet → orange). Published on `:root` in the recommended host snippet so host stylesheets can colour their own dev chrome to harmonise with Causa (rf2-9ovfb). |
 
 Override either property anywhere up the cascade; the closest
 declaration wins as usual. The published spelling is also exported
@@ -248,24 +253,35 @@ chrome-ribbon-left — an earlier draft dropped the mode pill entirely; the
 rf2-4vp5j redesign re-added it as a compact `<select>`. LIVE/RETRO is a
 separate spine state, surfaced by the L2 head-row cue.)
 
-### L1 chrome ribbon (`rf-causa-ribbon`, 40px)
+### L1 chrome ribbon (`rf-causa-ribbon`, ~32px — Figma design rf2-ad7zx)
+
+Reconciled to `design-reference/components/ChromeRibbon.tsx`. Left → right: the logo/wordmark,
+the two scope dropdowns, then the chrome actions at the far right.
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Frame** | left | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Mode** | left | `Dynamic ▾` / `Static ▾` dropdown — compact; the 2-px left-edge accent stripe carries the mode signal. | `Cmd/Ctrl-Shift-M` |
-| **Indicators** | right | Silent-by-default `🔇 N` mute + `● N` REDACTED (each painted only when count > 0). | — |
+| **Logo** | left | `❖ Causa` wordmark — the brand anchor, **always orange** (`brand`), semibold. | — |
+| **Frame** | left | `Frame ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
+| **Mode** | left | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the mode-accent stripe carries the mode signal. | `Cmd/Ctrl-Shift-M` |
 | **Right-icons** | right | `⚙` settings popup · `✕` close shell (`:rf.causa/close-shell`). `⛶` popout is omitted (reserved for the second-window UX — silent by default). | `,` or `s` · `Esc` |
 
-### L1.5 events ribbon (`rf-causa-events-ribbon`)
+The silent-by-default `🔇 N` mute + `● N` REDACTED indicators are **functional surfaces painted
+only when their count > 0** (absent in the Figma mock because the counts there are 0); they
+render to the right of the Mode dropdown when active. Kept per the functional-semantic carve-out
+(rf2-ad7zx).
+
+### L1.5 events ribbon (`rf-causa-events-ribbon`, ~36px — Figma design rf2-ad7zx)
+
+Reconciled to `design-reference/components/EventsRibbon.tsx`. Left → right: label, nav cluster,
+focus chip, filter pills + add; `Clear Filters` at the far right.
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Label** | left | `Events:` | — |
+| **Label** | left | `Events:` (muted) | — |
 | **Nav** | left | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE) | `j` / `k` / `G` |
-| **Focus chip** | left | `🎯 <label> ✕` — current focus; click to reveal pivot row; `✕` clears. | `Esc` clears |
-| **Filter pills** | left | IN pills (green `+`) + OUT pills (magenta `×`) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
-| **Hidden + Clear** | far right | `N events hidden by filters` (only when N > 0) + `Clear Filters` (whenever any filter active). | — |
+| **Focus chip** | left | `🎯 focus` — **filled with the mode accent** + white text; the current focus / `🎯 <label> ✕` when one is pinned; click to reveal pivot row; `✕` clears. | `Esc` clears |
+| **Filter pills** | left | active filter pills (each a removable `<key> ×` chip, e.g. `source: view ×`) + a trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
+| **Clear** | far right | `Clear Filters` (whenever any filter active). The `N events hidden by filters` count renders alongside when N > 0. | — |
 
 Full anatomy + filter-pill edit popup in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §3 + §7.
@@ -306,47 +322,60 @@ On page load after `rf/init!`, when `[data-rf-causa-host]` exists:
   what's filtered; Recommended quick-add available via add-pill.
 - **L2 spine: head row pulses** (LIVE cue; the dedicated Mode pill widget was dropped).
 
-## Single-line event-list rows (L2)
+## Event-list rows (L2 · table — rf2-ad7zx)
 
-ONE row shape, decorated by gutter glyph + right-aligned icon badges
-+ trailing redaction marker. Full anatomy + click behaviour + hover
-tooltip in [`018-Event-Spine.md`](./018-Event-Spine.md) §4.
+Reconciled to the Figma design (`tools/causa/design-reference/components/EventList.tsx` + the
+brief), the later iteration: the L2 spine is a **compact, scannable four-column table** — one row
+per event, newest at the bottom — not a single-line gutter-glyph row. The prior gutter-glyph +
+right-aligned-badge row shape is **superseded**; the functional semantic markers the framework
+needs (redaction / issue / pin) survive as a subtle per-row tint or trailing marker (below), not
+as the primary row structure. Full click behaviour + hover tooltip in
+[`018-Event-Spine.md`](./018-Event-Spine.md) §4.
 
-### Row anatomy
+**6 rows visible by default; the bottom edge is a drag handle for vertical resize** (drag down
+to show more history). The header row is sticky; on hover/selection the row takes a subtle
+background (`hover` / `bg-active`) — the active/focused row is the spine's `:rf.causa/focus`.
 
-| Col | Width | Content | Notes |
-|---|---|---|---|
-| Gutter glyph | 16px | `● ◉ x ▥ ↺` | Status; cyan border for selected adds 1px not 16px |
-| Event id | flex mono 13px violet-accent | `:order/submit` | Long-keyword treatment per §Long-keyword treatment |
-| Badge cluster | up to 3 × 16px slots right-aligned | `⚠ 🌐 🤖` (any subset) | Right-anchored; click any badge → action per badge spec |
-| Redaction marker | inline-trailing 80px | `[● REDACTED N]` magenta / `[● ELIDED N]` yellow | Only when event arg-map carries `:rf/redacted` or `:rf/large` |
+### Columns (left → right)
 
-### Gutter glyphs
+| Column | Content | Notes |
+|---|---|---|
+| **source** | what triggered the event, as a short **text label** (not an icon) — `view` · `fx` · `timer` · `machine` · … | muted (`text-secondary`); spelled out per Visual encoding (§022) |
+| **event id** | the dispatched event keyword, e.g. `:counter-inc` | mono, `text-primary`; long-keyword treatment per §Long-keyword treatment |
+| **timestamp** | when it fired, e.g. `12:30:06.456` | mono, muted |
+| **duration** | how long the event took to process, e.g. `0.4 ms` | mono, muted |
 
-| Glyph | Meaning |
-|---|---|
-| `●` | Normal event (default); secondary colour |
-| `◉` | Currently focused (the spine's `:dispatch-id`); cyan border |
-| `x` | Errored event (replaces `●` when row also carries `⚠` badge) |
-| `▥` | Whole-event redacted; magenta |
-| `↺` | Pinned cascade (modifier; rendered as `●↺` / `◉↺` overlay) |
+```
+┌ Event list  (6 rows default · drag bottom edge ↕ to resize) ───────────┐
+│ source │ event id          │ timestamp      │ duration                  │
+│ fx     │ :title/flow       │ 12:30:05.123   │  1.2 ms                   │
+│ view   │ :counter-inc      │ 12:30:06.456   │  0.4 ms   ← focused row    │
+│ timer  │ :poll/tick        │ 12:30:07.001   │  0.2 ms                   │
+│ machine│ :title/loaded     │ 12:30:08.234   │  0.3 ms                   │
+│  …                                            ↕ resize edge             │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
-### Row badges
+### Functional semantic markers (kept — the framework needs them)
 
-| Badge | Meaning | Click action | Hover tooltip |
-|---|---|---|---|
-| `⚠` | Exception during handler exec | Pivots L3 → Issues tab + selects this row's issue | Error message (60 chars + `…`) |
-| `🌐` | Managed-HTTP related | Pivots L3 → Event tab + scrolls to "fx handlers that ran" | `<METHOD> <url> → <status>` or `pending` |
-| `🤖` | State-machine related | Pivots L3 → Machines tab + filters to this event's transitions | First `from→to` + count of all |
+The Figma mock did not render these, but they carry meaning the framework relies on, so they
+survive as **subtle per-row signals** layered onto the table (per the ruling's carve-out for
+functional semantic colours):
 
-Badge order is fixed: `⚠` first (highest signal), `🌐` second, `🤖`
-third.
+| Marker | Signal | Rendering |
+|---|---|---|
+| Issue tint / trailing `⚠` | the row's epoch carries an error/warning issue | a subtle row tint + small trailing marker (not a new column); navigates to Issues for that epoch |
+| `[● REDACTED N]` | event arg-map carries `:rf/redacted` | magenta trailing marker |
+| `[● ELIDED N]` | event arg-map carries `:rf/large` | yellow trailing marker |
+| pin marker `↺` | pinned cascade | small trailing modifier on the row |
+
+These are right-anchored, subordinate to the four data columns — they reinforce, never replace,
+the table.
 
 ### Hover tooltip — the home of dropped detail
 
-Every row carries a 400ms-delayed hover tooltip that discloses what
-the single-line row drops: timestamp, cascade sequence number,
-duration, tier, source coord, arg-map preview (via `inspect-inline`).
+Every row carries a 400ms-delayed hover tooltip that discloses what the four-column row drops:
+cascade sequence number, tier, source coord, and the arg-map preview (via `inspect-inline`).
 See [`018-Event-Spine.md`](./018-Event-Spine.md) §4 for the full
 tooltip wireframe.
 
@@ -527,7 +556,7 @@ walkthrough locks the list (rf2-ttnst):
 | # | Tab | Mnemonic | Content |
 |---|---|---|---|
 | 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Power user:** "Show tool frames in picker" toggle (off by default) |
-| 2 | **Theme** | `t` | Dark / Light (accent stays fixed violet; per-tab default-expansion knob dropped) |
+| 2 | **Theme** | `t` | Dark / Light (the accent follows the mode — orange in Dynamic, cyan in Static, per §Colour system; per-tab default-expansion knob dropped) |
 | 3 | **Filters** | `f` | Active filter pills mirror · auto-filter-UI quick-open |
 | 4 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
 | 5 | **Buffer** | `b` | `:buffer/retained-epochs` · `:trace-buffer/keep` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
@@ -550,7 +579,7 @@ typing into numeric knobs is not interrupted.
 | Actions tab + factory-reset BIG RED BUTTON | Factory-reset stays code-only (`config/reset-settings!`) — a destructive UI button has no use case the confirm modal beneath "Clear buffer" does not already cover. |
 | Density Comfy tier | Two tiers cover the rhythm need; the third was a styling-pass aspiration with no observed demand. |
 | Per-tab default expansion (`:bookish` / `:dense`) | Each tab owns its expansion default; no global knob. |
-| Accent-violet user swap | Brand accent stays fixed; light/dark theme is the only colour axis. |
+| Accent user-swap | The accent is fixed by mode (orange Dynamic / cyan Static, per §Colour system); light/dark theme is the only user colour axis. |
 | Sub-output diff layout (`:unified` / `:split` toggle) | Fixed unified. |
 | Section-grouping threshold | Fixed defaults; not user-tuneable. |
 | Popout as its own tab | Folds into General's Panel-position sub-section. |
@@ -694,7 +723,7 @@ Smart middle-elide + namespace fade + click-to-copy:
 BEFORE:  :some.namespace.views.something/blah-blah-blah         (38 chars; overflows 560px)
 AFTER:   :some.namespace…/blah-blah-blah  ⎘                     (with hover-copy icon)
          ^^^^^^^^^^^^^^^^                ^^^^^^^^^^^^^^^^^^
-         text-tertiary 400                accent-violet 600
+         text-tertiary 400                accent 600 (mode accent)
          (keep first ns segment; elide middle; keep keyword name)
 ```
 
@@ -822,33 +851,28 @@ lives in `theme/global-styles/grain-css`; injection is via a single
 `<style id="rf-causa-grain">` block, idempotent + id-keyed DOM
 probe.
 
-### Per-L4 panel accent stripe (rf2-5kfxe.8)
+### L4 panel accent stripe (mode accent — Figma design rf2-ad7zx)
 
-Every L4 panel renders a **3-px left-border** on its `<h1>` in its
-domain colour so panels are distinguishable at a glance without
-restructuring the header chrome. The mapping
-(`theme/tokens/panel-domain->token`) is fixed:
+Every L4 panel renders a **3-px left-border** on its `<h1>` in the **mode `accent`** (orange in
+Dynamic, cyan in Static). The prior per-panel **domain-colour** mapping (`:event` violet ·
+`:app-db`/`:views` cyan · `:trace` orange · `:machines` green · `:routing` yellow · `:issues`
+red) is **superseded**: the Figma export carries a **single accent identity** (App.tsx's active
+tab + every panel reads `--devtools-active` → the mode accent), so the stripe is the mode signal,
+not a per-panel domain colour. This keeps the whole devtool reading orange in Dynamic / cyan in
+Static, with surfaces neutral so the accent pops.
 
-| L4 tab | Domain colour | Token |
-|---|---|---|
-| `:event` | violet | `:accent-violet` (causal-chain accent everywhere in the Event lens) |
-| `:app-db` | cyan | `:cyan` (App-db diff already highlights state in cyan) |
-| `:views` | cyan | `:cyan` (Views is a peer of App-db; both read state) |
-| `:trace` | orange | `:orange` (events in flight; the firing/heat tone) |
-| `:machines` | green | `:green` (machine state lands green for "final") |
-| `:routing` | yellow | `:yellow` (side-channel attention tone) |
-| `:issues` | red | `:red` (errors; semantic red) |
+Domain colour still does load-bearing work **inside** each panel where it is semantic — `error`
+red in Issues, machine `green`, route `yellow`, the op-family colour-bands in Trace (§021 §5.2),
+the per-panel header icons (§021 §17.1.5) — but the **header stripe** is the mode accent.
+
+The helper `theme/tokens/accent-stripe-style` emits the inline-style map (`:border-left "3px
+solid <accent>"` + `:padding-left "10px"`); per-panel call sites merge it into the `<h1>`
+`:style`. This is the same mode-accent signal as the Static-mode 2-px ribbon-edge stripe (§Static
+mode below) — the L1 stripe is the mode signal at chrome, this is the mode signal at the L4
+header.
 
 (rf2-4v67l — `:chrome-a11y` was dropped alongside the panel itself.
 A11y dogfooding is now Story's concern per rf2-18t6p + rf2-qgms1.)
-
-The helper `theme/tokens/accent-stripe-style` emits the inline-style
-map (`:border-left "3px solid <hex>"` + `:padding-left "10px"`); per-
-panel call sites merge it into the `<h1>` `:style`. Unknown tab
-keywords fall back to `:accent-violet` so the stripe always renders.
-This is independent of — and complementary to — the Static-mode 2-px
-ribbon-edge stripe documented in §Static mode below (that one is a
-mode signal at L1; this one is a panel-domain signal at L4).
 
 ### Cascade gutter (rf2-5kfxe + the diff renderer)
 
@@ -859,10 +883,10 @@ glance.
 
 | Op | Glyph | Tone | Token |
 |---|---|---|---|
-| Added | `+` | green | `:green` |
-| Removed | `-` | red | `:red` |
-| Modified | `~` | yellow | `:yellow` |
-| Children (recursive descent) | `◴` | violet | `:accent-violet` |
+| Added | `+` | green | `success` |
+| Removed | `-` | red | `error` |
+| Modified | `~` | amber | `warning` |
+| Children (recursive descent) | `◴` | mode accent | `accent` (orange in Dynamic) |
 | Same (rendered for context) | (space) | tertiary | `:text-tertiary` |
 
 The gutter is a single shared idiom across the App-db diff, the
@@ -1045,11 +1069,13 @@ click-drag pan have no keyboard equivalent.
 Every value display in every tab's L4 detail panel uses
 `tools/causa/src/day8/re_frame2_causa/theme/data_inspector.cljc`:
 
-- `inspect <value>` — the hero: expandable inspector. Maps `{ … }`
-  colourful, vecs `[ … ]`, sets `#{ … }`, lists `( … )`. Keys violet,
-  strings orange, numbers green, keywords cyan, booleans yellow, nil
-  tertiary italic. Expand carets per node; default-collapse based on
-  size.
+- `inspect <value>` — the hero: expandable inspector. Maps `{ … }`,
+  vecs `[ … ]`, sets `#{ … }`, lists `( … )`. **Keywords are the single
+  coloured type — the mode `accent`** (orange in Dynamic, cyan in Static), per
+  [022-Design-Tokens](022-Design-Tokens.md) §Visual encoding + the §021 §10.1
+  minimal-coloring lock; other scalars (strings / numbers / booleans / nil) render
+  in `text-primary` mono, unchanged values in `dim`. Expand carets per node;
+  default-collapse based on size.
 - `inspect-inline <value>` — one-line variant; identical palette;
   forced single line; tail-elides at 80 chars.
 - `inspect-diff <before> <after>` — diff variant; side-by-side or
@@ -1070,10 +1096,11 @@ The cljs-devtools-shaped surface (rf2-x9fzk):
 | `large-fetch-warn-threshold-bytes` | `100000` (100 KB) | Per [`018-Event-Spine.md`](./018-Event-Spine.md) §12 — `:rf/large` expansions above this size gate behind a confirm step so a stray click can't pour a multi-megabyte expansion into the detail panel. |
 
 **Colour palette** (mapped onto Causa's theme tokens so the renderer
-reads as native shell chrome): keywords violet (`:accent-violet`),
-strings green, numbers cyan, nil tertiary, booleans orange, symbols
-magenta, default `text-primary`. Punctuation + meta render in
-`text-tertiary` / `text-secondary` to recede.
+reads as native shell chrome): **keywords are the single coloured type —
+the mode `accent`** (orange in Dynamic, cyan in Static), per the §021 §10.1
+minimal-coloring lock + [022-Design-Tokens](022-Design-Tokens.md); other
+scalars render in `text-primary` mono, `dim` for unchanged. Punctuation +
+meta render in `text-tertiary` / `text-secondary` to recede.
 
 **Substrate-agnostic state.** Per the pure-hiccup contract
 ([Conventions rf2-tijr](./Conventions.md)) the renderer never
@@ -1600,9 +1627,11 @@ they telegraph the mode without the user needing to look at the dropdown:
    (the global chord) fires the same `:rf.causa/toggle-mode` event so
    chord and dropdown share the handler. The mode SIGNAL is carried by
    the accent stripe (#2) so the control itself recedes.
-2. **2-px left-edge ribbon stripe** — `:accent-violet` in Dynamic,
-   `:cyan` (already in the palette) in Static. Zero new tokens
-   introduced.
+2. **2-px left-edge ribbon stripe** — the mode `accent`: **orange**
+   (`accent-dynamic`) in Dynamic, **cyan** (`accent-static`) in Static
+   (per §Colour system + [022-Design-Tokens](022-Design-Tokens.md)). At
+   runtime the `.mode-dynamic` / `.mode-static` root class points `accent`
+   at the right token, so the stripe is a one-token signal.
 3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-active
    pulse + 180ms tab fade. Static drops the continuous pulses entirely
    and collapses the 180ms tab fade to instant (so cluster swaps land
@@ -1699,9 +1728,10 @@ between Dynamic and Static is achieved at the token layer, not by
 shell-ns reuse. The mode-signal mechanism (mode dropdown, 2-px ribbon
 stripe colour, motion-dampening, chrome silhouette — see §Mode-signal
 mechanism above) reads from tokens; the divergence is in which tokens
-each shell selects (Dynamic's `:accent-violet` stripe vs Static's
-`:cyan` stripe), not in the token system itself. **Zero new tokens
-introduced per mode** is the standing constraint.
+each shell selects (Dynamic's orange `accent-dynamic` stripe vs Static's
+cyan `accent-static` stripe — aliased through `accent` by the mode root
+class), not in the token system itself. **Zero new tokens introduced per
+mode** is the standing constraint.
 
 **Cycle-avoidance rule.** When one shell needs to reach into another
 mode's chrome (the canonical case today: Static's ribbon needs the
