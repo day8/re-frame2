@@ -735,8 +735,8 @@
   ;; rf2-t7t6f — Helix design-led example. Terminal-style process-monitor
   ;; (status tiles + filterable process list + live log stream with a
   ;; recurring :dispatch-later tick) proving Helix builds substantive
-  ;; UIs. Pairs with the Helix 'Developer Industrial' visual identity
-  ;; (rf2-nfg15) from examples/_shared/css/helix.css.
+  ;; UIs. Pairs with the shared 'Editorial Warm' visual identity
+  ;; (rf2-v4fpe Option 2) from examples/_shared/css/style.css.
   :examples/process-monitor-helix
   {:target     :browser
    :output-dir "out/examples/process-monitor-helix"
