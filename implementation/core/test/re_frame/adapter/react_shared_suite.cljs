@@ -75,6 +75,10 @@
   (`-dom-cljs-test$`)."
   (:require ["react" :as React]
             ["react-dom/client" :as react-dom-client]
+            ;; Test-only: react-dom/server gives matching SSR markup for the
+            ;; hydrate-branch assertion (rf2-ee38b.1). Lives in the suite
+            ;; (a test ns), never in a production bundle.
+            ["react-dom/server" :as react-dom-server]
             [cljs.test :refer-macros [is testing async]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -1170,6 +1174,15 @@
         unsub ((:subscribe-container adapter)
                container
                (fn [prev nu] (swap! calls conj [prev nu])))]
+    ;; rf2-ee38b.1: derived values are now LAZY (no eager compute at
+    ;; construction). Deref once at subscribe time to establish the watch
+    ;; baseline — exactly what the real sub-cache does on subscribe (it
+    ;; reads the subscription's initial value). Without this, the first
+    ;; source change would notify against the `unset` sentinel rather than
+    ;; the prior derived value, defeating the rf2-66hb no-spurious-first-
+    ;; notify guarantee. Production's useSyncExternalStore likewise calls
+    ;; getSnapshot (a deref) at subscribe.
+    @container
     {:calls calls :unsub unsub}))
 
 (defn assert-derived-baseline-projections
@@ -1905,6 +1918,53 @@
           (finally
             (when-let [u @unmount]
               (try (u) (catch :default _ nil))))))))))
+
+;; ---- hydrate render branch (rf2-ee38b.1 — closes the React-hook spine
+;;       hydrate test gap that Reagent/reagent-slim already cover) ----------
+
+(defn assert-render-hydrate-branch-mounts-without-remount
+  "rf2-ee38b.13 / rf2-ee38b.14: the spine `make-render` `:hydrate? true`
+  branch (`react-dom/client/hydrateRoot`) was untested for the React-hook
+  substrates while Reagent/reagent-slim both exercise it. This closes the
+  gap once for BOTH UIx and Helix.
+
+  The probe ELEMENT is pre-rendered to matching SSR markup with React's own
+  `react-dom/server/renderToString` (a test-only require — the same element
+  the client hydrates, so no hydration-mismatch warning), the markup is
+  planted into a fresh mount node, then `substrate-adapter/render …
+  {:hydrate? true}` drives the spine's hydrate branch to adopt the existing
+  DOM. We assert the spine's hydrate path returns a working unmount thunk
+  (root tracked in `active-roots-cell` + drained) and that the hydrated
+  subtree's DOM survives — i.e. `hydrateRoot` adopted the markup rather than
+  throwing or blanking the node.
+
+  cfg keys:
+    :probe-element  a thunk returning a fresh substrate probe ELEMENT (the
+                    same `$`-built element the after-render twin uses)"
+  [{:keys [name probe-element]}]
+  (testing (str name " — render :hydrate? true branch adopts SSR markup (rf2-ee38b.1)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [mount-node (make-mount-node!)
+            ;; Same element the client will hydrate ⇒ matching markup ⇒ no
+            ;; hydration mismatch. renderToString is React's, not the
+            ;; hiccup emitter (which takes hiccup, not React elements).
+            markup     (.renderToString react-dom-server (probe-element))
+            unmount    (atom nil)]
+        (set! (.-innerHTML mount-node) markup)
+        (try
+          (act-fn (fn []
+                    (reset! unmount
+                            (substrate-adapter/render
+                              (probe-element) mount-node {:hydrate? true}))))
+          (is (fn? @unmount)
+              "hydrate render returns an unmount thunk (root tracked)")
+          (is (pos? (.-length (.-childNodes mount-node)))
+              "hydrated subtree's DOM is present (hydrateRoot adopted the
+               markup, did not blank the node)")
+          (finally
+            (when-let [u @unmount]
+              (try (act-fn (fn [] (u))) (catch :default _ nil))))))))))
 
 ;; ---- use-subscribe (rf2-518sp / rf2-7g959 / rf2-mwft2 / rf2-rcgsc) --------
 ;;

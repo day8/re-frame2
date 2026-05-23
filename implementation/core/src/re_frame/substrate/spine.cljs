@@ -40,6 +40,7 @@
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
             [re-frame.subs       :as subs]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.adapter.context :as adapter-context]))
 
 ;; ---- epoch scheduler (glitch-freedom; Spec 006 §Invalidation algorithm) ----
@@ -204,6 +205,31 @@
 ;; only re-emits when the recomputed value differs from the cached one
 ;; by =. The derived container itself does not memoise; per the same
 ;; spec section that's the cache's job, not the substrate's.
+;;
+;; Laziness (rf2-ee38b.1 P2). The derived value MUST NOT run `compute-fn`
+;; at construction time. `compute-fn` here is the core's memo wrapper —
+;; it runs the user sub body and (in dev) emits `:rf.sub/run` via
+;; `validate-and-trace`, and for a layer-2+ sub eagerly derefs the whole
+;; `:<-` input chain. Reagent (`ratom/make-reaction`, lazy until first
+;; deref) and the plain-atom adapter (recompute-on-deref) both defer the
+;; first body invocation to first read. The spine MUST match: seeding
+;; `prev-state` with `(recompute)` at construction (the pre-rf2-ee38b.1
+;; shape) ran the body once per `subscribe` even when the reaction is
+;; never deref'd, emitting a subscribe-time `:rf.sub/run` rather than a
+;; deref-time one — an observable cross-adapter divergence (extra body
+;; invocation count, different trace timing, side-effecting bodies firing
+;; before any render reads them) contradicting Spec 006 §No-op via value
+;; equality's "body runs on demand" intent. The fix seeds `prev-state`
+;; with the `unset` sentinel; the first flush (or deref) is the first
+;; real recompute, and the sentinel `not=` any real value so the first
+;; post-construction change always notifies — the same first-change-
+;; notifies semantics Reagent gives.
+
+(def ^:private unset
+  "Sentinel for a derived value whose baseline has not yet been computed.
+  Distinct object identity so it can never `=` a real derived value (incl.
+  `nil`/`false`), making the first flush after construction always notify."
+  (js-obj))
 
 (defn build-recompute-fn
   "Arity-specialised recompute-closure factory for a derived value.
@@ -268,22 +294,42 @@
           notify         (fn [prev nu]
                            (when (not= prev nu)
                              (run! (fn [w] (w prev nu)) (vals @watchers))))
-          ;; Baseline derived value. Seeded from the *derived* value at
-          ;; construction time, not the raw source. The flush thunk
-          ;; compares prev-derived against the recomputed derived value;
-          ;; if we seeded from `(deref s)` (the raw source), the first
-          ;; source change would spuriously notify whenever the derived
-          ;; projection differs in identity from the raw source — e.g.
-          ;; `(odd? x)`, counts, `:k` lookups, projections — even when the
-          ;; derived value itself is `=`.
+          ;; Baseline derived value. LAZY (rf2-ee38b.1 P2): seeded with the
+          ;; `unset` sentinel rather than `(recompute)`, so `compute-fn`
+          ;; (the memo wrapper running the user sub body) is NOT invoked at
+          ;; construction/subscribe time — matching Reagent's lazy
+          ;; `make-reaction` and the plain-atom recompute-on-deref adapters.
+          ;; The body runs on demand: the FIRST `-deref` (which the sub-
+          ;; cache performs to read the subscription's value) establishes
+          ;; the baseline, and a `replace-container!` change after that
+          ;; notifies `[prev-derived new-derived]` exactly as before. If a
+          ;; change flushes before any deref ever happened (no reader),
+          ;; `prev-state` is still `unset`; `unset` `not=` any real value
+          ;; (incl. nil/false) so the first flush still notifies — the same
+          ;; first-change-notifies semantics Reagent gives. (Seeding from
+          ;; the *derived* value, never the raw source, still holds: the
+          ;; flush thunk compares the recomputed derived value against the
+          ;; prior derived value / sentinel, so a projection like
+          ;; `(odd? x)` / counts / `:k` lookups never spuriously notifies on
+          ;; a same-`=` re-derive.)
           ;;
           ;; `prev-state` / `dirty?` are written and read only on the
           ;; single-threaded JS event loop and never escape this closure —
           ;; `volatile!` is the right primitive, no CAS cost. `dirty?`
           ;; dedups re-marks within an epoch: a multi-input derived value
           ;; whose N sources all fire enqueues exactly one flush thunk.
-          prev-state     (volatile! (recompute))
+          prev-state     (volatile! unset)
           dirty?         (volatile! false)
+          ;; First-deref baseline seed (rf2-ee38b.1 P2). Pure pull-based
+          ;; recompute, but on the FIRST deref it also records the value as
+          ;; `prev-state` so the next change's notification carries the real
+          ;; prior derived value (not the `unset` sentinel). Subsequent
+          ;; derefs do not touch `prev-state` — the flush path owns it.
+          deref-derived  (fn deref-derived []
+                           (let [v (recompute)]
+                             (when (identical? unset @prev-state)
+                               (vreset! prev-state v))
+                             v))
           flush!         (fn flush! []
                            (vreset! dirty? false)
                            (let [new-derived  (recompute)
@@ -305,7 +351,7 @@
           (add-watch s k (fn [_ _ _ _] (mark-dirty!)))))
       (reify
         IDeref
-        (-deref [_] (recompute))
+        (-deref [_] (deref-derived))
         ;; Watch surface — `(subscribe-container derived on-change)` rides
         ;; on this through the standard core helper, and the sub-cache's
         ;; per-entry recompute layer keys watches by gensym so the
@@ -1225,6 +1271,106 @@
      ;; this via substrate-adapter/route-hook!.
      :after-render-hook           after-render-hook}))
 
+;; ---- React-hook adapter assembly (UIx + Helix) ----------------------------
+;;
+;; rf2-ee38b.1 / rf2-ee38b.13 / rf2-ee38b.14. `make-react-spine` already
+;; eliminated the substrate LOGIC drift (one factory, N adapters). The
+;; per-adapter WIRING — the 9-key adapter map, the five `route-hook!`
+;; calls, and the two chained installs — was still hand-copied byte-for-
+;; byte between `uix.cljs` and `helix.cljs` (the clarity-lens twin
+;; finding), carrying ~90 lines of identical rationale prose and a
+;; standing drift hazard: any new routed hook had to be copied into both
+;; files in lockstep (a Helix-only SSR-parity fix per rf2-y9spn already
+;; showed the two drifting before being re-synced). `make-react-adapter`
+;; folds that wiring here — the adapter file shrinks to "build spine-fns,
+;; publish the public Vars, call make-react-adapter". The route-hook block
+;; carries zero per-adapter variation; the ONLY input is the spine-fns map
+;; (already built per-substrate) and the `:kind` discriminator keyword.
+;;
+;; Hook routing (per rf2-0d35 — see `substrate-adapter/route-hook!` for
+;; the routing contract): each impl runs ONLY when this adapter is the
+;; (rf/init!)-installed one; otherwise chains to the previously-registered
+;; handler.
+;;   :adapter/current-frame — rf2-d4sf. Function components have no
+;;     class-component (.-context cmp) slot, so the shared impl in
+;;     `re-frame.adapter.context` reads `_currentValue` directly. This is
+;;     the WIDER surface — `(rf/current-frame)` reaches the dynamic-var-
+;;     fallback chain via this hook; the per-adapter `use-current-frame`
+;;     hook is the NARROWER React-context-tier-only read (rf2-84myk).
+;;   :adapter/add-on-dispose! / :adapter/dispose! — rf2-jicu2. Spine-
+;;     produced derived values reify the re-frame-owned
+;;     `re-frame.disposable/IDisposable` (no Reagent coupling); the
+;;     adapter wires straight to the protocol fns. The reactive-substrate
+;;     hooks (`:adapter/ratom`, `:adapter/ratom?`, `:adapter/make-reaction`,
+;;     `:adapter/reactive?`) are intentionally NOT published — the React-
+;;     hook substrates ship no reactive-atom primitive (rf2-3yij / rf2-2qit)
+;;     and `re-frame.interop`'s reactive-atom surfaces have zero production
+;;     call sites under them; publishing those hooks would force the bundle
+;;     to carry reagent.core (transitively reagent.ratom) for code it never
+;;     executes.
+;;   :adapter/after-render — rf2-334d9. Backed by `React.useLayoutEffect`
+;;     via the spine's after-render machinery. `after-render` is a React-
+;;     lifecycle question (when does the next commit complete?), not a
+;;     reactive-atom one — so the "no reactive primitive" rationale that
+;;     excludes the four hooks above does NOT apply. Pre-rf2-334d9
+;;     `(rf/after-render f)` under these adapters was a silent no-op.
+;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord injection
+;;     via React.cloneElement (the views.cljs inline hiccup-walk would
+;;     mis-classify React-element output as a non-DOM root). Production-
+;;     elided via `interop/debug-enabled?` per Spec 009 §Production builds.
+
+(defn make-react-adapter
+  "Assemble a React-hook adapter (UIx / Helix) from a `make-react-spine`
+  result map plus the substrate's `:kind` discriminator keyword.
+
+  Builds the 9-key substrate adapter map, routes the five React-hook
+  late-bind hooks against it (`substrate-adapter/route-hook!`), and wires
+  the two chained installs (warn-once clear + SSR hiccup-emitter). Returns
+  the adapter map. SIDE-EFFECTING: the route-hook! / chain-fn! calls run
+  at call time (the adapter ns evaluates `(make-react-adapter spine-fns
+  :rf.adapter/uix)` at load), exactly as the hand-written wiring did.
+
+  Single source of truth (rf2-ee38b.1): UIx and Helix call this with the
+  same shape — the only inputs are their already-substrate-specific
+  `spine-fns` map and `:kind`. The former hand-copied route-hook block +
+  chained installs (byte-identical across the twins) now live once."
+  [spine-fns kind]
+  (let [adapter {:kind                      kind
+                 :make-state-container      (:make-state-container      spine-fns)
+                 :read-container            (:read-container            spine-fns)
+                 :replace-container!        (:replace-container!        spine-fns)
+                 :subscribe-container       (:subscribe-container       spine-fns)
+                 :make-derived-value        (:make-derived-value        spine-fns)
+                 :render                    (:render                    spine-fns)
+                 :render-to-string          (:render-to-string          spine-fns)
+                 :register-context-provider (:register-context-provider spine-fns)
+                 :dispose-adapter!          (:dispose-adapter!          spine-fns)}]
+    (substrate-adapter/route-hook! adapter :adapter/current-frame
+      adapter-context/function-component-current-frame
+      #(frame/current-frame))
+    (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+      rf-disposable/-add-on-dispose)
+    (substrate-adapter/route-hook! adapter :adapter/dispose!
+      rf-disposable/-dispose)
+    (substrate-adapter/route-hook! adapter :adapter/wrap-view
+      (:wrap-view spine-fns))
+    (substrate-adapter/route-hook! adapter :adapter/after-render
+      (:after-render-hook spine-fns))
+    ;; Chained warn-once clear (rf2-4edk): chained (NOT routed by installed-
+    ;; adapter identity) — every loaded adapter's per-process defonce must
+    ;; clear between tests because a bundle can mount different adapters
+    ;; across tests.
+    (install-clear-warn-once-step! (:clear-warned-non-dom-roots! spine-fns))
+    ;; Chained SSR emitter install (rf2-4z7bp): `re-frame.ssr.emit` invokes
+    ;; `:reagent/set-hiccup-emitter!` at ns-load; every loaded React-shaped
+    ;; adapter contributes its own install step so a single
+    ;; `(require '[re-frame.ssr])` auto-wires every adapter's render-to-
+    ;; string slot. Hook key is historical (Reagent published it first per
+    ;; rf2-uo7v); behaviour is adapter-agnostic.
+    (late-bind/chain-fn! :reagent/set-hiccup-emitter!
+                         (:set-hiccup-emitter! spine-fns))
+    adapter))
+
 ;; ---- ratom-family spine (Reagent + reagent-slim) --------------------------
 ;;
 ;; The Reagent and reagent-slim adapters are the SAME shape under a
@@ -1250,9 +1396,6 @@
   "Build the per-substrate ratom-family substrate surfaces given the
   substrate's ratom ops and gensym prefix:
 
-      :substrate-name    — string (currently informational; the ratom
-                           family has no warn-non-dom-root surface, that
-                           lives in re-frame.views for these adapters)
       :gensym-prefix-sub — gensym prefix for `subscribe-container` watch
                            keys (substrate-scoped per rf2-l4dmr so logs /
                            inspectors attribute a watch to its substrate)
@@ -1377,3 +1520,135 @@
                                    (set-hiccup-emitter! emitter-cell f))
      :active-roots-cell          active-roots-cell
      :emitter-cell               emitter-cell}))
+
+;; ---- ratom-family adapter assembly (Reagent + reagent-slim) ---------------
+;;
+;; rf2-ee38b.1 / rf2-ee38b.12 / rf2-ee38b.15. `make-ratom-spine` hoisted
+;; the substrate-surface drift (container quartet, renderer, dispose body,
+;; SSR emitter) but left the SECOND half — the `set-hiccup-emitter!` chain
+;; install, the `register-context-provider` wiring, the 9-key adapter map,
+;; and the entire nine-call `route-hook!` table — hand-copied byte-for-byte
+;; between `reagent.cljs` and `reagent_slim.cljs` (the clarity-lens twin
+;; finding across both ratom beads). The two `cond` dispatch closures
+;; (`add-on-dispose!`/`dispose!`) carry zero substrate-specific text — only
+;; which `ratom` ns binds the alias differs. `make-ratom-adapter` folds
+;; that wiring here, mirroring `make-react-adapter`.
+;;
+;; CRITICAL — slim bundle isolation. As with `make-ratom-spine`, this
+;; helper MUST NOT `:require` stock `reagent.*` (or `reagent2.*`). The
+;; reactive-atom-family ops the hook table needs — `current-component`,
+;; `atom`, `after-render`, `make-reaction`, the `ratom?`/`disposable?`
+;; predicates, and the `add-on-dispose!`/`dispose!`/`reactive?` fns — are
+;; INJECTED via the `:hook-ops` map (predicate/dispatch lambdas over the
+;; substrate's protocols), so the spine never names a reactive-atom ns.
+;; Each adapter passes its `reagent.*` / `reagent2.*` impls.
+
+(defn make-ratom-adapter
+  "Assemble a ratom-family adapter (Reagent / reagent-slim) from a
+  `make-ratom-spine` result map plus the substrate's config:
+
+      :kind      — the adapter's `:kind` discriminator keyword
+      :register-context-provider
+                 — the views-backed (Reagent-component-shaped) provider fn
+                   `(fn [_frame-keyword] (views/build-frame-provider))`.
+                   Passed in (NOT spine-built) so the core spine carries no
+                   spine→views dependency edge.
+      :hook-ops  — the injected reactive-atom-family ops the late-bind
+                   hook table routes (bundle-isolation: lambdas only, the
+                   spine names no reactive-atom ns):
+          :current-frame      — (fn []) → React-context-tier current frame
+                                (`views/current-frame`)
+          :current-component  — (fn []) → the in-flight component
+          :atom               — (fn [v]) → reactive atom
+          :ratom?             — (fn [x]) → boolean (IReactiveAtom check)
+          :make-reaction      — (fn [thunk]) → reaction
+          :disposable?        — (fn [x]) → boolean (substrate IDisposable
+                                check), used by the dual-protocol dispatch
+          :add-on-dispose!    — (fn [a f]) → register a substrate-reaction
+                                dispose hook
+          :dispose!           — (fn [a]) → dispose a substrate reaction
+          :reactive?          — (fn []) → boolean
+          :after-render       — (fn [f]) → schedule post-render callback
+
+  Builds the 9-key adapter map, wires the chained SSR emitter install, and
+  routes the nine ratom-family late-bind hooks against the adapter. The two
+  dual-protocol dispatch hooks (`:adapter/add-on-dispose!` / `:adapter/
+  dispose!`) protocol-check the re-frame-owned
+  `re-frame.disposable/IDisposable` FIRST (spine-produced derived values
+  from a cross-substrate test bundle, rf2-jicu2) then fall through to the
+  substrate's own disposable (`:disposable?` / `:add-on-dispose!` /
+  `:dispose!`). Returns the adapter map. SIDE-EFFECTING at call time
+  (chain-fn! / route-hook!), exactly as the hand-written wiring was.
+
+  Single source of truth (rf2-ee38b.1): Reagent and reagent-slim call this
+  with the same shape — only their injected `:hook-ops` and `:kind` differ.
+  The former hand-copied route-hook block now lives once."
+  [spine-fns {:keys [kind register-context-provider hook-ops]}]
+  (let [{:keys [current-frame current-component atom ratom? make-reaction
+                disposable? add-on-dispose! dispose! reactive? after-render]}
+        hook-ops
+        adapter {:kind                      kind
+                 :make-state-container      (:make-state-container spine-fns)
+                 :read-container            (:read-container       spine-fns)
+                 :replace-container!        (:replace-container!   spine-fns)
+                 :subscribe-container       (:subscribe-container  spine-fns)
+                 :make-derived-value        (:make-derived-value   spine-fns)
+                 :render                    (:render               spine-fns)
+                 :render-to-string          (:render-to-string     spine-fns)
+                 :register-context-provider register-context-provider
+                 :dispose-adapter!          (:dispose-adapter!     spine-fns)}]
+    ;; Chained SSR emitter install (rf2-4z7bp / parity rf2-cl1qv): every
+    ;; loaded React-shaped adapter contributes its install step so a single
+    ;; `(require '[re-frame.ssr])` auto-wires every adapter's render-to-
+    ;; string slot. `chain-fn!` (not `set-fn!`) is load-order-independent.
+    (late-bind/chain-fn! :reagent/set-hiccup-emitter!
+                         (:set-hiccup-emitter! spine-fns))
+    ;; Each hook routes through `(substrate-adapter/current-adapter)` per
+    ;; rf2-0d35 via `route-hook!`: this adapter's impl runs ONLY when it is
+    ;; the (rf/init!)-installed one; otherwise it chains to the previously-
+    ;; registered handler.
+    ;;   :adapter/current-frame — rf2-d4sf. The React-context tier of the
+    ;;     3-tier chain; the ratom family uses the class-component
+    ;;     (.-context cmp) shape via `views/current-frame`. Chain-bottom
+    ;;     fallback is `frame/current-frame` so headless / pre-init shape is
+    ;;     preserved.
+    ;;   :adapter/current-component — rf2-wbnl. Reads the substrate's
+    ;;     in-flight component without hard-binding re-frame.views to it.
+    ;;   :adapter/ratom etc. — rf2-s36l. The reactive-substrate surfaces
+    ;;     consumed by `re-frame.interop`.
+    ;;   :adapter/add-on-dispose! / :adapter/dispose! — rf2-jicu2. A
+    ;;     ratom-installed app may still hold a spine-produced derived value
+    ;;     (inherited through a cross-substrate test bundle). Dispatch
+    ;;     handles BOTH shapes — the re-frame-owned IDisposable (spine
+    ;;     derived values, checked first) and the substrate's own
+    ;;     IDisposable.
+    (substrate-adapter/route-hook! adapter :adapter/current-frame
+      current-frame
+      #(frame/current-frame))
+    (substrate-adapter/route-hook! adapter :adapter/current-component
+      current-component)
+    (substrate-adapter/route-hook! adapter :adapter/ratom
+      atom)
+    (substrate-adapter/route-hook! adapter :adapter/ratom?
+      ratom?
+      (constantly false))
+    (substrate-adapter/route-hook! adapter :adapter/make-reaction
+      make-reaction)
+    (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+      (fn add-on-dispose!-dispatch [a f]
+        (cond
+          (satisfies? rf-disposable/IDisposable a) (rf-disposable/-add-on-dispose a f)
+          (disposable? a)                          (add-on-dispose! a f)
+          :else                                    nil)))
+    (substrate-adapter/route-hook! adapter :adapter/dispose!
+      (fn dispose!-dispatch [a]
+        (cond
+          (satisfies? rf-disposable/IDisposable a) (rf-disposable/-dispose a)
+          (disposable? a)                          (dispose! a)
+          :else                                    nil)))
+    (substrate-adapter/route-hook! adapter :adapter/reactive?
+      reactive?
+      (constantly false))
+    (substrate-adapter/route-hook! adapter :adapter/after-render
+      after-render)
+    adapter))

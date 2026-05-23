@@ -59,8 +59,11 @@
 
 (def ^:private re-tag
   "Regex for parsing CSS-style id and class from a Reagent tag keyword.
-   `[#.]?[^#.]+` matched repeatedly captures `tag`, optional `#id`,
-   and any number of `.class` segments."
+   Captures `tag`, an optional `#id`, then optional `.class.class…`
+   shorthand — in THAT order. `#id` MUST precede the `.class` segments
+   (the `:div#id.a.b` form); the class-before-id form (`:div.a#id`) does
+   NOT match and yields a nil tag. This mirrors stock Reagent's own
+   id-before-class regex (a documented constraint, not a regression)."
   #"([^\s\.#]+)(?:#([^\s\.#]+))?(?:\.([^\s#]+))?")
 
 ;; Note on field name `className` (rather than `class`): in JS-target
@@ -79,12 +82,18 @@
   are no class shorthand parts. The `id` field is non-nil only when the
   tag has a `#id` shorthand part. `tag` is the bare element name string.
 
+  CONSTRAINT (matches stock Reagent): `#id` must precede the `.class`
+  segments. The id-before-class form is supported; the class-before-id
+  form (`:div.a#id`) is NOT — `re-tag` returns nil for it and the result
+  carries a nil tag. Use `:div#id.a.b`, never `:div.a.b#id`.
+
   Examples:
 
-    (parse-tag :div)         → HiccupTag{tag \"div\" id nil class nil}
-    (parse-tag :div.cls)     → HiccupTag{tag \"div\" id nil class \"cls\"}
+    (parse-tag :div)         → HiccupTag{tag \"div\" id nil  class nil}
+    (parse-tag :div.cls)     → HiccupTag{tag \"div\" id nil  class \"cls\"}
     (parse-tag :div#id)      → HiccupTag{tag \"div\" id \"id\" class nil}
-    (parse-tag :div.a.b#id)  → HiccupTag{tag \"div\" id \"id\" class \"a b\"}"
+    (parse-tag :div#id.a.b)  → HiccupTag{tag \"div\" id \"id\" class \"a b\"}
+    (parse-tag :div.a.b#id)  → HiccupTag{tag nil   id nil  class nil}  ; NOT supported"
   [hiccup-tag]
   (let [[_ tag id class-shorthand]
         (re-matches re-tag (name hiccup-tag))

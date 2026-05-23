@@ -583,23 +583,32 @@
   child dispatches. User fxs see it at `(:envelope m)`.
 
   Per rf2-twt7m Change 2: the full effects map is also threaded to
-  `do-fx` (the 7-arity) so the terminating `:event/do-fx` trace
+  `do-fx` (the `:effects` opt) so the terminating `:event/do-fx` trace
   marker can stamp `:fx` (the returned vector) and `:db-present?`
   (whether the handler returned a `:db` slot). The value of `:db`
   is NOT stamped — App-db diff traces already carry slice changes.
 
   Per rf2-jhhqt: the handler's final coeffects map is also threaded
-  to `do-fx` (the 8-arity) so the terminating `:event/do-fx` trace
-  marker can stamp `:coeffects` with the user-injected subset (the
-  framework defaults `:db` `:event` `:frame` `:source` `:trace-id`
+  to `do-fx` (the `:coeffects` opt) so the terminating `:event/do-fx`
+  trace marker can stamp `:coeffects` with the user-injected subset
+  (the framework defaults `:db` `:event` `:frame` `:source` `:trace-id`
   are filtered out inside `do-fx`). Powers the Event lens's COEFFECTS
-  section without a second emit."
+  section without a second emit.
+
+  Per rf2-ee38b.1: the former positional do-fx arity ladder collapsed
+  into a single `opts` map — this is the sole caller threading the full
+  set of optionals."
   [effects coeffects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
     (let [active-platform (or (-> frame-record :config :platform)
                               interop/platform)
           event           (:event envelope)]
-      (fx/do-fx frame fx-vec active-platform fx-overrides event envelope effects coeffects))))
+      (fx/do-fx frame fx-vec active-platform
+                {:overrides       fx-overrides
+                 :origin-event    event
+                 :parent-envelope envelope
+                 :effects         effects
+                 :coeffects       coeffects}))))
 
 ;; ---- process-event* phases ------------------------------------------------
 ;;

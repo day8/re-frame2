@@ -13,12 +13,7 @@
   `uix.core` macros expand to these)."
   (:require [uix.core          :as uix]
             [uix.hooks.alpha   :as uix-hooks]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.frame    :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.spine   :as spine]
-            [re-frame.adapter.context :as adapter-context]))
+            [re-frame.substrate.spine   :as spine]))
 
 ;; ---- shared spine wiring --------------------------------------------------
 
@@ -119,82 +114,12 @@
   See Spec 006 §CLJS reference: UIx as alternative substrate.
   Implements the same nine-fn contract as re-frame.adapter.reagent.
   Per rf2-agql there is no default-adapter registry — adapter wiring
-  is explicit at the call site."
-  {:kind                      :rf.adapter/uix
-   :make-state-container      (:make-state-container      spine-fns)
-   :read-container            (:read-container            spine-fns)
-   :replace-container!        (:replace-container!        spine-fns)
-   :subscribe-container       (:subscribe-container       spine-fns)
-   :make-derived-value        (:make-derived-value        spine-fns)
-   :render                    (:render                    spine-fns)
-   :render-to-string          (:render-to-string          spine-fns)
-   :register-context-provider (:register-context-provider spine-fns)
-   :dispose-adapter!          (:dispose-adapter!          spine-fns)})
+  is explicit at the call site.
 
-;; Late-bind hooks below route through `substrate-adapter/route-hook!`
-;; (per rf2-0d35 — see its docstring for the routing contract): each
-;; impl runs ONLY when the UIx adapter is the (rf/init!)-installed
-;; one; otherwise chains to the previously-registered handler.
-;;
-;; Hook-specific UIx-adapter notes:
-;;   :adapter/current-frame  — rf2-d4sf. Function components have no
-;;     class-component (.-context cmp) slot, so the shared impl in
-;;     `re-frame.adapter.context` reads `_currentValue` directly. This
-;;     is the WIDER surface — `(rf/current-frame)` reaches the
-;;     dynamic-var-fallback chain via this hook; the per-adapter
-;;     `use-current-frame` hook above is the NARROWER React-context-
-;;     tier-only read (per rf2-84myk).
-;;   :adapter/add-on-dispose! / :adapter/dispose! — rf2-jicu2. Spine-
-;;     produced derived values reify the re-frame-owned
-;;     `re-frame.disposable/IDisposable` (no Reagent coupling). The
-;;     adapter wires straight to the protocol fns. Pre-rf2-jicu2 these
-;;     routed to `reagent.ratom/add-on-dispose!` / `ratom/dispose!`
-;;     which dragged ~9KB of reagent.ratom + reagent.impl.batching into
-;;     every UIx-only release bundle for a single defprotocol slot.
-;;     The remaining reactive-substrate hooks (`:adapter/ratom`,
-;;     `:adapter/ratom?`, `:adapter/make-reaction`, `:adapter/reactive?`)
-;;     are intentionally NOT published by the UIx adapter — UIx ships
-;;     no reactive-atom primitive (per rf2-3yij) and
-;;     `re-frame.interop`'s reactive-atom surfaces have zero production
-;;     call sites under UIx; publishing those hooks would force the UIx
-;;     bundle to carry reagent.core (transitively reagent.ratom) for
-;;     code it never executes.
-;;   :adapter/after-render — rf2-334d9. Backed by `React.useLayoutEffect`
-;;     via the spine's after-render machinery (see
-;;     `re-frame.substrate.spine/make-after-render-hook` +
-;;     `make-after-render-sentinel`). `after-render` is a React-
-;;     lifecycle question (when does the next commit complete?), not a
-;;     reactive-atom one — so the "no reactive primitive" rationale
-;;     that excludes the four hooks above does NOT apply. Pre-rf2-334d9
-;;     `(rf/after-render f)` under the UIx adapter was a silent no-op;
-;;     publish closes that correctness bug under the pre-alpha
-;;     masterpiece posture.
-;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord
-;;     injection via React.cloneElement (the views.cljs inline
-;;     hiccup-walk would mis-classify React-element output as a
-;;     non-DOM root). Production-elided via `interop/debug-enabled?`
-;;     per Spec 009 §Production builds.
-(substrate-adapter/route-hook! adapter :adapter/current-frame
-  adapter-context/function-component-current-frame
-  #(frame/current-frame))
-(substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
-  rf-disposable/-add-on-dispose)
-(substrate-adapter/route-hook! adapter :adapter/dispose!
-  rf-disposable/-dispose)
-(substrate-adapter/route-hook! adapter :adapter/wrap-view
-  wrap-view)
-(substrate-adapter/route-hook! adapter :adapter/after-render
-  (:after-render-hook spine-fns))
-
-;; Chained warn-once clear (rf2-4edk): every loaded adapter's
-;; per-process defonce must be cleared between tests, so this hook is
-;; chained (not routed by installed-adapter identity).
-(spine/install-clear-warn-once-step! clear-warned-non-dom-roots!)
-
-;; Chained SSR emitter install (rf2-4z7bp): `re-frame.ssr.emit`
-;; invokes `:reagent/set-hiccup-emitter!` at ns-load; every loaded
-;; React-shaped adapter contributes its own install step so a single
-;; `(require '[re-frame.ssr])` auto-wires every adapter's
-;; render-to-string slot. Hook key is historical (Reagent published
-;; it first per rf2-uo7v); behaviour is adapter-agnostic.
-(late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
+  Assembled by `spine/make-react-adapter` (rf2-ee38b.1): the 9-key
+  substrate map, the five React-hook `route-hook!` calls, and the two
+  chained installs (warn-once clear + SSR emitter) all live once in the
+  spine — the UIx and Helix adapter wiring is byte-identical, so this
+  single call replaces the former hand-copied block. The per-hook
+  rationale lives at `spine/make-react-adapter`."
+  (spine/make-react-adapter spine-fns :rf.adapter/uix))

@@ -50,6 +50,27 @@
      :replace!     replace!
      :root         root}))
 
+;; ---- laziness (rf2-ee38b.1 P2) --------------------------------------------
+
+(deftest make-derived-value-is-lazy-no-compute-at-construction
+  (testing "constructing a derived value does NOT invoke compute-fn until
+            the first deref — matching Reagent's lazy make-reaction and the
+            plain-atom recompute-on-deref adapters (rf2-ee38b.1 P2). The
+            React-hook spine formerly seeded prev-state eagerly with
+            `(recompute)`, running the user sub body (and emitting
+            :rf.sub/run) at subscribe-time rather than deref-time."
+    (let [{:keys [make-derived root]} (build-graph)
+          runs (atom 0)
+          d    (make-derived [root] (fn [db] (swap! runs inc) (:a db)))]
+      (is (= 0 @runs)
+          "compute-fn NOT invoked at construction — body runs on demand")
+      (is (= 1 @d) "first deref computes the value")
+      (is (= 1 @runs) "compute-fn ran exactly once, on first deref")
+      ;; A second deref is pull-based (recompute) — also runs the body, but
+      ;; the point of the contract is ZERO runs before the first read.
+      @d
+      (is (= 2 @runs) "subsequent derefs recompute (pull-based), as before"))))
+
 ;; ---- single-input layer-1 (regression guard) ------------------------------
 
 (deftest layer-1-single-input-notifies-once
@@ -58,6 +79,11 @@
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1     (make-derived [root] (fn [db] (:a db)))
           notes  (atom [])]
+      ;; rf2-ee38b.1: derived values are LAZY — the first deref establishes
+      ;; the baseline (the sub-cache always reads the value on subscribe).
+      ;; Deref before the change so the notification carries the real prior
+      ;; derived value rather than the `unset` sentinel.
+      (is (= 1 @l1) "baseline deref establishes prev-state")
       (add-watch l1 :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
       (replace! root {:a 2 :b 10})
       (is (= [[1 2]] @notes)
@@ -70,6 +96,9 @@
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1     (make-derived [root] (fn [db] (:a db)))
           notes  (atom 0)]
+      ;; rf2-ee38b.1: deref to establish the lazy baseline before watching,
+      ;; mirroring the sub-cache's read-on-subscribe.
+      (is (= 1 @l1) "baseline deref establishes prev-state")
       (add-watch l1 :w (fn [_ _ _ _] (swap! notes inc)))
       ;; :b changes; :a — the only slice l1 reads — does not.
       (replace! root {:a 1 :b 99})
@@ -175,6 +204,8 @@
           src          (atom 5)
           l1     (make-derived [src] (fn [x] (* x 10)))
           notes  (atom [])]
+      ;; rf2-ee38b.1: deref to establish the lazy baseline before watching.
+      (is (= 50 @l1) "baseline deref establishes prev-state")
       (add-watch l1 :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
       (reset! src 6)
       (is (= [[50 60]] @notes)

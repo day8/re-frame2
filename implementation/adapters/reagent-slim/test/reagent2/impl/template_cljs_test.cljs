@@ -67,6 +67,23 @@
     (let [parsed (template/parse-tag :input)]
       (is (= "input" (.-tag parsed))))))
 
+(deftest parse-tag-id-before-class-supported
+  (testing ":div#id.a.b — id MUST precede classes (the supported form)"
+    (let [parsed (template/parse-tag :div#id.a.b)]
+      (is (= "div" (.-tag parsed)))
+      (is (= "id" (.-id parsed)))
+      (is (= "a b" (.-className parsed))))))
+
+(deftest parse-tag-class-before-id-not-supported
+  ;; rf2-ee38b.15: the regex requires `#id` before `.class` (matches stock
+  ;; Reagent). The class-before-id form (`:div.a#id`) does NOT match —
+  ;; `re-matches` returns nil and the result carries a nil tag. Pin the
+  ;; constraint so the docstring and the code can never silently disagree.
+  (testing ":div.a#id — class-before-id is NOT supported (nil tag)"
+    (let [parsed (template/parse-tag :div.a#id)]
+      (is (nil? (.-tag parsed))
+          "class-before-id yields a nil tag, not a parsed element"))))
+
 ;; ---------------------------------------------------------------------------
 ;; cached-prop-name — kebab→camel + special cases
 ;; ---------------------------------------------------------------------------
