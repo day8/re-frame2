@@ -175,7 +175,7 @@
         [(mk-epoch 1 42
                    [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 42 :event-id :cart/add})
-                    (mk-trace {:id 2 :op-type :error :operation :rf.error/handler-threw
+                    (mk-trace {:id 2 :op-type :error :operation :rf.error/handler-exception
                                :dispatch-id 42 :reason "boom"})])])
       (focus! 42)
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]

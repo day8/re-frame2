@@ -81,27 +81,16 @@
 ;; ---- registry atom ------------------------------------------------------
 
 (defonce ^{:doc "The L4 tab registry. Map of `[mode tab-id] → tab-entry`
-                 — composite key because the same `:id` may legitimately
-                 register against multiple modes (e.g. `:routes` exists
-                 as both the Dynamic Routing tab — `panels/routing.cljs`
-                 (focused-event lens) — and the Static Routes catalogue
-                 tab — `static/routes/panel.cljs` (browse-all); same id,
-                 different content). Atom (not a defonce on a literal
-                 map) so per-panel `install!` mutations are visible to
-                 readers without re-loading this ns. Re-loading this ns
-                 under shadow-cljs
-                 `:after-load` preserves the atom's contents — `defonce`
-                 semantics.
-
-                 Tabs registered against multiple modes (a single tab
-                 entry with `:modes #{:dynamic :static}`) materialise
-                 as ONE entry per `[mode id]` key — the registration
-                 mutation expands the `:modes` set across keys so
-                 lookup-by-mode is a constant-time `get`. Today every
-                 panel registers a single-mode entry so the expansion
-                 is the identity; the multi-mode pathway is structural
-                 insurance for the future routing/schemas-style verbs
-                 that might span modes."}
+                 — the key is composite because the same `:id` legitimately
+                 registers against both modes via SEPARATE single-mode
+                 entries: `:routes` is the Dynamic Routing tab
+                 (`panels/routing.cljs`, focused-event lens) AND the Static
+                 Routes catalogue tab (`static/routes/panel.cljs`,
+                 browse-all) — same id, different panel, keyed apart by
+                 mode. Atom (not a defonce on a literal map) so per-panel
+                 `install!` mutations are visible to readers without
+                 re-loading this ns; `defonce` preserves contents across
+                 shadow-cljs `:after-load`."}
   registry
   (atom {}))
 
@@ -150,34 +139,29 @@
 ;; ---- mutation -----------------------------------------------------------
 
 (defn reg-l4-tab!
-  "Register an L4 tab entry. Idempotent — re-registering the same
-  `[mode id]` replaces the prior entry (same posture as re-frame's
-  registrar). Returns the registered entry.
+  "Register an L4 tab entry under `[mode id]`. Idempotent —
+  re-registering the same `[mode id]` replaces the prior entry (same
+  posture as re-frame's registrar). Returns the registered entry.
 
   Each panel's `(defn install! [] ...)` calls this alongside its
   `reg-sub` / `reg-event-*` / `reg-fx` registrations so the tab
-  inventory is declarative-per-panel rather than hard-coded in
-  the shell.
+  inventory is declarative-per-panel rather than hard-coded in the
+  shell.
 
-  Tabs registered against multiple modes (`:modes #{:dynamic :static}`)
-  materialise as one entry per `[mode id]` key — every mode in the
-  set gets its own entry pointing at the same metadata. Today every
-  panel registers a single-mode entry; the multi-mode pathway is
-  insurance for cross-mode verbs that might land later."
+  `:modes` is a single-element set (`#{:dynamic}` or `#{:static}`) —
+  a panel belongs to exactly one mode's tab bar. The same `:id` in
+  both modes is two separate registrations of two separate panels
+  (e.g. Dynamic Routing vs Static Routes), keyed apart by mode."
   [{:keys [id label mnem modes panel order placeholder-bead] :as tab}]
   {:pre [(keyword? id)
          (string? label)
          (or (nil? mnem) (string? mnem))
          (set? modes)
-         (seq modes)
+         (= 1 (count modes))
          (every? #{:dynamic :static} modes)
          (or (nil? order) (number? order))
          (or (nil? placeholder-bead) (string? placeholder-bead))]}
-  (swap! registry
-         (fn [reg]
-           (reduce (fn [acc mode] (assoc acc [mode id] tab))
-                   reg
-                   modes)))
+  (swap! registry assoc [(first modes) id] tab)
   tab)
 
 (defn unreg-l4-tab!

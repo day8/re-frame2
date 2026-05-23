@@ -368,9 +368,9 @@
   - `:trace-buffer` — seeded from the trace-bus atom (rf2-in6l2). The
     atom collects pre-mount traces; the seed lifts them into the
     reactive slot at first Ctrl+Shift+C. Subsequent
-    `trace-bus/collect-trace!` calls dispatch
-    `:rf.causa/note-trace-event` into `:rf/causa` so the sub fires
-    IMMEDIATELY on every push.
+    `trace-bus/collect-trace!` calls request a coalesced
+    `:rf.causa/sync-trace-buffer` (rf2-wq6gx) so the sub fires on every
+    push without one dispatch per trace event.
 
   - `:epoch-history` + `:target-frame` (rf2-1barg + rf2-boyc2) —
     seeded together via `:rf.causa/set-target-frame` so the slot is

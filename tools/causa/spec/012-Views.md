@@ -1,6 +1,26 @@
 # 012-Views
 
-> **See also**: [`021-Dynamic-Panel-Designs.md` §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8) for the canonical Views panel content design. The L3 tab display label is **`Views`** — the all-plural-domain-noun convention (Mike-direction 2026-05-21) keeps the tab vocabulary uniform across both tab sets (Views / Flows / Schemas / Routes / Machines are all plural). The tab key + spec doc continue to use `:views` / `012-Views.md` for stability. Per-panel content semantics moved to 021.
+> **SUPERSEDED by [`021-Dynamic-Panel-Designs.md` §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8) (rf2-ee38b.2, 2026-05-23).**
+> The shipped Views panel implements 021 §3's lean **three-stacked-tables**
+> design (Level 1 subs / Level 2+ subs / Views — columns name · changed ·
+> inputs · read-by · code), per the rf2-8ve8z landing. The richer surface
+> this document describes below — three TEMPORAL groups (mounted /
+> re-rendered / unmounted), subs nested under views with inline return
+> values, ≥50 grid clustering, a component/sub group-by toggle, a
+> right-click component-filter chip, per-component inline drilldown
+> (props-diff + Fiber metadata), and the five-state sub-status glyph
+> taxonomy — is **NOT implemented** and is **not the destination**. The
+> file names it cites (`views_helpers.cljc`, `views_view.cljs`, a
+> `sub-status` classifier) do not exist; the live panel is
+> `panels/reactive_panel_view.cljs` + `panels/reactive_panel_subs.cljs`.
+> Read **021 §3** for the normative Views design. The material below is
+> retained as historical design exploration only — not normative spec.
+>
+> The L3 tab display label is **`Views`** — the all-plural-domain-noun
+> convention (Mike-direction 2026-05-21) keeps the tab vocabulary uniform
+> across both tab sets (Views / Flows / Schemas / Routes / Machines are all
+> plural). The tab key + spec doc continue to use `:views` / `012-Views.md`
+> for stability.
 
 ## Bug class
 

@@ -273,7 +273,7 @@
 ;; ---- specialised cascade builders --------------------------------------
 
 (defn exception-cascade-buffer
-  "Cascade whose handler threw — surfaces `:rf.error/handler-threw`
+  "Cascade whose handler threw — surfaces `:rf.error/handler-exception`
   alongside the regular domino emits. The panel's `other-row` branch
   renders the error row with severity dot + exception-message."
   []
@@ -286,7 +286,7 @@
       :tags (assoc tag :rf.trace/phase :run-start)}
      {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 5)}
-     {:id (+ id-base 4) :op-type :error :operation :rf.error/handler-threw
+     {:id (+ id-base 4) :op-type :error :operation :rf.error/handler-exception
       :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}]
                        :handler-id :checkout/submit-h
                        :severity :error

@@ -171,7 +171,10 @@ implementation reality — ~40 symbols across 6 namespaces).
 (causa/set-target-frame! :app/main)
 
 (causa/load-theme css-string)
-;; Programmatically swap the theme (useful for editor-driven palette sync).
+;; Programmatically swap the palette: injects `css-string` as a dedicated
+;; <style> override appended last to <head> (so it wins on authoring order).
+;; Idempotent — successive calls replace the override; nil/blank clears it.
+;; Useful for editor-driven palette sync. No-op outside a DOM.
 ```
 
 The facade also re-exports the four highest-traffic config setters

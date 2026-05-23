@@ -98,13 +98,15 @@
    :tags      {:rf.trace/dispatch-id dispatch-id :rf.trace/event-id :foo}})
 
 (defn- warning-ev
-  "An :rf.warning/depth-exceeded trace pinned to `dispatch-id`. The
-  cascade projection routes the trace into the cascade's `:other`
-  bucket; `cascade-outcome` resolves to :warning / yellow."
+  "A real `:rf.warning/large-value-unschema` trace (an op the substrate
+  actually emits — see implementation/core/src/re_frame/elision.cljc)
+  pinned to `dispatch-id`. The cascade projection routes the trace into
+  the cascade's `:other` bucket; `cascade-outcome` resolves to
+  :warning / yellow via the universal :op-type severity axis."
   [id dispatch-id]
   {:id        id
    :op-type   :warning
-   :operation :rf.warning/depth-exceeded
+   :operation :rf.warning/large-value-unschema
    :tags      {:rf.trace/dispatch-id dispatch-id}})
 
 ;; ---- (1) L2 event-list row pickups -------------------------------------

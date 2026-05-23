@@ -572,9 +572,13 @@ as the developer scans.
 
 `<event-id>   ✓/✗/⚠ <outcome> · <duration-ms> · cascade #<id> [· SSR✓]`
 
-- Glyph + colour: `✓ green` for success, `✗ red` for handler exception
-  / unhandled `:rf.error/*`, `⚠ amber` for partial outcomes
-  (`:rf.warning/depth-exceeded`, `:rf.warning/schema-violation-skipped`).
+- Glyph + colour: classified off the universal `:op-type` severity axis
+  (Spec 009), not an enumerated op list. `✗ red` when the cascade's
+  `:other` bucket carries any `:op-type :error` / `:rf.error/*` trace
+  (handler exception, drain-depth overflow, flow-eval failure, fx/cofx
+  error, …); `⚠ amber` when it carries any `:op-type :warning` /
+  `:rf.warning/*` trace; `✓ green` otherwise. Error severity wins over a
+  co-resident warning.
 - `SSR✓` orientation badge when the focused event is
   `:rf.ssr/hydrated` / `:rf.ssr/hydration-complete`; omitted for
   purely-client-side cascades.

@@ -1026,7 +1026,7 @@ Dense case:
 │                                                                       │
 │ 2 issues                                                              │
 │                                                                       │
-│ ⚠ ERROR    :rf.error/handler-threw                                    │
+│ ⚠ ERROR    :rf.error/handler-exception                               │
 │   Handler  :checkout/submit                                           │
 │   Message  AssertionError: cart-id must be string, got nil            │
 │   At       impl/events.cljs:88                                        │

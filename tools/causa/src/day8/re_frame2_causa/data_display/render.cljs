@@ -1,12 +1,22 @@
 (ns day8.re-frame2-causa.data-display.render
-  "Shared data-display renderer for Causa L4 panels (rf2-jgip1).
+  "Causa's lazy collapsible EDN tree-walker (rf2-jgip1).
 
-  The renderer is **ONE canonical component used everywhere data appears**
-  — App-db's huge nested map, the Event panel's coeffects + effects, the
-  Reactive panel's sub values, Trace ops' expanded payloads, Issues
-  `ex-data`. Operator learns one interaction pattern; applies it
-  everywhere. Per spec/021-Dynamic-Panel-Designs.md §10 (canonical ·
-  merged in #1720).
+  This is the tree ENGINE — the collapsible, diff-aware, path-clickable
+  walker that renders a CLJS value as a hierarchical expand/collapse
+  tree. It is one of the two engines behind the canonical
+  `views/edn-widget/widget` facade (the other is `cljs-devtools-render`,
+  which owns CLJS-aware leaf formatting). Panels reach for the
+  `edn-widget` facade (`browse` / `diff` / `mini`), not this ns
+  directly; the facade routes collection-tree + diff + sticky-expansion
+  concerns here. The structural difftastic-style renderer
+  (`diff/render`) is a separate surface for the section-grouped diff
+  engine — not part of this tree.
+
+  Where this tree shows up (via the facade): App-db's nested map, the
+  Event panel's coeffects + effects, the Reactive panel's sub values,
+  Trace ops' expanded payloads, Issues `ex-data`. Operator learns one
+  expand/collapse + path-click interaction. Per
+  spec/021-Dynamic-Panel-Designs.md §10 (merged in #1720).
 
   ## Capabilities (LOCKED per super-prompt B.9)
 

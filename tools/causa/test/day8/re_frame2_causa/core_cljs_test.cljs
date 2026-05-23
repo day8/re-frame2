@@ -18,9 +18,11 @@
      rf2-qy0nu; the 4-layer shell switches via `:rf.causa/selected-
      tab` and the API is gone.)
 
-  3. **TBD stubs do not crash.** `load-theme` emits a
-     `:rf.warning/*` trace event and returns nil — host code that
-     wires the call ahead of the impl must not throw."
+  3. **`load-theme` is a safe no-op without a DOM.** It injects a
+     host-supplied CSS override into `<head>` when a DOM is present
+     (rf2-ee38b.2 wired it through `global-styles/set-host-theme-css!`);
+     under node-test there is no `js/document`, so it must return nil
+     without throwing for any input (CSS string / empty / nil)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -111,21 +113,26 @@
       (is (= [[:rf.causa/set-target-frame :app/main]] @seen)
           "facade dispatches the right event with the right arg"))))
 
-;; ---- (3) TBD stubs — emit warning trace, return nil --------------------
+;; ---- (3) load-theme — DOM-bearing impl, no-op without a DOM -------------
 
-(deftest load-theme-emits-warning-trace
-  (testing "load-theme emits :rf.warning/causa-load-theme-not-yet-implemented and returns nil"
+(deftest load-theme-is-safe-without-document
+  (testing "rf2-ee38b.2 — load-theme is wired through
+            global-styles/set-host-theme-css!. Under node-test there is
+            no js/document, so it returns nil without throwing for any
+            input and emits NO warning trace (the old not-yet-implemented
+            stub is gone). DOM-bearing CSS injection is exercised by the
+            browser target."
     (preload/register-trace-collector!)
     (let [result (core/load-theme ".foo { color: red; }")
           events (trace-bus/buffer)
-          theme-event (first (filter #(= :rf.warning/causa-load-theme-not-yet-implemented
-                                         (:operation %))
-                                     events))]
-      (is (nil? result) "stub returns nil")
-      (is (some? theme-event)
-          "trace bus carries the warning emit")
-      (is (= :causa (get-in theme-event [:tags :origin]))
-          "warning is tagged :origin :causa"))))
+          stale  (filter #(= :rf.warning/causa-load-theme-not-yet-implemented
+                             (:operation %))
+                         events)]
+      (is (nil? result) "load-theme returns nil")
+      (is (empty? stale)
+          "no not-yet-implemented warning — the stub is gone")
+      (is (nil? (core/load-theme ""))  "empty string is a safe no-op")
+      (is (nil? (core/load-theme nil)) "nil is a safe no-op"))))
 
 ;; ---- init! contract ----------------------------------------------------
 

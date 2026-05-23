@@ -19,7 +19,7 @@
   [(h/mock-epoch :e1 :c1 {} {:counter 1}
                  {:trace-events
                   [{:id 1 :op-type :error
-                    :operation :rf.error/handler-threw
+                    :operation :rf.error/handler-exception
                     :tags {:rf.trace/dispatch-id :c1}}]})
    (h/mock-epoch :e2 :c2 {:counter 1} {:counter 2}
                  {:trace-events

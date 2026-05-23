@@ -124,7 +124,7 @@
 
 (deftest issue-event?-classification
   (testing "every issue op-type is an issue"
-    (is (true? (h/issue-event? (error-ev    1 :rf.error/handler-threw))))
+    (is (true? (h/issue-event? (error-ev    1 :rf.error/handler-exception))))
     (is (true? (h/issue-event? (warning-ev  2 :rf.warning/recoverable))))
     (is (true? (h/issue-event? (advisory-ev 3 :rf.info/note)))))
   (testing "non-issue op-types are NOT issues"
@@ -137,7 +137,7 @@
 
 (deftest category-prefix-projects-keyword-namespace
   (testing "category-prefix is the operation's keyword namespace"
-    (is (= "rf.error"   (h/category-prefix (error-ev 1 :rf.error/handler-threw))))
+    (is (= "rf.error"   (h/category-prefix (error-ev 1 :rf.error/handler-exception))))
     (is (= "rf.warning" (h/category-prefix (warning-ev 2 :rf.warning/recoverable))))
     (is (= "rf.ssr"     (h/category-prefix (warning-ev 3 :rf.ssr/hydration-mismatch))))
     (is (= "rf.info"    (h/category-prefix (advisory-ev 4 :rf.info/note))))
@@ -154,14 +154,14 @@
 
 (deftest project-issue-builds-row-shape
   (testing "a projected issue carries every cell the row needs"
-    (let [row (h/project-issue (error-ev 7 :rf.error/handler-threw
+    (let [row (h/project-issue (error-ev 7 :rf.error/handler-exception
                                          {:time 9999
                                           :tags {:reason "kaboom"}}))]
       (is (= 7                          (:id row)))
       (is (= 9999                       (:time row)))
       (is (= :error                     (:severity row)))
       (is (= :error                     (:op-type row)))
-      (is (= :rf.error/handler-threw    (:operation row)))
+      (is (= :rf.error/handler-exception    (:operation row)))
       (is (= "rf.error"                 (:category-prefix row)))
       (is (re-find #"kaboom"            (:description row)))
       (is (some?                        (:raw row))))))
@@ -252,7 +252,7 @@
     (is (= :epoch-evicted (h/resolve-focus-status 1 nil)))))
 
 (deftest find-epoch-record-returns-match
-  (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-threw)])
+  (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-exception)])
               (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])]]
     (is (= 5 (:epoch-id (h/find-epoch-record 5 hist))))
     (is (= 6 (:epoch-id (h/find-epoch-record 6 hist))))
@@ -263,12 +263,12 @@
             (most-recent) record. epoch-history is oldest-first per
             re-frame.epoch/epoch-history, so the head is the last
             element."
-    (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-threw)])
+    (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-exception)])
                 (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])
                 (epoch-record 7 [])]]
       (is (= 7 (:epoch-id (h/find-epoch-record nil hist))))))
   (testing "single-record history's head is that single record"
-    (let [hist [(epoch-record 42 [(error-ev 1 :rf.error/handler-threw)])]]
+    (let [hist [(epoch-record 42 [(error-ev 1 :rf.error/handler-exception)])]]
       (is (= 42 (:epoch-id (h/find-epoch-record nil hist))))))
   (testing "focus nil AND history empty/nil returns nil"
     (is (nil? (h/find-epoch-record nil [])))
@@ -312,7 +312,7 @@
   (testing "the focused epoch's :trace-events feed the projection;
             non-issue traces are silently dropped"
     (let [record (epoch-record 42
-                   [(error-ev   1 :rf.error/handler-threw)
+                   [(error-ev   1 :rf.error/handler-exception)
                     (non-issue-ev 2)
                     (warning-ev 3 :rf.warning/recoverable)
                     (non-issue-ev 4)
@@ -458,7 +458,7 @@
 (deftest project-feed-empty-kind-no-matches-when-filters-hide-all
   (testing "issues exist in the focused epoch but the chip filters hide
             them all → :no-matches"
-    (let [record (epoch-record 1 [(error-ev 1 :rf.error/handler-threw)])
+    (let [record (epoch-record 1 [(error-ev 1 :rf.error/handler-exception)])
           feed   (h/project-feed record {:severities #{:advisory}} :focused)]
       (is (= 1 (:total feed)))
       (is (= 0 (:rendered feed)))
@@ -467,7 +467,7 @@
 (deftest project-feed-histograms-are-epoch-scoped
   (testing "severity-counts and distinct-prefixes reflect the focused
             epoch's :trace-events — NOT a global stream"
-    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-threw)
+    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-exception)
                                   (warning-ev 2 :rf.warning/recoverable)
                                   (error-ev   3 :rf.ssr/hydration-mismatch)])
           feed   (h/project-feed record {} :focused)]
@@ -477,7 +477,7 @@
 
 (deftest project-feed-chip-filter-anding
   (testing "chip filters AND on top of the focused-epoch projection"
-    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-threw)
+    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-exception)
                                   (warning-ev 2 :rf.warning/missing-doc)
                                   (error-ev   3 :rf.ssr/hydration-mismatch)])
           feed   (h/project-feed record
@@ -504,7 +504,7 @@
                (epoch-record 1 [(non-issue-ev 1)
                                 (warning-ev 2 :rf.warning/recoverable)]))))
   (is (true? (h/epoch-has-issues?
-               (epoch-record 1 [(error-ev 1 :rf.error/handler-threw)])))))
+               (epoch-record 1 [(error-ev 1 :rf.error/handler-exception)])))))
 
 ;; ---- (10) format-time ---------------------------------------------
 

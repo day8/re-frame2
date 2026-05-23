@@ -69,12 +69,15 @@
 
   ## Detail panel (L4)
 
-  Renders the active tab's projection of the focused event. Tabs
-  reuse the existing per-panel views where possible (Event tab →
-  `event-detail/Panel`, App-db → `app-db-diff/Panel`, Trace →
-  `trace/Panel`, Machines → `machine-inspector/Panel`, Routing →
-  `routing/Panel`, Issues → `issues-ribbon/Panel`). The Views tab
-  is a stub pending the §5.3 per-view content design.
+  Renders the active tab's projection of the focused event. The L4
+  panel is registry-driven (rf2-2moh1): each tab registers its
+  `:panel` via `panel-registry/reg-l4-tab!` and the shell mounts the
+  active tab through `panel-registry/tab-by-id`. The seven Dynamic
+  tabs all mount real panels — Event → `event-detail/Panel`, App-db →
+  `app-db-diff/Panel`, Views → `reactive-panel/Panel` (the 021 §3
+  three-stacked-tables design, rf2-8ve8z), Trace → `trace/Panel`,
+  Machines → `machine-inspector/Panel`, Routing → `routing/Panel`,
+  Issues → `issues-ribbon/Panel`.
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
@@ -1783,9 +1786,12 @@
    "Unknown tab: " [:code (pr-str selected)]])
 
 (rf/reg-view detail-panel
-  "L4 detail panel — case-switch on `:rf.causa/selected-tab`. Reuses
-  existing Panel views for Event / App-db / Trace / Machines /
-  Routing / Issues; Views is a stub pending follow-on impl.
+  "L4 detail panel — mounts the active `:rf.causa/selected-tab`'s panel
+  via the registry-driven `panel-registry/tab-by-id :dynamic` lookup
+  (rf2-2moh1). All seven Dynamic tabs mount real panels (Event /
+  App-db / Views / Trace / Machines / Routing / Issues); the former
+  literal case-switch is gone. An unrecognised tab falls back to
+  `unknown-tab-stub`.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`. The wrapping `<div>` paints `bg-2` as a contrast
@@ -1795,8 +1801,8 @@
   ## rf2-5kfxe.3 — 180ms cross-fade on tab switch
 
   Spec/007 §Motion + animation calls for a 180ms cross-fade when the
-  user switches L4 tabs. The case-switch above is otherwise an instant
-  DOM swap. The trick: wrap the chosen panel in an inner `<div>`
+  user switches L4 tabs. The registry mount below is otherwise an
+  instant DOM swap. The trick: wrap the chosen panel in an inner `<div>`
   *keyed on `selected`*. When the key changes Reagent unmounts the
   previous wrapper + mounts a new one, which auto-plays the
   `rf-causa-fade-in` CSS animation declared in

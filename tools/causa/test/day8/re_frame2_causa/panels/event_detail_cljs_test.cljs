@@ -335,16 +335,38 @@
         (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-error")))
         (is (nil?  (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")))))))
 
-(deftest cascade-outcome-warning-glyph-when-depth-exceeded
-  (testing "a depth-exceeded warning flips the outcome to ⚠ warning"
+(deftest cascade-outcome-error-glyph-for-non-handler-exception-error
+  (testing "rf2-ee38b.2 — an error trace that is NOT a handler exception
+            (e.g. :rf.error/drain-depth-exceeded, a real substrate op)
+            still flips the outcome to ✗. The glyph is driven by the
+            universal severity axis (:op-type :error), not by an
+            enumerated handler-exception set."
     (seed-buffer!
       (conj (cascade-evs 100 [:foo] 0)
-            {:id 99 :op-type :warning :operation :rf.warning/depth-exceeded
+            {:id 99 :op-type :error :operation :rf.error/drain-depth-exceeded
              :tags {:rf.trace/dispatch-id 100}}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-warning")))))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-error")))
+        (is (nil?  (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")))))))
+
+(deftest cascade-outcome-warning-glyph-for-real-substrate-warning
+  (testing "rf2-ee38b.2 — a REAL warning op the substrate actually emits
+            (:rf.warning/large-value-unschema) flips the outcome to ⚠.
+            Previously the test fabricated :rf.warning/depth-exceeded —
+            an op the runtime never produces — and the production code
+            matched the same phantom keyword, so the ⚠ branch was
+            structurally dead. Now classified by :op-type :warning."
+    (seed-buffer!
+      (conj (cascade-evs 100 [:foo] 0)
+            {:id 99 :op-type :warning :operation :rf.warning/large-value-unschema
+             :tags {:rf.trace/dispatch-id 100}}))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-warning")))
+        (is (nil?  (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")))))))
 
 (deftest cascade-outcome-ssr-badge-when-hydrated
   (testing ":rf.ssr/hydrated event surfaces the SSR✓ badge on the
@@ -972,6 +994,54 @@
                  :dispatch-id 1 :other []})]
       (is (= #{:event-id :glyph :outcome :duration-ms :dispatch-id :ssr?}
              (set (keys out)))))))
+
+(deftest cascade-outcome-classifies-by-severity-axis
+  (testing "rf2-ee38b.2 — cascade-outcome resolves the glyph off the
+            universal :op-type severity axis, so EVERY warning/error op
+            the substrate emits is covered (not a hand-maintained set)."
+    ;; Happy path.
+    (is (= [:ok "✓"]
+           ((juxt :outcome :glyph)
+            (event-detail/cascade-outcome
+              {:event [:foo] :dispatch-id 1 :other []}))))
+    ;; Any :op-type :warning trace → ⚠, regardless of the specific op.
+    (doseq [op [:rf.warning/large-value-unschema
+                :rf.warning/schema-walker-opaque
+                :rf.warning/epoch-redact-fn-exception
+                :rf.warning/some-future-op-not-yet-invented]]
+      (is (= [:warning "⚠"]
+             ((juxt :outcome :glyph)
+              (event-detail/cascade-outcome
+                {:event [:foo] :dispatch-id 1
+                 :other [{:id 9 :op-type :warning :operation op}]})))
+          (str "warning op " op " flips the glyph to ⚠")))
+    ;; Any :op-type :error trace → ✗ (handler-exception OR not).
+    (doseq [op [:rf.error/handler-exception
+                :rf.error/drain-depth-exceeded
+                :rf.error/flow-eval-exception
+                :rf.error/no-such-handler]]
+      (is (= [:error "✗"]
+             ((juxt :outcome :glyph)
+              (event-detail/cascade-outcome
+                {:event [:foo] :dispatch-id 1
+                 :other [{:id 9 :op-type :error :operation op}]})))
+          (str "error op " op " flips the glyph to ✗")))
+    ;; Error wins over a co-resident warning.
+    (is (= [:error "✗"]
+           ((juxt :outcome :glyph)
+            (event-detail/cascade-outcome
+              {:event [:foo] :dispatch-id 1
+               :other [{:id 9 :op-type :warning :operation :rf.warning/large-value-unschema}
+                       {:id 10 :op-type :error :operation :rf.error/drain-depth-exceeded}]})))
+        "error severity trumps a co-resident warning")
+    ;; Namespace fallback: an :rf.error/* op missing an :op-type still
+    ;; classifies as an error (defensive against partial trace shapes).
+    (is (= :error
+           (:outcome
+            (event-detail/cascade-outcome
+              {:event [:foo] :dispatch-id 1
+               :other [{:id 9 :operation :rf.error/flow-eval-exception}]})))
+        ":rf.error/* namespace flips the glyph even without :op-type")))
 
 (deftest effects-handlers-ran-projects-rows-from-effects-bucket
   (testing "effects-handlers-ran reads cascade :effects directly"

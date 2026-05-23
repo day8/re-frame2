@@ -416,6 +416,16 @@
 
 ;; ---- consumer-side filter ------------------------------------------------
 ;;
+;; FORWARD-COMPAT SURFACE — NO CURRENT PRODUCTION CALLER (rf2-ee38b.2).
+;; The Trace panel dropped its filtering UI (rf2-gkczt, Mike-direction
+;; 2026-05-22); `build-filter-predicate` / `filter-events` are retained
+;; deliberately as the framework-parity consumer primitive (the algebra
+;; a future buffer-slicing panel will reuse rather than re-implement) and
+;; are exercised only by `filter_vocab_consumer_cljs_test`. That suite is
+;; a contract guard, NOT live-path coverage — do not read its green as
+;; proof a panel consumes this. Mayor call deferred: remove both fns +
+;; the consumer test if no buffer-slicing panel is on the roadmap.
+;;
 ;; Causa's panels slice the buffer by the same filter vocabulary the
 ;; framework exposes on `(rf/trace-buffer opts)` per Spec 009 §Retain-N
 ;; trace ring buffer + §Filter vocabulary — the 13-axis vocabulary
