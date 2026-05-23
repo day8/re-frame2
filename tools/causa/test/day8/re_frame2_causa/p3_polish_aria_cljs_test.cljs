@@ -348,23 +348,31 @@
         (is (some? glyph)
             "the decorative `●` glyph carries aria-hidden=\"true\"")))))
 
-(deftest runtime-tab-glyph-is-aria-hidden
-  (testing "rf2-vxpq1 — the ●/○ glyph on every L3 tab button carries
-            aria-hidden so AT users hear only the tab label, not the
-            unicode name."
+(deftest runtime-tab-has-no-decorative-glyph
+  (testing "rf2-ad7zx.16 (supersedes rf2-vxpq1) — the L3 tab strip is now
+            the Figma button-bar (filled-accent active button + white
+            text), NOT a radio-glyph row. The previous `●/○` decorative
+            glyph (which had to carry aria-hidden so AT heard only the
+            label) is GONE entirely — selection is signalled by the
+            button fill + colour, not a unicode circle. So the tab button
+            carries NO decorative glyph at all, and AT users hear only
+            the visible label by construction."
     (causa-setup!)
     (rf/with-frame :rf/causa
-      (let [tree     (shell/shell-view)
+      (let [tree      (shell/shell-view)
             event-tab (find-by-testid tree "rf-causa-tab-event")
-            glyph    (some (fn [node]
-                             (when (and (vector? node)
-                                        (= :span (first node))
-                                        (map? (second node))
-                                        (= "true" (:aria-hidden (second node))))
-                               node))
-                           (hiccup-seq event-tab))]
-        (is (some? glyph)
-            "L3 tab's ●/○ glyph carries aria-hidden=\"true\"")))))
+            glyph     (some (fn [node]
+                              (when (and (vector? node)
+                                         (= :span (first node))
+                                         (map? (second node))
+                                         (= "true" (:aria-hidden (second node))))
+                                node))
+                            (hiccup-seq event-tab))
+            tab-text  (apply str (filter string? (hiccup-seq event-tab)))]
+        (is (nil? glyph)
+            "L3 tab carries no aria-hidden decorative-glyph span")
+        (is (not (re-find #"[◉○●]" tab-text))
+            "L3 tab carries no radio-circle glyph in its text")))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) rf2-vxpq1 — static placeholder uses <h2> not <h1>

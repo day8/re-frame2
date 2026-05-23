@@ -1845,17 +1845,28 @@
 ;; ---- L3 tab bar ----------------------------------------------------------
 
 (defn- tab-button
-  "One tab in the L3 tab bar. `●` for active per spec/018 §5 Tab
-  strip rendering; `○` for inactive. The mnemonic letter is exposed
-  via the `title` attribute.
+  "One tab in the L3 tab bar — a Figma button-bar tab, NOT a radio
+  glyph (rf2-ad7zx.16). Each tab is a rounded button; the ACTIVE tab
+  is a filled `:accent` background with white text; inactive tabs are
+  transparent with secondary-ink text and a subtle `:hover` background
+  fill (the hover rule lives in `theme/global-styles/motion-css`,
+  keyed off the `rf-causa-tab-*` testid, since inline styles can't
+  carry a `:hover` pseudo-class). Mirrors
+  `tools/causa/design-reference/components/Tabs.tsx` +
+  `App.tsx` TabsList (`px-3 py-1.5 rounded`,
+  `data-[state=active]:bg-[var(--devtools-active)]` =`:accent`,
+  `data-[state=active]:text-white`,
+  `hover:bg-[var(--devtools-hover)]` =`:hover`). The mnemonic letter is
+  exposed via the `title` attribute. The decorative `●/○` radio glyph
+  is GONE — fill + text colour carry the selected signal.
 
   `aria-label` wraps the visible label as `Causa <tab-label> tab` so the
   button's accessible name never collides with host-app role queries
   (Playwright's `getByRole('button', {name: '-'})` matched the old
   `App-db` tab when only `title` was set). This wrapping is why the
   app-db tab can safely carry the lowercase library label `app-db`
-  (rf2-okvit) despite the `-` glyph — the accessible name is
-  `Causa app-db tab`, not the bare `app-db`.
+  (rf2-okvit) — the accessible name is `Causa app-db tab`, not the bare
+  `app-db`.
 
   Per rf2-lvf8t (rf2-q7who Thread B) each button carries `role='tab'`
   and `aria-selected={active?}` so the tab strip exposes the proper
@@ -1863,9 +1874,7 @@
   rather than generic buttons and reads the selected state correctly;
   `getByRole('tab')` lookups in host integration tests resolve here."
   [{:keys [id label mnem active?]}]
-  (let [glyph    (if active? "◉" "○")
-        color    (if active? (:text-primary tokens) (:text-secondary tokens))
-        ;; rf2-plajx — stable per-tab id so the controlled L4 panel's
+  (let [;; rf2-plajx — stable per-tab id so the controlled L4 panel's
         ;; `aria-labelledby` resolves to this button's accessible name.
         tab-id   (str "rf-causa-tab-button-" (name id))
         panel-id (str "rf-causa-tabpanel-" (name id))]
@@ -1877,28 +1886,24 @@
               :on-click      #(rf/dispatch [:rf.causa/select-tab id] {:frame :rf/causa})
               :title         (str label " (" mnem ")")
               :aria-label    (str "Causa " label " tab")
-              :style {:background    "transparent"
+              :style {;; Active tab → filled accent background + white
+                      ;; text (Figma `data-[state=active]:bg-…/text-white`);
+                      ;; inactive → transparent with secondary ink. The
+                      ;; `:hover` fill for inactive tabs is applied via the
+                      ;; scoped CSS rule in motion-css.
+                      :background    (if active? (:accent tokens) "transparent")
                       :border        "none"
-                      :border-bottom (if active?
-                                       (str "2px solid " (:accent tokens))
-                                       "2px solid transparent")
-                      :color         color
+                      :border-radius "6px"          ; Tailwind `rounded`
+                      :color         (if active?
+                                       (:white tokens)
+                                       (:text-secondary tokens))
                       :cursor        "pointer"
-                      :padding       "6px 12px"
+                      :padding       "6px 12px"     ; Tailwind `px-3 py-1.5`
                       :font-family   sans-stack
                       :font-size     (:body type-scale)
                       :font-weight   (if active? 600 400)
-                      :white-space   "nowrap"}}
-     ;; rf2-vxpq1 — the ●/○ glyph is decorative; the visible label
-     ;; carries the tab's accessible name. `aria-hidden="true"`
-     ;; suppresses the unicode-name announcement ("heavy black
-     ;; circle" / "white circle").
-     [:span {:aria-hidden "true"
-             :style {:color (if active?
-                              (:accent tokens)
-                              (:text-tertiary tokens))
-                     :margin-right "4px"}}
-      glyph]
+                      :white-space   "nowrap"
+                      :transition    "background-color 120ms ease-out, color 120ms ease-out"}}
      label]))
 
 (rf/reg-view tab-bar
