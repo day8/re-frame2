@@ -156,7 +156,8 @@ All server-only — `:platforms #{:server}`. These build the response accumulato
 | `[:rf.server/append-header {:name :value}]` | per `:rf.fx.server/append-header-args` | 011 |
 | `[:rf.server/set-cookie :rf.server/cookie]` | structured cookie map | 011 |
 | `[:rf.server/delete-cookie {:name ?:path ?:domain}]` | — | 011 |
-| `[:rf.server/redirect {:location ?:status}]` | default `:status 302`; truncates HTML | 011 |
+| `[:rf.server/redirect {:location ?:status}]` | default `:status 302`; truncates HTML. **Caller-trusted** `:location`. | 011 |
+| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow}]` | The caller-untrusted variant — parses `:location`, rejects `javascript:` / `data:` / `vbscript:` schemes, and enforces `:relative-only?` / `:allow` allowlist before setting `:redirect`. Open-redirect mitigation for attacker-controlled `?next=` strings. | 011 |
 
 ## Standard SSR subs
 

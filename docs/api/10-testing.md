@@ -236,15 +236,17 @@ The view-assertion surface treats a view as what it is — a function that retur
 (rf/reg-view cart-row
   [item]
   [:tr (th/testid (str "cart-row-" (:id item)))
-    [:td (:name item)]
+    [:td (th/testid "cart-row-name") (:name item)]
     [:td.qty (:qty item)]
-    [:button {:on-click #(rf/dispatch [::remove (:id item)])} "remove"]])
+    [:button (th/testid "cart-row-remove" {:on-click #(rf/dispatch [::remove (:id item)])})
+     "remove"]])
 
 (deftest cart-row-renders-and-dispatches
-  (let [tree (cart-row {:id 1 :name "widget" :qty 3})
-        node (th/find-by-testid (th/expand-tree tree) "cart-row-1")]
-    (is (= "widget" (th/text-content (th/find-by-attr node :td.name nil))))
-    (is (fn? (th/extract-handler (th/find-by-attr node :button nil) :on-click)))))
+  (let [tree (th/expand-tree (cart-row {:id 1 :name "widget" :qty 3}))
+        name-cell  (th/find-by-testid tree "cart-row-name")
+        remove-btn (th/find-by-testid tree "cart-row-remove")]
+    (is (= "widget" (th/text-content name-cell)))
+    (is (fn? (th/extract-handler remove-btn :on-click)))))
 ```
 
 No JSDOM; no `act()`; no JSON serialisation; no DOM walk. The hiccup is data; the assertions walk data.
