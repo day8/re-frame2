@@ -6,11 +6,19 @@
 
   Background — Spec 010 §The `:schema` value is opaque to re-frame: the
   schemas-walker (`re-frame.schemas.walker`) is pure data and handles
-  only vector-form Malli EDN. Compiled `m/schema` values and registry
-  refs (`:my/user-schema`) are treated as opaque leaves; per-slot
-  `:sensitive?` / `:large?` flags inside an opaque value are silently
-  skipped. This warning is the discoverability nudge that surfaces
-  this misconfiguration once per process.
+  only vector-form Malli EDN. Compiled `m/schema` values are treated as
+  opaque leaves; per-slot `:sensitive?` / `:large?` flags inside an
+  opaque value are silently skipped. This warning is the discoverability
+  nudge that surfaces this misconfiguration once per process.
+
+  Per rf2-ee38b.6 (correctness P2): keyword schemas do NOT warn. A bare
+  keyword is non-vector but is a valid Malli schema (primitive `:int` /
+  `:string` OR registry ref `:my/user-schema`); a keyword cannot carry
+  per-slot props, so the walker provably skips nothing on a primitive —
+  warning on every keyword was a frequent false positive on the common
+  case. The predicate cannot cheaply distinguish primitive from
+  registry-ref keywords without a registry consult (forbidden by Spec
+  010 §opaque), so the keyword case is suppressed entirely.
 
   Symmetric with `:rf.warning/schema-validator-unavailable` (rf2-fq7d2)
   — same emit-site, same warn-once-per-process pattern, same
@@ -38,26 +46,60 @@
          @recorded))
 
 ;; ---- positive paths -------------------------------------------------------
-
-(deftest warning-fires-when-schema-is-registry-ref
-  (testing "reg-app-schema with a registry-ref keyword (opaque to the
-            walker) emits the warning exactly once"
-    (let [recorded (record-traces! ::registry-ref)]
-      (rf/reg-app-schema [:user] :my/user-schema)
-      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
-        (is (= 1 (count warns))
-            "exactly one warning fires on the first reg-app-schema call")
-        (is (= :registry-ref (-> warns first :tags :schema-kind)))
-        (is (= [:user] (-> warns first :tags :path)))))))
+;;
+;; Only genuinely opaque NON-keyword values (compiled m/schema-like
+;; maps) warn. Keyword schemas — primitive AND registry-ref — are
+;; suppressed (rf2-ee38b.6 correctness P2); see the negative-path
+;; section below.
 
 (deftest warning-fires-when-schema-is-compiled-map-object
   (testing "reg-app-schema with a compiled m/schema-like map value
-            (opaque to the walker) emits the warning"
+            (opaque to the walker) emits the warning exactly once"
     (let [recorded (record-traces! ::compiled-map)]
       (rf/reg-app-schema [:cart] {:malli/schema :some-compiled-form})
       (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
-        (is (= 1 (count warns)))
-        (is (= :compiled-schema-object (-> warns first :tags :schema-kind)))))))
+        (is (= 1 (count warns))
+            "exactly one warning fires on the first reg-app-schema call")
+        (is (= :compiled-schema-object (-> warns first :tags :schema-kind)))
+        (is (= [:cart] (-> warns first :tags :path)))))))
+
+(deftest warning-fires-once-across-multiple-opaque-calls
+  (testing "subsequent reg-app-schema calls with opaque (compiled-map)
+            schemas within the same process do NOT re-emit the warning
+            (process-lifecycle one-shot)"
+    (let [recorded (record-traces! ::dedup-rereg)]
+      (rf/reg-app-schema [:a] {:malli/schema :a})
+      (rf/reg-app-schema [:b] {:malli/schema :b})
+      (rf/reg-app-schema [:c] {:malli/schema :c})
+      (is (= 1 (count (warnings-of recorded
+                                   :rf.warning/schema-walker-opaque)))
+          "three registrations -> exactly one warning"))))
+
+(deftest warning-fires-once-from-reg-app-schemas-bulk
+  (testing "bulk reg-app-schemas with opaque schemas fires the warning
+            once across all entries"
+    (let [recorded (record-traces! ::bulk)]
+      (rf/reg-app-schemas {[:user]    {:malli/schema :user}
+                           [:cart]    {:malli/schema :cart}
+                           [:session] {:malli/schema :session}})
+      (is (= 1 (count (warnings-of recorded
+                                   :rf.warning/schema-walker-opaque)))))))
+
+(deftest warning-carries-actionable-reason
+  (testing ":tags includes a :reason string that names the two workable
+            shapes (vector form OR registration-level :sensitive?
+            metadata)"
+    (let [recorded (record-traces! ::reason)]
+      (rf/reg-app-schema [:user] {:malli/schema :user})
+      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)
+            tags  (-> warns first :tags)]
+        (is (string? (:reason tags)))
+        (is (re-find #"vector form" (:reason tags))
+            ":reason names the vector-form fix")
+        (is (re-find #"sensitive\?" (:reason tags))
+            ":reason names the registration-meta fallback")))))
+
+;; ---- negative paths (no warning) ------------------------------------------
 
 (deftest warning-suppressed-when-schema-is-vector-form
   (testing "reg-app-schema with a vector-form Malli schema (introspectable)
@@ -67,41 +109,31 @@
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "vector-form schema -> no warning"))))
 
-(deftest warning-fires-once-across-multiple-non-vector-calls
-  (testing "subsequent reg-app-schema calls with opaque schemas within
-            the same process do NOT re-emit the warning (process-
-            lifecycle one-shot)"
-    (let [recorded (record-traces! ::dedup-rereg)]
-      (rf/reg-app-schema [:a] :my/schema-a)
-      (rf/reg-app-schema [:b] :my/schema-b)
-      (rf/reg-app-schema [:c] :my/schema-c)
-      (is (= 1 (count (warnings-of recorded
-                                   :rf.warning/schema-walker-opaque)))
-          "three registrations -> exactly one warning"))))
+(deftest warning-suppressed-on-primitive-keyword-schemas
+  (testing "rf2-ee38b.6 — primitive keyword schemas (`:int` / `:string`
+            / `:boolean` / `:any`) are valid Malli schemas that cannot
+            carry per-slot props; the walker provably skips nothing, so
+            registering one does NOT emit the false-positive warning"
+    (let [recorded (record-traces! ::primitive-kw)]
+      (rf/reg-app-schema [:age]    :int)
+      (rf/reg-app-schema [:name]   :string)
+      (rf/reg-app-schema [:active] :boolean)
+      (rf/reg-app-schema [:misc]   :any)
+      (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
+          "primitive keyword schemas -> no spurious 'per-slot flags
+           skipped' nudge"))))
 
-(deftest warning-fires-once-from-reg-app-schemas-bulk
-  (testing "bulk reg-app-schemas with opaque schemas fires the warning
-            once across all entries"
-    (let [recorded (record-traces! ::bulk)]
-      (rf/reg-app-schemas {[:user]    :my/user-schema
-                           [:cart]    :my/cart-schema
-                           [:session] :my/session-schema})
-      (is (= 1 (count (warnings-of recorded
-                                   :rf.warning/schema-walker-opaque)))))))
-
-(deftest warning-carries-actionable-reason
-  (testing ":tags includes a :reason string that names the two workable
-            shapes (vector form OR registration-level :sensitive?
-            metadata)"
-    (let [recorded (record-traces! ::reason)]
+(deftest warning-suppressed-on-registry-ref-keyword-schemas
+  (testing "rf2-ee38b.6 — registry-ref keyword schemas (`:my/user-schema`)
+            also do NOT warn: they are indistinguishable from primitive
+            keywords without a forbidden registry consult, so the
+            keyword case is suppressed entirely. The advanced registry-
+            ref-hides-per-slot-flags shape is covered by the walker
+            docstring's discoverability caveat (rf2-yaioz)"
+    (let [recorded (record-traces! ::registry-ref)]
       (rf/reg-app-schema [:user] :my/user-schema)
-      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)
-            tags  (-> warns first :tags)]
-        (is (string? (:reason tags)))
-        (is (re-find #"vector form" (:reason tags))
-            ":reason names the vector-form fix")
-        (is (re-find #"sensitive\?" (:reason tags))
-            ":reason names the registration-meta fallback")))))
+      (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
+          "registry-ref keyword schema -> no warning"))))
 
 ;; ---- cache-clear semantics ------------------------------------------------
 
@@ -110,11 +142,11 @@
             subsequent reg-app-schema fires the warning anew (test-fixture
             isolation)"
     (let [recorded (record-traces! ::clear-cache)]
-      (rf/reg-app-schema [:first] :my/schema-1)
+      (rf/reg-app-schema [:first] {:malli/schema :first})
       (is (= 1 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque))))
       (schemas/clear-walker-opaque-warned!)
-      (rf/reg-app-schema [:second] :my/schema-2)
+      (rf/reg-app-schema [:second] {:malli/schema :second})
       (is (= 2 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque)))
           "after cache clear the warning fires again"))))
