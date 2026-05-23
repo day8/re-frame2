@@ -93,6 +93,10 @@
 ;; bencode framing — handle concatenated frames in one TCP packet.
 ;; ---------------------------------------------------------------------------
 
+;; `log!` is defined further down (alongside the connection state); the
+;; stuck-cursor diagnostic in `decode-all-frames` needs it earlier.
+(declare log!)
+
 (defn decode-all-frames
   "Decode every complete bencode frame from `buf`. Returns
   `[js-array-of-frames trailing-buffer]`. Walks via the package's
@@ -120,7 +124,27 @@
                            0)]
           (cond
             (nil? decoded)        [frames b]
-            (zero? consumed)      (do (.push frames decoded) [frames (js/Buffer.alloc 0)])
+            ;; Stuck-cursor guard: the bencode lib decoded a frame but
+            ;; reports `consumed = 0`, so we can't advance `b`. We push
+            ;; the one frame and stop, dropping whatever trailing bytes
+            ;; remain in this chunk — the alternative (recur on the
+            ;; un-advanced `b`) is an infinite loop. This is a defensive
+            ;; branch, not an observed path (`position` is reliable for
+            ;; the real frame shapes; see comment above). rf2-ee38b.18:
+            ;; if a multi-frame chunk ever DID hit this, the trailing
+            ;; complete frames would be silently lost and their pending
+            ;; nREPL ids would hang until timeout — so we log to stderr
+            ;; (never stdout — reserved for MCP) when the dropped trailer
+            ;; is non-empty, making a real occurrence diagnosable rather
+            ;; than mute.
+            (zero? consumed)
+            (do (.push frames decoded)
+                (when (pos? (.-length b))
+                  (log! "WARNING decode-all-frames: bencode reported consumed=0 after a"
+                        "successful frame decode; dropping" (.-length b)
+                        "trailing byte(s) in this chunk to avoid a stuck-cursor loop."
+                        "Any complete frames in the dropped tail will hang until timeout."))
+                [frames (js/Buffer.alloc 0)])
             :else
             (do (.push frames decoded)
                 (recur (.slice b consumed)))))))))

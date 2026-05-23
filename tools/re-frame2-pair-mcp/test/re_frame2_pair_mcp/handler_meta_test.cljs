@@ -3,7 +3,7 @@
 
   Both tools build a CLJS form that calls into the preloaded runtime
   (`re-frame2-pair.runtime/registrar-describe` / `registrar-list` for
-  the six registrar kinds; `re-frame.core/machine-meta` /
+  the ten registrar kinds; `re-frame.core/machine-meta` /
   `re-frame.core/machines` for the `:machine` kind). Live end-to-end
   coverage runs against a shadow-cljs runtime; these tests pin:
 

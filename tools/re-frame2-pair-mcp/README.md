@@ -11,8 +11,10 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the fourteen re-frame2-pair
-ops as MCP tools. AI agents (Claude Code, Cursor, Copilot) launch it
+via shadow-cljs to a single `.js` file) that exposes the sixteen re-frame2-pair
+ops as MCP tools (fourteen read/inspect ops plus the two write tools
+`restore-epoch` / `reset-frame-db`, which are gated behind
+`--allow-writes`). AI agents (Claude Code, Cursor, Copilot) launch it
 as a subprocess; one persistent nREPL socket is held for the lifetime
 of the session.
 
@@ -30,6 +32,8 @@ cljs-eval compile.
 | `discover-app` | `discover-app.sh`         | Verify shadow-cljs nREPL is reachable, probe the preloaded re-frame2-pair runtime marker, return a health summary. Run first every session. |
 | `eval-cljs`    | `eval-cljs.sh`            | Evaluate a CLJS form via shadow-cljs's `cljs-eval`. Returns the EDN value. |
 | `dispatch`     | `dispatch.sh`             | Fire a re-frame2 event with `:origin :pair`. Modes: queued, sync, trace. Frame and fx-overrides supported. |
+| `restore-epoch`| _(new — no bash equivalent)_ | Time-travel undo (rf2-ee38b.18): rewind a frame's app-db to a recorded prior epoch. The canonical pair-tool undo gesture (Tool-Pair §Time-travel). `epoch-id` is EDN (the runtime emits integer ids). **Gated behind `--allow-writes`** — returns `:rf.error/writes-disabled` without the flag. |
+| `reset-frame-db`| _(new — no bash equivalent)_ | State injection (rf2-ee38b.18): replace a frame's app-db with an arbitrary EDN value the runtime never recorded — the JSON-loaded-bug-repro case (Tool-Pair §Pair-tool writes). Records a synthetic epoch so `restore-epoch` can rewind past it. **Gated behind `--allow-writes`**. |
 | `trace-window` | `trace-window.sh`         | Return the epochs that landed in the last N ms. Cursor-paginated (`:limit` / `:cursor`, default limit 50). |
 | `watch-epochs` | `watch-epochs.sh`         | Pull-mode poll for matching epochs added after a given epoch-id. Predicate keys: `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`, `:timing-ms` (number or `">N"` / `">=N"` / `"<N"` / `"<=N"` / `"=N"` — server-side wall-clock filter, rf2-r3azh). Cursor-paginated (`:limit` / `:cursor`, default limit 50). |
 | `tail-build`   | `tail-build.sh`           | Wait for a hot-reload to land by polling a probe form until its value changes. |
@@ -38,6 +42,8 @@ cljs-eval compile.
 | `subscribe`    | _(new — no bash equivalent)_ | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe`  | _(new — no bash equivalent)_ | Close a streaming subscription out-of-band. Idempotent — closing an unknown sub-id returns `:existed? false` rather than an error. |
 | `list-subscriptions` | _(new — no bash equivalent)_ | List active streaming subscriptions with per-sub queue depth, drop counts, and `:overflow-reason` (rf2-zjz9q; renamed from `subscription-info` per rf2-4y595). Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps the runtime fn directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. |
+| `handler-meta` | _(new — no bash equivalent)_ | Registration metadata for a `(kind, id)` — source-coord (file/line/column/ns), `:doc`, `:tags`, plus an `:rf.source/uri` jump-to-editor link (rf2-pctf8). Eleven supported kinds: event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine. |
+| `list-handlers` | _(new — no bash equivalent)_ | Every registered id under a kind — the discovery surface (rf2-pctf8; renamed from `registry-list` per rf2-4y595). Same eleven supported kinds as `handler-meta`. |
 | `get-re-frame2-pair-instructions` | _(new — no bash equivalent)_ | Return the agent-onboarding prose for re-frame2-pair-mcp (rf2-fnpqg): tool catalogue, EDN posture, tagged-mutation conventions, streaming subscribe semantics, wire-boundary pipeline. Inline text, no nREPL round-trip — call at session start to orient. Mirrors story-mcp's `get-story-instructions`. |
 
 ## Quick start
@@ -145,6 +151,7 @@ your editor is the source of truth.
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
 | `--allow-eval`              | OFF     | Enable the `eval-cljs` tool. Default-OFF gate (rf2-cxx5s); see "eval-cljs gate" below. |
 | `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
+| `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
 
 #### port-file flag (rf2-3dbwh)
@@ -225,6 +232,36 @@ architecture as `--allow-eval` (rf2-zyoj2) and story-mcp's
 `--allow-sensitive-reads` (rf2-uaymx / rf2-g9fje) — the latter shares
 the canonical cross-MCP flag name (rf2-2x3ql).
 
+#### writes gate (rf2-ee38b.18)
+
+`restore-epoch` (time-travel undo) and `reset-frame-db` (state
+injection) are the two Tool-Pair **write** primitives the server is the
+canonical consumer of (Tool-Pair §Time-travel, §Pair-tool writes). Both
+replace a frame's `app-db` wholesale — qualitatively more powerful than
+`dispatch` (which drives the application's own handlers). Published
+builds ship them **DISABLED**; the operator opts in at launch with
+`--allow-writes`:
+
+```json
+{
+  "mcpServers": {
+    "re-frame2-pair": {
+      "command": "npx",
+      "args": ["--allow-writes"]
+    }
+  }
+}
+```
+
+Without the flag, both tools return
+`{:ok? false :reason :rf.error/writes-disabled}` without touching the
+nREPL socket — a stock install cannot rewind history or inject state
+over the MCP socket. The two tools still appear in `tools/list`
+(descriptors are unconditional); the gate is enforced at `tools/call`
+time. Same default-OFF architecture as `--allow-eval`. The tools also
+carry the `:destructiveHint` annotation so agent hosts gate them behind
+a confirmation prompt even when the flag is on.
+
 ### First call
 
 ```text
@@ -288,7 +325,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The fourteen tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-subscriptions` triad + `get-path` direct-read + the `handler-meta` / `list-handlers` registrar-introspection pair + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The sixteen tools (the original per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-subscriptions` triad + `get-path` direct-read + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `reset-frame-db` write pair gated behind `--allow-writes` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. |
 
 ## Development
 
@@ -336,7 +373,7 @@ tools/re-frame2-pair-mcp/
 │   └── probe-mcp-path.cjs                    ; read-only ~/.claude.json drift probe (rf2-vsxgz)
 └── src/re_frame2_pair_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools.cljs                            ; the fourteen MCP tools (per-op + snapshot + get-path + subscribe/unsubscribe/list-subscriptions + get-re-frame2-pair-instructions)
+    ├── tools.cljs                            ; the sixteen MCP tools (per-op + snapshot + get-path + restore-epoch/reset-frame-db writes + subscribe/unsubscribe/list-subscriptions + get-re-frame2-pair-instructions)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame2_pair_mcp/nrepl_test.cljs    ; bencode framing unit tests

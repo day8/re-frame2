@@ -82,6 +82,7 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 |---|---|---|
 | `--allow-eval`            | OFF | Enable the `eval-cljs` tool (rf2-cxx5s). Without the flag, `eval-cljs` calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
 | `--allow-sensitive-reads` | OFF | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
+| `--allow-writes` | OFF | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection), rf2-ee38b.18. Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Same default-OFF posture as `--allow-eval`. |
 | `--max-concurrent-streams=N` | `10` | Resource control: cap concurrent open streaming subscriptions per session (rf2-3ijbl). CLI value wins over the matching env var. |
 | `--max-events-per-sec=N` | `100` | Resource control: token-bucket rate-limit on progress-notification ticks emitted across all open streams (rf2-3ijbl). Excess ticks tally as `:rate-dropped` on the final summary. |
 | `--abuse-overflow-threshold=N` | `50` | Resource control: rolling-window overflow count beyond which the offending stream terminates with `:reason :rf.error/stream-abuse-detected` (rf2-3ijbl). |
@@ -149,7 +150,7 @@ node out/server.js
 
 ## Tool surface
 
-The fourteen tools, in the order a typical session uses them. Argument
+The sixteen tools, in the order a typical session uses them. Argument
 schemas and result shapes are specified in
 [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
 
@@ -158,6 +159,8 @@ schemas and result shapes are specified in
 | `discover-app` | Health-check the runtime; verify the shadow-cljs `:preloads` entry landed. Run first every session. |
 | `eval-cljs` | Evaluate a CLJS form; returns the EDN value. |
 | `dispatch` | Fire a re-frame event with `:origin :pair`. Modes: queued, sync, trace. |
+| `restore-epoch` | Time-travel undo — rewind a frame's `app-db` to a recorded prior epoch (Tool-Pair §Time-travel). `epoch-id` is EDN (the runtime emits integer ids). **Gated behind `--allow-writes`** (rf2-ee38b.18). |
+| `reset-frame-db` | State injection — replace a frame's `app-db` with an arbitrary EDN value the runtime never recorded; the JSON-loaded-bug-repro case (Tool-Pair §Pair-tool writes). Records a synthetic epoch. **Gated behind `--allow-writes`** (rf2-ee38b.18). |
 | `trace-window` | Return epoch records from the last N ms. |
 | `watch-epochs` | Pull-mode poll for matching epochs since a given id. |
 | `tail-build` | Wait for a hot-reload to land by polling a probe form. |
@@ -166,8 +169,8 @@ schemas and result shapes are specified in
 | `subscribe` | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe` | Close a streaming subscription out-of-band. Idempotent. |
 | `list-subscriptions` | Diagnostic peer for `subscribe` / `unsubscribe` (rf2-zjz9q; renamed from `subscription-info` per rf2-4y595) — "what streams are open?" snapshot of the active subscription set. |
-| `handler-meta` | Return the registration-metadata map for a registered handler — `:source-coord`, `:doc`, `:tags`, and any custom slots from the reg-`*` macro. Supported kinds: event, sub, fx, cofx, view, frame, machine. Answer "where is `:user/login` defined?" without an `eval-cljs` round-trip (rf2-cibp8). |
-| `list-handlers` | Discovery peer of `handler-meta` — return every registered id under a kind. Sorted, stable shape. Same seven supported kinds (rf2-pctf8; renamed from `registry-list` per rf2-4y595). |
+| `handler-meta` | Return the registration-metadata map for a registered handler — `:source-coord`, `:doc`, `:tags`, and any custom slots from the reg-`*` macro. Eleven supported kinds: event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine. Answer "where is `:user/login` defined?" without an `eval-cljs` round-trip (rf2-cibp8). |
+| `list-handlers` | Discovery peer of `handler-meta` — return every registered id under a kind. Sorted, stable shape. Same eleven supported kinds (rf2-pctf8; renamed from `registry-list` per rf2-4y595). |
 | `get-re-frame2-pair-instructions` | Returns the agent-onboarding text — how re-frame2-pair connects, how `:origin :pair` works, the canonical workflow per dispatch / eval / snapshot. Read once at session start (rf2-fnpqg). |
 
 (Pre-rf2-7dvg drops also exposed `inject-runtime`. That tool is gone:

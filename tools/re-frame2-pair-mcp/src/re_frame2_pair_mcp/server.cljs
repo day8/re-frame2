@@ -12,12 +12,13 @@
      server starts cleanly even before shadow-cljs is running — the
      first tool that needs the socket gets a structured error).
   2. `initialize`: standard MCP handshake.
-  3. `tools/list`: returns the twelve tool descriptors (the seven
-     bash-shim-overlap ops `discover-app` / `eval-cljs` / `dispatch` /
-     `trace-window` / `watch-epochs` / `tail-build` / `snapshot`, plus
-     `get-path` direct-read, the streaming triad `subscribe` /
-     `unsubscribe` / `list-subscriptions`, and the
-     `get-re-frame2-pair-instructions` agent-onboarding tool).
+  3. `tools/list`: returns the full tool catalogue — see
+     `tools.registry/tools` for the authoritative list (the single
+     source of truth). It spans the bash-shim-overlap ops, the
+     direct-read primitives, the write tools (`restore-epoch` /
+     `reset-frame-db`, gated behind `--allow-writes`), the streaming
+     triad, the registrar-introspection pair, and the agent-onboarding
+     tool. The count is derived, not hand-maintained here.
   4. `tools/call`: dispatch to `tools.cljs`. Each call ensures the
      in-browser runtime is injected via the sentinel probe.
   5. stdin EOF: shut down cleanly.
@@ -34,6 +35,7 @@
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.writes :as writes]
             [re-frame2-pair-mcp.tools.resource-controls :as resource]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
@@ -188,13 +190,22 @@
                                Default OFF. Canonical cross-MCP name
                                (rf2-2x3ql) — matches story-mcp's identically
                                named gate (rf2-g9fje / rf2-uaymx).
+    --allow-writes           — opt-in to the state-mutating tools
+                               `restore-epoch` (time-travel undo) and
+                               `reset-frame-db` (state injection), rf2-ee38b.18.
+                               Default OFF. Without the flag both return
+                               `{:ok? false :reason :rf.error/writes-disabled}`
+                               without touching the nREPL socket. `dispatch`
+                               (which drives the app's own handlers) is
+                               unaffected.
     --port-file <path>       — explicit, cwd-independent nREPL port-file
                                path (rf2-3dbwh). Highest precedence in the
                                port-discovery chain — see
                                `nrepl/read-port-from-fs`. Accepts both
                                `--port-file <path>` and `--port-file=<path>`.
 
-  Returns `{:allow-eval? bool :allow-raw-state? bool :port-file str-or-nil}`.
+  Returns `{:allow-eval? bool :allow-raw-state? bool :allow-writes? bool
+  :port-file str-or-nil}`.
   The internal keyword `:allow-raw-state?` is the pair-mcp
   implementation-side identifier for the gate's state; the CLI flag is the
   operator-facing name. Unknown flags are ignored — node's shadow-cljs
@@ -203,21 +214,28 @@
   [argv]
   {:allow-eval?      (boolean (some #{"--allow-eval"} argv))
    :allow-raw-state? (boolean (some #{"--allow-sensitive-reads"} argv))
+   :allow-writes?    (boolean (some #{"--allow-writes"} argv))
    :port-file        (parse-port-file-flag argv)})
 
 (defn- apply-launch-flags!
   "Wire launch-flag state into the relevant tool gates. Called once
   before the dispatcher accepts requests."
-  [{:keys [allow-eval? allow-raw-state?]}]
+  [{:keys [allow-eval? allow-raw-state? allow-writes?]}]
   (eval-cljs/set-allow-eval! allow-eval?)
   (raw-state/set-allow-raw-state! allow-raw-state?)
+  (writes/set-allow-writes! allow-writes?)
   (log! "eval-cljs:" (if allow-eval? "ENABLED (--allow-eval)" "disabled (default; pass --allow-eval to opt in)"))
   ;; Symmetric with rf2-zyoj2 `--allow-eval` boot-gate logging. The
   ;; "allowed" / "gated" wording matches the rf2-uaymx (b) story-mcp
   ;; `--allow-sensitive-reads` shape (rf2-g9fje); rf2-2x3ql aligns
   ;; pair-mcp on the same canonical CLI-flag name so operators reading
   ;; multi-MCP logs see one vocabulary.
-  (log! "Sensitive reads:" (if allow-raw-state? "allowed (--allow-sensitive-reads)" "gated (default; pass --allow-sensitive-reads to opt in)")))
+  (log! "Sensitive reads:" (if allow-raw-state? "allowed (--allow-sensitive-reads)" "gated (default; pass --allow-sensitive-reads to opt in)"))
+  ;; rf2-ee38b.18 — the state-mutating tool gate. Same default-OFF
+  ;; posture as --allow-eval; restore-epoch / reset-frame-db are
+  ;; qualitatively more powerful than dispatch (they replace app-db
+  ;; wholesale).
+  (log! "Writes:" (if allow-writes? "ENABLED (--allow-writes)" "disabled (default; pass --allow-writes to opt in)")))
 
 (defn- apply-resource-controls!
   "Read resource-control config from env + CLI flags and push it into

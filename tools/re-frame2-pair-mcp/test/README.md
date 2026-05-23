@@ -12,7 +12,7 @@
 | Does a per-tool function build the right eval form / wire envelope? | **CLJS** — `re_frame2_pair_mcp/<tool>_test.cljs` |
 | Does a cross-cutting concern (cache, cap, dedup, elision, sensitive) reshape an envelope correctly? | **CLJS** — `re_frame2_pair_mcp/<concern>_test.cljs` |
 | Does `tools/invoke` glue the four pipeline phases (precheck → dispatch → cache → cap) in the right order? | **CLJS** — `re_frame2_pair_mcp/invoke_test.cljs` |
-| Does the fourteen-tool catalogue still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame2_pair_mcp/conformance_test.cljs` |
+| Does the sixteen-tool catalogue still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame2_pair_mcp/conformance_test.cljs` |
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
 
@@ -51,7 +51,7 @@ What this layer covers:
   / `re-frame.schemas-conformance-test` / `re-frame.flows-conformance-test`
   on the framework side.
 - **Snapshot pipeline / wire shape** — `snapshot_test.cljs`,
-  `subscribe_test.cljs`, `subscription_info_test.cljs`,
+  `subscribe_test.cljs`, `list_subscriptions_test.cljs`,
   `wire_cap_test.cljs`, `typical_tokens_test.cljs`. These exercise
   the SHAPE the server emits without ever opening a socket; nREPL is
   stubbed at `nrepl/cljs-eval-value`.

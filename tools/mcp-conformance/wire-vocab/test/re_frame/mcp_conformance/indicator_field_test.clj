@@ -272,29 +272,62 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Helper-source pin — the simulation above MUST stay byte-faithful
-;; with the CLJS helper. We grep the CLJS source for the canonical
-;; `cond->` shape; a rename / re-implementation surfaces here so the
-;; reviewer updates the simulation alongside the helper.
+;; with the canonical helper. We grep the helper source for the
+;; canonical `cond->` shape; a rename / re-implementation surfaces here
+;; so the reviewer updates the simulation alongside the helper.
+;;
+;; The canonical helper was HOISTED out of pair-mcp into the shared
+;; `mcp-base.envelope` namespace (rf2-ee38b.19) so the single emit-path
+;; the spec mandates lives in one CLJC place the conformance gate can
+;; test directly, and so both servers in the pair re-export the same
+;; rule. The hoisted form keys the splice off `vocab/dropped-sensitive-key`
+;; / `vocab/elided-large-key` (the canonical keyword literals defined
+;; once in `mcp-base.vocab`) rather than re-spelling the bare keywords;
+;; that vocab pin is covered by `slot_name_test.clj`. pair-mcp's
+;; `wire.cljs` now keeps a thin re-export `with-indicators` so the
+;; per-tool call-sites still read `wire/with-indicators` (the
+;; `every-tree-walking-tool-routes-through-the-helper` pin above).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private helper-source-rel
+  "tools/mcp-base/src/re_frame/mcp_base/envelope.cljc")
+
+(def ^:private pair-mcp-reexport-rel
   "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs")
 
 (deftest helper-source-shape-matches-simulation
   (let [src (fx/read-source helper-source-rel)]
-    (testing "helper defines `with-indicators`"
+    (testing "canonical helper defines `with-indicators`"
       (is (str/includes? src "(defn with-indicators")
           (str "`with-indicators` defn missing from " helper-source-rel)))
     (testing "helper guards :dropped-sensitive on pos? dropped"
-      (is (str/includes? src "(pos? (or dropped 0)) (assoc :dropped-sensitive dropped)")
+      (is (str/includes? src "(pos? (or dropped 0)) (assoc vocab/dropped-sensitive-key dropped)")
           (str "Canonical omit-when-zero shape for `:dropped-sensitive` "
                "drifted from the simulation in this file. If you changed "
                "the helper, update the simulation here in lockstep.")))
     (testing "helper guards :elided-large on pos? elided"
-      (is (str/includes? src "(pos? (or elided  0)) (assoc :elided-large      elided)")
+      (is (str/includes? src "(pos? (or elided  0)) (assoc vocab/elided-large-key      elided)")
           (str "Canonical omit-when-zero shape for `:elided-large` "
                "drifted from the simulation in this file. If you changed "
                "the helper, update the simulation here in lockstep.")))))
+
+(deftest pair-mcp-wire-re-exports-the-canonical-helper
+  ;; The per-tool call-sites read `wire/with-indicators` (the pair-local
+  ;; namespace they already require); the rule body lives in mcp-base.
+  ;; This pins that the re-export still exists and delegates to the base
+  ;; — a regression that re-inlined the rule (forking the emit-path)
+  ;; trips here.
+  (let [src (fx/read-source pair-mcp-reexport-rel)]
+    (testing "pair-mcp wire.cljs re-exports `with-indicators`"
+      (is (str/includes? src "(defn with-indicators")
+          (str "`with-indicators` re-export missing from " pair-mcp-reexport-rel)))
+    (testing "pair-mcp wire.cljs delegates to the mcp-base canonical helper"
+      (is (str/includes? src "base-envelope/with-indicators")
+          (str "pair-mcp `with-indicators` no longer delegates to "
+               "`re-frame.mcp-base.envelope/with-indicators`. The emit-path "
+               "MUST stay centralised in mcp-base (rf2-ee38b.19) — a "
+               "re-inlined copy forks the omit-when-zero MUST across "
+               "servers.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Inline-emit anti-pin — neither slot literal may appear inline in any

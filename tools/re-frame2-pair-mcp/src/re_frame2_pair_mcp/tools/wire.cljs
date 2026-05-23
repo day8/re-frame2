@@ -8,7 +8,8 @@
 
   Build-id resolution lives here too — `default-build-id` reads
   `SHADOW_CLJS_BUILD_ID` from `process.env`, falling back to `:app`."
-  (:require [applied-science.js-interop :as j]))
+  (:require [applied-science.js-interop :as j]
+            [re-frame.mcp-base.envelope :as base-envelope]))
 
 ;; ---------------------------------------------------------------------------
 ;; Config — build id.
@@ -76,12 +77,18 @@
   the rule lives in one place — drift across emit sites can no longer
   silently violate the MUST.
 
+  Pure-data passthrough to `re-frame.mcp-base.envelope/with-indicators`
+  (rf2-ee38b.18 / rf2-ee38b.19) — the slot keys are
+  `base-vocab/dropped-sensitive-key` / `elided-large-key`, pinned once
+  in the shared vocab so a key change can't drift across the pair. This
+  thin re-export keeps the per-tool call-sites reading
+  `wire/with-indicators` (the pair-local namespace they already
+  require) while the rule body lives in the base.
+
   [1]: spec/Conventions.md#cross-mcp-indicator-field-vocabulary-suppression-counters
   [2]: spec/009-Instrumentation.md#size-elision-in-traces"
-  [envelope {:keys [dropped elided]}]
-  (cond-> envelope
-    (pos? (or dropped 0)) (assoc :dropped-sensitive dropped)
-    (pos? (or elided  0)) (assoc :elided-large      elided)))
+  [envelope counts]
+  (base-envelope/with-indicators envelope counts))
 
 (defn arg
   "Extract an MCP tool argument by name. Returns nil if absent."
@@ -103,7 +110,8 @@
       (default-build-id)))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi).
+;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi; lifted to
+;; mcp-base.envelope in rf2-ee38b.19 / rf2-ee38b.18).
 ;;
 ;; The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are
 ;; replacement results emitted by the wire-boundary steps themselves.
@@ -113,17 +121,12 @@
 ;; to either is wasted work and the cache check on a hit-marker
 ;; would compute a hash of the marker, not the original payload.
 ;;
-;; Substring-match on the rendered text is the cheap detector — the
-;; markers always serialise with the namespaced key as the first
-;; key of the outer map, so a `starts-with?` on the trimmed text is
-;; fast and tight. False positives would require an agent-supplied
-;; payload that ALSO renders as `{:rf.mcp/...` at the top level —
-;; not a realistic shape for any tool's result.
+;; The prefix-match logic + the marker KEYS (`base-vocab/cache-hit-key`
+;; / `overflow-key`) live in `re-frame.mcp-base.envelope/marker-text?`
+;; so a vocab change can't drift the detector. This fn owns only the
+;; pair's JS-shape content accessor — it pulls the `:text` string off
+;; the npm-SDK `#js` result and hands it to the shared detector.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private marker-prefixes
-  ["{:rf.mcp/cache-hit"
-   "{:rf.mcp/overflow"])
 
 (defn marker?
   "Is `result-js` a wire-bounded `:rf.mcp/*` marker envelope?
@@ -131,10 +134,12 @@
   Returns true for `:rf.mcp/cache-hit` and `:rf.mcp/overflow`
   results — the two envelopes the cache + cap steps emit
   themselves. Such envelopes are sub-cap by construction and must
-  not be re-walked by later boundary steps."
+  not be re-walked by later boundary steps.
+
+  Pulls the rendered text off the JS result shape; the prefix match is
+  `re-frame.mcp-base.envelope/marker-text?`."
   [result-js]
   (let [content (when result-js (j/get result-js :content))
         item    (when (array? content) (aget content 0))
         text    (when item (j/get item :text))]
-    (and (string? text)
-         (boolean (some #(.startsWith text %) marker-prefixes)))))
+    (base-envelope/marker-text? text)))

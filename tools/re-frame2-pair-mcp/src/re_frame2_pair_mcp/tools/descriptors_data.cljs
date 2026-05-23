@@ -244,6 +244,62 @@
                  :required ["event"]
                  :additionalProperties false}})
 
+(def restore-epoch
+  {:name "restore-epoch"
+   :description (str "Time-travel undo (rf2-ee38b.18): rewind a frame's app-db to a recorded prior epoch. "
+                     "The canonical pair-tool undo gesture per spec/Tool-Pair.md §Time-travel — wraps the "
+                     "`restore-epoch` Tool-Pair write primitive. Walk the ring with `trace-window` / `snapshot` "
+                     "(`:epochs` slice) to find a target epoch-id, then rewind to it. "
+                     "The `epoch-id` is parsed as EDN — epoch-ids are `:any` (the reference runtime emits "
+                     "INTEGERS), so pass an integer id as \"7\" and it reads as the number 7. "
+                     "Returns false (`:reason :restore-rejected`) when the id is not in the ring or a drain is "
+                     "in flight (the documented `:rf.epoch/*` failure modes); the app-db is unchanged on failure. "
+                     "GATED behind `--allow-writes` (default OFF) — without the flag returns "
+                     "`{:ok? false :reason :rf.error/writes-disabled}` without touching the runtime. "
+                     "Examples: "
+                     "1. Rewind to epoch 7: {:epoch-id \"7\"} -> {:ok? true :restored? true :epoch-id 7}. "
+                     "2. Named frame: {:epoch-id \"12\" :frame \":stories\"} -> {:ok? true :restored? true :epoch-id 12 :frame :stories}. "
+                     "3. Aged-out id: {:epoch-id \"999\"} -> {:ok? false :restored? false :reason :restore-rejected}.")
+   :typicalTokens 150
+   :annotations destructive-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:epoch-id {:type "string"
+                                         :description "Target epoch-id as EDN, e.g. \"7\" (integer id) or \":my/epoch\". Required."}
+                              :frame    {:type "string"
+                                         :description "Operating frame (e.g. \":stories\"). Defaults to the operating frame."}
+                              :build    {:type "string"}}
+                 :required ["epoch-id"]
+                 :additionalProperties false}})
+
+(def reset-frame-db
+  {:name "reset-frame-db"
+   :description (str "State injection (rf2-ee38b.18): replace a frame's app-db with an arbitrary EDN value the "
+                     "runtime never recorded — the JSON-loaded-bug-repro case per spec/Tool-Pair.md §Pair-tool "
+                     "writes. Wraps the `reset-frame-db!` Tool-Pair write primitive: bypasses the dispatch loop, "
+                     "replaces the container directly, and records a synthetic `:rf/epoch-record` "
+                     "(`:event-id :rf.epoch/db-replaced`) so a later `restore-epoch` can rewind past the injection. "
+                     "The `db` arg is parsed as EDN DATA (not host source — same injection-closing posture as "
+                     "`dispatch`, rf2-vflrg). Fails (`:reason :reset-rejected`) on no-such-frame, drain-in-flight, "
+                     "or app-schema mismatch; the app-db is unchanged on failure. "
+                     "GATED behind `--allow-writes` (default OFF) — without the flag returns "
+                     "`{:ok? false :reason :rf.error/writes-disabled}` without touching the runtime. "
+                     "Examples: "
+                     "1. Inject a repro state: {:db \"{:cart {:items []} :user nil}\"} -> {:ok? true :frame :rf/default}. "
+                     "2. Named frame: {:db \"{:count 0}\" :frame \":stories\"} -> {:ok? true :frame :stories}. "
+                     "3. Schema mismatch: {:db \"{:bad :shape}\"} -> {:ok? false :reason :reset-rejected :frame :rf/default}.")
+   :typicalTokens 150
+   :annotations destructive-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:db    {:type "string"
+                                      :description "New app-db value as EDN, e.g. \"{:cart {:items []}}\". Parsed as data, not source. Required."}
+                              :frame {:type "string"
+                                      :description "Operating frame (e.g. \":stories\"). Defaults to the operating frame."}
+                              :build {:type "string"}}
+                 :required ["db"]
+                 :additionalProperties false}})
+
 (def trace-window
   {:name "trace-window"
    :description (str "Return the :rf/epoch-records added in the last N ms for the operating frame. "
