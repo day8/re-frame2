@@ -210,12 +210,13 @@
  ;; /main.js fall through to the second root automatically.
  :dev-http {8765 ["../tools/causa/testbeds/panel_gallery"
                   "out/testbeds/panel-gallery"]
-            ;; Parallel-Frames testbed (rf2-gxgmt). Source dir first so
+            ;; Two-frame isolation testbed (rf2-6qgbs.1; replaces the
+            ;; parallel-frames prototype, rf2-gxgmt). Source dir first so
             ;; the hand-written index.html resolves at `/`; the compiled
-            ;; main.js falls through to out/examples/parallel-frames per
-            ;; the same cascade as :testbeds/panel-gallery above.
-            8030 ["../tools/causa/testbeds/parallel_frames"
-                  "out/examples/parallel-frames"]}
+            ;; main.js falls through to out/examples/two-frame-isolation
+            ;; per the same cascade as :testbeds/panel-gallery above.
+            8030 ["../tools/causa/testbeds/two_frame_isolation"
+                  "out/examples/two-frame-isolation"]}
 
  :builds
  {:node-test
@@ -553,33 +554,34 @@
    :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
    :modules          {:main {:init-fn perf-counter.core/run}}}
 
-  ;; Parallel-Frames testbed (rf2-m00rw) — THE canonical multi-frame
-  ;; isolation demo. One app, mounted in TWO frames (:above + :below)
-  ;; on ONE page, with zero cross-frame coupling. Each frame is a
-  ;; fully isolated reactive context (own app-db, own router queue,
-  ;; own sub-cache); handlers and subs are registered once globally
-  ;; and resolve against whichever frame the dispatch envelope
-  ;; targets via the frame-provider React context.
+  ;; Two-frame isolation testbed (rf2-6qgbs.1) — THE canonical multi-
+  ;; frame isolation surface for Causa. Replaces the parallel-frames
+  ;; prototype (rf2-m00rw). One app, mounted in TWO frames (:above +
+  ;; :below) on the LEFT, with a Causa instance on the RIGHT, on ONE
+  ;; page, with zero cross-frame coupling. Each frame is a fully
+  ;; isolated reactive context (own app-db, own router queue + route
+  ;; slot, own sub-cache, own machine snapshot); handlers and subs are
+  ;; registered once globally and resolve against whichever frame the
+  ;; dispatch envelope targets via the frame-provider React context.
   ;;
-  ;; The app exercises four feature surfaces (counter, clock,
-  ;; HTTP-loaded title via :title/flow machine, slow-effect Issue
-  ;; source) cleanly — no deliberate bugs, no teaching layers, no
-  ;; anti-pattern demonstrations. Per Mike's saved-memory rules
-  ;; (feedback_frames_are_isolated_contexts + feedback_testbeds_are_
-  ;; test_surfaces), testbeds are TEST surfaces, not tutorial surfaces.
+  ;; The app code path is the SHARED testdeck (tools/causa/testbeds/
+  ;; testdeck/) — Counter / Machine / Routing / Async&errors tabs
+  ;; navigated AS ROUTES — which the single-frame step-deck testbed
+  ;; (rf2-6qgbs.2) mounts too. Both frames are registered :url-bound?
+  ;; false (Spec 012 §Multi-frame routing) so per-frame tab nav does
+  ;; not fight over the single browser URL. No deliberate bugs, no
+  ;; teaching layers, no anti-pattern demonstrations — per Mike's
+  ;; saved-memory rules (feedback_frames_are_isolated_contexts +
+  ;; feedback_testbeds_are_test_surfaces), testbeds are TEST surfaces.
   ;;
-  ;; Sources live under tools/causa/testbeds/parallel-frames/; the
+  ;; Sources live under tools/causa/testbeds/two_frame_isolation/; the
   ;; Causa preload auto-mounts inline so the frame-picker switching
-  ;; between :above and :below is one click away. Replaced the shop
-  ;; testbed (rf2-yhxk3, deleted in rf2-ljmm1) as the canonical
-  ;; multi-frame exemplar — shop coupled data across frames and used
-  ;; a deliberately-wrong sub for tutorial pedagogy, both of which
-  ;; violated the saved-memory rules above.
-  :examples/parallel-frames
+  ;; between :above and :below is one click away.
+  :examples/two-frame-isolation
   {:target     :browser
-   :output-dir "out/examples/parallel-frames"
+   :output-dir "out/examples/two-frame-isolation"
    :asset-path "."
-   :modules    {:main {:init-fn parallel-frames.core/run}}
+   :modules    {:main {:init-fn two-frame-isolation.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-causa.preload]}}
 
