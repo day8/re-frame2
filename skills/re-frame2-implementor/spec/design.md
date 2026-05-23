@@ -108,19 +108,19 @@ Reverse cross-links (this skill → the application-side skills) live in SKILL.m
 
 ```
 skills/re-frame2-implementor/
-├── SKILL.md (router; ~250 lines)
+├── SKILL.md (router)
 ├── README.md (human-facing intro)
 ├── LICENSE (MIT)
 ├── package.json (npm metadata)
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── references/
-│ ├── kickoff-prompt.md (paste-ready prompt; ~80 lines)
-│ ├── phase-1-decisions.md (Phase 1 walkthrough; ~200 lines)
-│ ├── decision-record.md (fill-in template; ~120 lines)
-│ ├── phase-2-impl-order.md (EP-by-EP order; ~250 lines)
-│ ├── reference-impl-tour.md (CLJS tour, descriptive; ~150 lines)
-│ ├── conformance.md (harness shape, diagnosis; ~140 lines)
-│ └── output-format.md (agent-output shape; ~120 lines)
+│ ├── kickoff-prompt.md (paste-ready prompt)
+│ ├── phase-1-decisions.md (Phase 1 walkthrough)
+│ ├── decision-record.md (fill-in template)
+│ ├── phase-2-impl-order.md (EP-by-EP order)
+│ ├── reference-impl-tour.md (CLJS tour, descriptive)
+│ ├── conformance.md (harness shape, diagnosis)
+│ └── output-format.md (agent-output shape)
 └── spec/
  ├── design.md (this file)
  ├── inputs.md (canonical inputs)

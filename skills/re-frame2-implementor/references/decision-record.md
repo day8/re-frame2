@@ -179,18 +179,24 @@ The set of capability tags this port claims:
 :fsm/delayed-after <yes / no>
 :fsm/tags         <yes / no>
 :fsm/parallel-regions <yes / no>
+:fsm/final-states <yes / no>
+:fsm/registration-validation <yes / no — yes if you validate machine specs at registration time>
 :actor/own-state  <yes / no>
 :actor/spawn-destroy <yes / no>
 :actor/cross-actor-fx <yes / no>
 :actor/invoke     <yes / no>
 :actor/spawn-and-join <yes / no>
 :actor/system-id  <yes / no>
+:flow/*           <yes / no — yes if D3 claims Flows (EP 013)>
+:rf.http/managed  <yes / no — yes if D3 claims HTTP (EP 014)>
 :routing/*        <yes / no>
 :ssr/*            <yes / no>
 :schemas/*        <yes / no — pick yes if D5 ≠ no, regardless of mechanism>
 ```
 
-Score reporting: this port's score is `passed / claimed-applicable` against the above set.
+The capability families above track the **conformance corpus** (`spec/conformance/README.md` §Capability tagging), which is the acceptance test. The Implementor-Checklist's family list lags the corpus (it omits `:flow/*`, `:rf.http/managed`, `:fsm/final-states`, `:fsm/registration-validation`); when they diverge, the corpus wins.
+
+Score reporting: this port's score is `passed / claimed-applicable` against the above set. A capability the port deliberately doesn't claim goes on the harness's `known-skipped-capabilities` allowlist (see [`conformance.md` §The two out-of-claim flavours](conformance.md#the-two-out-of-claim-flavours)); a fixture carrying a capability in neither the claim nor the allowlist must FAIL the suite, not skip silently.
 
 ---
 

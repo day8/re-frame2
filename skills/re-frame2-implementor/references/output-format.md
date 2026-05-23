@@ -95,8 +95,8 @@ Produced after acceptance gate 2 passes. This is the final report for the port's
 - **Conformance score:** <claimed-applicable> / <claimed-applicable> on corpus commit <corpus-commit-hash>.
 - **Decision record:** `<port-repo>/DECISIONS.md` at <decisions-commit-hash>.
 - **Spec gaps filed (closed and open):**
-  - bd <id> — <one line; closed/open status>.
-  - bd <id> — <one line; closed/open status>.
+  - day8/re-frame2#<n> — <one line; open/closed status>.
+  - day8/re-frame2#<n> — <one line; open/closed status>.
 - **Per-EP commit chain:** <link to a tag, branch, or commit range covering all of Phase 2>.
 
 ## What v1 includes
