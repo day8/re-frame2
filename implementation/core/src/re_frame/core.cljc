@@ -1278,6 +1278,10 @@
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
     :trace-buffer  {:depth N}                       ring depth (default 200; 0 disables)
     :sub-cache     {:grace-period-ms N}             dispose grace (default 50ms)
+    :elision       {:rf.size/threshold-bytes N}     wire-elision size threshold
+                                                    (default 16384; 0 disables runtime
+                                                    auto-detect — only declared / schema
+                                                    entries elide)
   Unknown keys silently no-op. Per-frame settings live on frame metadata.
   Per Tool-Pair §How AI tools attach.
 
@@ -1292,6 +1296,7 @@
     :trace-buffer  (when-let [f (late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
                      (f opts))
     :sub-cache     (subs-cache/configure! opts)
+    :elision       (elision/configure! opts)
     nil))
 
 (def ^{:doc "Install the substrate adapter for this process. Once. A

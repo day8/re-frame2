@@ -15,7 +15,49 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private large-warning-bytes 16384)
+;; ---- runtime size threshold ----------------------------------------------
+;;
+;; Per API.md §Size-elision wire-boundary walker and §Configure keys, the
+;; runtime auto-detect threshold for the `:rf.warning/large-value-unschema'd`
+;; advisory is configurable. Precedence (normative, API.md L507):
+;;
+;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure :elision …)`  >  default
+;;
+;; A threshold of 0 disables runtime auto-detect entirely (only declared /
+;; schema-marked entries elide); the unschema'd-large warning never fires.
+;; The default mirrors the documented `{:rf.size/threshold-bytes 16384}`.
+
+(def ^:private default-threshold-bytes 16384)
+
+(defonce ^:private config
+  ;; Map shape so future :elision configure-keys land additively, matching
+  ;; `re-frame.subs.cache/config`.
+  (atom {:rf.size/threshold-bytes default-threshold-bytes}))
+
+(defn configure!
+  "Update the elision configuration. Supports
+  `{:rf.size/threshold-bytes N}` — a non-negative integer runtime
+  auto-detect size threshold for the `:rf.warning/large-value-unschema'd`
+  advisory (0 disables runtime auto-detect; only declared / schema-marked
+  entries elide). Per API.md §Configure keys (`:elision`) and Spec 009
+  §Size elision in traces. Routed from `re-frame.core/configure`."
+  [opts]
+  (when (map? opts)
+    (swap! config merge (select-keys opts [:rf.size/threshold-bytes])))
+  nil)
+
+(defn current-config
+  "Return the current elision configuration map. Public for tests and
+  tools that want to display the configured runtime size threshold."
+  []
+  @config)
+
+(defn- configured-threshold-bytes
+  "The configured runtime size threshold, falling back to the documented
+  default when no `configure` call has set it."
+  []
+  (let [v (:rf.size/threshold-bytes @config)]
+    (if (some? v) v default-threshold-bytes)))
 
 (defonce ^:private warned-unschema'd
   (atom #{}))
@@ -241,9 +283,14 @@
         (when (and (string? v)
                    (not large-decl)
                    (not sensitive?))
-          (let [bytes (pr-str-bytes v)]
-            (when (> bytes large-warning-bytes)
-              (warn-large-unschema'd! (:frame-id ctx) path bytes))))
+          (let [threshold (:threshold-bytes ctx)]
+            ;; A threshold of 0 disables runtime auto-detect entirely —
+            ;; no `pr-str-bytes` walk, no warning. Per API.md §Configure
+            ;; keys (`:elision` — "0 disables runtime auto-detect").
+            (when (pos? threshold)
+              (let [bytes (pr-str-bytes v)]
+                (when (> bytes threshold)
+                  (warn-large-unschema'd! (:frame-id ctx) path bytes))))))
         v))))
 
 (defn elide-wire-value
@@ -251,15 +298,19 @@
   wire egress. Sensitive wins over large when both declarations match."
   ([v] (elide-wire-value v nil))
   ([v opts]
-   (let [frame-id (or (:frame opts) (frame/current-frame) :rf/default)
-         reg      (registry-of frame-id)
-         ctx      {:frame-id           frame-id
-                   :large              (or (:declarations reg) {})
-                   :sensitive          (or (:sensitive-declarations reg) {})
-                   :include-large?     (true? (:rf.size/include-large? opts))
-                   :include-sensitive? (true? (:rf.size/include-sensitive? opts))
-                   :include-digests?   (true? (:rf.size/include-digests? opts))
-                   :as-of-epoch        (:as-of-epoch opts)}]
+   (let [frame-id  (or (:frame opts) (frame/current-frame) :rf/default)
+         reg       (registry-of frame-id)
+         ;; Precedence (API.md L507): explicit opt > configured > default.
+         threshold (let [opt (:rf.size/threshold-bytes opts)]
+                     (if (some? opt) opt (configured-threshold-bytes)))
+         ctx       {:frame-id           frame-id
+                    :large              (or (:declarations reg) {})
+                    :sensitive          (or (:sensitive-declarations reg) {})
+                    :include-large?     (true? (:rf.size/include-large? opts))
+                    :include-sensitive? (true? (:rf.size/include-sensitive? opts))
+                    :include-digests?   (true? (:rf.size/include-digests? opts))
+                    :threshold-bytes    threshold
+                    :as-of-epoch        (:as-of-epoch opts)}]
      (walk v (vec (:path opts)) ctx))))
 
 (defn marker?
