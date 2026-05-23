@@ -64,32 +64,34 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 ## Canonical mini-example
 
-From `examples/reagent/counter/core.cljs`, one dispatch exercises the whole cycle:
+From `examples/reagent/todomvc/events.cljs`, one dispatch exercises the whole cycle — `:db` commits, an fx persists, and a sub recomputes:
 
 ```clojure
 ;; (1) dispatch
-(rf/dispatch-sync [:counter/initialise])
+(rf/dispatch [:todo/delete 3])
 
-;; (6) handler returns the fx-map
-(rf/reg-event-fx :counter/initialise
-  (fn [_ctx _event]
-    {:db {:count 5}
-     :fx [[:counter/log :initialised]]}))
+;; (6) handler returns the fx-map  (commits :db AND fires an fx)
+(rf/reg-event-fx :todo/delete
+  (fn [{:keys [db]} [_ id]]
+    (let [next-db (update db :todos dissoc id)]
+      {:db next-db
+       :fx [[:todo.storage/save (:todos next-db)]]})))
 
-;; (9) the fx walks; :counter/log is user-registered
-(rf/reg-fx :counter/log
-  (fn [_ctx args] (swap! counter-log conj args)))
+;; (9) the fx walks; :todo.storage/save is user-registered
+(rf/reg-fx :todo.storage/save
+  (fn [_ctx todos] (persist-to-local-storage! todos)))
 
 ;; (10) the sub recomputes; view re-renders
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :todo/todos
+  :<- [:todo/sorted-todos]
+  (fn [sorted-todos _] (vals sorted-todos)))
 ```
 
-After this single `dispatch-sync`:
+After this single dispatch:
 
-- `app-db` is `{:count 5}` (step 8).
-- `counter-log` holds `[:initialised]` (step 9).
-- Any view subscribed to `[:count]` re-renders with `5` (steps 10-11).
+- `app-db`'s `:todos` no longer contains id `3` (step 8).
+- localStorage has the persisted remaining items (step 9).
+- Any view subscribed to `[:todo/todos]` re-renders without the deleted item (steps 10-11).
 
 ## Errors carry the triggering handler's source-coord
 

@@ -2,16 +2,16 @@
 name: re-frame2
 description: >
   Writes re-frame2 ClojureScript application code — events, subscriptions,
-  effects, frames, state machines (reg-machine, parallel regions, tags,
-  invoke), schemas, stories, routing, tests, and the canonical patterns
+  effects, flows, frames, state machines (reg-machine, parallel regions,
+  tags, spawn), schemas, stories, routing, tests, and the canonical patterns
   (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
   AsyncEffect, LongRunningWork, StaleDetection). Use whenever the user
   mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx,
-  reg-cofx, reg-view, reg-machine, reg-route, reg-story, reg-app-schema,
-  dispatch, subscribe, app-db, frames, regions, tags, the nine UI
-  states, managed HTTP, RemoteData lifecycles, writing tests for a
-  re-frame2 app, or state-machine-for-HTTP shapes — even when re-frame2
-  is not named explicitly. **Authoring only** (writing new code).
+  reg-cofx, reg-flow, reg-view, reg-machine, reg-route, reg-story,
+  reg-app-schema, dispatch, subscribe, app-db, flows, frames, regions,
+  tags, the nine UI states, managed HTTP, RemoteData lifecycles, writing
+  tests for a re-frame2 app, or state-machine-for-HTTP shapes — even when
+  re-frame2 is not named explicitly. **Authoring only** (writing new code).
   **Do not use** for: live-app inspection (use `re-frame2-pair`),
   greenfield project bootstrap (use `re-frame2-setup`), v1→v2 migration
   (use `re-frame-migration`), or porting re-frame2 itself (use
@@ -48,7 +48,7 @@ Authors re-frame2 ClojureScript application code. Router skill: this file carrie
 
 ## When to load
 
-`.cljs` / `.cljc` authoring of: event handlers, subscriptions, state machines, views, schemas, routes, stories, or the canonical patterns. References to `reg-event-*`, `reg-sub`, `reg-fx`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, or pattern names are sufficient triggers — re-frame2 need not be named.
+`.cljs` / `.cljc` authoring of: event handlers, subscriptions, flows, state machines, views, schemas, routes, stories, or the canonical patterns. References to `reg-event-*`, `reg-sub`, `reg-fx`, `reg-flow`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, flows, frames, regions, tags, or pattern names are sufficient triggers — re-frame2 need not be named.
 
 ## When NOT to use
 
@@ -96,46 +96,13 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 
 ## Testing your views
 
-When the user asks how to test a re-frame2 view — "does the screen show the right thing?", "does the button dispatch the right event?" — suggest the **hiccup-walk pattern**, not a browser-mount.
-
-1. Dispatch events via `rf/dispatch-sync` into the test frame (standard re-frame2 testing surface).
-2. Call the view-fn directly. It returns hiccup; that's just data.
-3. Walk the hiccup with `re-frame.test-helpers` (`find-by-testid` / `text-content` / `invoke-handler`).
-
-```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.test-helpers :as h])
-
-(deftest counter-view-shows-and-fires
-  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
-    (let [tree (counter-view {:n 0})
-          btn  (h/find-by-testid tree "counter-inc")]
-      (h/invoke-handler btn :on-click nil)
-      (is (= 1 (:n (rf/get-frame-db f)))))))
-```
-
-**Single-frame vs. multi-frame.** Application tests use ONE frame — the host frame. Views, events, subs, asserts all reference the same frame. Multi-frame test harnesses exist (e.g. `tools/causa/.../e2e_multi_frame.cljs`) but they are for **observer / tool code** — code that runs in one frame and watches another. Do NOT propose a multi-frame harness for testing a regular application view.
-
-**State alone is not enough.** State-only assertions (`(is (= 2 (:n db)))`) catch handler bugs but miss two classes:
-- *State-correct, view-broken* — handler updated db, view reads wrong path / forgets a branch.
-- *Wrong-frame dispatch* — `:on-click` dispatches into the wrong frame; host-frame state never changes.
-
-The hiccup-walk + invoke-handler pattern catches both, on JVM and Node-CLJS, with no browser. Full pattern walkthrough lives at [`docs/guide/15-testing.md` §Asserting the view shows the right thing](../../docs/guide/15-testing.md).
-
-The `h/testid` authoring helper standardises the attrs fragment at view call sites:
-
-```clojure
-[:button (h/testid "counter-inc" {:on-click #(rf/dispatch [:counter/inc])})
- "+"]
-```
-
-Use it whenever you write a new view that wants a test handle.
+When the user asks how to test a re-frame2 view — "does the screen show the right thing?", "does the button dispatch the right event?" — suggest the **hiccup-walk pattern** (call the view-fn, walk the returned hiccup by `:data-testid` with `re-frame.test-helpers`), not a browser-mount. State-only assertions miss view-broken and wrong-frame-dispatch bugs that the walk catches. Full recipe — the `with-app-fixture` / `expect-text` / `wait-until` trio, the lower-level walk helpers, the single-frame discipline, and the `h/testid` authoring helper — lives in [`references/cross-cutting/testing.md`](references/cross-cutting/testing.md).
 
 ## Where the depth lives
 
 Load at most two leaves per task. If a task seems to need three, it likely spans patterns and should be broken up.
 
-**Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md`, `subs.md`, `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
+**Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md`, `subs.md`, `flows.md` (`reg-flow` — materialised computed state; the flow-vs-sub decision), `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
 
 **State machines — `references/state-machines/`**: `reg-machine.md` (declaration + the xstate→re-frame2 translation key), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `cancellation.md`. Standing mental model across all of these: think in xstate, then map onto re-frame2 — see `reg-machine.md` for the full mapping table and deliberate-divergence flags.
 

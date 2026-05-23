@@ -19,7 +19,7 @@ re-frame2 gives you three places to put state. The right choice usually falls ou
 
 Before walking the tree, rule out the cases where there is no state shape to choose.
 
-1. **Is this a pure derivation?** If the value is a function of other values already in `app-db`, it is a `reg-sub`, not a slice. No state shape needed.
+1. **Is this a pure derivation?** If the value is a function of other values already in `app-db`, default to a `reg-sub`, not a slice — no state shape needed. *But* if the derived value is **part of the application's state** — it must survive SSR hydration / time-travel revert / `app-db` serialisation, OR be read by downstream event handlers, machine actions, schemas, or other derivations as plain `app-db` data — it is a **flow** (Spec 013), not a sub. Flows are rare; default to a sub unless one of those reasons forces the value into `app-db`. See [`../references/fundamentals/flows.md`](../references/fundamentals/flows.md) §Flow vs subscription.
 2. **Is this a transient cofx value?** If the value is computed at dispatch time and used inside one event (e.g. `:rf/now`, a generated id), it is a registered cofx, not state.
 3. **Is this a machine's `:data`?** Per [`spec/005-StateMachines.md` §Naming](../../../spec/005-StateMachines.md), each machine carries its own private `:data` map distinct from `app-db`. Extended state local to a machine lives in `:data`, not in a slice.
 

@@ -42,18 +42,18 @@ The query-vector is `[sub-id & args]`. Its first element is the sub id; args rid
 From `examples/reagent/todomvc/subs.cljs`:
 
 ```clojure
-(rf/reg-sub :sorted-todos
+(rf/reg-sub :todo/sorted-todos
   (fn [db _]
     (:todos db)))                   ;; layer-1: reads app-db
 
-(rf/reg-sub :todos
-  :<- [:sorted-todos]
+(rf/reg-sub :todo/todos
+  :<- [:todo/sorted-todos]
   (fn [sorted-todos _]
     (vals sorted-todos)))           ;; layer-2: chained
 
-(rf/reg-sub :visible-todos
-  :<- [:todos]
-  :<- [:showing]
+(rf/reg-sub :todo/visible-todos
+  :<- [:todo/todos]
+  :<- [:todo/showing]
   (fn [[todos showing] _]
     (let [predicate (case showing
                       :active    (complement :completed)
@@ -61,6 +61,8 @@ From `examples/reagent/todomvc/subs.cljs`:
                       identity)]
       (filter predicate todos))))   ;; layer-2 multi-input
 ```
+
+Every id is feature-prefixed (`:todo/*`) per cardinal rule 7 — the canonical subs in the example never use bare unprefixed ids.
 
 A layer-1 sub touches `app-db` and recomputes when the value it reads changes by `=`. Layer-2+ subs read other subs' values; they recompute when any input signal changes. The signal graph is built lazily — a sub registers as a callable, and the reactive cache materialises on first `subscribe`.
 

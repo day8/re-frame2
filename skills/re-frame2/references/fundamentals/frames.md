@@ -28,11 +28,11 @@ Frames are mutable runtime objects, not values. User code holds keywords and let
 (rf/get-frame-db :frame-id)         ;; underlying container (for tools / tests)
 ```
 
-Verified in `implementation/core/src/re_frame/frame.cljc:146` (`reg-frame`), `:185` (`make-frame`), `:195` (`destroy-frame!`). The public macro layer is `core.cljc:287-304`.
+Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`.
 
 ## Frame resolution chain
 
-Three tiers (`frame.cljc:38-51`, `core.cljc:899-909`):
+Three tiers (the frame-resolution chain in `re-frame.frame` / `re-frame.core`):
 
 1. **`*current-frame*` dynamic var** — bound by `with-frame`.
 2. **React context** (CLJS only) — read via the `:adapter/current-frame` late-bind hook, populated by the installed adapter under a `frame-provider`.
@@ -82,7 +82,7 @@ And configuring `:rf/default` at app boot:
 
 ## Frame metadata — what goes in it
 
-The metadata map (`frame.cljc:99-130`) accepts:
+The metadata map (`reg-frame` in `re-frame.frame`) accepts:
 
 - `:doc` — one-sentence what-and-why.
 - `:preset` — one of `:default :test :story :ssr-server`; expands at registration into a fixed metadata bundle.
@@ -105,9 +105,9 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame` to 
 
 ## Common gotchas
 
-- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`frame.cljc:152-183`). Use `reset-frame!` for a full destroy+recreate.
+- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. Subsequent dispatch / subscribe raises `:rf.error/frame-destroyed`. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
-- **`with-frame` is a CLJS macro AND a JVM-friendly fn.** The macro form (`re-frame.core/with-frame`) wraps an expression; the fn form (`core.cljc:932`) takes a thunk — use the fn from JVM tests / SSR / REPL.
+- **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
 - **Wrapping plain Reagent fns in a non-default `frame-provider` doesn't bind the frame.** Use `reg-view` so the `:contextType` wiring picks up the provider. Watch for the once-per-handler warning.
 - **`:rf/default` is implicit.** Don't re-`reg-frame :rf/default` unless you specifically want to attach metadata to it — calling it without any is a no-op.
 
@@ -117,4 +117,4 @@ Frame presets in detail, machine-instance teardown contract, the React-context c
 
 ---
 
-*Derived from `implementation/core/src/re_frame/frame.cljc`, `implementation/core/src/re_frame/core.cljc`, and `implementation/reagent/src/re_frame/adapter/reagent.cljs` @ main `89bd9c3`. Re-verify line numbers after frame-resolution or adapter-late-bind changes.*
+*Derived from `re-frame.frame`, `re-frame.core`, and `re-frame.adapter.reagent` @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after frame-resolution or adapter-late-bind changes.*

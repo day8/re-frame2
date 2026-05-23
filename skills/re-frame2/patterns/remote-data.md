@@ -2,6 +2,8 @@
 
 The standard request-lifecycle convention. A 5-key slice (or one machine region) tracks **status / data / error / loaded-at / attempt**, and four events drive the lifecycle (**load / loaded / load-failed / reset**). The load-bearing distinction is `:loading` (truly empty, first fetch) vs `:fetching` (revalidate with existing data) — they look identical to a careless UI but feel very different to a user.
 
+> **Mental-model anchor:** this is the **SWR / React-Query "stale-while-revalidate"** shape — the `:loading` vs `:fetching` split IS the SWR distinction (show a spinner on an empty page; keep stale data visible while refreshing). Map that intuition onto the re-frame2 slice below.
+
 RemoteData is the **app-side** lifecycle slice that sits on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any framework-owned surface (`:rf.ws/*` request-reply messages, state-machine `:spawn`'d loaders, `:rf.server/*` per-request fxs). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names what the *receiving* state looks like once the umbrella's reply lands.
 
 ## When to load this leaf
@@ -12,7 +14,7 @@ The prompt mentions: fetching data from a server, an HTTP request lifecycle, a l
 
 The pattern composes:
 
-- **`reg-app-schema`** — schema-binds the slice path so the slice's shape is enforced at boundaries (per Pillar — schemas at boundaries, not everywhere).
+- **`reg-app-schema`** — schema-binds the slice path so the slice's shape is enforced at boundaries (per cardinal rule 4 — schemas at boundaries, not everywhere).
 - **`reg-event-fx` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
 - **`reg-event-db` for `:feature/loaded` / `:feature/load-failed`** — folds the reply into the slice. On failure, **prior `:data` is kept**; only `:status` and `:error` change.
 - **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` dispatch the lifecycle events.
@@ -119,7 +121,7 @@ Realworld ships both shapes side-by-side. `articles`, `feed`, `article`, `commen
 - **Machine form**: `examples/reagent/realworld/tags.cljs` — popular-tags list, single-region `reg-machine`, tag-shaped view queries.
 - **Compose with NineStates**: `examples/reagent/nine_states/core.cljs` — `:data` region as one axis of a parallel machine, with cardinality cascade (`:empty` / `:one` / `:some` / `:too-many`).
 
-## Pillar 5 — why `:loading` vs `:fetching` is non-negotiable
+## Why `:loading` vs `:fetching` is non-negotiable
 
 The split exists for one reason: the UI for an empty page mid-load is a spinner; the UI for a page that already has data and is refreshing is not. Without the split, every revalidation flashes a spinner over loaded content. The pattern's `:loading?` and `:fetching?` subs hide the distinction from view code that doesn't care, while making it cheap for view code that does.
 

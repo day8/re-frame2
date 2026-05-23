@@ -17,7 +17,7 @@ When the runtime destroys a spawned actor by **any** trigger, every in-flight `:
 5. **Imperative `[:rf.machine/destroy <actor-id>]`** from a user-authored action.
 6. **Frame destroy** — `frame.cljc`'s frame-exit walk destroys each surviving machine, firing the same hook per actor.
 
-The hook is at `:http/abort-on-actor-destroy` (`implementation/machines/src/re_frame/machines.cljc:2410`); the http artefact registers the abort fn at ns-load time. When `re-frame.http-managed` is not on the classpath the hook resolves to nil and the destroy proceeds without HTTP-abort — apps that don't issue managed-HTTP requests pay nothing.
+The hook is at `:http/abort-on-actor-destroy` (`re-frame.machines.lifecycle-fx.finalize` / `frame-destroy`); the http artefact registers the abort fn at ns-load time. When `re-frame.http-managed` is not on the classpath the hook resolves to nil and the destroy proceeds without HTTP-abort — apps that don't issue managed-HTTP requests pay nothing.
 
 ## The abort surfaces
 
@@ -67,7 +67,7 @@ If the child machine itself owns the resource, the child's leaf-state `:exit` (o
   :on    {:disconnect :idle}}}
 ```
 
-When the parent destroys the child, the child's exit cascade fires `:ws/close` before the snapshot is dissoc'd. The destroy fx (`machines.cljc:2470`) runs the standard exit cascade on the actor's current configuration before unregistering the handler.
+When the parent destroys the child, the child's exit cascade fires `:ws/close` before the snapshot is dissoc'd. The destroy fx (`re-frame.machines.lifecycle-fx.destroy`) runs the standard exit cascade on the actor's current configuration before unregistering the handler.
 
 ### Parent-side `:exit` on the `:spawn`-bearing state
 
@@ -105,4 +105,4 @@ For the full cancellation contract — trace events, the late-bind hook surface,
 
 ---
 
-*Derived from `implementation/machines/src/re_frame/machines.cljc` (destroy fx + abort hook seam) and `implementation/core/src/re_frame/frame.cljc` (frame-destroy walk) @ main `89bd9c3`. Re-verify after cancellation-cascade or `:rf.http/managed` abort-hook changes.*
+*Derived from the `re-frame.machines.lifecycle-fx.*` sub-namespaces (`destroy` fx, `finalize` / `frame-destroy` abort-hook seam) and `re-frame.frame` (frame-destroy walk) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split); re-verify after cancellation-cascade or `:rf.http/managed` abort-hook changes.*
