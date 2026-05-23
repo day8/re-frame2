@@ -682,6 +682,19 @@
                   :frame       :rf/default
                   :rf.trace/dispatch-id id}})
 
+(defn- run-end-trace-ev
+  "A `:rf.event/run-end` trace event carrying a handler `:duration-ms`,
+  bucketed into the cascade's `:handler` slot by `group-cascades`. Used
+  to drive the L2 row's trailing `duration` column (rf2-lnod7)."
+  [id duration-ms]
+  {:id           (+ id 1000)
+   :op-type      :rf.event
+   :operation    :rf.event/run-end
+   :tags         {:frame                :rf/default
+                  :rf.trace/dispatch-id id
+                  :rf.trace/phase       :run-end
+                  :duration-ms          duration-ms}})
+
 (deftest event-list-renders-empty-state-on-cold-start
   (testing "empty cascade list shows the spec/018 §4 empty-state hint"
     (causa-setup!)
@@ -702,10 +715,12 @@
             "one row per cascade")))))
 
 (deftest event-list-renders-figma-column-header
-  (testing "rf2-ad7zx.12 — the L2 list carries the Figma EventList
-            column-header row (source · event id · timestamp) above the
-            rows. It was MISSING pre-Figma (Mike: 'does not match the
-            Figma mock'). Rendered only with rows present."
+  (testing "rf2-ad7zx.12 + rf2-lnod7 — the L2 list carries the Figma
+            EventList column-header row naming ALL FOUR columns (source ·
+            event id · timestamp · duration) above the rows. It was
+            MISSING pre-Figma (Mike: 'does not match the Figma mock') and
+            the `duration` column was clipped off the right edge until the
+            gap audit (rf2-4297k). Rendered only with rows present."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/causa
@@ -717,7 +732,13 @@
         (is (some? (find-by-testid tree "rf-causa-event-list-col-event-id"))
             "the `event id` column label is present")
         (is (some? (find-by-testid tree "rf-causa-event-list-col-timestamp"))
-            "the `timestamp` column label is present")))))
+            "the `timestamp` column label is present")
+        (is (some? (find-by-testid tree "rf-causa-event-list-col-duration"))
+            "the `duration` column label is present (rf2-lnod7)")
+        (is (re-find #"duration"
+                     (text-nodes (find-by-testid
+                                   tree "rf-causa-event-list-col-duration")))
+            "the `duration` header label reads `duration`")))))
 
 (defn- style-of
   "Read the inline `:style` map off a hiccup node (`[tag attrs …]`)."
@@ -828,20 +849,70 @@
 (deftest event-row-source-tag-surfaces-non-user-origin
   (testing "rf2-ad7zx.12 — a non-:user dispatch-origin renders a text
             SOURCE tag (the Figma `source` column) carrying the origin
-            name. :user rows stay blank (silent-by-default)."
+            name."
     (causa-setup!)
     ;; A :timer-origin cascade — the source column should read `timer`.
     (trace-bus/collect-trace!
       (assoc-in (dispatch-trace-ev 1 [:poll/tick])
                 [:tags :rf/dispatch-origin] :timer))
-    ;; A plain (:user / untagged) cascade — source column blank.
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:foo/bar]))
     (rf/with-frame :rf/causa
       (let [tree    (shell/shell-view)
             tagged  (find-by-testid tree "rf-causa-row-origin-timer")]
         (is (some? tagged) "the :timer row carries an origin source tag")
         (is (re-find #"timer" (text-nodes tagged))
             "the source tag reads the origin name `timer`")))))
+
+(deftest event-row-source-tag-surfaces-ui-origin
+  (testing "rf2-lnod7 — a default (:user / untagged) ui-origin row renders
+            a concrete `ui` SOURCE tag rather than a blank cell. The gap
+            audit (rf2-4297k) flagged that http-origin rows showed their
+            tag while ui-origin rows rendered blank; the reference tags
+            EVERY row, so the dominant app-code origin reads `ui`."
+    (causa-setup!)
+    ;; A plain (:user / untagged) cascade — source column reads `ui`.
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            ui-tag (find-by-testid tree "rf-causa-row-origin-ui")]
+        (is (some? ui-tag)
+            "the default ui-origin row carries a non-blank source tag")
+        (is (re-find #"ui" (text-nodes ui-tag))
+            "the source tag reads `ui` for the default app-code origin")))))
+
+(deftest event-row-renders-duration-value
+  (testing "rf2-lnod7 — a row whose cascade carries a measured handler
+            duration renders the trailing `duration` column value
+            (`N.N ms`), restoring the Figma EventList's fourth column."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:poll/tick]))
+    (trace-bus/collect-trace! (run-end-trace-ev 1 1.234))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            cell (find-by-testid tree "rf-causa-row-duration")]
+        (is (some? cell) "the row's duration cell renders")
+        (is (re-find #"1\.2 ms" (text-nodes cell))
+            "the duration value reads the handler wall-time as `1.2 ms`")))))
+
+(deftest event-list-duration-column-aligns-header-and-row
+  (testing "rf2-lnod7 — the header `duration` label and the row's
+            duration cell share the SAME right-aligned min-width slot so
+            the value sits directly under the header label."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:poll/tick]))
+    (trace-bus/collect-trace! (run-end-trace-ev 1 0.4))
+    (rf/with-frame :rf/causa
+      (let [tree       (shell/shell-view)
+            h-duration (find-by-testid tree "rf-causa-event-list-col-duration")
+            r-duration (find-by-testid tree "rf-causa-row-duration")]
+        (is (some? h-duration) "header duration column renders")
+        (is (some? r-duration) "row duration cell renders")
+        (is (= (:min-width (style-of h-duration))
+               (:min-width (style-of r-duration)))
+            "header `duration` min-width == row duration-cell min-width")
+        (is (= "right"
+               (:text-align (style-of h-duration))
+               (:text-align (style-of r-duration)))
+            "header duration and row duration both right-align")))))
 
 (deftest event-row-gutter-carries-cascade-chain-thread
   (testing "rf2-5kfxe.10 — every L2 event-row gutter carries an inset

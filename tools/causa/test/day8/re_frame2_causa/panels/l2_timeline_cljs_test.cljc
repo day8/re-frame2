@@ -93,9 +93,11 @@
 ;; ---- 2b. origin → source-tag (Figma `source` column, rf2-ad7zx.12) -------
 
 (deftest origin-source-tag-test
-  (testing ":user is blank — the dominant app-code origin doesn't clutter
-            every row's source column (silent-by-default)"
-    (is (nil? (l2/origin-source-tag :user))))
+  (testing ":user renders the `ui` tag (rf2-lnod7) — the reference tags
+            EVERY row; the dominant app-code origin reads `ui` rather than
+            a blank cell (the gap audit rf2-4297k flagged the blank)"
+    (is (= "ui" (l2/origin-source-tag :user)))
+    (is (= "ui" l2/ui-source-tag)))
 
   (testing "every non-user closed-enum value renders its bare name as the tag"
     (is (= "router"       (l2/origin-source-tag :router)))
@@ -108,8 +110,10 @@
     (is (= "internal"     (l2/origin-source-tag :internal)))
     (is (= "websocket"    (l2/origin-source-tag :websocket))))
 
-  (testing "unknown / nil → nil (defence-in-depth, never throws)"
-    (is (nil? (l2/origin-source-tag nil)))
+  (testing "nil → the `ui` default (rf2-lnod7) so synthetic / pre-origin-
+            tag cascades still render a concrete source rather than blank;
+            never throws"
+    (is (= "ui" (l2/origin-source-tag nil)))
     ;; an unknown keyword still yields its name — the column is the bare
     ;; origin axis, not gated on the closed-enum glyph map.
     (is (= "unknown-axis" (l2/origin-source-tag :unknown-axis)))))
@@ -128,6 +132,55 @@
     (is (re-find #":router"      (l2/origin-prefix-title :router)))
     (is (re-find #":fx-emit"     (l2/origin-prefix-title :fx-emit)))
     (is (re-find #":websocket"   (l2/origin-prefix-title :websocket)))))
+
+;; ---- 3b. duration column (Figma `duration` column, rf2-lnod7) ------------
+
+(defn- cascade-with-duration
+  "Build a synthetic cascade whose `:handler` (`:rf.event/run-end`) trace
+  event carries the given handler `:duration-ms`. Mirrors the shape
+  `re-frame.trace.projection/group-cascades` buckets into `:handler`."
+  [duration-ms]
+  {:dispatch-id 7
+   :event       [:poll/tick]
+   :handler     {:operation :rf.event/run-end
+                 :op-type   :rf.event
+                 :tags      {:duration-ms duration-ms
+                             :rf.trace/dispatch-id 7}}})
+
+(deftest cascade-duration-ms-test
+  (testing "reads :duration-ms from [:handler :tags :duration-ms]"
+    (is (= 1.234 (l2/cascade-duration-ms (cascade-with-duration 1.234))))
+    (is (= 0     (l2/cascade-duration-ms (cascade-with-duration 0)))))
+
+  (testing "nil-safe on missing / non-numeric slots"
+    (is (nil? (l2/cascade-duration-ms nil)))
+    (is (nil? (l2/cascade-duration-ms {})))
+    (is (nil? (l2/cascade-duration-ms {:handler nil})))
+    (is (nil? (l2/cascade-duration-ms {:handler {:tags {}}})))
+    (is (nil? (l2/cascade-duration-ms (cascade-with-duration "1.2"))))
+    (is (nil? (l2/cascade-duration-ms "not a cascade")))))
+
+(deftest format-duration-ms-test
+  (testing "formats to one decimal place + ` ms` (Figma EventList style)"
+    (is (= "1.2 ms"    (l2/format-duration-ms 1.234)))
+    (is (= "0.4 ms"    (l2/format-duration-ms 0.4)))
+    (is (= "0.6 ms"    (l2/format-duration-ms 0.62)))
+    (is (= "0.0 ms"    (l2/format-duration-ms 0)))
+    (is (= "12.0 ms"   (l2/format-duration-ms 12)))
+    (is (= "1234.5 ms" (l2/format-duration-ms 1234.5))))
+
+  (testing "nil for nil / non-numeric (cell stays empty), never throws"
+    (is (nil? (l2/format-duration-ms nil)))
+    (is (nil? (l2/format-duration-ms "1.2")))))
+
+(deftest cascade-duration-label-test
+  (testing "read + format in one step"
+    (is (= "1.2 ms" (l2/cascade-duration-label (cascade-with-duration 1.234))))
+    (is (= "0.4 ms" (l2/cascade-duration-label (cascade-with-duration 0.4)))))
+
+  (testing "nil when no measured handler duration"
+    (is (nil? (l2/cascade-duration-label {})))
+    (is (nil? (l2/cascade-duration-label nil)))))
 
 ;; ---- 4. cascade activity flags ------------------------------------------
 
