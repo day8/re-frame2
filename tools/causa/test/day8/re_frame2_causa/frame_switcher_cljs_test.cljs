@@ -289,16 +289,20 @@
 (deftest view-renders-frame-dropdown-button-always
   (testing "rf2-ad7zx.12 — the Figma chrome ribbon ALWAYS shows a
             `Frame ▾` dropdown button (logo + Frame + Dynamic/Static is
-            the chrome). Even with a single pickable frame the button
-            renders; only the overlaid <select> goes disabled so there's
-            no inert popup."
+            the chrome). rf2-ad7zx.14 — with a SINGLE frame the overlaid
+            <select> is ENABLED (a native select with one option opens +
+            shows it; it is not inert) and lists that lone frame as its
+            only option, carrying its `✓`."
     (dispatch-trace 1 :app/main)
     (setup!)
     (rf/with-frame :rf/causa
-      (let [tree   (frame-switcher/frame-switcher-view {})
-            button (find-by-testid tree "rf-causa-ribbon-frame")
-            label  (find-by-testid tree "rf-causa-ribbon-frame-label")
-            picker (find-by-testid tree "rf-causa-ribbon-frame-picker")]
+      (let [tree    (frame-switcher/frame-switcher-view {})
+            button  (find-by-testid tree "rf-causa-ribbon-frame")
+            label   (find-by-testid tree "rf-causa-ribbon-frame-label")
+            picker  (find-by-testid tree "rf-causa-ribbon-frame-picker")
+            options (filter (fn [n]
+                              (and (vector? n) (= :option (first n))))
+                            (hiccup-seq tree))]
         (is (some? button) "the Frame dropdown button always renders")
         (is (some? label) "the literal `Frame` label renders (not the value inline)")
         (is (= "Frame" (last label))
@@ -306,8 +310,17 @@
         (is (some? (find-by-testid tree "rf-causa-ribbon-frame-chevron"))
             "the `▾` chevron renders, marking it a dropdown")
         (is (some? picker) "the native <select> overlay is present for a11y")
-        (is (true? (:disabled (second picker)))
-            "single-frame — the overlaid select is disabled (no inert popup)")))))
+        (is (not (:disabled (second picker)))
+            "rf2-ad7zx.14 — single-frame: the overlaid select is ENABLED so
+             clicking it opens a 1-entry dropdown (not inert)")
+        (is (nil? (:multiple (second picker)))
+            "strictly single-select — no :multiple attribute even with one frame")
+        (is (= 1 (count options))
+            "exactly one option — the lone available frame")
+        (is (= ":app/main" (:value (second (first options))))
+            "the single option is bound to the available frame's value")
+        (is (= "✓ :app/main" (last (first options)))
+            "the lone frame is the active selection, carrying its checkmark")))))
 
 (deftest view-renders-dropdown-when-multiple-frames
   (testing "the view renders a strictly-single-select <select> overlay
