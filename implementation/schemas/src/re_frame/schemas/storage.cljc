@@ -284,6 +284,41 @@
 ;; contract. Best-effort: the hook is a no-op when the elision artefact is
 ;; absent, and the elision write itself no-ops when the frame's app-db
 ;; container does not exist yet (registration before frame creation).
+;;
+;; PERF (rf2-ee38b.6): `:elision/populate-from-schemas!` re-walks EVERY
+;; registered schema in the frame, so it is O(n) in the frame's schema
+;; count. Running it on every single `reg-app-schema` therefore makes
+;; bulk registration O(n²) — registering n schemas wedges (the rf2-utdxg
+;; concurrency-stress harness registers 8 × 5000 schemas one-at-a-time on
+;; one frame and timed out the JVM gate). The fix is `populate-relevant?`:
+;; a fresh registration whose schema contributes NO `:large?` /
+;; `:sensitive?` slot cannot change the elision registry, so the walk is
+;; skipped. We only pay the O(n) refresh when the new schema actually
+;; carries an elision flag, OR when this is a re-registration (where the
+;; PRIOR schema may have carried a flag that is now removed and must be
+;; dropped). The common case — many flag-free fresh registrations — is
+;; O(1) per call.
+
+(defn- schema-contributes-elision?
+  "True when `schema` carries at least one `:large?` or `:sensitive?`
+  per-slot flag the walker can introspect — i.e. registering it could
+  add a declaration to the frame's elision registry. Pure walk over the
+  single schema (the sensitive walk is memoised by `(schema, path)`);
+  cheap relative to the full-frame `populate-from-schemas!` refresh."
+  [schema path]
+  (or (seq (walker/extract-large-paths-from-schema schema path))
+      (seq (walker/extract-sensitive-paths-from-schema schema path))))
+
+(defn- populate-relevant?
+  "Decide whether a `reg-app-schema` call needs an elision-registry
+  refresh. Skips the O(n) full-frame walk for the dominant case — a
+  fresh registration of a flag-free schema, which provably cannot change
+  any declaration. Refreshes when the new schema contributes a flag, or
+  when this is a re-registration (the prior schema may have carried a
+  flag now being removed)."
+  [prior-schema schema path]
+  (or (some? prior-schema)
+      (schema-contributes-elision? schema path)))
 
 (defn- populate-elision-for-frame!
   "Refresh schema-derived `:large?` / `:sensitive?` elision declarations
@@ -340,12 +375,27 @@
        ;; Per rf2-ee38b.6 / Spec 010 §Schema migration on hot-reload:
        ;; emit `:rf.schema/violation` when a re-registration changes the
        ;; schema and the live app-db value at `path` fails the new shape.
+       ;; O(1) per call — reads the prior schema + one validation of the
+       ;; live value at this path; safe to run per-entry even in bulk.
        (maybe-emit-schema-violation! frame-id path prior-schema schema)
        ;; Per rf2-ee38b.6 / Spec 010 §`:large?` ("at boot, and on
        ;; re-registration"): refresh the schema-derived elision
        ;; declarations so size-elision / privacy redaction is live even
        ;; for wire emits that fire before the first dispatch.
-       (populate-elision-for-frame! frame-id))
+       ;;
+       ;; This walks EVERY registered schema in the frame, so it is O(n)
+       ;; in the frame's schema count. Two guards keep it cheap:
+       ;;   - `:rf/defer-elision-populate?` lets the bulk
+       ;;     `reg-app-schemas` path run the walk ONCE after all entries
+       ;;     land instead of once per entry.
+       ;;   - `populate-relevant?` skips the walk entirely for the common
+       ;;     case (a fresh registration of a flag-free schema), which
+       ;;     provably cannot change the elision registry.
+       ;; Without both, registering n schemas is O(n²) and wedged the
+       ;; rf2-utdxg concurrency-stress JVM gate.
+       (when (and (not (:rf/defer-elision-populate? opts))
+                  (populate-relevant? prior-schema schema path))
+         (populate-elision-for-frame! frame-id)))
      path)))
 
 (defn reg-app-schemas
@@ -379,8 +429,38 @@
   `reg-app-schema` chain instead)."
   ([path->schema] (reg-app-schemas path->schema {}))
   ([path->schema opts]
-   (mapv (fn [[path schema]] (reg-app-schema path schema opts))
-         path->schema)))
+   ;; Defer the per-entry schema-derived elision repopulation (rf2-ee38b.6):
+   ;; `populate-elision-for-frame!` walks EVERY registered schema in the
+   ;; frame, so running it once per entry is O(n²) in the frame's schema
+   ;; count — fine for the documented 5–20-schema feature module, but it
+   ;; wedges large/concurrent bulk registration (the rf2-utdxg
+   ;; concurrency-stress harness registers 8 × 5000 on one frame and timed
+   ;; out the JVM gate). Each singular call still does its O(1) per-entry
+   ;; work (validator nudge, walker-opaque nudge, hot-reload
+   ;; `:rf.schema/violation` check); the O(n) full-frame elision walk is
+   ;; hoisted out and run AT MOST ONCE after all entries land, and only
+   ;; when at least one entry could actually change the elision registry
+   ;; (`populate-relevant?` — a batch of flag-free fresh registrations,
+   ;; the stress workload, skips the walk entirely).
+   (let [frame-id   (resolve-frame opts)
+         entry-opts (assoc opts :rf/defer-elision-populate? true)
+         ;; Snapshot prior schemas BEFORE registering so relevance
+         ;; reflects each entry's true re-registration status, matching
+         ;; the singular path's per-call decision.
+         relevant?  (when interop/debug-enabled?
+                      (let [snapshot (get @schemas-by-frame frame-id)]
+                        (boolean
+                          (some (fn [[path schema]]
+                                  (populate-relevant?
+                                    (get-in snapshot [path :schema])
+                                    schema path))
+                                path->schema))))
+         paths      (mapv (fn [[path schema]]
+                            (reg-app-schema path schema entry-opts))
+                          path->schema)]
+     (when (and interop/debug-enabled? relevant?)
+       (populate-elision-for-frame! frame-id))
+     paths)))
 
 (defn app-schema-at
   "Look up the registered schema for a path in a frame, or nil.
