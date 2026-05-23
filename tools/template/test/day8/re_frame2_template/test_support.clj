@@ -18,11 +18,29 @@
    on `implementation/package.json`; both files live under the same
    repo root, so the deeper marker subsumes it."
   (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [clojure.string :as string]
             [org.corfield.new :as deps-new])
   (:import [java.nio.file Files LinkOption Path
             FileVisitResult SimpleFileVisitor]
            [java.nio.file.attribute FileAttribute]))
+
+;; --- emitted-file readers --------------------------------------------------
+;;
+;; `read-edn` / `file-exists?` are tiny one-liners that every test which
+;; walks an emitted project re-implements. Homed here (rf2-ee38b.23,
+;; clarity P3) so the next "read the emitted deps.edn" call doesn't
+;; re-inline `slurp` + `read-string`.
+
+(defn read-edn
+  "Parse `f` (a `java.io.File`) as a single EDN value."
+  [^java.io.File f]
+  (edn/read-string (slurp f)))
+
+(defn file-exists?
+  "True if `path` (relative to `root`) exists as a regular file."
+  [^java.io.File root path]
+  (.isFile (io/file root path)))
 
 ;; --- tmp dirs --------------------------------------------------------------
 

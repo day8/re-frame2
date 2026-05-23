@@ -7,4 +7,8 @@
 ;; `reg-view`, ...) are recognised by clj-kondo's built-in support
 ;; for clojure.core-style defining forms — no hook lib required for
 ;; the canonical counter shape.
+;;
+;; Run the linter with `clojure -M:clj-kondo --lint src test` (the
+;; :clj-kondo deps alias runs it via the JVM dep — no native binary
+;; install needed). lefthook's pre-commit hook calls the same alias.
 {}

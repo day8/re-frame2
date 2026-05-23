@@ -75,18 +75,26 @@ choice swaps:
 - `views.cljs` — the counter view. Reagent uses plain hiccup;
   UIx uses `$` with `defui`; Helix uses `defnc` and `d/...`
   elements.
-- `deps.edn` — the substrate-adapter coord changes:
+- `deps.edn` — only the substrate-adapter coord changes:
   `day8/re-frame2-reagent`, `day8/re-frame2-uix`, or
-  `day8/re-frame2-helix`. The runtime coord `day8/re-frame2` is
-  identical across variants.
+  `day8/re-frame2-helix`. The remaining runtime coords are identical
+  across variants: `day8/re-frame2` (core), `day8/re-frame2-schemas`
+  (so `schema.cljs`'s whole-app-db schema validates rather than
+  soft-passing per Spec 010), and `day8/re-frame2-causa` (the in-app
+  devtools panel — see
+  [002 §Causa devtools](002-Generated-Shape.md#causa-devtools)).
 - `shadow-cljs.edn` and `package.json` — react / react-dom pins
   are identical; the substrate's own npm dep (where applicable)
-  is added.
+  is added. The `:app` build's `:devtools {:preloads …}` carries
+  `day8.re-frame2-causa.preload` identically across variants.
 
 The substrate-agnostic shell — `events.cljs`, `subs.cljs`,
-`README.md`, `.gitignore`, `resources/public/index.html` — lives
-under the `_shared/` resource sub-tree and is emitted identically
-across all three variants.
+`schema.cljs`, `README.md`, `.gitignore`,
+`resources/public/index.html` — lives under the `_shared/` resource
+sub-tree and is emitted identically across all three variants.
+`schema.cljs` is substrate-agnostic: the whole-app-db Malli schema
+and `reg-app-schema` registration are the same regardless of view
+library.
 
 ## The counter throughline
 
