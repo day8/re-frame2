@@ -172,11 +172,15 @@
          nil))))
 
 #?(:cljs
-   (defn- apply-open!
+   (defn apply-open!
      "Drive the Causa shell open via `causa-mount/open!`. The symbol
      resolves at compile time via the direct `:require` at the top of
      this ns (rf2-ibpwr — replaces the pre-fix `find-ns-obj` walk that
-     false-negatived under node-test)."
+     false-negatived under node-test).
+
+     Public composition seam: callers that need the legacy whole-shell
+     open compose `(do (wire-cross-host!) (apply-open!))` directly (see
+     the no-shim note below)."
      []
      (when causa-mount/open!
        (safe-call! "open!" causa-mount/open!))))
