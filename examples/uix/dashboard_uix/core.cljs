@@ -6,9 +6,12 @@
    Demonstrates:
 
      - UIx components (`defui`) consuming subs via `use-subscribe`
-     - signal-graph subscriptions (per-metric, per-range projections)
+     - signal-graph subscriptions composing tag + range inputs into one
+       re-derived projection (`:dashboard/visible-metrics`)
      - inline SVG sparklines computed in pure CLJS — no chart library
-     - filter chips that re-derive the visible card set
+     - two re-deriving controls: filter chips (which cards show) and a
+       time-range picker (how many trailing points each sparkline draws,
+       plus the header label)
 
    No HTTP, no state machines — the design-led examples per rf2-t7t6f
    exist to prove polished visuals + interaction, not to replay platform
@@ -55,6 +58,15 @@
    {:id :perf  :label "Performance"}
    {:id :usage :label "Usage"}])
 
+(def ranges
+  ;; Time-range options. `:points` is how many of each metric's 14-point
+  ;; series the range windows in to (the last N) — so picking a range
+  ;; re-derives both the header label and every sparkline. Capped at the
+  ;; 14 points the seed data actually carries; we don't fabricate history
+  ;; we don't have.
+  [{:id :w7  :label "7 days"  :points 7}
+   {:id :w14 :label "14 days" :points 14}])
+
 ;; ============================================================================
 ;; EVENTS
 ;; ============================================================================
@@ -87,11 +99,22 @@
 (rf/reg-sub :dashboard/range
   (fn [db _] (:dashboard/range db)))
 
+(rf/reg-sub :dashboard/selected-range
+  :<- [:dashboard/range]
+  (fn [r _]
+    (some #(when (= r (:id %)) %) ranges)))
+
 (rf/reg-sub :dashboard/visible-metrics
+  ;; Two re-deriving inputs feed the visible card set: the active tag chips
+  ;; (which metrics show) and the selected range (how many trailing points
+  ;; each sparkline draws). Changing either re-runs this projection.
   :<- [:dashboard/metrics]
   :<- [:dashboard/active-tags]
-  (fn [[ms tags] _]
-    (filter #(contains? tags (:tag %)) ms)))
+  :<- [:dashboard/selected-range]
+  (fn [[ms tags {:keys [points]}] _]
+    (->> ms
+         (filter #(contains? tags (:tag %)))
+         (map (fn [m] (update m :series #(vec (take-last points %))))))))
 
 ;; ============================================================================
 ;; SPARKLINE PATH
@@ -137,16 +160,30 @@
                :vector-effect "non-scaling-stroke"})))
 
 (defui delta-badge [{:keys [delta good-when-positive?]}]
-  (let [pos?      (pos? delta)
-        positive? (if good-when-positive? pos? (not pos?))
-        pct       (-> delta (* 100) Math/abs (.toFixed 1))]
-    ($ :span {:class (str "dash-delta " (if positive? "is-good" "is-bad"))}
-       (if pos? "▲ " "▼ ") pct "%")))
+  ;; The arrow follows the *good/bad* reading, not the raw sign, so a
+  ;; green badge never shows a downward arrow (and vice versa). For a
+  ;; down-is-good metric (latency, errors) a fall reads as ▲ green.
+  (let [good? (if good-when-positive? (pos? delta) (neg? delta))
+        pct   (-> delta (* 100) Math/abs (.toFixed 1))]
+    ($ :span {:class (str "dash-delta " (if good? "is-good" "is-bad"))}
+       (if good? "▲ " "▼ ") pct "%")))
+
+(defn- format-value
+  "Render a metric value for display. Integers are grouped with thousands
+   separators (`142375` → `142,375`); fractional values get two decimals
+   (`3.8` → `3.80`). `.toLocaleString` / `.toFixed` are zero-dependency
+   JS interop — no number-formatting library."
+  [value]
+  (if (integer? value)
+    (.toLocaleString value "en-US")
+    (.toFixed value 2)))
 
 (defui metric-card [{:keys [m]}]
   (let [{:keys [id label value unit delta tag series]} m
-        money? (= :money tag)
-        perf?  (= :perf tag)]
+        ;; `$` renders before the value (a prefix unit); `ms` / `%` render
+        ;; after. The flag names the placement, decoupled from the tag.
+        prefix-unit? (= "$" unit)
+        perf?        (= :perf tag)]
     ($ :article.dash-card
        {:data-testid (str "dashboard-card-" (name id))}
        ($ :header.dash-card-head
@@ -154,15 +191,11 @@
           ($ delta-badge {:delta delta
                           :good-when-positive? (not perf?)}))
        ($ :div.dash-card-value
-          (when money? ($ :span.dash-unit unit))
+          (when prefix-unit? ($ :span.dash-unit unit))
           ($ :span.dash-value
              {:data-testid (str "dashboard-value-" (name id))}
-             (cond
-               (integer? value)            (str value)
-               (and (number? value)
-                    (< value 100))         (.toFixed value 2)
-               :else                       (str value)))
-          (when (and (not money?) (seq unit))
+             (format-value value))
+          (when (and (not prefix-unit?) (seq unit))
             ($ :span.dash-unit unit)))
        ($ :div.dash-card-label label)
        ($ sparkline {:series series :id id}))))
@@ -179,16 +212,31 @@
             ($ :span.dash-chip-dot {:class (str "tag-" (name id))})
             label)))))
 
+(defui range-picker []
+  (let [active   (uix-adapter/use-subscribe [:dashboard/range])
+        dispatch (rf/dispatcher)]
+    ($ :div.dash-chips
+       (for [{:keys [id label]} ranges]
+         ($ :button {:key id
+                     :class (str "dash-chip " (when (= active id) "is-on"))
+                     :data-testid (str "dashboard-range-" (name id))
+                     :on-click #(dispatch [:dashboard/set-range id])}
+            label)))))
+
 (defui dashboard []
-  (let [visible (uix-adapter/use-subscribe [:dashboard/visible-metrics])]
+  (let [visible    (uix-adapter/use-subscribe [:dashboard/visible-metrics])
+        sel-range  (uix-adapter/use-subscribe [:dashboard/selected-range])]
     ($ :div.dash-shell
        ($ :header.dash-shell-head
           ($ :div
              ($ :h1 "Atlas")
              ($ :p.dash-tagline
-                "Last 14 days · "
+                {:data-testid "dashboard-range-label"}
+                (str "Last " (:label sel-range) " · ")
                 ($ :span.dash-substrate-tag "UIx substrate")))
-          ($ filter-chips))
+          ($ :div.dash-controls
+             ($ range-picker)
+             ($ filter-chips)))
        ($ :section.dash-grid
           {:data-testid "dashboard-grid"}
           (for [m visible]
@@ -203,7 +251,7 @@
 (defonce react-root
   (uix-dom/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   (rf/init! uix-adapter/adapter)
   (rf/dispatch-sync [:dashboard/initialise])
   (uix-dom/render-root ($ dashboard) react-root))

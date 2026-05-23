@@ -60,17 +60,10 @@
 
 (rf/reg-fx :rf.http/managed.login-demo
   {:doc       "Demo override for `:rf.http/managed`. Identical behaviour
-               to the Reagent example's stub.
-
-               NOTE on the raw js/setTimeout below. The deferred work
-               is an fx invocation (the canned-success / canned-failure
-               stub), not a dispatch, so the framework's
-               `:dispatch-later` path is not a 1:1 swap. The timer is
-               purely demo-stub latency so the `:submitting` UI state
-               is observable. Production app code should never use raw
-               `js/setTimeout` — use `:dispatch-later` so framework
-               time controls (Tool-Pair time-travel,
-               `:dispatch-later` nil-override) still apply."
+               to the Reagent example's stub. The raw `js/setTimeout`
+               below is demo-only latency so the `:submitting` UI state
+               is observable — see examples/reagent/login for the full
+               rationale on why production code uses `:dispatch-later`."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
@@ -246,10 +239,14 @@
 (defonce react-root
   (uix-dom/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! uix-adapter/adapter)
   (rf/reg-frame :rf/default
     {:doc          "Login (UIx) demo frame."
      :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})
+  ;; No `dispatch-sync` seed here (unlike counter / dashboard): the
+  ;; machine handler is self-initialising — its `:initial`/`:data` seed
+  ;; [:rf/machines :auth.login/flow] when the flow first runs (per
+  ;; Spec 005 §Restore semantics), so no separate :initialise is needed.
   (uix-dom/render-root ($ root-view) react-root))
