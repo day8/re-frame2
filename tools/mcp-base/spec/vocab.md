@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > The single source of truth for the marker keys an agent learns once and recognises across every MCP server in the re-frame2 pair — `re-frame2-pair-mcp` and `story-mcp`. A rename here is a wire-protocol break; the cross-MCP conformance gate under `tools/mcp-conformance/wire-vocab/` fails loud when that happens.
 
-This doc is one of seven per-namespace contracts indexed from [`README.md`](README.md). See also: [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md).
+This doc is one of eight per-namespace contracts indexed from [`README.md`](README.md). See also: [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md).
 
 ## Scope
 

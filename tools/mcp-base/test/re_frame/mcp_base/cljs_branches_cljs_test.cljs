@@ -25,8 +25,11 @@
   into the private helpers — we pin the behaviour the consumers depend
   on."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.cap :as cap]
+            [re-frame.mcp-base.cursor :as cursor]
             [re-frame.mcp-base.diff-encode :as de]
+            [re-frame.mcp-base.envelope :as envelope]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]))
 
@@ -133,3 +136,71 @@
     (let [r   {:content [{:type "text" :text (pr-str {:small :payload})}]}
           out (cap/apply-cap map-io r {:tool "snapshot" :cap overflow/default-max-tokens})]
       (is (identical? r out)))))
+
+;; ---------------------------------------------------------------------------
+;; 5. Cross-host strict integer-parse contract (rf2-ee38b.19). The string
+;;    arm of `parse-int*` previously diverged: raw `js/parseInt` parses a
+;;    numeric PREFIX (`"12abc"` ⇒ 12) while JVM `Long/parseLong` rejects
+;;    trailing garbage and falls back to default. This pins the CLJS half
+;;    of the contract; the JVM half lives in args_test.clj. Both MUST
+;;    agree (byte-identical default-fallback posture).
+;; ---------------------------------------------------------------------------
+
+(deftest parse-int-strict-cross-host-cljs
+  (testing "trailing garbage falls back to default on CLJS too"
+    (is (= 50 (args/parse-positive-int "12abc" 50)) "was 12 on CLJS before the fix")
+    (is (= 50 (args/parse-positive-int "5xyz" 50)))
+    (is (= 50 (args/parse-positive-int "1.5" 50)))
+    (is (= 50 (args/parse-positive-int "1e3" 50)))
+    (is (= 5000 (args/parse-non-negative-int "100x" 5000))))
+  (testing "clean and signed strings still parse"
+    (is (= 12 (args/parse-positive-int "12" 50)))
+    (is (= 12 (args/parse-positive-int "+12" 50)))
+    (is (= 1 (args/parse-positive-int "-5" 50)) "clamps to floor"))
+  (testing "out-of-safe-range digit string rejected (mirrors JVM long overflow)"
+    (is (= 50 (args/parse-positive-int "99999999999999999999999999" 50)))))
+
+;; ---------------------------------------------------------------------------
+;; 6. Shared cursor codec round-trips under CLJS (rf2-ee38b.19). The base64
+;;    codec is reader-conditional (`js/Buffer` on CLJS); pin the encode →
+;;    decode round-trip and the malformed/oversize sentinels on the
+;;    Node runtime the pair-mcp server actually runs on.
+;; ---------------------------------------------------------------------------
+
+(deftest cursor-codec-round-trips-under-cljs
+  (testing "encode then decode reproduces the payload"
+    (let [payload {:v 1 :after-id "ev-42" :ms 1000}
+          token   (cursor/encode-cursor payload)
+          back    (cursor/decode-cursor token (fn [m] (and (map? m) (string? (:after-id m)))))]
+      (is (string? token))
+      (is (= payload back))))
+  (testing "absent cursor decodes to nil"
+    (is (nil? (cursor/decode-cursor nil any?)))
+    (is (nil? (cursor/decode-cursor "" any?))))
+  (testing "garbage / oversize / failing-payload predicate => ::malformed"
+    (is (= :re-frame.mcp-base.cursor/malformed
+           (cursor/decode-cursor "!!!not-base64-edn!!!" any?)))
+    (is (= :re-frame.mcp-base.cursor/malformed
+           (cursor/decode-cursor (apply str (repeat 2000 "a")) any?)))
+    (let [token (cursor/encode-cursor {:v 1 :after-id "x"})]
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor token (fn [_] false))))))
+  (testing "tagged literals in the cursor are rejected"
+    (let [evil (cursor/b64-encode "#js {:a 1}")]
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor evil any?))))))
+
+;; ---------------------------------------------------------------------------
+;; 7. Shared with-indicators envelope helper under CLJS (rf2-ee38b.19).
+;;    The MUST-level "omit when zero" parity rule runs identically on
+;;    both hosts; pin the CLJS half.
+;; ---------------------------------------------------------------------------
+
+(deftest with-indicators-omit-when-zero-cljs
+  (is (= {:trace [1]} (envelope/with-indicators {:trace [1]} {:dropped 0 :elided 0})))
+  (is (= {:trace [1] :dropped-sensitive 3}
+         (envelope/with-indicators {:trace [1]} {:dropped 3 :elided 0})))
+  (is (= {:trace [1] :elided-large 2}
+         (envelope/with-indicators {:trace [1]} {:dropped 0 :elided 2})))
+  (is (= {:trace [1] :dropped-sensitive 3 :elided-large 2}
+         (envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2}))))

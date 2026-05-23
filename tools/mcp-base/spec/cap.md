@@ -3,13 +3,14 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Owns the ALGORITHM that drives the overflow marker into a result. Until rf2-eyelu this pipeline was duplicated near-identically in re-frame2-pair-mcp (CLJS, `#js {:content #js [...]}`-shaped results) and story-mcp (CLJ, `{:content [...] :structuredContent ...}`-shaped results). The only structural difference between the two implementations was the SHAPE of the result map and the platform-appropriate accessor used to read its `:text` slots — algorithm identical.
 
-This doc is one of seven per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`overflow.md`](overflow.md).
+This doc is one of eight per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md).
 
 ## Scope
 
 `cap` owns:
 
-- The three-step cap algorithm (sum tokens → compare → pass-through or replace).
+- The two-stage cap algorithm (sum tokens + chars in one pass → primary token gate OR secondary char gate → pass-through or replace).
+- The `max-tokens` per-call cap resolver (`0` resolves to `nil` = disabled; absent / non-number → `default-max-tokens`).
 - The `ResultIO` protocol — the per-consumer specialisation hook.
 - The recursion-safety invariant (the overflow marker itself must fit under the cap).
 
@@ -21,27 +22,40 @@ This doc is one of seven per-namespace contracts indexed from [`README.md`](READ
 
 ## Algorithm
 
-1. **Sum tokens.** Sum the cumulative `overflow/token-estimate` across every `:text` slot in the result's `:content` vector.
-2. **Compare against cap.** Compare against the per-call cap (`:max-tokens` MCP arg, default `overflow/default-max-tokens`, `0` disables).
-3. **Pass-through or replace.** Under-budget responses pass through unchanged; over-budget responses are replaced with a fresh result carrying the `:rf.mcp/overflow` marker.
+The pipeline is a **two-stage** gate (rf2-ih7g4) that folds both sums in a **single pass** (rf2-hyp0z) over the content `:text` slots:
+
+1. **Resolve the cap.** `max-tokens` turns the raw `:max-tokens` MCP arg into the per-call cap: `nil` (caller passed `0` → disabled), `default-max-tokens` (5000; absent or non-number), or a positive integer (custom cap). When the resolved cap is `nil`, `apply-cap` short-circuits and returns the result untouched — **the disable mechanism is `max-tokens` resolving to `nil`, not the arg being `0` at the gate**.
+2. **Single-pass token + char sum.** One `transduce` over the `:text`-slot strings folds both `Σ token-estimate` and `Σ (count s)` in one walk (so a story-mcp `:structuredContent` is materialised once, not twice).
+3. **Two-stage over-budget decision** (`over-cap?`): trip when EITHER the token sum `> cap` (primary gate) OR the char sum `> cap * byte-cap-multiplier` (secondary byte gate — defence-in-depth against payloads where `(count s)/4` undercounts: CJK, emoji, base64, dense code). `reported-count` selects which count rides the marker's `:token-count` slot (the char count when the secondary gate is the one that tripped, else the token sum).
+4. **Pass-through or replace.** Under-budget responses pass through unchanged; over-budget responses are replaced with a fresh result carrying the `:rf.mcp/overflow` marker (built via `overflow/overflow-payload`).
 
 ```clojure
-(defn enforce-cap [io result max-tokens]
-  (if (zero? max-tokens)
-    result                                                    ; 0 disables
-    (let [texts       (content-texts io result)
-          token-count (reduce + (map overflow/token-estimate texts))]
-      (if (<= token-count max-tokens)
-        result                                                ; under-budget
-        (let [marker (overflow/overflow-marker
+(defn enforce-cap [io result cap]                  ; cap = (max-tokens raw-arg)
+  (if (nil? cap)
+    result                                          ; nil cap ⇒ disabled
+    (let [{:keys [tokens chars]}                    ; single-pass fold
+          (transduce (filter string?)
+                     (completing
+                       (fn [acc s]
+                         {:tokens (+ (:tokens acc) (overflow/token-estimate s))
+                          :chars  (+ (:chars acc)  (count s))}))
+                     {:tokens 0 :chars 0}
+                     (content-texts io result))]
+      (if-not (over-cap? tokens chars cap)          ; token gate OR char gate
+        result                                      ; under-budget
+        (let [marker (overflow/overflow-payload
                        {:tool        (extract-tool-id result)
-                        :token-count token-count
-                        :cap-tokens  max-tokens
+                        :token-count (reported-count tokens chars cap)
+                        :cap         cap
                         :hint        (resolve-hint io result)})]
-          (build-overflow-result io marker result))))))       ; over-budget
+          (build-overflow-result io marker result)))))) ; over-budget
 ```
 
 The algorithm runs synchronously at the wire boundary, after the response body has been assembled but before the consumer-side transport ships it. The cost is one walk over the `:content` vector — O(content size).
+
+### Why the secondary char gate is structurally dominated today
+
+Under the live `token-estimate = (quot count 4)` rule, the two sums are not independent: if `chars > cap*8` then `tokens = (quot chars 4) > 2*cap > cap`, so the token gate has already tripped whenever the char gate would. The char disjunct is therefore intentional **defence-in-depth** against a FUTURE `token-estimate` refinement that decouples chars from tokens (one that recognises base64 / CJK with a lower per-char cost) — not dead code. `over-cap?` / `reported-count` are extracted as pure fns over already-summed counts so the dominated branch is unit-trippable in isolation (`cap_test.clj`).
 
 ## Per-server specialisation hook — the `ResultIO` protocol
 
@@ -99,7 +113,7 @@ The structural guarantee comes from the marker shape — `:limit`, `:token-count
 
 ## Disabling the cap
 
-`:max-tokens 0` disables the cap entirely. Documented use cases:
+`:max-tokens 0` disables the cap entirely — `max-tokens` resolves the `0` arg to `nil`, and `apply-cap` short-circuits on a `nil` cap. Documented use cases:
 
 1. **Conformance fixtures** — fixtures that assert the un-capped response shape need `:max-tokens 0` so the cap doesn't truncate the expected payload.
 2. **Local-host streaming consumers** — agents that stream tool responses (rather than load them into context) may opt out of the cap to receive the full payload.

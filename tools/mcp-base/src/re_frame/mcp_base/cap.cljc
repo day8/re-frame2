@@ -202,28 +202,19 @@
 (defn over-cap?
   "Two-stage over-budget predicate (rf2-ih7g4). True when EITHER the
   token sum exceeds `cap` OR the char sum exceeds `cap *
-  byte-cap-multiplier` (the secondary byte gate).
-
-  Pure over already-summed `tokens` / `chars` so the secondary char
-  gate is trippable in isolation — under the live `token-estimate`
-  rule the char disjunct is structurally dominated (see the ns-level
-  comment above), but the gate guards against a future token-rule
-  refinement that decouples chars from tokens."
+  byte-cap-multiplier`. Pure over already-summed counts so the
+  dominated char gate is unit-trippable in isolation (see the comment
+  block above for the structural-domination argument)."
   [tokens chars cap]
   (or (> tokens cap)
       (> chars (* cap byte-cap-multiplier))))
 
 (defn reported-count
-  "The `:token-count` reported in the overflow marker. When the
-  secondary char gate is the one that tripped (`chars > cap *
-  byte-cap-multiplier`), report the char count so the agent's overflow
-  handler sees an actionable number reflecting the payload that
-  escaped the token heuristic; otherwise report the token sum.
-
-  Pure over already-summed `tokens` / `chars` (companion to
-  `over-cap?`) — exercised directly in `cap_test.clj` so the char-gate
-  reporting arm is covered even though the live `apply-cap` path cannot
-  reach it under the current `token-estimate` rule."
+  "The `:token-count` reported in the overflow marker: the char count
+  when the secondary char gate tripped (so the agent sees an actionable
+  number for the payload that escaped the token heuristic), else the
+  token sum. Pure companion to `over-cap?` — unit-tested directly since
+  the live `apply-cap` path can't reach the char-gated arm."
   [tokens chars cap]
   (if (> chars (* cap byte-cap-multiplier))
     chars
@@ -254,31 +245,11 @@
     (nil? cap)    result
     (nil? result) result
     :else
-    ;; Two-stage check (rf2-ih7g4):
-    ;;
-    ;; 1. Primary token cap — `(quot count 4)` per Anthropic's English
-    ;;    rule-of-thumb. The published contract pinned by every
-    ;;    consumer and documented in spec.
-    ;;
-    ;; 2. Secondary char-byte cap — `cap * byte-cap-multiplier`.
-    ;;    Defence-in-depth against payloads where the (count s)/4
-    ;;    heuristic undercounts: CJK, emoji, base64, dense code. Trips
-    ;;    independently of the token sum; reports the char count as
-    ;;    the `:token-count` so the agent's overflow handler sees an
-    ;;    actionable number (not zero, not nil).
-    ;;
-    ;; Either gate trips the same truncate-with-marker fallback.
-    ;;
-    ;; ## Single-pass token+char sum (rf2-hyp0z / F9-F10)
-    ;;
-    ;; The previous implementation called `sum-text-tokens` and
-    ;; `sum-text-chars` separately, each invoking `content-texts` on
-    ;; `io` once. For story-mcp's reify that materialised the result
-    ;; twice (including a `(pr-str (:structuredContent result))` on
-    ;; each call — the dominant cost for structured-content responses
-    ;; up to 30K chars). The single-pass transduce below folds both
-    ;; sums in one walk of the content-texts seq, materialising the
-    ;; expensive accessor exactly once per response.
+    ;; Two-stage gate (`over-cap?`) + single-pass token/char sum — see
+    ;; the `over-cap?` comment block above (rf2-ih7g4) for why the char
+    ;; disjunct is structurally dominated today, and rf2-hyp0z for why
+    ;; both sums fold in ONE walk (avoids materialising story-mcp's
+    ;; `:structuredContent` twice).
     (let [{:keys [tokens chars]}
           (transduce (filter string?)
                      (completing
