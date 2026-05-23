@@ -55,6 +55,34 @@
    :ex-data {:route-id id}}
   ([id] :delegate))
 
+(defwrapper current-url
+  "Per Spec 012 §URL changes are events. Read the current browser URL as
+  an app-relative string `pathname + search + hash` (CLJS), or `\"/\"`
+  when no `window.location` is available (SSR / node). Late-bound via
+  `:routing/current-url`."
+  {:hook :routing/current-url :artefact routing-artefact :on-absent :throw}
+  ([] :delegate))
+
+(defwrapper install-history-listener!
+  "Per Spec 012 §Multi-frame routing (rf2-6qgbs.4). Install a `window`
+  `popstate` listener that dispatches `:rf.route/handle-url-change` to the
+  current URL-owning frame (`url-owner-frame-id`, resolved at pop time),
+  then sync the current URL into that frame's `:rf/route` slice. This is
+  the inbound (browser → app) counterpart of the outbound
+  `:rf.nav/push-url` gate: Back/Forward restores the owner frame's route,
+  whether the owner is `:rf/default` or a non-default `:url-bound? true`
+  frame. Idempotent (re-install replaces the listener — hot-reload safe).
+  CLJS-only. Late-bound via `:routing/install-history-listener!`."
+  {:hook :routing/install-history-listener! :artefact routing-artefact :on-absent :throw}
+  ([] :delegate))
+
+(defwrapper remove-history-listener!
+  "Per Spec 012 §Multi-frame routing. Tear down the `popstate` listener
+  installed by `install-history-listener!`. No-op when none is installed.
+  CLJS-only. Late-bound via `:routing/remove-history-listener!`."
+  {:hook :routing/remove-history-listener! :artefact routing-artefact :on-absent :throw}
+  ([] :delegate))
+
 (defwrapper route-link
   "Per Spec 012 §Linking from views and API.md `route-link` row.
   Registered view at `:route/link` — renders an `<a href=...>` from a

@@ -288,6 +288,15 @@
    {:key         :routing/route-link
     :producer-ns 're-frame.routing
     :description "Reagent / SSR `[rf/route-link ...]` view component renderer."}
+   {:key         :routing/current-url
+    :producer-ns 're-frame.routing
+    :description "Read the current browser URL as pathname+search+hash (CLJS) / \"/\" (JVM)."}
+   {:key         :routing/install-history-listener!
+    :producer-ns 're-frame.routing
+    :description "Wire a popstate listener that drives the URL-owner frame on Back/Forward (rf2-6qgbs.4). CLJS-only."}
+   {:key         :routing/remove-history-listener!
+    :producer-ns 're-frame.routing
+    :description "Tear down the popstate listener installed by install-history-listener!. CLJS-only."}
 
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
    ;; The three stub-family hooks publish from `re-frame.http-test-support`
