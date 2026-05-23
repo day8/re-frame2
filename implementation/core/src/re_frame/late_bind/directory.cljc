@@ -398,7 +398,8 @@
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.helix
+                   re-frame.adapter.test-react]
     :chained?    true
     :design-bead "rf2-4z7bp"
     :description "Install the substrate-specific hiccup emitter for SSR. Chained — every loaded React-shaped adapter contributes its own install step so a single SSR ns-load auto-wires every adapter's render-to-string slot."}
@@ -436,7 +437,8 @@
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
-                   re-frame.adapter.helix]
+                   re-frame.adapter.helix
+                   re-frame.adapter.test-react]
     :chained?    true
     :design-bead "rf2-d4sf"
     :description "React-context-tier frame-id reader (each adapter routes via current-adapter)."}

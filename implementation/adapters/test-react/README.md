@@ -13,11 +13,23 @@ Purpose: catch React-lifecycle-driven bugs at unit-test speed without spinning u
 | Stale closures in event handlers | yes (sub computation) | yes | yes |
 | Unbalanced subscribe / dispose | partial | yes (mount/unmount asserts) | yes |
 | Double-render | no | yes (render counter on log) | yes |
-| Sync unmount during render (rf2-4l7t2) | no | **yes** | yes (slow) |
+| Sync unmount during render (rf2-4l7t2) | no | **yes** (see note) | yes (slow) |
 | Real DOM measurement / event listeners | no | no | yes |
 | Real React reconciler quirks | no | no | yes |
 
 If your bug class lives in the leftmost four rows and the seminal symptom is "React threw / logged a warning during a lifecycle transition," reach for the Test-React adapter. If the bug only manifests with a real DOM, real React, or real browser timing, stay on Playwright.
+
+> **Note on the sync-unmount-during-render row.** The simulator's guard
+> (`:currently-rendering?` → throw on synchronous `unmount!`) is *logic*
+> the adapter enforces correctly, but in this skeleton it is reachable
+> only via **fabricated** in-flight state — a test sets
+> `:currently-rendering?` true by hand to stand in for the production state.
+> Because children are not recursively mounted (see "What this skeleton does
+> NOT cover"), there is no child render-body from which a re-entrant
+> `unmount!` can fire organically. The guard becomes organically reachable
+> once recursive child mounting lands; until then the "**yes**" above means
+> "the guard logic is verified," not "the bug condition is reproduced
+> without test setup."
 
 ## Why a separate adapter instead of extending plain-atom
 
@@ -41,7 +53,7 @@ If your bug class lives in the leftmost four rows and the seminal symptom is "Re
          (mapv :phase (test-react/lifecycle-log mount)))))
 ```
 
-The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test owns the clock — there is no auto-re-render on app-db change in the current skeleton (tests call `trigger-update!` explicitly after a dispatch settles). Test fixtures pair the adapter with `re-frame.test-support/make-reset-runtime-fixture` exactly like the production adapters.
+The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test owns the clock — there is no auto-re-render on app-db change in the current skeleton (tests call `trigger-update!` explicitly after a dispatch settles). The adapter's own demonstration tests (`test/re_frame/adapter/test_react_test.cljc`) install/dispose the adapter directly via `re-frame.substrate.adapter` in a per-test `:each` fixture; nothing forces you to use `re-frame.test-support/make-reset-runtime-fixture`, though that helper works here just as it does for the production adapters.
 
 ## Lifecycle phases recorded
 
@@ -61,6 +73,7 @@ The simulator throws `:rf.error/sync-unmount-during-render` if `unmount!` is cal
 - **Children are not recursively mounted.** The current simulator treats the render tree as opaque data. The class-3 invariants (one root, one mount, did-mount-after-render, will-unmount-before-teardown) catch the rf2-4l7t2 class without recursion.
 - **No automatic re-render on app-db change.** Tests drive re-renders explicitly via `trigger-update!`. A follow-on bead may wire `subscribe-container` watchers into automatic `trigger-update!` calls if the use case warrants it.
 - **No React context provider.** Frame-routing under this adapter is via the dynamic-var tier (`re-frame.frame/current-frame`); the React-context tier is degenerate.
+- **No `data-rf2-source-coord` annotation.** Spec 006 makes source-coord injection a normative entry on the adapter contract, but it lives "on the rendered root DOM element." This adapter has no DOM root — the render tree is opaque data — so per the spec's non-DOM-root exemption the annotation is N/A here.
 
 If those gaps prove costly, file a follow-on bead with a concrete reproducer.
 

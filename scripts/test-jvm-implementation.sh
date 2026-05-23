@@ -9,6 +9,7 @@ artefacts=(
   implementation/adapters/reagent-slim
   implementation/adapters/uix
   implementation/adapters/helix
+  implementation/adapters/test-react
   implementation/schemas
   implementation/machines
   implementation/routing

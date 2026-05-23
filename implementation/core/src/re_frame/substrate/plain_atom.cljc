@@ -33,26 +33,18 @@
       reifies `re-frame.disposable/IDisposable` (mirroring the spine),
       and this ns publishes the two hooks via `substrate-adapter/
       route-hook!` so a CLJS-plain-atom host (rather than a leak)
-      releases inputs symmetrically on slot evict."
-  #?(:cljs (:require [re-frame.disposable :as rf-disposable]
-                     [re-frame.substrate.adapter :as substrate-adapter])))
+      releases inputs symmetrically on slot evict.
+
+  The atom-backed container quartet (`make-state-container` /
+  `read-container` / `replace-container!` / `subscribe-container`) is
+  shared with the test-react adapter via `re-frame.substrate.atom-container`
+  — see that ns for the rationale on why only the container quartet (not
+  `make-derived-value`) is shared."
+  (:require [re-frame.substrate.atom-container :as atom-container]
+            #?@(:cljs [[re-frame.disposable :as rf-disposable]
+                       [re-frame.substrate.adapter :as substrate-adapter]])))
 
 #?(:clj (set! *warn-on-reflection* true))
-
-(defn- make-state-container [initial-value]
-  (atom initial-value))
-
-(defn- read-container [container]
-  @container)
-
-(defn- replace-container! [container new-value]
-  (reset! container new-value)
-  nil)
-
-(defn- subscribe-container [container on-change]
-  (let [k (gensym "rf-sub-")]
-    (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
-    (fn unsubscribe [] (remove-watch container k))))
 
 (defn- make-derived-value [source-containers compute-fn]
   ;; No caching: derived values recompute on every deref. SSR runs each
@@ -131,10 +123,10 @@
 
   See Spec 006 §The adapter API contract for the nine-fn shape."
   {:kind                      :rf.adapter/plain-atom
-   :make-state-container      make-state-container
-   :read-container            read-container
-   :replace-container!        replace-container!
-   :subscribe-container       subscribe-container
+   :make-state-container      atom-container/make-state-container
+   :read-container            atom-container/read-container
+   :replace-container!        atom-container/replace-container!
+   :subscribe-container       atom-container/subscribe-container
    :make-derived-value        make-derived-value
    :render                    render
    :render-to-string          render-to-string
