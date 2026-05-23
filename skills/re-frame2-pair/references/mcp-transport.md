@@ -109,6 +109,26 @@ preload installs. If the marker is missing the op refuses with
 page refresh drops the runtime, but the preload re-installs it on
 the next bundle load; no manual reconnect step.
 
+### `eval-cljs`: build resolution + fail-loud preflight
+
+`eval-cljs` resolves which shadow-cljs build to evaluate against and
+preflights the runtime sentinel *before* eval'ing, so a runtime-absent
+build can never return a misleading `{:ok? true :value nil}` (the old
+footgun: shadow's `cljs-eval` against a non-running build yields a
+blank value indistinguishable from a genuine `nil`).
+
+- **Auto-detect:** with no `build` arg, `eval-cljs` detects the running
+  shadow build (`shadow.cljs.devtools.api/active-builds`). Exactly one
+  running ⇒ it's used; the resolved id is echoed back as `:build`.
+- **Fail loud:** a runtime-absent build (or zero/many running builds
+  with no explicit `build`) returns
+  `{:ok? false :reason :no-runtime-for-build :build <id> :running-builds [...] :hint "..."}`
+  — never `:ok? true :value nil`. The `:running-builds` list shows which
+  build to target via `build: "<id>"`.
+
+The same resolution + preflight logic backs the legacy `scripts/`
+bash shim's `eval` op.
+
 ## When the MCP server is degraded
 
 If shadow-cljs isn't running yet when the MCP server boots, it still

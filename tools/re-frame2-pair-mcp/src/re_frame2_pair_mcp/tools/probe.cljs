@@ -27,8 +27,29 @@
   Negative results are NOT cached: a missing preload usually surfaces
   on the very first call, and re-probing on each subsequent call
   lets a freshly-added preload land without a server restart (e.g.
-  the user edits `shadow-cljs.edn` and shadow-cljs hot-reloads)."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
+  the user edits `shadow-cljs.edn` and shadow-cljs hot-reloads).
+
+  ## Build resolution + fail-loud preflight (rf2-ivlb3)
+
+  `eval-cljs` (and any future read/eval tool) must NOT eval against a
+  build with no live re-frame2-pair runtime — doing so returns
+  `{:ok? true :value nil}` (shadow's `cljs-eval` against a non-running
+  build yields a blank value, which `cljs-eval-value` reads as nil),
+  indistinguishable from a form that genuinely returns nil. ~30 min of
+  dead-end debugging in the wild.
+
+  Two helpers close the footgun:
+
+    - `running-builds` enumerates the shadow-cljs builds with a live
+      watch worker (`shadow.cljs.devtools.api/active-builds`, a JVM-side
+      call) so the operator never has to guess `--build`.
+    - `resolve-and-preflight!` resolves the build (explicit arg wins;
+      otherwise auto-detect the single running build) and confirms the
+      runtime sentinel for it. On a runtime-absent build it rejects with
+      a structured `:no-runtime-for-build` ex-info enumerating the
+      running builds — never a silent `:ok? true :value nil`."
+  (:require [cljs.reader]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
@@ -104,6 +125,132 @@
                    (ex-info "re-frame2-pair runtime not preloaded"
                             {:reason :runtime-not-preloaded
                              :hint   preload-missing-hint})))))))
+
+;; ---------------------------------------------------------------------------
+;; Running-build enumeration + fail-loud build resolution (rf2-ivlb3).
+;; ---------------------------------------------------------------------------
+
+(defn running-builds
+  "Enumerate the shadow-cljs build ids that currently have a live watch
+  worker, as a vector of keywords. JVM-side call — `active-builds`
+  lives on the shadow API, not in the CLJS heap, so this works even
+  when no build has the re-frame2-pair runtime preloaded (the whole
+  point: it tells the operator which builds ARE running).
+
+  Resolves to `[]` on any error (old shadow without `active-builds`,
+  socket hiccup, or a nil/stub conn in the conformance harness) — the
+  caller degrades to a hint-only error rather than crashing.
+
+  The `jvm-eval` call is wrapped in `try` so a SYNCHRONOUS throw
+  (`@nil` IDeref on a nil conn before the Promise chain even starts)
+  collapses to `[]` too — `.catch` only catches async rejections."
+  [conn]
+  (-> (try
+        (nrepl/jvm-eval
+          conn
+          "(try (vec (shadow.cljs.devtools.api/active-builds)) (catch Throwable _ []))")
+        (catch :default _ (js/Promise.resolve nil)))
+      (.then (fn [resp]
+               (let [v (some-> (:value resp) cljs.reader/read-string)]
+                 (if (vector? v) v []))))
+      (.catch (fn [_] []))))
+
+(defn- auto-detect-hint [running]
+  (cond
+    (empty? running)
+    (str "no shadow-cljs build is running. Start your dev build "
+         "(`shadow-cljs watch <build>`) before eval'ing.")
+
+    (= 1 (count running))
+    ;; Shouldn't reach here (a single running build is auto-selected),
+    ;; but keep the branch explicit.
+    (str "pass --build=" (first running) " or set SHADOW_CLJS_BUILD_ID.")
+
+    :else
+    (str "multiple shadow-cljs builds are running " (vec running)
+         "; pass --build=<one-of-them> or set SHADOW_CLJS_BUILD_ID.")))
+
+(defn resolve-build!
+  "Resolve the build to eval against. Returns a Promise.
+
+    - explicit build (operator passed `:build`)  ⇒ resolves to it
+      verbatim; the runtime-sentinel preflight catches a typo'd /
+      non-running build.
+    - exactly one running build                  ⇒ resolves to it
+      (auto-detect; the operator needn't know the id).
+    - zero or many running                       ⇒ rejects with a
+      structured `:no-runtime-for-build` ex-info enumerating
+      `:running-builds`.
+
+  `explicit?` says whether `build` came from a real `:build` arg vs.
+  the env/`:app` fallback in `wire/arg-build`. We auto-detect ONLY
+  when the build is the bare default (`explicit?` false) — an operator
+  who typed `:build foo` gets `foo`, footgun-and-all (caught by
+  preflight)."
+  [conn build explicit?]
+  (if (and build explicit?)
+    (js/Promise.resolve build)
+    (-> (running-builds conn)
+        (.then
+          (fn [running]
+            (cond
+              (= 1 (count running))
+              (first running)
+
+              :else
+              (js/Promise.reject
+                (ex-info "cannot auto-detect a single running build"
+                         {:reason         :no-runtime-for-build
+                          :build          (when explicit? build)
+                          :running-builds running
+                          :hint           (str (auto-detect-hint running)
+                                               " The default 'app' build is "
+                                               "not running.")}))))))))
+
+(defn resolve-and-preflight!
+  "The shared eval-path guard (rf2-ivlb3). Resolves the build then
+  confirms a live re-frame2-pair runtime for it. Resolves to the
+  resolved build-id on success; rejects with a structured ex-info
+  otherwise.
+
+  Reject reasons:
+    - `:no-runtime-for-build` — auto-detect found zero/many builds, OR
+      the resolved build has no runtime sentinel. Carries
+      `:running-builds` so the operator sees the right `--build`.
+    - (`:runtime-not-preloaded` is folded into `:no-runtime-for-build`
+      here — both mean \"this build can't be eval'd\"; the enriched
+      reason carries the running-build enumeration the bare preload
+      error lacked.)
+
+  NEVER resolves for a runtime-absent build, so the caller can never
+  emit `:ok? true :value nil` for an eval that didn't actually run."
+  [conn build explicit?]
+  (-> (resolve-build! conn build explicit?)
+      (.then
+        (fn [build-id]
+          (-> (runtime-preloaded? conn build-id)
+              (.then
+                (fn [ok?]
+                  (if ok?
+                    build-id
+                    ;; Resolved a concrete build but its runtime sentinel
+                    ;; is absent — enrich with the running-build list so
+                    ;; the operator sees which build to target instead.
+                    (-> (running-builds conn)
+                        (.then
+                          (fn [running]
+                            (js/Promise.reject
+                              (ex-info "no re-frame2-pair runtime for build"
+                                       {:reason         :no-runtime-for-build
+                                        :build          build-id
+                                        :running-builds running
+                                        :hint
+                                        (str "build " build-id " has no live "
+                                             "re-frame2-pair runtime. "
+                                             (auto-detect-hint running)
+                                             " (Or add the :devtools :preloads "
+                                             "[re-frame2-pair.runtime] entry — see "
+                                             "skills/re-frame2-pair/SKILL.md §Setup.)")})))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Error helpers — surface structured `ex-info` from `ensure-runtime!`.

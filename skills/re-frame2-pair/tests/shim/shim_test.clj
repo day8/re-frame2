@@ -136,7 +136,10 @@
 (def healthy-cases
   {:default "nil"
    :matches
-   {;; sentinel probe
+   {;; running-build enumeration (rf2-ivlb3) — JVM-side eval; exactly
+    ;; one build running so eval auto-detects it without --build.
+    "active-builds" "[:app]"
+    ;; sentinel probe
     "(some? (and (exists? js/globalThis)" "true"
     ;; health
     "(re-frame2-pair.runtime/health)"
@@ -169,8 +172,25 @@
 
 (def missing-preload-cases
   ;; sentinel probe returns false → ops.clj emits :runtime-not-preloaded
+  ;; (discover) / :no-runtime-for-build (eval). A build IS running
+  ;; (active-builds → [:app]) but it has no live runtime sentinel.
   {:default "nil"
-   :matches {"(some? (and (exists? js/globalThis)" "false"}})
+   :matches {"active-builds" "[:app]"
+             "(some? (and (exists? js/globalThis)" "false"}})
+
+(def no-running-build-cases
+  ;; rf2-ivlb3: zero shadow builds running. eval can't auto-detect a
+  ;; build → :no-runtime-for-build with empty :running-builds.
+  {:default "nil"
+   :matches {"active-builds" "[]"
+             "(some? (and (exists? js/globalThis)" "false"}})
+
+(def multi-build-cases
+  ;; rf2-ivlb3: two builds running, none passed via --build → eval can't
+  ;; pick one → :no-runtime-for-build enumerating both.
+  {:default "nil"
+   :matches {"active-builds" "[:app :examples/step-deck]"
+             "(some? (and (exists? js/globalThis)" "true"}})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
@@ -196,6 +216,56 @@
             (is (map? edn))
             (is (true? (:ok? edn)))
             (is (= 3 (:value edn)))))))))
+
+(deftest eval-cljs-no-runtime-for-build
+  (testing "ops eval against a build with no live runtime → :no-runtime-for-build (NOT :ok? true :value nil)"
+    ;; rf2-ivlb3: the original bug returned {:ok? true :value nil} for
+    ;; EVERY form (including (count ...), which can never be nil) when
+    ;; the resolved build had no live re-frame2-pair runtime. The fix
+    ;; must fail loud instead.
+    (with-stub missing-preload-cases
+      (fn [cwd]
+        (let [r   (run-shim cwd "eval" "(count [1 2 3])")
+              edn (parse-edn (:stdout r))]
+          (is (map? edn))
+          (is (false? (:ok? edn)) "must NOT report success for a runtime-absent eval")
+          (is (= :no-runtime-for-build (:reason edn)))
+          (is (= [:app] (:running-builds edn)) "enumerates the running build(s)")
+          (is (string? (:hint edn)) "hint present")
+          (is (not (contains? edn :value))
+              "no :value slot — a runtime-absent eval did not run"))))))
+
+(deftest eval-cljs-no-running-build
+  (testing "ops eval with zero builds running → :no-runtime-for-build, empty :running-builds"
+    (with-stub no-running-build-cases
+      (fn [cwd]
+        (let [r   (run-shim cwd "eval" "(count [1 2 3])")
+              edn (parse-edn (:stdout r))]
+          (is (false? (:ok? edn)))
+          (is (= :no-runtime-for-build (:reason edn)))
+          (is (= [] (:running-builds edn))))))))
+
+(deftest eval-cljs-auto-detect-single-build
+  (testing "ops eval with no --build auto-detects the single running build"
+    ;; healthy-cases: active-builds → [:app], sentinel → true. The shim
+    ;; must auto-detect :app and return the resolved build in the result.
+    (with-stub healthy-cases
+      (fn [cwd]
+        (let [r   (run-shim cwd "eval" "(+ 1 2)")
+              edn (parse-edn (:stdout r))]
+          (is (true? (:ok? edn)))
+          (is (= 3 (:value edn)))
+          (is (= :app (:build edn)) "resolved build echoed back"))))))
+
+(deftest eval-cljs-multi-build-ambiguous
+  (testing "ops eval with multiple builds, none passed → :no-runtime-for-build listing all"
+    (with-stub multi-build-cases
+      (fn [cwd]
+        (let [r   (run-shim cwd "eval" "(+ 1 2)")
+              edn (parse-edn (:stdout r))]
+          (is (false? (:ok? edn)))
+          (is (= :no-runtime-for-build (:reason edn)))
+          (is (= [:app :examples/step-deck] (:running-builds edn))))))))
 
 (deftest discover-healthy
   (testing "ops discover with healthy preload → returns {:ok? true ...}"

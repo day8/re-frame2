@@ -331,17 +331,34 @@
      :reason :rf.error/eval-cljs-disabled}}
 
    {:fixture/id    :eval-cljs/happy
-    :fixture/doc   "eval-cljs with --allow-eval returns {:ok? true :value v} on a successful runtime eval."
+    :fixture/doc   "eval-cljs with --allow-eval + explicit :build returns {:ok? true :value v} on a successful runtime eval."
     :fixture/tool  "eval-cljs"
     :fixture/allow-eval? true
-    :fixture/args  {:form "(+ 1 2)"}
+    ;; Explicit :build short-circuits the rf2-ivlb3 auto-detect (which
+    ;; would jvm-eval `active-builds` — not stubbed by this cljs-eval-only
+    ;; harness). The runtime-sentinel preflight still runs.
+    :fixture/args  {:form "(+ 1 2)" :build "app"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      ["(+ 1 2)"                   3]
      [:default                    nil]]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :value 3}}}
+     :edn-submap {:ok? true :value 3 :build :app}}}
+
+   {:fixture/id    :eval-cljs/no-runtime-for-build
+    :fixture/doc   "eval-cljs against a build with no live runtime fails loud (:no-runtime-for-build), never :ok? true :value nil (rf2-ivlb3)."
+    :fixture/tool  "eval-cljs"
+    :fixture/allow-eval? true
+    ;; Explicit :build so the path is deterministic against the
+    ;; cljs-eval-only stub; sentinel probe returns false → fail loud.
+    :fixture/args  {:form "(count [1 2 3])" :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  false]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? false :reason :no-runtime-for-build}}}
 
    {:fixture/id    :eval-cljs/missing-form
     :fixture/doc   "eval-cljs with --allow-eval but without :form surfaces :missing-form."

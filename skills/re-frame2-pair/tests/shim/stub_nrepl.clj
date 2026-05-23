@@ -134,6 +134,10 @@
   (let [code     (get req "code" "")
         ;; ops.clj wraps every cljs-eval as
         ;;   (shadow.cljs.devtools.api/cljs-eval :app "<form>" {})
+        ;; but JVM-side evals (e.g. the running-build enumeration
+        ;;   (vec (shadow.cljs.devtools.api/active-builds))
+        ;; from rf2-ivlb3) are sent raw, with no inner string literal.
+        cljs?    (str/includes? code "cljs-eval")
         ;; Extract the inner form (best-effort substring) for table lookup.
         inner    (let [start (.indexOf ^String code "\"")
                        end   (.lastIndexOf ^String code "\"")]
@@ -141,11 +145,15 @@
                      (subs code (inc start) end)
                      code))
         canned   (canned-value-for cases inner)
-        wrapped  (wrap-shadow-result canned)
+        ;; cljs-eval results are wrapped in shadow's `{:results [...]}`
+        ;; shape; a bare JVM eval returns its value verbatim (the canned
+        ;; edn-string IS the pr-str'd value). ops.clj's `running-builds`
+        ;; reads `(:value res)` directly, so it must see the raw vector.
+        value    (if cljs? (wrap-shadow-result canned) canned)
         msg-id   (get req "id" "0")
         session  (get req "session" "stub-session")]
     (send-response out {"id" msg-id "session" session
-                        "value" wrapped})
+                        "value" value})
     (send-response out {"id" msg-id "session" session
                         "status" ["done"]})))
 
