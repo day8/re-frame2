@@ -142,6 +142,30 @@
                    css)
           "midpoint box-shadow expands to 4px halo with 0 alpha"))))
 
+;; ---- rf2-ad7zx.10 — active double-circle pulse keyframe ----------------
+
+(deftest motion-css-declares-active-double-circle-pulse
+  (testing "rf2-ad7zx.10 / spec/021 §6.2 Case C — the Figma TO/current
+            state is a DOUBLE-CIRCLE in the mode accent. The
+            `:current` xyflow node references
+            `rf-causa-machine-pulse-active`; the keyframe MUST exist so
+            the animation resolves rather than no-op'ing, AND it must
+            re-state the static concentric rings on every stop (since
+            box-shadow sets the whole property each frame) plus add the
+            breathing accent halo."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"@keyframes\s+rf-causa-machine-pulse-active" css)
+          "keyframes block named rf-causa-machine-pulse-active exists")
+      ;; Concentric rings restated on the resting frame.
+      (is (re-find #"inset 0 0 0 3px var\(--rf-causa-bg-1\)" css)
+          "inner gap ring painted in --rf-causa-bg-1")
+      (is (re-find #"inset 0 0 0 5px var\(--rf-causa-accent\)" css)
+          "inner accent ring painted in --rf-causa-accent (mode-tracking)")
+      ;; Breathing outer halo rides the accent var (orange Dynamic / cyan
+      ;; Static) — NOT the green token the legacy pulse uses.
+      (is (re-find #"color-mix\(in srgb, var\(--rf-causa-accent\)" css)
+          "outer halo color-mixes the mode accent, not :green"))))
+
 ;; ---- rf2-5kfxe.5 — prefers-reduced-motion seam --------------------------
 
 (deftest motion-css-declares-root-motion-scale-default

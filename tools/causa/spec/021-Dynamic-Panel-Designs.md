@@ -1959,8 +1959,21 @@ operators will see.
 |---|---|---|
 | Rounded rect (`border-radius: 6px`) | Standard state | `:standard` |
 | Rounded rect + 2px solid `:green` outer + 1px `:bg-2` inner gap (double-ring) | Final state | `:final` |
-| Rounded rect + 2px solid `:green` + 1.2s pulse | Current state (most recent visit) | `:current` |
+| **Double-circle** (`border-radius: 50%`) in the mode `:accent` — 3px accent border + concentric inner-gap + inner-ring (stacked `inset` box-shadows) + 1.2s breathing pulse | Current / TO state (most recent visit) | `:current` |
+| Dashed/dim circle (`border-radius: 50%`, `2px dashed :text-tertiary`, transparent fill) | FROM state — source of the focused fired transition | `:from` |
+| Rounded rect with dashed border (`2px dashed :border-default`) wrapping the focused FROM/TO pair | `active (compound)` focused-transition container | `:compound` |
 | Rounded rect with dashed border (`1px dashed :border-default`) | Parallel-region container | `:region` |
+
+Per §6.2 Case C (Figma reconcile · rf2-ad7zx.10): the FROM/TO pair are
+**circle** nodes inside a dashed `:compound` container; the FROM is
+dashed/dim, the TO/current is the mode-accent double-circle. `:current`
+takes precedence over `:from` (a self-transition reads as active, not
+dimmed). `:compound` is distinct from `:region` — the former is the
+single focused-transition lens, the latter is the parallel-region sibling
+container. The accent double-circle replaces the former green single
+ring so the active node reads as the Stately/xstate convention the Figma
+fixes; it animates via `rf-causa-machine-pulse-active` (the accent
+counterpart of the green `rf-causa-machine-pulse`).
 
 #### §17.4.3 Edge styles
 
@@ -1995,7 +2008,7 @@ xyflow-adapter bead (§17.5) implements against:
 
 (ns day8.re-frame2-causa.machines.xyflow-style
   (:require [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack type-scale duration-css]]))
+             :refer [tokens mono-stack type-scale duration-css with-alpha]]))
 
 (def node-style
   {:standard {:background    (:bg-2 tokens)
@@ -2013,16 +2026,35 @@ xyflow-adapter bead (§17.5) implements against:
               :font-family   mono-stack
               :font-size     (:body-tight type-scale)
               :padding       "6px 10px"}
-   :current  {:background    (:bg-2 tokens)
-              :border        (str "2px solid " (:green tokens))
-              :border-radius "6px"
-              :color         (:text-primary tokens)
+   ;; Figma reconcile (rf2-ad7zx.10 · §6.2 Case C): the TO/current state
+   ;; is a mode-accent DOUBLE-CIRCLE, not a green single ring.
+   :current  {:width         "64px"  :height "64px"
+              :border-radius "50%"   ; circle, not rounded-rect
+              :background    (with-alpha :accent 10)
+              :border        (str "3px solid " (:accent tokens))
+              ;; concentric double-ring: inner gap + inner ring
+              :box-shadow    (str "inset 0 0 0 3px " (:bg-1 tokens) ", "
+                                  "inset 0 0 0 5px " (:accent tokens))
+              :color         (:accent tokens)
               :font-family   mono-stack
-              :font-size     (:body-tight type-scale)
-              :padding       "6px 10px"
-              :animation     (str "rf-causa-machine-pulse "
+              :font-weight   600
+              :animation     (str "rf-causa-machine-pulse-active "
                                   (duration-css 1200)
                                   " ease-in-out infinite")}
+   ;; FROM state — dashed/dim circle (source of the focused transition).
+   :from     {:width         "64px"  :height "64px"
+              :border-radius "50%"
+              :background    "transparent"
+              :border        (str "2px dashed " (:text-tertiary tokens))
+              :color         (:text-tertiary tokens)
+              :font-family   mono-stack}
+   ;; `active (compound)` container bounding the focused FROM/TO pair.
+   :compound {:background    "transparent"
+              :border        (str "2px dashed " (:border-default tokens))
+              :border-radius "8px"
+              :color         (:text-tertiary tokens)
+              :font-family   mono-stack
+              :font-size     (:micro type-scale)}
    :region   {:background    "transparent"
               :border        (str "1px dashed " (:border-default tokens))
               :border-radius "8px"}})
@@ -2042,10 +2074,15 @@ xyflow-adapter bead (§17.5) implements against:
    :font-size   (:micro type-scale)})
 ```
 
-The `rf-causa-machine-pulse` keyframe lives in the existing
-`theme/global_styles motion-css` block — added alongside the existing
-diff-flash + fade keyframes per the same `prefers-reduced-motion`
-collapsing mechanic.
+The `rf-causa-machine-pulse` keyframe (the green legacy pulse) and the
+`rf-causa-machine-pulse-active` keyframe (the mode-accent double-circle
+pulse the `:current` node now uses per the Figma reconcile · rf2-ad7zx.10)
+both live in the existing `theme/global_styles motion-css` block — added
+alongside the existing diff-flash + fade keyframes per the same
+`prefers-reduced-motion` collapsing mechanic. The active keyframe
+re-states the concentric inner-gap + inner-ring on every stop (box-shadow
+sets the whole property each frame) and rides `--rf-causa-accent` so the
+halo tracks the mode (orange Dynamic / cyan Static).
 
 ### §17.5 Follow-on bead candidates (visual layer)
 

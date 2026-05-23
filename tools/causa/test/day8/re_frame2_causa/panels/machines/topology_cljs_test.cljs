@@ -119,6 +119,37 @@
     (is (= :current
            (topology/node-kind {:path [:foo] :final? false} :foo)))))
 
+;; rf2-ad7zx.10 — :from node kind (Figma §6.2 Case C). The source state
+;; of the focused fired transition renders as the dashed/dim :from circle.
+
+(deftest node-kind-from-precedence
+  (testing ":current wins over :from (self-transition reads as active)"
+    (is (= :current
+           (topology/node-kind {:path [:foo] :final? false} [:foo] [:foo]))))
+  (testing ":from when it is the transition source + not current"
+    (is (= :from
+           (topology/node-kind {:path [:foo] :final? false} [:bar] [:foo]))))
+  (testing ":from wins over :final"
+    (is (= :from
+           (topology/node-kind {:path [:foo] :final? true} [:bar] [:foo]))))
+  (testing ":final when neither current nor from"
+    (is (= :final
+           (topology/node-kind {:path [:foo] :final? true} [:bar] [:baz]))))
+  (testing ":standard otherwise"
+    (is (= :standard
+           (topology/node-kind {:path [:foo] :final? false} [:bar] [:baz])))))
+
+(deftest node-kind-2-arity-unchanged
+  (testing "the 2-arity keeps the pre-Case-C precedence (no :from)"
+    (is (= :current (topology/node-kind {:path [:foo] :final? true} [:foo])))
+    (is (= :final   (topology/node-kind {:path [:foo] :final? true} [:bar])))
+    (is (= :standard (topology/node-kind {:path [:foo] :final? false} nil)))))
+
+(deftest node-kind-from-accepts-keyword
+  (testing "from-state-path may be a bare keyword"
+    (is (= :from
+           (topology/node-kind {:path [:foo] :final? false} nil :foo)))))
+
 ;; ---- edge-kind ----------------------------------------------------------
 
 (deftest edge-kind-precedence
@@ -185,6 +216,26 @@
       (is (= :standard (-> by-label (get "empty") :data :kind)))
       (is (= :final    (-> by-label (get "submitting") :data :kind))
           "final state stays final when not current"))))
+
+(deftest project-applies-from-state-overlay
+  (testing "from-state-path marks the source node as :from (Figma §6.2 Case C)"
+    (let [out      (topology/project
+                     {:definition         (toy-definition)
+                      :current-state-path [:populated]
+                      :from-state-path    [:empty]})
+          by-label (into {} (map (juxt #(-> % :data :label) identity)
+                                 (:nodes out)))]
+      (is (= :from    (-> by-label (get "empty") :data :kind))
+          "the transition source renders as :from")
+      (is (= :current (-> by-label (get "populated") :data :kind))
+          "the TO / current node stays :current")
+      (is (= :final   (-> by-label (get "submitting") :data :kind))
+          "untouched final stays final")))
+  (testing "no from-state-path → no :from nodes (back-compat)"
+    (let [out   (topology/project {:definition (toy-definition)
+                                   :current-state-path [:populated]})
+          kinds (set (map #(-> % :data :kind) (:nodes out)))]
+      (is (not (contains? kinds :from))))))
 
 (deftest project-applies-fired-edge-overlay
   (testing "fired-edge-ids set marks matching edges :fired-this-epoch"
@@ -269,6 +320,38 @@
                    :tags      {:machine-id :foo}
                    :from      :a :to :b :event :go}]]
       (is (= [:b] (topology/current-state-from-traces events :foo))))))
+
+;; rf2-ad7zx.10 — from-state-from-traces (Figma §6.2 Case C). Resolves
+;; the SOURCE state of the focused fired transition for the :from circle.
+
+(deftest from-state-from-traces-resolves-latest
+  (testing "picks the :from of the LAST matching :rf.machine/transition"
+    (let [events [{:operation :rf.machine/transition
+                   :tags      {:machine-id :foo}
+                   :from      [:a] :to [:b] :event :go-b}
+                  {:operation :rf.machine/transition
+                   :tags      {:machine-id :foo}
+                   :from      [:b] :to [:c] :event :go-c}]]
+      (is (= [:b] (topology/from-state-from-traces events :foo))))))
+
+(deftest from-state-from-traces-reads-modern-before-shape
+  (testing "modern runtime shape: :tags {:before {:state ...}}"
+    (let [events [{:operation :rf.machine/transition
+                   :tags      {:machine-id :cart
+                               :before     {:state :empty}
+                               :after      {:state :populated}}}]]
+      (is (= [:empty] (topology/from-state-from-traces events :cart))))))
+
+(deftest from-state-from-traces-scopes-and-empty
+  (testing "scopes by machine-id"
+    (let [events [{:operation :rf.machine/transition
+                   :tags {:machine-id :other} :from [:x] :to [:y] :event :w}
+                  {:operation :rf.machine/transition
+                   :tags {:machine-id :foo} :from [:a] :to [:b] :event :ours}]]
+      (is (= [:a] (topology/from-state-from-traces events :foo)))))
+  (testing "nil / empty → nil"
+    (is (nil? (topology/from-state-from-traces [] :foo)))
+    (is (nil? (topology/from-state-from-traces nil :foo)))))
 
 (deftest extract-fired-edge-ids-shape
   (testing "extracts edge-ids matching the from→to via event triple"
