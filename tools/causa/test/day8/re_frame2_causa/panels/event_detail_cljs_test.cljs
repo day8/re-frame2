@@ -34,6 +34,7 @@
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
+            [day8.re-frame2-causa.panels.app-db-diff-subs :as app-db-diff-subs]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -42,7 +43,11 @@
   (causa-test-support/reset-all!)
   (trace-bus/clear-buffer!)
   (config/set-show-sensitive! false)
-  (config/reset-suppressed-count!))
+  (config/reset-suppressed-count!)
+  ;; rf2-mn3gt — the DB CHANGES section consumes the cached
+  ;; `:rf.causa/selected-epoch-diff` triples; reset the per-`:epoch-id`
+  ;; diff cache so the changed-paths assertions are reproducible.
+  (reset! app-db-diff-subs/diff-cache {}))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -101,6 +106,40 @@
   (frame/reg-frame :rf/causa {})
   (doseq [ev evs]
     (trace-bus/collect-trace! ev)))
+
+;; rf2-mn3gt — seed the Causa frame's `:epoch-history` slot so the DB
+;; CHANGES section's `:rf.causa/selected-epoch-diff` sub resolves to a
+;; real `:rf/epoch-record` with `:db-before` / `:db-after` snapshots.
+;; The record carries a literal `:dispatch-id` so `epoch-id-for-cascade`
+;; links the focused cascade to the epoch (see `spine/epoch-id-for-cascade`
+;; — synthetic records that omit `:trace-events` match on the literal
+;; `:dispatch-id` slot). MUST be dispatched BEFORE
+;; `:rf.causa/select-dispatch-id`, which reads `:epoch-history` at
+;; dispatch-time to resolve the focus epoch-id.
+
+(rf/reg-event-db :rf.causa-test/seed-epoch-history
+  (fn [db [_ records]]
+    (assoc db :epoch-history (vec records))))
+
+(defn- mk-epoch-record
+  "Build a minimal `:rf/epoch-record` for the DB CHANGES diff sub. The
+  literal `:dispatch-id` links the record to the focused cascade."
+  [epoch-id dispatch-id event db-before db-after]
+  {:epoch-id      epoch-id
+   :dispatch-id   dispatch-id
+   :frame         :rf/default
+   :committed-at  0
+   :event-id      (first event)
+   :trigger-event event
+   :db-before     db-before
+   :db-after      db-after
+   :trace-events  []})
+
+(defn- seed-epoch-history!
+  "Seed `:epoch-history` on the Causa frame (must run inside
+  `(rf/with-frame :rf/causa …)`)."
+  [records]
+  (rf/dispatch-sync [:rf.causa-test/seed-epoch-history records]))
 
 (defn- expand-fn-component
   [node]
@@ -1345,3 +1384,164 @@
       (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-db-changes"))
             "the step renders even when no epoch record is registered")))))
+
+;; ---- (15) rf2-mn3gt — DB CHANGES renders ONLY changed paths -----------
+;;
+;; Per spec/021 §2.2 step 4 (line 229) + the dense/sparse mockups (lines
+;; 272-275, 307-309) the DB CHANGES section is a FLAT changed-paths list
+;; (`~ [path] old → new` · `+ [path] value` · `- [path]`), NOT a
+;; tree-centric whole-app-db render. spec/004-App-DB-Diff.md is the
+;; normative source: slice-centric not tree-centric (§43), never renders
+;; the whole tree by default (§69). Pre-fix the section routed the raw
+;; db-before / db-after snapshots through `edn/diff` (the §10 tree
+;; renderer) which paints EVERY top-level key with the change highlighted
+;; — these tests pin the flat changed-only projection and fail against
+;; that prior shape.
+
+(defn- db-change-row-testids
+  "Collect the changed-path ROW testids the DB CHANGES section rendered,
+  in document order."
+  [tree]
+  (->> (hiccup-seq tree)
+       (keep (fn [node]
+               (when (and (vector? node) (map? (second node)))
+                 (let [tid (str (or (:data-testid (second node)) ""))]
+                   (when (str/starts-with?
+                           tid "rf-causa-event-detail-db-change-row-")
+                     tid)))))
+       (distinct)
+       (vec)))
+
+(defn- collect-strings
+  "Concatenate every string leaf reachable under `node` (after fn-
+  component expansion). Used to assert which keys / values appear in the
+  rendered DB CHANGES body."
+  [node]
+  (->> (hiccup-seq node)
+       (filter string?)
+       (apply str)))
+
+(deftest db-changes-renders-only-changed-paths-not-whole-tree
+  (testing "rf2-mn3gt — for a focused epoch with a small known diff
+            against a LARGE app-db, the DB CHANGES section renders EXACTLY
+            the changed-path rows (one `~`/`+`/`-` line per change) and
+            does NOT render the untouched top-level keys / the whole
+            tree. This fails against the prior `edn/diff` whole-tree
+            render, which paints every top-level key."
+    (let [;; A large app-db: many untouched top-level keys + one slice
+          ;; that mutates, one slice that's added, one removed. `db-after`
+          ;; is derived from `db-before` via assoc/dissoc so the untouched
+          ;; sub-maps stay pointer-identical — exactly the structural
+          ;; sharing a real handler (`(-> db (update …) (dissoc …))`)
+          ;; produces, and which the changed-paths diff relies on.
+          db-before {:counter      1
+                     :user         {:id 42 :name "Ada" :roles #{:admin}}
+                     :session      {:token "t-1" :expires 9999}
+                     :cart         {:items [{:id 7 :qty 1}]}
+                     :prefs        {:theme :dark :density :cosy}
+                     :nav          {:route :home :params {}}
+                     :stale-flag   true
+                     :http         {:in-flight {} :history [1 2 3]}}
+          db-after  (-> db-before
+                        (assoc :counter 2)                       ;; ~ modified
+                        (dissoc :stale-flag)                     ;; - removed
+                        (assoc :last-updated "2026-05-23T12:30:05"))] ;; + added
+      (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+      (rf/with-frame :rf/causa
+        (seed-epoch-history!
+          [(mk-epoch-record :ep-1 100 [:counter/inc] db-before db-after)])
+        (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+        ;; Sanity: the section renders the flat diff (not the evicted /
+        ;; empty branch).
+        (let [tree (event-detail/Panel)
+              diff (find-by-testid tree "rf-causa-event-detail-db-diff")
+              rows (db-change-row-testids tree)
+              body-text (collect-strings
+                          (find-by-testid
+                            tree "rf-causa-event-detail-section-db-changes-body"))]
+          (is (some? diff)
+              "DB CHANGES renders the flat diff body (not evicted/empty)")
+          ;; EXACTLY the three changed paths — modified :counter, removed
+          ;; :stale-flag, added :last-updated. No more, no fewer.
+          (is (= 3 (count rows))
+              (str "exactly 3 changed-path rows; got " (pr-str rows)))
+          (is (= #{"rf-causa-event-detail-db-change-row-:counter"
+                   "rf-causa-event-detail-db-change-row-:stale-flag"
+                   "rf-causa-event-detail-db-change-row-:last-updated"}
+                 (set rows))
+              "rows are the three changed paths")
+          ;; The untouched top-level keys MUST NOT appear anywhere in the
+          ;; rendered DB CHANGES body — this is the slice-centric vs
+          ;; tree-centric assertion that fails against the whole-tree
+          ;; render.
+          (doseq [untouched [":user" ":session" ":cart" ":prefs"
+                             ":nav" ":http"]]
+            (is (not (str/includes? body-text untouched))
+                (str "untouched key " untouched
+                     " must NOT render in the changed-paths list"))))))))
+
+(deftest db-changes-row-glyphs-and-old-new-shape
+  (testing "rf2-mn3gt — each changed-path row carries the correct diff
+            glyph (`~` modified · `+` added · `-` removed) per its op,
+            and a `~` row shows `old → new` per spec/021 line 229."
+    (let [db-before {:counter 1 :user {:id 42} :stale true}
+          db-after  (-> db-before
+                        (assoc :counter 2)        ;; ~ modified
+                        (dissoc :stale)           ;; - removed
+                        (assoc :greeting "hi"))]  ;; + added
+      (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+      (rf/with-frame :rf/causa
+        (seed-epoch-history!
+          [(mk-epoch-record :ep-1 100 [:counter/inc] db-before db-after)])
+        (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+        (let [tree (event-detail/Panel)
+              mod-row  (find-by-testid
+                         tree "rf-causa-event-detail-db-change-row-:counter")
+              add-row  (find-by-testid
+                         tree "rf-causa-event-detail-db-change-row-:greeting")
+              rem-row  (find-by-testid
+                         tree "rf-causa-event-detail-db-change-row-:stale")
+              mod-glyph (collect-strings
+                          (find-by-testid
+                            tree "rf-causa-event-detail-db-change-glyph-:counter"))
+              add-glyph (collect-strings
+                          (find-by-testid
+                            tree "rf-causa-event-detail-db-change-glyph-:greeting"))
+              rem-glyph (collect-strings
+                          (find-by-testid
+                            tree "rf-causa-event-detail-db-change-glyph-:stale"))
+              mod-text  (collect-strings mod-row)]
+          (is (some? mod-row) "modified row present")
+          (is (some? add-row) "added row present")
+          (is (some? rem-row) "removed row present")
+          (is (= "~" mod-glyph) "modified glyph is ~")
+          (is (= "+" add-glyph) "added glyph is +")
+          (is (= "-" rem-glyph) "removed glyph is -")
+          (is (= "modified" (:data-op (second mod-row))) "modified row tagged :data-op")
+          (is (= "added" (:data-op (second add-row))) "added row tagged :data-op")
+          (is (= "removed" (:data-op (second rem-row))) "removed row tagged :data-op")
+          ;; `~` row shows old → new (the arrow + both values present).
+          (is (str/includes? mod-text "→")
+              "modified row shows the old → new arrow")
+          (is (str/includes? mod-text "1") "modified row shows the old value")
+          (is (str/includes? mod-text "2")
+              "modified row shows the new value"))))))
+
+(deftest db-changes-shows-empty-state-when-no-paths-changed
+  (testing "rf2-mn3gt — a focused epoch whose db-before equals db-after
+            renders the `no app-db change this epoch` empty state, NOT a
+            whole-tree dump."
+    (let [db {:counter 1 :user {:id 42} :session {:token "t"}}]
+      (seed-buffer! (cascade-evs 100 [:noop] 0))
+      (rf/with-frame :rf/causa
+        (seed-epoch-history!
+          [(mk-epoch-record :ep-1 100 [:noop] db db)])
+        (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+        (let [tree (event-detail/Panel)]
+          (is (some? (find-by-testid
+                       tree "rf-causa-event-detail-db-changes-empty"))
+              "empty-state renders when nothing changed")
+          (is (nil? (find-by-testid tree "rf-causa-event-detail-db-diff"))
+              "no flat-diff body when nothing changed")
+          (is (empty? (db-change-row-testids tree))
+              "no changed-path rows when nothing changed"))))))

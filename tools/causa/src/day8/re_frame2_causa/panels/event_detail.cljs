@@ -65,6 +65,7 @@
             [re-frame.core :as rf]
             [day8.re-frame2-causa.views.edn-widget.widget :as edn]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
+            [day8.re-frame2-causa.panels.app-db-diff-format :as f]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.managed-fx-helpers :as managed-fx-h]
             [day8.re-frame2-causa.panels.managed-fx-template :as managed-fx]
@@ -1038,20 +1039,132 @@
                   :color       (:text-primary tokens)}}
     body]])
 
-;; ---- §2 step DB CHANGES — app-db diff via data-display ----------------
+;; ---- §2 step DB CHANGES — flat changed-paths diff list ----------------
+;;
+;; Per spec/021 §2.2 step 4 (line 229) the DB CHANGES section is the
+;; app-db diff rendered as a FLAT list of changed paths ONLY:
+;;
+;;     ~ [path] old → new        (modified)
+;;     + [path] value            (added)
+;;     - [path]                  (removed)
+;;
+;; one line per changed path with the cascade diff glyph (`~` modified ·
+;; `+` added · `-` removed). It is **slice-centric, not tree-centric**
+;; (spec/004-App-DB-Diff.md §43/§69): it never renders untouched
+;; top-level keys nor the whole tree. The prior implementation routed
+;; the raw `:db-before` / `:db-after` snapshots through `edn/diff` — the
+;; §10 tree renderer — which paints the WHOLE app-db with changes
+;; highlighted (untouched keys dimmed in place). That violated 004 and
+;; the §2.2 mockups; rf2-mn3gt switches the section to the flat
+;; changed-paths projection.
+;;
+;; The changed-paths set is the SAME structural-sharing diff the App-db
+;; tab consumes — the `:rf.causa/selected-epoch-diff` sub (cached per
+;; `:epoch-id` via `app_db_diff_subs/install!`), which derives
+;; `{:op :path :before :after}` triples from the focused epoch record's
+;; `:db-before` / `:db-after`. The Event-panel section is the inline
+;; (`~ [path] old → new`) projection of that diff, NOT a second
+;; derivation. The §10 widget still owns leaf-value rendering — each
+;; value renders through `edn/inspect-inline` (the one-line, sentinel-
+;; aware §10 facade).
 
 (defn- db-fx-evicted?
   "True when the focused epoch has aged out of the buffer — the
   `:rf.causa/selected-epoch-record` sub returns nil but a non-nil
-  selection exists. Drives the data-display renderer's evicted-epoch
-  placeholder (§10.7)."
+  selection exists. Drives the evicted-epoch placeholder (§10.7)."
   [selected-record selected-id]
   (and (some? selected-id) (nil? selected-record)))
 
+(def ^:private op->glyph
+  "The cascade diff glyph per op (spec/021 §2.2 line 244-245 / §10.3).
+  Mirrors `diff/render.cljs`'s gutter glyphs — `~` modified · `+`
+  added · `-` removed."
+  {:added    "+"
+   :modified "~"
+   :removed  "-"})
+
+(def ^:private op->tone
+  "Glyph + path colour per op, per spec/021 §10.3 cascade-gutter token
+  mapping: `+` green (success) · `-` red (error) · `~` amber (warning)."
+  {:added    :green
+   :modified :yellow
+   :removed  :red})
+
+(defn- path-suffix
+  "Stable testid suffix for a changed path — a `pr-str` of the path
+  vector with characters that break a data-testid selector folded to
+  `_`. e.g. `[:counter]` → `:counter`, `[:cart :items]` →
+  `:cart_:items`."
+  [path]
+  (-> (string/join " " (map pr-str path))
+      (string/replace #"\s+" "_")))
+
+(defn- db-change-row
+  "Render one changed-path row in the flat DB CHANGES list. `triple` is
+  one `app-db-diff-helpers/diff-paths` triple
+  (`{:op :path :before :after}`). Shape per spec/021 §2.2 mockup
+  (lines 272-275):
+
+      ~ [:counter]  1 → 2
+      + [:last-updated]  #inst \"…\"
+      - [:stale]
+
+  The glyph + path colour follow the op tone (§10.3). The value
+  rendering routes through the §10 widget (`edn/inspect-inline`) so the
+  data-classification sentinels + the cljs-devtools leaf look are
+  shared with every other Causa surface. A `:modified` row shows
+  `before → after`; an `:added` row shows the added value; a `:removed`
+  row shows the path alone (per line 229 — `- [path]`)."
+  [{:keys [op path before after]}]
+  (let [suffix     (path-suffix path)
+        glyph      (get op->glyph op "?")
+        tone       (get tokens (get op->tone op) (:text-secondary tokens))
+        path-label (f/format-edn (vec path))]
+    [:div {:data-testid (str "rf-causa-event-detail-db-change-row-" suffix)
+           :data-op     (name op)
+           :style {:display      "flex"
+                   :align-items  "baseline"
+                   :flex-wrap    "wrap"
+                   :gap          "8px"
+                   :padding      "2px 0"}}
+     [:span {:data-testid (str "rf-causa-event-detail-db-change-glyph-" suffix)
+             :style {:flex        "0 0 12px"
+                     :color       tone
+                     :font-family mono-stack
+                     :font-weight 700
+                     :text-align  "center"
+                     :user-select "none"}}
+      glyph]
+     [:span {:data-testid (str "rf-causa-event-detail-db-change-path-" suffix)
+             :style {:color       tone
+                     :font-family mono-stack}}
+      path-label]
+     (case op
+       :modified
+       [:span {:style {:display     "inline-flex"
+                       :align-items "baseline"
+                       :flex-wrap   "wrap"
+                       :gap         "6px"
+                       :min-width   0}}
+        [:span {:style {:color           (:text-tertiary tokens)
+                        :text-decoration "line-through"}}
+         (edn/inspect-inline before)]
+        [:span {:style {:color (:text-tertiary tokens)}} "→"]
+        [:span {:style {:color (:text-primary tokens)}}
+         (edn/inspect-inline after)]]
+
+       :added
+       [:span {:style {:color (:text-primary tokens) :min-width 0}}
+        (edn/inspect-inline after)]
+
+       ;; :removed — path alone (spec/021 line 229: `- [path]`).
+       nil)]))
+
 (defn- db-changes-body
-  "Step DB CHANGES body — the app-db diff for the focused epoch, via the
-  shared data-display renderer (`edn/diff` with `:diff? true` against
-  the epoch's `:db-before` / `:db-after` snapshots).
+  "Step DB CHANGES body — the app-db diff for the focused epoch as a
+  FLAT changed-paths list (spec/021 §2.2 step 4 · spec/004 §slice-
+  centric). One `~`/`+`/`-` row per changed path; NO untouched
+  top-level keys, NO whole-tree render.
 
   Per spec/021 §2.2 this step is the app-db diff ALONE — the prior
   combined `:db + :fx` shape (and the `db now committed for epoch #N`
@@ -1060,21 +1173,26 @@
 
   Reads:
     `:rf.causa/selected-epoch-record` — `{:epoch-id … :db-before …
-                                          :db-after …}` produced by
-                                          app_db_diff_subs/install!.
-
-  Per the spec §10 contract the renderer is configured with
-  `:diff? true` + `:default-depth 3` (App-db's setting) + a stable
-  `:render-id` so per-node expansion is sticky across re-renders.
+        :db-after …}` — used only for the eviction / empty-state
+        decision (was the epoch evicted? did the epoch carry snapshots
+        at all?).
+    `:rf.causa/selected-epoch-diff` — the CACHED structural-sharing
+        changed-paths triples (`app_db_diff_subs/install!`), the same
+        derivation the App-db tab consumes (spec/004 §Changed-paths
+        derivation, O(changed paths) not O(db size), cached per
+        `:epoch-id`). The Event-panel section is the inline projection
+        of THIS diff, not a re-derivation.
 
   Returns the body hiccup (mounted inside a `step-section`)."
   [{:keys [dispatch-id] :as _cascade}]
   (let [record    @(rf/subscribe [:rf.causa/selected-epoch-record])
-        epoch-id  (:epoch-id record)
+        triples   @(rf/subscribe [:rf.causa/selected-epoch-diff])
         db-before (:db-before record)
         db-after  (:db-after record)
+        had-snap? (or (some? db-before) (some? db-after))
         evicted?  (db-fx-evicted? record dispatch-id)]
-    (if evicted?
+    (cond
+      evicted?
       [:div {:data-testid "rf-causa-event-detail-db-changes-evicted"
              :style {:padding "6px 0"
                      :color (:text-tertiary tokens)
@@ -1082,25 +1200,26 @@
                      :font-family sans-stack
                      :font-size "12px"}}
        "Epoch evicted from buffer — increase :epoch-history to retain more."]
+
+      ;; The focused epoch carried db snapshots AND the structural diff
+      ;; found changed paths — render the flat list (changed paths only).
+      (and (some? record) had-snap? (seq triples))
       [:div {:data-testid "rf-causa-event-detail-db-diff"
-             :style {:padding "4px 0"}}
-       (if (and (some? record) (or (some? db-before) (some? db-after)))
-         ;; rf2-9wsdy — embedded App-DB diff via the canonical EDN
-         ;; widget's diff variant. Same engine under the hood; the
-         ;; widget facade makes the call-site read as "this is THE
-         ;; app-db diff renderer".
-         (edn/diff
-           {:before        db-before
-            :after         db-after
-            :panel-id      :event-db-changes
-            :render-id     (str "epoch-" (or epoch-id dispatch-id "x"))
-            :default-depth 3})
-         [:div {:data-testid "rf-causa-event-detail-db-changes-empty"
-                :style {:color (:text-tertiary tokens)
-                        :font-style "italic"
-                        :font-family sans-stack
-                        :font-size "12px"}}
-          "no app-db change this epoch"])])))
+             :style {:padding     "4px 0"
+                     :font-family mono-stack
+                     :font-size   "12px"}}
+       (into [:div]
+             (for [{:keys [path] :as triple} triples]
+               (with-meta (db-change-row triple)
+                          {:key (pr-str path)})))]
+
+      :else
+      [:div {:data-testid "rf-causa-event-detail-db-changes-empty"
+             :style {:color (:text-tertiary tokens)
+                     :font-style "italic"
+                     :font-family sans-stack
+                     :font-size "12px"}}
+       "no app-db change this epoch"])))
 
 ;; ---- the lens (numbered vertical-flow pipeline · spec/021 §2.2) --------
 
