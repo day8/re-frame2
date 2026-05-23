@@ -17,8 +17,9 @@
 
   - `re-frame.http-privacy-headers` — header denylist + `redact-headers`.
   - `re-frame.http-url` — query-param denylist + `redact-url` /
-    `redact-url-query-string` (and future home of `url-encode` /
-    `params->query` / `merge-params` per rf2-5ijhk).
+    `redact-url-query-string`. (URL *building* — `url-encode` /
+    `params->query` / `merge-params` — lives in `re-frame.http-encoding`,
+    not here.)
 
   Three cooperating mechanisms, mirroring Spec 009's schema-first
   privacy split:
@@ -68,8 +69,13 @@
   "The framework-reserved redaction sentinel per Spec 009 §Privacy. Sits
   in the `:rf/` reserved-keyword namespace so apps cannot legitimately
   produce it as a payload value. Consumers wanting \"was this redacted?\"
-  check `(= :rf/redacted v)`."
-  :rf/redacted)
+  check `(= :rf/redacted v)`.
+
+  rf2-ee38b.7 — re-exported from the canonical `re-frame.http-url`
+  definition so the keyword + its string form (`redacted-url-token`)
+  cannot drift across the privacy cluster. This var preserves the
+  public `re-frame.http-privacy/redacted-sentinel` surface."
+  url/redacted-sentinel)
 
 ;; ---- trace-event redaction helpers ----------------------------------------
 
@@ -116,7 +122,11 @@
   query-param denylist (rf2-2p8wr) are always redacted regardless of
   `sensitive?` — denylisted param names are themselves the signal.
 
-  Idempotent and total: missing slots are left alone."
+  Idempotent and total: missing slots are left alone.
+
+  rf2-ee38b.7 — public for direct test assertion only; production reaches
+  redaction via the `prepare-emit-*` composers (which use the `*-with-flag`
+  forms). No production caller invokes this non-flag wrapper."
   [tags sensitive?]
   (first (redact-request-tags-with-flag tags sensitive?)))
 
@@ -164,7 +174,11 @@
   a `:rf.http/*` trace event, redact response-side payload slots when
   `sensitive?` is true. Always redacts headers via the denylist; always
   redacts URL query-string values whose param name is in the query-
-  param denylist (rf2-2p8wr) — denylisted param names are the signal."
+  param denylist (rf2-2p8wr) — denylisted param names are the signal.
+
+  rf2-ee38b.7 — public for direct test assertion only; production reaches
+  redaction via `prepare-emit-failure` (which uses the `*-with-flag`
+  form). No production caller invokes this non-flag wrapper."
   [failure sensitive?]
   (when failure
     (first (redact-failure-with-flag failure sensitive?))))
@@ -181,7 +195,10 @@
   per the spec contract.
 
   When `sensitive?` is false the slot is OMITTED (not stamped to false)
-  per Spec 009 line 1176: \"Consumers treat absent as false.\""
+  per Spec 009 line 1176: \"Consumers treat absent as false.\"
+
+  rf2-ee38b.7 — public for direct test assertion + composer reuse;
+  production reaches it through the `prepare-emit-*` composers."
   [tags sensitive?]
   (cond-> tags
     sensitive? (assoc :sensitive? true)))

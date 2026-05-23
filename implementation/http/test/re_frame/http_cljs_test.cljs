@@ -247,3 +247,85 @@
                      (is (false? (:ok? result)))
                      (done)))
             (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+
+;; ---- rf2-ee38b.7 — `:timeout-ms 0` is the opt-out, not a near-instant abort ----
+
+(defn- with-deferred-fetch
+  "Like `with-stub-fetch` but `js/fetch` resolves `resp` on the NEXT
+  macrotask (`setTimeout 0`) rather than synchronously. This is the
+  trap that exposes the pre-fix timeout-0 bug: pre-fix `:timeout-ms 0`
+  armed its own `setTimeout(…, 0)` that would race this resolution and
+  abort+reject the request. Post-fix the `(pos? timeout-ms)` guard arms
+  no timeout, so the deferred fetch resolution always wins."
+  [resp f]
+  (let [orig (.-fetch js/globalThis)]
+    (set! (.-fetch js/globalThis)
+          (fn [_url _init]
+            (js/Promise. (fn [resolve _reject]
+                           (js/setTimeout (fn [] (resolve resp)) 0)))))
+    (-> (f)
+        (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
+
+;; ---- rf2-ee38b.7 — CLJS Fetch threads `:redirect` into the init ----------
+
+(defn- with-init-capturing-fetch
+  "Run `f` with `js/fetch` stubbed to resolve `resp` while recording the
+  `init` arg into `captured-init`. Restores the original afterwards."
+  [resp captured-init f]
+  (let [orig (.-fetch js/globalThis)]
+    (set! (.-fetch js/globalThis)
+          (fn [_url init]
+            (reset! captured-init init)
+            (js/Promise.resolve resp)))
+    (-> (f)
+        (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
+
+(deftest cljs-fetch-passes-redirect-into-init
+  (testing "rf2-ee38b.7 — the CLJS transport threads `:redirect` into the
+  Fetch `init` (cross-host parity with the JVM redirect-policy fix).
+  Explicit `:error` rides through name-stringified."
+    (async done
+      (let [captured-init (atom nil)
+            resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{}"})]
+        (-> (with-init-capturing-fetch resp captured-init
+              #(cljs-fetch {:method   :get
+                            :url      "/x"
+                            :headers  {}
+                            :decode   :json
+                            :redirect :error
+                            :internal-controller (js/AbortController.)}))
+            (.then (fn [_]
+                     (is (= "error" (aget @captured-init "redirect"))
+                         ":redirect is name-stringified into the Fetch init")
+                     (done)))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+
+(deftest zero-timeout-ms-does-not-arm-near-instant-abort
+  (testing "rf2-ee38b.7 — `:timeout-ms 0` is an explicit opt-out (no
+  per-attempt timeout) per Spec 014 §`:timeout-ms` security defaults,
+  semantically identical to `:timeout-ms nil`. Pre-fix `0` was truthy,
+  so `(when (and timeout-ms internal-controller) …)` armed a
+  `setTimeout(…, 0)` that aborted the request on the next macrotask and
+  rejected with the timeout ex-info. This test defers the fetch
+  resolution by one macrotask: pre-fix the timeout abort would win and
+  reject; post-fix the request resolves successfully."
+    (async done
+      (let [resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{\"ok\":true}"})]
+        (-> (with-deferred-fetch resp
+              #(cljs-fetch {:method     :get
+                            :url        "/slow"
+                            :headers    {}
+                            :decode     :json
+                            :timeout-ms 0
+                            :internal-controller (js/AbortController.)}))
+            (.then (fn [result]
+                     (is (= "{\"ok\":true}" (:body-text result))
+                         ":timeout-ms 0 must NOT abort — the deferred fetch resolves normally")
+                     (is (true? (:ok? result)))
+                     (done)))
+            (.catch (fn [e]
+                      (is false (str "rf2-ee38b.7 regression — :timeout-ms 0 "
+                                     "armed a near-instant abort and rejected: " e))
+                      (done))))))))

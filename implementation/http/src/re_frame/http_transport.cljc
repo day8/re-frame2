@@ -31,7 +31,8 @@
             [re-frame.interop       :as interop]
             [re-frame.trace         :as trace])
   #?(:clj (:import [java.net URI]
-                   [java.net.http HttpClient HttpRequest
+                   [java.net.http HttpClient HttpClient$Redirect
+                                  HttpRequest
                                   HttpRequest$BodyPublishers
                                   HttpResponse HttpResponse$BodyHandlers]
                    [java.time Duration]
@@ -111,7 +112,19 @@
            (-> (js/Promise.race
                  #js [(js/fetch url init)
                       (js/Promise. (fn [_ reject]
-                                     (when (and timeout-ms internal-controller)
+                                     ;; Per Spec 014 §`:timeout-ms` security
+                                     ;; defaults: BOTH `nil` and `0` are
+                                     ;; explicit opt-outs (no per-attempt
+                                     ;; timeout). `0` is truthy in CLJS, so
+                                     ;; `(when timeout-ms …)` would arm a
+                                     ;; `setTimeout(…, 0)` that aborts the
+                                     ;; request on the next macrotask — the
+                                     ;; opposite of "unbounded". The
+                                     ;; `(pos? …)` guard collapses
+                                     ;; `nil`/`0`/negative to "no timeout".
+                                     (when (and timeout-ms
+                                                (pos? timeout-ms)
+                                                internal-controller)
                                        (reset! timeout-handle
                                                (js/setTimeout
                                                  (fn []
@@ -261,13 +274,72 @@
 ;; ---- platform transport: JVM java.net.http.HttpClient ---------------------
 
 #?(:clj
-   (defonce ^:private jvm-http-client
-     ;; 10s connect timeout — distinct from `:timeout-ms` (which bounds
-     ;; the whole request). Caps the TCP/TLS handshake so a black-holed
-     ;; host fails fast instead of leaning on the per-request timeout.
-     (delay (-> (HttpClient/newBuilder)
-                (.connectTimeout (Duration/ofSeconds 10))
-                (.build)))))
+   (defn- redirect->policy
+     "Map the request envelope's `:redirect` (Spec 014 §Request envelope:
+     `:follow` / `:error` / `:manual`, default `:follow`) onto a JDK
+     `HttpClient.Redirect` policy.
+
+     The JDK client only models `ALWAYS` / `NORMAL` / `NEVER` — there is
+     no `:manual` (caller-handles-the-3xx) analogue. So:
+
+     - `:follow` (the spec default) → `NORMAL` (follow same-or-more-
+       secure redirects; the JDK declines HTTPS→HTTP downgrades, which
+       is the safe reading of \"follow\").
+     - `:error` / `:manual`         → `NEVER` (do not auto-follow; the
+       3xx surfaces to the caller).
+     - anything else / nil          → `NORMAL` (honour the spec default).
+
+     The `:error`-vs-`:manual` distinction (error = treat 3xx as a
+     failure; manual = hand the raw 3xx back) is not separable on the
+     JDK; both collapse to NEVER, which surfaces the 3xx through the
+     `:else` arm of `handle-response!`. This is documented as a JVM
+     limitation rather than silently dropping the whole key."
+     [redirect]
+     (case redirect
+       :follow HttpClient$Redirect/NORMAL
+       :error  HttpClient$Redirect/NEVER
+       :manual HttpClient$Redirect/NEVER
+       HttpClient$Redirect/NORMAL)))
+
+#?(:clj
+   (defn- build-jvm-http-client
+     "Build a JDK `HttpClient` for the given redirect policy.
+
+     10s connect timeout — distinct from `:timeout-ms` (which bounds the
+     whole request). Caps the TCP/TLS handshake so a black-holed host
+     fails fast instead of leaning on the per-request timeout. The
+     redirect policy is a per-CLIENT setting on the JDK (not per-request),
+     so we memoise one client per distinct policy (`jvm-http-clients`)
+     to preserve connection pooling per rf2-ee38b.7."
+     [^HttpClient$Redirect policy]
+     (-> (HttpClient/newBuilder)
+         (.connectTimeout (Duration/ofSeconds 10))
+         (.followRedirects policy)
+         (.build))))
+
+#?(:clj
+   (defonce ^:private jvm-http-clients
+     ;; redirect-policy → memoised HttpClient. The JDK applies its
+     ;; redirect policy at the client level, not per request, so honouring
+     ;; the spec's `:redirect` envelope key (default `:follow`) requires a
+     ;; client per policy. Two policies are live in practice (NORMAL for
+     ;; `:follow`, NEVER for `:error`/`:manual`), so this caches at most a
+     ;; handful of clients while preserving each one's connection pool.
+     (atom {})))
+
+#?(:clj
+   (defn- jvm-http-client-for
+     "Return the memoised JDK `HttpClient` honouring `redirect` (Spec 014
+     §Request envelope default `:follow`)."
+     [redirect]
+     (let [policy (redirect->policy redirect)]
+       (or (get @jvm-http-clients policy)
+           (get (swap! jvm-http-clients
+                       (fn [m]
+                         (if (contains? m policy)
+                           m
+                           (assoc m policy (build-jvm-http-client policy)))))
+                policy)))))
 
 #?(:clj
    (defn- jvm-build-request
@@ -279,7 +351,14 @@
                        (bytes? body) (HttpRequest$BodyPublishers/ofByteArray ^bytes body)
                        :else (HttpRequest$BodyPublishers/ofString ^String (str body)))]
        (.method b (str/upper-case (name method)) publisher)
-       (when timeout-ms
+       ;; Per Spec 014 §`:timeout-ms` security defaults: BOTH `nil` and
+       ;; `0` are explicit opt-outs (no per-attempt timeout). `0` is
+       ;; truthy in Clojure, so `(when timeout-ms …)` is NOT enough — and
+       ;; `(Duration/ofMillis 0)` throws `IllegalArgumentException` on the
+       ;; JDK, surfacing the opt-out as a spurious `:rf.http/transport`
+       ;; failure. The `(pos? …)` guard collapses `nil`/`0`/negative to
+       ;; "no timeout" so the JDK request carries no per-request deadline.
+       (when (and timeout-ms (pos? timeout-ms))
          (.timeout b (Duration/ofMillis (long timeout-ms))))
        (doseq [[k v] headers]
          ;; rf2-9lun0 — surface JDK HttpClient header-validation throws
@@ -352,9 +431,12 @@
      :headers :body-text}` or completes-exceptionally with an ex-info.
 
      `opts` carries `:sensitive?` so `jvm-build-request` can route any
-     header-validation warning through the privacy composer (rf2-1jcpm)."
+     header-validation warning through the privacy composer (rf2-1jcpm).
+     `opts` carries `:redirect` (Spec 014 §Request envelope, default
+     `:follow`) so the client honouring the right redirect policy is
+     selected per rf2-ee38b.7."
      [opts]
-     (let [client ^HttpClient @jvm-http-client
+     (let [client ^HttpClient (jvm-http-client-for (:redirect opts))
            req    (jvm-build-request opts)
            future-resp (.sendAsync client req
                                    (HttpResponse$BodyHandlers/ofString))]
@@ -381,20 +463,29 @@
      happened to contain those words) as `:rf.http/timeout` /
      `:rf.http/aborted`, polluting the failure taxonomy. Anything not
      matching an instance check stays at `:rf.http/transport` — the
-     correct catch-all for unknown JDK failures."
-     [^Throwable t]
-     (let [cause (or (.getCause t) t)
-           msg   (.getMessage cause)
-           cls   (.getName (class cause))]
-       (cond
-         (instance? java.net.http.HttpTimeoutException cause)
-         {:kind :rf.http/timeout :elapsed-ms nil :limit-ms nil :message msg}
+     correct catch-all for unknown JDK failures.
 
-         (instance? java.util.concurrent.CancellationException cause)
-         {:kind :rf.http/aborted :reason :user :message msg}
+     Per rf2-ee38b.7 the optional `timeout-ms` (the configured per-attempt
+     limit, in scope at the `run-attempt!` call sites) fills the
+     `:limit-ms` tag on a timeout failure so the JVM shape matches the
+     CLJS path (Spec 014 §Failure categories types `:rf.http/timeout` as
+     `:elapsed-ms` / `:limit-ms`). `:elapsed-ms` stays nil on the JVM —
+     the JDK's `HttpTimeoutException` does not surface the elapsed wall
+     clock, and there is no faithful value to synthesise."
+     ([^Throwable t] (classify-jvm-error t nil))
+     ([^Throwable t timeout-ms]
+      (let [cause (or (.getCause t) t)
+            msg   (.getMessage cause)
+            cls   (.getName (class cause))]
+        (cond
+          (instance? java.net.http.HttpTimeoutException cause)
+          {:kind :rf.http/timeout :elapsed-ms nil :limit-ms timeout-ms :message msg}
 
-         :else
-         {:kind :rf.http/transport :message msg :cause cls}))))
+          (instance? java.util.concurrent.CancellationException cause)
+          {:kind :rf.http/aborted :reason :user :message msg}
+
+          :else
+          {:kind :rf.http/transport :message msg :cause cls})))))
 
 ;; ---- per-row CLJS-only-key tracing on JVM ---------------------------------
 
@@ -413,7 +504,16 @@
 #?(:clj
    (defn check-cljs-only-keys! [{:keys [request abort-signal]} sensitive?]
      (let [url (:url request)]
-       (doseq [k [:mode :cache :referrer :integrity]]
+       ;; rf2-ee38b.7 — `:credentials` joins the JVM-degraded set. Unlike
+       ;; `:redirect` (now honoured on JVM via the redirect-policy client),
+       ;; the browser same-origin/include cookie model has no faithful
+       ;; `HttpClient` analogue — the shared client configures no
+       ;; CookieHandler, so cookies are neither sent nor stored regardless
+       ;; of the value. Rather than silently no-op, emit the standard
+       ;; `:rf.http/cljs-only-key-ignored-on-jvm` trace so the dropped key
+       ;; is visible to off-box monitors. (Spec 014 §JVM degradation table
+       ;; needs the `:credentials` row added — left for the mayor.)
+       (doseq [k [:mode :cache :referrer :integrity :credentials]]
          (when (contains? request k)
            (emit-cljs-only-skipped! k url sensitive?)))
        (when abort-signal
@@ -443,6 +543,29 @@
        :reply-payload reply-payload
        :kind          kind}
       frame)))
+
+;; rf2-ee38b.7 — the failure-reply and success-reply dispatch shapes were
+;; spelled out inline at four / two sites across finalise-success!,
+;; finalise-failure! and the abort path's dispatch-aborted!. These two
+;; helpers collapse each to one line and make the abort/natural symmetry
+;; the surrounding comments describe visible in code. The load-bearing
+;; concurrency comments stay at the call sites.
+
+(defn- dispatch-failure!
+  "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot."
+  [ctx failure]
+  (dispatch-reply! (assoc ctx
+                          :kind          :failure
+                          :reply-payload {:kind    :failure
+                                          :failure failure})))
+
+(defn- dispatch-success!
+  "Dispatch a `:success` reply carrying `value` as its `:value` slot."
+  [ctx value]
+  (dispatch-reply! (assoc ctx
+                          :kind          :success
+                          :reply-payload {:kind  :success
+                                          :value value})))
 
 (defn- already-replied?
   "rf2-on7sj — the once-only reply guard. The handle carries a
@@ -517,25 +640,16 @@
                                sensitive?)]
               (trace/emit-error! :rf.http/aborted redacted)))
           (when-not (= :request-id-superseded (:reason failure))
-            (dispatch-reply! (assoc ctx
-                                    :kind          :failure
-                                    :reply-payload {:kind    :failure
-                                                    :failure failure}))))
+            (dispatch-failure! ctx failure)))
         (cond
           (contains? accepted :ok)
-          (dispatch-reply! (assoc ctx
-                                  :kind :success
-                                  :reply-payload {:kind  :success
-                                                  :value (:ok accepted)}))
+          (dispatch-success! ctx (:ok accepted))
 
           (contains? accepted :failure)
-          (dispatch-reply! (assoc ctx
-                                  :kind :failure
-                                  :reply-payload {:kind    :failure
-                                                  :failure {:kind       :rf.http/accept-failure
-                                                            :detail     (:failure accepted)
-                                                            :decoded    (:decoded ctx)
-                                                            :request-id (:request-id ctx)}})))))))
+          (dispatch-failure! ctx {:kind       :rf.http/accept-failure
+                                  :detail     (:failure accepted)
+                                  :decoded    (:decoded ctx)
+                                  :request-id (:request-id ctx)}))))))
 
 (defn- finalise-failure!
   "Final-failure dispatch (after retries exhausted or non-retriable).
@@ -597,10 +711,7 @@
       (let [superseded? (and (= :rf.http/aborted (:kind effective))
                              (= :request-id-superseded (:reason effective)))]
         (when-not superseded?
-          (dispatch-reply! (assoc ctx
-                                  :kind          :failure
-                                  :reply-payload {:kind    :failure
-                                                  :failure effective})))))))
+          (dispatch-failure! ctx effective))))))
 
 (defn- maybe-retry!
   "Decide between retry, immediate-final-failure, and successful-completion.
@@ -736,8 +847,15 @@
       :else
       ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx that the
       ;; runtime didn't follow) — surface as 4xx-shaped failure with
-      ;; the raw body-text.
-      (finalise-failure!
+      ;; the raw body-text. Per rf2-ee38b.7 this routes through
+      ;; `maybe-retry!` (was `finalise-failure!` directly) so the retry
+      ;; semantics match the `:rf.http/http-4xx` category label: a caller
+      ;; with `:retry {:on #{:rf.http/http-4xx} …}` retries a real 4xx,
+      ;; and this synthetic-4xx (1xx/3xx) now retries consistently rather
+      ;; than silently never retrying. The branch is rare in practice (the
+      ;; JVM `NORMAL` / Fetch stacks follow 3xx by default), but the
+      ;; inconsistency is removed.
+      (maybe-retry!
         ctx
         {:kind        :rf.http/http-4xx
          :status      status
@@ -826,11 +944,7 @@
                               ;; (`:user`, `:actor-destroyed`, `:timeout`)
                               ;; all dispatch the failure reply normally.
                               (when-not (= :request-id-superseded reason)
-                                (dispatch-reply!
-                                  (assoc ctx-no-handle
-                                         :kind          :failure
-                                         :reply-payload {:kind    :failure
-                                                         :failure failure})))))
+                                (dispatch-failure! ctx-no-handle failure))))
         ;; Register the abort handle. The handle ref is stamped into ctx
         ;; so finalise-* can clear it from both indexes without needing
         ;; the request-id (handles anonymous-from-actor requests too —
@@ -950,6 +1064,10 @@
                            :headers    headers
                            :body       enc-body
                            :timeout-ms timeout-ms
+                           ;; rf2-ee38b.7 — honour the spec's `:redirect`
+                           ;; envelope key on the JVM (default `:follow`).
+                           ;; Selects the redirect-policy-specific client.
+                           :redirect   (:redirect request)
                            :sensitive? (true? (:sensitive? ctx))})]
            ;; rf2-on7sj — publish cf to the abort-fn closure's holder
            ;; BEFORE wiring whenComplete. A racing abort that arrives
@@ -969,7 +1087,7 @@
                           (reify java.util.function.BiConsumer
                             (accept [_ result throwable]
                               (if throwable
-                                (maybe-retry! ctx' (classify-jvm-error throwable))
+                                (maybe-retry! ctx' (classify-jvm-error throwable timeout-ms))
                                 (handle-response! ctx' result))))))
          (catch Throwable t
-           (maybe-retry! ctx' (classify-jvm-error t)))))))
+           (maybe-retry! ctx' (classify-jvm-error t timeout-ms)))))))

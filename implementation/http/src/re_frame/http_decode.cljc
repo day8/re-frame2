@@ -130,10 +130,40 @@
             :cljs (try (resolve 'malli.core/validate)
                        (catch :default _ nil)))))
 
+(defonce ^:private malli-absent-warned?
+  ;; rf2-ee38b.7 — one-shot latch so the "schema supplied but Malli
+  ;; absent" warning fires once per runtime, not once per response. The
+  ;; degraded path is steady-state for a Malli-less app, so a per-request
+  ;; trace would be noise; the single warning makes the silent no-op
+  ;; visible without flooding the trace surface.
+  (atom false))
+
+(defn- warn-malli-absent! [schema]
+  ;; Visible-degradation trace per Spec 014 §JSON decoder hardening
+  ;; ("no silent fallback"). When a real schema rides `:decode` but
+  ;; Malli is not on the classpath, the decode/validate delays resolve
+  ;; to nil and validation is skipped — unchecked data flows to
+  ;; `:accept`. Emit a `:rf.warning/http-malli-absent` so the dropped
+  ;; validation is observable rather than silent.
+  (when (and interop/debug-enabled?
+             (compare-and-set! malli-absent-warned? false true))
+    (trace/emit! :warning :rf.warning/http-malli-absent
+                 {:reason (str "a `:decode` schema was supplied but malli.core is "
+                               "not on the classpath; schema validation is SKIPPED "
+                               "and the parsed value flows to `:accept` unchecked. "
+                               "Add the Malli dependency to enable schema-driven decode.")
+                  :schema schema})))
+
 (defn- malli-decode
   "Run a Malli schema's `decode` over `value`, falling back to plain
   validate-or-throw if the transformer pipeline is unavailable. Throws
-  on failure so the caller can classify as `:rf.http/decode-failure`."
+  on failure so the caller can classify as `:rf.http/decode-failure`.
+
+  Per rf2-ee38b.7: when Malli is absent entirely (decode AND validate
+  both nil), the parsed value is returned UNVALIDATED — but a one-shot
+  `:rf.warning/http-malli-absent` trace fires so the degraded path is
+  visible (it was previously a silent no-op, the anti-pattern §JSON
+  decoder hardening calls out)."
   [schema value]
   (let [decode      @malli-decode-fn
         transformer @malli-transformer-fn
@@ -142,6 +172,10 @@
                       (and decode transformer) (decode schema value (transformer))
                       decode                   (decode schema value nil)
                       :else                    value)]
+    ;; Malli wholly absent (no decode, no validate) → schema validation
+    ;; was skipped. Surface the degradation once.
+    (when (and (nil? decode) (nil? validate))
+      (warn-malli-absent! schema))
     (when validate
       (when-not (validate schema decoded)
         (throw (ex-info ":rf.error/http-schema-validation-failed"

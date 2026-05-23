@@ -22,14 +22,17 @@
   itself ships in production (it's app-readable state —
   `declare-sensitive-header!` writes through)."
   (:require [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame.http-url :as url]))
 
-;; The framework-reserved redaction sentinel per Spec 009 §Privacy. Sits
-;; in the `:rf/` reserved-keyword namespace so apps cannot legitimately
-;; produce it as a payload value. Held here (not just in
-;; `re-frame.http-privacy`) so this leaf namespace doesn't depend on its
-;; orchestrating parent.
-(def ^:private redacted-sentinel :rf/redacted)
+;; rf2-ee38b.7 — the framework-reserved redaction sentinel per Spec 009
+;; §Privacy now has a single canonical home in the sibling leaf
+;; `re-frame.http-url` (which carries no privacy deps, so there is no
+;; leaf→parent cycle). Previously this namespace held its own private
+;; copy AND `http-url` held the string form AND `http-privacy` held the
+;; keyword — three coordinated edits to change one value. Refer to the
+;; canonical def instead.
+(def ^:private redacted-sentinel url/redacted-sentinel)
 
 (def default-header-denylist
   "Canonical always-sensitive HTTP header names, lower-cased. These are
