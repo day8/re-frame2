@@ -166,12 +166,36 @@
             collection-shaped defaults"
     (let [[c] (p/group-cascades [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                   :tags {:rf.trace/dispatch-id 1 :rf.event/v [:e]}}])]
-      (is (= #{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other}
+      (is (= #{:dispatch-id :parent-dispatch-id :frame :event :dispatched
+               :handler :fx :effects :subs :renders :other}
              (set (keys c))))
       (is (vector? (:effects c)))
       (is (vector? (:subs c)))
       (is (vector? (:renders c)))
       (is (vector? (:other c))))))
+
+(deftest group-cascades-surfaces-parent-dispatch-id
+  (testing "the :parent-dispatch-id slot is read off the dispatched
+            event's :rf.trace/parent-dispatch-id tag — the causal-parent
+            link an :fx :dispatch / machine-internal child carries under
+            epoch-per-event (Spec 009 §Dispatch correlation)"
+    (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                :tags {:rf.trace/dispatch-id        20
+                       :rf.trace/parent-dispatch-id 10
+                       :rf.event/v                  [:form/validate]}}]
+          [c] (p/group-cascades evs)]
+      (is (= 20 (:dispatch-id c)))
+      (is (= 10 (:parent-dispatch-id c))
+          "the spawning cascade's id is surfaced on the child cascade"))))
+
+(deftest group-cascades-root-cascade-has-nil-parent
+  (testing "a root (user / external) dispatch carries no
+            :rf.trace/parent-dispatch-id tag, so :parent-dispatch-id is nil"
+    (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                :tags {:rf.trace/dispatch-id 10 :rf.event/v [:user/click]}}]
+          [c] (p/group-cascades evs)]
+      (is (= 10 (:dispatch-id c)))
+      (is (nil? (:parent-dispatch-id c))))))
 
 (deftest group-cascades-dispatched-slot-carries-full-trace-event
   (testing "the :dispatched slot preserves the full :rf.event/dispatched

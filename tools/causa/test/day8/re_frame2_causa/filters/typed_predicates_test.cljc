@@ -253,6 +253,135 @@
     (is (= [1 3] (mapv :dispatch-id
                        (typed/filter-cascades [c1 c2 c3] filters))))))
 
+;; ---- causal-parent matching under epoch-per-event (rf2-a1eld) ------------
+;;
+;; Under epoch-per-event the spawning event and the machine/http/fx
+;; transition it triggers are SEPARATE cascades linked by
+;; `:parent-dispatch-id` (the projection surfaces it off the dispatched
+;; event's `:rf.trace/parent-dispatch-id` tag). A typed IN pill on the
+;; CHILD transition cascade must also keep the PARENT spawning cascade —
+;; the whole lineage back to the originating user event.
+
+(defn- mk-child-cascade
+  "A cascade carrying both a `:dispatch-id` and the causal-parent link."
+  [{:keys [dispatch-id parent-dispatch-id] :as opts}]
+  (-> (mk-cascade (dissoc opts :dispatch-id :parent-dispatch-id))
+      (assoc :dispatch-id dispatch-id
+             :parent-dispatch-id parent-dispatch-id)))
+
+(deftest machine-pill-keeps-spawning-parent-cascade
+  (testing "a :machine pill on the machine-transition CHILD cascade also
+            keeps the PARENT event that spawned the transition (rf2-a1eld)"
+    (let [;; parent: the user event that spawned the transition. Carries
+          ;; NO machine tag of its own — it only matches via the child.
+          parent  (mk-child-cascade {:dispatch-id 10
+                                     :event       [:user/submit-form]})
+          ;; child: the machine transition, its own epoch under
+          ;; epoch-per-event, linked back to the parent.
+          child   (mk-child-cascade {:dispatch-id        20
+                                     :parent-dispatch-id 10
+                                     :event             [:rf.machine/transition]
+                                     :effects           [(tagged {:machine-id :form})]})
+          ;; unrelated cascade — no machine, no link → dropped.
+          other   (mk-child-cascade {:dispatch-id 30
+                                     :event       [:other/thing]})
+          filters {:in  [{:kind :machine :params {:machine-id :form}}]
+                   :out []}
+          kept    (mapv :dispatch-id
+                        (typed/filter-cascades [parent child other] filters))]
+      (is (= [10 20] kept)
+          "both the spawning parent AND the machine child survive; the
+           unrelated cascade is dropped"))))
+
+(deftest http-pill-keeps-spawning-parent-cascade
+  (testing "an :http-correlation pill on the response CHILD cascade also
+            keeps the PARENT event that issued the request (rf2-a1eld)"
+    (let [parent  (mk-child-cascade {:dispatch-id 100
+                                     :event       [:user/load-page]})
+          child   (mk-child-cascade {:dispatch-id        200
+                                     :parent-dispatch-id 100
+                                     :event             [:rf.http/response]
+                                     :other             [(tagged {:correlation-id "abc-123"})]})
+          other   (mk-child-cascade {:dispatch-id 300
+                                     :event       [:other/thing]})
+          filters {:in  [{:kind :http-correlation
+                          :params {:correlation-id "abc-123"}}]
+                   :out []}
+          kept    (mapv :dispatch-id
+                        (typed/filter-cascades [parent child other] filters))]
+      (is (= [100 200] kept)
+          "both the request-issuing parent AND the http child survive"))))
+
+(deftest fx-pill-keeps-spawning-parent-cascade
+  (testing "an :fx pill on the fx-triggering CHILD cascade also keeps the
+            PARENT event that spawned it (rf2-a1eld)"
+    (let [parent  (mk-child-cascade {:dispatch-id 1
+                                     :event       [:user/click]})
+          child   (mk-child-cascade {:dispatch-id        2
+                                     :parent-dispatch-id 1
+                                     :event             [:do/work]
+                                     :effects           [(tagged {:rf.fx/id :rf.http/managed})]})
+          other   (mk-child-cascade {:dispatch-id 3
+                                     :event       [:other/thing]})
+          filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
+                   :out []}
+          kept    (mapv :dispatch-id
+                        (typed/filter-cascades [parent child other] filters))]
+      (is (= [1 2] kept)
+          "both the spawning parent AND the fx child survive"))))
+
+(deftest typed-pill-walks-full-chain-to-root
+  (testing "the ancestor walk is whole-chain: a :machine pill on a deep
+            grandchild surfaces every cascade up to the root user event
+            (rf2-a1eld design call — strict superset, no over-matching)"
+    (let [root  (mk-child-cascade {:dispatch-id 1
+                                   :event       [:user/click]})
+          mid   (mk-child-cascade {:dispatch-id        2
+                                   :parent-dispatch-id 1
+                                   :event             [:fx/dispatched-child]})
+          leaf  (mk-child-cascade {:dispatch-id        3
+                                   :parent-dispatch-id 2
+                                   :event             [:rf.machine/transition]
+                                   :effects           [(tagged {:machine-id :form})]})
+          filters {:in  [{:kind :machine :params {:machine-id :form}}]
+                   :out []}
+          kept    (mapv :dispatch-id
+                        (typed/filter-cascades [root mid leaf] filters))]
+      (is (= [1 2 3] kept)
+          "root → mid → leaf all survive via the whole-chain walk"))))
+
+(deftest out-pill-stays-cascade-local-does-not-drop-ancestor
+  (testing "an OUT (hide) pill suppresses only the cascade carrying its
+            tag, never an ancestor — hiding a child's fx must not silently
+            drop the originating user event (rf2-a1eld)"
+    (let [parent  (mk-child-cascade {:dispatch-id 1
+                                     :event       [:user/click]})
+          child   (mk-child-cascade {:dispatch-id        2
+                                     :parent-dispatch-id 1
+                                     :event             [:do/work]
+                                     :effects           [(tagged {:rf.fx/id :noisy/fx})]})
+          filters {:in  []
+                   :out [{:kind :fx :params {:fx-id :noisy/fx}}]}
+          kept    (mapv :dispatch-id
+                        (typed/filter-cascades [parent child] filters))]
+      (is (= [1] kept)
+          "only the tagged child is hidden; the parent survives"))))
+
+(deftest parent-walk-cycle-guarded
+  (testing "a malformed trace with a parent loop terminates the walk
+            rather than spinning (rf2-a1eld defensive guard)"
+    (let [a (mk-child-cascade {:dispatch-id 1 :parent-dispatch-id 2
+                               :event [:a]})
+          b (mk-child-cascade {:dispatch-id 2 :parent-dispatch-id 1
+                               :event       [:b]
+                               :effects     [(tagged {:machine-id :form})]})
+          filters {:in  [{:kind :machine :params {:machine-id :form}}]
+                   :out []}
+          ;; both match (a reaches b via its parent link; b matches
+          ;; directly) and the walk does NOT hang on the 1↔2 cycle.
+          kept    (mapv :dispatch-id (typed/filter-cascades [a b] filters))]
+      (is (= [1 2] kept)))))
+
 ;; ---- pill-label / pill-glyph --------------------------------------------
 
 (deftest pill-label-per-kind

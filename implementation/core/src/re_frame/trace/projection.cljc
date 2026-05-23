@@ -116,16 +116,17 @@
   Event lens) can read top-level hoisted slots like
   `:rf.trace/call-site` (per rf2-twt7m Change 1) without reaching
   back into the raw trace buffer."
-  {:dispatch-id nil
-   :frame       nil
-   :event       nil
-   :dispatched  nil
-   :handler     nil
-   :fx          nil
-   :effects     []
-   :subs        []
-   :renders     []
-   :other       []})
+  {:dispatch-id        nil
+   :parent-dispatch-id nil
+   :frame              nil
+   :event              nil
+   :dispatched         nil
+   :handler            nil
+   :fx                 nil
+   :effects            []
+   :subs               []
+   :renders            []
+   :other              []})
 
 (def ^:private default-frame :rf/default)
 
@@ -198,8 +199,22 @@
   rf2-twt7m Change 1)."
   [acc ev]
   (case (domino-bucket ev)
-    :event   (assoc acc :event      (get-in ev [:tags :rf.event/v])
-                       :dispatched  ev)
+    :event   (assoc acc :event              (get-in ev [:tags :rf.event/v])
+                       :dispatched         ev
+                       ;; Surface the causal-parent link once at the
+                       ;; projection (Spec 009 §Dispatch correlation /
+                       ;; rf2-ryri7): the `:rf.event/dispatched` trace
+                       ;; carries `:rf.trace/parent-dispatch-id` (the
+                       ;; in-flight cascade that emitted this dispatch —
+                       ;; an `:fx :dispatch` parent, a machine-internal
+                       ;; dispatch, etc.). Under epoch-per-event every
+                       ;; child event is its own cascade; this slot is
+                       ;; the only edge linking a cascade to its spawning
+                       ;; cascade. Consumers (Causa typed pills, the
+                       ;; causality breadcrumb) walk it to relate a
+                       ;; cascade to its causal ancestors. nil for a
+                       ;; root cascade (a user / external dispatch).
+                       :parent-dispatch-id (get-in ev [:tags :rf.trace/parent-dispatch-id]))
     :handler (assoc acc :handler ev)
     :fx      (assoc acc :fx ev)
     :effect  (update acc :effects conj ev)
@@ -230,6 +245,11 @@
   Returns a vector of maps shaped:
 
       {:dispatch-id <cascade-id-or-:ungrouped>
+       :parent-dispatch-id <cascade-id or nil> ;; causal-parent link from
+                                              ;;   :rf.trace/parent-dispatch-id
+                                              ;;   (the cascade that emitted
+                                              ;;   this dispatch); nil for a
+                                              ;;   root / external dispatch
        :frame       <frame-id-or-nil>
        :event       <event-vector or nil>     ;; from :rf.event/dispatched :tags
        :dispatched  <trace-event or nil>      ;; the full :rf.event/dispatched
