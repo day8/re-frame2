@@ -3,10 +3,15 @@
   exercises the full event → state → render pipeline as a real user would
   wire it, catching API ergonomics regressions that pure unit tests miss.
 
-  Per rf2-kx74 examples are grouped per substrate; the namespaces below
+  Per rf2-kx74 examples are grouped per substrate; the example sources
   (`ssr.core`, `ssr-streaming.core`, `state-machine-walkthrough.core`)
   live under
-  ../examples/reagent/{ssr,ssr_streaming,state_machine_walkthrough}/ on disk."
+  ../examples/reagent/{ssr,ssr_streaming,state_machine_walkthrough}/ on
+  disk. Per rf2-ee38b.25 each example's headless test fns moved OUT of the
+  example source into a sibling `test/` namespace (`ssr.core-test`,
+  `ssr-streaming.core-test`, `state-machine-walkthrough.core-test`) so the
+  example source a learner reads is pure demonstrative code — matching the
+  test-free split realworld / nine_states / boot already use."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -35,36 +40,41 @@
   ;; require from each example ns wouldn't re-evaluate the body (Clojure
   ;; require is idempotent without :reload-all), so reload here.
   (require 're-frame.http-test-support :reload)
-  ;; Drop any cached require of example namespaces so each test re-evaluates
-  ;; their namespace-level handlers against a fresh registrar.
+  ;; Drop any cached require of example namespaces (and their sibling test
+  ;; namespaces) so each test re-evaluates their namespace-level handlers
+  ;; against a fresh registrar.
   (remove-ns 'ssr.core)
+  (remove-ns 'ssr.core-test)
   (remove-ns 'ssr-streaming.core)
+  (remove-ns 'ssr-streaming.core-test)
   (remove-ns 'state-machine-walkthrough.core)
+  (remove-ns 'state-machine-walkthrough.core-test)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
 
 (deftest ssr-example-runs-end-to-end
-  (testing "examples/reagent/ssr/core.cljc runs its built-in headless tests"
-    (require 'ssr.core :reload)
-    (let [result (@(resolve 'ssr.core/ssr-tests))]
+  (testing "examples/reagent/ssr — the sibling test ns drives the server flow"
+    (require 'ssr.core-test :reload)
+    (let [result (@(resolve 'ssr.core-test/ssr-tests))]
       (is (= :ok result)
-          "ssr.core/ssr-tests returned :ok — the full server flow worked"))))
+          "ssr.core-test/ssr-tests returned :ok — the full server flow worked"))))
 
 (deftest ssr-streaming-example-runs-end-to-end
-  (testing "examples/reagent/ssr_streaming/core.cljc runs its built-in streaming tests"
-    (require 'ssr-streaming.core :reload)
-    (let [result (@(resolve 'ssr-streaming.core/streaming-tests))]
+  (testing "examples/reagent/ssr_streaming — the sibling test ns drives the stream"
+    (require 'ssr-streaming.core-test :reload)
+    (let [result (@(resolve 'ssr-streaming.core-test/streaming-tests))]
       (is (= :ok result)
-          "ssr-streaming.core/streaming-tests returned :ok — the full server
-           streaming flow (shell + per-card chunks + final payload) worked"))))
+          "ssr-streaming.core-test/streaming-tests returned :ok — the full
+           server streaming flow (shell + per-card chunks + final payload)
+           worked"))))
 
 (deftest state-machine-walkthrough-runs-headless
-  (testing "examples/reagent/state-machine-walkthrough/core.cljc — every code block in
-            ch.09 § Headless testing runs and matches the chapter's claims."
-    (require 'state-machine-walkthrough.core :reload)
-    (let [result (@(resolve 'state-machine-walkthrough.core/smoke-tests))]
+  (testing "examples/reagent/state-machine-walkthrough — the sibling test ns
+            drives every ch.09 §Headless testing scenario."
+    (require 'state-machine-walkthrough.core-test :reload)
+    (let [result (@(resolve 'state-machine-walkthrough.core-test/smoke-tests))]
       (is (= :ok result)
-          "state-machine-walkthrough.core/smoke-tests returned :ok — the
+          "state-machine-walkthrough.core-test/smoke-tests returned :ok — the
            login-machine drove through happy path, retry-then-lockout, and
            pure machine-transition tests."))))

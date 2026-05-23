@@ -119,16 +119,13 @@
 ;; what the form *collects* + per-field validation state — no `:status`
 ;; field, because the form region's state-keyword IS the status.
 
-(def Todo
-  [:map
-   [:id     :uuid]
-   [:title  [:string {:min 1}]]
-   [:done?  {:default false} :boolean]])
-
-(def NewTodoForm
-  [:map
-   [:title [:string {:min 3 :max 80}]]])
-
+;; NOTE the slice's `:draft` is a bare `:map`, NOT a stricter
+;; "valid submission" shape: a form draft legitimately holds
+;; in-progress / invalid input (an empty title before the user types),
+;; so a min-length constraint here would reject the initial draft write
+;; under dev-mode schema validation. The valid-submission constraint
+;; lives in the form's validate fn (see `validate-new-todo`), not the
+;; slice schema — drafts and submissions are different shapes.
 (def NewTodoSlice
   [:map
    [:draft   :map]

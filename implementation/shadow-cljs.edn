@@ -126,6 +126,17 @@
                 "../examples/reagent/boot/test"
                 "../examples/reagent/nine_states/test"
                 "../examples/reagent/realworld/test"
+                ;; rf2-ee38b.25 — sibling test trees for the ssr /
+                ;; ssr_streaming / state_machine_walkthrough examples,
+                ;; whose headless test fns moved out of the example source
+                ;; (the example source stays test-free, matching
+                ;; realworld/nine_states). JVM-driven by
+                ;; re-frame.examples-test; listing them here only widens
+                ;; the classpath (the .cljc/.clj test fns are not picked up
+                ;; by the `cljs-test$` node-test regexp).
+                "../examples/reagent/ssr/test"
+                "../examples/reagent/ssr_streaming/test"
+                "../examples/reagent/state_machine_walkthrough/test"
                 ;; rf2-o9fg — long-running-work example's fixtures live
                 ;; under examples/reagent/long_running_work/test/ to
                 ;; keep the production source test-free (same layout
@@ -614,6 +625,17 @@
    :output-dir "out/examples/todomvc"
    :asset-path "."
    :modules    {:main {:init-fn todomvc.core/run}}}
+
+  ;; Spec 013 — Flows worked example (rf2-ee38b.25). THE canonical Flows
+  ;; exemplar: a shopping cart whose subtotal + total are materialised
+  ;; into app-db by registered flows (not subs), with a flow-reads-flow
+  ;; topological cascade and a runtime-toggleable discount via
+  ;; :rf.fx/reg-flow / :rf.fx/clear-flow. Companion to spec/013-Flows.md.
+  :examples/flows
+  {:target     :browser
+   :output-dir "out/examples/flows"
+   :asset-path "."
+   :modules    {:main {:init-fn flows.core/run}}}
 
   ;; Spec 014 — managed HTTP counter (rf2-cfig).  Demonstrates
   ;; :rf.http/managed end-to-end through Reagent + Fetch. The +1 button

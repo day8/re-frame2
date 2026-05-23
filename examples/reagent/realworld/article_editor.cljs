@@ -24,6 +24,14 @@
             ;; below at ns-load) and the `:rf/machine` framework subs
             ;; resolve.
             [re-frame.machines]
+            ;; Flows (Spec 013) ship in day8/re-frame2-flows. The editor
+            ;; registers a `:editor/can-submit?` flow (see :editor/initialise
+            ;; below) that materialises form-validity-AND-dirty into app-db.
+            ;; Loading the ns here publishes the artefact's late-bind hooks
+            ;; (`:flows/reg-flow` etc.) so the `:rf.fx/reg-flow` effect
+            ;; resolves; without it the effect raises
+            ;; :rf.error/flows-artefact-missing.
+            [re-frame.flows]
             [realworld.schema :as schema]
             [realworld.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -63,6 +71,42 @@
     (str/blank? title)       (assoc :title "Title is required.")
     (str/blank? description) (assoc :description "Description is required.")
     (str/blank? body)        (assoc :body "Body is required.")))
+
+;; ============================================================================
+;; THE FLOW — :editor/can-submit?  (Spec 013 §Flows)
+;; ============================================================================
+;;
+;; This is RealWorld's worked Spec 013 flow — the `-flows` artefact in the
+;; example's "composes core + -schemas + -machines + -routing + -flows +
+;; -http" claim. `:editor/can-submit?` materialises a derived boolean —
+;; "the draft passes client-side validation AND differs from the loaded
+;; baseline" — into app-db at `[:editor :can-submit?]`.
+;;
+;; WHY A FLOW HERE (Spec 013 §When (and when not) to use a flow): the
+;; `:editor/submit` handler reads this value as plain app-db data to gate
+;; the submit, exactly the "other event handlers read the value" criterion.
+;; A sub would force the handler to `subscribe` mid-handler (awkward and
+;; non-idiomatic); the flow keeps the gate as ordinary state the handler
+;; reads with `get-in`. The submit-button-disabled view still reads it
+;; through a plain sub over the flow's `:path` (Spec 013 §Sub integration).
+;;
+;; The flow is registered per-frame via `:rf.fx/reg-flow` from
+;; `:editor/initialise` (below) rather than at ns-load, so it registers
+;; against whatever frame the app boots on — the default frame in the
+;; browser, and each per-test `make-frame` frame in the headless fixtures
+;; (Spec 013 §Dynamic toggle via fx §Frame routing). Registering at ns-load
+;; would bind it only to `(current-frame)` and miss the test frames.
+
+(def can-submit-flow
+  {:id     :editor/can-submit?
+   :doc    "True when the editor draft is valid AND dirty (differs from the
+            loaded baseline). Materialised into app-db so the submit
+            handler can read it as plain data."
+   :inputs [[:editor :draft] [:editor :baseline]]
+   :output (fn [draft baseline]
+             (and (empty? (validate-draft draft))
+                  (not= draft baseline)))
+   :path   [:editor :can-submit?]})
 
 (defn article-body [draft]
   {:article {:title       (:title draft)
@@ -164,9 +208,15 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :editor/initialise
+  {:doc "Reset the editor slice + machine, and register the
+         `:editor/can-submit?` flow against the dispatching frame (Spec
+         013 §Dynamic toggle via fx). The flow's first walk fires on the
+         NEXT drain (Spec 013 §Sequencing); a fresh editor starts invalid
+         + clean anyway, so the one-event lag carries no stale value."}
   (fn [{:keys [db]} _]
     {:db (assoc db :editor (editor-slice))
-     :fx [[:dispatch [:ui/article-editor [:reset]]]]}))
+     :fx [[:dispatch [:ui/article-editor [:reset]]]
+          [:rf.fx/reg-flow can-submit-flow]]}))
 
 (rf/reg-event-fx :editor/load-article
   {:doc "Load an existing article into the editor in :edit mode.
@@ -218,13 +268,29 @@
          Reads the current `:mode` region's state to decide POST vs PUT.
          Broadcasts `:submit-started` into the lifecycle region; the
          `:on-success` / `:on-failure` replies broadcast
-         `:submit-succeeded` / `:submit-failed`."
+         `:submit-succeeded` / `:submit-failed`.
+
+         The guard reads the `:editor/can-submit?` FLOW output straight off
+         app-db (Spec 013 §Sub integration (a)) — a materialised derived
+         value the handler consumes as plain data with no subscribe
+         ceremony. When the form is unchanged (valid but not dirty) the
+         flow is false and the submit is a no-op; an invalid draft re-runs
+         validation to populate the per-field error map for display."
    :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} _]
     (let [{:keys [slug draft]} (:editor db)
-          mode   (get-in db [:rf/machines :ui/article-editor :state :mode])
-          errors (validate-draft draft)]
-      (if (seq errors)
+          mode        (get-in db [:rf/machines :ui/article-editor :state :mode])
+          ;; Materialised flow output — read as plain app-db data.
+          can-submit? (get-in db [:editor :can-submit?])
+          errors      (validate-draft draft)]
+      (cond
+        ;; Valid but unchanged → nothing to save (the submit button is
+        ;; disabled in this state via the :editor/can-submit? sub, so this
+        ;; is the belt-and-braces no-op for programmatic dispatch).
+        (and (not can-submit?) (empty? errors))
+        {}
+
+        (seq errors)
         ;; Client-side validation failure. Flip :submit-attempted? so
         ;; per-field error subs (Pattern-Forms §Error visibility)
         ;; reveal every error even on untouched fields, without the
@@ -235,6 +301,8 @@
                  (assoc-in [:editor :submit-attempted?] true)
                  (assoc-in [:editor :errors] (assoc errors :_form "Please fix the highlighted fields."))
                  (assoc-in [:editor :submit-error] nil))}
+
+        :else
         {:db (-> db
                  (assoc-in [:editor :submit-attempted?] true)
                  (assoc-in [:editor :submitted] draft)
@@ -326,6 +394,16 @@
   (fn [editor _]
     (not= (:draft editor) (:baseline editor))))
 
+(rf/reg-sub :editor/can-submit?
+  {:doc "Reads the `:editor/can-submit?` FLOW output at its app-db :path
+         (Spec 013 §Sub integration (b)). No special flow sub-id — a flow's
+         output is ordinary app-db state and consumers read it through a
+         plain sub over the path. Drives the submit button's disabled
+         attribute. nil until the flow's first post-drain walk lands
+         (Spec 013 §Sequencing), which `(boolean ...)` normalises to false."}
+  (fn [db _]
+    (boolean (get-in db [:editor :can-submit?]))))
+
 (rf/reg-sub :editor/can-leave?
   :<- [:editor/dirty?]
   (fn [dirty? _]
@@ -378,6 +456,7 @@
         body-err     @(subscribe [:editor/field-error :body])
         form-err     @(subscribe [:editor/form-error])
         submit-error @(subscribe [:editor/submit-error])
+        can-submit?  @(subscribe [:editor/can-submit?])
         busy?        @(rf/machine-has-tag? :ui/article-editor :editor/busy)
         can-delete?  @(rf/machine-has-tag? :ui/article-editor :editor/can-delete)]
     [:div.editor-page
@@ -431,7 +510,10 @@
              :disabled    busy?
              :on-change   #(dispatch [:editor/edit-field :tagList (.. % -target -value)])}]]
           [:button.btn.btn-lg.pull-xs-right.btn-primary
-           {:type "submit" :disabled busy?}
+           ;; Disabled while busy OR while the :editor/can-submit? flow is
+           ;; false (draft invalid or unchanged) — the flow's materialised
+           ;; output drives the button state.
+           {:type "submit" :disabled (or busy? (not can-submit?))}
            (if can-delete? "Update Article" "Publish Article")]
           (when can-delete?
             [:button.btn.btn-outline-danger

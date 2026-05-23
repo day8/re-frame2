@@ -93,18 +93,42 @@
 ;; ============================================================================
 ;; AUTH GUARD
 ;; ============================================================================
+;;
+;; Per Spec 012 §Redirects and guards: route-level auth is an interceptor,
+;; not a special routing mechanism. Guards are plain interceptors; they
+;; compose, and multiple guards can layer. This one redirects
+;; unauthenticated users away from any route tagged `:requires-auth`
+;; (`:route/settings`, `:route/editor`, `:route/editor.edit`) to the login
+;; page, stashing the original target under `:return-to` so a post-login
+;; handler could bounce the user back.
+;;
+;; It is wired into the demo frame via `reg-frame :interceptors` in
+;; core.cljs (`:interceptors` are "prepended to every event in this
+;; frame", Spec 002 §reg-frame). To keep it cheap and correct it short-
+;; circuits to the unchanged ctx for everything except a programmatic
+;; `:rf.route/navigate` — the one event whose `(second event)` is a route
+;; id whose tags we want to gate on. (Anchor clicks land here too: the
+;; framework `:rf/url-requested` handler resolves the URL to a route and
+;; the on-match drain runs; for THIS sketch we gate the programmatic
+;; navigation surface the navbar uses, which is the path the headless
+;; tests exercise.)
 
 (def auth-guard
   {:id     :route/auth-guard
    :before (fn auth-guard-before [ctx]
-             (let [event       (get-in ctx [:coeffects :event])
-                   target      (second event)
-                   route-meta  (rf/handler-meta :route target)
-                   needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
-                   logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-               (if (and needs-auth? (not logged-in?))
-                 (assoc-in ctx [:coeffects :event]
-                           [:rf.route/navigate :route/login {} {:return-to target}])
+             (let [event (get-in ctx [:coeffects :event])]
+               (if (= :rf.route/navigate (first event))
+                 (let [target      (second event)
+                       route-meta  (rf/handler-meta :route target)
+                       needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
+                       logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
+                   (if (and needs-auth? (not logged-in?))
+                     ;; Rewrite the in-flight event to a login redirect.
+                     ;; `:rf.route/navigate` is [_ target params opts]; the
+                     ;; original target rides through under :return-to.
+                     (assoc-in ctx [:coeffects :event]
+                               [:rf.route/navigate :route/login {} {:return-to target}])
+                     ctx))
                  ctx)))})
 
 ;; ============================================================================

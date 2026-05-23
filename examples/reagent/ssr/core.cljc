@@ -30,7 +30,6 @@
    browser-side `run` reads the payload, dispatches `:rf/hydrate`, and
    renders against the now-seeded app-db."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schema resolves at the call sites below.
@@ -262,7 +261,14 @@
      (when-let [el (.getElementById js/document "__rf_payload")]
        (cljs.reader/read-string (.-textContent el)))))
 
-(rf/reg-event-db :rf/client-bootstrap
+;; User events live under an app-chosen namespace, NEVER under the
+;; reserved `:rf/*` root (Conventions §Reserved namespaces — user code MUST
+;; NOT register handlers under `:rf/*`). The `:rf/hydrate` / `:rf/server-init`
+;; handlers above are legitimate re-registrations of documented framework
+;; pattern events the app is expected to supply; this client-only-load
+;; bootstrap is a fresh user invention, so it gets the app's own `:ssr/`
+;; namespace.
+(rf/reg-event-db :ssr/client-bootstrap
   {:doc "Client-side init that runs even if the server didn't render this page."}
   (fn [db _] db))
 
@@ -283,66 +289,15 @@
      ;; If the page was server-rendered, `:rf/hydrate` replaces app-db with
      ;; the payload's :rf/app-db slice (locked :replace-app-db policy per
      ;; Spec 011 §The :rf/hydrate event). On a "client-only" load (no
-     ;; payload script), :rf/client-bootstrap runs as a no-op and the page
+     ;; payload script), :ssr/client-bootstrap runs as a no-op and the page
      ;; renders the empty-articles fallback.
      (if-let [payload (read-server-payload)]
        (rf/dispatch-sync [:rf/hydrate payload])
-       (rf/dispatch-sync [:rf/client-bootstrap]))
+       (rf/dispatch-sync [:ssr/client-bootstrap]))
      (rdc/render react-root [(rf/view :app/root)])))
 
-;; ============================================================================
-;; HEADLESS TESTS  (JVM-runnable; exercises the server flow)
-;; ============================================================================
-
-#?(:clj
-   (defn ssr-tests []
-     ;; Boot the runtime (idempotent) — installs the SSR adapter and the
-     ;; :rf/default frame. `re-frame.ssr` exports its own `adapter` var
-     ;; (the JVM-side counterpart of reagent/uix/helix adapters); pass it
-     ;; explicitly.
-     (rf/init! ssr/adapter)
-     ;; Stub `:rf.http/managed` so the test doesn't make real network
-     ;; calls. The per-frame `:fx-overrides` redirect `:rf.http/managed`
-     ;; to a per-test stub that delegates to the framework-shipped
-     ;; `:rf.http/managed-canned-success` (Spec 014 §Testing) with a
-     ;; canned `:value` payload — the same reply shape a live request
-     ;; would produce.
-     (rf/reg-fx :ssr.http/canned-articles
-       {:platforms #{:server :client}}
-       (fn [frame-ctx args-map]
-         (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
-           (stub frame-ctx
-                 (assoc args-map
-                        :value [{:id "a" :title "Article A" :body "Body A"}
-                                {:id "b" :title "Article B" :body "Body B"}])))))
-
-     (let [fid          (keyword "rf.frame" (str (gensym "")))
-           _            (ssr/set-request! fid {:uri "/articles"})
-           f            (rf/reg-frame fid
-                          {:doc          "ssr-example test frame"
-                           :platform     :server
-                           :on-create    [:rf/server-init]
-                           :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
-           final-db     (rf/get-frame-db f)
-           ;; The root view's body invokes the articles-page render fn,
-           ;; which calls (rf/subscribe-once [:articles]). Both run
-           ;; INSIDE render-to-string's tree walk; with-frame binds
-           ;; *current-frame* across that walk so the sub reads from f
-           ;; and not from :rf/default.
-           hiccup      ((rf/view :app/root))
-           html        (rf/with-frame f
-                         (rf/render-to-string hiccup {:emit-hash? true}))
-           render-hash (rf/render-tree-hash hiccup)]
-       ;; State was loaded.
-       (assert (= 2 (count (:articles final-db))))
-       ;; HTML contains the article titles.
-       (assert (clojure.string/includes? html "Article A"))
-       (assert (clojure.string/includes? html "Article B"))
-       ;; HTML round-trips via render-to-string without needing React/JSDOM.
-       (assert (clojure.string/includes? html "<h1>"))
-       ;; render-hash is a structural marker (lowercase-hex FNV-1a per
-       ;; Spec 011); the client recomputes it and the runtime emits a
-       ;; :rf.ssr/hydration-mismatch trace event on disagreement.
-       (assert (re-matches #"[0-9a-f]{8}" render-hash))
-       (assert (clojure.string/includes? html "data-rf-render-hash"))
-       :ok)))
+;; The JVM-runnable headless test that exercises the full server flow
+;; (per-request frame → :rf/server-init → managed-HTTP via a canned stub →
+;; render-to-string → render-hash) lives in the sibling test ns
+;; `ssr.core-test` under test/, keeping this example source pure
+;; demonstrative code. It runs on the JVM via re-frame.examples-test.

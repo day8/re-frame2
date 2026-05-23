@@ -51,8 +51,11 @@
 (rf/reg-event-db :flight/initialise
   {:doc "Seed the flight slice."}
   (fn handler-flight-initialise [db _]
+    ;; Seed both date fields to a fixed valid ISO date. The original 7GUIs
+    ;; spec seeds "today"; we use a constant so the example is
+    ;; deterministic (and not silently wrong on any given day).
     (assoc db :flight {:trip-type   :one-way
-                       :start-text  "2026-05-06"     ;; today, in the original 7GUIs spec
+                       :start-text  "2026-05-06"
                        :return-text "2026-05-06"})))
 
 (rf/reg-event-db :flight/set-trip-type

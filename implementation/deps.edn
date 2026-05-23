@@ -73,6 +73,15 @@
                  ;; and `realworld.*` (under examples/reagent/realworld/).
                  "../examples/reagent"
                  "../examples/reagent/realworld/test"
+                 ;; rf2-ee38b.25 — the ssr / ssr_streaming /
+                 ;; state_machine_walkthrough examples moved their headless
+                 ;; test fns into sibling `test/` namespaces (so the example
+                 ;; source stays test-free, matching realworld/nine_states).
+                 ;; Add those test trees to the classpath so
+                 ;; re-frame.examples-test can require them.
+                 "../examples/reagent/ssr/test"
+                 "../examples/reagent/ssr_streaming/test"
+                 "../examples/reagent/state_machine_walkthrough/test"
                  "../examples/uix"
                  "../examples/helix"]
    :extra-deps  {;; rf2-try1x — silent-on-success reporter.

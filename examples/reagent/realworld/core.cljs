@@ -384,7 +384,15 @@
   (rf/init! reagent-slim-adapter/adapter)
   ;; Override :rf.http/managed on the default frame so all the realworld
   ;; feature HTTP calls land on the demo stub (no real backend required).
+  ;; The auth-guard interceptor (routing.cljs) is prepended to every event
+  ;; in this frame (Spec 002 §reg-frame :interceptors) — it short-circuits
+  ;; for all non-navigation events and redirects unauthenticated
+  ;; `:rf.route/navigate` to `:requires-auth`-tagged routes to login (Spec
+  ;; 012 §Redirects and guards). This is what makes the `:requires-auth`
+  ;; tags on :route/settings / :route/editor / :route/editor.edit actually
+  ;; protect those routes.
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
+                             :interceptors [routing/auth-guard]
                              :fx-overrides {:rf.http/managed :rf.http/managed.realworld-demo}})
   ;; Register the Bearer-auth interceptor at app boot. Order matters:
   ;; before :app/initialise dispatches, since session-restore will fire

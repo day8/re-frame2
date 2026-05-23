@@ -87,7 +87,9 @@
 
 (deftest realworld-routing
   (testing "navigate, handle-url-change, query, and not-found all resolve"
-    (routing-t/routing-tests)))
+    (routing-t/routing-tests))
+  (testing "auth-guard redirects unauthenticated nav to :requires-auth routes (Spec 012)"
+    (routing-t/auth-guard-test)))
 
 (deftest realworld-ssr
   (testing "hydration-payload selects the SSR-safe slice keys"
