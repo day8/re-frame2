@@ -382,15 +382,17 @@
 ;; (6) Mode-signal mechanism — stripe colour helper
 ;; -------------------------------------------------------------------------
 
-(deftest stripe-token-dynamic-violet-static-cyan
+(deftest stripe-token-dynamic-orange-static-cyan
   (testing "mode-signal mechanism #2 — 2-px left-edge stripe is
-            :accent-violet in Dynamic, :cyan in Static. No new tokens
-            introduced per the rf2-zhrwo audit constraint."
-    (is (= :accent-violet (static-shell/stripe-token-for-mode :dynamic)))
-    (is (= :cyan          (static-shell/stripe-token-for-mode :static)))
+            :accent-dynamic (orange) in Dynamic, :accent-static (cyan)
+            in Static (rf2-ad7zx / spec/022). The stripe reads the per-
+            MODE token directly (not the runtime :accent alias) because
+            it IS the mode signal."
+    (is (= :accent-dynamic (static-shell/stripe-token-for-mode :dynamic)))
+    (is (= :accent-static  (static-shell/stripe-token-for-mode :static)))
     ;; Unknown / nil values fall back to dynamic
-    (is (= :accent-violet (static-shell/stripe-token-for-mode :nonsense)))
-    (is (= :accent-violet (static-shell/stripe-token-for-mode nil)))))
+    (is (= :accent-dynamic (static-shell/stripe-token-for-mode :nonsense)))
+    (is (= :accent-dynamic (static-shell/stripe-token-for-mode nil)))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Mode dropdown — compact single-select (rf2-4vp5j reshape)

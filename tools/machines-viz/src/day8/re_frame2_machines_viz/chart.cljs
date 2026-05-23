@@ -490,7 +490,7 @@
                 [:> Background {:variant (.-Dots BackgroundVariant)
                                 :gap (:dot-grid-spacing-px chart-vc)
                                 :size (:dot-grid-radius-px chart-vc)
-                                :color (tokens/with-alpha :accent-violet 0.4)}])
+                                :color (tokens/with-alpha :accent 0.4)}])
               (when show-controls?
                 [:> Controls {:showZoom true
                               :showFitView true

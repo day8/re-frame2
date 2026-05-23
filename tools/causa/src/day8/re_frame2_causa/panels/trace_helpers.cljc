@@ -263,12 +263,16 @@
   keeps the map pure-data + tokens consolidated (rf2-5kfxe.4)."
   {:error                :red
    :warning              :yellow
-   :info                 :cyan
-   :rf.event             :accent-violet
-   :rf.event/db-changed  :accent-violet
+   ;; op-family colour bands (spec/007 §Colour system). Events ride the
+   ;; mode `accent` (the spine); the sub family + info keep a fixed cyan
+   ;; (`accent-static`) so the two bands stay visually distinct now that
+   ;; the event band is the orange accent (rf2-ad7zx).
+   :info                 :accent-static
+   :rf.event             :accent
+   :rf.event/db-changed  :accent
    :rf.fx                :green
-   :rf.sub/run           :cyan
-   :rf.sub/create        :cyan
+   :rf.sub/run           :accent-static
+   :rf.sub/create        :accent-static
    :rf.view/render       :magenta
    :rf.frame             :text-secondary})
 

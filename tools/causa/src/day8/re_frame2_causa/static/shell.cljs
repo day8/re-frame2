@@ -85,13 +85,14 @@
 
   The parent epic locks four signals that telegraph Static state:
 
-    1. **Mode pill** at ribbon-left — accent-violet active segment,
+    1. **Mode pill** at ribbon-left — mode-`accent` active segment,
        200ms cross-fade. Owned by `static/mode_pill.cljs`. The pill
        lives at ribbon-left in BOTH modes (it's the toggle, not the
        indicator).
-    2. **2-px left-edge ribbon stripe** — `:accent-violet` in Dynamic,
-       `:cyan` in Static. Owned by both shells via the explicit
-       `mode-stripe-colour` arg passed into the ribbon's outer div.
+    2. **2-px left-edge ribbon stripe** — `:accent-dynamic` (orange) in
+       Dynamic, `:accent-static` (cyan) in Static. Owned by both shells
+       via the explicit `mode-stripe-colour` arg passed into the
+       ribbon's outer div.
     3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-
        active pulse + 180ms tab fade. Static drops the continuous
        pulses entirely; the 180ms tab fade collapses to 0ms (instant)
@@ -171,21 +172,29 @@
   "Token-key for the Dynamic mode's 2-px left-edge ribbon stripe per
   the parent-epic mode-signal mechanism (signal #2). Held as a token
   KEY (not the resolved hex) so per-theme palette switching (rf2-
-  5kfxe.6 light theme) flows through naturally."
-  :accent-violet)
+  5kfxe.6 light theme) flows through naturally.
+
+  The Dynamic stripe is the orange `:accent-dynamic` token (the brand-
+  orange identity, rf2-ad7zx / spec/022). It reads the per-MODE token
+  directly — not the runtime `:accent` alias — because the stripe IS
+  the mode signal, so it must always paint the Dynamic accent
+  regardless of which mode is active when the stripe is rendered."
+  :accent-dynamic)
 
 (def static-stripe-token
   "Token-key for the Static mode's 2-px left-edge ribbon stripe per
-  the parent-epic mode-signal mechanism (signal #2). Cyan is already
-  in the palette (rf2-5kfxe.6) at hex #43C3D0 — no new token
-  introduced, per the rf2-zhrwo audit constraint 'Zero new tokens'."
-  :cyan)
+  the parent-epic mode-signal mechanism (signal #2). The cyan
+  `:accent-static` token (#43C3D0 dark / #2A8B96 light, spec/022) —
+  the per-MODE Static accent, read directly rather than via the
+  runtime `:accent` alias so the stripe always paints the Static
+  accent as the mode signal."
+  :accent-static)
 
 (defn stripe-token-for-mode
-  "Pure helper. Returns the token KEY (`:accent-violet` / `:cyan`)
-  the L1 ribbon should paint as its 2-px left-edge stripe for the
-  given mode. JVM-portable so the test corpus can cover the round-
-  trip without a CLJS runtime."
+  "Pure helper. Returns the token KEY (`:accent-dynamic` /
+  `:accent-static`) the L1 ribbon should paint as its 2-px left-edge
+  stripe for the given mode. JVM-portable so the test corpus can cover
+  the round-trip without a CLJS runtime."
   [mode]
   (case mode
     :static  static-stripe-token
@@ -306,7 +315,7 @@
               :style {:background    "transparent"
                       :border        "none"
                       :border-bottom (if active?
-                                       (str "2px solid " (:cyan tokens))
+                                       (str "2px solid " (:accent tokens))
                                        "2px solid transparent")
                       :color         color
                       :cursor        "pointer"
@@ -318,7 +327,7 @@
      ;; rf2-vxpq1 — `aria-hidden` on decorative ●/○ glyph.
      [:span {:aria-hidden "true"
              :style {:color (if active?
-                              (:cyan tokens)
+                              (:accent tokens)
                               (:text-tertiary tokens))
                      :margin-right "4px"}}
       glyph]
@@ -364,9 +373,10 @@
     - A muted hint paragraph naming the upcoming content.
 
   The card is a single `<section>` painted on `bg-2` with a thin
-  `:cyan` accent stripe — mirrors the Dynamic panels' per-domain
-  stripe convention (`tokens/accent-stripe-style`) but uses cyan as
-  the Static-mode accent."
+  mode-`accent` stripe — mirrors the Dynamic panels' header-stripe
+  convention (`tokens/accent-stripe-style`). The runtime `:accent`
+  alias resolves to the Static-mode cyan here (the surface only
+  renders under `.mode-static`)."
   [{:keys [label placeholder-bead id]}]
   [:section {:data-testid (str "rf-causa-static-placeholder-" (name id))
              :style {:padding       "16px"
@@ -384,11 +394,11 @@
                   :font-weight   600
                   :margin        "0 0 8px 0"
                   :padding-left  "10px"
-                  :border-left   (str "3px solid " (:cyan tokens))}}
+                  :border-left   (str "3px solid " (:accent tokens))}}
     label]
    [:p {:style {:color  (:text-secondary tokens)
                 :margin "0 0 12px 0"}}
-    [:strong {:style {:color (:cyan tokens)}}
+    [:strong {:style {:color (:accent tokens)}}
      placeholder-bead]
     " will fill this."]
    [:p {:style {:color  (:text-tertiary tokens)

@@ -231,7 +231,7 @@
                       ;; component reads the `:selfLoop` flag.
                       self-loop?   (= (:source e) (:target e))
                       marker-color (if (or focused? from-active?)
-                                     (:cyan tokens/tokens)
+                                     (:accent-static tokens/tokens)
                                      (:border-default tokens/tokens))
                       ;; A `:*` wildcard `:on` arm is a real transition
                       ;; but NOT a fireable event (Spec 005 §Wildcard —

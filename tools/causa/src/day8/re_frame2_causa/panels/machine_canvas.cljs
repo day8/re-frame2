@@ -185,7 +185,7 @@
                                       "transparent")
                      :border        "none"
                      :color         (if active?
-                                      (:accent-violet tokens)
+                                      (:accent tokens)
                                       (:text-tertiary tokens))
                      :font-family   sans-stack
                      :font-size     "10px"
@@ -245,12 +245,12 @@
                           per-node testid.
     :from-highlight     — focused-event lens origin state. Optional;
                           a state-id keyword or path vector. xyflow
-                          renders the originating state with a
-                          dashed violet border.
+                          renders the originating state with a dashed
+                          mode-accent border.
     :to-highlight       — focused-event lens landing state. Optional;
                           xyflow renders the landing state with an
-                          emphasised cyan border. Wins over
-                          `:current-state`.
+                          emphasised fixed-cyan (`accent-static`)
+                          border. Wins over `:current-state`.
     :current-state      — live snapshot state for the active-state
                           highlight. Optional; nil renders no
                           highlight.

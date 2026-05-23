@@ -127,15 +127,15 @@
 
 (defn- btn-style [{:keys [primary? danger?]}]
   {:background    (cond
-                    primary? (:accent-violet tokens)
+                    primary? (:accent tokens)
                     :else    "transparent")
    :border        (str "1px solid "
                        (cond
                          danger?  (:red tokens)
-                         primary? (:accent-violet tokens)
+                         primary? (:accent tokens)
                          :else    (:border-default tokens)))
    :color         (cond
-                    primary? (:bg-0 tokens)      ; readable on violet
+                    primary? (:bg-0 tokens)      ; readable on the accent
                     danger?  (:red tokens)
                     :else    (:text-primary tokens))
    :padding       "6px 14px"

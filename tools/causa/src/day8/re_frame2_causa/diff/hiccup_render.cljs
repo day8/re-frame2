@@ -16,15 +16,15 @@
                             inline + recurse into children-diff
     - `:element-moved`    → render `↻` chip with from/to index +
                             optionally recurse into :inner-diff
-    - `:fn-ref-changed`   → render distinct violet `(fn ref changed)`
-                            chip (only emitted when toggle on)
+    - `:fn-ref-changed`   → render distinct mode-accent `(fn ref
+                            changed)` chip (only emitted when toggle on)
 
   Output is a hiccup tree the caller drops into any DOM-ish surface
   (the Views panel drilldown, the hydration debugger pane, etc.).
 
   ## Colour tokens (§5.4)
 
-  Element-moved + fn-ref-changed both use `:accent-violet` (distinct
+  Element-moved + fn-ref-changed both use the mode `:accent` (distinct
   from `:modified`'s `:yellow`) so the eye reads 'this is something
   other than a plain modification'."
   (:require [day8.re-frame2-causa.diff.hiccup :as hd]
@@ -46,7 +46,7 @@
   [node]
   (cond
     (some? (:key node))
-    [:span {:style {:color       (:accent-violet tokens)
+    [:span {:style {:color       (:accent tokens)
                     :font-family mono-stack
                     :font-size   "11px"
                     :margin-right "6px"}}
@@ -101,13 +101,13 @@
       [:div {:style {:display "flex" :gap "6px"
                      :color (:text-tertiary tokens)
                      :font-family mono-stack :font-size "12px"}}
-       [:span {:style {:color (:accent-violet tokens)}} (pr-str k)]
+       [:span {:style {:color (:accent tokens)}} (pr-str k)]
        (inspect-value (:value attr-node) nkey)]
 
       :added
       (gutter "+" (:green tokens)
               [:div {:style {:display "flex" :gap "6px"}}
-               [:span {:style {:color (:accent-violet tokens)
+               [:span {:style {:color (:accent tokens)
                                :font-family mono-stack
                                :font-size "12px"}}
                 (pr-str k)]
@@ -120,7 +120,7 @@
       (gutter "-" (:red tokens)
               [:div {:style {:display "flex" :gap "6px"
                              :text-decoration "line-through"}}
-               [:span {:style {:color (:accent-violet tokens)
+               [:span {:style {:color (:accent tokens)
                                :font-family mono-stack
                                :font-size "12px"}}
                 (pr-str k)]
@@ -133,7 +133,7 @@
       (gutter "~" (:yellow tokens)
               [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
                              :align-items "baseline"}}
-               [:span {:style {:color (:accent-violet tokens)
+               [:span {:style {:color (:accent tokens)
                                :font-family mono-stack
                                :font-size "12px"}}
                 (pr-str k)]
@@ -152,15 +152,15 @@
                 (inspect-value (:after attr-node) (str nkey "/after"))]])
 
       :fn-ref-changed
-      (gutter "◴" (:accent-violet tokens)
+      (gutter "◴" (:accent tokens)
               [:div {:style {:display "flex" :gap "6px"
                              :align-items "baseline"}}
-               [:span {:style {:color (:accent-violet tokens)
+               [:span {:style {:color (:accent tokens)
                                :font-family mono-stack
                                :font-size "12px"}}
                 (pr-str k)]
                [:span {:data-testid "rf-causa-diff-fn-ref-changed-chip"
-                       :style {:color (:accent-violet tokens)
+                       :style {:color (:accent tokens)
                                :font-family mono-stack
                                :font-size "11px"
                                :font-style "italic"}}
@@ -258,12 +258,12 @@
            :style {:display "flex"
                    :flex-direction "column"
                    :margin "2px 0"}}
-     (gutter "↻" (:accent-violet tokens)
+     (gutter "↻" (:accent tokens)
              [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
                             :align-items "baseline"
                             :font-family mono-stack :font-size "12px"}}
               (key-or-index-label node)
-              [:span {:style {:color (:accent-violet tokens)
+              [:span {:style {:color (:accent tokens)
                               :font-weight 600}}
                (str "moved")]
               [:span {:style {:color (:text-tertiary tokens)
@@ -329,13 +329,13 @@
 
 (defn- render-fn-ref-changed-leaf
   [node nkey]
-  (gutter "◴" (:accent-violet tokens)
+  (gutter "◴" (:accent tokens)
           [:div {:data-testid "rf-causa-diff-fn-ref-changed-chip"
                  :style {:display "flex" :gap "6px"
                          :align-items "baseline"
                          :font-family mono-stack
                          :font-size "12px"
-                         :color (:accent-violet tokens)
+                         :color (:accent tokens)
                          :font-style "italic"}}
            (key-or-index-label node)
            "(fn ref changed)"]))
@@ -351,7 +351,7 @@
                          children-diff (recursive)
     `:element-moved`   — render `↻` chip with from/to index, optional
                          inner-diff
-    `:fn-ref-changed`  — render distinct violet `(fn ref changed)`
+    `:fn-ref-changed`  — render distinct mode-accent `(fn ref changed)`
                          chip (only emitted when toggle on)
 
   Plus the generic scalar cases (`:same` / `:added` / `:removed` /

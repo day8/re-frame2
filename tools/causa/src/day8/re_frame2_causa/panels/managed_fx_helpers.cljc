@@ -115,10 +115,10 @@
   via the panel's `tokens` map."
   {:ok         :green
    :error      :red
-   :in-flight  :cyan
-   :overridden :accent-violet
+   :in-flight  :accent-static            ; fixed cyan — distinct from the accent-coloured :overridden/:stub
+   :overridden :accent
    :skipped    :text-tertiary
-   :stub       :accent-violet})
+   :stub       :accent})
 
 (def status->glyph
   "Status → shape-glyph (colour-blind-safe parallel signal)."

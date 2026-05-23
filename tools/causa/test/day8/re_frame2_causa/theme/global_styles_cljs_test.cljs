@@ -442,6 +442,23 @@
       (is (re-find #"\.rf-causa-theme-dark\s*\{[^}]*--rf-causa-bg-1:\s*#15171B" css))
       (is (re-find #"\.rf-causa-theme-light\s*\{[^}]*--rf-causa-bg-1:\s*#F1F3F6" css)))))
 
+(deftest themes-css-emits-mode-accent-alias
+  (testing "rf2-ad7zx / spec/022 — the themes-css block appends the
+            mode-accent runtime alias: `.mode-dynamic` re-points
+            `--rf-causa-accent` at the orange `--rf-causa-accent-
+            dynamic`; `.mode-static` re-points it at the cyan
+            `--rf-causa-accent-static`. This is the SINGLE-token swap
+            that turns the whole chrome orange in Dynamic / cyan in
+            Static off one variable."
+    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B"}
+                                  :light {:bg-1 "#F1F3F6"}})]
+      (is (re-find #"\.mode-dynamic[^{]*\{[^}]*--rf-causa-accent:\s*var\(--rf-causa-accent-dynamic\)"
+                   css)
+          ".mode-dynamic points --rf-causa-accent at accent-dynamic")
+      (is (re-find #"\.mode-static[^{]*\{[^}]*--rf-causa-accent:\s*var\(--rf-causa-accent-static\)"
+                   css)
+          ".mode-static points --rf-causa-accent at accent-static"))))
+
 (deftest themes-css-uses-rf-causa-prefix
   (testing "every variable name is namespaced under `--rf-causa-` so
             host stylesheets can't accidentally collide with Causa's

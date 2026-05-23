@@ -115,7 +115,7 @@
 
     :width   (default 60)
     :height  (default 16)
-    :stroke              — line colour (default `:cyan` token)
+    :stroke              — line colour (default `:accent-static` token)
     :testid              — overrides the root data-testid
     :max-sample          — pin the y-axis ceiling
     :label               — a11y. Overrides the default `aria-label`.
@@ -128,7 +128,7 @@
   ([samples {:keys [width height stroke testid max-sample label]
              :or   {width  60
                     height 16
-                    stroke (:cyan tokens/tokens)
+                    stroke (:accent-static tokens/tokens)
                     testid "rf-mv-chart-sparkline"}}]
    (let [n        (count samples)
          max-v    (or max-sample

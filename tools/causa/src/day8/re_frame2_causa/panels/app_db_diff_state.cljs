@@ -121,10 +121,10 @@
 
 (defn- area-label
   "Render a reserved-area section title — the bare `:rf/*` key in the
-  accent-violet keyword colour."
+  mode `accent` keyword colour."
   [area]
   [:span {:style {:font-family mono-stack
-                  :color       (:accent-violet tokens)}}
+                  :color       (:accent tokens)}}
    (pr-str area)])
 
 (defn instance-section

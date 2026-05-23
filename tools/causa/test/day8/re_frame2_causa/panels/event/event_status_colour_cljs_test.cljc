@@ -44,15 +44,15 @@
            (set (keys esc/status->token))))))
 
 (deftest status-token-map-mirrors-tanstack-anchors
-  (testing "rf2-b76v4 — the per-status token assignments mirror the
-            TanStack devtool's semantic anchors with one peer-pick
-            substitution (paused-by-tool → :cyan rather than purple,
-            because Causa already owns :accent-violet for the causal
-            chain)."
-    (is (= :accent-violet  (esc/status->token :in-flight)))
+  (testing "rf2-b76v4 / rf2-ad7zx — the per-status token assignments
+            mirror the TanStack devtool's semantic anchors. The LIVE
+            head (`:in-flight`) IS the current-epoch accent → the mode
+            `:accent` (orange Dynamic / cyan Static); `:paused-by-tool`
+            takes the fixed cyan `:accent-static` as a distinct peer."
+    (is (= :accent         (esc/status->token :in-flight)))
     (is (= :green          (esc/status->token :settled-success)))
     (is (= :red            (esc/status->token :settled-error)))
-    (is (= :cyan           (esc/status->token :paused-by-tool)))
+    (is (= :accent-static  (esc/status->token :paused-by-tool)))
     (is (= :yellow         (esc/status->token :stale)))))
 
 (deftest every-status-resolves-to-a-non-nil-hex
@@ -183,18 +183,18 @@
     (is (= :red (esc/event-status-token {:outcome :error})))
     (is (= :green (esc/event-status-token {:outcome :ok})))
     (is (= :yellow (esc/event-status-token {:mode :retro})))
-    (is (= :cyan (esc/event-status-token {:paused? true})))
-    (is (= :accent-violet (esc/event-status-token {})))))
+    (is (= :accent-static (esc/event-status-token {:paused? true})))
+    (is (= :accent (esc/event-status-token {})))))
 
 (deftest event-status-colour-fallback
   (testing "unknown status (shouldn't happen via the classifier, but
-            defence-in-depth) falls back to :accent-violet so the
+            defence-in-depth) falls back to the mode :accent so the
             row still renders a visible colour rather than nil."
     ;; Defence-in-depth check: an out-of-band status keyword routed
     ;; through the resolver fn surface still returns a usable hex.
     ;; We test by reaching into the public API with a deliberately-
     ;; malformed state shape — every key unrecognised — and ensure
-    ;; the violet fallback rides.
+    ;; the accent fallback rides.
     (is (string? (esc/event-status-colour {:outcome :unknown :mode :unknown})))))
 
 ;; ---- cascade → state projection ----------------------------------------
@@ -259,19 +259,19 @@
             light hex resolves at paint time); we compare against the
             same var-map (`tokens/tokens`)."
     (let [palette tokens/tokens]
-      (is (= (:accent-violet palette)
+      (is (= (:accent palette)
              (esc/event-status-colour {:in-flight? true}))
-          "in-flight rides violet — the project's causal-chain accent")
+          "in-flight rides the mode accent — the current-epoch accent")
       (is (= (:green palette)
              (esc/event-status-colour {:outcome :ok}))
           "settled-success rides green")
       (is (= (:red palette)
              (esc/event-status-colour {:outcome :error}))
           "settled-error rides red")
-      (is (= (:cyan palette)
+      (is (= (:accent-static palette)
              (esc/event-status-colour {:paused? true}))
-          "paused-by-tool rides cyan (TanStack's purple was already
-           Causa's :accent-violet)")
+          "paused-by-tool rides the fixed cyan accent-static (distinct
+           from the in-flight mode accent)")
       (is (= (:yellow palette)
              (esc/event-status-colour {:mode :retro}))
           "stale rides yellow"))))

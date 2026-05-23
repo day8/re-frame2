@@ -66,7 +66,7 @@
                    :font-size   "10px"
                    :min-width   "50px"}}
     (if winner? "WINNER" "")]
-   [:span {:style {:color     (:accent-violet tokens)
+   [:span {:style {:color     (:accent tokens)
                    :min-width "140px"}}
     path]
    [:span {:style {:color     (:text-tertiary tokens)

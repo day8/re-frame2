@@ -147,20 +147,20 @@
   (is (= :green         (r/op->gutter-tone-key :added)))
   (is (= :red           (r/op->gutter-tone-key :removed)))
   (is (= :yellow        (r/op->gutter-tone-key :modified)))
-  (is (= :accent-violet (r/op->gutter-tone-key :children)))
+  (is (= :accent (r/op->gutter-tone-key :children)))
   (is (= :text-tertiary (r/op->gutter-tone-key :same)))
   (testing "gutter-colour resolves through tokens"
     (is (= (:green   tokens) (r/gutter-colour :added)))
     (is (= (:red     tokens) (r/gutter-colour :removed)))
     (is (= (:yellow  tokens) (r/gutter-colour :modified)))
-    (is (= (:accent-violet tokens) (r/gutter-colour :children)))))
+    (is (= (:accent tokens) (r/gutter-colour :children)))))
 
 ;; ---- scalar rendering --------------------------------------------------
 
 (deftest scalar-keyword-uses-violet
   (let [hiccup (r/render-scalar :cart)]
     (is (= :span (first hiccup)))
-    (is (= (:accent-violet tokens) (:color (node-style hiccup))))
+    (is (= (:accent tokens) (:color (node-style hiccup))))
     (is (= ":cart" (collect-text hiccup)))))
 
 (deftest scalar-string-renders-mono-with-quotes
@@ -326,7 +326,7 @@
 (deftest path-segment-keyword-uses-violet-colour
   (let [hiccup (r/path-segment {:k :user :path [:user]
                                 :panel-id :app-db :render-id "r"})]
-    (is (= (:accent-violet tokens) (:color (node-style hiccup))))))
+    (is (= (:accent tokens) (:color (node-style hiccup))))))
 
 (deftest path-segment-non-keyword-uses-text-primary
   (let [hiccup (r/path-segment {:k 0 :path [:items 0]

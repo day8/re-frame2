@@ -28,9 +28,9 @@
   belongs. The reshape collapses it to a compact `<select>` that shares
   the frame picker's weight (`bg-2` fill, `border-default` hairline,
   4px radius). The MODE SIGNAL is carried elsewhere — the chrome
-  ribbon's 2-px left-edge accent stripe (violet Dynamic / cyan Static,
-  `static/shell/stripe-hex-for-mode`) — so the control itself can
-  recede without losing the at-a-glance mode cue.
+  ribbon's 2-px left-edge accent stripe (orange Dynamic / cyan Static,
+  `static/shell/stripe-hex-for-mode` — rf2-ad7zx) — so the control
+  itself can recede without losing the at-a-glance mode cue.
 
   ## Why a single registered view
 

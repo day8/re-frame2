@@ -83,8 +83,24 @@
    ;; locks this value to Causa's at the .cljc test surface.
    :text-tertiary  "#8990A0"
 
-   :accent-violet  "#7C5CFF"
-   :cyan           "#43C3D0"
+   ;; brand + mode accents (orange identity — rf2-ad7zx / spec/022).
+   ;; Mirrors Causa's `theme/tokens` at the values level; `accent`
+   ;; defaults to the Dynamic (orange) accent — the host re-points it
+   ;; per the `.mode-dynamic`/`.mode-static` root class.
+   :brand          "#F97316"
+   :accent-dynamic "#F97316"
+   :accent-static  "#43C3D0"
+   :accent         "#F97316"
+
+   ;; semantic + change (spec/022 §Semantic & change)
+   :error          "#F85149"
+   :warning        "#FBBF24"
+   :advisory       "#79A6D2"
+   :success        "#3FB950"
+   :dim            "#6E7681"
+   :hover          "#232730"
+
+   ;; functional categorical hues (spec/022 carve-out)
    :green          "#4ADE80"
    :yellow         "#FBBF24"
    :orange         "#FB923C"
@@ -120,8 +136,21 @@
    :text-secondary "#4B5160"
    :text-tertiary  "#8B92A1"
 
-   :accent-violet  "#5538D8"
-   :cyan           "#2A8B96"
+   ;; brand + mode accents (orange identity — rf2-ad7zx / spec/022)
+   :brand          "#EA580C"
+   :accent-dynamic "#EA580C"
+   :accent-static  "#2A8B96"
+   :accent         "#EA580C"
+
+   ;; semantic + change
+   :error          "#CF222E"
+   :warning        "#B07A05"
+   :advisory       "#3B6EA5"
+   :success        "#1A7F37"
+   :dim            "#8C959F"
+   :hover          "#E6E9EE"
+
+   ;; functional categorical hues
    :green          "#2F9E5C"
    :yellow         "#B07A05"
    :orange         "#C2570F"
@@ -266,12 +295,12 @@
 
 (def tag-pill-palette
   "Deterministic colour rotation for state-tag pills (rf2-m1b88).
-  Skips `:red` and `:accent-violet` — both are reserved for chart
-  semantics (`:red` for cancellation glyphs, `:accent-violet` for the
-  initial-state marker + FROM-highlight). The remaining five spread
-  across cool/warm/neutral so a typical 2-4 tag count reads
-  distinctly."
-  [:cyan :green :yellow :orange :magenta])
+  Skips `:red`, `:accent` and `:accent-static` — all reserved for
+  chart semantics (`:red` for cancellation glyphs, the mode `:accent`
+  for the initial-state marker + FROM-highlight, `:accent-static` for
+  the TO-highlight / active state). The remaining five spread across
+  cool/warm/neutral so a typical 2-4 tag count reads distinctly."
+  [:advisory :green :yellow :orange :magenta])
 
 (defn- char-code
   "Portable char → int. JVM uses `int`; CLJS reaches for

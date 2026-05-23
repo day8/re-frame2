@@ -129,7 +129,7 @@
         tone    (cond
                   copied? (:green tokens)
                   failed? (:red tokens)
-                  :else   (:accent-violet tokens))]
+                  :else   (:accent tokens))]
     [:button
      {:data-testid    "rf-causa-share-modal-copy"
       :data-status    (name (or copy-status :idle))
@@ -140,7 +140,7 @@
                        :border "none"
                        ;; rf2-5kfxe.4 — token-grade dark text for the
                        ;; copy button surface (button background is
-                       ;; the green/violet tone, so contrast wants
+                       ;; the green/accent tone, so contrast wants
                        ;; the deepest bg colour as the foreground).
                        :color (:bg-0 tokens)
                        :font-family sans-stack
@@ -190,7 +190,7 @@
                       downloaded? (:green tokens)
                       failed?     (:red tokens)
                       (not available?) (:bg-2 tokens)
-                      :else       (:accent-violet tokens))]
+                      :else       (:accent tokens))]
     [:button
      {:data-testid "rf-causa-share-modal-export-cascade-copy"
       :data-status (name (or status :idle))

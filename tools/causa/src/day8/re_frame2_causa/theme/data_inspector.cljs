@@ -56,13 +56,19 @@
 ;; ---- colour palette (cljs-devtools-flavoured against our tokens) -----
 
 (def ^:private colour
-  "Per-leaf colour mapping. Keywords purple, strings green, numbers
-  cyan, nil grey, booleans orange, default text-primary. Mapped onto
-  Causa's existing token palette so the renderer reads as native shell
-  chrome rather than a third-party widget."
-  {:keyword (:accent-violet tokens)
+  "Per-leaf colour mapping for the L4 data-VALUE renderer. EDN keyword
+  data values read in the mode `accent` (orange in Dynamic, cyan in
+  Static — the single mode-coloured data type per §021 §10.3 /
+  spec/022). The remaining leaf types keep their distinct categorical
+  syntax hues so the structural tree stays legible: strings green,
+  numbers a fixed cyan (`accent-static`, kept distinct from the now-
+  orange keyword accent), nil grey, booleans orange, symbols magenta,
+  default text-primary. Mapped onto Causa's token palette so the
+  renderer reads as native shell chrome rather than a third-party
+  widget."
+  {:keyword (:accent tokens)
    :string  (:green tokens)
-   :number  (:cyan tokens)
+   :number  (:accent-static tokens)
    :nil     (:text-tertiary tokens)
    :boolean (:orange tokens)
    :symbol  (:magenta tokens)

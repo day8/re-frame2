@@ -128,7 +128,7 @@
                    :padding        "8px 10px"
                    :pointer-events "auto"
                    :background     (tokens/css-var :bg-2)
-                   :border         (str "1px solid " (tokens/css-var :accent-violet))
+                   :border         (str "1px solid " (tokens/css-var :accent))
                    :border-radius  "8px"
                    :box-shadow     "0 4px 14px rgba(0,0,0,0.35)"
                    :font-family    tokens/sans-stack}}
@@ -136,7 +136,7 @@
      [:div {:style {:display "flex" :align-items "center" :gap "6px"
                     :margin-bottom "4px"
                     :font-size "11px" :font-weight 700
-                    :color (tokens/css-var :accent-violet)}}
+                    :color (tokens/css-var :accent)}}
       [:span {:style {:font-family tokens/mono-stack}} "∷"]
       ":spawn-all"]
      ;; Join condition + resolution

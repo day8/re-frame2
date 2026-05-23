@@ -91,7 +91,7 @@
               :font-size     (:caption type-scale)
               :padding       "2px 10px"
               :white-space   "nowrap"}}
-     "Sort: " [:strong {:style {:color (:cyan tokens)}} label]]))
+     "Sort: " [:strong {:style {:color (:accent tokens)}} label]]))
 
 ;; ---- per-row chips ------------------------------------------------------
 
@@ -145,14 +145,14 @@
                               :width         "5px"
                               :height        "5px"
                               :border-radius "50%"
-                              :background    (:cyan tokens)}}]))
+                              :background    (:accent tokens)}}]))
 
       :count
       [:span {:data-testid "rf-causa-static-machines-row-pips-count"
               :title       (str count " live instances")
               :style {:font-family mono-stack
                       :font-size   (:micro type-scale)
-                      :color       (:cyan tokens)
+                      :color       (:accent tokens)
                       :margin-left "6px"}}
        (str ">" h/pip-cap " " count " live")])))
 
@@ -172,7 +172,7 @@
     :style {:background    "transparent"
             :border        (str "1px solid " (:border-default tokens))
             :border-radius "10px"
-            :color         (:accent-violet tokens)
+            :color         (:accent tokens)
             :cursor        "pointer"
             :font-family   sans-stack
             :font-size     (:micro type-scale)
@@ -215,13 +215,13 @@
               :white-space   "nowrap"
               :overflow      "hidden"
               :text-overflow "ellipsis"}}
-     [:span {:style {:color (if active? (:cyan tokens) (:text-tertiary tokens))
+     [:span {:style {:color (if active? (:accent tokens) (:text-tertiary tokens))
                      :flex  "0 0 12px"}}
       glyph]
      [:span {:data-testid "rf-causa-static-machines-row-id"
              :style {:font-family   mono-stack
                      :font-size     (:body-tight type-scale)
-                     :color         (:accent-violet tokens)
+                     :color         (:accent tokens)
                      :overflow      "hidden"
                      :text-overflow "ellipsis"
                      :max-width     "120px"}}
@@ -245,7 +245,7 @@
    [:p {:style {:margin 0}}
     "Register a machine with "
     [:code {:style {:font-family mono-stack
-                    :color       (:accent-violet tokens)}}
+                    :color       (:accent tokens)}}
      "rf/reg-machine"]
     " to populate this list."]])
 

@@ -104,9 +104,9 @@
 
 (def default-accent-css-var
   "Name of the CSS custom property carrying Causa's brand-accent
-  colour (the violet `#7C5CFF` from `theme/tokens.cljc` /
-  `spec/007-UX-IA.md` §Colour system / `:accent-violet`). Published
-  per rf2-9ovfb so:
+  colour (the orange `#F97316` from `theme/tokens.cljc` /
+  `spec/007-UX-IA.md` §Colour system / `:brand` — the brand moved
+  violet → orange per rf2-ad7zx). Published per rf2-9ovfb so:
 
     - Host application stylesheets can colour their own dev chrome
       to match Causa (e.g. a resize-handle inset shadow, a dock-
@@ -119,7 +119,7 @@
 
           background: rgb(from var(--rf-causa-accent) r g b / 0.35);
 
-      (or pre-CSS-4: `rgba(124, 92, 255, 0.35)` — equivalent to the
+      (or pre-CSS-4: `rgba(249, 115, 22, 0.35)` — equivalent to the
       published hex at 35% alpha, the value Pitch8 eyeballed for
       resize-drag accents).
 
@@ -133,17 +133,21 @@
   "--rf-causa-accent")
 
 (def default-accent
-  "Default value Causa publishes for `--rf-causa-accent` — the
-  violet from `theme/tokens.cljc` (`:accent-violet`). Resolved
-  through the canonical `dark-palette` map so the brand hex has
-  exactly one source of truth (rf2-5kfxe.4). Matches the accent
-  catalogued in `spec/007-UX-IA.md` §Colour system.
+  "Default value Causa publishes for `--rf-causa-accent` — the brand
+  orange from `theme/tokens.cljc` (`:brand`, `#F97316`; the brand
+  moved violet → orange per rf2-ad7zx). Resolved through the canonical
+  `dark-palette` map so the brand hex has exactly one source of truth
+  (rf2-5kfxe.4). Matches the accent catalogued in `spec/007-UX-IA.md`
+  §Colour system.
 
   Reads `dark-palette` (the literal hex map) rather than `tokens`
   because `tokens` exposes CSS-variable strings (`var(--rf-causa-…)`)
   post rf2-on4cm; this constant is the VALUE that gets published
-  INTO the CSS variable, not a reference to it."
-  (:accent-violet tokens/dark-palette))
+  INTO the CSS variable, not a reference to it. Uses `:brand` (the
+  always-orange token) rather than `:accent` so the host-published
+  default is the brand identity, independent of the runtime
+  Dynamic/Static mode flip."
+  (:brand tokens/dark-palette))
 
 (def default-layout-host-snippet
   ;; DOM order is `<main>` first, host `<aside>` second — flex flow
@@ -180,7 +184,7 @@
 </div>
 
 <style>
-  :root { --rf-causa-accent: #7C5CFF; }
+  :root { --rf-causa-accent: #F97316; }
   body { margin: 0; }
   .app-shell { display: flex; min-height: 100vh; }
   [data-rf-causa-host] {

@@ -189,7 +189,7 @@
                   :align-items "baseline"
                   :gap         "8px"}}
    [:span {:style {:color (:text-secondary tokens)}} "app-db at"]
-   [:code {:style {:color       (:accent-violet tokens)
+   [:code {:style {:color       (:accent tokens)
                    :font-family mono-stack
                    :font-size   "12px"}}
     (if (seq path)

@@ -51,9 +51,9 @@
     (is (nil? (:stroke-dasharray s))
         "traversed edges are solid, not dashed")))
 
-(deftest edge-style-fired-this-epoch-is-thick-violet
+(deftest edge-style-fired-this-epoch-is-thick-accent
   (let [s (xstyle/edge-style :fired-this-epoch)]
-    (is (= (:accent-violet tokens) (:stroke s)))
+    (is (= (:accent tokens) (:stroke s)))
     (is (= 2 (:stroke-width s)))))
 
 (deftest edge-animated-only-for-fired-this-epoch

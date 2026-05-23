@@ -181,6 +181,24 @@
         (is (some? (find-by-testid tree "rf-causa-detail-panel-event"))
             "L4 detail panel present (default :event tab)")))))
 
+(deftest shell-root-carries-lens-mode-class
+  (testing "rf2-ad7zx / spec/022 — the shell root carries the
+            `mode-dynamic` / `mode-static` class driven by
+            `:rf.causa/mode`. `theme/global-styles/mode-accent-css`
+            re-points `--rf-causa-accent` off this class, so the whole
+            chrome accent flips orange↔cyan with the mode (the brand
+            wordmark stays orange in either mode)."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-mode :dynamic])
+      (let [shell (find-by-testid (shell/shell-view) "rf-causa-shell")]
+        (is (= "mode-dynamic" (:class (second shell)))
+            "Dynamic mode → mode-dynamic root class"))
+      (rf/dispatch-sync [:rf.causa/set-mode :static])
+      (let [shell (find-by-testid (shell/shell-view) "rf-causa-shell")]
+        (is (= "mode-static" (:class (second shell)))
+            "Static mode → mode-static root class")))))
+
 (deftest shell-no-longer-mounts-legacy-sidebar
   (testing "spec/018 §2 'no L0' rewrite — the legacy sidebar is gone.
             None of the historical sidebar-item testids may surface."
@@ -628,10 +646,11 @@
              without consuming layout width")
         (is (re-find #"1px 0 0 0" shadow)
             "1px wide, left edge — a vertical line")
-        (is (re-find #"var\(--rf-causa-accent-violet\)" shadow)
-            "violet accent — Causa's spine colour, resolved through the
-             theme's CSS variable so the light theme picks up the
-             corresponding light-palette hex (rf2-on4cm)")))))
+        (is (re-find #"var\(--rf-causa-accent\)" shadow)
+            "mode accent — Causa's spine colour (orange Dynamic / cyan
+             Static, rf2-ad7zx), resolved through the theme's CSS
+             variable so the light theme + mode flip pick up the
+             corresponding hex (rf2-on4cm)")))))
 
 (deftest event-list-suppresses-ungrouped-cascade-placeholder
   (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`

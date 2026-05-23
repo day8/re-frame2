@@ -62,7 +62,7 @@
   `:destroy` / `:abort` / `:cleanup` / `:exit`."
   [{:keys [kind]}]
   (case kind
-    :exit    ["⏏" :accent-violet]
+    :exit    ["⏏" :accent]
     :destroy ["✖" :red]
     :abort   ["⊘" :orange]
     :cleanup ["⌫" :text-tertiary]

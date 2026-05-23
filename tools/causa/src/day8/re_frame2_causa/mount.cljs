@@ -755,7 +755,7 @@
   (:text-secondary tokens/dark-palette))
 
 (def ^:private opener-gone-overlay-accent
-  (:accent-violet tokens/dark-palette))
+  (:accent tokens/dark-palette))
 
 (def ^:private sans-stack
   tokens/sans-stack)

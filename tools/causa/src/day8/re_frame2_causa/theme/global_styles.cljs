@@ -203,11 +203,45 @@
        (map (fn [[k v]] (str "  " (token-key->css-var k) ": " v ";\n")))
        (apply str)))
 
+(def ^:private mode-accent-css
+  "Mode-accent runtime alias (rf2-ad7zx / spec/022 §Colour identity).
+
+  `--rf-causa-accent` is the SINGLE token every chrome accent reads
+  (active tab · mode stripe · selected states · focus ring ·
+  changed/recompute · L4 header stripe). The dark/light palette blocks
+  publish its default = the Dynamic (orange) accent. These two root-
+  class rules re-point it per the current MODE so the whole shell reads
+  orange in Dynamic and cyan in Static, while `--rf-causa-brand` (the
+  logo/wordmark) stays orange in either mode.
+
+  The class is written on BOTH the `<html>` root and the shell node
+  (mount.cljs / the shells), so a higher-specificity single-class
+  selector outranks the `:root` default. The `:where()` wrapper keeps
+  specificity at zero so the theme-class palette blocks (which also set
+  `--rf-causa-accent` via `palette->declarations`) do not win over the
+  mode flip — `:where(.mode-static)` and the bare `.mode-static` shell
+  node both resolve, and the assignment is identical, so either landing
+  works."
+  (str
+    ;; Dynamic mode (default) — accent follows the orange Dynamic accent.
+    ".mode-dynamic, :root.mode-dynamic {\n"
+    "  --rf-causa-accent: var(--rf-causa-accent-dynamic);\n"
+    "}\n"
+    ;; Static mode — accent follows the cyan Static accent. Brand stays
+    ;; orange (it reads --rf-causa-brand, untouched here).
+    ".mode-static, :root.mode-static {\n"
+    "  --rf-causa-accent: var(--rf-causa-accent-static);\n"
+    "}\n"))
+
 (defn- themes-css
   "Build the per-theme CSS block. The dark palette publishes at `:root`
   (the safe fallback) AND at `.rf-causa-theme-dark` (so the class
   toggle has a matched landing). The light palette publishes at
-  `.rf-causa-theme-light` so the class toggle activates it."
+  `.rf-causa-theme-light` so the class toggle activates it. The
+  `mode-accent-css` block then re-points `--rf-causa-accent` at the
+  Dynamic / Static accent under the `.mode-dynamic` / `.mode-static`
+  root class (rf2-ad7zx / spec/022) so the whole shell turns orange in
+  Dynamic, cyan in Static, off ONE token."
   [themes]
   (str
     ;; Default — :root carries the dark palette so any descendant
@@ -223,7 +257,9 @@
     "}\n"
     ".rf-causa-theme-light {\n"
     (palette->declarations (:light themes))
-    "}\n"))
+    "}\n"
+    ;; Mode-accent alias — flips --rf-causa-accent orange↔cyan by mode.
+    mode-accent-css))
 
 (defn- inject-themes-style!
   "Append the per-theme `<style>` block to `<head>`. Idempotent —
@@ -503,13 +539,14 @@
     ;; its own palette (Canvas / CanvasText / Highlight / …), which
     ;; collapses every author-encoded signal across the Causa chrome:
     ;;
-    ;;   - L1 ribbon mode stripe (violet/cyan accent on the left edge)
-    ;;   - L2 row focused border (cyan)
+    ;;   - L1 ribbon mode stripe (orange Dynamic / cyan Static accent
+    ;;     on the left edge)
+    ;;   - L2 row focused border (mode accent)
     ;;   - L2 row status accent (the 2px inset box-shadow on the
     ;;     trailing edge — box-shadow itself is also dropped in HCM)
-    ;;   - L2 row gutter causal-chain thread (1px violet inset)
-    ;;   - L4 panel-domain accent stripes (3px left border in each
-    ;;     panel's hue — violet/cyan/orange/green/yellow/red)
+    ;;   - L2 row gutter causal-chain thread (1px mode-accent inset)
+    ;;   - L4 panel header accent stripes (3px left border — the mode
+    ;;     accent: orange Dynamic / cyan Static, rf2-ad7zx)
     ;;   - Focus-visible amber outline (the #FBBF24 hex above; the UA
     ;;     forces this to its own Highlight regardless of author intent)
     ;;   - Secondary / tertiary text (drifted greys collapse to a
@@ -555,14 +592,14 @@
     "  [data-testid=\"rf-causa-palette-backdrop\"] *:focus-visible {\n"
     "    outline-color: Highlight !important;\n"
     "  }\n"
-    ;; L1 ribbon mode stripe (violet runtime / cyan static) → Highlight.
+    ;; L1 ribbon mode stripe (orange Dynamic / cyan Static) → Highlight.
     ;; The 2px left border is the operator's "which mode am I in"
     ;; signal; preserve it as the user's selected-emphasis hue.
     "  [data-testid=\"rf-causa-ribbon\"] {\n"
     "    border-left-color: Highlight !important;\n"
     "  }\n"
     ;; L2 focused event row — `aria-pressed=\"true\"` rides on the
-    ;; focused row's `<li>`. The 1px solid cyan border becomes a
+    ;; focused row's `<li>`. The 1px solid mode-accent border becomes a
     ;; Highlight outline (outline composes over the existing border
     ;; without disturbing layout; HCM strips inline background, so
     ;; the row's fill becomes Canvas + the Highlight outline reads
@@ -599,7 +636,7 @@
     "  [data-rf-causa-status=\"paused-by-tool\"] {\n"
     "    box-shadow: inset -2px 0 0 0 GrayText !important;\n"
     "  }\n"
-    ;; L2 row gutter — the 1px causal-chain thread (violet) and the
+    ;; L2 row gutter — the 1px causal-chain thread (mode accent) and the
     ;; focus markers (⦿ / ◌) need a system-token landing. The gutter
     ;; <span> doesn't carry a testid hook, so we target the
     ;; row-gutter testid pattern. The inset box-shadow becomes
@@ -609,8 +646,8 @@
     "    box-shadow: inset 1px 0 0 0 Highlight !important;\n"
     "    color: Highlight !important;\n"
     "  }\n"
-    ;; L4 panel domain accent stripes (3px left border on the panel
-    ;; <h1>) — every panel hue (violet/cyan/orange/green/yellow/red)
+    ;; L4 panel header accent stripes (3px left border on the panel
+    ;; <h1>) — the mode accent (orange Dynamic / cyan Static)
     ;; collapses to CanvasText so the stripe still paints as a
     ;; visible left edge. Panels remain visually distinguishable by
     ;; their L3 tab label and their content; the stripe drops its
@@ -1442,7 +1479,7 @@
   (str
     ".react-flow {\n"
     "  --xy-edge-stroke-default: " (:border-default tokens/tokens) ";\n"
-    "  --xy-edge-stroke-selected-default: " (:cyan tokens/tokens) ";\n"
+    "  --xy-edge-stroke-selected-default: " (:accent tokens/tokens) ";\n"
     "  --xy-node-background-color-default: " (:bg-2 tokens/tokens) ";\n"
     "  --xy-node-color-default: " (:text-primary tokens/tokens) ";\n"
     "  --xy-node-border-default: 1px solid " (:border-default tokens/tokens) ";\n"

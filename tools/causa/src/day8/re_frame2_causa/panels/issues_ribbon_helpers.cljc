@@ -135,9 +135,9 @@
   spec/007-UX-IA.md §Issues ribbon. Splitting the semantic map from
   the hex lookup keeps the data pure + tokens consolidated
   (rf2-5kfxe.4)."
-  {:error    :red
-   :warning  :yellow
-   :advisory :cyan})
+  {:error    :error
+   :warning  :warning
+   :advisory :advisory})
 
 (defn severity-colour
   "Map a severity keyword to its swatch colour. Resolves the semantic

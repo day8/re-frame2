@@ -111,7 +111,7 @@
   [node]
   (cond
     (some? (:key node))
-    [:span {:style {:color (:accent-violet tokens)
+    [:span {:style {:color (:accent tokens)
                     :font-family mono-stack
                     :font-size "11px"
                     :margin-right "6px"}}
@@ -144,7 +144,7 @@
       [:div {:style {:display "flex" :gap "6px"
                      :color (:text-tertiary tokens)
                      :font-family mono-stack :font-size "12px"}}
-       [:span {:style {:color (:accent-violet tokens)}} (pr-str k)]
+       [:span {:style {:color (:accent tokens)}} (pr-str k)]
        (inspect-value (:value attr-node) nkey)]
 
       ;; :added = attr present on CLIENT only. Server pane shows it as
@@ -157,7 +157,7 @@
                        :color (:text-tertiary tokens)
                        :font-family mono-stack :font-size "12px"
                        :opacity 0.6}}
-         [:span {:style {:color (:accent-violet tokens)}} (pr-str k)]
+         [:span {:style {:color (:accent tokens)}} (pr-str k)]
          (absent-chip (pr-str (:value attr-node)))]
 
         :client
@@ -165,7 +165,7 @@
                :style {:display "flex" :gap "6px"
                        :padding-left "6px"
                        :border-left (str "3px solid " (:green tokens))}}
-         [:span {:style {:color (:accent-violet tokens)
+         [:span {:style {:color (:accent tokens)
                          :font-family mono-stack :font-size "12px"}}
           (pr-str k)]
          [:span {:style {:color (:green tokens)
@@ -180,7 +180,7 @@
                :style {:display "flex" :gap "6px"
                        :padding-left "6px"
                        :border-left (str "3px solid " (:red tokens))}}
-         [:span {:style {:color (:accent-violet tokens)
+         [:span {:style {:color (:accent tokens)
                          :font-family mono-stack :font-size "12px"}}
           (pr-str k)]
          [:span {:style {:color (:red tokens)
@@ -193,7 +193,7 @@
                        :color (:text-tertiary tokens)
                        :font-family mono-stack :font-size "12px"
                        :opacity 0.6}}
-         [:span {:style {:color (:accent-violet tokens)}} (pr-str k)]
+         [:span {:style {:color (:accent tokens)}} (pr-str k)]
          (absent-chip (pr-str (:value attr-node)))])
 
       :modified
@@ -202,7 +202,7 @@
                      :align-items "baseline"
                      :padding-left "6px"
                      :border-left (str "3px solid " (:yellow tokens))}}
-       [:span {:style {:color (:accent-violet tokens)
+       [:span {:style {:color (:accent tokens)
                        :font-family mono-stack :font-size "12px"}}
         (pr-str k)]
        [:span {:style {:color (:yellow tokens)
@@ -224,11 +224,11 @@
              :style {:display "flex" :gap "6px"
                      :align-items "baseline"
                      :padding-left "6px"
-                     :border-left (str "3px solid " (:accent-violet tokens))}}
-       [:span {:style {:color (:accent-violet tokens)
+                     :border-left (str "3px solid " (:accent tokens))}}
+       [:span {:style {:color (:accent tokens)
                        :font-family mono-stack :font-size "12px"}}
         (pr-str k)]
-       [:span {:style {:color (:accent-violet tokens)
+       [:span {:style {:color (:accent tokens)
                        :font-family mono-stack :font-size "11px"
                        :font-style "italic"}}
         "(fn ref changed)"]]
@@ -321,10 +321,10 @@
                    :margin "2px 0"}}
      [:div {:style {:display "flex" :align-items "baseline" :gap "6px"
                     :padding-left "6px"
-                    :border-left (str "3px solid " (:accent-violet tokens))
+                    :border-left (str "3px solid " (:accent tokens))
                     :font-family mono-stack :font-size "12px"}}
       (key-or-index-label node)
-      [:span {:style {:color (:accent-violet tokens)
+      [:span {:style {:color (:accent tokens)
                       :font-weight 600}}
        "moved"]
       [:span {:style {:color (:text-tertiary tokens)
@@ -416,10 +416,10 @@
          :style {:display "flex" :gap "6px"
                  :align-items "baseline"
                  :padding-left "6px"
-                 :border-left (str "3px solid " (:accent-violet tokens))
+                 :border-left (str "3px solid " (:accent tokens))
                  :font-family mono-stack
                  :font-size "12px"
-                 :color (:accent-violet tokens)
+                 :color (:accent tokens)
                  :font-style "italic"}}
    (key-or-index-label node)
    "(fn ref changed)"])
