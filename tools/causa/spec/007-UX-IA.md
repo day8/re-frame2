@@ -732,12 +732,12 @@ Borders:   subtle #232730  · default #2F3441  · strong #444B5B
 
 Text:      primary #E8EAF0  · secondary #A8AEC0  · tertiary #6B7080  · disabled #494E5A
 
-Accents:   violet  #7C5CFF  brand, current epoch
+Accents:   orange  #F97316  BRAND, current epoch, Dynamic-mode accent (the identity — rf2-ad7zx)
+           cyan    #43C3D0  Static-mode accent; :story / :test origin; info
            indigo  #5570FF  :pair-origin
-           cyan    #43C3D0  :story / :test origin, info
            green   #4ADE80  success, additions, machine-active
            yellow  #FBBF24  warnings, schema-replaced-with-default, :rf/large elision
-           orange  #FB923C  long-task
+           amber   #FB923C  long-task / perf-slow (renamed from `orange` to free the brand name)
            red     #F87171  errors, schema-violations, hydration-mismatches
            magenta #E879F9  classification: :rf/redacted
 
@@ -746,6 +746,16 @@ Perf:      fast     #4ADE80  (<16ms)
            slow     #FB923C  (50-100)
            blocking #F87171  (>100ms, INP threshold)
 ```
+
+**Brand identity = orange (rf2-ad7zx).** The brand / current-epoch / **Dynamic**-mode accent
+moved **violet → orange** (`#F97316`). The mode signal is **orange in Dynamic, cyan in
+Static** (active tab, mode stripe, active states); the logo / wordmark is **always orange**.
+The retired `violet #7C5CFF` is freed; the prior long-task `orange #FB923C` is renamed
+`amber`. Every accent is a single CSS-custom-property token, so the identity is a one-line
+change per token. The orange-identity decision + the cross-panel **visual-encoding rules**
+live in [022-Design-Tokens](022-Design-Tokens.md); the **full palette above is
+authoritative**. (Impl ripple — the ~357 token call sites that read `(:violet …)` etc. —
+is scoped under rf2-ad7zx.)
 
 Light theme inverts lightness (`bg-0 #FAFBFC`, `bg-1 #F1F3F6`, `bg-2
 #FFFFFF`); accents darken slightly to maintain contrast.
