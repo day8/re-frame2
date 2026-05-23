@@ -1,63 +1,36 @@
-# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover; rf2-bujlr Phase 2; rf2-00zvt Phase 3)
+# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover; rf2-00zvt Phase 3)
 
 The roll-your-own live-ClojureScript-cell playground for the `docs/cljs` page —
 the production replacement for Klipse. It turns ` ```cljs ` fenced blocks in
 mkdocs prose into CodeMirror 6 editors that evaluate plain CLJS in the browser
 via Scittle (SCI), instant-nav-safe.
 
-**Phase 2 (rf2-bujlr)** adds a second cell kind for **live reagent / re-frame
-components** (stock libs, via Scittle plugins). **Phase 3 (rf2-00zvt)** adds a
-third cell kind for **live re-frame2 components** that evaluate re-frame2's OWN
-public API — see [Cell kinds](#cell-kinds) below.
+**Phase 3 (rf2-00zvt)** adds a second cell kind for **live re-frame2
+components** that evaluate re-frame2's OWN public API — see
+[Cell kinds](#cell-kinds) below.
+
+> A short-lived Phase 2 (rf2-bujlr) shipped a third `cljs-render` cell kind for
+> live **stock** reagent/re-frame demos via the Scittle plugins. It was removed:
+> the guide teaches re-frame2's own API, so no docs page ever used it, and it
+> carried a React-18 CDN surface that exists nowhere else in the repo.
 
 ## Cell kinds
 
 | Fence | Class emitted | Behaviour |
 |---|---|---|
 | ` ```cljs ` | `language-cljs` | **plain-eval cell** — evaluates the source and `pr-str`s the last form's value into the result div (Phase 1). |
-| ` ```cljs-render ` | `language-cljs-render` | **stock render cell** — evaluates the source and **mounts the last form's value as a reagent component** into the result div (Phase 2). STOCK reagent + re-frame are available, via the Scittle plugins. |
-| ` ```cljs-rf2 ` | `language-cljs-rf2` | **re-frame2 render cell** — same as `cljs-render` but evaluated against **re-frame2's OWN public API** (`re-frame.core` v2) rendered via **reagent2** (Phase 3). Backed by a self-contained SCI bundle (`sci/` → `docs/cljs/playground-rf2.js`), NOT Scittle. |
-
-### Render cells (` ```cljs-render `)
-
-A render cell's source may `require` `reagent.core` / `reagent.dom` /
-`re-frame.core` and use `reg-event-db` / `reg-sub` / `dispatch` / `subscribe`
-(stock re-frame — **not** re-frame2's own API; that is Phase 3). The cell's
-**last form** must evaluate to a reagent renderable: a hiccup vector
-(`[:div ...]`) or a component vector (`[my-component]`). The bootstrap renders
-it via `reagent.dom/render` into the cell's result div. Render cells
-**auto-render on load** (the live component is the point) and re-render on
-Mod-Enter after edits.
-
-```cljs-render
-(require '[re-frame.core :as rf])
-(rf/reg-event-db :init (fn [_ _] {:n 0}))
-(rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-(rf/reg-sub      :n    (fn [db _] (:n db)))
-(rf/dispatch-sync [:init])
-(defn counter []
-  [:div
-   [:span "count: " @(rf/subscribe [:n])]
-   [:button {:on-click #(rf/dispatch [:inc])} "inc"]])
-[counter]
-```
-
-Implementation note: a render cell's source is evaluated at the SCI **top
-level** (NOT wrapped in `(do ...)` like a plain cell), because SCI only
-propagates a `require`'s aliases to *sibling top-level* forms — wrapping the
-body in one `(do ...)` makes the cell's `rf/...` aliases unresolvable.
-
-The reagent + re-frame Scittle plugins (and the `React` + `ReactDOM` globals
-they need) are loaded from the CDN **only on pages that contain a
-` ```cljs-render ` cell** — plain-CLJS pages never pay that cost.
+| ` ```cljs-rf2 ` | `language-cljs-rf2` | **re-frame2 render cell** — evaluates the source against **re-frame2's OWN public API** (`re-frame.core` v2) and **mounts the last form's value as a reagent2 component** into the result div (Phase 3). Backed by a self-contained SCI bundle (`sci/` → `docs/cljs/playground-rf2.js`), NOT Scittle. |
 
 ### re-frame2 cells (` ```cljs-rf2 `, Phase 3)
 
 A `cljs-rf2` cell evaluates against **re-frame2's own public API** — the v2
 `re-frame.core` (`reg-event-db` / `reg-sub` / `dispatch` / `subscribe`), rendered
 via **reagent2** (the reagent-slim rewrite re-frame2 actually renders through),
-NOT stock re-frame. Like a `cljs-render` cell, the **last form** must be a
-reagent renderable; the cell auto-renders on load and re-renders on Mod-Enter.
+NOT stock re-frame. The **last form** must be a reagent renderable (a hiccup
+vector `[:div ...]` or a component vector `[my-component]`); the cell
+auto-renders on load and re-renders on Mod-Enter after edits. Its source is
+evaluated at the SCI **top level** (NOT wrapped in `(do ...)`) so a leading
+`(require ...)`'s aliases reach its sibling top-level forms.
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
@@ -80,8 +53,8 @@ published `scittle.core` artefact a standalone plugin build could `:require`
 eval bundle** (findings doc §6 option B): the `sci/` sub-project is a shadow-cljs
 `:browser` `:advanced` build that depends on `org.babashka/sci` + re-frame2 core
 + reagent-slim, builds an SCI context via `sci/copy-ns` over `re-frame.core`, and
-installs `window.rf2sci.{evalString,renderLast}`. The bootstrap loads it as a
-classic `<script>` **only on pages with a ` ```cljs-rf2 ` cell**.
+installs `window.rf2sci.renderLast`. The bootstrap loads it as a classic
+`<script>` **only on pages with a ` ```cljs-rf2 ` cell**.
 
 How re-frame2's API reaches a cell:
 
@@ -115,10 +88,8 @@ sub-build under `sci/`. (This artefact ships its own `sci/shadow-cljs.edn` +
 | `@codemirror/state` | ^6.6.0 | CM6 editor state (`EditorState`, `Prec`) |
 | `@codemirror/view` | ^6.43.0 | CM6 view (`EditorView`, `keymap`, `lineNumbers`) |
 | `@codemirror/commands` | ^6.10.3 | history + default keymaps |
-| Scittle | 0.8.31 | SCI eval engine — loaded as a classic `<script>` global from jsDelivr (NOT bundled, NOT an ES module) |
-| `scittle.reagent.js` | 0.8.31 | reagent plugin (Phase 2) — loaded from jsDelivr ONLY on pages with a ` ```cljs-render ` cell |
-| `scittle.re-frame.js` | 0.8.31 | re-frame plugin (Phase 2) — same on-demand load |
-| React + ReactDOM | 18 (UMD) | globals the Scittle reagent plugin references — loaded from jsDelivr ahead of the plugins, on-demand (Phase 2 only) |
+| `@codemirror/language` + `@lezer/highlight` | ^6.12.3 / ^1.2.3 | the `HighlightStyle` + Lezer tags that paint clojure-mode's syntax (rf2-wj623) |
+| Scittle | 0.8.31 | plain-cell SCI eval engine — loaded as a classic `<script>` global from jsDelivr (NOT bundled, NOT an ES module) |
 | esbuild | ^0.28.0 | bundler (IIFE) for the bootstrap |
 | playwright | ^1.60.0 | smoke harness (chromium) |
 
@@ -154,39 +125,42 @@ npm run build          # builds BOTH bundles (bootstrap + re-frame2 SCI)
 
 Neither Scittle nor the re-frame2 bundle is loaded eagerly — the bootstrap
 injects each `<script>` at eval time, only on pages that have the relevant cell
-kind (Scittle for ` ```cljs `/` ```cljs-render `; `playground-rf2.js` for
-` ```cljs-rf2 `), the same guarded, lazy-load pattern the deleted Klipse
-bootstrap used for its plugin.
+kind (Scittle for ` ```cljs `; `playground-rf2.js` for ` ```cljs-rf2 `), the
+same guarded, lazy-load pattern the deleted Klipse bootstrap used for its plugin.
 
 ## Test
 
 ```bash
 npm run browsers       # one-time: playwright install chromium
-npm run smoke          # headless chromium drives 3 cells against docs/cljs/playground.js
+npm run smoke          # headless chromium drives all cells against the built bundles
 ```
 
 The smoke loads BOTH **production** bundles (`docs/cljs/playground.js` +
 `docs/cljs/playground-rf2.js`) against a page that mimics the mkdocs-emitted DOM
-(`<pre class="language-cljs">` + `<pre class="language-cljs-render">` +
-`<pre class="language-cljs-rf2">`), proves the bootstrap auto-injects each engine
-on demand, then asserts:
+(`<pre class="language-cljs">` + `<pre class="language-cljs-rf2">`), proves the
+bootstrap auto-injects each engine on demand, then asserts:
 
 - **Phase 1:** `(+ 1 2 3) => 6`; a `defn`/`println`/nested-coll cell captures
   `*out*` and renders the value; an error cell renders `ERROR` without crashing
   (and cell 1 still evals after).
-- **Phase 2:** a ` ```cljs-render ` cell makes the bootstrap auto-load the
-  React + ReactDOM + scittle.reagent + scittle.re-frame stack; a reagent
-  counter using a re-frame `subscribe` renders live; clicking its button
-  `dispatch`es a re-frame event and the subscribed view updates (count 0 → 2);
-  a plain ` ```cljs ` cell on the same page still works.
 - **Phase 3:** a ` ```cljs-rf2 ` cell makes the bootstrap auto-load the
   self-contained re-frame2 SCI bundle (`window.rf2sci`); a reagent2 component
   using re-frame2's OWN `subscribe` renders live; clicking its button
   `dispatch`es a re-frame2 event and the v2 subscription updates (count 0 → 2);
-  the Phase-1 plain cell + Phase-2 stock cell on the same page still work.
+  the Phase-1 plain cell on the same page still works alongside it.
 
 Build both bundles first: `npm run build` (or `npm run build:rf2` for just the
 re-frame2 one).
+
+### CI
+
+The smoke is gated in CI (`.github/workflows/test.yml`, `tools-playground`
+job, fired by the `playground` changed-surface in
+`.github/scripts/report-changed-surfaces.sh`). The job builds both bundles,
+runs the smoke against them, **and** verifies the committed
+`docs/cljs/playground*.js` + `.css` are byte-identical to a fresh build
+(`git diff --exit-code`) so a stale vendored bundle fails the PR — the deployed
+artefact can never silently drift from source. See the row in `TESTING.md`.
 
 ## mkdocs wiring
 
@@ -218,3 +192,15 @@ Klipse — Risk #1). One fidelity fix landed in the cutover: a top-level
    wrap the eval return in `(clj->js ...)`.
 3. The Mod-Enter eval keymap is swallowed unless wrapped in
    `Prec.highest(keymap.of([...]))`.
+
+## Plain `cljs` cells cannot `(require ...)`
+
+A plain ` ```cljs ` cell wraps its whole body in one `(do ...)` form (so the
+`*out*` capture + last-form return work), and SCI only propagates a
+`require`'s aliases to its *sibling* top-level forms — so a leading
+`(require '[x :as y]) … (y/foo)` inside a plain cell fails to resolve `y/foo`.
+Plain cells are for framework-free ClojureScript (data literals, evaluation
+rules, builtins); a cell that needs `require` + reagent/re-frame is a
+` ```cljs-rf2 ` cell, whose source is NOT do-wrapped precisely so its
+`require` aliases reach sibling forms. (No plain cell in the docs uses
+`require` today — this note is for future authors.)

@@ -10,17 +10,16 @@ But some ideas land harder when the reader can *change them and see what happens
 
 This page is the **foundation** for that track. The [counter tutorial](interactive-counter.md) is the **template** the first interactive chapter follows. More interactive tutorials will follow the same shape; extend or redirect from here.
 
-## The three cell kinds
+## The two cell kinds
 
-A live cell is a fenced code block whose *info string* selects one of three behaviours. The fence text is the only difference between a static block and a live one:
+A live cell is a fenced code block whose *info string* selects one of two behaviours. The fence text is the only difference between a static block and a live one:
 
 | Fence | What the reader gets | When to use it |
 |---|---|---|
 | ` ```cljs ` | **Plain eval.** Evaluates the forms and prints the last form's value below the editor. No DOM, no re-frame. | Teaching ClojureScript itself — data literals, evaluation rules, builtins. The whole of [the CLJS reading guide](../cljs/index.md) is this kind. |
-| ` ```cljs-render ` | **Stock live component.** Mounts the last form as a live Reagent component, backed by **stock** Reagent + re-frame (the original libraries). | Demonstrating something that's identical between stock re-frame and re-frame2, or where the stock surface is genuinely what you mean. Rare in this guide — the guide teaches re-frame2's own API. |
-| ` ```cljs-rf2 ` | **Live re-frame2 component.** Same as above, but evaluated against re-frame2's **own public API** (`re-frame.core` v2) and rendered through reagent2. | Every interactive *re-frame2* tutorial. This is the one you almost always want. |
+| ` ```cljs-rf2 ` | **Live re-frame2 component.** Mounts the last form as a live component, evaluated against re-frame2's **own public API** (`re-frame.core` v2) and rendered through reagent2. | Every interactive *re-frame2* tutorial. This is the one you almost always want. |
 
-For a guide chapter, the answer is almost always ` ```cljs-rf2 `. You're teaching re-frame2; the live cells should run re-frame2. Reach for ` ```cljs ` only when the lesson is pure ClojureScript with no framework in sight, and for ` ```cljs-render ` essentially never — it exists for the rare stock-comparison case.
+For a guide chapter, the answer is almost always ` ```cljs-rf2 `. You're teaching re-frame2; the live cells should run re-frame2. Reach for ` ```cljs ` only when the lesson is pure ClojureScript with no framework in sight.
 
 ## The editable-and-evaluable convention
 

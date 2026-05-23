@@ -1,12 +1,11 @@
 /*
- * re-frame2 docs/cljs playground styles (Phase 1, rf2-y99zt; Phase 2, rf2-bujlr;
- * Phase 3, rf2-00zvt).
+ * re-frame2 docs/cljs playground styles (Phase 1, rf2-y99zt; Phase 3, rf2-00zvt).
  *
  * Styles the live-CLJS cells produced by playground.js. Uses Material theme
  * variables where possible so light/dark modes both look right. Built/copied
  * to docs/cljs/playground.css and wired via mkdocs `extra_css`. re-frame2
- * (cljs-rf2) cells reuse the Phase-2 .cljs-mount render surface (they carry
- * both .cljs-cell--render and .cljs-cell--rf2).
+ * (cljs-rf2) render cells carry both .cljs-cell--render (the live-component
+ * mount surface) and .cljs-cell--rf2.
  */
 
 .cljs-cell {
@@ -35,7 +34,7 @@
   min-height: 1.4em;
 }
 
-/* Render-cell mount surface (Phase 2, rf2-bujlr): holds a live reagent
+/* Render-cell mount surface (cljs-rf2 cells): holds a live reagent2
  * component, not pr-str'd text — drop the code styling, give it room. */
 .cljs-mount {
   font-family: inherit;

@@ -278,23 +278,14 @@ markdown_extensions:
         - name: cljs
           class: language-cljs
           format: !!python/name:pymdownx.superfences.fence_code_format
-        # Live reagent/re-frame component cells (rf2-bujlr, Phase 2). ```cljs-render
-        # fences emit <pre class="language-cljs-render">; tools/playground's
-        # bootstrap turns each into a CM6 editor whose last form is MOUNTED as a
-        # reagent component (stock reagent + re-frame, loaded on demand via the
-        # Scittle plugins) instead of pr-str'd. Plain ```cljs cells are unchanged.
-        - name: cljs-render
-          class: language-cljs-render
-          format: !!python/name:pymdownx.superfences.fence_code_format
         # Live re-frame2 component cells (rf2-00zvt, Phase 3). ```cljs-rf2 fences
         # emit <pre class="language-cljs-rf2">; tools/playground's bootstrap turns
         # each into a CM6 editor whose last form is MOUNTED as a reagent2
         # component, evaluated against re-frame2's OWN public API (re-frame.core
-        # v2 — reg-event-db / reg-sub / dispatch / subscribe), NOT stock
-        # re-frame. The re-frame2 SCI bundle (cljs/playground-rf2.js, built by
-        # tools/playground/sci) is loaded on demand only on pages that have a
-        # ```cljs-rf2 cell. Plain ```cljs and stock ```cljs-render cells are
-        # unchanged.
+        # v2 — reg-event-db / reg-sub / dispatch / subscribe). The re-frame2 SCI
+        # bundle (cljs/playground-rf2.js, built by tools/playground/sci) is
+        # loaded on demand only on pages that have a ```cljs-rf2 cell. Plain
+        # ```cljs cells are unchanged.
         - name: cljs-rf2
           class: language-cljs-rf2
           format: !!python/name:pymdownx.superfences.fence_code_format

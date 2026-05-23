@@ -1,5 +1,8 @@
 node_modules/
-package-lock.json
+# package-lock.json IS committed (rf2-ee38b.22) so the shadow-cljs re-frame2
+# SCI bundle builds reproducibly — react/react-dom are the only npm deps and
+# pinning them keeps docs/cljs/playground-rf2.js stable for the CI
+# bundle-drift gate.
 out/
 .shadow-cljs/
 .cpcache/
