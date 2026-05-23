@@ -44,6 +44,10 @@
             ;; graph for the closure compiler.
             [re-frame.flows :as flows]
             [re-frame.flows.registry]
+            ;; Require schemas so a registered validator IS available —
+            ;; the prod test must prove the validation surface elides even
+            ;; when the seam is wired, not merely when it is absent.
+            [re-frame.schemas :as schemas]
             ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as trace-tooling]))
 
@@ -191,3 +195,33 @@
           "no :rf.flow/cleared trace under prod"))
     (is (nil? (get-in @flows/flows [:rf/default :prod-elision/clearable]))
         "flow removed from per-frame index — only trace surface elided")))
+
+;; ---- :schema output validation elides under prod --------------------------
+
+(deftest flow-output-schema-validation-elides-under-prod
+  (testing "Per Spec 009 §Production-elision (rf2-ee38b.9): a flow whose
+            computed `:output` VIOLATES its `:schema` emits NO
+            `:rf.error/schema-validation-failure :where :flow-output`
+            trace under `:advanced` + `goog.DEBUG=false`. A predicate
+            validator is registered so the seam is fully wired — the
+            whole validate-output! surface still DCEs because it sits
+            inside the `interop/debug-enabled?` gate. The value is still
+            written (recompute is never gated)."
+    ;; Register a validator that REJECTS every value — if validation ran,
+    ;; a violation would surface.
+    (schemas/set-schema-validator! {:validate (fn [_ _] false)})
+    (rf/reg-event-db :prod-elision/seed-validate
+      (fn [db _] (assoc db :w 3 :h 4)))
+    (rf/reg-flow
+      {:id     :prod-elision/validated
+       :inputs [[:w] [:h]]
+       :output (fn [w h] (* (or w 0) (or h 0)))
+       :path   [:prod-elision/area]
+       :schema (fn [_] false)})
+    (let [seen (listener-fixture
+                 (fn []
+                   (rf/dispatch-sync [:prod-elision/seed-validate])))]
+      (is (empty? seen)
+          "no schema-validation-failure (or any other) trace under prod"))
+    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:prod-elision/area]))
+        "flow output still written — only the validation/trace surface elided")))

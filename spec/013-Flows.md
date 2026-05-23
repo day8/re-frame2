@@ -67,7 +67,7 @@ Optional keys (per the [001-Registration §Registration grammar](001-Registratio
 | Key | Meaning |
 |---|---|
 | `:doc` | One-sentence what-and-why; surfaces in tooling. |
-| `:schema` | Malli schema for the output value (dynamic-host validation in dev). |
+| `:schema` | Malli schema for the output value, validated on every recompute in dev (see [§Flow output validation](#flow-output-validation)). |
 | `:ns`, `:line`, `:file` | Source coordinates (auto-captured by the registration macro per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). |
 
 `:inputs` is a positional vector matching `on-changes`. The vector form is short for the common 2–4-input case and the destructure-by-position is straightforward. (A map-keyed alternative was considered — see [§Open questions](#open-questions).)
@@ -242,6 +242,23 @@ Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Ca
 **`:sensitive?` inheritance.** A flow's `:output` fn runs inside the after-interceptor of the surrounding handler scope; the dirty-check write and any thrown exception are framework-owned but the resolved input values and computed output ride from the **handler whose event triggered the drain**. The runtime therefore stamps `:sensitive? true` at the top level of every `:rf.flow/*` trace event when the in-scope handler's registration meta carries `:sensitive? true` — per the inheritance rule at [009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key). The flow itself does not declare `:sensitive?` directly; the marker rides the cascade. An auth-handler dispatching `[:auth/signed-in token]` whose drain re-evaluates the `:auth/derived-user` flow emits a `:rf.flow/computed` carrying `:sensitive? true`, and the framework-published forwarders (Sentry / Honeybadger / re-frame2-pair / Causa-MCP) default-drop it. Apps that need finer-grained per-flow privacy reach for `redact-interceptor` on the surrounding handler or scrub the `:output` fn's return value at the source.
 
 The whole flow trace surface, like the rest of trace, is compile-time eliminated in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
+
+## Flow output validation
+
+A flow's optional `:schema` key (per [§The registration shape](#the-registration-shape)) declares a Malli schema for the **output value**. When present, the runtime validates the flow's computed `:output` against it on every recompute, during the post-handler flow walk (after the `:db` commit, before `:fx`). This is the same dev-time, pluggable-validator mechanism the rest of [010 §Schemas](010-Schemas.md) uses; the flows artefact reaches the registered validator/explainer through the `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn` late-bind hooks, so an app that omits the schemas artefact (or registers no validator) pays nothing and the check soft-passes.
+
+**Observational, not a rollback.** Unlike the `app-db`-path schema (which rolls back the `:db` effect on failure), a flow `:schema` violation does **not** unwind the write. A flow's output is materialised state — by the time a violation could be observed, downstream flows / handlers / subs in the same drain may already have read the value, and [§Failure semantics](#failure-semantics) rule 1 (prior writes preserved) forbids retroactively unwinding a flow write mid-cascade. So the output **is** written and the cascade proceeds; the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event with `:where :flow-output` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), carrying the failing `:rf.flow/id`, the flow's `:path`, the failing `:value` (size/sensitivity-elided like every wire-bearing trace slot), and the registered explainer's `:explain` output. `:recovery` is `:no-recovery`, matching the category's documented disposition — the check exists to surface a producer bug early, not to repair state.
+
+```clojure
+(rf/reg-flow
+  {:id     :cart/total
+   :inputs [[:cart :subtotal] [:cart :discount-rate]]
+   :output (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0)))))
+   :path   [:cart :total]
+   :schema [:int {:min 0}]})        ;; output must be a non-negative integer
+```
+
+Like the rest of the validation surface, flow output validation is dev-only: it sits behind `re-frame.interop/debug-enabled?` and is compile-time eliminated in production builds.
 
 ## Sub integration
 

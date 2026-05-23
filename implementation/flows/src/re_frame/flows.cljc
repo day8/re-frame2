@@ -55,6 +55,65 @@
 (defn- read-inputs [db flow]
   (mapv (fn [path] (get-in db path)) (:inputs flow)))
 
+(defn- validate-output!
+  "Dev-only validation of a flow's computed `:output` value against its
+  optional `:schema` (Spec 013 §The registration shape — \"Malli schema
+  for the output value (dynamic-host validation in dev)\"). Per
+  rf2-ee38b.9 this is what makes the `:schema` flow-map key load-bearing
+  rather than inert metadata.
+
+  Routes through the schemas artefact's `:schemas/validate-with-registered-fn`
+  / `:schemas/explain-with-registered-fn` late-bind seam — the SAME seam
+  the routing artefact validates `:params` / `:query` through. Flows
+  never statically `:require` re-frame.schemas (it is optional per Spec
+  Conventions §Feature modularity), so the validation soft-passes when:
+    - the flow declares no `:schema`;
+    - the schemas artefact is not loaded (hook absent);
+    - no validator is registered (the registered validator soft-passes).
+
+  Observational, NOT a rollback. A flow's output is materialised state
+  that downstream handlers / flows / subs already read by the time a
+  failure could be observed, and the prior-writes-preserved failure
+  contract (§Failure semantics rule 1) forbids retroactively unwinding a
+  flow write mid-cascade. So — like `validate-app-schema!`, which is also
+  dev-only — the value IS still written; the failure surfaces as a
+  diagnostic `:rf.error/schema-validation-failure :where :flow-output`
+  trace (`:recovery :no-recovery`, matching the category's documented
+  recovery) on the error path, and the flow proceeds. This is the
+  masterpiece choice over dropping the key: the examples Flows exemplar
+  and the schemas artefact both exist, so an inert spec'd key would be a
+  gap, not restraint.
+
+  Gated by the caller's outer `interop/debug-enabled?` so the whole
+  surface DCEs in CLJS production (Spec 009 §Production builds)."
+  [frame-id flow new-output]
+  (when-let [schema (:schema flow)]
+    (when-let [validate (late-bind/get-fn :schemas/validate-with-registered-fn)]
+      (when-not (validate schema new-output)
+        (let [explain     (late-bind/get-fn :schemas/explain-with-registered-fn)
+              explanation (when explain (explain schema new-output))]
+          (trace/emit-error! :rf.error/schema-validation-failure
+                             {:category   :rf.error/schema-validation-failure
+                              :where      :flow-output
+                              :rf.flow/id (:id flow)
+                              :failing-id (:id flow)
+                              :schema-id  (:id flow)
+                              :path       (:path flow)
+                              ;; Wire-bearing — ride through the elision
+                              ;; walker so a large / sensitive output value
+                              ;; does not surface raw on the trace bus
+                              ;; (symmetric with the `:rf.flow/computed`
+                              ;; `:result` slot).
+                              :value      (elision/elide-wire-value
+                                            new-output
+                                            {:frame frame-id :path (:path flow)})
+                              :explain    explanation
+                              :reason     (str "Flow " (:id flow)
+                                               " output failed schema "
+                                               (pr-str schema) ".")
+                              :recovery   :no-recovery
+                              :frame      frame-id}))))))
+
 (defn- evaluate-flow!
   "Evaluate one flow against the given db. Returns `[new-db dirty?]` on
   successful evaluation (skip or recompute); on the failure path the
@@ -170,7 +229,14 @@
                                           new-output
                                           {:frame frame-id :path (:path flow)})
                           :path         (:path flow)
-                          :frame        frame-id}))
+                          :frame        frame-id})
+            ;; Per rf2-ee38b.9 — dev-only output-schema validation. Runs
+            ;; AFTER the `:rf.flow/computed` emit so the computed value is
+            ;; already on the trace stream when a violation surfaces;
+            ;; observational (the write at `new-db` stands). Sits inside
+            ;; this outer `debug-enabled?` gate so the whole surface DCEs
+            ;; in CLJS prod alongside the trace emit.
+            (validate-output! frame-id flow new-output))
           [new-db true])
         (catch #?(:clj Throwable :cljs :default) e
           ;; Per Spec 009 §:op-type vocabulary: :rf.flow/failed fires

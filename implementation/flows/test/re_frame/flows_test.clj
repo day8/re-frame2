@@ -90,6 +90,35 @@
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
     (rf/clear-flow :no-such-flow)))
 
+(deftest clear-flow-vacates-leaf-only-leaving-empty-parent-husk
+  ;; rf2-ee38b.9: clear-flow's vacation contract is LEAF-ONLY. When the
+  ;; cleared flow's leaf was the sole key under its parent, an empty
+  ;; parent map remains — deliberate, not a leak. Pruning empty ancestor
+  ;; maps would risk deleting unrelated sibling slots that happen to be
+  ;; empty, so the leaf-only behaviour is the correct contract. The
+  ;; flow's *value* is fully gone (the spec's "vacate the slot"
+  ;; requirement); only the structural empty-map parent persists.
+  (testing "clearing a flow whose leaf is the sole key under its parent leaves an empty parent map"
+    (rf/reg-event-db :seed-wizard (fn [_ _] {:wizard {}}))
+    (rf/reg-flow {:id     :wizard/result
+                  :inputs [[:wizard :seed]]
+                  :output (fn [_] 42)
+                  :path   [:wizard :result]})
+    ;; Drive a drain so the flow materialises [:wizard :result].
+    (rf/reg-event-db :touch-wizard (fn [db _] (assoc-in db [:wizard :seed] 1)))
+    (rf/dispatch-sync [:seed-wizard])
+    (rf/dispatch-sync [:touch-wizard])
+    (is (= 42 (get-in (rf/get-frame-db :rf/default) [:wizard :result]))
+        "flow materialised its output at the leaf")
+    (rf/clear-flow :wizard/result)
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (not (contains? (get db :wizard) :result))
+          "the leaf value is fully vacated")
+      (is (contains? db :wizard)
+          "the parent key persists (leaf-only vacation)")
+      (is (= {} (dissoc (get db :wizard) :seed))
+          "only the empty husk (plus unrelated sibling :seed) remains under the parent"))))
+
 (deftest clear-flow-nested-path-before-first-compute-does-not-write-nil-parent
   ;; Regression for rf2-q25os Repro 1. When a flow with a nested `:path`
   ;; (e.g. `[:step-2 :result]`) is cleared BEFORE any drain has run the
