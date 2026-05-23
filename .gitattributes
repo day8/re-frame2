@@ -1,1 +1,14 @@
 *.sh text eol=lf
+
+# The docs/cljs playground bundles are committed, vendored prebuilts that
+# esbuild / shadow-cljs emit with LF endings (rf2-ee38b.22). Pin LF so a
+# Windows checkout / rebuild never CRLF-normalises them — that would make the
+# CI bundle-drift gate (tools-playground) `git diff` against a fresh Linux
+# build spuriously fail.
+docs/cljs/playground.js text eol=lf
+docs/cljs/playground-rf2.js text eol=lf
+docs/cljs/playground.css text eol=lf
+# Pin the source CSS to LF too: `copy-css.mjs` copies it byte-for-byte to the
+# committed docs/cljs/playground.css, so a CRLF source would yield a CRLF
+# output and trip the drift gate.
+tools/playground/src/playground.css text eol=lf

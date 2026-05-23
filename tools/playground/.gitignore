@@ -1,2 +1,5 @@
 node_modules/
-package-lock.json
+# package-lock.json IS committed (rf2-ee38b.22) so the esbuild bootstrap
+# bundle builds reproducibly — the CI bundle-drift gate (tools-playground)
+# `git diff --exit-code`s the committed docs/cljs/playground.js against a
+# fresh `npm ci` build, which is only stable with a pinned dependency tree.

@@ -2,10 +2,11 @@
 ;; (rf2-00zvt, Phase 3).
 ;;
 ;; Produces docs/cljs/playground-rf2.js — an :advanced-compiled IIFE-ish
-;; browser bundle that installs `window.rf2sci.{evalString,renderLast}`.
+;; browser bundle that installs `window.rf2sci.renderLast`.
 ;; The playground bootstrap (tools/playground/src/playground.mjs) loads
 ;; it as a classic <script> ONLY on pages that have a ```cljs-rf2 cell,
-;; the same on-demand pattern Phase 2 uses for the Scittle plugins.
+;; the same guarded on-demand pattern the bootstrap uses for the Scittle
+;; plain-cell engine.
 ;;
 ;; React resolution: reagent2 (the substrate re-frame2 renders through)
 ;; targets React 19 via reagent2.dom.client/create-root. React 19 DROPPED

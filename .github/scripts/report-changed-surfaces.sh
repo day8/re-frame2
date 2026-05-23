@@ -41,6 +41,7 @@ mcp_conformance=false
 mcp_live=false
 story_causa_browser=false
 skills_structural=false
+playground=false
 
 mark_all() {
   implementation_jvm=true
@@ -56,6 +57,7 @@ mark_all() {
   mcp_live=true
   story_causa_browser=true
   skills_structural=true
+  playground=true
 }
 
 # rf2-k9ekz — predicate: does `$1` look like a Story/Causa runtime
@@ -281,6 +283,17 @@ else
       skills/re-frame2-pair/*|skills/shared/*)
         skills_structural=true
         ;;
+      tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|docs/cljs/playground-rf2.js)
+        # rf2-ee38b.22 — the docs/cljs live-cell playground (CM6 + Scittle
+        # bootstrap + the re-frame2 SCI bundle). The tools-playground job
+        # rebuilds both bundles, runs the headless-Chromium smoke against
+        # them, and `git diff --exit-code`s the committed
+        # docs/cljs/playground*.{js,css} so a stale vendored bundle (the
+        # deploy artefact is committed verbatim, never rebuilt by docs.yml)
+        # fails the PR. Fired by any tools/playground/** change OR by a
+        # hand-edit of one of the three committed bundles.
+        playground=true
+        ;;
     esac
   done <<< "$files"
 fi
@@ -308,3 +321,4 @@ emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"
 emit story_causa_browser "$story_causa_browser"
 emit skills_structural "$skills_structural"
+emit playground "$playground"

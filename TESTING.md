@@ -24,6 +24,7 @@ Running everything everywhere makes PRs slow and the dev loop painful. Skipping 
 | **Causa feature gates** (`test:causa-feature-gate`, `test:causa-feature-gate:smoke`) | expensive (full) / medium (smoke) | Causa feature matrix (4-layer chrome, tab navigation, exception/issue surfacing). The `--smoke` tier runs the 3 highest-signal scenarios over 2 staged surfaces on the PR critical path; the full 14-scenario / 13-surface sweep runs nightly. |
 | **Template emitted-app smoke** (`jvm-tools-template`) | expensive | The emitted app from `tools/template/` boots + passes its own gates — proves the template stays viable. |
 | **Skills structural** (`skills-structural`) | fast | Skill manifests + shared content stay structurally valid against the schema. |
+| **docs/cljs playground** (`tools-playground`, Playwright + headless Chromium) | medium | The roll-your-own live-CLJS-cell engine behind the docs reading guide + interactive chapters: rebuilds both committed bundles, smokes plain-eval + live re-frame2 (v2) render cells against them, then gates freshness — strict `git diff --exit-code` on the byte-deterministic esbuild artefacts (`docs/cljs/playground.{js,css}`) plus a smoke + structural-validity gate on the Closure `:advanced` SCI bundle (`docs/cljs/playground-rf2.js`), whose minified symbols are not byte-stable cross-platform so a byte-diff would be flaky. |
 
 ## Test surface ownership
 
@@ -224,6 +225,7 @@ boolean GitHub-Actions outputs per surface:
 | `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
 | `story_causa_browser` | Story / Causa runtime source changed under `tools/{story,causa}/{src,testbeds}/**` AND the changed file has a runtime extension (`.cljs`, `.cljc`, `.js`, `.cjs`, `.css`, `.scss`). Per rf2-k9ekz the trigger is narrowed: Markdown specs under `tools/{story,causa}/spec/**`, JVM unit tests under `tools/{story,causa}/test/**`, `deps.edn`, `README.md`, and `*.txt` do NOT fire it — they cannot affect chrome and so cannot invalidate the Playwright gate. Not set by the `-mcp` wrappers (they don't run in a browser). |
 | `skills_structural` | `skills/re-frame2-pair/*` or `skills/shared/*` changed. |
+| `playground` | `tools/playground/*` changed, OR one of the three committed bundles (`docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js`) was hand-edited; gates `tools-playground` (smoke + bundle-drift). |
 
 A few "blast-radius" inputs force the full sweep:
 
@@ -301,26 +303,27 @@ under that surface sets that output to `true`. The **blast-trigger row
 lights every output (defensive — anything that re-tiers the matrix
 must re-run the matrix).
 
-| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
-| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |
-| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |
-| S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |
-| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
-| S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
-| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |
-| S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |
-| S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |
-| S9 | `testbeds/*` (rf2-7vsfm — surfaces retained as Causa observation targets; rf2-t5slp retired the Playwright gate after all spec.cjs migrated to unit tests) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |
-| S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
-| S11 | `tools/story/{src,testbeds}/**`, `tools/causa/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz) |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |
-| S11a | `tools/story/{spec,test,bench}/**`, `tools/causa/{spec,test}/**`, `tools/{story,causa}/{deps.edn,README.md}` (non-runtime under story/causa) |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
-| S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
-| S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |
-| S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |
-| S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |
-| S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
+| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` | `playground` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
+| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
+| S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |
+| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
+| S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |
+| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
+| S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
+| S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |   |
+| S9 | `testbeds/*` (rf2-7vsfm — surfaces retained as Causa observation targets; rf2-t5slp retired the Playwright gate after all spec.cjs migrated to unit tests) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
+| S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |   |
+| S11 | `tools/story/{src,testbeds}/**`, `tools/causa/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz) |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |   |
+| S11a | `tools/story/{spec,test,bench}/**`, `tools/causa/{spec,test}/**`, `tools/{story,causa}/{deps.edn,README.md}` (non-runtime under story/causa) |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
+| S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
+| S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |   |
+| S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |   |
+| S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |   |
+| S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |   |
+| S17 | `tools/playground/*`, `docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js` (rf2-ee38b.22) |   |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
 
 **Output → jobs** — read this to answer "if this output is `true`, what
 runs?" Job counts are grouped (the matrix expands to 30+ leaf jobs at
@@ -341,6 +344,7 @@ PR time; one row per output here so the table stays scannable).
 | `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
 | `story_causa_browser` | `story-causa-browser` (PR-smoke, Playwright — Causa feature-matrix `--smoke` + Story play-scripts only; the full Causa matrix, Story feature-load, and Story static run nightly in `expensive-tests.yml` — see the Story/Causa split above) |
 | `skills_structural` | `skills-structural` |
+| `playground` | `tools-playground` (Playwright smoke of both bundles + byte-diff `git diff --exit-code` of the deterministic esbuild `docs/cljs/playground.{js,css}` + smoke/structural-validity gate on the non-deterministic Closure `docs/cljs/playground-rf2.js`) |
 
 
 ## Diagnostic / skip-ok gates

@@ -1,18 +1,17 @@
 (ns rf2-playground.sci
-  "SCI eval bundle for the docs/cljs playground's re-frame2 cells
+  "SCI eval bundle for the docs/cljs playground's `cljs-rf2` cells
   (rf2-00zvt, Phase 3).
 
-  Phase 2 evaluates STOCK reagent / re-frame via the prebuilt Scittle
-  plugins (`scittle.reagent.js` + `scittle.re-frame.js`). Phase 3 needs
-  cells that call re-frame2's OWN public API (`re-frame.core` v2) and
-  render via reagent2 (the reagent-slim rewrite re-frame2 actually uses).
-  Scittle's plugins ship stock libs and there is no published
-  `scittle.core` artefact a standalone plugin build can `:require`, so
-  this is NOT a Scittle plugin — it is a self-contained SCI eval bundle
-  (findings doc §6 option B): a shadow-cljs `:browser` build that
-  depends on `org.babashka/sci` + re-frame2 core + reagent-slim, builds
-  an SCI context exposing re-frame2's runtime API, and exports two JS
-  entry points the playground bootstrap calls.
+  A `cljs-rf2` cell calls re-frame2's OWN public API (`re-frame.core`
+  v2) and renders via reagent2 (the reagent-slim rewrite re-frame2
+  actually uses). Scittle's plugins ship STOCK reagent / re-frame and
+  there is no published `scittle.core` artefact a standalone plugin
+  build can `:require`, so this is NOT a Scittle plugin — it is a
+  self-contained SCI eval bundle (findings doc §6 option B): a
+  shadow-cljs `:browser` build that depends on `org.babashka/sci` +
+  re-frame2 core + reagent-slim, builds an SCI context exposing
+  re-frame2's runtime API, and exports the `renderLast` JS entry point
+  the playground bootstrap calls.
 
   How re-frame2's API reaches a cell:
 
@@ -33,10 +32,12 @@
 
   Rendering: re-frame2 renders through reagent2 with a substrate adapter
   installed (`re-frame.adapter.reagent-slim/adapter` via `rf/init!`).
-  reagent2 targets React 19 (`reagent2.dom.client/create-root`), so the
-  bundle is built with React resolved to the `React` / `ReactDOM`
-  globals the bootstrap loads from the CDN — same global-React shape
-  Scittle uses."
+  reagent2 targets React 19 (`reagent2.dom.client/create-root`). React 19
+  DROPPED its UMD build, so the global-`React`-from-CDN trick is
+  unavailable — this bundle BUNDLES react@19 + react-dom@19 (the
+  impl-pinned versions, resolved from `sci/package.json`) directly. The
+  result is one fully self-contained `playground-rf2.js`: no external
+  React, no CDN, no version-mismatch risk (see `sci/shadow-cljs.edn`)."
   (:require [sci.core :as sci]
             [re-frame.core :as rf]
             [re-frame.views]
@@ -107,27 +108,12 @@
 ;; JS entry points
 ;; ---------------------------------------------------------------------------
 
-(defn ^:export evalString
-  "Plain-eval entry. Eval `src` in the re-frame2 SCI context, capturing
-  *out* and pr-str'ing the last form's value (deref'ing a returned var,
-  matching the JS bootstrap's plain-cell fidelity). Returns a JS array
-  [printedOut, resultString]. Throws on eval failure (the bootstrap
-  renders the error)."
-  [src]
-  (ensure-init!)
-  (let [out (volatile! "")
-        sw  (sci/with-out-str
-              (let [v (sci/eval-string* sci-ctx src)
-                    v (if (var? v) (deref v) v)]
-                (vreset! out (pr-str v))))]
-    #js [sw @out]))
-
 ;; render-root cache, keyed by the target DOM element, so re-render on
 ;; Mod-Enter reuses the same React root (and a Reaction stays live).
 (defonce ^:private roots (atom {}))
 
 (defn ^:export renderLast
-  "Render entry (cljs-render cells). Eval `src` at the SCI top level (so
+  "Render entry (cljs-rf2 cells). Eval `src` at the SCI top level (so
   a leading `(require ...)`'s aliases reach sibling forms — same reason
   the JS bootstrap does NOT wrap render-cell source in `(do ...)`), then
   mount the LAST form's value (a hiccup vector or component vector) into
@@ -149,7 +135,6 @@
 
 (defn ^:export init []
   (set! (.-rf2sci js/window)
-        #js {:evalString  evalString
-             :renderLast  renderLast}))
+        #js {:renderLast renderLast}))
 
 (init)
