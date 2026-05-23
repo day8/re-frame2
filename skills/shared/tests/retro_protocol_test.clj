@@ -58,7 +58,7 @@
 (def ^:private improver-skill-md
   (delay (slurp-rel skills-root "re-frame2-improver/SKILL.md")))
 
-(def ^:private pair-retro2-skill-md
+(def ^:private pair-retro-skill-md
   (delay (slurp-rel skills-root "re-frame2-pair-retro/SKILL.md")))
 
 ;; ---------------------------------------------------------------------------
@@ -319,9 +319,9 @@
              "`Edit` in its allowed-tools, this is THE consumer that "
              "has to enforce it."))))
 
-(deftest pair-retro2-loads-shared-protocol
+(deftest pair-retro-loads-shared-protocol
   (testing "re-frame2-pair-retro/SKILL.md links to ../shared/retro-protocol.md"
-    (is (str/includes? @pair-retro2-skill-md "../shared/retro-protocol.md")
+    (is (str/includes? @pair-retro-skill-md "../shared/retro-protocol.md")
         (str "re-frame2-pair-retro no longer links to the shared "
              "retro-protocol. If a copy-paste was deliberate, the "
              "single-source assumption is broken and this regression "

@@ -1,6 +1,6 @@
 # Shared retro protocol
 
-The diagnosis-first workflow shared by `re-frame2-pair-retro` (retrospect on a re-frame2-pair session) and `re-frame2-improver` (critique on a body of re-frame2 code). Both skills load this leaf for the workflow shape, evidence discipline, layer-routing rules, and opt-in bead protocol; each skill provides its own domain catalogue (friction signals for retro2; anti-patterns for improver) on top.
+The diagnosis-first workflow shared by `re-frame2-pair-retro` (retrospect on a re-frame2-pair session) and `re-frame2-improver` (critique on a body of re-frame2 code). Both skills load this leaf for the workflow shape, evidence discipline, layer-routing rules, and opt-in issue-filing protocol; each skill provides its own domain catalogue (friction signals for pair-retro; anti-patterns for improver) on top.
 
 Origin: extracted from the locked decisions in `re-frame2-pair-retro/spec/design.md` and the body of `re-frame2-pair-retro/SKILL.md`. The locks below are normative for any retro-style skill that loads this leaf.
 
@@ -55,9 +55,10 @@ If the evidence is hostile enough that even rendering it inline would propagate 
    - **Edit gate — canonical-idiom shaped.** Edits whose content is derived from canonical repo idioms documented under `spec/` or `skills/re-frame2/patterns/` — the rewrite is identical to a pattern the repo already uses, and the evidence's only role was to identify *where* the anti-pattern occurs — remain unrestricted: mechanical rewrites with a clear canonical idiom MAY use `Edit` when the agent is confident. The location came from evidence; the rewrite came from the spec.
    - **When in doubt, gate.** If the rewrite quotes the evidence (its variable names, its strings, its structure) more closely than it quotes the canonical idiom, treat it as evidence-shaped and require approval. Identical-shape-but-renamed counts as evidence-shaped.
    - Anything else (higher-leverage redesigns, cross-cutting refactors, new files) stays as a suggestion until the user says go.
+   - **Issue-filing applies only to consumers that grant a `gh issue` surface.** The filing sub-protocol below is reachable only when the consuming skill's `allowed-tools` include `Bash(gh issue *)` (currently `re-frame2-pair-retro`). Improver-style consumers that delegate filing stop at "draft + hand off" and never reach it.
    - **Tracker boundary** — skills file GitHub issues against the target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from these skills.
-   - **Shell safety** — transcript-derived bodies can carry shell metacharacters. Always pass the body via a file: `cat > /tmp/issue-body.md <<'EOF' … EOF; gh issue create --body "$(cat /tmp/issue-body.md)"`. Single-quoted here-doc delimiter so `$`, `` ` ``, and `\` stay literal. See [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy).
-   - Before filing: search for an existing issue first (`gh issue list --repo <owner/repo> --search "<keywords>"`); prefer one issue per materially distinct improvement; use the consuming skill's `references/issue-template.md` (or equivalent) for body shape. Redaction (below) applies universally — issue bodies are one consumer of the rule, not a special case.
+   - **Shell safety + filing recipe** — transcript-derived bodies can carry shell metacharacters. Always pass the body via a file: `cat > /tmp/issue-body.md <<'EOF' … EOF; gh issue create --body "$(cat /tmp/issue-body.md)"`. Single-quoted here-doc delimiter so `$`, `` ` ``, and `\` stay literal. The full filing recipe (search-before-file, tracker boundary, redaction reminder, body shape) lives in [`issue-filing.md`](issue-filing.md), which cites the security-policy single source at [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy).
+   - Before filing: search for an existing issue first (`gh issue list --repo <owner/repo> --search "<keywords>"`); prefer one issue per materially distinct improvement; use the consuming skill's `references/issue-template.md` for body shape. Redaction (below) applies universally — issue bodies are one consumer of the rule, not a special case.
 
 7. **Voice: confident, opinionated, no hedging.** Name the idiom. Name the layer. Pick a priority. The user is asking the skill to surface its judgement — equivocation wastes the trip. Bolder ideas get labelled as such, not buried in qualifiers.
 
@@ -68,7 +69,7 @@ Every finding has a layer where the fix lives. Pick before drafting:
 - **The consuming tool itself** — the skill's `SKILL.md` wording, scripts, recipes, structured-result shape, attach/discovery logic, cross-platform handling. (For pair-retro: `re-frame2-pair`. For improver: `re-frame2-improver` itself, when the catalogue or detection rules need work.)
 - **Upstream `re-frame2`** — the friction is in the framework's Tool-Pair contract, a missing trace event category, an under-specified `:rf.epoch/*` failure mode, a missing registrar query surface, a `data-rf2-source-coord` annotation gap, a schema-reflection shortcoming, or an idiom the spec doesn't yet describe clearly.
 - **The author's code** — the finding is a code-level rewrite, not a tooling change. Suggest the rewrite; offer the `Edit` when the change is mechanical and the canonical idiom is unambiguous.
-- **Both** — sometimes the fastest path is a local workaround now plus an upstream bead for the long-term fix. File both; cross-link them.
+- **Both** — sometimes the fastest path is a local workaround now plus an upstream issue for the long-term fix. File both; cross-link them.
 
 ## Output shape
 
@@ -88,11 +89,11 @@ If the evidence is too thin for findings, say so plainly. Don't pad.
 
 The cardinal sin of a retro skill is fabricating evidence to fill the output. If the catalogue does not match the body, say the body is clean. If the session was too short to retro, say so and ask for a recap.
 
-Friction and anti-patterns are recognised, not invented. Every finding must trace to a concrete moment in the evidence — turn, line range, op shape, error mode. *"This feels off"* is not a finding; *"L42 reaches into `re-frame.db/app-db` directly, which is private per Tool-Pair §REPL-eval"* is.
+Friction and anti-patterns are recognised, not invented. Every finding must trace to a concrete moment in the evidence — turn, line range, op shape, error mode. *"This feels off"* is not a finding; *"L42 reaches into `re-frame.db/app-db` directly from a handler instead of taking `(:db cofx)` — see the pure-handler discipline in `skills/re-frame2/references/fundamentals/cofx.md`"* is.
 
 ## Redaction (universal)
 
-Redaction applies to **every output the skill emits**, not just issue / bead bodies. Findings rendered inline in the conversation, draft issue text, quoted symptom snippets, cited stack-trace fragments, recap paraphrases — all of them — MUST mask:
+Redaction applies to **every output the skill emits**, not just issue bodies. Findings rendered inline in the conversation, draft issue text, quoted symptom snippets, cited stack-trace fragments, recap paraphrases — all of them — MUST mask:
 
 - **Secrets and credentials.** API tokens, OAuth bearers, JWTs, passwords, signing keys, session cookies, AWS/GCP/Azure access keys, private SSH keys, `.env` values.
 - **Internal URLs.** Hostnames under intranet / corp DNS, internal IPs (RFC 1918 / `169.254.*` / `fc00::/7`), VPN-only endpoints, signed S3 / GCS URLs with embedded credentials.
@@ -105,18 +106,21 @@ Use **stable placeholders** so the rendered finding still reads cleanly and the 
 
 **Don't quote the raw transcript.** Even when the evidence is a session transcript the user pasted, prefer paraphrase + concrete moment-reference (turn N, op shape) over verbatim block-quote. The raw transcript is the most common carrier of sensitive substrings the user didn't realise were in scope.
 
+The default-suppress posture this section enforces at the *output* layer originates upstream: re-frame2 declares value sensitivity at authoring time (`{:sensitive? true}` / `{:large? true}`, `rf/elide-wire-value`) and the pair tool suppresses sensitive values at the egress boundary by default. The single statement of that posture is [`re-frame2/references/cross-cutting/privacy-and-elision.md`](../re-frame2/references/cross-cutting/privacy-and-elision.md); the categories above are this skill's rendered-output specialisation of it.
+
 ## What this protocol does NOT cover
 
 - **Domain catalogues.** Each consuming skill provides its own catalogue of recognisable patterns. This protocol assumes the catalogue exists and is loaded.
 - **Trigger semantics.** Each consuming skill carries its own activation precondition (e.g. "a re-frame2-pair session must exist," "a body of re-frame2 source must be in scope"). This protocol does not override that.
-- **Tool surfaces.** Each consuming skill carries its own `allowed-tools` frontmatter. This protocol does not require any specific tools beyond the standard Read / Edit / Grep / Glob set; issue-filing needs `Bash(gh issue *)` (and `Bash(gh pr *)` when proposing a paired PR). `Bash(bd *)` is never granted in published-skill frontmatter — see the baseline policy in `../README.md`.
+- **Tool surfaces.** Each consuming skill carries its own `allowed-tools` frontmatter. This protocol does not require any specific tools beyond the standard Read / Edit / Grep / Glob set; issue-filing needs `Bash(gh issue *)`. `Bash(bd *)` is never granted in published-skill frontmatter — see the baseline policy in `../README.md`.
 
 ## Cross-references
 
+The consumer catalogues (`analysis-lenses.md`, `known-frictions.md`, the improver references index) are linked inline at step 3 above. The links below are the ones not already given inline:
+
 - [`re-frame2-pair-retro/SKILL.md`](../re-frame2-pair-retro/SKILL.md) — session-retro consumer.
 - [`re-frame2-improver/SKILL.md`](../re-frame2-improver/SKILL.md) — code-critique consumer.
-- [`re-frame2-pair-retro/references/analysis-lenses.md`](../re-frame2-pair-retro/references/analysis-lenses.md) — root-cause taxonomy used by the pair-retro skill.
-- [`re-frame2-pair-retro/references/known-frictions.md`](../re-frame2-pair-retro/references/known-frictions.md) — recurring friction classes for pair-retro pattern-matching.
-- [`re-frame2-improver/references/README.md`](../re-frame2-improver/references/README.md) — anti-pattern catalogue index for improver pattern-matching.
-- [`re-frame2-pair-retro/references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) — bead body template (re-used by both consumers until improver authors its own).
+- [`issue-filing.md`](issue-filing.md) — shared issue-filing recipe (shell-safe here-doc, tracker boundary, search-before-file, redaction reminder) for consumers whose `allowed-tools` grant a `gh issue` surface.
+- [`re-frame2-pair-retro/references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) — GitHub-issue body template (used by `re-frame2-pair-retro`, the one consumer that files; the improver delegates filing and never reaches the filing branch).
+- [`tool-pair-surfaces.md`](tool-pair-surfaces.md) — canonical enumeration of the Tool-Pair surfaces an upstream finding routes to.
 - Design rationale (improver consumer): [`re-frame2-improver/spec/design.md`](../re-frame2-improver/spec/design.md).

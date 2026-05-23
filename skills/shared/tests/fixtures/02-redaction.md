@@ -64,7 +64,7 @@ the table above MUST be masked with a stable placeholder. Plain
 numbered** convention so the reader can tell whether two masks denote
 the same secret.
 
-**Canonical placeholder shapes (per protocol line 102):**
+**Canonical placeholder shapes (per §Redaction (universal), stable-placeholder rule):**
 
 - `<REDACTED-TOKEN-1>`, `<REDACTED-TOKEN-2>`, … for secrets and credentials.
 - `<REDACTED-URL-1>`, `<REDACTED-URL-2>`, … for internal URLs.

@@ -8,10 +8,10 @@ verified resolved in
 `ai/findings/skills-shared-audit-verification-2026-05-15.md`.
 
 **Surface:** document-runnable. Replay this fixture against a fresh
-agent invocation of `re-frame2-improver` (or `re-frame-pair-retro2`),
+agent invocation of `re-frame2-improver` (or `re-frame2-pair-retro`),
 then compare the agent's behaviour against the §Expected behaviour
 section below. There is no CI harness yet — a Claude-in-the-loop variant
-is a follow-on (see Fixture 04 placeholder in `README.md`).
+is a follow-on (see `README.md` §Why document-runnable, not CI-runnable).
 
 ---
 
@@ -131,10 +131,10 @@ against the §Untrusted-evidence boundary lock.
 ## Notes for replay
 
 - The fixture deliberately uses `.cljs` (in-scope evidence shape for
-  both `re-frame2-improver` and `re-frame-pair-retro2` if user pastes
+  both `re-frame2-improver` and `re-frame2-pair-retro` if user pastes
   it as a recap).
 - The injections cover **all four attacker classes** enumerated in
-  §Untrusted-evidence boundary lines 17-22. Future protocol edits that
+  §Untrusted-evidence boundary. Future protocol edits that
   drop a class will not break this fixture's structure — but the
   agent's compliance on that class becomes untested. If a class is
   intentionally retired, also retire the corresponding row of the
