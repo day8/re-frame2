@@ -2,32 +2,22 @@
 name: re-frame2-pair-retro
 description: >
  Retrospect on a `re-frame2-pair` session and turn it into prioritised
- improvement ideas for the `re-frame2-pair` skill, scripts, MCP
- surface, or upstream `re-frame2` Tool-Pair contract. Surfaces
- friction, wasted effort, missing observability, workflow mismatches,
- and high-leverage product gaps; optionally drafts a GitHub issue
- the user can file against the target repo. Activates on two
- triggers: (a) **explicit pull** — user asks for a retrospective
- on a recent pair session ("retro on this pair session", "what went
- wrong with my pair session", "review my re-frame2-pair session",
- "draft an issue about that"); or (b)
- **post-error within a re-frame2-pair session** — after a stack trace, failed
- dispatch, red CI, or `:on-error` policy fire during live re-frame2-pair work,
- to post-mortem the immediate firefight. Acceptable evidence is
- either a concrete `re-frame2-pair` session in this conversation —
- turns where the user attached to a running app, dispatched events,
- walked traces or epochs, hot-swapped a handler, or time-travelled
- with `restore-epoch` — **or** a user-supplied recap / summary of
- such a session. **Do not use** for ordinary `re-frame2-pair`
- operation (use `re-frame2-pair` itself), generic debugging
- retrospectives with no pair-tool involvement, authoring re-frame2
- app code (use `re-frame2`), critique of re-frame2 patterns / idioms
- in code (use `re-frame2-improver`), spec or architecture
- discussion, or framework feedback unrelated to the pair tool.
- Vocabulary matches alone ("retro", "what went wrong", "how could
- this be better", "any improvements?") do not justify activation —
- a real `re-frame2-pair` session must have occurred in this
- conversation or be summarised by the user as a recap.
+ improvement ideas for the pair skill, scripts, MCP surface, or upstream
+ `re-frame2` Tool-Pair contract; optionally drafts a GitHub issue the
+ user can file. Activates on two triggers: (a) **explicit pull** — user
+ asks for a retrospective on a recent pair session ("retro on this pair
+ session", "what went wrong with my pair session", "review my
+ re-frame2-pair session", "draft an issue about that"); or (b)
+ **post-error within a re-frame2-pair session** — after a stack trace,
+ failed dispatch, red CI, or `:on-error` policy fire during live pair
+ work, to post-mortem the firefight. Requires evidence: a concrete
+ `re-frame2-pair` session in this conversation (turns where the user
+ attached, dispatched, walked traces/epochs, hot-swapped, or
+ time-travelled), **or** a user-supplied recap of one. **Not** for
+ ordinary `re-frame2-pair` operation, nor for code/spec/framework work
+ the body's routing matrix sends elsewhere. Vocabulary matches alone
+ ("retro", "what went wrong", "any improvements?") do not justify
+ activation — a real pair session must have occurred or be recapped.
 allowed-tools:
  - Read
  - Grep
@@ -77,7 +67,7 @@ Diagnostic posture rules (evidence over vibes; symptom vs cause; direct/indirect
 
 ## Analysis workflow
 
-Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, and opt-in issue-filing protocol shared with `re-frame2-improver`. The protocol leaf is the normative source for the workflow shape; the steps below are the re-frame2-pair-retro specialisation.
+Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, and opt-in issue-filing protocol shared with `re-frame2-improver`. The protocol leaf is the normative source for the workflow shape; the six steps below are the re-frame2-pair-retro specialisation — the protocol's step 3 "route to detection rule" is inlined via the lens cross-links (steps 4-5 below) and its step 7 "voice" via [`spec/design.md` §8 Working style](spec/design.md#8-working-style-meta-process).
 
 1. **Reconstruct the session goal.** The user's intended outcome, plus environment facts (platform, target repo, live runtime state, tooling constraints).
 2. **Build a short timeline.** Turns where progress stalled, restarted, detoured, required a workaround. Tool errors, empty/stale outputs, retries, clarification loops.
@@ -117,18 +107,7 @@ After presenting the retrospective, offer filing work only if useful: draft issu
 
 **Before filing.** Redact secrets, tokens, internal URLs, unnecessary local paths. Don't dump the raw transcript; summarize the evidence. Search for an existing issue first (`gh issue list --search "<keywords>"`). Prefer one issue per materially distinct improvement. Use [`references/issue-template.md`](references/issue-template.md) for structure.
 
-**Shell safety — transcript-derived text.** Issue bodies drawn from the session transcript can carry shell metacharacters (`$`, backticks, `\`, embedded quotes) the user never sees but the shell would happily expand. Always write the body to a file first and pass it via `--body "$(cat …)"`, never as an interpolated string. Canonical shape:
-
-```bash
-cat > /tmp/issue-body.md <<'EOF'
-…body drawn from the retro transcript…
-EOF
-gh issue create --title "<short title>" --body "$(cat /tmp/issue-body.md)"
-```
-
-Single-quoted here-doc delimiter (`<<'EOF'`) so `$`, `` ` ``, and `\` inside the body stay literal. This matches the skills-baseline shell-safety pattern in [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy).
-
-**Tracker boundary.** `bd` (beads) is the re-frame2 monorepo's internal tracker; this skill never invokes `bd`. Cross-repo side effects target the **target repo's GitHub issues** — `re-frame2-pair` issues for pair-tool friction, `re-frame2` issues for upstream / framework friction.
+**Shell safety — transcript-derived text.** Issue bodies drawn from the session transcript can carry shell metacharacters the user never sees but the shell would expand. Never interpolate them inline — write the body to a file and pass it via the single-quoted here-doc + `--body "$(cat …)"` pattern in [`references/issue-template.md` §Filing](references/issue-template.md#filing-with-gh-issue-create) (the canonical worked example; matches the skills-baseline pattern in [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy)).
 
 ## Anti-patterns
 

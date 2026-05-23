@@ -115,7 +115,7 @@ Signals:
 - a hot-swapped handler or evolved schema invalidated an older snapshot, but the failure tag was not surfaced helpfully
 
 Typical improvements:
-- structured presentation of the six named failure modes with a next-best-action per mode
+- structured presentation of the seven named failure modes (the six `:rf.epoch/restore-*` modes — `restore-unknown-epoch`, `restore-schema-mismatch`, `restore-missing-handler`, `restore-version-mismatch`, `restore-during-drain`, `restore-non-ok-record` — plus unknown-frame via `:rf.error/no-such-handler`) with a next-best-action per mode
 - preflight check before restore (depth, schema digest, machine version)
 - surface `:history-size` and `:schema-digest-recorded`/`:current` in the tool's output
 

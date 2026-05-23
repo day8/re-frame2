@@ -6,14 +6,14 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 
 ## The prompt
 
-> *I'm re-authoring the `re-frame2-pair-retro` skill at `skills/re-frame2-pair-retro/`. The skill helps a user **retrospect on a re-frame2-pair session** — diagnose friction, classify root causes, propose 2-5 prioritised improvements (plus optional bolder ideas), and optionally draft a bead. The skill defaults to **diagnosis, not contribution**; bead filing is opt-in. The skill is one of the principal feedback loops for the `re-frame2-pair` skill family.*
+> *I'm re-authoring the `re-frame2-pair-retro` skill at `skills/re-frame2-pair-retro/`. The skill helps a user **retrospect on a re-frame2-pair session** — diagnose friction, classify root causes, propose 2-5 prioritised improvements (plus optional bolder ideas), and optionally draft a GitHub issue. The skill defaults to **diagnosis, not contribution**; issue filing is opt-in. The skill is one of the principal feedback loops for the `re-frame2-pair` skill family.*
 >
 > *Read these first (in this order):*
 >
-> *1. `skills/re-frame2-pair-retro/spec/design.md` — the locked design decisions (L1 through L12). Pillars 1-4 in §2 are non-negotiable. L1 (no re-frame-10x routing) and L2 (no bead filing without approval) are cardinal.*
+> *1. `skills/re-frame2-pair-retro/spec/design.md` — the locked design decisions (L1 through L12). Pillars 1-4 in §2 are non-negotiable. L1 (no re-frame-10x routing) and L2 (no GitHub-issue filing without approval) are cardinal.*
 > *2. `skills/re-frame2-pair-retro/spec/inputs.md` — the canonical inputs the skill leans on.*
-> *3. `skills/re-frame2-pair/SKILL.md` + `skills/re-frame2-pair/references/` — the sibling skill the user just exercised. The improver reads the parent's friction surface (ops, recipes, errors, and the hot-reload coordination protocol in `ops.md`).*
-> *4. `skills/re-frame2-pair/spec/design.md` — the sibling's locks. The improver respects these when proposing changes.*
+> *3. `skills/re-frame2-pair/SKILL.md` + `skills/re-frame2-pair/references/` — the sibling skill the user just exercised. This skill reads the parent's friction surface (ops, recipes, errors, and the hot-reload coordination protocol in `ops.md`).*
+> *4. `skills/re-frame2-pair/spec/design.md` — the sibling's locks. This skill respects these when proposing changes.*
 > *5. `skills/re-frame2/SKILL.md` + `skills/re-frame2/spec/design.md` — the application-authoring sibling (relevant for upstream-routing decisions).*
 > *6. `skills/re-frame-migration/SKILL.md` — the closest structural sibling with an existing `spec/` triad. Voice / shape mirror this.*
 >
@@ -31,7 +31,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > ├── references/
 > │ ├── analysis-lenses.md (~140 lines; nine root-cause lenses)
 > │ ├── known-frictions.md (~120 lines; recurring pain patterns)
-> │ └── issue-template.md (~90 lines; bead-body template + redaction)
+> │ └── issue-template.md (~90 lines; GitHub-issue-body template + redaction)
 > └── spec/
 > ├── design.md
 > ├── inputs.md
@@ -73,18 +73,18 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *- **L1 — No re-frame-10x routing.** Cardinal anti-pattern.*
 > *- **L2 — Never file a GitHub issue without explicit user approval.** Cardinal guard-rail.*
 > *- **L3 — Route the fix to the right repo.** `re-frame2-pair` for tool changes; `re-frame2` for upstream contract changes. Skills file GitHub issues against the target repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
-> *- **L10 — No bead-ids in user-facing skill content.***
+> *- **L10 — No internal `bd`/`rf2-XXXX` ids in user-facing skill content.***
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. Bodies pass via stdin/here-doc (`gh issue create --body "$(cat /tmp/file)"`), never inline interpolation of transcript-derived text.*
 >
-> *Frontmatter — the `description` is "pushy" but conversational. Trigger phrases: "how could re-frame2-pair better support my workflow", "retrospective on a debugging session", "concrete improvement ideas for re-frame2-pair", "draft a bead for re-frame2-pair". The description discriminates against the live-app `re-frame2-pair` skill and the authoring `re-frame2` skill.*
+> *Frontmatter — the `description` is "pushy" but conversational. Trigger phrases: "how could re-frame2-pair better support my workflow", "retrospective on a debugging session", "concrete improvement ideas for re-frame2-pair", "draft an issue for re-frame2-pair". The description discriminates against the live-app `re-frame2-pair` skill and the authoring `re-frame2` skill.*
 >
 > *Voice: tight, diagnostic, conversational. Use evidence-grounded findings, not vibes. Use the analysis-lenses table for classification. Use the impact statement to force specificity.*
 >
 > *Don't:*
 >
 > *- Don't propose fixes that route through `re-frame-10x` — L1.*
-> *- Don't file beads autonomously — L2.*
+> *- Don't file GitHub issues autonomously — L2.*
 > *- Don't reduce every problem to "write more docs". Consider product behaviour, tooling, defaults, instrumentation first.*
 > *- Don't confuse a transient local outage with a product gap unless the workflow made recovery harder than it should have.*
 > *- Don't propose vague improvements like "better UX" without naming the concrete missing behaviour.*
@@ -92,7 +92,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *- Don't write `*.md` documentation outside `skills/re-frame2-pair-retro/`.*
 > *- Don't commit `ai/` or `findings/` content.*
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
-> *- Don't include bead-ids in user-facing leaves.*
+> *- Don't include internal `bd`/`rf2-XXXX` ids in user-facing leaves.*
 >
 > *Open the PR with title `feat(skills): re-frame2-pair-retro — pair-session retrospective skill`. PR body lists: the skill structure, the file LoC table, the six-step workflow, the nine lenses, the output format, the relationship to the sibling skills (`re-frame2-pair` — its primary feedback loop; `re-frame2` — for upstream routing).*
 
@@ -106,8 +106,8 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 ## When to re-author
 
 - A new common friction pattern emerges (3+ retros surface it) and the existing taxonomy doesn't fit → add a new analysis lens (and update `references/analysis-lenses.md` accordingly), then refresh SKILL.md's step 4 framing.
-- The bead-filing process changes (e.g. `bd` tool surface or routing) → re-derive `references/issue-template.md`.
-- A new feedback channel becomes load-bearing (e.g. GitHub Issues replaces `bd`) → update L3 routing and `references/issue-template.md`.
+- The issue-filing process changes (e.g. the `gh issue create` flow, label scheme, or repo routing) → re-derive `references/issue-template.md`.
+- A new feedback channel becomes load-bearing → update L3 routing and `references/issue-template.md`.
 - Anthropic skill conventions change materially → reauthor against the new conventions.
 
 Otherwise, edit existing references directly; reauthoring is for major-version updates.

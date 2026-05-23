@@ -2,7 +2,7 @@
 
 Use this structure when drafting or filing an improvement. Keep it evidence-based and concise.
 
-The default filing path is a **GitHub issue** against the target repo — `re-frame2-pair` for pair-tool friction, `re-frame2` for upstream / framework friction. `bd` (beads) is the re-frame2 monorepo's internal tracker; this skill never invokes it.
+The default filing path is a **GitHub issue** against the target repo — `re-frame2-pair` for pair-tool friction, `re-frame2` for upstream / framework friction. (Tracker boundary: never `bd` — see Filing rules below.)
 
 ## Routing first
 
@@ -94,7 +94,7 @@ Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to ch
 ## Filing rules
 
 - File only after explicit user approval.
-- **Never interpolate transcript-derived text directly into a shell command.** Use the here-doc + `--body "$(cat /tmp/file)"` pattern above — single-quoted `<<'EOF'` delimiter so `$`, `` ` ``, and `\` stay literal.
+- **Never interpolate transcript-derived text directly into a shell command.** Use the here-doc + `--body "$(cat /tmp/file)"` pattern shown above.
 - Redact secrets, tokens, and internal-only details.
 - Prefer one issue per distinct improvement.
 - Search for an existing issue first: `gh issue list --repo <owner/repo> --search "<keywords>"`.
