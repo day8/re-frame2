@@ -264,12 +264,15 @@ coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage
 reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/causa/testbeds/` —
-`two_frame_isolation`, `feature_matrix`, `panel_gallery`,
+`two_frame_isolation`, `step_deck`, `feature_matrix`, `panel_gallery`,
 `perf_counter` — covering the canonical multi-frame isolation surface
 (`two_frame_isolation`: one app · two frames · Counter / Machine
 (websocket) / Routing / Async&errors tabs navigated as routes ·
 per-frame trace / events / issues / cascades · Causa target-frame
 round-trip; built from the shared `testdeck/` modules), the
+single-frame step-deck (`step_deck`: the same shared `testdeck/`
+modules mounted once, in one URL-bound frame, as action→check cards —
+the step-by-step counterpart to `two_frame_isolation`), the
 deterministic feature-matrix sweep across panels + shell + launch
 modes + redaction + 20-event load, the Panel-view gallery, and the
 performance probe.
