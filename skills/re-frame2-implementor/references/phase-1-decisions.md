@@ -360,13 +360,17 @@ From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Impl
 **The capability tag families** ([`spec/conformance/README.md` §Capability tagging](https://day8.github.io/re-frame2/spec/conformance/)):
 
 - `:core/*` — pattern-required basics. Every conformant port claims these.
-- `:fsm/*` — FSM-richness axis (claim if D3 Q1 = yes; pick which sub-capabilities — `:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`).
+- `:fsm/*` — FSM-richness axis (claim if D3 Q1 = yes; pick which sub-capabilities — `:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/registration-validation`).
 - `:actor/*` — actor-model axis (claim if D3 Q1 = yes; pick which — `:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`).
+- `:flow/*` — Flows axis (`:flow/basic`, `:flow/trace`); claim if D3 ships EP 013.
+- `:rf.http/managed` — managed-HTTP; claim if D3 ships EP 014.
 - `:routing/*` — claim if D3 Q2 = yes.
 - `:ssr/*` — claim if D3 Q3 = yes.
 - `:schemas/*` — claim if D3 Q4 ≠ no (regardless of mechanism).
 
-The harness runs every fixture whose `:fixture/capabilities` is a subset of the claimed set and skips the rest. The score is `passed / claimed-applicable`.
+These families track the **corpus**, which is the acceptance test; the Implementor-Checklist's list lags it (omitting `:flow/*`, `:rf.http/managed`, `:fsm/final-states`, `:fsm/registration-validation`) — when they diverge, the corpus wins.
+
+The harness runs every fixture whose `:fixture/capabilities` is a subset of the claimed set. A deliberately-unclaimed capability goes on the harness's `known-skipped-capabilities` allowlist; a fixture whose capability is in neither the claim nor the allowlist must FAIL the suite, never skip silently (see [`conformance.md` §The two out-of-claim flavours](conformance.md#the-two-out-of-claim-flavours)). The score is `passed / claimed-applicable`.
 
 **Where the spec speaks.** [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/) — full capability tagging table and the harness contract.
 

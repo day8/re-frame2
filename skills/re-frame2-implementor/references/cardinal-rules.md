@@ -8,7 +8,7 @@ These hold across every phase of building a new re-frame2 implementation. Each r
 
 [`spec/`](../../../spec/) is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; draft a GitHub issue against `day8/re-frame2` (against the spec or the reference impl as appropriate) and ask the engineer to OK it before filing — see rule 9.
 
-**Pin the spec before reading it.** Phase 1 names a specific re-frame2 commit/tag in `DECISIONS.md` (see [`decision-record.md`](decision-record.md) D1 preamble). Verify `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin and that the origin is `https://github.com/day8/re-frame2` before reading the spec corpus. An unpinned or unverified checkout is not a contract — it's whatever happens to be on the filesystem.
+**Pin the spec before reading it.** The kickoff prompt names a specific `day8/re-frame2` commit/tag; Phase 1 records that pin in `DECISIONS.md` (the preamble before D1 — see [`decision-record.md`](decision-record.md)). Before reading the spec corpus, verify `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin **and** that the origin is `https://github.com/day8/re-frame2`. The engineer actually runs this check in the Phase 1 preamble ([`phase-1-decisions.md`](phase-1-decisions.md)). An unpinned or unverified checkout is not a contract — it's whatever happens to be on the filesystem.
 
 ## 2. Phase 1 before Phase 2
 
@@ -71,11 +71,7 @@ Filing a GitHub issue against `day8/re-frame2` from inside the engineer's port r
 
 Invoking the skill is consent to the *workflow*, not consent to each *cross-repo write*. Treat the two as separate gates.
 
-## 10. Pin the spec corpus before reading it
-
-The kickoff prompt names a specific `day8/re-frame2` commit/tag. Verify the checkout's HEAD and origin before reading the spec, and record the pinned hash in `DECISIONS.md` (the preamble before D1). Confirm `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin and that the origin is `https://github.com/day8/re-frame2`. An unpinned or unverified checkout is not the contract — it is whatever happens to be on the filesystem. (This restates, as a standalone rule, the pinning discipline also threaded through rule 1.)
-
-## 11. Honour the reserved `:rf/*` namespace scheme
+## 10. Honour the reserved `:rf/*` namespace scheme
 
 re-frame2 reserves **one root keyword namespace** for framework-owned ids: `:rf/*` (and its sub-namespaces — `:rf.fx/*`, `:rf.machine/*`, `:rf.error/*`, `:rf.registry/*`, …). Every framework runtime id — events, fx, cofx, app-db keys (`:rf/machines`, `:rf/route`), trace operations, error categories, warnings, registrar mutations, the default frame id (`:rf/default`) — lives under that root. **User code MUST NOT register handlers, fx, subs, or frames under `:rf/*`.** Your port must (a) emit framework ids under the reserved scheme and (b) leave the scheme free for the framework, never user code.
 
@@ -89,9 +85,4 @@ This is a conformance surface, not a style preference. Fixtures assert `:rf.*` o
 - **Don't skip Phase 1.** Decisions made under Phase 1 (especially F2 persistent data structures and F5 concurrency model) propagate through every line of Phase 2 code. Engineers who skip Phase 1 to "just start coding" end up rewriting the foundation halfway through.
 - **Don't declare Q1 (state machines) `yes` unless the FSM substrate is genuinely required.** EP 005 is substantial work and gates a large block of code. Smaller ports ship `Q1=no` and add the FSM substrate later — the events/subs/fx/views triad is self-sufficient for many use cases.
 - **Don't ship without conformance.** The corpus is the only objective measure of "is this re-frame2?" Without the corpus passing, the port is "inspired by re-frame2" but not a re-frame2 implementation. Run the harness early; the corpus is also useful as your test suite during development.
-- **Don't invent surfaces the spec is silent on.** If the spec says nothing about hierarchical FSM exit-order semantics in a specific edge case, *draft a GitHub issue against `day8/re-frame2`* (and ask the engineer to OK before filing — rule 9) — don't extrapolate from the CLJS reference. The reference's choice is one realisation; the spec's silence is a gap.
-- **Don't file cross-repo issues without explicit OK.** Every `gh issue create` against `day8/re-frame2` shows the engineer the full drafted title + body + labels and waits for "yes" / "go" / "file it" before running. The engineer always confirms each issue, not just the workflow. See rule 9.
-- **Don't paste private port content into a cross-repo issue body.** Issue bodies cite `spec/` and the fixture / EP. They do not include the engineer's source, commits, transcript, or repo-local paths. See rule 8.
-- **Don't interpolate transcript-derived text into a `gh issue create` command.** Use the here-doc + `--body "$(cat /tmp/file)"` pattern under rule 8.
-- **Don't read the spec corpus without verifying the pin.** Phase 1 records a `day8/re-frame2` commit/tag in `DECISIONS.md`. Confirm `git -C <path-to-re-frame2> rev-parse HEAD` matches and the origin is `day8/re-frame2` before reading. An unverified or unpinned checkout is not the contract.
 - **Don't promise the engineer "this skill will write the port for you".** The skill walks the workflow and surfaces the decisions; the engineer (or their Claude session) writes the code. Phase 2 is multi-week work in any host; the skill is the map, not the vehicle.

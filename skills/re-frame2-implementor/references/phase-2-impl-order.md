@@ -46,6 +46,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 - **Source-coord capture.** Hosts without macros (TS at runtime, OCaml-family) capture source coords from stack frames at `reg-*` call time, or via build-time codegen, or omit. The CLJS reference uses macros — that's a choice, not a requirement. Per [`spec/000-Vision.md` §What the pattern does NOT over-commit to](https://day8.github.io/re-frame2/spec/000-Vision/#what-the-pattern-does-not-over-commit-to).
 - **Metadata propagation.** The metadata on a `reg-event-*` registration must be reachable from the trace events fired during the event's drain. The CLJS reference threads `:doc` and source coords through the dispatch envelope; check that your design surfaces the same.
+- **`:machine-action` in the conformance fixtures is NOT a runtime registry kind.** The Mode-B FSM fixtures (`:machine-transition` / `:reg-machine`) use `:machine-action` as a top-level key under `:fixture/registry` / `:fixture/handlers` — a *harness-local* binding for attaching pure transition-action bodies in a frameless fixture (see [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/)). The runtime closed kind set above is unchanged; do not wire `:machine-action` into your registrar or reject the fixture when you encounter it.
 
 ---
 
@@ -81,12 +82,20 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 **Read first.** [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/). All ~990 lines — this EP is the load-bearing contract between the runtime and the view layer.
 
-**The contract.**
+**The contract.** Nine entries total — verbatim from [`spec/006-ReactiveSubstrate.md` §The adapter API contract](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#the-adapter-api-contract). The function set is **closed for v1**.
 
-- **Six required functions** the adapter must provide: container creation, container read, container replace, sub-cache invalidation hook, render-tree → surface, mount/unmount.
-- **Two optional functions:** server-render-to-string, hydration.
-- **One lifecycle function:** start.
-- **Single-adapter-per-process.** A process binds one adapter at boot; multi-adapter coexistence is post-v1.
+- **Six required functions** the adapter must provide:
+  - `make-state-container` — create a reactive container holding an `app-db` value.
+  - `read-container` — read the current value (pure).
+  - `replace-container!` — mutate the container with a new value (the only mutation primitive; invalidation rides this).
+  - `make-derived-value` — construct a derived (memoised) container from one or more sources.
+  - `render` — render a render-tree onto the substrate's surface; return an unmount fn.
+  - `render-to-string` — pure render to an HTML string. **JVM-runnable and required even for Q3=no (no-SSR) ports** — do not treat it as optional.
+- **Two optional functions** (the core falls back when absent):
+  - `subscribe-container` — register a change-listener for invalidation. Fallback: core runs invalidation inline within `replace-container!`.
+  - `register-context-provider` — return a context-provider component that scopes a frame to a subtree. Fallback: explicit-frame-as-argument threaded by the user's view code.
+- **One lifecycle function:** `dispose-adapter!` — tear down: release listeners, caches, host resources. (Boot wiring is `install-adapter!`, a core entry point — not part of the adapter's own surface; there is no "start" function.)
+- **Single-adapter-per-process.** A process binds one adapter at boot via `install-adapter!`; multi-adapter coexistence is post-v1.
 - **Revertibility constraint on adapters.** Adapter-internal state must be derivable from the frame value. No "shadow state" inside the adapter that the frame value can't reproduce on revert. Per [`spec/006-ReactiveSubstrate.md` §Revertibility constraints on adapters](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#revertibility-constraints-on-adapters).
 - **Subscription cache invalidation contract.** Per [`spec/006-ReactiveSubstrate.md` §Subscription cache — contract and operational semantics](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#subscription-cache--contract-and-operational-semantics).
 
@@ -205,7 +214,7 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 ### EP 014 — HTTP (if claimed)
 
-**Read.** [`spec/014-HTTPRequests.md`](https://day8.github.io/re-frame2/spec/014-HTTPRequests/) plus [Pattern-RemoteData](https://day8.github.io/re-frame2/spec/Pattern-RemoteData/) and [Pattern-ManagedHTTP](https://day8.github.io/re-frame2/spec/Pattern-Forms/).
+**Read.** [`spec/014-HTTPRequests.md`](https://day8.github.io/re-frame2/spec/014-HTTPRequests/) plus [Pattern-RemoteData](https://day8.github.io/re-frame2/spec/Pattern-RemoteData/) and [Managed-Effects](https://day8.github.io/re-frame2/spec/Managed-Effects/) (the managed-fx lifecycle that HTTP rides on).
 
 ### EP 007 — Stories (if D3 Q5 = yes)
 

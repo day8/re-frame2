@@ -21,7 +21,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 >
 > ```
 > skills/re-frame2-implementor/
-> ├── SKILL.md (router; ~250 lines)
+> ├── SKILL.md (router; ~100-150 lines — keep it lean, push detail into leaves)
 > ├── README.md (~80 lines)
 > ├── LICENSE (mirror skills/re-frame-migration/LICENSE)
 > ├── package.json (npm metadata; mirror re-frame-migration shape)

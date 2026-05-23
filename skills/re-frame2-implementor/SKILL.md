@@ -16,7 +16,6 @@ description: >
   `re-frame2-pair`).
 allowed-tools:
   - Bash(gh issue *)
-  - Bash(gh pr *)
   - Read
   - Edit
   - Write
@@ -39,7 +38,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
-1. **Spec is the contract.** When `implementation/` and [`spec/`](../../spec/) disagree, the spec wins.
+1. **Spec is the contract — pinned before reading.** When `implementation/` and [`spec/`](../../spec/) disagree, the spec wins. The kickoff prompt names a `day8/re-frame2` commit/tag; verify the checkout's HEAD and origin before reading the spec and record the pin in `DECISIONS.md` (preamble before D1). An unverified checkout is not the contract.
 2. **Phase 1 before Phase 2.** Lock decisions in writing before writing code.
 3. **Dependency order.** EP 001 → 002 → 006 → 004 → 009 are the foundation; optional EPs sit downstream.
 4. **Substrate-agnostic phrasing.** Write to "the identity primitive", "the render-tree", "the reactive container" — not to hiccup / Reagent / keywords.
@@ -48,8 +47,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 7. **Conformance corpus is the acceptance test.** Score is `passed / claimed-applicable`; a fixture you can't make pass without outside sources is a *spec gap*.
 8. **Spec gap → draft a GitHub issue against `day8/re-frame2` and ask before filing.** Don't paper, don't invent, don't extrapolate from the reference — but don't auto-file either. Show the engineer the drafted title + body, restrict the body to public spec-quoted evidence (no private port source), and wait for explicit OK before running `gh issue create`. The skill runs in the engineer's port repo; spec gaps reach the framework maintainers via the upstream repo's GitHub issues — never via `bd` (re-frame2's internal tracker, never invoked from a published skill).
 9. **Per-issue approval gate for any cross-repo side effect.** Before running `gh issue create` against a repo other than the one the engineer is working in, show the full draft (title, target repo, label set, body) and wait for explicit "yes" / "go" / "file it". Invoking the skill is consent to the workflow, not to each cross-repo write. See [`references/cardinal-rules.md` §9](references/cardinal-rules.md).
-10. **Pin the spec corpus.** The kickoff prompt names a specific `day8/re-frame2` commit/tag; verify the checkout's HEAD and origin before reading the spec, and record the pinned hash in `DECISIONS.md` (preamble before D1). An unverified checkout is not the contract.
-11. **Honour the reserved `:rf/*` scheme.** Framework-owned ids live under the single root namespace `:rf/*` (and its sub-namespaces); user code MUST NOT register under `:rf/*`. Reserved fx-ids and reserved app-db keys (`:rf/machines`, `:rf/route`, …) are part of the contract. A port that ignores the scheme fails conformance fixtures that assert `:rf.*` operation ids. Per [`spec/Conventions.md`](../../spec/Conventions.md); the "where does each surface live" map is [`spec/Ownership.md`](../../spec/Ownership.md).
+10. **Honour the reserved `:rf/*` scheme.** Framework-owned ids live under the single root namespace `:rf/*` (and its sub-namespaces); user code MUST NOT register under `:rf/*`. Reserved fx-ids and reserved app-db keys (`:rf/machines`, `:rf/route`, …) are part of the contract. A port that ignores the scheme fails conformance fixtures that assert `:rf.*` operation ids. Per [`spec/Conventions.md`](../../spec/Conventions.md); the "where does each surface live" map is [`spec/Ownership.md`](../../spec/Ownership.md).
 
 ## Phase 1 — lock the decisions
 
@@ -93,7 +91,7 @@ The corpus at [`spec/conformance/`](../../spec/conformance/) is host-agnostic da
 
 ## Reference files (all one level deep)
 
-- [`references/cardinal-rules.md`](references/cardinal-rules.md) — the eleven rules in prose + anti-pattern corollaries.
+- [`references/cardinal-rules.md`](references/cardinal-rules.md) — the ten rules in prose + anti-pattern corollaries.
 - [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — Phase 1 walkthrough, seven decision blocks.
 - [`references/decision-record.md`](references/decision-record.md) — fill-in template for the locked-decision record.
 - [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) — EP-by-EP implementation order.
