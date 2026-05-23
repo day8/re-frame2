@@ -256,8 +256,12 @@ unrecoverable exception.
 
 **Input.** `{:variant-id keyword (required)}`.
 
-**Output.** `{:violations [map] :hint? string}`. JVM-standalone
-hosts return `{:violations [] :hint "axe-core requires the in-browser panel."}`.
+**Output.** `{:variant-id keyword :violations [map] :note string|nil}`.
+The shared-process (CLJS co-hosted) deploy returns the accumulated
+violations + `:note nil`; JVM-standalone hosts can't run axe-core and
+return `{:variant-id <kw> :violations [] :note "a11y is CLJS-only; this
+JVM-standalone deploy can't run axe-core. Run the panel in-browser; the
+violations atom is read by this tool."}`.
 
 ### `read-failures`
 

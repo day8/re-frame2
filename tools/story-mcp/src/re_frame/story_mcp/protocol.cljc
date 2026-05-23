@@ -91,20 +91,13 @@
 (defn notification?
   "Per JSON-RPC 2.0 §4.1, a notification is a request without an `id`.
   Notifications get no response. Assumes keys have been keywordised
-  (parse-json does this)."
+  (parse-json does this). This predicate is the single home for the
+  request-vs-notification rule — `server/dispatch` calls it rather than
+  re-spelling the `(not (contains? message :id))` check inline
+  (rf2-ee38b.17)."
   [message]
   (and (map? message)
        (not (contains? message :id))))
-
-(defn request?
-  "True iff `message` has the JSON-RPC request shape (`jsonrpc:\"2.0\"`,
-  `method` present, `id` present). The `id` MAY be a number, string, or
-  null per the spec — we accept any non-vector / non-map scalar."
-  [message]
-  (and (map? message)
-       (= "2.0" (:jsonrpc message))
-       (contains? message :method)
-       (contains? message :id)))
 
 (defn valid-envelope?
   "True iff `message` is a syntactically-valid JSON-RPC 2.0 request OR

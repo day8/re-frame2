@@ -68,14 +68,31 @@
   (try (resolve sym) (catch Throwable _ nil)))
 
 #?(:clj
-   ;; `story/registered-substrates` is CLJS-only — resolved once at ns-load
-   ;; (mirrors `tools.dev/registered-substrates-var`, the documented
-   ;; pattern). The substrate set is stable across the process lifetime, so
-   ;; `read-run-opts` (preview/run/snapshot hot path) derefs this cached var
-   ;; rather than re-resolving per call. JVM-standalone deploy reads nil and
-   ;; yields an empty set; the nREPL-attached CLJS deploy reads the var.
+   ;; `story/registered-substrates` is CLJS-only — resolved ONCE at ns-load,
+   ;; here, as the single resolution site for the whole story-mcp surface
+   ;; (rf2-ee38b.17 folded the duplicate `tools.dev/registered-substrates-var`
+   ;; into this one). The substrate set is stable across the process
+   ;; lifetime, so `read-run-opts` (preview/run/snapshot hot path) and
+   ;; `dev/tool-list-substrates` both deref the cached var rather than
+   ;; re-resolving per call. JVM-standalone deploy reads nil and yields an
+   ;; empty set; the nREPL-attached CLJS deploy reads the var.
    (defonce ^:private registered-substrates-var
      (resolve-cljs-var 'story/registered-substrates)))
+
+(defn registered-substrates
+  "The sorted vec of CLJS-registered substrate ids, or `[]` on a
+  JVM-standalone deploy (the var is unresolvable). The single accessor
+  over the cached `registered-substrates-var` — `dev/tool-list-substrates`
+  and `read-run-opts` both read through here so the CLJS var is resolved
+  exactly once at ns-load."
+  []
+  #?(:clj  (try
+             (if registered-substrates-var
+               (sort (vec (registered-substrates-var)))
+               [])
+             (catch Throwable _ []))
+     :cljs (try (sort (vec (story/registered-substrates)))
+                (catch :default _ []))))
 
 (defn text-result
   "Build a success result with a single text content item. `structured`
@@ -332,3 +349,90 @@
     include?       (vec (or records []))
     (nil? records) []
     :else          (first (sensitive/strip-sensitive records false))))
+
+;; ---------------------------------------------------------------------------
+;; Derived-tree wire-egress redaction (rf2-ee38b.17, headline P1).
+;;
+;; `elide-app-db` closes the leak for the `:app-db` slot — but the same
+;; sensitive value reappears, VERBATIM, in `:rendered-hiccup` (the variant
+;; view renders `[:input {:value <token>}]`), in `:effective-args` (the
+;; resolved arg map that fed the render), and in any `:snapshot` body. Those
+;; are derived from the same app-db, but they are NOT keyed by app-db path —
+;; the token sits at a hiccup-tree position (`[1 :value]`), not at
+;; `[:user :token]`. `elide-wire-value` matches the schema-declared SENSITIVE
+;; PATHS, so running it over a hiccup tree finds nothing: the path-based
+;; walker is structurally blind to the re-keyed copy.
+;;
+;; The sound posture for a DERIVED tree is VALUE-based redaction: collect the
+;; live values sitting at the frame's declared-`:sensitive?` app-db paths,
+;; then substitute any leaf in the derived tree that EQUALS one of them with
+;; the same `:rf/redacted` sentinel `elide-wire-value` emits. This honours
+;; the Tool-Pair §Direct-read privacy MUST intent — "live runtime state
+;; crossing the MCP egress is scrubbed" — for the rendered surface, with the
+;; same `:include-sensitive` opt-out escape hatch as `:app-db`.
+;; ---------------------------------------------------------------------------
+
+(defn- sensitive-values
+  "The set of live values sitting at `variant-id`'s declared-`:sensitive?`
+  app-db paths, read out of `app-db`. Used to value-redact derived trees
+  (rendered hiccup, effective-args, snapshot) where the same value
+  reappears at a non-app-db path the path-based walker can't reach.
+
+  Refreshes the schema-owned declarations first (the elision registry is
+  populated from `{:sensitive? true}` schema metadata, same as
+  `elide-app-db`'s pre-step). Nil / boolean values are excluded — a `nil`
+  or `false` leaf is not a secret and value-matching them would scrub
+  swathes of benign tree."
+  [app-db variant-id]
+  (refresh-elision-from-schemas! variant-id)
+  (let [decls (rf/elision-sensitive-declarations variant-id)]
+    (into #{}
+          (comp (map (fn [path] (get-in app-db (vec path) ::absent)))
+                (remove #(or (= ::absent %) (nil? %) (boolean? %))))
+          (keys decls))))
+
+(defn- redact-matching
+  "Walk `tree`, substituting any leaf `=` to a member of `secrets` with the
+  `:rf/redacted` sentinel. Recurses through maps, vectors, sets, seqs;
+  treats every other value as a leaf. Map KEYS are walked too — a secret
+  used as a key (rare, but a `{:value <token>}`-style attribute map could
+  in principle key on one) is redacted on both sides."
+  [tree secrets]
+  (cond
+    (contains? secrets tree) :rf/redacted
+    (map? tree)    (persistent!
+                     (reduce-kv (fn [acc k v]
+                                  (assoc! acc
+                                          (redact-matching k secrets)
+                                          (redact-matching v secrets)))
+                                (transient {})
+                                tree))
+    (vector? tree) (mapv #(redact-matching % secrets) tree)
+    (set? tree)    (into #{} (map #(redact-matching % secrets)) tree)
+    (seq? tree)    (map #(redact-matching % secrets) tree)
+    :else          tree))
+
+(defn scrub-rendered
+  "Value-redact a DERIVED tree (rendered hiccup, `:effective-args`, a
+  snapshot body) before wire egress. The path-based `elide-wire-value`
+  walker scrubs `:app-db` by path, but the same sensitive value reappears
+  in these derived surfaces at a non-app-db position — so we collect the
+  live values at `variant-id`'s declared-`:sensitive?` paths and substitute
+  any matching leaf in `tree` with `:rf/redacted` (rf2-ee38b.17).
+
+  Short-circuits, mirroring `elide-app-db`:
+
+    - `include? true` returns `tree` unchanged (the opt-out escape hatch).
+    - A nil `tree` or nil `app-db` returns `tree` (nothing to scrub /
+      no source of secrets).
+    - No declared-sensitive values ⇒ `tree` is returned unwalked (the
+      common case is one cheap set build, then the no-secrets early out)."
+  [tree app-db variant-id include?]
+  (cond
+    include?        tree
+    (nil? tree)     tree
+    (nil? app-db)   tree
+    :else           (let [secrets (sensitive-values app-db variant-id)]
+                      (if (empty? secrets)
+                        tree
+                        (redact-matching tree secrets)))))
