@@ -27,7 +27,7 @@ The runtime accepts exactly six values; anything else triggers `:rf.error/bad-on
 
 ## What `:retry-count` was — and isn't
 
-The framework does NOT implement retry semantics. `:retry-count` is **not part of the contract** and never was. If you find a policy in the user's code returning `{:recovery :retried :retry-count 3}` (an old idiom from drafts), the runtime now rejects it: `:rf.error/bad-on-error-return` is emitted and the category default applies. The `:retried` keyword exists in the recovery enum but is **reserved for `:rf.http/retry-attempt`** traces emitted by managed-HTTP — that surface owns its own backoff. An `:on-error` policy that wants to fire the event again MUST dispatch a fresh event from the policy body.
+The framework does NOT implement retry semantics. `:retry-count` is **not part of the contract** and never was. If you find a policy in the user's code returning `{:recovery :retried :retry-count 3}` (an old idiom from drafts), the runtime now rejects it: `:rf.error/bad-on-error-return` is emitted and the category default applies. `:retried` is **not** one of the six `:on-error` return values — it is the runtime's own `:recovery` disposition stamped on `:rf.http/retry-attempt` traces emitted by managed-HTTP (Spec 009 §Catalogue / Spec 014 §Retry and backoff), where that surface owns its own backoff. An `:on-error` policy that wants to fire the event again MUST dispatch a fresh event from the policy body.
 
 ## `:replacement` — only honoured under `:replaced-with-default`
 
@@ -71,7 +71,6 @@ mcp__re-frame2-pair__eval-cljs {
 }
 ```
 
-Legacy bash form (if the MCP server isn't wired): replace each `mcp__re-frame2-pair__eval-cljs {form: "..."}` with `scripts/eval-cljs.sh '<form>'`.
 
 ## Quick checklist for proposing a policy
 

@@ -63,7 +63,7 @@ Does `scripts/eval-cljs.sh '(+ 1 2)'` return `{:ok? true :value 3}`? If not, `op
 
 ### 3. `data-rf2-source-coord` format — RESOLVED 2026-05-09
 
-Per [Spec 006 §Source-coord annotation](https://github.com/day8/re-frame2/blob/master/spec/006-ReactiveSubstrate.md) and [Tool-Pair §Source-mapping](https://github.com/day8/re-frame2/blob/master/spec/Tool-Pair.md) the emitted attribute value is:
+Per [Spec 006 §Source-coord annotation](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) and [Tool-Pair §Source-mapping](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) the emitted attribute value is:
 
 ```
 data-rf2-source-coord="<ns>:<handler-id>:<line>:<col>"
