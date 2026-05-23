@@ -62,15 +62,47 @@ shipped surface is the Mermaid `stateDiagram-v2` exporter.
   JVM + CLJS test corpus uses a stub resolver to pin the parse /
   validate path; production callers wire their own LLM resolver in.
 
+- **`MachineChart` interactive component** — the xyflow + elkjs
+  in-page renderer (rf2-gpzb4 migration + Phase 2: parallel-region
+  rendering, `:spawn-all` join + cancellation-cascade overlays,
+  `:after` countdown rings, UIx/Helix substrate adapters). Implemented
+  at `src/day8/re_frame2_machines_viz/chart.cljs` (+ `chart/`,
+  `adapters/`). Browser visual-pin + JVM-side parse-layer tests cover
+  it.
+- **Share-URL encode / decode (rf2-8d7w1)** — per
+  [`API.md`](API.md) §Share-URL encoding + [`Principles.md`](Principles.md)
+  §EDN-first / §No session data in shares. Implemented at
+  `src/day8/re_frame2_machines_viz/share.cljs`:
+  `encode-share-url` / `decode-share-url` (+ `decode-share-url-safe` /
+  `chart-state->props`). Pipeline is `ChartState → validate +
+  canonicalise → versioned envelope → transit-write (json) → base64url
+  → #machine= fragment`. Runtime `:data` + `:source-coords` +
+  definition metadata are dropped structurally; the `:snapshot` schema
+  is `{:closed true}` (`:state` only). CLJS test corpus pins the
+  round-trip, reproducible-encoding, the privacy exclusions, the
+  versioned envelope, and every `decode-failed` reason.
+- **Read-only viewer page (rf2-8d7w1)** — per [`API.md`](API.md)
+  §Read-only viewer + Lock #6 / Lock #7. The static
+  `public/viewer.html` + the `src/day8/re_frame2_machines_viz/viewer.cljs`
+  entry decode a `#machine=` fragment client-side and mount
+  `MachineChart` with `:read-only? true`, a static-chart banner, and a
+  'show idle' toggle. Malformed / newer-version payloads render a banner,
+  not a crash. CLJS tests cover the pure decode → view-model layer.
+- **PNG / SVG / Mermaid / share-URL exporters (rf2-8d7w1)** — per
+  [`API.md`](API.md) §Exporters. Implemented at
+  `src/day8/re_frame2_machines_viz/export.cljs`: `chart-as-png!`,
+  `chart-as-svg`, `chart-as-mermaid`, `share-url`, and the four
+  `copy-*-to-clipboard!` fns. They derive the payload from a JS seam
+  the chart's root `:ref` stashes on the rendered element
+  (`_rfMvChartState` — topology + active-state NAME + summary counts,
+  never runtime `:data`). PNG/SVG are browser-DOM rasterisers; the
+  Mermaid + share-URL paths delegate to
+  `re-frame.machines.mermaid/emit` and `share/encode-share-url`. CLJS
+  tests cover the seam-derivation + delegation paths (the canvas / SVG
+  DOM rasterisation is browser-only).
+
 ### Pending implementation
 
-- `MachineChart` Reagent component — the live in-page renderer.
-- Read-only viewer page — the standalone hosted surface that accepts
-  a share URL and renders without an embedding host.
-- Share-URL encoding pipeline — payload schema + compression +
-  versioning per [`API.md`](API.md) §Share URL.
-- PNG / SVG exporters — file-emitting surfaces alongside the
-  Mermaid markdown export.
 - Capability docs (`001-Rendering.md`, etc.) — author alongside
   each surface as it lands. The Mermaid exporter's contract
   currently lives in [`API.md`](API.md) only; a dedicated

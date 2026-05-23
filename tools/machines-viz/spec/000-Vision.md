@@ -603,12 +603,21 @@ References:
 ### v1.0 (the foundation)
 
 The component + the read-only viewer + the encoding rules — the
-surface Causa and Story require to ship their panels.
+surface Causa and Story require to ship their panels. **The whole v1.0
+foundation has shipped** (the renderer per the rf2-gpzb4 xyflow
+migration + Phase 2; the share-URL / viewer / exporter trio per
+rf2-8d7w1) — see the per-surface "Status" column in
+[`spec/README.md`](./README.md) §Shipped for the authoritative
+implementation-state list.
 
-- `MachineChart` component (per [`API.md`](./API.md) §MachineChart).
-- Read-only viewer page (per [`API.md`](./API.md) §Read-only viewer).
-- Share-URL encoding (per [`API.md`](./API.md) §Share-URL encoding).
-- PNG + SVG exporters.
+- `MachineChart` component (per [`API.md`](./API.md) §MachineChart) —
+  **shipped** (`src/.../chart.cljs`; xyflow + elkjs).
+- Read-only viewer page (per [`API.md`](./API.md) §Read-only viewer) —
+  **shipped** (`public/viewer.html` + `src/.../viewer.cljs`, rf2-8d7w1).
+- Share-URL encoding (per [`API.md`](./API.md) §Share-URL encoding) —
+  **shipped** (`src/.../share.cljs`, rf2-8d7w1).
+- PNG + SVG exporters — **shipped** (`src/.../export.cljs`, rf2-8d7w1;
+  PNG/SVG are browser-DOM rasterisers).
 - Mermaid `stateDiagram-v2` exporter (per
   [`API.md`](./API.md) §Mermaid `stateDiagram-v2`) — the
   Markdown-paste affordance. Lossy by design (`:after` rings +

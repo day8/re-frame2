@@ -27,7 +27,22 @@
          ;; `re-frame.core`). For Phase-1 src-landing we ship with
          ;; the framework core as the sole transitive dep — Causa
          ;; brings its own substrate adapter on the consumer side.
-         day8/re-frame2 {:local/root "../../implementation/core"}}
+         day8/re-frame2 {:local/root "../../implementation/core"}
+
+         ;; rf2-8d7w1 — the `export` namespace's `chart-as-mermaid`
+         ;; delegates to the canonical Mermaid emitter, which lives in
+         ;; the machines artefact (`re-frame.machines.mermaid` per
+         ;; rf2-yamkm) rather than under this tool. `machines` depends
+         ;; only on `core`, so there is no dependency cycle.
+         day8/re-frame2-machines {:local/root "../../implementation/machines"}
+
+         ;; rf2-8d7w1 — share-URL encoding is EDN → transit-write →
+         ;; base64url (Principles §EDN-first on the wire; Lock #3).
+         ;; transit-cljs is dev-only like the rest of this tool jar —
+         ;; bundle isolation holds (nothing under implementation/ may
+         ;; :require this jar, so the consumer's production bundle never
+         ;; pulls transit through machines-viz).
+         com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
 
  :aliases
  {:test {:extra-paths ["test"]
