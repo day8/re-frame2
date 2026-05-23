@@ -279,14 +279,29 @@
 ;; ---- node-kind resolution (per spec §17.4.2) ----------------------------
 
 (defn node-kind
-  "Resolve the xyflow node kind for a node given the current-state
-  path. Precedence: `:current` > `:final` > `:standard`."
-  [{:keys [path final?]} current-state-path]
-  (let [cur (normalise-path current-state-path)]
-    (cond
-      (and cur (= cur path)) :current
-      final?                 :final
-      :else                  :standard)))
+  "Resolve the xyflow node kind for a node given the current-state path
+  + (optionally) the focused transition's FROM-state path. Precedence:
+  `:current` > `:from` > `:final` > `:standard`.
+
+  Per spec/021 §6.2 Case C (Figma reconcile · rf2-ad7zx.10) the source
+  state of the focused fired transition renders as the dashed/dim
+  `:from` circle; the TO / live state renders as the `:current`
+  double-circle (which therefore wins when a state is BOTH the FROM and
+  the current — a self-transition reads as active, not dimmed).
+
+  The 2-arity (no `from-state-path`) keeps the pre-Case-C precedence
+  (`:current` > `:final` > `:standard`) so existing callers are
+  unchanged."
+  ([node current-state-path]
+   (node-kind node current-state-path nil))
+  ([{:keys [path final?]} current-state-path from-state-path]
+   (let [cur  (normalise-path current-state-path)
+         from (normalise-path from-state-path)]
+     (cond
+       (and cur  (= cur path))  :current
+       (and from (= from path)) :from
+       final?                   :final
+       :else                    :standard))))
 
 ;; ---- edge-kind resolution (per spec §17.4.3) ----------------------------
 
@@ -317,6 +332,12 @@
     :current-state-path  — the path of the state the machine is
                            currently in (optional; precedence rules
                            in the ns docstring).
+    :from-state-path     — the path of the focused fired transition's
+                           SOURCE state (optional). Marks that node as
+                           the dashed/dim `:from` circle per spec/021
+                           §6.2 Case C (Figma reconcile · rf2-ad7zx.10).
+                           `:current` wins when a state is both FROM and
+                           current (self-transition reads as active).
     :fired-edge-ids      — set of edge-ids fired in the focused
                            epoch (optional).
     :traversed-edge-ids  — set of edge-ids traversed at some point
@@ -332,8 +353,8 @@
 
   Style fns are injected (not called inline) so this ns stays pure
   data — view-only deps live in the view ns."
-  [{:keys [definition current-state-path fired-edge-ids traversed-edge-ids
-           node-style-fn edge-style-fn edge-animated-fn]
+  [{:keys [definition current-state-path from-state-path fired-edge-ids
+           traversed-edge-ids node-style-fn edge-style-fn edge-animated-fn]
     :or   {node-style-fn    (fn [_kind] nil)
            edge-style-fn    (fn [_kind] nil)
            edge-animated-fn (fn [_kind] false)}}]
@@ -342,7 +363,7 @@
                                               (some-> definition :initial vector))]
     {:nodes
      (mapv (fn [n]
-             (let [kind (node-kind n current-state-path)
+             (let [kind (node-kind n current-state-path from-state-path)
                    id   (node-id-for-path (:path n))
                    pos  (get positions (:path n) {:x grid-margin :y grid-margin})]
                {:id       id
@@ -412,6 +433,43 @@
                         "__"
                         (name ev*))))))
        set))
+
+(defn- from-path-from-trace
+  "Pull the `:from` (source) state path off a `:rf.machine/transition`
+  trace event. Tolerant of the same three shapes as `to-path-from-trace`:
+
+    1. Modern runtime: `:tags {:before {:state ...}}`.
+    2. Legacy/test fixtures: top-level `:from` or `:tags :from`.
+    3. Pre-rf2-hwuki: `:payload :from`.
+
+  Returns the normalised path vector or nil."
+  [ev]
+  (let [before-state (get-in ev [:tags :before :state])
+        from         (or (get-in ev [:tags :from])
+                         (:from ev)
+                         (get-in ev [:payload :from]))]
+    (normalise-path (or before-state from))))
+
+(defn from-state-from-traces
+  "Resolve the FROM (source) state path for `machine-id` from the
+  `:rf.machine/transition` trace events vector. Returns the `:from`
+  path of the most recent matching trace, or nil. Pure.
+
+  Per spec/021 §6.2 Case C (Figma reconcile · rf2-ad7zx.10): the
+  focused fired transition's source state renders as the dashed/dim
+  `:from` circle. The view layer pairs this with
+  `current-state-from-traces` (the TO / `:current` double-circle).
+
+  Reads modern (`:tags :before :state`) + legacy (`:from`,
+  `:payload :from`) shapes — see `from-path-from-trace`."
+  [trace-events machine-id]
+  (let [matching (filter (fn [ev]
+                           (and (= :rf.machine/transition (:operation ev))
+                                (or (nil? machine-id)
+                                    (= machine-id (get-in ev [:tags :machine-id])))))
+                         (or trace-events []))]
+    (when-let [last-ev (last matching)]
+      (from-path-from-trace last-ev))))
 
 (defn- to-path-from-trace
   "Pull the `:to` state path off a `:rf.machine/transition` trace

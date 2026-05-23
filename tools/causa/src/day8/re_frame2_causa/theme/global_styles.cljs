@@ -509,6 +509,33 @@
     "    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0);\n"
     "  }\n"
     "}\n"
+    ;; rf2-ad7zx.10 — active-state DOUBLE-CIRCLE pulse (spec/021
+    ;; §6.2 Case C + §17.4.2). The Figma reconcile draws the focused
+    ;; TO / current state as a concentric double-circle in the mode
+    ;; accent (orange Dynamic / cyan Static), not the former green
+    ;; single ring. The `:current` node (`panels/machines/xyflow_style`)
+    ;; carries `:animation rf-causa-machine-pulse-active 1.2s …`.
+    ;;
+    ;; box-shadow sets the WHOLE property each frame, so the keyframe
+    ;; must re-state the STATIC concentric rings (inner `:bg-1` gap +
+    ;; inner accent ring — matching the `:current` node's base
+    ;; box-shadow) on every stop, then ADD the breathing outer halo as
+    ;; the trailing layer. `--rf-causa-accent` tracks the active mode so
+    ;; the halo is orange in Dynamic and cyan in Static. Runs through
+    ;; `--rf-causa-motion-scale` like the green pulse, so the
+    ;; `prefers-reduced-motion` seam collapses it to a resolved frame.
+    "@keyframes rf-causa-machine-pulse-active {\n"
+    "  0%, 100% {\n"
+    "    box-shadow: inset 0 0 0 3px var(--rf-causa-bg-1),\n"
+    "                inset 0 0 0 5px var(--rf-causa-accent),\n"
+    "                0 0 0 0 color-mix(in srgb, var(--rf-causa-accent) 45%, transparent);\n"
+    "  }\n"
+    "  50% {\n"
+    "    box-shadow: inset 0 0 0 3px var(--rf-causa-bg-1),\n"
+    "                inset 0 0 0 5px var(--rf-causa-accent),\n"
+    "                0 0 0 5px color-mix(in srgb, var(--rf-causa-accent) 0%, transparent);\n"
+    "  }\n"
+    "}\n"
     ;; rf2-fxde5 — global `:focus-visible` focus ring. Causa-wide
     ;; keyboard-only focus indicator scoped to descendants of the
     ;; shell roots (`[data-testid="rf-causa-shell"]` for Dynamic,
