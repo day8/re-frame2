@@ -258,6 +258,15 @@
                       trigger event).
     :cause-subs     — distinct sub-ids that ran in the cascade so far,
                       in first-seen order, capped at sub-cap.
+    :value-changed-subs — the SUBSET of :cause-subs whose :sub/run
+                      reported :rf.sub/value-changed? true (rf2-8wrzz.1).
+                      A `set` of sub-ids, NOT capped independently — it is
+                      drawn from the already-capped first-seen scan, so it
+                      is bounded by sub-cap. Used by the views.cljs emit
+                      site to derive :rf.view/triggered-by — the first sub
+                      in THIS view's own read-set whose value changed (the
+                      precise per-view re-render cause). Empty when no sub
+                      changed value (a structural re-render).
     :rendered-so-far — count of :rf.view/rendered already emitted into
                       this cascade. Used by the views.cljs emit site to
                       enforce the per-cascade view-render cap.
@@ -290,6 +299,17 @@
                            (-> (update :subs conj (:rf.sub/id tags))
                                (update :seen conj (:rf.sub/id tags)))
 
+                           ;; rf2-8wrzz.1 — accumulate the value-changed
+                           ;; subset (a set, deduped) so the views.cljs emit
+                           ;; site can derive :rf.view/triggered-by. Tracked
+                           ;; alongside the first-seen scan above; a sub that
+                           ;; ran multiple times in the cascade contributes
+                           ;; once. Bounded by the same buffer the scan walks.
+                           (and (= :rf.sub/run op)
+                                (some? (:rf.sub/id tags))
+                                (true? (:rf.sub/value-changed? tags)))
+                           (update :value-changed-subs conj (:rf.sub/id tags))
+
                            ;; Count both :rf.view/rendered AND the one-shot
                            ;; :rf.view/rendered-cap-reached marker: once
                            ;; the marker fires for a cascade, n-so-far
@@ -299,14 +319,17 @@
                            (or (= :rf.view/rendered op)
                                (= :rf.view/rendered-cap-reached op))
                            (update :rendered-so-far inc))))
-                     {:cause-event-id  nil
-                      :subs            []
-                      :seen            #{}
-                      :rendered-so-far 0}
+                     {:cause-event-id     nil
+                      :subs               []
+                      :seen               #{}
+                      :value-changed-subs #{}
+                      :rendered-so-far    0}
                      events)]
        (cond-> {:rendered-so-far (:rendered-so-far result)}
          (:cause-event-id result) (assoc :cause-event-id (:cause-event-id result))
-         (seq (:subs result))     (assoc :cause-subs (:subs result)))))))
+         (seq (:subs result))     (assoc :cause-subs (:subs result))
+         (seq (:value-changed-subs result))
+         (assoc :value-changed-subs (:value-changed-subs result)))))))
 
 ;; ---- record projection ----------------------------------------------------
 ;;
@@ -347,18 +370,47 @@
        :cause-sub      (:rf.sub/cause-sub t)})))
 
 (defn render-row
-  "Project a `:rf.view/render` trace event into its structured `:renders`
-  row, or nil for any non-`:view/render` render op (`:rf.view/rendered` /
-  `:rf.view/rendered-cap-reached` ride only `:trace-events`).
+  "Project a `:rf.view/rendered` trace event into its structured
+  `:renders` row, or nil for any other render op (`:rf.view/render` —
+  the render-START marker — and `:rf.view/rendered-cap-reached` ride
+  only `:trace-events`).
 
-  `:render-key` is the `[<view-id> <instance-token>]` tuple; renders
-  bypassing reg-view (plain Reagent fns) use `[:rf.view/anonymous nil]`
-  as the documented fallback (Spec-Schemas §`:rf/epoch-record`)."
+  Per rf2-8wrzz.1 the projection sources from the POST-render
+  `:rf.view/rendered` op rather than the render-START `:rf.view/render`,
+  because only the post-render op carries the per-view cause + timing the
+  Causa Views panel needs — `:triggered-by` (the sub-id that caused this
+  view to re-render) and `:elapsed-ms` (the render duration). Both ops
+  fire once per render carrying the same `:rf.view/render-key`, so this is
+  a 1:1 re-source, not a count change, for cascades under the 100-render
+  `:rf.view/rendered` cap (a full-page storm beyond the cap truncates the
+  `:renders` projection alongside the raw op, by design).
+
+  Row slots:
+
+    :render-key   — the `[<view-id> <instance-token>]` tuple; renders
+                    bypassing reg-view (plain Reagent fns) use
+                    `[:rf.view/anonymous nil]` as the documented fallback
+                    (Spec-Schemas §`:rf/epoch-record`).
+    :mount?       — `true` on the instance's first render (rf2-9hoos).
+    :triggered-by — (when derivable) the single sub-id that caused this
+                    re-render (rf2-8wrzz.1); absent on a structural render.
+    :elapsed-ms   — (when present) the render duration in fractional ms
+                    (rf2-8wrzz.1).
+
+  The optional slots are threaded only when the trace tag carries them so
+  the row stays minimal for renders outside a cascade / structural
+  re-renders, matching the open-map schema."
   [event]
-  (when (= :rf.view/render (:operation event))
+  (when (= :rf.view/rendered (:operation event))
     (let [t (:tags event)]
-      {:render-key (or (:rf.view/render-key t)
-                       [:rf.view/anonymous nil])})))
+      (cond-> {:render-key (or (:rf.view/render-key t)
+                               [:rf.view/anonymous nil])}
+        (contains? t :rf.view/mount?)
+        (assoc :mount? (:rf.view/mount? t))
+        (some? (:rf.view/triggered-by t))
+        (assoc :triggered-by (:rf.view/triggered-by t))
+        (some? (:rf.view/elapsed-ms t))
+        (assoc :elapsed-ms (:rf.view/elapsed-ms t))))))
 
 (defn project-all
   "Walk the captured trace events ONCE and emit the three `:sub-runs`,
@@ -379,10 +431,13 @@
       NOT emit `:sub/run` and are correctly absent.
 
     :renders — Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree
-      primitives (rf2-t5tx Option C / rf2-piag). `:render-key` is the
-      `[<view-id> <instance-token>]` tuple; renders bypassing reg-view
-      (plain Reagent fns) use `[:rf.view/anonymous nil]` as the
-      documented fallback.
+      primitives (rf2-t5tx Option C / rf2-piag). One entry per
+      `:rf.view/rendered` op (the POST-render marker, rf2-8wrzz.1).
+      `:render-key` is the `[<view-id> <instance-token>]` tuple; renders
+      bypassing reg-view (plain Reagent fns) use `[:rf.view/anonymous nil]`
+      as the documented fallback. Each row also carries the per-view
+      `:triggered-by` (cause sub-id) + `:elapsed-ms` (render timing) +
+      `:mount?` when the op tag carries them.
 
     :effects — Spec-Schemas §`:rf/epoch-record` `:effects`. Every
       dispatched fx emits exactly one of:
@@ -417,7 +472,10 @@
                     (= :rf.sub/run op)
                     (assoc! acc :s (conj! (get acc :s) (sub-run-row ev)))
 
-                    (= :rf.view/render op)
+                    ;; rf2-8wrzz.1: source the :renders projection from the
+                    ;; POST-render :rf.view/rendered op (carries per-view
+                    ;; cause + timing), not the render-START :rf.view/render.
+                    (= :rf.view/rendered op)
                     (assoc! acc :r (conj! (get acc :r) (render-row ev)))
 
                     (= :rf.fx/handled op)

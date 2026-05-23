@@ -119,13 +119,15 @@
 ;; it into the causing epoch. Factor the emits so cases stay terse.
 
 (defn- emit-render!
-  "Emit a `:rf.view/render` at React-COMMIT timing — op-type `:view`, tags
-  carrying `:rf.view/render-key` + `:frame`, fired post-settle (empty buffer).
-  Mirrors `re-frame.views/emit-render-trace!`'s `:rf.view/render` emit. Pass a
-  `view-id` (canonical `[view-id 0]` render-key) or a full render-key tuple."
+  "Emit a `:rf.view/rendered` at React-COMMIT timing — op-type `:rf.view`,
+  tags carrying `:rf.view/render-key` + `:frame`, fired post-settle (empty
+  buffer). Mirrors the POST-render `:rf.view/rendered` emit, which is what
+  the `:renders` projection sources from (rf2-8wrzz.1 — the op that carries
+  per-view cause + timing). Pass a `view-id` (canonical `[view-id 0]`
+  render-key) or a full render-key tuple."
   [frame-id view-or-rk]
   (let [render-key (if (vector? view-or-rk) view-or-rk [view-or-rk 0])]
-    (trace/emit! :rf.view :rf.view/render
+    (trace/emit! :rf.view :rf.view/rendered
                  {:rf.view/render-key render-key
                   :frame      frame-id})))
 
@@ -338,7 +340,7 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :render-during
       (fn [db _]
-        (trace/emit! :rf.view :rf.view/render
+        (trace/emit! :rf.view :rf.view/rendered
                      {:rf.view/render-key [:inline-view 0] :frame :test/main})
         (update db :n inc)))
 
@@ -786,3 +788,64 @@
             "the child's dispatch-id marker stays buffered for the child's own
              settle; the nil-id orphan is discarded")
         (state/drop-frame-buffer! frame)))))
+
+;; ===========================================================================
+;; rf2-8wrzz.1 — the :renders projection carries per-view cause + timing
+;;               threaded from the post-render :rf.view/rendered op
+;; ===========================================================================
+
+(defn- render-row-for
+  "The single `:renders` row for `render-key` in `record`, or nil."
+  [record render-key]
+  (some #(when (= render-key (:render-key %)) %) (:renders record)))
+
+(deftest renders-projection-carries-triggered-by-and-elapsed-ms
+  (testing "rf2-8wrzz.1 — a :rf.view/rendered op carrying :rf.view/triggered-by
+            + :rf.view/elapsed-ms (the per-view cause + timing) lands those slots
+            on the cascade's :renders projection row, end-to-end. The projection
+            sources from the POST-render :rf.view/rendered op precisely so it
+            carries this data (the render-START :rf.view/render carries only the
+            render-key)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    ;; Post-settle :rf.view/rendered carrying cause + timing (React-commit
+    ;; timing — empty buffer, back-filled to the seed epoch).
+    (trace/emit! :rf.view :rf.view/rendered
+                 {:rf.view/render-key   [:counter-view 0]
+                  :frame                :test/main
+                  :rf.view/mount?       false
+                  :rf.view/triggered-by :sub/count
+                  :rf.view/elapsed-ms   1.5})
+
+    (let [epoch (last-epoch :test/main)
+          row   (render-row-for epoch [:counter-view 0])]
+      (is (some? row) "the :renders projection carries the render row")
+      (is (= :sub/count (:triggered-by row))
+          ":triggered-by is preserved on the :renders row")
+      (is (= 1.5 (:elapsed-ms row))
+          ":elapsed-ms is preserved on the :renders row")
+      (is (= false (:mount? row))
+          ":mount? is preserved on the :renders row"))))
+
+(deftest renders-projection-omits-triggered-by-on-structural-render
+  (testing "rf2-8wrzz.1 — a structural re-render (no :rf.view/triggered-by on
+            the op — none of the view's own subs changed) lands a :renders row
+            WITHOUT :triggered-by; :elapsed-ms still rides."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (trace/emit! :rf.view :rf.view/rendered
+                 {:rf.view/render-key [:structural-view 0]
+                  :frame              :test/main
+                  :rf.view/mount?     false
+                  :rf.view/elapsed-ms 0.3})
+
+    (let [epoch (last-epoch :test/main)
+          row   (render-row-for epoch [:structural-view 0])]
+      (is (some? row) "the structural render still produces a :renders row")
+      (is (not (contains? row :triggered-by))
+          ":triggered-by absent on a structural re-render row")
+      (is (= 0.3 (:elapsed-ms row)) ":elapsed-ms still preserved"))))
