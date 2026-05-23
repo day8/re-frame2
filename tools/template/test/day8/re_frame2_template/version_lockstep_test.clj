@@ -8,8 +8,12 @@
   of truth:
 
     - `:rf2-version`    ↔ repo-root `VERSION`
-    - `:shadow-version` ↔ `implementation/package.json` :devDependencies/shadow-cljs
-    - `:react-version`  ↔ `implementation/package.json` :devDependencies/react (and react-dom)
+    - `:shadow-version` ↔ `implementation/package.json` shadow-cljs
+    - `:react-version`  ↔ `implementation/package.json` react (and react-dom)
+
+  The package.json reader searches both `:dependencies` and
+  `:devDependencies` (first hit wins) so the guard doesn't false-fail
+  if the impl tree ever relocates a pin between the two sections.
 
   History (rf2-8v20r): the template literal `:react-version` drifted to
   `18.3.1` while `implementation/package.json` had moved to `19.2.0`.
@@ -44,34 +48,49 @@
       (throw (ex-info "VERSION file missing at repo root" {:file (.getPath f)})))
     (string/trim (slurp f))))
 
+(defn- pin-from-json-text
+  "Pull the version string for `pkg` out of a chunk of package.json text
+  (`\"pkg\": \"value\"` → `\"value\"`). Returns nil when absent. Shared
+  by both the source-of-truth reader below and the emitted-package.json
+  `extract-pin` — one regex shape, written once."
+  [text pkg]
+  (let [pin-re (re-pattern (str "\"" pkg "\":\\s*\"([^\"]+)\""))]
+    (some-> (re-find pin-re text) second)))
+
 (defn- read-package-json-pin
-  "Read a pin from `implementation/package.json`. `section` is one of
-  `:devDependencies` / `:dependencies`; `pkg` is the package name string
-  (e.g. `\"react\"`). Returns the pin string (e.g. `\"19.2.0\"`).
+  "Read a pin for `pkg` (e.g. `\"react\"`) from
+  `implementation/package.json`, searching `:dependencies` AND
+  `:devDependencies` (first hit wins). Returns the pin string (e.g.
+  `\"19.2.0\"`).
+
+  Searching both sections decouples this guard from an incidental
+  layout choice in the impl package.json: today react / react-dom /
+  shadow-cljs sit in `:devDependencies` (it is a test target, not a
+  shipped lib), but if any of them ever moves to `:dependencies` the
+  guard keeps working rather than false-failing the template suite for
+  a reason unrelated to the template (rf2-ee38b.23 / completeness +
+  correctness P3).
 
   We deliberately use a simple regex parse rather than dragging in a
   JSON library — the template test artefact has no JSON dep today, and
-  the package.json shape is stable enough that a regex (looking for
-  `\"pkg\": \"value\"` inside the section) reads simply and fails loudly
-  on shape drift."
-  [section pkg]
-  (let [text (slurp (io/file (repo-root) "implementation/package.json"))
-        ;; Find the section (`"devDependencies": { ... }`). The closing
-        ;; brace ends at the first top-level `}` after the section name.
-        section-name (case section
-                       :devDependencies "devDependencies"
-                       :dependencies    "dependencies"
-                       (throw (ex-info "Unknown section" {:section section})))
-        section-re   (re-pattern (str "\"" section-name "\":\\s*\\{([^}]*)\\}"))
-        section-body (some-> (re-find section-re text) second)
-        _            (when-not section-body
-                       (throw (ex-info (str "Couldn't find :" section-name " section in implementation/package.json")
-                                       {:section section-name})))
-        pin-re       (re-pattern (str "\"" pkg "\":\\s*\"([^\"]+)\""))
-        pin          (some-> (re-find pin-re section-body) second)]
+  the package.json shape is stable enough that a regex (the section
+  body, then `\"pkg\": \"value\"` inside it) reads simply and fails
+  loudly on shape drift."
+  [pkg]
+  (let [text     (slurp (io/file (repo-root) "implementation/package.json"))
+        section  (fn [name]
+                   ;; Find `"<name>": { ... }`; the closing brace ends at
+                   ;; the first `}` after the section name.
+                   (some-> (re-find (re-pattern (str "\"" name "\":\\s*\\{([^}]*)\\}"))
+                                    text)
+                           second))
+        pin      (some #(some-> (section %) (pin-from-json-text pkg))
+                       ["dependencies" "devDependencies"])]
     (when-not pin
-      (throw (ex-info (str "Couldn't find pin for " pkg " in :" section-name)
-                      {:pkg pkg :section section-name})))
+      (throw (ex-info (str "Couldn't find pin for " pkg
+                           " in :dependencies or :devDependencies of "
+                           "implementation/package.json")
+                      {:pkg pkg})))
     pin))
 
 ;; --- Template literal extraction ----------------------------------------
@@ -96,10 +115,10 @@
     proj-dir))
 
 (defn- extract-pin
-  "Pull `\"pkg\": \"value\"` out of the emitted package.json text."
+  "Pull `\"pkg\": \"value\"` out of the emitted package.json text.
+  Thin wrapper over the shared `pin-from-json-text`."
   [pj-text pkg]
-  (let [pin-re (re-pattern (str "\"" pkg "\":\\s*\"([^\"]+)\""))]
-    (some-> (re-find pin-re pj-text) second)))
+  (pin-from-json-text pj-text pkg))
 
 (defn- extract-rf2-version
   "Pull `'day8/re-frame2 {:mvn/version \"...\"}` out of the emitted
@@ -112,8 +131,8 @@
 
 (deftest react-version-lockstep
   (testing "Template's :react-version literal matches implementation/package.json"
-    (let [pkg-react     (read-package-json-pin :devDependencies "react")
-          pkg-react-dom (read-package-json-pin :devDependencies "react-dom")
+    (let [pkg-react     (read-package-json-pin "react")
+          pkg-react-dom (read-package-json-pin "react-dom")
           tmp           (tmp-dir "rf2-template-lockstep-react-")]
       (try
         (let [root      (emit-reagent! tmp)
@@ -138,7 +157,7 @@
 
 (deftest shadow-version-lockstep
   (testing "Template's :shadow-version literal matches implementation/package.json"
-    (let [pkg-shadow (read-package-json-pin :devDependencies "shadow-cljs")
+    (let [pkg-shadow (read-package-json-pin "shadow-cljs")
           tmp        (tmp-dir "rf2-template-lockstep-shadow-")]
       (try
         (let [root       (emit-reagent! tmp)

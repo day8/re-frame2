@@ -8,8 +8,10 @@
 #     shadow-cljs.edn (no browser; pure cljs.test under Node).
 #
 # Add steps as your project grows:
-#   - `clojure -M:cljfmt check` (the scaffold ships .cljfmt.edn)
-#   - clj-kondo (the scaffold ships .clj-kondo/config.edn)
+#   - `clojure -M:cljfmt check src test` (the scaffold ships .cljfmt.edn)
+#   - `clojure -M:clj-kondo --lint src test` (the scaffold ships a
+#     :clj-kondo deps alias + .clj-kondo/config.edn — no native binary
+#     install needed)
 #   - `npx shadow-cljs release app` to gate the release bundle
 #
 # Action pins use SHA + version-comment per GitHub's hardening

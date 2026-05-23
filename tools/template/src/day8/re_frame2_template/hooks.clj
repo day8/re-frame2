@@ -74,15 +74,13 @@
 ;; -- :include-story? coercion ----------------------------------------------
 
 (defn- coerce-include-story?
-  "Coerce the `:include-story?` arg to a boolean. Accepts true / false /
-   nil; rejects anything else with a clear message. The flag is
-   Reagent-only in v1 — caller-level guard checks the substrate."
+  "Coerce the `:include-story?` arg to a boolean. The only accepted
+   values are literal `true` / `false` / `nil` (nil ⇒ false); anything
+   else throws with a clear message. The flag is Reagent-only in v1 —
+   caller-level guard checks the substrate."
   [raw]
-  (cond
-    (nil? raw)          false
-    (true? raw)         true
-    (false? raw)        false
-    :else
+  (if (contains? #{nil true false} raw)
+    (boolean raw)
     (throw (ex-info ":rf.error/template-bad-include-story-flag"
                     {:rf.error/id :rf.error/template-bad-include-story-flag
                      :where     'template/coerce-include-story?
@@ -155,39 +153,41 @@
    otherwise coerce the keyword to a string)."
   [data]
   (let [substrate       (coerce-substrate (:substrate data))
-        include-story?  (coerce-include-story? (:include-story? data))
-        _               (when (and include-story? (not= substrate :reagent))
-                          (throw (ex-info
-                                   ":rf.error/template-include-story-reagent-only"
-                                   {:rf.error/id :rf.error/template-include-story-reagent-only
-                                    :where     'template/data-fn
-                                    :recovery  :fix-registration
-                                    :reason    (str ":include-story? is Reagent-only in v1 "
-                                                    "(got :substrate " substrate
-                                                    "). UIx + Helix variants follow once "
-                                                    "Story's adapter coverage matches "
-                                                    "Reagent's.")
-                                    :substrate substrate
-                                    :include-story? include-story?})))
-        substrate-nm    (name substrate)
-        top             (:top data)
-        main            (:main data)
-        top-file        (->file-path top)
-        main-file       (->file-path main)
-        top-ns          (->ns-form top)
-        main-ns         (->ns-form main)]
-    {:substrate           substrate-nm
-     :substrate-kw        substrate
-     :include-story?      include-story?
-     :namespace           (str top-ns "." main-ns)
-     :nested-dirs         (str top-file "/" main-file)
-     :substrate-badge-url (case substrate
-                            :reagent "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
-                            :uix     "https://img.shields.io/badge/substrate-UIx-3498db.svg"
-                            :helix   "https://img.shields.io/badge/substrate-Helix-9b59b6.svg")
-     :rf2-version         "0.0.1.alpha"
-     :shadow-version      "3.4.10"
-     :react-version       "19.2.0"}))
+        include-story?  (coerce-include-story? (:include-story? data))]
+    ;; Reagent-only guard — hoisted above the name-derivation `let` so the
+    ;; data map build below has no side-effecting binding.
+    (when (and include-story? (not= substrate :reagent))
+      (throw (ex-info
+               ":rf.error/template-include-story-reagent-only"
+               {:rf.error/id :rf.error/template-include-story-reagent-only
+                :where     'template/data-fn
+                :recovery  :fix-registration
+                :reason    (str ":include-story? is Reagent-only in v1 "
+                                "(got :substrate " substrate
+                                "). UIx + Helix variants follow once "
+                                "Story's adapter coverage matches "
+                                "Reagent's.")
+                :substrate substrate
+                :include-story? include-story?})))
+    (let [substrate-nm    (name substrate)
+          top             (:top data)
+          main            (:main data)
+          top-file        (->file-path top)
+          main-file       (->file-path main)
+          top-ns          (->ns-form top)
+          main-ns         (->ns-form main)]
+      {:substrate           substrate-nm
+       :substrate-kw        substrate
+       :include-story?      include-story?
+       :namespace           (str top-ns "." main-ns)
+       :nested-dirs         (str top-file "/" main-file)
+       :substrate-badge-url (case substrate
+                              :reagent "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
+                              :uix     "https://img.shields.io/badge/substrate-UIx-3498db.svg"
+                              :helix   "https://img.shields.io/badge/substrate-Helix-9b59b6.svg")
+       :rf2-version         "0.0.1.alpha"
+       :shadow-version      "3.4.10"
+       :react-version       "19.2.0"})))
 
 ;; -- template-fn ------------------------------------------------------------
 ;;

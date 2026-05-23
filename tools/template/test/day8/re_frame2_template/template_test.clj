@@ -22,22 +22,15 @@
    §2.5 along with the clj-new template body)."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
-            [clojure.edn :as edn]
             [day8.re-frame2-template.test-support
-             :refer [tmp-dir delete-recursively run-template!]]))
+             :refer [tmp-dir delete-recursively run-template!
+                     read-edn file-exists?]]))
 
 ;; --- Test helpers ----------------------------------------------------------
 ;;
-;; tmp-dir / delete-recursively / template-resource-dir / run-template!
-;; live in the shared `test-support` ns (rf2-5v619, D1).
-
-(defn- read-edn [^java.io.File f]
-  (edn/read-string (slurp f)))
-
-(defn- file-exists?
-  "True if `path` (relative to `root`) exists as a regular file."
-  [^java.io.File root path]
-  (.isFile (io/file root path)))
+;; tmp-dir / delete-recursively / template-resource-dir / run-template! /
+;; read-edn / file-exists? live in the shared `test-support` ns
+;; (rf2-5v619, D1; read-edn + file-exists? lifted in rf2-ee38b.23).
 
 ;; --- The expected per-substrate shape ------------------------------------
 
@@ -253,7 +246,20 @@
                 "ci.yml runs `npm test` (delegates to shadow-cljs :node-test
                  per the emitted package.json)")
             (is (.contains ci-text "# acme/my-app")
-                "ci.yml header substitutes {{name}}"))
+                "ci.yml header substitutes {{name}}")
+            ;; deps-new's flat {{key}} substitution leaves GitHub
+            ;; `${{ … }}` expressions untouched because no subst key
+            ;; matches the spaced inner token. Pin that invariant so a
+            ;; future data key collision or substitution-engine change
+            ;; that corrupts the workflow expressions is caught here
+            ;; (rf2-ee38b.23 / correctness P3).
+            (is (.contains ci-text "${{ runner.os }}")
+                "ci.yml's GitHub `${{ runner.os }}` expression survives
+                 substitution verbatim (not eaten by deps-new {{key}}
+                 substitution)")
+            (is (.contains ci-text "${{ hashFiles('deps.edn') }}")
+                "ci.yml's GitHub `${{ hashFiles(...) }}` expression
+                 survives substitution verbatim"))
 
           ;; -- Security baseline (rf2-sh3l8) --
           (let [index-text  (slurp (io/file root "resources/public/index.html"))

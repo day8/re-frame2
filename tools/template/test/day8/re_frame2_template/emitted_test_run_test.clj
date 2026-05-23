@@ -228,30 +228,38 @@
   `node out/node-test.js`. Asserts both processes exit 0 and the
   expected cljs.test summary line is present.
 
+  Every variant compiles BOTH the `:app` (`:browser`) build and the
+  `:test` (`:node-test`) build. Compiling `:app` is what shadow-compiles
+  each substrate's entry point — `core.cljs`'s react-dom interop
+  (`create-root` / `render-root` / `.render`), the adapter require, and
+  the `defui` / `defnc` views. `events_test.cljs` requires only events +
+  subs, so the `:test` build alone never pulls `core.cljs` onto the
+  compile classpath; a broken UIx or Helix `core.cljs` (a wrong
+  react-dom interop call, an adapter API rename, a view that won't
+  compile) would otherwise ship green from shape + static-parse alone
+  and surface only when a user runs `npx shadow-cljs watch app`
+  (rf2-ee38b.23 / correctness L1).
+
   When `include-story?` is true the generated project is the with-story
   scaffold (`core_with_stories.cljs`, `deps_with_story.edn` with the
-  extra day8/re-frame2-story coord, `stories.cljs`). The with-story
-  variant additionally compiles the `:app` build — the only tier that
-  actually shadow-compiles the with-story branch's distinctive code.
-  `events_test.cljs` requires only events + subs, so the `:test` build
-  alone never pulls `core_with_stories.cljs` / `stories.cljs` /
-  re-frame.story onto the compile classpath; the `:app` build's
-  `:init-fn` is `core/init`, which transitively requires all three.
-  A broken with-story compile (re-frame.story API drift, a malformed
-  deps_with_story.edn, a stories.cljs that won't load) therefore fails
-  here rather than shipping green from string-presence / static-parse
-  alone (rf2-5v619, G1; this also closes the `:app`-build half of L1).
+  extra day8/re-frame2-story coord, `stories.cljs`); its `:app` build's
+  `:init-fn` (`core/init`) transitively requires `core_with_stories.cljs`
+  / `stories.cljs` / re-frame.story, so a broken with-story compile
+  (re-frame.story API drift, a malformed deps_with_story.edn, a
+  stories.cljs that won't load) fails here too rather than shipping
+  green (rf2-5v619, G1).
 
   Caller is responsible for the env-var gate — this fn always runs."
   ([substrate] (compile-and-run-emitted-test! substrate false))
   ([substrate include-story?]
    (let [root  (repo-root)
          label (variant-label substrate include-story?)
-         ;; Default path: compile only the node-test build (fast). The
-         ;; with-story variant also compiles `:app`, the only build that
-         ;; transitively pulls the with-story core + stories + Story
-         ;; coord onto the classpath.
-         compile-targets (if include-story? ["app" "test"] ["test"])
+         ;; Compile both the `:app` (:browser) build — the only build that
+         ;; pulls each substrate's entry point (`core.cljs`) and views
+         ;; onto the compile classpath — and the `:test` (:node-test)
+         ;; build that runs `events_test.cljs`. Every substrate compiles
+         ;; both, so a broken substrate entry point fails the gate.
+         compile-targets ["app" "test"]
          tmp   (tmp-dir (str "rf2-template-run-" label "-"))]
      (try
        (let [proj (run-template! tmp "acme/my-app" substrate include-story?)]
@@ -261,21 +269,18 @@
                ;; at module-resolution time) and the `:node-test` *compile*
                ;; (shadow's node target falls back to it). The `:browser`
                ;; (`:app`) compile does NOT honour NODE_PATH — it searches
-               ;; only the project-local node_modules — so the with-story
-               ;; tier hard-requires `linked?` (a real symlink/junction).
+               ;; only the project-local node_modules. Every variant now
+               ;; compiles `:app`, so all of them hard-require `linked?`
+               ;; (a real symlink/junction), not just the with-story tier.
                node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
                env-over  {"NODE_PATH" node-path}]
-           (if include-story?
-             (is linked?
-                 (str "project-local node_modules must resolve for the "
-                      "`:app` (:browser) compile — it ignores NODE_PATH. "
-                      "Symlink/junction into " (.getPath proj)
-                      " failed; ensure implementation/node_modules exists "
-                      "(`npm install` in implementation/) and the OS allows "
-                      "a symlink or `mklink /J` junction."))
-             (is (or linked? (.isDirectory (io/file node-path)))
-                 (str "implementation/node_modules must exist for `node` to "
-                      "resolve React (run `npm install` in implementation/ first)")))
+           (is linked?
+               (str "project-local node_modules must resolve for the "
+                    "`:app` (:browser) compile — it ignores NODE_PATH. "
+                    "Symlink/junction into " (.getPath proj)
+                    " failed; ensure implementation/node_modules exists "
+                    "(`npm install` in implementation/) and the OS allows "
+                    "a symlink or `mklink /J` junction."))
 
            ;; --- compile -----------------------------------------------------
            (testing (str label " — shadow-cljs compile "

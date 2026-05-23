@@ -16,11 +16,12 @@
    :output-dir "resources/public/js"
    :asset-path "/js"
    :modules    {:main {:init-fn {{namespace}}.core/init}}
+   ;; shadow's :browser target re-runs the module :init-fn after each
+   ;; hot reload by default — no :after-load hook needed.
    ;; :devtools/preloads loads Causa into the [data-rf-causa-host]
    ;; left layout column in dev watch/compile builds. Skipped under
    ;; :release.
-   :devtools   {:after-load {{namespace}}.core/init
-                :preloads   [day8.re-frame2-causa.preload]}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
 
   :test
   {:target    :node-test

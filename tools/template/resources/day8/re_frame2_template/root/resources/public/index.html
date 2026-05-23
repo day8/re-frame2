@@ -5,12 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- Default-safe Content Security Policy. The scaffold only loads
          same-origin JS/CSS and has no inline script/style, so this
-         strict baseline holds without weakening. For production,
-         prefer serving the same policy via a Content-Security-Policy
-         response header (see README "Production hardening"); the meta
-         tag here is the fall-back when no server-side header is set. -->
+         strict baseline holds without weakening. `connect-src` admits
+         the same origin plus ws:/wss: so shadow-cljs's hot-reload
+         websocket connects in dev (it can route to a different port
+         than the page, which 'self' alone would block). For
+         production, prefer serving the same policy via a
+         Content-Security-Policy response header AND tighten
+         `connect-src` to your real API origin(s) — drop `ws: wss:`
+         unless you use websockets in production (see README
+         "Production hardening"). The meta tag here is the fall-back
+         when no server-side header is set. -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+          content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
     <title>{{name}} — re-frame2</title>
     <link rel="stylesheet" href="/css/app.css">
   </head>

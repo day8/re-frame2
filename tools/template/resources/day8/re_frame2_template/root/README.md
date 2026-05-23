@@ -25,8 +25,10 @@ file save) are fast.
 ## Hot reload
 
 `shadow-cljs watch` rebuilds on every file save and re-invokes
-`{{namespace}}.core/init` (the `:devtools/after-load` hook in
-`shadow-cljs.edn`). The entry fn is **idempotent**: re-frame2's
+`{{namespace}}.core/init` — shadow's `:browser` target re-runs the
+module's `:init-fn` automatically after each hot reload, so no
+`:after-load` hook is needed. The entry fn is **idempotent**:
+re-frame2's
 `rf/init!` accepts being called repeatedly, the registrar
 re-registers in place, and `dispatch-sync [:counter/initialise]`
 re-seeds app-db.
@@ -55,6 +57,39 @@ Stack traces in dev also get click-to-source via the
 `:rf.trace/trigger-handler` preload — clicking a frame in the dev
 console jumps straight to the offending form.
 
+## Story playground (if scaffolded with `:include-story? true`)
+
+If you generated this app with `:include-story? true`, the scaffold
+ships a [Story](https://github.com/day8/re-frame2/tree/main/tools/story)
+playground — a Storybook-class component workbench — alongside the
+live counter. Two surfaces share `#app`, one at a time, via hash
+routing on the same `:app` build:
+
+- **`#/`** — the live counter app.
+- **`#/stories`** — the Story shell: every registered story / variant /
+  workspace, with the `:rf.assert/*` play steps and the canonical
+  tag set.
+
+`npx shadow-cljs watch app` serves both — no second build. Visit
+<http://localhost:8280/#/stories> for the playground and
+<http://localhost:8280/#/> for the live app; reloading either hash
+lands on the right surface.
+
+The story registrations live in `src/{{nested-dirs}}/stories.cljs`
+(emitted next to `events.cljs` / `subs.cljs` / `views.cljs`). It uses
+the four shipped `reg-*` macros — `reg-story`, `reg-variant`,
+`reg-tag`, `reg-workspace` — referencing the counter's existing
+event / sub / view ids. Add more `reg-variant` / `reg-tag` /
+`reg-decorator` / `reg-mode` calls there as your app grows. Under a
+`release` build the Story body code elides via
+`:closure-defines {re-frame.story.config/enabled? false}`, so it
+costs nothing in production.
+
+Story is Reagent-only in this template release; UIx + Helix variants
+follow once Story's adapter coverage matches Reagent's. If you did
+**not** opt in, none of the above is present and you can ignore this
+section.
+
 ## Build for release
 
 ```sh
@@ -77,10 +112,22 @@ The scaffold loads only same-origin JS/CSS and has no inline
 script/style, so the strict default policy holds without weakening:
 
 ```
-Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
 X-Content-Type-Options: nosniff
 Referrer-Policy: strict-origin-when-cross-origin
 ```
+
+**`connect-src` — tighten it in production.** The shipped
+`index.html` meta CSP sets `connect-src 'self' ws: wss:` so
+shadow-cljs's hot-reload websocket connects in **development** (it can
+route to a different port than the page, which `'self'` alone would
+block). Production has no hot-reload websocket, so the production
+header above drops `ws: wss:` and pins `connect-src` to `'self'`. If
+your app calls a **cross-origin API** (XHR/fetch to a different
+origin), `'self'` will block it — add that origin explicitly, e.g.
+`connect-src 'self' https://api.example.com`. The strict default
+silently forbids any cross-origin request you haven't whitelisted, so
+add API origins here as you wire them up.
 
 If you add a CDN, embed in an iframe, inline a `<style>` block, or
 load an analytics snippet, **explicitly widen the policy** for that
@@ -90,7 +137,7 @@ Example **nginx** server block:
 
 ```nginx
 location / {
-  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" always;
   add_header X-Content-Type-Options "nosniff" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 }
@@ -100,7 +147,7 @@ Example **Caddy** Caddyfile snippet:
 
 ```caddyfile
 header {
-  Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
   X-Content-Type-Options "nosniff"
   Referrer-Policy "strict-origin-when-cross-origin"
 }

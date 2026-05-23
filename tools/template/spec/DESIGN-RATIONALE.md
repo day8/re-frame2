@@ -337,6 +337,60 @@ The inverse — strict on input shape, forgiving on value set
 delivers the Reagent variant instead of the requested UIx, and
 the user finds out at `shadow-cljs watch app` time.
 
+## §9 — Causa on by default (rf2-y9zqc)
+
+**Decision.** Every generated app ships [Causa](../../causa/) — the
+in-app devtools panel — wired on by default for development: the
+`day8/re-frame2-causa` runtime coord in `deps.edn`, the
+`day8.re-frame2-causa.preload` in `shadow-cljs.edn`'s `:app`
+`:devtools {:preloads …}`, and the `[data-rf-causa-host]` layout
+column in `index.html` / `app.css`.
+
+**Alternatives considered.**
+
+| Option | What it is | Outcome |
+|---|---|---|
+| A — Causa on by default | Wired into every scaffold; auto-mounts in dev. | **Selected.** |
+| B — Causa behind a `:include-causa?` flag | Opt-in, like `:include-story?`. | Rejected. |
+| C — No Causa; document how to add it | A README note pointing at the Causa coord. | Rejected. |
+
+**Why default-on (unlike Story).**
+
+- **Causa is the scaffold's primary feedback surface.** The
+  headline promise is "save and see it live." Causa's dispatch
+  log, app-db diff, causality graph, and time-travel scrubber are
+  exactly the "what just happened" feedback a first-run user needs;
+  it is to re-frame2 what the browser devtools are to a web app —
+  not an optional extra. The on-ramp should ship it wired, not as a
+  homework assignment.
+- **Zero production cost.** shadow honours the `:devtools` key only
+  under `watch` / `compile`, never `release`, so the preload is
+  automatically absent from the production bundle. Unlike a runtime
+  dep that ships, Causa's body code never reaches a `release` build —
+  there is no bundle-size argument for opt-in. (The bundle-isolation
+  gate in the reference repo proves Causa's dev-only namespaces don't
+  leak into production; the scaffold inherits the same property.)
+- **Stable, panel-complete surface.** Causa's panel set and host
+  contract are settled (`[data-rf-causa-host]` is the documented
+  mount point). It does not move the way Story's authoring surface
+  still does, so default-on doesn't force every scaffold to track a
+  churning API.
+
+**Why this differs from §4 (Story default-off).** Story is a
+*Storybook-class authoring tool* — useful only to teams who write
+stories, with a still-moving `reg-*` surface and a real runtime dep
+(`qrcode-generator`) that ships in `dependencies`. Causa is a
+*devtools panel* — useful to every developer from the first save,
+with zero production footprint and a settled contract. The two
+tools sit on opposite sides of the default line for exactly those
+reasons: cost-to-the-uninterested and surface-stability.
+
+**Why not a flag (option B).** A `:include-causa?` flag would add a
+branch nobody should turn off (the cost of leaving it on is zero in
+production) and complicate the scaffold's flag matrix for no benefit.
+The right default is "on"; a flag implies a meaningful "off" that
+doesn't exist here.
+
 ## Retired — clj-new-over-deps-new
 
 > This was the v1 decision (through 2026-05). Superseded by §1 above
@@ -397,7 +451,7 @@ that no longer applies.
 - [001-Substrate-Variants.md](001-Substrate-Variants.md) — the
   current shipped variants + future variants surface.
 - [002-Generated-Shape.md](002-Generated-Shape.md) — resource tree
-  + substitution variables.
+  + substitution variables + the Causa devtools wiring (§9).
 - [003-DepsNew-Rebuild-Plan.md](003-DepsNew-Rebuild-Plan.md) — the
   migration plan that established the current shape (clj-new +
   Clojars → deps-new + git-coord).
