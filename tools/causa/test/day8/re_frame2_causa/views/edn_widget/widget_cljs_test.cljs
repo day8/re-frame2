@@ -422,18 +422,18 @@
                             (walk-hiccup out))]
         (is (some? code-node))))))
 
-(deftest code-block-keyword-token-uses-accent-violet
+(deftest code-block-keyword-token-uses-accent
   (let [out      (w/code-block {:source ":foo"})
         spans    (walk-hiccup out)
-        violet?  (fn [n]
+        accent?  (fn [n]
                    (let [c (some-> n second :style :color)]
-                     (= c (:accent-violet tokens))))
+                     (= c (:accent tokens))))
         kw-span  (some #(when (and (vector? %)
                                    (= :span (first %))
-                                   (violet? %)) %)
+                                   (accent? %)) %)
                        spans)]
     (is (some? kw-span)
-        "keyword tokens render with accent-violet colour")))
+        "keyword tokens render with the mode accent colour")))
 
 (deftest code-block-string-token-uses-green
   (let [out     (w/code-block {:source "\"hi\""})
@@ -501,12 +501,12 @@
 ;; ---- highlight-clojure-token mapping -------------------------------------
 
 (deftest highlight-clojure-token-mapping
-  (is (= :accent-violet (w/highlight-clojure-token :keyword)))
+  (is (= :accent        (w/highlight-clojure-token :keyword)))
   (is (= :green         (w/highlight-clojure-token :string)))
-  (is (= :cyan          (w/highlight-clojure-token :number)))
+  (is (= :accent-static (w/highlight-clojure-token :number)))
   (is (= :text-tertiary (w/highlight-clojure-token :comment)))
   (is (= :text-primary  (w/highlight-clojure-token :symbol)))
-  (is (= :accent-violet (w/highlight-clojure-token :builtin)))
+  (is (= :accent        (w/highlight-clojure-token :builtin)))
   ;; Unknown token-type falls through to text-primary.
   (is (= :text-primary  (w/highlight-clojure-token :unknown))))
 

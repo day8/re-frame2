@@ -88,7 +88,7 @@
   (when (vector? on-match)
     (let [ev-id (first on-match)]
       [:span {:data-testid "rf-causa-static-routes-on-match-chip"}
-       (chip (str ev-id) (:cyan tokens))])))
+       (chip (str ev-id) (:accent tokens))])))
 
 (defn- segment-keys-from-meta
   "Extract segment keys from the route meta's `:rf.route/compiled`
@@ -115,9 +115,9 @@
                                         {:frame :rf/causa}))
             :title       "Open Dynamic Routing scoped to this route"
             :style       {:background    "transparent"
-                          :border        (str "1px solid " (:accent-violet tokens))
+                          :border        (str "1px solid " (:accent tokens))
                           :border-radius "3px"
-                          :color         (:accent-violet tokens)
+                          :color         (:accent tokens)
                           :padding       "1px 6px"
                           :margin-left   "8px"
                           :font-family   sans-stack
@@ -139,9 +139,9 @@
                                          route-id]
                                         {:frame :rf/causa}))
             :style       {:background    (if sim-open? (:bg-active tokens) "transparent")
-                          :border        (str "1px solid " (:cyan tokens))
+                          :border        (str "1px solid " (:accent tokens))
                           :border-radius "3px"
-                          :color         (:cyan tokens)
+                          :color         (:accent tokens)
                           :padding       "2px 8px"
                           :font-family   sans-stack
                           :font-size     "11px"
@@ -186,8 +186,8 @@
                     :flex-wrap     "wrap"
                     :gap           "6px"
                     :margin-bottom "6px"}}
-      (chip (str route-id) (:accent-violet tokens))
-      (when path (chip path (:cyan tokens)))
+      (chip (str route-id) (:accent tokens))
+      (when path (chip path (:accent tokens)))
       (on-match-summary on-match)
       (source-coord-chip meta)
       [sim-nav-toggle route-id sim-open?]

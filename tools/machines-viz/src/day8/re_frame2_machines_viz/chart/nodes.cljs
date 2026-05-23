@@ -102,18 +102,18 @@
   [{:keys [active? from-highlight? to-highlight? sim?]}]
   (cond
     sim?            (tokens/with-alpha :yellow         0.18)
-    to-highlight?   (tokens/with-alpha :cyan           0.22)
-    from-highlight? (tokens/with-alpha :accent-violet  0.14)
-    active?         (tokens/with-alpha :cyan           0.18)
+    to-highlight?   (tokens/with-alpha :accent-static           0.22)
+    from-highlight? (tokens/with-alpha :accent  0.14)
+    active?         (tokens/with-alpha :accent-static           0.18)
     :else           (:bg-2 tokens/tokens)))
 
 (defn- node-stroke
   [{:keys [active? from-highlight? to-highlight? sim? final?]}]
   (cond
     sim?            (:yellow tokens/tokens)
-    to-highlight?   (:cyan tokens/tokens)
-    from-highlight? (:accent-violet tokens/tokens)
-    active?         (:cyan tokens/tokens)
+    to-highlight?   (:accent-static tokens/tokens)
+    from-highlight? (:accent tokens/tokens)
+    active?         (:accent-static tokens/tokens)
     final?          (:green tokens/tokens)
     :else           (:border-default tokens/tokens)))
 
@@ -228,7 +228,7 @@
                      :user-select      "none"
                      :box-shadow       (when active-affordance?
                                          (str "0 0 0 2px "
-                                              (tokens/with-alpha :cyan 0.18)))
+                                              (tokens/with-alpha :accent-static 0.18)))
                      :transition       "border-color 120ms ease, background 120ms ease"}}
        ;; Final-state double-ring (outer)
        (when final?
@@ -320,8 +320,8 @@
                      :min-width        (str projection/compound-node-min-width "px")
                      :min-height       (str projection/compound-node-min-height "px")
                      :padding-top      (str compound-pad-y "px")
-                     :background       (tokens/with-alpha :accent-violet 0.06)
-                     :border           (str "1px dashed " (:accent-violet tokens/tokens))
+                     :background       (tokens/with-alpha :accent 0.06)
+                     :border           (str "1px dashed " (:accent tokens/tokens))
                      :border-radius    (str compound-radius "px")
                      :pointer-events   "none"}}
        [:div {:style {:position    "absolute"
@@ -330,7 +330,7 @@
                      :font-family sans-stack
                      :font-size   (str compound-title-px "px")
                      :font-weight 600
-                     :color       (:accent-violet tokens/tokens)}}
+                     :color       (:accent tokens/tokens)}}
         label]])))
 
 ;; ---- initial marker node ------------------------------------------------
@@ -345,7 +345,7 @@
            :style {:width            "12px"
                    :height           "12px"
                    :border-radius    "50%"
-                   :background       (:accent-violet tokens/tokens)}}
+                   :background       (:accent tokens/tokens)}}
      [:> Handle {:type "source" :position pos-right
                  :style {:opacity 0}}]]))
 

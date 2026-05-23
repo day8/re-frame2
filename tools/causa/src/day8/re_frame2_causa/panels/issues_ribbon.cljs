@@ -134,7 +134,7 @@
                 :let [active? (contains? active-prefixes prefix)]]
             (chip {:label    prefix
                    :active?  active?
-                   :colour   (:accent-violet tokens)
+                   :colour   (:accent tokens)
                    :test-id  (str "rf-causa-issues-prefix-chip-" prefix)
                    :on-click #(rf/dispatch [:rf.causa.issues/toggle-prefix
                                             prefix] {:frame :rf/causa})})))))
@@ -177,7 +177,7 @@
                 :on-click    #(rf/dispatch [:rf.causa.issues/clear-filters] {:frame :rf/causa})
                 :style       {:margin-left "auto"
                               :background  "transparent"
-                              :color       (:cyan tokens)
+                              :color       (:accent tokens)
                               :border      (str "1px solid " (:border-default tokens))
                               :padding     "2px 8px"
                               :border-radius "3px"
@@ -237,7 +237,7 @@
       (h/severity-glyph severity)]
      ;; Category prefix
      [:span {:data-testid (str row-test-id "-category")
-             :style       {:color       (:accent-violet tokens)
+             :style       {:color       (:accent tokens)
                            :overflow    "hidden"
                            :text-overflow "ellipsis"
                            :white-space "nowrap"}
@@ -263,7 +263,7 @@
                                 (rf/dispatch [:rf.causa/open-in-editor
                                               {:source-coord source-coord}] {:frame :rf/causa}))
                  :style       {:background  "transparent"
-                               :color       (:cyan tokens)
+                               :color       (:accent tokens)
                                :border      (str "1px solid " (:border-subtle tokens))
                                :padding     "1px 6px"
                                :border-radius "3px"
@@ -356,7 +356,7 @@
    [:button {:data-testid "rf-causa-issues-empty-clear-filters"
              :on-click    #(rf/dispatch [:rf.causa.issues/clear-filters] {:frame :rf/causa})
              :style       {:background "transparent"
-                           :color      (:cyan tokens)
+                           :color      (:accent tokens)
                            :border     (str "1px solid " (:border-default tokens))
                            :padding    "4px 10px"
                            :border-radius "3px"

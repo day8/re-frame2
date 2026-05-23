@@ -118,7 +118,7 @@
    :font-weight      (if active? 600 400)
    :border           "none"
    :border-bottom    (str "2px solid "
-                          (if active? (:accent-violet tokens) "transparent"))
+                          (if active? (:accent tokens) "transparent"))
    :border-top-left-radius "4px"
    :border-top-right-radius "4px"
    :margin-bottom    "-1px"})
@@ -164,7 +164,7 @@
    :border-radius    "3px"})
 
 (defn- primary-button-style []
-  {:background       (:accent-violet tokens)
+  {:background       (:accent tokens)
    :color            (:white tokens)
    :border           "none"
    :padding          "6px 14px"
@@ -725,7 +725,7 @@
        "diff. Flip this on when diagnosing memoization issues (a "
        "child re-renders because the parent passes a new fn every "
        "time); identity-different fns will surface as a distinct "
-       "violet `(fn ref changed)` chip."]]]))
+       "accent-coloured `(fn ref changed)` chip."]]]))
 
 ;; ---- section: Keybindings (rf2-ttnst) -----------------------------------
 ;;

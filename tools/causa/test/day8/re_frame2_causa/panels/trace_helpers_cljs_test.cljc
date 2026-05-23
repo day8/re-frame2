@@ -242,8 +242,8 @@
   ;; specific palette's hex.
   (is (= (:red    tokens/tokens)  (h/op-type-colour :error)))
   (is (= (:yellow tokens/tokens)  (h/op-type-colour :warning)))
-  (is (= (:cyan   tokens/tokens)  (h/op-type-colour :info)))
-  (is (= (:accent-violet tokens/tokens) (h/op-type-colour :rf.event)))
+  (is (= (:accent-static tokens/tokens) (h/op-type-colour :info)))
+  (is (= (:accent tokens/tokens) (h/op-type-colour :rf.event)))
   (is (= (:green  tokens/tokens)  (h/op-type-colour :rf.fx)))
   (is (= (:magenta tokens/tokens) (h/op-type-colour :rf.view/render)))
   ;; Defensive fallback.

@@ -9,8 +9,8 @@
   Routing lens via `routing-helpers/filter-rows`.
 
   Per row:
-    - path / pattern (mono violet)
-    - route-id keyword (mono violet, smaller)
+    - path / pattern (mono mode-accent)
+    - route-id keyword (mono mode-accent, smaller)
     - source-coord chip (when present)
     - doc-string ellipsis
 
@@ -34,10 +34,10 @@
   [kind]
   (let [{:keys [letter colour title]}
         (case kind
-          :on-match  {:letter "M" :colour (:cyan tokens)          :title ":on-match"}
+          :on-match  {:letter "M" :colour (:accent-static tokens) :title ":on-match"}
           :can-leave {:letter "L" :colour (:yellow tokens)        :title ":can-leave"}
           :tags      {:letter "T" :colour (:magenta tokens)       :title ":tags"}
-          :parent    {:letter "P" :colour (:accent-violet tokens) :title ":parent"}
+          :parent    {:letter "P" :colour (:accent tokens) :title ":parent"}
           nil)]
     (when letter
       [:span {:data-testid (str "rf-causa-static-routes-badge-" (name kind))
@@ -120,7 +120,7 @@
                       :color         (:text-primary tokens)
                       :background    (if expanded? (:bg-2 tokens) "transparent")
                       :border-left   (if expanded?
-                                       (str "2px solid " (:cyan tokens))
+                                       (str "2px solid " (:accent tokens))
                                        "2px solid transparent")
                       :border-radius "2px"
                       :line-height   "20px"}}
@@ -158,7 +158,7 @@
                           :min-width   "12px"
                           :user-select "none"}}
      (if expanded? "▾" "▸")]
-    [:span {:style {:color       (:accent-violet tokens)
+    [:span {:style {:color       (:accent tokens)
                    :font-weight 500
                    :min-width   "160px"}}
      path]

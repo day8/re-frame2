@@ -25,7 +25,7 @@
 
   Dropped vs. the earlier spec catalogue (per Mike 2026-05-19
   §0ter.4 walkthrough): Actions tab + factory-reset BIG RED BUTTON,
-  density Comfy tier, per-tab default expansion knob, accent-violet
+  density Comfy tier, per-tab default expansion knob, accent
   user swap, sub-output diff layout toggle, section-grouping
   threshold, Popout as its own tab. The Telemetry tab was removed
   earlier (rf2-jh9ws) — Causa ships no telemetry endpoint and the

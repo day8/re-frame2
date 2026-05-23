@@ -64,7 +64,7 @@
   ;; variable migration is the v1 styling pass.
   {:chip {:padding         "1px 8px"
           :background      "transparent"
-          :color           (:accent-violet tokens)
+          :color           (:accent tokens)
           :border          (str "1px solid " (:border-default tokens))
           :border-radius   "3px"
           :cursor          "pointer"

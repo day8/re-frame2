@@ -10,23 +10,23 @@
 ;; ---- with-alpha (rf2-pyvmr) --------------------------------------------
 
 (deftest with-alpha-builds-rgba-string-from-hex-token
-  (testing "with-alpha resolves :cyan (#43C3D0) to rgba(67, 195, 208, alpha)"
-    (let [s (tokens/with-alpha :cyan 0.5)]
+  (testing "with-alpha resolves :accent-static (#43C3D0) to rgba(67, 195, 208, alpha)"
+    (let [s (tokens/with-alpha :accent-static 0.5)]
       (is (= "rgba(67, 195, 208, 0.5)" s)))))
 
 (deftest with-alpha-resolves-zero-alpha
   (testing "with-alpha accepts alpha=0 — used by callers that compute
             opacity dynamically"
     (is (re-find #"^rgba\(\d+, \d+, \d+, 0\)$"
-                 (tokens/with-alpha :accent-violet 0)))))
+                 (tokens/with-alpha :accent 0)))))
 
 (deftest with-alpha-roundtrips-palette-shift
   (testing "with-alpha resolves through a custom palette so callers
             (theming hosts) can swap the palette without forking the
             chart"
-    (let [custom {:cyan "#000000"}]
+    (let [custom {:accent-static "#000000"}]
       (is (= "rgba(0, 0, 0, 0.25)"
-             (tokens/with-alpha :cyan 0.25 custom))))))
+             (tokens/with-alpha :accent-static 0.25 custom))))))
 
 ;; ---- tag-pill-color (rf2-m1b88) ----------------------------------------
 
@@ -38,11 +38,11 @@
     (is (= (tokens/tag-pill-color :auth/ok) (tokens/tag-pill-color :auth/ok)))))
 
 (deftest tag-pill-color-skips-reserved-tokens
-  (testing "tag-pill-color never returns :red or :accent-violet —
-            both are reserved for chart semantics"
-    ;; Walk every palette entry; assert none is :red / :accent-violet.
+  (testing "tag-pill-color never returns :red, :accent or :accent-static
+            — all reserved for chart semantics (rf2-ad7zx)"
+    ;; Walk every palette entry; assert none is reserved.
     (is (every? (fn [t]
-                  (not (#{:red :accent-violet} (tokens/tag-pill-color t))))
+                  (not (#{:red :accent :accent-static} (tokens/tag-pill-color t))))
                 [:risky :paid :auth/ok :final :loading :error
                  :rec :checkout :session/active :flow/start]))))
 
@@ -77,8 +77,8 @@
             arg; this test pins the LIGHT-palette path so chart code
             can resolve tints against the light theme without forking
             the helper."
-    (let [s (tokens/with-alpha :cyan 0.5 tokens/light-palette)]
-      ;; Light :cyan is #2A8B96 → rgba(42, 139, 150, 0.5)
+    (let [s (tokens/with-alpha :accent-static 0.5 tokens/light-palette)]
+      ;; Light :accent-static is #2A8B96 → rgba(42, 139, 150, 0.5)
       (is (= "rgba(42, 139, 150, 0.5)" s)))))
 
 ;; ---- css-var (rf2-uv1on) -----------------------------------------------
@@ -95,14 +95,14 @@
 (deftest css-var-name-matches-causa-convention
   (testing "the variable name mirrors Causa's `var(--rf-causa-<key>)`
             so the chart + host paint from ONE :root palette"
-    (is (str/starts-with? (tokens/css-var :cyan)
-                          "var(--rf-causa-cyan"))))
+    (is (str/starts-with? (tokens/css-var :accent-static)
+                          "var(--rf-causa-accent-static"))))
 
 (deftest css-var-falls-back-to-supplied-palette-hex
   (testing "css-var resolves the fallback hex from the supplied palette
             arg (light theme), not just the dark default"
-    (is (= "var(--rf-causa-cyan, #2A8B96)"
-           (tokens/css-var :cyan tokens/light-palette)))))
+    (is (= "var(--rf-causa-accent-static, #2A8B96)"
+           (tokens/css-var :accent-static tokens/light-palette)))))
 
 (deftest css-var-no-fallback-for-unknown-key
   (testing "an unknown token has no hex → bare var() (host MUST define

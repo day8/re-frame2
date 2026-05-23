@@ -269,7 +269,7 @@
   [status]
   (case status
     :ok          (:green tokens)
-    :overridden  (:accent-violet tokens)
+    :overridden  (:accent tokens)
     :skipped     (:text-tertiary tokens)
     :error       (:red tokens)
     (:text-secondary tokens)))
@@ -400,12 +400,12 @@
                       :border-bottom (str "1px solid " (:border-subtle tokens))
                       :font-family   sans-stack
                       :font-size     "13px"}}
-     ;; spec/021 §17.1.5 — Event panel header icon: ⚡ in
-     ;; :accent-violet. Renders to the LEFT of the lifecycle status
-     ;; dot.
+     ;; spec/021 §17.1.5 — Event panel header icon: ⚡ in the mode
+     ;; :accent (orange Dynamic / cyan Static). Renders to the LEFT of
+     ;; the lifecycle status dot.
      [:span {:data-testid "rf-causa-event-detail-panel-icon"
              :aria-hidden "true"
-             :style {:color (:accent-violet tokens)
+             :style {:color (:accent tokens)
                      :font-weight 600
                      :font-size "14px"}}
       "⚡"]
@@ -428,7 +428,7 @@
                       :stale           "stale (replayed / RETRO)"
                       (name status-kw))}]
      [:span {:data-testid "rf-causa-event-detail-outcome-event-id"
-             :style {:color (:accent-violet tokens)
+             :style {:color (:accent tokens)
                      :font-family mono-stack
                      :font-weight 600}}
       (pr-str event-id)]
@@ -455,7 +455,10 @@
      ;; per Mike-direction 2026-05-21.
      (when ssr?
        [:span {:data-testid "rf-causa-event-detail-outcome-ssr-badge"
-               :style {:color (:cyan tokens)
+               ;; SSR origin badge — fixed info cyan (`accent-static`,
+               ;; the §007 :story/:test/info hue), kept distinct from the
+               ;; mode accent so it always reads as an origin marker.
+               :style {:color (:accent-static tokens)
                        :font-family mono-stack
                        :font-weight 700
                        :font-size "11px"
@@ -489,7 +492,7 @@
                                            {:source-coord coord}]
                                           {:frame :rf/causa}))
               :style       {:background  "transparent"
-                            :color       (:cyan tokens)
+                            :color       (:accent tokens)
                             :border      (str "1px solid " (:border-default tokens))
                             :padding     "1px 8px"
                             :border-radius "3px"
@@ -570,7 +573,7 @@
            :style {:display "flex"
                    :align-items "flex-start"
                    :padding "2px 0"}}
-     [:span {:style {:color (:accent-violet tokens)
+     [:span {:style {:color (:accent tokens)
                      :min-width "180px"
                      :margin-right "12px"}}
       (pr-str id)]
@@ -607,7 +610,7 @@
            :style {:display "flex"
                    :align-items "center"
                    :padding "2px 0"}}
-     [:span {:style {:color (:accent-violet tokens)
+     [:span {:style {:color (:accent tokens)
                      :margin-right "12px"
                      :min-width "180px"}}
       (pr-str id)]
@@ -658,8 +661,8 @@
   "Renders the `↳ source` block under the handler flavour+coord row.
   Per Mike-direction 2026-05-21 (rf2-n4ad0) the handler source now
   routes through the canonical EDN widget's `code-block` for
-  syntax-highlighted rendering (keywords violet, strings green,
-  numbers cyan, builtins violet). When the substrate meta hasn't
+  syntax-highlighted rendering (keywords + builtins in the mode accent,
+  strings green, numbers cyan). When the substrate meta hasn't
   yet been captured (e.g. before rf2-xgfuy lands, or in a production
   goog.DEBUG=false build) the row renders the `<source not yet
   captured>` placeholder per the task brief."
@@ -709,7 +712,7 @@
       [:div
        [:div {:style {:display "flex" :align-items "center"}}
         [:span {:data-testid "rf-causa-event-detail-handler-flavour"
-                :style {:color (:cyan tokens)
+                :style {:color (:accent tokens)
                         :font-weight 600
                         :margin-right "8px"}}
          flavour]
@@ -737,7 +740,7 @@
          :style {:display "flex"
                  :align-items "flex-start"
                  :padding "2px 0"}}
-   [:span {:style {:color (:accent-violet tokens)
+   [:span {:style {:color (:accent tokens)
                    :min-width "180px"
                    :margin-right "12px"}}
     label]
@@ -755,7 +758,7 @@
    [:button {:on-click #(rf/dispatch [:rf.causa/select-tab :issues]
                                      {:frame :rf/causa})
              :style {:background  "transparent"
-                     :color       (:accent-violet tokens)
+                     :color       (:accent tokens)
                      :border      (str "1px solid " (:border-default tokens))
                      :padding     "1px 8px"
                      :border-radius "3px"
@@ -843,7 +846,7 @@
                     :align-items "center"
                     :gap "10px"
                     :flex-wrap "wrap"}}
-      [:span {:style {:color (:accent-violet tokens)
+      [:span {:style {:color (:accent tokens)
                       :min-width "160px"}}
        (pr-str fx-id)]
       (when duration-ms (tier-dot duration-ms))
@@ -1038,7 +1041,7 @@
                       :font-size   "12px"}}
        (if via? "↳" "▸")]
       [:span {:data-testid (str "rf-causa-event-detail-flow-row-id-" suffix)
-              :style {:color       (:accent-violet tokens)
+              :style {:color       (:accent tokens)
                       :font-weight 600
                       :min-width   "160px"}}
        (pr-str flow-id)]
@@ -1064,7 +1067,7 @@
                       :font-size   "11px"}}
        "wrote"]
       [:span {:data-testid (str "rf-causa-event-detail-flow-row-write-path-" suffix)
-              :style {:color       (:cyan tokens)
+              :style {:color       (:accent tokens)
                       :margin-right "12px"}}
        (pr-str write-path)]
       [:span {:style {:color    (:text-primary tokens)
@@ -1090,7 +1093,7 @@
                               :flex 1
                               :word-break "break-word"}}]
               (for [p read-paths]
-                [:span {:style {:color (:cyan tokens)
+                [:span {:style {:color (:accent tokens)
                                 :margin-right "8px"}}
                  (pr-str p)]))
         [:span {:data-testid (str "rf-causa-event-detail-flow-row-read-absent-" suffix)
@@ -1285,8 +1288,8 @@
   rf2-zv9r9).
 
   Layout follows the §2.2 mockup verbatim — a one-way pipeline with
-  explicit `▼` arrows between steps. Stripe colour `:accent-violet`
-  applied at the outer container per §17.1.3.
+  explicit `▼` arrows between steps. Stripe colour is the mode
+  `:accent` applied at the outer container per §17.1.3.
 
   Steps (top → bottom):
     [1] DISPATCH          event-id + payload + :rf/dispatch-origin
@@ -1330,8 +1333,9 @@
     [:div {:data-testid "rf-causa-event-detail-cascade"
            :data-dispatch-id (str dispatch-id)
            :data-frame (str frame)
-           ;; §17.1.3 — Event panel domain stripe is :accent-violet.
-           :style {:border-left (str "3px solid " (:accent-violet tokens))}}
+           ;; §17.1.3 / spec/022 — Event panel header stripe is the mode
+           ;; :accent (orange Dynamic / cyan Static).
+           :style {:border-left (str "3px solid " (:accent tokens))}}
      (cascade-outcome-line cascade)
 
      ;; rf2-n4ad0 — vertical-flow pipeline body. Wraps every section in
@@ -1455,7 +1459,7 @@
                      :font-family  mono-stack
                      :font-size    "13px"
                      :color        (:text-primary tokens)}}
-   [:span {:style {:color (:accent-violet tokens) :margin-right "8px"}}
+   [:span {:style {:color (:accent tokens) :margin-right "8px"}}
     (str "#" dispatch-id)]
    (when frame
      [:span {:style {:color (:text-tertiary tokens) :margin-right "8px"}}
@@ -1512,11 +1516,11 @@
                              :font-family sans-stack
                              :font-size "13px"}}
          "Selected dispatch-id "
-         [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
+         [:code {:style {:color (:accent tokens) :font-family mono-stack}}
           (str selected-dispatch-id)]
          (when selected-dispatch-frame
            [:span " in frame "
-            [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
+            [:code {:style {:color (:accent tokens) :font-family mono-stack}}
              (str selected-dispatch-frame)]])
          " is no longer in the trace buffer. Pick another cascade from the event list."]
 

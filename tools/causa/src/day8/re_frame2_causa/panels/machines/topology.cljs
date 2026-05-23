@@ -32,8 +32,9 @@
   ## Edge kinds (per spec §17.4.3)
 
     - `:fired-this-epoch`     — edge keys in the `fired-edges` set
-                                are rendered with the animated violet
-                                stroke.
+                                are rendered with the animated mode-
+                                accent stroke (orange Dynamic / cyan
+                                Static, rf2-ad7zx).
     - `:registered-traversed` — edge keys in the `traversed-edges`
                                 set (most-recent traversal in the
                                 buffer, but NOT this epoch).

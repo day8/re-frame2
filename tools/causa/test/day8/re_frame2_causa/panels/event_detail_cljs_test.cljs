@@ -1163,9 +1163,10 @@
         (is (empty? label-strings)
             "no 'cascade #NNN' label appears anywhere in the rendered lens")))))
 
-(deftest cascade-container-carries-violet-stripe-per-section-17
-  (testing "rf2-zv9r9 — per spec/021 §17.1.3 the Event panel stripe is
-            :accent-violet (#7C5CFF). Rendered as a 3px left border on
+(deftest cascade-container-carries-accent-stripe-per-section-17
+  (testing "rf2-zv9r9 / rf2-ad7zx — per spec/021 §17.1.3 + spec/022 the
+            Event panel header stripe is the mode :accent (orange in
+            Dynamic, cyan in Static). Rendered as a 3px left border on
             the outer cascade container."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
@@ -1181,7 +1182,7 @@
 
 (deftest panel-header-icon-rendered-per-section-17-1-5
   (testing "rf2-zv9r9 — per spec/021 §17.1.5 the Event panel header
-            carries the ⚡ icon in :accent-violet to the left of the
+            carries the ⚡ icon in the mode :accent to the left of the
             lifecycle status dot"
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa

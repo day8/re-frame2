@@ -34,26 +34,30 @@
 
       Status            Token            Hex (dark)  When
       ----------------  ---------------  ----------  -----------------------
-      :in-flight        :accent-violet   #7C5CFF     cascade still building
+      :in-flight        :accent          #F97316     cascade still building
                                                      (LIVE head, not yet
-                                                     settled). Mirrors
-                                                     Causa's existing
-                                                     causal-chain accent.
+                                                     settled). The mode
+                                                     accent (orange in
+                                                     Dynamic / cyan in
+                                                     Static) — the LIVE
+                                                     head IS the current-
+                                                     epoch accent (§007).
       :settled-success  :green           #4ADE80     handler ran, no
                                                      exception, no warnings.
       :settled-error    :red             #F87171     handler threw, or an
                                                      :rf.error/* trace
                                                      landed in the cascade.
-      :paused-by-tool   :cyan            #43C3D0     spine paused
+      :paused-by-tool   :accent-static   #43C3D0     spine paused
                                                      (LIVE+paused) — e.g.
                                                      a tool has claimed
                                                      the buffer. TanStack
                                                      uses purple for
-                                                     paused; we already
-                                                     own violet for the
-                                                     causal chain so we
-                                                     pick cyan as the
-                                                     peer accent. Magenta
+                                                     paused; the in-flight
+                                                     head now owns the mode
+                                                     accent, so paused picks
+                                                     the fixed cyan
+                                                     `accent-static` as a
+                                                     distinct peer. Magenta
                                                      is reserved for the
                                                      `▥` whole-redacted
                                                      row marker.
@@ -136,10 +140,10 @@
   lookup keeps the map pure-data + tokens consolidated — mirrors the
   `tier->token` / `op-type->token` shape used elsewhere in the
   codebase."
-  {:in-flight       :accent-violet
+  {:in-flight       :accent
    :settled-success :green
    :settled-error   :red
-   :paused-by-tool  :cyan
+   :paused-by-tool  :accent-static   ; fixed cyan — distinct from :in-flight (mode accent)
    :stale           :yellow})
 
 ;; ---- classification ------------------------------------------------------
@@ -175,7 +179,7 @@
 
   Pure data → keyword; JVM-runnable."
   [state]
-  (get status->token (classify-status state) :accent-violet))
+  (get status->token (classify-status state) :accent))
 
 (defn event-status-colour
   "Resolve the cascade's lifecycle state to a hex colour string,
@@ -192,7 +196,7 @@
 
   Pure data → string; JVM-runnable."
   [state]
-  (get tokens/tokens (event-status-token state) (:accent-violet tokens/tokens)))
+  (get tokens/tokens (event-status-token state) (:accent tokens/tokens)))
 
 ;; ---- convenience: cascade → state map -----------------------------------
 

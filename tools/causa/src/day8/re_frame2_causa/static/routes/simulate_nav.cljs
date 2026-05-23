@@ -64,7 +64,7 @@
            :style       {:padding       "10px 16px"
                          :margin        "8px 0 4px 24px"
                          :background    (:bg-1 tokens)
-                         :border-left   (str "2px solid " (:cyan tokens))
+                         :border-left   (str "2px solid " (:accent tokens))
                          :border-radius "2px"
                          :display       "grid"
                          :grid-template-columns "100px 1fr"

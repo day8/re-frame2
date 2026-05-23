@@ -97,7 +97,7 @@
   [marker]
   (case marker
     :to   {:glyph "◉" :colour (:green tokens) :label "TO"}
-    :from {:glyph "◇" :colour (:cyan tokens)  :label "FROM"}
+    :from {:glyph "◇" :colour (:accent-static tokens)  :label "FROM"}
     :here {:glyph "●" :colour (:yellow tokens) :label "HERE"}
     nil))
 
@@ -247,7 +247,7 @@
         (epoch-detail-row
           "From"
           (if from-id
-            [:span {:style {:color (:cyan tokens)}}
+            [:span {:style {:color (:accent-static tokens)}}
              (str from-id)]
             [:span {:style {:color (:text-tertiary tokens)}} "—"])
           "rf-causa-routing-detail-from-label"
@@ -277,7 +277,7 @@
                                   :flex-wrap "wrap"}}]
                   (for [[idx ev] (map-indexed vector events)]
                     ^{:key idx}
-                    [:span {:style {:color       (:accent-violet tokens)
+                    [:span {:style {:color       (:accent tokens)
                                     :background  (:bg-1 tokens)
                                     :padding     "1px 6px"
                                     :border-radius "2px"
@@ -321,7 +321,7 @@
      "Full topology of registered routes with focused-epoch overlay. "
      [:span {:style {:color (:green tokens) :font-weight 600}} "◉ TO"]
      " / "
-     [:span {:style {:color (:cyan tokens) :font-weight 600}} "◇ FROM"]
+     [:span {:style {:color (:accent-static tokens) :font-weight 600}} "◇ FROM"]
      " / "
      [:span {:style {:color (:yellow tokens) :font-weight 600}} "● HERE"]
      " mark the per-epoch navigation overlay. For the full route catalogue browse + "
@@ -352,7 +352,7 @@
     "No routes registered in the host app."]
    [:span {:style {:color (:text-tertiary tokens)}}
     "Register routes via "
-    [:code {:style {:color       (:accent-violet tokens)
+    [:code {:style {:color       (:accent tokens)
                     :font-family mono-stack}}
      "re-frame.routing/reg-route"]
     " — the topology will render once the host installs them."]])

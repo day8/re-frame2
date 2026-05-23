@@ -205,14 +205,14 @@
   Event tab detail (which has plenty of room).
 
   - `event-id` is the first element of the event vector.
-  - Renders in the accent-violet colour so it pops out of the row.
+  - Renders in the mode `accent` colour so it pops out of the row.
   - When the cascade carries no event vector, falls back to a
     `<no event>` chip in the secondary text colour. (Per rf2-639lc
     the L2 event list filters those cascades out via
     `cascade-has-event?`; the fallback is defence-in-depth.)"
   [event-vec]
   (if (vector? event-vec)
-    [:span {:style {:color       (:accent-violet tokens)
+    [:span {:style {:color       (:accent tokens)
                     :font-weight 500}}
      (pr-str (first event-vec))]
     [:span {:style {:color      (:text-secondary tokens)
@@ -659,7 +659,7 @@
                            :gap            "4px"
                            :padding        "2px 6px 2px 8px"
                            :background     (:bg-active tokens)
-                           :border         (str "1px solid " (:accent-violet tokens))
+                           :border         (str "1px solid " (:accent tokens))
                            :border-radius  "10px"
                            :font-family    sans-stack
                            :font-size      (:body type-scale)
@@ -671,7 +671,7 @@
        ;; accessible meaning. `aria-hidden` suppresses the unicode-
        ;; name announcement ("direct hit").
        [:span {:aria-hidden "true"
-               :style {:color (:accent-violet tokens)
+               :style {:color (:accent tokens)
                        :font-weight 600}}
         "🎯"]                ;; 🎯 (UTF-16 surrogate pair for portability)
        [:span {:data-testid "rf-causa-focus-chip-label"
@@ -750,8 +750,9 @@
   buys the compacted height.
 
   The 2-px left-edge accent stripe (rf2-o5f5f.1 mode-signal mechanism
-  #2 — violet Dynamic / cyan Static) stays as the at-a-glance mode cue,
-  so the understated mode dropdown can recede without losing the signal.
+  #2 — orange Dynamic / cyan Static, rf2-ad7zx) stays as the at-a-glance
+  mode cue, so the understated mode dropdown can recede without losing
+  the signal.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -774,13 +775,13 @@
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    ;; rf2-o5f5f.1 — mode-signal mechanism #2: a 2-px
                    ;; left-edge stripe in the active mode's accent
-                   ;; (violet in Dynamic, cyan in Static). Painted on
-                   ;; the ribbon so it lines up with the top-of-shell
-                   ;; edge regardless of the L2 resize-handle. The
-                   ;; stripe-hex helper closes over the current
-                   ;; palette (light vs dark theme via CSS custom
-                   ;; properties); cyan is already in the palette so
-                   ;; zero new tokens introduced.
+                   ;; (orange in Dynamic, cyan in Static — rf2-ad7zx).
+                   ;; Painted on the ribbon so it lines up with the
+                   ;; top-of-shell edge regardless of the L2 resize-
+                   ;; handle. The stripe-hex helper reads the per-mode
+                   ;; `:accent-dynamic` / `:accent-static` token through
+                   ;; the current palette (light vs dark via CSS custom
+                   ;; properties).
                    :border-left      (str "2px solid "
                                           (static-shell/stripe-hex-for-mode :dynamic))
                    :font-family      sans-stack
@@ -1056,7 +1057,7 @@
         status-kw    (event-status/classify-status status-state)
         status-hex   (event-status/event-status-colour status-state)
         glyph-col   (cond
-                      focused?                                (:cyan tokens)
+                      focused?                                (:accent tokens)
                       (= "x" glyph)                           (:red tokens)
                       (= "▥" glyph)                           (:magenta tokens)
                       :else                                   (:text-tertiary tokens))
@@ -1071,7 +1072,7 @@
                       ungrouped? (:bg-2 tokens)
                       :else      "transparent")
         border      (cond
-                      focused?   (str "1px solid " (:cyan tokens))
+                      focused?   (str "1px solid " (:accent tokens))
                       ungrouped? (str "1px dashed " (:border-subtle tokens))
                       :else      "1px solid transparent")
         ;; rf2-b76v4 — the lifecycle-status accent rides as a 2px inset
@@ -1108,8 +1109,8 @@
                        in-focus?  "◌"          ;; open marker for in-focus non-pivot rows
                        :else      nil)
         focus-marker-col (cond
-                           pivot?    (:accent-violet tokens)
-                           in-focus? (:accent-violet tokens)
+                           pivot?    (:accent tokens)
+                           in-focus? (:accent tokens)
                            :else     (:text-tertiary tokens))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Causa is
@@ -1260,8 +1261,8 @@
      ;; from also firing.
      ;;
      ;; rf2-5kfxe.10 — cascade-chain timeline gutter. The gutter cell
-     ;; carries a 1px violet inset border on its LEFT EDGE so stacked
-     ;; rows render as a continuous vertical thread — visually
+     ;; carries a 1px mode-accent inset border on its LEFT EDGE so
+     ;; stacked rows render as a continuous vertical thread — visually
      ;; expressing the spine's timeline rather than reading as a flat
      ;; list. `:ungrouped` rows break the thread (the bucket isn't on
      ;; the cascade timeline). The thread is `align-self: stretch` so
@@ -1288,7 +1289,7 @@
                                    :box-shadow   (if ungrouped?
                                                    "none"
                                                    (str "inset 1px 0 0 0 "
-                                                        (:accent-violet tokens)))}
+                                                        (:accent tokens)))}
                      :title       (cond
                                     pivot?
                                     (str "Clear focus on " (fh/dimension-label focus-set))
@@ -1317,7 +1318,7 @@
                :data-rf-causa-origin (name origin)
                :title origin-title
                :style {:flex-shrink 0
-                       :color (:accent-violet tokens)
+                       :color (:accent tokens)
                        :font-size (:caption type-scale)
                        :min-width "12px"
                        :text-align "center"}}
@@ -1718,7 +1719,7 @@
               :style {:background    "transparent"
                       :border        "none"
                       :border-bottom (if active?
-                                       (str "2px solid " (:accent-violet tokens))
+                                       (str "2px solid " (:accent tokens))
                                        "2px solid transparent")
                       :color         color
                       :cursor        "pointer"
@@ -1733,7 +1734,7 @@
      ;; circle" / "white circle").
      [:span {:aria-hidden "true"
              :style {:color (if active?
-                              (:accent-violet tokens)
+                              (:accent tokens)
                               (:text-tertiary tokens))
                      :margin-right "4px"}}
       glyph]
@@ -1975,8 +1976,19 @@
     (when (not= current-positioning modal-positioning)
       (rf/dispatch-sync [:rf.causa/set-modal-positioning modal-positioning]
                         {:frame :rf/causa})))
-  [rf/frame-provider {:frame :rf/causa}
+  ;; rf2-ad7zx / spec/022 — the lens mode (`:rf.causa/mode` =
+  ;; :dynamic | :static) drives the `mode-dynamic` / `mode-static`
+  ;; root class. `theme/global-styles/mode-accent-css` re-points
+  ;; `--rf-causa-accent` at the orange (Dynamic) or cyan (Static)
+  ;; accent off this class, so the whole shell's chrome accent flips
+  ;; off ONE token while the brand wordmark stays orange in either
+  ;; mode. Subscribed via the explicit `:rf/causa` frame (same shape
+  ;; as the modal-positioning read above — `shell-view` sits outside
+  ;; its own frame-provider).
+  (let [lens-mode @(rf/subscribe :rf/causa [:rf.causa/mode])]
+   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
+          :class (str "mode-" (name (or lens-mode :dynamic)))
           ;; rf2-plajx — Causa shell root is a landmark. A 40%-
           ;; viewport overlay rendered as a bare `<div>` is invisible
           ;; to screen-reader landmark navigation (JAWS R-key /
@@ -2092,4 +2104,4 @@
     ;; popup's subscribes resolve through the shell's `:rf/causa`
     ;; frame-provider; closed-state cost is one subscribe + a when-
     ;; gate.
-    [app-db-segment-inspector/Popup]]])
+    [app-db-segment-inspector/Popup]]]))

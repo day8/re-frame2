@@ -146,8 +146,8 @@
                     :margin-left   "8px"
                     :border-radius "3px"
                     :background    "rgba(124, 92, 255, 0.15)"
-                    :border        (str "1px solid " (:accent-violet tokens))
-                    :color         (:accent-violet tokens)
+                    :border        (str "1px solid " (:accent tokens))
+                    :color         (:accent tokens)
                     :font-family   mono-stack
                     :font-size     "10px"
                     :font-weight   700
@@ -175,7 +175,7 @@
                    :padding       "1px 8px"
                    :border-radius "3px"
                    :background    "rgba(67, 195, 208, 0.12)"
-                   :color         (:cyan tokens)
+                   :color         (:accent-static tokens)
                    :font-family   mono-stack
                    :font-size     "11px"
                    :font-weight   700
@@ -190,7 +190,7 @@
                                   [:rf.causa/filter-by-fx fx-id]
                                   {:frame :rf/causa})))
            :title "Right-click to filter the event list to events triggering this fx"
-           :style {:color (:accent-violet tokens)
+           :style {:color (:accent tokens)
                    :font-family mono-stack
                    :font-size "12px"
                    :font-weight 600
@@ -276,7 +276,7 @@
                                           {:frame :rf/causa})
                :style       {:background  "transparent"
                              :border      (str "1px solid " (:border-default tokens))
-                             :color       (:accent-violet tokens)
+                             :color       (:accent tokens)
                              :font-family mono-stack
                              :font-size   "10px"
                              :padding     "2px 8px"
@@ -320,7 +320,7 @@
                      :font-family mono-stack
                      :font-size "12px"
                      :color (:text-primary tokens)}}
-        [:span {:style {:color (:accent-violet tokens)}}
+        [:span {:style {:color (:accent tokens)}}
          (pr-str path)]])]))
 
 ;; ---- one record's panel ------------------------------------------------

@@ -104,9 +104,9 @@
   (testing "each severity gets the shell.cljs token-equivalent colour
             (resolved through `theme/tokens` so the rf2-0fr6v
             `:text-tertiary` contrast bump round-trips automatically)"
-    (is (= (:red    tokens/tokens) (h/severity-colour :error)))
-    (is (= (:yellow tokens/tokens) (h/severity-colour :warning)))
-    (is (= (:cyan   tokens/tokens) (h/severity-colour :advisory)))
+    (is (= (:error    tokens/tokens) (h/severity-colour :error)))
+    (is (= (:warning  tokens/tokens) (h/severity-colour :warning)))
+    (is (= (:advisory tokens/tokens) (h/severity-colour :advisory)))
     (is (= (:text-tertiary tokens/tokens) (h/severity-colour :unknown)))))
 
 (deftest severity-label-stable

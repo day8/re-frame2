@@ -81,9 +81,32 @@
    :text-secondary "#A8AEC0"
    :text-tertiary  "#8990A0"
 
-   ;; ── accents + semantic ──
-   :accent-violet  "#7C5CFF"
-   :cyan           "#43C3D0"
+   ;; ── brand + mode accents (orange identity — rf2-ad7zx / spec/022) ──
+   ;; `brand` is the logo/wordmark colour and is ALWAYS orange in either
+   ;; mode. `accent-dynamic` / `accent-static` are the per-mode accents;
+   ;; `accent` is the RUNTIME ALIAS the `.mode-dynamic` / `.mode-static`
+   ;; root class points at the active mode's accent (active tab · mode
+   ;; stripe · selected states · focus ring · changed/recompute). Its
+   ;; default value here is the Dynamic (orange) accent — `themes-css`
+   ;; re-points the `--rf-causa-accent` variable at `accent-static`
+   ;; under `.mode-static` so the whole shell turns cyan in Static.
+   :brand          "#F97316"
+   :accent-dynamic "#F97316"
+   :accent-static  "#43C3D0"
+   :accent         "#F97316"   ; runtime alias → accent-dynamic by default
+
+   ;; ── semantic + change (spec/022 §Semantic & change) ──
+   :error          "#F85149"
+   :warning        "#FBBF24"   ; warnings; also the filter "N hidden" chrome
+   :advisory       "#79A6D2"   ; lowest Issues severity — calm, cool, ≠ warning
+   :success        "#3FB950"
+   :dim            "#6E7681"   ; dimmed / inert / unchanged
+   :hover          "#232730"   ; hover background (= bg-3)
+
+   ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
+   ;; These do REAL semantic work — perf tiers, machine state, route
+   ;; side-channel, redaction, op-family legends — and are NOT collapsed
+   ;; into the brand/mode accent.
    :green          "#4ADE80"
    :yellow         "#FBBF24"
    :orange         "#FB923C"
@@ -98,7 +121,7 @@
    ;; stays AA-grade.
    :red-deep       "#a83a3a"
 
-   ;; Universal white — readable on the violet accent + the deep
+   ;; Universal white — readable on the brand/mode accent + the deep
    ;; reds. Catalogued here so the few "white text on coloured
    ;; surface" spots (primary / danger buttons) flow through tokens
    ;; like every other colour.
@@ -140,10 +163,24 @@
    :text-secondary "#4B5160"
    :text-tertiary  "#8B92A1"
 
-   ;; ── accents + semantic ── (each ~15-20% darker than the dark
-   ;; palette to maintain ≥4.5:1 contrast on the white canvas)
-   :accent-violet  "#5538D8"
-   :cyan           "#2A8B96"
+   ;; ── brand + mode accents (orange identity — rf2-ad7zx / spec/022) ──
+   ;; Each ~15-20% darker than the dark palette to maintain ≥4.5:1 large-
+   ;; text contrast on the white canvas. `accent` default = the Dynamic
+   ;; (orange) accent; `.mode-static` re-points it at `accent-static`.
+   :brand          "#EA580C"
+   :accent-dynamic "#EA580C"
+   :accent-static  "#2A8B96"
+   :accent         "#EA580C"   ; runtime alias → accent-dynamic by default
+
+   ;; ── semantic + change (spec/022 §Semantic & change) ──
+   :error          "#CF222E"
+   :warning        "#B07A05"
+   :advisory       "#3B6EA5"
+   :success        "#1A7F37"
+   :dim            "#8C959F"
+   :hover          "#E6E9EE"
+
+   ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    :green          "#2F9E5C"
    :yellow         "#B07A05"
    :orange         "#C2570F"
@@ -171,7 +208,7 @@
    :light light-palette})
 
 (defn css-var
-  "Map a token key (`:bg-1`, `:accent-violet`, …) to the canonical
+  "Map a token key (`:bg-1`, `:accent`, …) to the canonical
   `\"var(--rf-causa-<key>)\"` CSS string consumed by inline `:style`
   maps + SVG paint properties. Pure data → string; JVM-portable.
 
@@ -195,10 +232,10 @@
   CSS string. The CSS-Color-4 idiom for compositing a palette token
   with an alpha channel without forking the hex — Chrome 111+, Safari
   16.2+, Firefox 113+. Use this where the old code did string
-  concatenation with a two-digit alpha suffix (`(str (:accent-violet
+  concatenation with a two-digit alpha suffix (`(str (:accent
   tokens) \"55\")`).
 
-  `k`  - palette key (`:accent-violet`, …)
+  `k`  - palette key (`:accent`, …)
   `pct` - opacity percentage (0-100). The `transparent` partner makes
           the result equivalent to that fractional alpha.
 
@@ -469,56 +506,55 @@
 ;; ---- L4 panel domain colours (rf2-5kfxe.8) -----------------------------
 
 (def panel-domain->token
-  "Pure semantic map from L4 tab keyword → token keyword used as the
-  panel's domain colour. Each panel renders a 3px left-border on its
-  `<h1>` in this colour so panels are distinguishable at a glance
-  without restructuring the header chrome.
+  "Pure semantic map from L4 tab keyword → token keyword for the
+  panel's header stripe colour.
 
-  Choices mirror the existing semantic colour usage across panels:
+  ## Orange identity (rf2-ad7zx / spec/022 · spec/007 §L4 panel accent
+  stripe)
 
-    :event     → :accent-violet  (the causal-chain accent everywhere
-                                  in the Event lens)
-    :app-db    → :cyan           (the App-db diff already uses cyan
-                                  for highlighted state)
-    :views     → :cyan           (Views is a peer of App-db; both
-                                  read state, hence the shared hue —
-                                  same way the spec groups them)
-    :trace     → :orange         (Trace = events 'in flight'; orange
-                                  is the firing/heat tone in the
-                                  perf scale)
-    :machines  → :green          (machine state lands in green for
-                                  'final' across the inspector)
-    :routing   → :yellow         (routing is the side-channel
-                                  attention tone — distinguishes
-                                  from app-db's main colour)
-    :issues    → :red            (issues = errors; semantic red)
+  The prior per-panel DOMAIN-colour mapping (`:event` violet ·
+  `:app-db`/`:views` cyan · `:trace` orange · `:machines` green ·
+  `:routing` yellow · `:issues` red) is **superseded**. The Figma
+  export carries a SINGLE accent identity — every panel's 3px header
+  stripe reads the mode `accent` (orange in Dynamic, cyan in Static),
+  so the stripe is the MODE signal, not a per-panel domain colour. This
+  keeps the whole devtool reading orange in Dynamic / cyan in Static,
+  with surfaces neutral so the accent pops.
 
-  (rf2-4v67l — the Chrome A11y entry was removed alongside the panel
-  itself; a11y dogfooding is now Story's concern per rf2-18t6p +
-  rf2-qgms1.)
+  Every tab therefore maps to the runtime `:accent` alias. Domain
+  colour still does load-bearing work INSIDE each panel where it is
+  semantic (`error` red in Issues, machine `green`, route `yellow`,
+  the op-family bands in Trace, the per-panel header icons §021
+  §17.1.5) — but the HEADER STRIPE is the mode accent.
+
+  The map is retained (rather than collapsed to a constant) so the
+  per-tab inventory stays explicit and a future per-panel signal can
+  re-diverge a single entry without restructuring call sites.
 
   JVM-portable pure data → keyword. Call sites do
-  `(get tokens (panel-domain->token tab))` to materialise the hex."
-  {:event           :accent-violet
-   :app-db          :cyan
-   :views           :cyan
-   :trace           :orange
-   :machines        :green
-   :routing         :yellow
-   :issues          :red})
+  `(get tokens (panel-domain->token tab))` to materialise the
+  CSS-variable string."
+  {:event           :accent
+   :app-db          :accent
+   :views           :accent
+   :trace           :accent
+   :machines        :accent
+   :routing         :accent
+   :issues          :accent})
 
 (defn panel-accent
-  "Resolve the L4 panel's accent CSS-variable string from the canonical
-  `panel-domain->token` map through `tokens`. Falls back to the
-  `:accent-violet` variable for unknown tab keywords so the stripe
-  always renders.
+  "Resolve the L4 panel's header-stripe accent CSS-variable string —
+  the mode `accent` (orange in Dynamic, cyan in Static) per spec/007
+  §L4 panel accent stripe + spec/022. Falls back to the `:accent`
+  variable for unknown tab keywords so the stripe always renders.
 
   Returns a `\"var(--rf-causa-<key>)\"` string post rf2-on4cm — the
   active theme class scope on the shell root decides which palette's
-  hex resolves at paint time."
+  hex resolves at paint time, and the `.mode-dynamic` / `.mode-static`
+  root class decides whether `--rf-causa-accent` is orange or cyan."
   [tab]
   (get tokens
-       (get panel-domain->token tab :accent-violet)))
+       (get panel-domain->token tab :accent)))
 
 (defn accent-stripe-style
   "Build an inline-style map that paints the per-panel accent as a

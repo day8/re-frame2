@@ -343,13 +343,15 @@
    :cursor           "col-resize"
    :background       "transparent"
    ;; Hairline guide on the leftmost pixel so the affordance is
-   ;; visible against any host-app background. `~33% alpha` of the
-   ;; accent violet (the historical "#7C5CFF55" tail-suffix). Built
-   ;; via `tokens/with-alpha` so the alpha composites with the
-   ;; ACTIVE-theme variable (rf2-on4cm) — light mode lands on the
-   ;; light accent at 33% alpha, dark on the dark accent at 33% alpha.
+   ;; visible against any host-app background. `~33% alpha` of the mode
+   ;; accent (orange in Dynamic / cyan in Static; the historical
+   ;; "#7C5CFF55" violet tail-suffix is retired with the orange
+   ;; identity, rf2-ad7zx). Built via `tokens/with-alpha` so the alpha
+   ;; composites with the ACTIVE-theme + ACTIVE-mode variable
+   ;; (rf2-on4cm) — light/dark + Dynamic/Static all land on the live
+   ;; accent at 33% alpha.
    :box-shadow       (str "inset 1px 0 0 0 "
-                          (t/with-alpha :accent-violet 33))
+                          (t/with-alpha :accent 33))
    ;; Above the chrome's panels but below the modals; modals use
    ;; max-int z-index so we won't fight them.
    :z-index          1000

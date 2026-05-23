@@ -211,11 +211,11 @@
       (when microstep?
         [:span {:style {:color (:text-tertiary tokens) :font-size "10px"}}
          "↳"])
-      [:strong {:style {:color (:accent-violet tokens)}}
+      [:strong {:style {:color (:accent tokens)}}
        (h/format-machine-id machine-id)]
       [:span {:style {:color (:text-secondary tokens)}}
        (h/format-state from-state)]
-      [:span {:style {:color (:cyan tokens)}} "→"]
+      [:span {:style {:color (:accent tokens)}} "→"]
       [:span {:style {:color (:text-primary tokens) :font-weight 600}}
        (h/format-state to-state)]
       (when event
@@ -330,7 +330,7 @@
        :title       (str "Previous event touching " (h/format-machine-id machine-id))
        :style       {:background "transparent"
                      :border (str "1px solid " (:border-default tokens))
-                     :color (:accent-violet tokens)
+                     :color (:accent tokens)
                      :font-family sans-stack
                      :font-size "11px"
                      :padding "3px 10px"
@@ -345,7 +345,7 @@
        :title       (str "Next event touching " (h/format-machine-id machine-id))
        :style       {:background "transparent"
                      :border (str "1px solid " (:border-default tokens))
-                     :color (:accent-violet tokens)
+                     :color (:accent tokens)
                      :font-family sans-stack
                      :font-size "11px"
                      :padding "3px 10px"
@@ -426,7 +426,7 @@
     "No machines registered."]
    [:p {:style {:margin 0 :font-size "12px"}}
     "Register a machine with "
-    [:code {:style {:font-family mono-stack :color (:accent-violet tokens)}}
+    [:code {:style {:font-family mono-stack :color (:accent tokens)}}
      "rf/reg-machine"]
     " to populate this panel."]])
 
@@ -442,7 +442,7 @@
     :title       "Share this view (URL with focus + mode + scrubber)"
     :style       {:background "transparent"
                   :border (str "1px solid " (:border-default tokens))
-                  :color (:accent-violet tokens)
+                  :color (:accent tokens)
                   :font-family sans-stack
                   :font-size "11px"
                   :font-weight 600

@@ -114,10 +114,10 @@
   [phase slowest?]
   (cond
     slowest?                  (:yellow tokens/tokens)
-    (= phase :issued)         (:accent-violet tokens/tokens)
+    (= phase :issued)         (:accent tokens/tokens)
     (contains? #{:elapsed :ttfb :download :receive :compute}
-               phase)         (:cyan tokens/tokens)
-    :else                     (:cyan tokens/tokens)))
+               phase)         (:accent-static tokens/tokens)
+    :else                     (:accent-static tokens/tokens)))
 
 (defn render
   "Render a wire-timing map as a hiccup SVG waterfall.

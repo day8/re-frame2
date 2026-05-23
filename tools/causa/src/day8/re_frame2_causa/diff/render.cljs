@@ -83,7 +83,7 @@
   {:added    :green
    :removed  :red
    :modified :yellow
-   :children :accent-violet
+   :children :accent          ; `◴` children-changed → mode accent (§10.3 / §022)
    :same     :text-tertiary})
 
 (defn- gutter-colour
@@ -147,18 +147,18 @@
 
   Hover styling — a dotted underline + pointer cursor — makes the
   segments discoverable as click targets without screaming through the
-  diff body. The colour stays the same accent-violet that all path
+  diff body. The colour stays the same mode `accent` that all path
   text uses, so the inline path still scans as a single phrase when
   the user isn't pointing at it."
   [section-path]
   (if (empty? section-path)
     [:span {:data-testid (str "rf-causa-diff-section-path-"
                               (pr-str section-path))
-            :style       {:color (:accent-violet tokens)}}
+            :style       {:color (:accent tokens)}}
      "(root)"]
     (into [:span {:data-testid (str "rf-causa-diff-section-path-"
                                     (pr-str section-path))
-                  :style       {:color (:accent-violet tokens)
+                  :style       {:color (:accent tokens)
                                 :display "inline-flex"
                                 :flex-wrap "wrap"
                                 :gap "2px"}}]
@@ -178,7 +178,7 @@
                       :title       (str "Inspect app-db at "
                                         (pr-str prefix))
                       :style       {:cursor          "pointer"
-                                    :color           (:accent-violet tokens)
+                                    :color           (:accent tokens)
                                     :text-decoration "underline"
                                     :text-decoration-style "dotted"
                                     :text-underline-offset "2px"
@@ -216,14 +216,14 @@
                flow-part))))
 
 (defn- origin-tag-tone
-  "Pick the chip's accent colour. Flow writes use `:accent-violet`
+  "Pick the chip's accent colour. Flow writes use the mode `:accent`
   (mirrors §8 FLOWS row colour in the Event lens); pure-fx writes use
   the muted `:text-tertiary` (handler `:db` is the ambient writer);
   mixed uses `:yellow` to flag the coalesced case."
   [tag]
   (case (:kind tag)
     :fx    (:text-tertiary tokens)
-    :flow  (:accent-violet tokens)
+    :flow  (:accent tokens)
     :mixed (:yellow tokens)))
 
 (defn- origin-tag-tooltip
@@ -420,7 +420,7 @@
   the value sits inline with its identifier."
   [child]
   (when-let [k (at/child-key child)]
-    [:span {:style {:color       (:accent-violet tokens)
+    [:span {:style {:color       (:accent tokens)
                     :font-family mono-stack
                     :font-size   "12px"
                     :margin-right "6px"}}

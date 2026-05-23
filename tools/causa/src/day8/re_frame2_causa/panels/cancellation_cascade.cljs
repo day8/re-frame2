@@ -62,7 +62,7 @@
   follows the active theme."
   [kind]
   (case kind
-    :parent-decision (:cyan tokens)              ; blue-ish in the dark theme
+    :parent-decision (:accent-static tokens)     ; fixed cyan/blue category (≠ mode accent)
     :child-teardown  (or (:accent-orange tokens)
                          (:warning-amber tokens)
                          (:yellow tokens))
@@ -282,7 +282,7 @@
                               {:frame :rf/causa}))
              :style       {:background "transparent"
                            :border (str "1px solid " (:border-default tokens))
-                           :color (:accent-violet tokens)
+                           :color (:accent tokens)
                            :font-family sans-stack
                            :font-size "11px"
                            :padding "3px 10px"

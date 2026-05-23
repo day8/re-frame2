@@ -72,16 +72,17 @@
     :registered-traversed — solid `:text-tertiary` 1px (most-recent
                             traversal in the buffer; not fired this
                             epoch).
-    :fired-this-epoch     — solid `:accent-violet` 2px. The
-                            `:animated true` xyflow prop is set
-                            alongside (see `topology.cljs`).
+    :fired-this-epoch     — solid mode `:accent` 2px (orange Dynamic /
+                            cyan Static, rf2-ad7zx). The `:animated
+                            true` xyflow prop is set alongside (see
+                            `topology.cljs`).
 
   Unknown kinds fall back to `:registered`."
   [kind]
   (case kind
     :registered-traversed {:stroke       (:text-tertiary tokens)
                            :stroke-width 1}
-    :fired-this-epoch     {:stroke       (:accent-violet tokens)
+    :fired-this-epoch     {:stroke       (:accent tokens)
                            :stroke-width 2}
     ;; :registered + unknown fallback
     {:stroke           (:text-tertiary tokens)

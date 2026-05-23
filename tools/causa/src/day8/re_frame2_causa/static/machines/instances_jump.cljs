@@ -85,10 +85,10 @@
       :style {:background    "transparent"
               :border        (str "1px solid "
                                   (if active?
-                                    (:cyan tokens)
+                                    (:accent tokens)
                                     (:border-default tokens)))
               :border-radius "10px"
-              :color         (:accent-violet tokens)
+              :color         (:accent tokens)
               :cursor        "pointer"
               :font-family   sans-stack
               :font-size     (:caption type-scale)
@@ -98,7 +98,7 @@
      label
      (when suffix
        [:span {:data-testid "rf-causa-static-machines-pill-instances-badge"
-               :style {:color (:cyan tokens)
+               :style {:color (:accent tokens)
                        :margin-left "4px"
                        :font-family sans-stack}}
         suffix])]))

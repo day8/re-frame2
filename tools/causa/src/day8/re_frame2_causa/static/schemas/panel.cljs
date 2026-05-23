@@ -219,7 +219,7 @@
   [kind]
   (let [{:keys [letter colour]}
         (case kind
-          :app-db {:letter "A" :colour (:cyan tokens)}
+          :app-db {:letter "A" :colour (:accent-static tokens)}
           :event  {:letter "E" :colour (:magenta tokens)}
           :sub    {:letter "S" :colour (:yellow tokens)}
           {:letter "?" :colour (:text-tertiary tokens)})]
@@ -264,7 +264,7 @@
                     :align-items "baseline"
                     :gap         "8px"}}
       (kind-badge kind)
-      [:span {:style {:color       (:accent-violet tokens)
+      [:span {:style {:color       (:accent tokens)
                       :font-weight 500
                       :min-width   "200px"}}
        id-text]

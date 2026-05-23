@@ -28,15 +28,16 @@
 
   2. **Inline diff highlighting** — when callers pass `:before` +
      `:after`, the renderer paints a left-margin gutter (green `+` /
-     red `-` / yellow `~` / violet `◴`) on the changed branches and
-     annotates `← changed from <prior>`. **No side-by-side
+     red `-` / yellow `~` / mode-accent `◴`) on the changed branches
+     and annotates `← changed from <prior>`. **No side-by-side
      before|after** — diff is annotation on a single rendered state
      (§10.1.2). Unchanged values dim to `:text-tertiary`.
 
-  3. **Minimal type colouring** — keywords get the violet accent (the
-     only coloured type). Strings / numbers / nil / booleans / symbols
-     render mono in `:text-primary`. Aids EDN-shape recognition
-     without colour-noise (§10.3).
+  3. **Minimal type colouring** — keywords get the mode `accent`
+     (orange in Dynamic / cyan in Static — the only coloured type).
+     Strings / numbers / nil / booleans / symbols render mono in
+     `:text-primary`. Aids EDN-shape recognition without colour-noise
+     (§10.3).
 
   4. **Clickable paths** — every key segment is a click target. Clicking
      emits `[:rf.causa/navigate-to-path <path> opts]`; the parent
@@ -155,7 +156,7 @@
   {:added    :green
    :removed  :red
    :modified :yellow
-   :children :accent-violet
+   :children :accent
    :same     :text-tertiary})
 
 (defn gutter-colour
@@ -268,9 +269,9 @@
 
 (defn keyword-style
   "Inline style map for a keyword leaf. Public so unit-tests can assert
-  the violet token resolves through `tokens`."
+  the mode `accent` token resolves through `tokens`."
   []
-  {:color       (:accent-violet tokens)
+  {:color       (:accent tokens)
    :font-family mono-stack})
 
 (defn mono-style
@@ -376,7 +377,7 @@
             :style                {:cursor                "pointer"
                                    :font-family           mono-stack
                                    :color                 (if keyword?
-                                                            (:accent-violet tokens)
+                                                            (:accent tokens)
                                                             (:text-primary tokens))
                                    :text-decoration       "underline"
                                    :text-decoration-style "dotted"

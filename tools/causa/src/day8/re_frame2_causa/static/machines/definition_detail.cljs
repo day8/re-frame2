@@ -76,7 +76,7 @@
                          :color (:text-primary tokens)}
                         (try (t/accent-stripe-style :machines) (catch :default _ {})))}
     [:span {:style {:font-family mono-stack
-                    :color (:accent-violet tokens)}}
+                    :color (:accent tokens)}}
      (str machine-id)]]
    (when (some? source-coord)
      [:span {:data-testid "rf-causa-static-machines-detail-source-coord"
@@ -95,7 +95,7 @@
            :style {:font-family mono-stack
                    :font-size (:caption type-scale)
                    :color (if (and (number? live-count) (pos? live-count))
-                            (:cyan tokens)
+                            (:accent tokens)
                             (:text-tertiary tokens))
                    :margin-left "auto"}}
     (str (or live-count 0) " live")]])
@@ -114,10 +114,10 @@
     :style {:background    "transparent"
             :border        (str "1px solid "
                                 (if active?
-                                  (:cyan tokens)
+                                  (:accent tokens)
                                   (:border-default tokens)))
             :border-radius "10px"
-            :color         (if active? (:cyan tokens) (:text-secondary tokens))
+            :color         (if active? (:accent tokens) (:text-secondary tokens))
             :cursor        "pointer"
             :font-family   sans-stack
             :font-size     (:caption type-scale)

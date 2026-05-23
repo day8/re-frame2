@@ -176,7 +176,7 @@
      [:div {:style {:display     "flex"
                     :align-items "baseline"
                     :gap         "8px"}}
-      [:span {:style {:color       (:accent-violet tokens)
+      [:span {:style {:color       (:accent tokens)
                       :font-weight 500
                       :flex        1}}
        id-text]

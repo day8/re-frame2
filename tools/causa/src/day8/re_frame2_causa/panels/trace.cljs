@@ -189,7 +189,7 @@
       "●"]
      ;; Operation
      [:span {:data-testid (str row-test-id "-operation")
-             :style       {:color         (:accent-violet tokens)
+             :style       {:color         (:accent tokens)
                            :overflow      "hidden"
                            :text-overflow "ellipsis"
                            :white-space   "nowrap"}
@@ -211,7 +211,7 @@
                                 (rf/dispatch [:rf.causa/open-in-editor
                                               {:source-coord source-coord}] {:frame :rf/causa}))
                  :style       {:background  "transparent"
-                               :color       (:cyan tokens)
+                               :color       (:accent tokens)
                                :border      (str "1px solid " (:border-subtle tokens))
                                :padding     "1px 6px"
                                :border-radius "3px"

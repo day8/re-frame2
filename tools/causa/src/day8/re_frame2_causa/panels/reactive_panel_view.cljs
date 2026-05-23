@@ -143,13 +143,13 @@
 (def ^:private name-cell-style
   "The `name` column — the sub-id / view-id. Violet accent + semibold so
   the identifier leads the row."
-  (assoc td-style :color (:accent-violet tokens) :font-weight 600
+  (assoc td-style :color (:accent tokens) :font-weight 600
                   :white-space "nowrap"))
 
 (def ^:private changed-yes-style
   "The `changed` flag when the sub's value changed this cascade — a clear
   accent so the eye lands on it."
-  {:color (:cyan tokens) :font-weight 600})
+  {:color (:accent tokens) :font-weight 600})
 
 (def ^:private changed-no-style
   "The `changed` placeholder when unchanged — muted so the eye skips it."
@@ -166,10 +166,11 @@
 
 (def ^:private action->token
   "Map a view action to its accent token. mount = green (a new thing
-  appears), rerender = cyan (the standard change accent shared with the
-  sub `changed` flag), unmount = red (a thing goes away)."
+  appears), rerender = the mode `accent` (the standard change accent,
+  shared with the sub `changed` flag — `changed` = mode accent per
+  §021 §10.3 / spec/022), unmount = red (a thing goes away)."
   {:mount    :green
-   :rerender :cyan
+   :rerender :accent
    :unmount  :red})
 
 (defn- action-style
@@ -189,7 +190,7 @@
 
 (def ^:private reactive-reason-sub-style
   "A changed-sub name in a reactive view's reason cell."
-  {:color (:cyan tokens)})
+  {:color (:accent tokens)})
 
 (def ^:private none-reason-style
   "The em-dash placeholder for an unmount row's empty reason."
@@ -271,7 +272,7 @@
                                              {:source-coord coord}]
                                             {:frame :rf/causa}))
                 :style       {:background  "transparent"
-                              :color       (:cyan tokens)
+                              :color       (:accent tokens)
                               :border      (str "1px solid " (:border-default tokens))
                               :padding     "1px 6px"
                               :border-radius "3px"
@@ -503,8 +504,8 @@
 (defn- reason-cell
   "The `reason` column for a Views-table row.
 
-    :reactive   → the changed subs THIS view reads (cyan names, honestly
-                  truncated with `+N more`).
+    :reactive   → the changed subs THIS view reads (mode-accent names,
+                  honestly truncated with `+N more`).
     :structural → the literal `← parent re-render` — UNNAMED. We never
                   name the parent (permanent, rf2-8ve8z).
     :none       → unmount row → a muted em-dash."

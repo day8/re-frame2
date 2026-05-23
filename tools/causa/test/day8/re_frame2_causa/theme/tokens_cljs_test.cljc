@@ -128,7 +128,9 @@
             the corresponding dark-palette accent (sanity-check: the
             light hexes are not the same string as their dark
             counterparts)."
-    (doseq [k [:accent-violet :cyan :green :yellow :orange :red :magenta]]
+    (doseq [k [:brand :accent-dynamic :accent-static :accent
+               :error :warning :advisory :success
+               :green :yellow :orange :red :magenta]]
       (is (not= (get t/dark-palette k)
                 (get t/light-palette k))
           (str k " differs between the two palettes")))))
@@ -152,23 +154,23 @@
             `tokens` map is `{k (css-var k)}` over every key in
             `dark-palette`."
     (is (= "var(--rf-causa-bg-1)" (t/css-var :bg-1)))
-    (is (= "var(--rf-causa-accent-violet)" (t/css-var :accent-violet)))
+    (is (= "var(--rf-causa-accent)" (t/css-var :accent)))
     (doseq [k (keys t/dark-palette)]
       (is (= (t/css-var k) (get t/tokens k))
           (str k " resolves through css-var")))))
 
 (deftest with-alpha-builds-color-mix-string
   (testing "rf2-on4cm — `with-alpha` is the canonical helper for the
-            alpha-tail-suffix idiom (`(str (:accent-violet tokens)
+            alpha-tail-suffix idiom (`(str (:accent tokens)
             \"55\")`). Returns a `color-mix(in srgb, var(--rf-causa-<key>)
             <pct>%, transparent)` string. CSS-Color-4 is the cross-
             browser path that composes alpha against an arbitrary
             CSS-variable colour."
-    (let [out (t/with-alpha :accent-violet 33)]
+    (let [out (t/with-alpha :accent 33)]
       (is (string? out))
       (is (re-find #"^color-mix\(in srgb" out)
           "starts with color-mix(in srgb")
-      (is (re-find #"var\(--rf-causa-accent-violet\)" out)
+      (is (re-find #"var\(--rf-causa-accent\)" out)
           "references the canonical CSS variable")
       (is (re-find #"33%" out)
           "carries the requested percentage")
@@ -197,11 +199,12 @@
           (str "tab " tab " resolves via token " token-kw)))))
 
 (deftest panel-accent-falls-back-for-unknown-tab
-  (testing "unknown tab → :accent-violet (the brand fallback). The
-            stripe always renders rather than disappearing."
-    (is (= (:accent-violet t/tokens)
+  (testing "unknown tab → :accent (the mode-accent fallback per
+            rf2-ad7zx / spec/022). The stripe always renders rather
+            than disappearing."
+    (is (= (:accent t/tokens)
            (t/panel-accent :unknown-tab-kw)))
-    (is (= (:accent-violet t/tokens)
+    (is (= (:accent t/tokens)
            (t/panel-accent nil)))))
 
 (deftest accent-stripe-style-emits-3px-left-border
@@ -570,10 +573,10 @@
         (is (= 600 (:font-weight s)))))))
 
 (deftest panel-icon-style-falls-back-for-unknown
-  (testing "unknown tab → :accent-violet (same fallback as panel-
-            accent). The icon always paints rather than dropping to a
-            colourless stroke."
-    (is (= (:accent-violet t/tokens)
+  (testing "unknown tab → :accent (same mode-accent fallback as panel-
+            accent, rf2-ad7zx). The icon always paints rather than
+            dropping to a colourless stroke."
+    (is (= (:accent t/tokens)
            (:color (t/panel-icon-style :unknown-tab-kw))))))
 
 (deftest causa-and-machines-viz-mono-and-sans-stacks-match

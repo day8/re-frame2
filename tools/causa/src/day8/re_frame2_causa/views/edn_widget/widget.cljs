@@ -379,13 +379,13 @@
   token-type classification. Public for unit tests."
   [tok-type]
   (case tok-type
-    :keyword  :accent-violet
+    :keyword  :accent
     :string   :green
-    :number   :cyan
+    :number   :accent-static          ; fixed cyan syntax hue, distinct from the keyword accent
     :comment  :text-tertiary
     :symbol   :text-primary
     :paren    :text-tertiary
-    :builtin  :accent-violet
+    :builtin  :accent
     :text-primary))
 
 (def clojure-builtins

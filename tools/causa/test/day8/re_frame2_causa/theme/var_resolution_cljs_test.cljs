@@ -90,8 +90,8 @@
     (is (= "var(--rf-causa-bg-1)" (tokens/css-var :bg-1)))
     (is (= "var(--rf-causa-text-tertiary)"
            (tokens/css-var :text-tertiary)))
-    (is (= "var(--rf-causa-accent-violet)"
-           (tokens/css-var :accent-violet)))))
+    (is (= "var(--rf-causa-accent)"
+           (tokens/css-var :accent)))))
 
 (deftest panel-accent-returns-css-variable-string
   (testing "rf2-on4cm — `panel-accent` materialises the panel-domain
@@ -171,7 +171,7 @@
             is replaced by `tokens/with-alpha` which builds a CSS-Color-4
             color-mix(...) string that composites the active theme's
             CSS variable with `transparent`."
-    (doseq [k [:accent-violet :red :green :cyan :yellow]
+    (doseq [k [:accent :red :green :accent-static :yellow]
             pct [10 33 50 75]]
       (let [v (tokens/with-alpha k pct)]
         (is (string? v))
