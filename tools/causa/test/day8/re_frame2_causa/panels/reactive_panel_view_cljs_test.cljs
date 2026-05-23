@@ -1,13 +1,16 @@
 (ns day8.re-frame2-causa.panels.reactive-panel-view-cljs-test
-  "Tests for `reactive-panel-view` — the three-stacked-tables Views panel
-  (rf2-8ve8z, phase-B of the Views-tab redesign · prior: rf2-wyvf2 /
-  rf2-isun6 · spec/021 §3).
+  "Tests for `reactive-panel-view` — the left → right REACTIVE FLOW graph
+  Views panel (rf2-ad7zx.6 · Figma reconcile · spec/021 §3.2 · prior:
+  rf2-e33ad / rf2-8ve8z / rf2-wyvf2 / rf2-isun6).
 
   Mounts `reactive-panel` (the plain Reagent fn) and asserts the
-  structural data-testid hooks ship: panel root, header, the three
-  tables (Level 1 subs · Level 2+ subs · Views), their empty states,
-  the action / reason rendering, and the reactive-vs-structural reason
-  classifier surfaced via the seeded `:rf.causa/reactive-data`."
+  structural data-testid hooks ship: panel root, the REACTIVE FLOW SVG
+  graph (app-db source node + sub nodes + view nodes + edges), the
+  changed/unchanged node + edge encoding, the per-view cause + timing
+  labels, the UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS sections, and the
+  closing legend. The pure graph geometry is covered by
+  reactive-flow-graph-test; the projection logic by
+  reactive-panel-subs-cljs-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -65,190 +68,120 @@
 
 (defn- seed-reactive-data!
   "Re-register the composite `:rf.causa/reactive-data` to return a
-  literal so the panel view renders its focused-cascade body. The view
-  is the unit under test here — the composite's projection logic is
-  covered by reactive-panel-subs-cljs-test."
+  literal so the panel view renders its focused-cascade body."
   [data]
   (rf/reg-sub :rf.causa/reactive-data (fn [_db _q] data)))
 
-;; ---- three-table structure (rf2-8ve8z) --------------------------------
+;; ---- REACTIVE FLOW graph structure (rf2-ad7zx.6) ----------------------
 
-(deftest reactive-panel-renders-three-tables
-  (testing "rf2-8ve8z — a focused cascade renders THREE stacked tables
-            (Level 1 subs · Level 2+ subs · Views), top→bottom mirroring
-            the reactive cascade. rf2-fhh34 chrome cleanup: NO chevrons
-            between sections."
+(deftest reactive-panel-renders-flow-graph-not-tables
+  (testing "rf2-ad7zx.6 — a focused cascade renders the left → right
+            REACTIVE FLOW SVG graph (app-db source node + sub nodes +
+            view nodes) and NOT the prior three stacked tables."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
-      {:has-cascade? true
-       :frame        :rf/app
-       :focus        {:current :ep-1}
-       :counts       {:subs-ran 2 :subs-skipped 0 :view-rows 1}
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {}
        :level-1-subs [{:sub-id :cart/state :changed? true
-                       :coord {:file "cart.cljs" :line 10 :ns 'cart}}]
+                       :readers [:cart/Summary]}]
        :level-2-subs [{:sub-id :cart/total :changed? true
-                       :inputs [:cart/state :cart/items]
-                       :coord {:file "cart.cljs" :line 22 :ns 'cart}}]
-       :view-rows    [{:view-id :cart/Summary :action :rerender
-                       :reason {:kind :reactive :subs [:cart/total]}}]})
+                       :inputs [:cart/state] :readers [:cart/Summary]}]
+       :view-rows [{:view-id :cart/Summary :action :rerender
+                    :reason {:kind :reactive :subs [:cart/total]}
+                    :triggered-by :cart/total :elapsed-ms 1.5}]})
     (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-causa-reactive-l1-table")  "Level 1 table renders")
-      (is (has-testid? tree "rf-causa-reactive-l2-table")  "Level 2+ table renders")
-      (is (has-testid? tree "rf-causa-reactive-views-table") "Views table renders")
-      (is (nil? (th/find-by-testid tree "rf-causa-reactive-chevron-l1"))
-          "rf2-fhh34 — no chevron after Level 1")
-      (is (nil? (th/find-by-testid tree "rf-causa-reactive-chevron-l2"))
-          "rf2-fhh34 — no chevron after Level 2"))))
+      (is (has-testid? tree "rf-causa-reactive-flow-svg") "the SVG canvas renders")
+      (is (has-testid? tree "rf-causa-reactive-appdb-node") "app-db source node renders")
+      (is (has-testid? tree "rf-causa-reactive-node-l1-_cart_state") "Level-1 node renders")
+      (is (has-testid? tree "rf-causa-reactive-node-l2-_cart_total") "Level-2 node renders")
+      (is (has-testid? tree "rf-causa-reactive-view-node-_cart_Summary") "view node renders")
+      ;; the retired three-table testids must be GONE
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-l1-table")) "no Level-1 table")
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-l2-table")) "no Level-2 table")
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-views-table")) "no Views table"))))
 
-(deftest reactive-panel-section-titles-are-clean-no-counts
-  (testing "rf2-fhh34 chrome cleanup — section titles read exactly
-            `Level 1 Subscriptions` / `Level 2+ Subscriptions` / `Views`,
-            with NO `(observe app-db)` suffix and NO trailing count badge."
+(deftest reactive-panel-section-label-is-reactive-flow
+  (testing "rf2-ad7zx.6 — the graph section is headed `Reactive Flow`."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
       {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (view/reactive-panel)]
-      (is (= "Level 1 Subscriptions"
-             (text-of tree "rf-causa-reactive-section-l1-label"))
-          "Level 1 title is clean — no suffix, no count")
-      (is (= "Level 2+ Subscriptions"
-             (text-of tree "rf-causa-reactive-section-l2-label"))
-          "Level 2+ title is clean — no count")
-      (is (= "Views"
-             (text-of tree "rf-causa-reactive-section-views-label"))
-          "Views title carries no count number"))))
+      (is (= "Reactive Flow" (text-of tree "rf-causa-reactive-section-flow-label"))
+          "graph section heading is `Reactive Flow`"))))
 
-(deftest reactive-panel-omits-summary-ribbon
-  (testing "rf2-fhh34 chrome cleanup — the per-cascade summary ribbon
-            (`frame · N subs ran · …`) is gone."
-    (facade/install!)
-    (frame/reg-frame :rf/causa {})
-    (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
-       :counts {:subs-ran 2 :subs-skipped 0 :view-rows 1}
-       :level-1-subs [] :level-2-subs [] :view-rows []})
-    (let [tree (view/reactive-panel)]
-      (is (nil? (th/find-by-testid tree "rf-causa-reactive-header-meta"))
-          "summary ribbon header is removed"))))
-
-(deftest level-1-row-renders-name-and-code
-  (testing "rf2-8ve8z — a Level 1 sub row carries its name + a code chip
-            from the topology coord."
+(deftest changed-node-and-edge-encoding
+  (testing "rf2-ad7zx.6 — a changed sub node carries data-node-changed
+            true; its app-db→sub edge is a changed (propagating) edge."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
       {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs [] :view-rows []
-       :level-1-subs [{:sub-id :cart/state :changed? true
-                       :coord {:file "cart.cljs" :line 10 :ns 'cart}}]})
-    (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-causa-reactive-l1-row-_cart_state")
-          "the Level 1 row renders with a slug testid")
-      (is (has-testid? tree "rf-causa-reactive-l1-code-_cart_state")
-          "the code chip renders from the topology coord"))))
-
-(deftest level-2-row-renders-inputs-one-per-line
-  (testing "rf2-8ve8z — a Level 2+ sub row carries name + inputs (one per
-            line) + code. The inputs column lists every input-sub name."
-    (facade/install!)
-    (frame/reg-frame :rf/causa {})
-    (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
-       :counts {} :level-1-subs [] :view-rows []
-       :level-2-subs [{:sub-id :cart/total :changed? false
-                       :inputs [:cart/state :cart/items]
-                       :coord {:file "cart.cljs" :line 22 :ns 'cart}}]})
-    (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-causa-reactive-l2-row-_cart_total")
-          "the Level 2+ row renders")
-      (let [row-text (text-of tree "rf-causa-reactive-l2-row-_cart_total")]
-        (is (re-find #":cart/state" row-text) "input :cart/state listed")
-        (is (re-find #":cart/items" row-text) "input :cart/items listed")))))
-
-(deftest sub-row-renders-readers-shared-sub-edge
-  (testing "rf2-y23uw — a sub row's `read by` column lists the views that
-            deref it this cascade (the shared-subscription edge); a sub no
-            view read shows a muted placeholder, not the views."
-    (facade/install!)
-    (frame/reg-frame :rf/causa {})
-    (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
-       :counts {} :view-rows []
-       :level-1-subs [{:sub-id :cart/state :changed? true
-                       :readers [:cart/Header :cart/Summary]}]
-       :level-2-subs [{:sub-id :cart/total :changed? false
-                       :inputs [:cart/state]}]}) ; no readers → placeholder
+       :level-1-subs [{:sub-id :cart/state :changed? true}]})
     (let [tree (view/reactive-panel)
-          l1-text (text-of tree "rf-causa-reactive-l1-row-_cart_state")
-          l2-text (text-of tree "rf-causa-reactive-l2-row-_cart_total")]
-      (is (re-find #":cart/Header" l1-text)
-          "shared-sub reader :cart/Header listed in the L1 `read by` column")
-      (is (re-find #":cart/Summary" l1-text)
-          "shared-sub reader :cart/Summary listed")
-      (is (not (re-find #":cart/Header|:cart/Summary" l2-text))
-          ":cart/total has no readers → no view names in its `read by` column"))))
+          node (th/find-by-testid tree "rf-causa-reactive-node-l1-_cart_state")]
+      (is (some? node) "changed node renders")
+      (is (= "true" (get-in node [1 :data-node-changed]))
+          "changed node tagged data-node-changed=true")
+      (is (has-testid? tree "rf-causa-reactive-edges") "edge group renders"))))
 
-;; ---- view action + reason (rf2-8ve8z) ---------------------------------
+(deftest unchanged-node-renders-dim
+  (testing "rf2-ad7zx.6 — an unchanged sub node is tagged
+            data-node-changed false (renders dashed dim per the
+            encoding)."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-2-subs [] :view-rows []
+       :level-1-subs [{:sub-id :cart/title :changed? false}]})
+    (let [tree (view/reactive-panel)
+          node (th/find-by-testid tree "rf-causa-reactive-node-l1-_cart_title")]
+      (is (= "false" (get-in node [1 :data-node-changed]))
+          "unchanged node tagged data-node-changed=false"))))
 
-(deftest view-row-reactive-reason-lists-changed-subs
-  (testing "rf2-8ve8z — a reactive render's reason lists the changed subs
-            THIS view reads (the reactive classifier)."
+(deftest view-node-carries-cause-and-timing
+  (testing "rf2-ad7zx.6 / rf2-8wrzz.1 — a view node's sub-label shows the
+            per-view cause (← triggered-by) + render timing (elapsed-ms)."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
       {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Summary :action :rerender
-                    :reason {:kind :reactive :subs [:cart/total :cart/count]}}]})
+                    :reason {:kind :reactive :subs [:cart/total]}
+                    :triggered-by :cart/total :elapsed-ms 2.0}]})
     (let [tree (view/reactive-panel)
-          row-text (text-of tree "rf-causa-reactive-view-row-_cart_Summary-0")]
-      (is (some? row-text) "the view row renders")
-      (is (re-find #"rerender" row-text) "action reads 'rerender'")
-      (is (re-find #":cart/total" row-text) "reason lists :cart/total")
-      (is (re-find #":cart/count" row-text) "reason lists :cart/count")
-      (is (nil? (th/find-by-testid tree "rf-causa-reactive-view-reason-structural"))
-          "a reactive render shows named subs, not the structural text"))))
+          meta (text-of tree "rf-causa-reactive-view-meta-_cart_Summary")]
+      (is (some? meta) "view-node meta label renders")
+      (is (re-find #"rerendered" meta) "labelled (rerendered)")
+      (is (re-find #":cart/total" meta) "shows the triggered-by cause sub")
+      (is (re-find #"2ms" meta) "shows the render timing"))))
 
-(deftest view-row-structural-reason-shows-parent-rerender-unnamed
-  (testing "rf2-8ve8z — a structural render (no own sub changed) shows the
-            literal `← parent re-render` — UNNAMED, never names the parent."
+(deftest shared-sub-node-carries-fan-out-annotation
+  (testing "rf2-ad7zx.6 — a sub read by ≥2 views is shared; the node
+            carries a ×N annotation + fans out to N view nodes."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
       {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
-       :counts {} :level-1-subs [] :level-2-subs []
-       :view-rows [{:view-id :cart/Wrapper :action :rerender
-                    :reason {:kind :structural}}]})
-    (let [tree (view/reactive-panel)
-          reason (text-of tree "rf-causa-reactive-view-reason-structural")]
-      (is (some? reason) "the structural reason node renders")
-      (is (= "← parent re-render" reason)
-          "the structural reason is the literal unnamed text"))))
+       :counts {} :level-2-subs []
+       :level-1-subs [{:sub-id :app/session :changed? true
+                       :readers [:app/Header :app/Sidebar]}]
+       :view-rows [{:view-id :app/Header :action :rerender :reason {:kind :structural}}
+                   {:view-id :app/Sidebar :action :rerender :reason {:kind :structural}}]})
+    (let [tree (view/reactive-panel)]
+      (is (= "×2" (text-of tree "rf-causa-reactive-shared-_app_session"))
+          "shared sub carries a ×2 annotation")
+      (is (has-testid? tree "rf-causa-reactive-view-node-_app_Header") "fans out to Header")
+      (is (has-testid? tree "rf-causa-reactive-view-node-_app_Sidebar") "fans out to Sidebar"))))
 
-(deftest view-row-action-mount-and-unmount
-  (testing "rf2-8ve8z — action renders mount / unmount; an unmount row's
-            reason is empty (no own subs to attribute)."
-    (facade/install!)
-    (frame/reg-frame :rf/causa {})
-    (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
-       :counts {} :level-1-subs [] :level-2-subs []
-       :view-rows [{:view-id :cart/Added :action :mount
-                    :reason {:kind :reactive :subs [:cart/items]}}
-                   {:view-id :cart/Gone :action :unmount
-                    :reason {:kind :none}}]})
-    (let [tree (view/reactive-panel)
-          mount-text (text-of tree "rf-causa-reactive-view-row-_cart_Added-0")
-          unmount-text (text-of tree "rf-causa-reactive-view-row-_cart_Gone-1")]
-      (is (re-find #"mount" mount-text) "mount action renders")
-      (is (re-find #"unmount" unmount-text) "unmount action renders"))))
-
-(deftest view-name-cell-carries-hover-handlers
-  (testing "rf2-8ve8z / rf2-8l03l — the Views-table NAME cell carries the
-            hover handlers driving the pink DOM highlight."
+(deftest view-node-carries-hover-handlers
+  (testing "rf2-ad7zx.6 / rf2-8l03l — the view NODE carries the hover
+            handlers driving the pink DOM highlight."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
@@ -257,28 +190,93 @@
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :structural}}]})
     (let [tree (view/reactive-panel)
-          name-cell (th/find-by-testid tree
-                                       "rf-causa-reactive-view-name-_cart_Summary-0")]
-      (is (some? name-cell) "the name cell renders")
-      (is (fn? (th/extract-handler name-cell :on-mouse-enter))
-          "name cell has an :on-mouse-enter handler (apply-highlight!)")
-      (is (fn? (th/extract-handler name-cell :on-mouse-leave))
-          "name cell has an :on-mouse-leave handler (clear-highlight!)"))))
+          node (th/find-by-testid tree "rf-causa-reactive-view-node-_cart_Summary")]
+      (is (some? node) "the view node renders")
+      (is (fn? (th/extract-handler node :on-mouse-enter))
+          "view node has an :on-mouse-enter handler (apply-highlight!)")
+      (is (fn? (th/extract-handler node :on-mouse-leave))
+          "view node has an :on-mouse-leave handler (clear-highlight!)"))))
 
-;; ---- empty states (always visible) ------------------------------------
-
-(deftest each-table-shows-empty-state-when-section-empty
-  (testing "rf2-8ve8z — empty states are ALWAYS visible so the pipeline
-            rhythm holds; a focused cascade with no activity shows all
-            three empty placeholders."
+(deftest sparse-cascade-shows-graph-empty-placeholder
+  (testing "rf2-ad7zx.6 — a focused cascade with no subs + no views
+            renders the graph empty placeholder (the sparse case)."
     (facade/install!)
     (frame/reg-frame :rf/causa {})
     (seed-reactive-data!
       {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-causa-reactive-l1-empty")    "Level 1 empty placeholder")
-      (is (has-testid? tree "rf-causa-reactive-l2-empty")    "Level 2+ empty placeholder")
-      (is (has-testid? tree "rf-causa-reactive-views-empty") "Views empty placeholder")
-      (is (nil? (th/find-by-testid tree "rf-causa-reactive-l1-table"))
-          "no Level 1 table when no Level 1 subs ran"))))
+      (is (has-testid? tree "rf-causa-reactive-graph-empty")
+          "sparse cascade shows the graph empty placeholder")
+      (is (nil? (th/find-by-testid tree "rf-causa-reactive-flow-svg"))
+          "no SVG canvas when the graph is empty"))))
+
+;; ---- UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS (rf2-ad7zx.6) -----------
+
+(deftest unmounted-views-section-renders
+  (testing "rf2-ad7zx.6 — the UNMOUNTED VIEWS section lists views whose
+            component unmounted this epoch."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :unmounted-views [{:view-id :app/Modal} {:view-id :app/Tooltip}]})
+    (let [tree (view/reactive-panel)]
+      (is (= "Unmounted Views"
+             (text-of tree "rf-causa-reactive-section-unmounted-label"))
+          "section heading renders")
+      (is (has-testid? tree "rf-causa-reactive-unmounted-row-_app_Modal")
+          "modal unmount row renders")
+      (is (has-testid? tree "rf-causa-reactive-unmounted-row-_app_Tooltip")
+          "tooltip unmount row renders"))))
+
+(deftest unmounted-views-empty-placeholder
+  (testing "rf2-ad7zx.6 — no unmounts → the section shows its empty
+            placeholder (always visible so the rhythm holds)."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :unmounted-views []})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-causa-reactive-unmounted-empty")
+          "empty placeholder renders when nothing unmounted"))))
+
+(deftest destroyed-subs-section-renders-with-caption
+  (testing "rf2-ad7zx.6 — the DESTROYED SUBSCRIPTIONS section lists subs
+            cleaned up + carries the explanatory caption."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :destroyed-subs [{:sub-id :app/modal-state}]})
+    (let [tree (view/reactive-panel)]
+      (is (= "Destroyed Subscriptions"
+             (text-of tree "rf-causa-reactive-section-destroyed-label"))
+          "section heading renders")
+      (is (has-testid? tree "rf-causa-reactive-destroyed-row-_app_modal_state")
+          "destroyed sub row renders")
+      (is (= "Subscriptions cleaned up when their last reader unmounted"
+             (text-of tree "rf-causa-reactive-destroyed-caption"))
+          "the explanatory caption renders"))))
+
+;; ---- legend (rf2-ad7zx.6) ---------------------------------------------
+
+(deftest legend-renders-three-swatches
+  (testing "rf2-ad7zx.6 — the closing legend explains the encoding:
+            changed (propagates) · no change (short-circuits) · unmounted
+            / destroyed."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
+    (let [tree (view/reactive-panel)
+          legend-text (text-of tree "rf-causa-reactive-legend")]
+      (is (some? legend-text) "legend renders")
+      (is (re-find #"changed \(propagates" legend-text) "changed swatch labelled")
+      (is (re-find #"no change \(short-circuits" legend-text) "no-change swatch labelled")
+      (is (re-find #"unmounted / destroyed" legend-text) "teardown swatch labelled"))))
