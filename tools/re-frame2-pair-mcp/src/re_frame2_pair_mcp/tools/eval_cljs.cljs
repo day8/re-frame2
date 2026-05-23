@@ -37,8 +37,9 @@
   @allow-eval?)
 
 (defn eval-cljs-tool [conn args]
-  (let [form     (wire/arg args :form)
-        build-id (wire/arg-build args)]
+  (let [form      (wire/arg args :form)
+        build-id  (wire/arg-build args)
+        explicit? (wire/arg-build-explicit? args)]
     (cond
       (not @allow-eval?)
       (js/Promise.resolve
@@ -54,7 +55,14 @@
                         :hint "usage: eval-cljs {form '<cljs-form>' [build :app]}"}))
 
       :else
-      (-> (probe/ensure-runtime! conn build-id)
-          (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-          (.then (fn [v] (wire/ok-text {:ok? true :value v})))
+      ;; rf2-ivlb3: resolve the build (auto-detect the single running one
+      ;; when no explicit :build was passed) and confirm a live runtime
+      ;; BEFORE eval'ing. Never emit `:ok? true :value nil` for a build
+      ;; with no runtime — that's indistinguishable from a genuine nil.
+      (-> (probe/resolve-and-preflight! conn build-id explicit?)
+          (.then (fn [resolved-build]
+                   (-> (nrepl/cljs-eval-value conn resolved-build form)
+                       (.then (fn [v] (wire/ok-text {:ok?   true
+                                                     :value v
+                                                     :build resolved-build}))))))
           (.catch (fn [err] (probe/err->result :eval-error err)))))))

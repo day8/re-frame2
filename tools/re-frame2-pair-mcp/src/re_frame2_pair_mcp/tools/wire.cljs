@@ -109,6 +109,15 @@
   (or (arg-keyword args :build)
       (default-build-id)))
 
+(defn arg-build-explicit?
+  "True iff the caller passed an explicit `:build` arg (vs. relying on
+  the `SHADOW_CLJS_BUILD_ID` / `:app` default). The eval-path build
+  resolver (rf2-ivlb3) auto-detects the running build ONLY when the
+  build is the bare default — an operator who typed `--build=foo` gets
+  `foo` honoured verbatim."
+  [args]
+  (some? (arg-keyword args :build)))
+
 ;; ---------------------------------------------------------------------------
 ;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi; lifted to
 ;; mcp-base.envelope in rf2-ee38b.19 / rf2-ee38b.18).

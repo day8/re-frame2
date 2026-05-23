@@ -345,6 +345,91 @@
   [build-id]
   (cljs-eval-value build-id "(re-frame2-pair.runtime/health)"))
 
+;; ---------------------------------------------------------------------------
+;; Running-build enumeration + fail-loud build resolution (rf2-ivlb3).
+;;
+;; Mirrors `tools/re-frame2-pair-mcp/src/.../tools/probe.cljs`'s
+;; `running-builds` / `resolve-build!` / `resolve-and-preflight!`. Both
+;; transports MUST fail loud: eval'ing against a build with no live
+;; re-frame2-pair runtime returns a blank cljs-eval value that
+;; `cljs-eval-value` reads as nil — indistinguishable from a genuine
+;; nil. The preflight + auto-detect removes the footgun on both paths.
+;; ---------------------------------------------------------------------------
+
+(defn- running-builds
+  "Enumerate shadow-cljs build ids with a live watch worker, as a vector
+   of keywords. JVM-side call — `active-builds` lives on the shadow API,
+   not in the CLJS heap, so it works even when no build has the runtime
+   preloaded (that's the point: it tells the operator which builds ARE
+   running). Returns [] on any error (old shadow, socket hiccup)."
+  []
+  (try
+    (let [res (jvm-eval "(try (vec (shadow.cljs.devtools.api/active-builds)) (catch Throwable _ []))")
+          v   (some-> (:value res) safe-edn)]
+      (if (vector? v) v []))
+    (catch Exception _ [])))
+
+(defn- auto-detect-hint [running]
+  (cond
+    (empty? running)
+    (str "no shadow-cljs build is running. Start your dev build "
+         "(`shadow-cljs watch <build>`) before eval'ing.")
+
+    (= 1 (count running))
+    (str "pass --build=" (first running) " or set SHADOW_CLJS_BUILD_ID.")
+
+    :else
+    (str "multiple shadow-cljs builds are running " (vec running)
+         "; pass --build=<one-of-them> or set SHADOW_CLJS_BUILD_ID.")))
+
+(defn- resolve-build!
+  "Resolve the build to eval against, or throw a structured ex-info.
+
+     - explicit `--build=` / SHADOW_CLJS_BUILD_ID  ⇒ honour it verbatim
+       (preflight catches a typo / non-running build).
+     - exactly one running build                   ⇒ auto-detect it.
+     - zero or many running                        ⇒ throw
+       `:no-runtime-for-build` enumerating `:running-builds`.
+
+   `explicit?` is true when `build` came from a real `--build=` / env
+   value rather than the bare `:app` fallback — we auto-detect ONLY
+   when the build is the bare default (`explicit?` false)."
+  [build explicit?]
+  (if (and build explicit?)
+    build
+    (let [running (running-builds)]
+      (if (= 1 (count running))
+        (first running)
+        (throw (ex-info "cannot auto-detect a single running build"
+                        {:reason         :no-runtime-for-build
+                         :build          (when explicit? build)
+                         :running-builds running
+                         :hint           (str (auto-detect-hint running)
+                                              " The default 'app' build is not running.")}))))))
+
+(defn- resolve-and-preflight!
+  "Resolve the build then confirm a live re-frame2-pair runtime sentinel
+   for it. Returns the resolved build-id; throws a structured ex-info
+   (`:reason :no-runtime-for-build`, carrying `:running-builds`) when the
+   build can't be eval'd. NEVER returns for a runtime-absent build, so
+   the caller can't emit `:ok? true :value nil` for an eval that didn't
+   run."
+  [build explicit?]
+  (let [build-id (resolve-build! build explicit?)]
+    (if (runtime-preloaded? build-id)
+      build-id
+      (let [running (running-builds)]
+        (throw (ex-info "no re-frame2-pair runtime for build"
+                        {:reason         :no-runtime-for-build
+                         :build          build-id
+                         :running-builds running
+                         :hint           (str "build " build-id " has no live "
+                                              "re-frame2-pair runtime. "
+                                              (auto-detect-hint running)
+                                              " (Or add the :devtools :preloads "
+                                              "[re-frame2-pair.runtime] entry — see "
+                                              "skills/re-frame2-pair/SKILL.md §Setup.)")}))))))
+
 (defn- discover [args]
   (ensure-port!)
   (let [build-id (build-id-from-args args)]
@@ -394,18 +479,37 @@
 ;; Subcommand: eval
 ;; ---------------------------------------------------------------------------
 
+(defn- explicit-build?
+  "True iff the caller passed an explicit `--build=` flag or set
+   $SHADOW_CLJS_BUILD_ID — vs. relying on the bare `:app` fallback in
+   `default-build-id`. The eval-path resolver (rf2-ivlb3) auto-detects
+   the running build ONLY when the build is the bare default."
+  [args]
+  (boolean (or (some #(str/starts-with? % "--build=") args)
+               (System/getenv "SHADOW_CLJS_BUILD_ID"))))
+
 (defn- eval-op [args]
   (ensure-port!)
   (when (empty? args) (die :missing-form :hint "usage: eval '<form>' [--build=app]"))
-  (let [form     (first args)
-        build-id (build-id-from-args (rest args))]
+  (let [form      (first args)
+        rest-args (rest args)
+        build-id  (build-id-from-args rest-args)
+        explicit? (explicit-build? rest-args)]
     (try
-      (emit {:ok? true :value (cljs-eval-value build-id form)})
+      ;; rf2-ivlb3: resolve the build (auto-detect the single running one
+      ;; when no explicit --build was passed) and confirm a live runtime
+      ;; BEFORE eval'ing. Never emit `:ok? true :value nil` for a build
+      ;; with no runtime — that's indistinguishable from a genuine nil.
+      (let [resolved (resolve-and-preflight! build-id explicit?)]
+        (emit {:ok? true :value (cljs-eval-value resolved form) :build resolved}))
       (catch Exception e
-        (emit {:ok? false
-               :reason (or (:reason (ex-data e)) :eval-error)
-               :message (.getMessage e)
-               :data (dissoc (ex-data e) :reason)})))))
+        (let [data (ex-data e)]
+          (if (= :no-runtime-for-build (:reason data))
+            (emit (merge {:ok? false} data))
+            (emit {:ok? false
+                   :reason (or (:reason data) :eval-error)
+                   :message (.getMessage e)
+                   :data (dissoc (or data {}) :reason)})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: dispatch
