@@ -7,75 +7,116 @@
 > this doc locks the **tokens** those designs reference.
 >
 > **Authority:** the **Figma design wins on look + brand** (Mike: keep the Figma design, don't
-> go off script). This doc — orange identity, brand vs. mode-accent split, type scale,
-> visual-encoding — is downstream of the **Figma export** (`ai/figma-make-export`) and takes
-> precedence on anything *visible*. [007-UX-IA §Colour system](007-UX-IA.md#colour-system)
-> keeps the **functional semantic accents** the framework needs but the mock didn't render
-> (redacted, pair-origin, perf tiers) + the CSS-custom-property surface. Keep in sync; on the
-> visible chrome the **Figma design wins**.
+> go off script). This doc — the GitHub-style blue/neutral identity, type scale,
+> visual-encoding — is downstream of the **Figma export** (`tools/causa/design-reference/styles/devtools.css`
+> + `theme.css`) and takes precedence on anything *visible*.
+> [007-UX-IA §Colour system](007-UX-IA.md#colour-system) keeps the **functional semantic accents**
+> the framework needs but the mock didn't render (redacted, pair-origin, perf tiers) + the
+> CSS-custom-property surface. Keep in sync; on the visible chrome the **Figma design wins**.
 
-## Colour identity — orange-forward
+## Colour identity — GitHub-style blue/neutral (rf2-ad7zx.13)
 
-Causa's brand colour is **orange**. Every accent is a **single token** (a CSS custom
-property at runtime; a theme key in `implementation/.../theme/tokens.cljc`) so the identity
-is a **one-line change per token** — a hard requirement, not an accident.
+Causa's accent colour is a **single GitHub-style blue** — the palette the Figma export ships.
+Every accent is a **single token** (a CSS custom property at runtime; a theme key in
+`tools/causa/.../theme/tokens.cljc`) so the identity is a **one-line change per token** — a
+hard requirement, not an accident.
 
-**Brand vs. mode accent — keep them separate:**
-- **`brand`** is the logo / wordmark colour and is **always orange**, in either mode.
-- The **mode accent** (active tab, the mode stripe, active/selected states, focus ring)
-  **follows the current mode**: orange in **Dynamic**, cyan in **Static**. At runtime a root
-  class (`.mode-dynamic` / `.mode-static`) points `accent` at `accent-dynamic` or
-  `accent-static`. So in Dynamic the whole UI reads orange (brand + accent agree); in Static
-  the logo stays orange while active states turn cyan.
+**Single accent — no per-mode colour swap:**
+- There is **one** `accent` (GitHub blue): active tab, the chrome stripe, active/selected
+  states, focus ring, the L4 panel header stripe, and `changed`/recompute highlights all read it.
+- The **Dynamic / Static MODE stays a functional mode** (it gates motion — Static drops the
+  continuous pulses + collapses the tab fade). It **no longer drives accent colour**: the shell
+  reads the same blue accent in either mode. The earlier orange-identity scheme (an always-orange
+  `brand` plus per-mode `accent-dynamic` orange / `accent-static` cyan, swapped under a
+  `.mode-dynamic` / `.mode-static` root class) is **removed**.
+- The logo / wordmark (`❖ Causa`) reads the same single `accent` blue.
 
 ### Surfaces & text (neutral; both themes)
 
 | token | role | dark | light |
 |---|---|---|---|
-| `bg-1` | deepest surface | `#15171B` | `#F1F3F6` |
-| `bg-2` | panel surface | `#1B1E24` | `#FFFFFF` |
-| `bg-3` | raised / strip | `#232730` | `#E6E9EE` |
-| `hover` | hover background | `#232730` | `#E6E9EE` |
-| `border-subtle` | hairlines | `#232730` | `#E6E9EE` |
-| `border-default` | controls | `#2F3441` | `#CFD4DC` |
-| `text-primary` | body text | `#E8EAF0` | `#15171B` |
-| `text-secondary` | labels / hints | `#A8AEC0` | `#4B5160` |
-| `dim` | dimmed / inert / **unchanged** | `#6E7681` | `#8C959F` |
+| `bg-0` | deepest recess | `#161616` | `#fbfbfb` |
+| `bg-1` | chrome surface (sidebar, top strip) | `#1c1c1c` | `#f5f5f5` |
+| `bg-2` | panel surface | `#242424` | `#ffffff` |
+| `bg-3` | raised / strip / popovers | `#2a2a2a` | `#e8e8e8` |
+| `hover` | hover background | `#2a2a2a` | `#e8e8e8` |
+| `border-subtle` | hairlines | `#2a2a2a` | `#e8e8e8` |
+| `border-default` | controls | `#373737` | `#d1d1d1` |
+| `text-primary` | body text | `#e6edf3` | `#24292f` |
+| `text-secondary` | labels / hints | `#adbac7` | `#656d76` |
+| `text-tertiary` | muted / inactive | `#8b949e` | `#8c959f` |
+| `dim` | dimmed / inert / **unchanged** | `#6e7681` | `#8c959f` |
 
-Surfaces are kept **neutral** (orange pops on neutral, and it avoids the a11y / muddy-brown
-risk of tinted darks). Warming them a hair is an optional later polish, not required.
+`bg-1` = the Figma `--devtools-chrome-bg`; `border-default` = `--devtools-border`;
+`text-primary` = `--devtools-text`; `text-tertiary` = `--devtools-text-muted`. Surfaces are
+**neutral GitHub greys** so the blue accent pops. Causa carries three text levels (the Figma
+export ships two — `--devtools-text` + `--devtools-text-muted`); `text-secondary` is a brighter
+mid (`#adbac7`, GitHub `fg.muted`) so all three clear WCAG AA on the dark surfaces — AAA for
+primary/secondary.
 
-### Brand & mode accents
+### Accent (single blue)
 
 | token | role | dark | light |
 |---|---|---|---|
-| **`brand`** | logo / wordmark — **always orange** | `#F97316` | `#EA580C` |
-| `accent-dynamic` | Dynamic-mode accent (orange) | `#F97316` | `#EA580C` |
-| `accent-static` | Static-mode accent (cyan) | `#43C3D0` | `#2A8B96` |
-| `accent` | **runtime alias** → the active mode's accent (active tab · mode stripe · selected states · focus ring) | *= accent-dynamic in Dynamic* | *= accent-static in Static* |
+| **`accent`** | the SINGLE accent — active tab · chrome stripe · selected states · focus ring · L4 header stripe · logo · changed/recompute | `#539bf5` | `#0969da` |
 
-Decision (Mike): keep cyan for Static, but it's a single token — swapping the whole identity
-is one edit per token.
+`accent` = the Figma `--devtools-active` / `--devtools-changed`. Swapping the whole identity is
+one edit per token.
 
 ### Semantic & change
 
 | token | role | dark | light |
 |---|---|---|---|
-| `error` | errors | `#F85149` | `#CF222E` |
-| `warning` | warnings (was `yellow`; also drives the filter "N hidden" chrome) | `#FBBF24` | `#B07A05` |
-| `advisory` | advisories — the lowest Issues severity (calm, cool, ≠ warning) | `#79A6D2` | `#3B6EA5` |
-| `success` | success / diff-added | `#3FB950` | `#1A7F37` |
+| `error` | errors | `#f85149` | `#cf222e` |
+| `warning` | warnings (also drives the filter "N hidden" chrome) | `#d29922` | `#9a6700` |
+| `advisory` | advisories — the lowest Issues severity (calm, cool blue) | `#79c0ff` | `#0550ae` |
+| `success` | success / diff-added | `#3fb950` | `#1a7f37` |
+| `info` | fixed cool categorical blue — distinct from `accent` (spine-paused, sub-run, route-from, syntax-number, the machine TO-highlight) | `#79c0ff` | `#0550ae` |
 | `changed` | a value/sub **changed/recomputed** (alias of `accent`, used sparingly) | *= accent* | *= accent* |
 | `unchanged` | unchanged / short-circuited (alias of `dim`) | *= dim* | *= dim* |
 
+`error`/`warning`/`success` = the Figma `--devtools-error` / `--devtools-warning` /
+`--devtools-success`.
+
 - **Issues severities:** `error` (red) · `warning` (amber) · `advisory` (cool blue) — three
-  distinct tones so the Issues panel reads at a glance. Keep `warning` clearly distinct from
-  `brand`/`accent` (orange); if they ever blur, cool the warning toward gold `#EAB308`.
+  distinct tones so the Issues panel reads at a glance.
+- **`info` vs `accent`:** both are blue, but `accent` is the **primary** chrome signal (active /
+  selected / changed) and `info` is a **fixed categorical** cool blue used where a surface needs
+  to read as a distinct peer of the primary accent (the in-flight head rides `accent`; the
+  paused head rides `info`; the dispatch op-family rides `accent`, the db / sub families ride
+  `info`). `info` shares `advisory`'s hue — both are the GitHub syntax-number blue.
 - **app-db diff:** added → `success`, removed → `error`, changed → `warning` (reuse the
   semantic tokens; no new colours).
-- **Views / recompute:** changed/recomputed highlight → `changed` (= mode `accent`); unchanged
-  / short-circuited → `unchanged` (= `dim`). Use the accent sparingly (the changed node, not
-  whole rows) so the UI doesn't over-saturate.
+- **Views / recompute:** changed/recomputed highlight → `changed` (= `accent`); unchanged /
+  short-circuited → `unchanged` (= `dim`). Use the accent sparingly (the changed node, not whole
+  rows) so the UI doesn't over-saturate.
+
+### Functional categorical hues (carve-out)
+
+These do REAL semantic work — perf tiers, machine state, route side-channel, redaction,
+op-family legends — and are **not** collapsed into the accent.
+
+| token | role | dark | light |
+|---|---|---|---|
+| `green` | success / additions / machine-active | `#3fb950` | `#1a7f37` |
+| `yellow` | warnings / schema-replaced / `:rf/large` elision | `#d29922` | `#9a6700` |
+| `orange` | functional amber — long-task / perf-slow tier | `#FB923C` | `#C2570F` |
+| `red` | errors / schema-violations / hydration-mismatches | `#F87171` | `#C84444` |
+| `magenta` | classification: `:rf/redacted` | `#E879F9` | `#B146C2` |
+
+`orange` here is the **functional perf-amber** (`#FB923C` / `#C2570F`) — it is NOT a brand
+colour and is distinct from the removed orange brand identity.
+
+### Syntax highlighting (Figma devtools.css)
+
+EDN / Clojure source rendering reads:
+
+| role | dark | light |
+|---|---|---|
+| keyword | `accent` (`#539bf5`) | `accent` (`#0969da`) |
+| string | `green` (`#3fb950`) | `green` (`#1a7f37`) |
+| number | `info` (`#79c0ff`) | `info` (`#0550ae`) |
+| comment | `text-tertiary` | `text-tertiary` |
 
 ## Type scale (anchored at 13px)
 
@@ -94,7 +135,7 @@ Carry meaning through the **strongest channel first**; treat pictographic icons 
 *secondary* reinforcement, never the primary signal:
 
 - **Node state** (recomputed vs unchanged) → **colour + emphasis on the node**: changed =
-  `changed` (mode accent) / filled; unchanged = `unchanged` (`dim`) / outline. A short text
+  `changed` (the accent) / filled; unchanged = `unchanged` (`dim`) / outline. A short text
   tag only if colour alone is ambiguous.
 - **A relationship / short-circuit** → **edge style** (a cut/short-circuited dependency is a
   dashed + greyed edge), not a glyph beside it.
@@ -106,14 +147,12 @@ Carry meaning through the **strongest channel first**; treat pictographic icons 
 
 ## Caveats & implementation
 
-- **Contrast.** `brand` / `accent` (orange) are for **fills, active states, the mode stripe,
-  and large text — not small body text** (light-theme `#EA580C` on white is borderline for
-  WCAG AA at body size). Body copy uses `text-primary` / `text-secondary`; verify any orange
-  *text* meets AA.
-- **Migration cost.** The implementation currently reads `(:accent-violet tokens)` /
-  `(:cyan tokens)` across ~357 call sites. Renaming to `:brand` / `:accent` /
-  `:accent-static` (+ `dim`, `warning`, `advisory`, `changed`/`unchanged`) is a **call-site
-  sweep** (or temporary aliases) — not free; scoped under rf2-ad7zx.
-- **Where they live.** `implementation/.../theme/tokens.cljc` (+ the runtime
-  CSS-custom-property emission, with the `.mode-dynamic` / `.mode-static` root class flipping
-  `accent`). Consumers read `(:accent tokens)` etc. so a re-skin is a token-table edit.
+- **Contrast.** `accent` (blue) is for **fills, active states, the chrome stripe, and large
+  text**. Body copy uses `text-primary` / `text-secondary`; the dark text ramp is tuned so all
+  three text levels clear WCAG 2.1 AA on `bg-1`/`bg-2` (AAA for primary/secondary).
+- **Where they live.** `tools/causa/.../theme/tokens.cljc` (+ the runtime CSS-custom-property
+  emission in `theme/global-styles`). The Dynamic/Static mode root class no longer flips the
+  accent. Consumers read `(:accent tokens)` etc. so a re-skin is a token-table edit. The
+  machines-viz chart (`tools/machines-viz/.../theme/tokens.cljc`) mirrors this palette at the
+  values level (drift-gate `causa-and-machines-viz-*-palettes-match-values`, rf2-z7ms8) so the
+  chart paints the same colours whether embedded by Causa or standalone.

@@ -33,8 +33,8 @@
      before|after** — diff is annotation on a single rendered state
      (§10.1.2). Unchanged values dim to `:text-tertiary`.
 
-  3. **Minimal type colouring** — keywords get the mode `accent`
-     (orange in Dynamic / cyan in Static — the only coloured type).
+  3. **Minimal type colouring** — keywords get the single `:accent`
+     (GitHub blue — the only coloured type).
      Strings / numbers / nil / booleans / symbols render mono in
      `:text-primary`. Aids EDN-shape recognition without colour-noise
      (§10.3).

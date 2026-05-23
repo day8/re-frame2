@@ -10,9 +10,9 @@
 ;; ---- with-alpha (rf2-pyvmr) --------------------------------------------
 
 (deftest with-alpha-builds-rgba-string-from-hex-token
-  (testing "with-alpha resolves :accent-static (#43C3D0) to rgba(67, 195, 208, alpha)"
-    (let [s (tokens/with-alpha :accent-static 0.5)]
-      (is (= "rgba(67, 195, 208, 0.5)" s)))))
+  (testing "with-alpha resolves :info (#79c0ff) to rgba(121, 192, 255, alpha)"
+    (let [s (tokens/with-alpha :info 0.5)]
+      (is (= "rgba(121, 192, 255, 0.5)" s)))))
 
 (deftest with-alpha-resolves-zero-alpha
   (testing "with-alpha accepts alpha=0 — used by callers that compute
@@ -24,9 +24,9 @@
   (testing "with-alpha resolves through a custom palette so callers
             (theming hosts) can swap the palette without forking the
             chart"
-    (let [custom {:accent-static "#000000"}]
+    (let [custom {:info "#000000"}]
       (is (= "rgba(0, 0, 0, 0.25)"
-             (tokens/with-alpha :accent-static 0.25 custom))))))
+             (tokens/with-alpha :info 0.25 custom))))))
 
 ;; ---- tag-pill-color (rf2-m1b88) ----------------------------------------
 
@@ -38,11 +38,11 @@
     (is (= (tokens/tag-pill-color :auth/ok) (tokens/tag-pill-color :auth/ok)))))
 
 (deftest tag-pill-color-skips-reserved-tokens
-  (testing "tag-pill-color never returns :red, :accent or :accent-static
-            — all reserved for chart semantics (rf2-ad7zx)"
+  (testing "tag-pill-color never returns :red, :accent or :info
+            — all reserved for chart semantics (rf2-ad7zx.13)"
     ;; Walk every palette entry; assert none is reserved.
     (is (every? (fn [t]
-                  (not (#{:red :accent :accent-static} (tokens/tag-pill-color t))))
+                  (not (#{:red :accent :info} (tokens/tag-pill-color t))))
                 [:risky :paid :auth/ok :final :loading :error
                  :rec :checkout :session/active :flow/start]))))
 
@@ -58,12 +58,13 @@
            (set (keys tokens/light-palette))))))
 
 (deftest light-palette-inverts-surface-lightness
-  (testing "rf2-usord — light theme bg-0 is the LIGHTEST recess (FAFBFC)
-            while dark theme bg-0 is the DEEPEST canvas (0E0F12)."
-    (is (= "#0E0F12" (:bg-0 tokens/dark-palette)))
-    (is (= "#FAFBFC" (:bg-0 tokens/light-palette)))
-    (is (= "#E8EAF0" (:text-primary tokens/dark-palette)))
-    (is (= "#15171B" (:text-primary tokens/light-palette)))))
+  (testing "rf2-ad7zx.13 — light theme bg-0 is the LIGHTEST recess
+            (#fbfbfb) while dark theme bg-0 is the DEEPEST canvas
+            (#161616)."
+    (is (= "#161616" (:bg-0 tokens/dark-palette)))
+    (is (= "#fbfbfb" (:bg-0 tokens/light-palette)))
+    (is (= "#e6edf3" (:text-primary tokens/dark-palette)))
+    (is (= "#24292f" (:text-primary tokens/light-palette)))))
 
 (deftest palettes-map-exposes-both-themes
   (testing "rf2-usord — palettes map keys both themes by name so the
@@ -77,9 +78,9 @@
             arg; this test pins the LIGHT-palette path so chart code
             can resolve tints against the light theme without forking
             the helper."
-    (let [s (tokens/with-alpha :accent-static 0.5 tokens/light-palette)]
-      ;; Light :accent-static is #2A8B96 → rgba(42, 139, 150, 0.5)
-      (is (= "rgba(42, 139, 150, 0.5)" s)))))
+    (let [s (tokens/with-alpha :info 0.5 tokens/light-palette)]
+      ;; Light :info is #0550ae → rgba(5, 80, 174, 0.5)
+      (is (= "rgba(5, 80, 174, 0.5)" s)))))
 
 ;; ---- css-var (rf2-uv1on) -----------------------------------------------
 
@@ -88,21 +89,21 @@
             publishes the Causa CSS custom-property surface drives
             light + dark, while a standalone embed degrades to the
             dark-palette hex"
-    (is (= "var(--rf-causa-green, #4ADE80)" (tokens/css-var :green)))
-    (is (= "var(--rf-causa-text-tertiary, #8990A0)"
+    (is (= "var(--rf-causa-green, #3fb950)" (tokens/css-var :green)))
+    (is (= "var(--rf-causa-text-tertiary, #8b949e)"
            (tokens/css-var :text-tertiary)))))
 
 (deftest css-var-name-matches-causa-convention
   (testing "the variable name mirrors Causa's `var(--rf-causa-<key>)`
             so the chart + host paint from ONE :root palette"
-    (is (str/starts-with? (tokens/css-var :accent-static)
-                          "var(--rf-causa-accent-static"))))
+    (is (str/starts-with? (tokens/css-var :info)
+                          "var(--rf-causa-info"))))
 
 (deftest css-var-falls-back-to-supplied-palette-hex
   (testing "css-var resolves the fallback hex from the supplied palette
             arg (light theme), not just the dark default"
-    (is (= "var(--rf-causa-accent-static, #2A8B96)"
-           (tokens/css-var :accent-static tokens/light-palette)))))
+    (is (= "var(--rf-causa-info, #0550ae)"
+           (tokens/css-var :info tokens/light-palette)))))
 
 (deftest css-var-no-fallback-for-unknown-key
   (testing "an unknown token has no hex → bare var() (host MUST define

@@ -14,8 +14,8 @@
 
   The ladder mirrors `spec/007-UX-IA.md` §Colour system §Perf scale:
 
-      :fast      <16ms       green   #4ADE80   ●
-      :medium    16-50ms     yellow  #FBBF24   ●
+      :fast      <16ms       green   #3fb950   ●
+      :medium    16-50ms     yellow  #d29922   ●
       :slow      50-100ms    orange  #FB923C   ▲
       :blocking  >=100ms     red     #F87171   ▲    INP threshold
 
@@ -64,9 +64,9 @@
             hex source of truth) — post rf2-on4cm `tier-colour` returns
             CSS-variable strings, but the per-tier semantic mapping
             still grounds in these spec-anchored hexes."
-    (is (= "#4ADE80" (:green  tokens/dark-palette)))      ; green
-    (is (= "#FBBF24" (:yellow tokens/dark-palette)))      ; yellow
-    (is (= "#FB923C" (:orange tokens/dark-palette)))      ; orange
+    (is (= "#3fb950" (:green  tokens/dark-palette)))      ; green (Figma success)
+    (is (= "#d29922" (:yellow tokens/dark-palette)))      ; yellow (Figma warning)
+    (is (= "#FB923C" (:orange tokens/dark-palette)))      ; orange (functional amber)
     (is (= "#F87171" (:red    tokens/dark-palette))))     ; red
   (testing "unknown tier falls back to text-tertiary so the dot is
             never invisible. Resolved through `theme/tokens` so the

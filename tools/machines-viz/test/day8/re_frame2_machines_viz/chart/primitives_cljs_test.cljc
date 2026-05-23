@@ -106,7 +106,7 @@
           [track arc] (circles g)]
       ;; :green tier → :green token.
       (is (str/starts-with? (:stroke (second arc)) "var(--rf-causa-green"))
-      (is (str/includes? (:stroke (second arc)) "#4ADE80")
+      (is (str/includes? (:stroke (second arc)) "#3fb950")
           "carries the dark-palette hex fallback for standalone embeds")
       ;; track circle uses the subtle border token.
       (is (str/starts-with? (:stroke (second track))

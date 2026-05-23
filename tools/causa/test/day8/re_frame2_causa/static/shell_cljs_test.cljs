@@ -382,17 +382,17 @@
 ;; (6) Mode-signal mechanism — stripe colour helper
 ;; -------------------------------------------------------------------------
 
-(deftest stripe-token-dynamic-orange-static-cyan
-  (testing "mode-signal mechanism #2 — 2-px left-edge stripe is
-            :accent-dynamic (orange) in Dynamic, :accent-static (cyan)
-            in Static (rf2-ad7zx / spec/022). The stripe reads the per-
-            MODE token directly (not the runtime :accent alias) because
-            it IS the mode signal."
-    (is (= :accent-dynamic (static-shell/stripe-token-for-mode :dynamic)))
-    (is (= :accent-static  (static-shell/stripe-token-for-mode :static)))
-    ;; Unknown / nil values fall back to dynamic
-    (is (= :accent-dynamic (static-shell/stripe-token-for-mode :nonsense)))
-    (is (= :accent-dynamic (static-shell/stripe-token-for-mode nil)))))
+(deftest stripe-token-single-blue-accent-both-modes
+  (testing "mode-signal mechanism #2 — 2-px left-edge stripe is the
+            single :accent (GitHub blue) in BOTH modes (rf2-ad7zx.13:
+            the Figma export carries one accent, no per-mode colour
+            swap; the Dynamic/Static MODE stays functional but no longer
+            drives stripe colour)."
+    (is (= :accent (static-shell/stripe-token-for-mode :dynamic)))
+    (is (= :accent (static-shell/stripe-token-for-mode :static)))
+    ;; Unknown / nil values fall back to the same single accent
+    (is (= :accent (static-shell/stripe-token-for-mode :nonsense)))
+    (is (= :accent (static-shell/stripe-token-for-mode nil)))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Mode dropdown — compact single-select (rf2-4vp5j reshape)

@@ -277,7 +277,7 @@
   ;; Compare against the var-map so the test pins the indirection.
   (is (= (:accent tokens/tokens)
          (h/op-family-colour {:op-type :rf.event :operation :rf.event/dispatched})))
-  (is (= (:accent-static tokens/tokens)
+  (is (= (:info tokens/tokens)
          (h/op-family-colour {:op-type :rf.event :operation :rf.event/db-changed})))
   (is (= (:warning tokens/tokens)
          (h/op-family-colour {:op-type :rf.fx :operation :rf.fx/handled})))
@@ -457,7 +457,7 @@
   ;; specific palette's hex.
   (is (= (:red    tokens/tokens)  (h/op-type-colour :error)))
   (is (= (:yellow tokens/tokens)  (h/op-type-colour :warning)))
-  (is (= (:accent-static tokens/tokens) (h/op-type-colour :info)))
+  (is (= (:info tokens/tokens) (h/op-type-colour :info)))
   (is (= (:accent tokens/tokens) (h/op-type-colour :rf.event)))
   (is (= (:green  tokens/tokens)  (h/op-type-colour :rf.fx)))
   (is (= (:magenta tokens/tokens) (h/op-type-colour :rf.view/render)))

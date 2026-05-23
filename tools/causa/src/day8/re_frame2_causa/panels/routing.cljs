@@ -10,7 +10,7 @@
   sections, each separated from the next by a 1px hairline:
 
       ┌─ ROUTING · epoch #38 ─────────────────────── [◀ Prev] [Next ▶] ─┐
-      │▌ stripe: mode accent (orange in Dynamic)                        │
+      │▌ stripe: the single GitHub-blue accent                          │
       │                                                                 │
       │ CURRENT ROUTE                                                   │
       │   :user/profile    params {:id 42}    /users/42                 │
@@ -79,9 +79,9 @@
              :as t
              :refer [tokens mono-stack sans-stack]]))
 
-;; ---- mode accent --------------------------------------------------------
+;; ---- accent -------------------------------------------------------------
 ;;
-;; The Dynamic Routing panel's mode accent is the orange `:accent` token
+;; The Routing panel's accent is the single GitHub-blue `:accent` token
 ;; (per `panel-domain->token`). Both the CURRENT ROUTE id and the
 ;; current row in the ROUTE TABLE ride this hue so the operator's eye
 ;; ties the two surfaces together (RoutesPanel.tsx `--devtools-active`).
@@ -167,7 +167,7 @@
 
     - :on-match           → 'transitioned' (green — a route landed)
     - :navigation-blocked → 'blocked'      (warning — a guard refused)
-    - :fragment-changed   → 'fragment changed' (accent-static — anchor)
+    - :fragment-changed   → 'fragment changed' (info — anchor)
     - navigated? but no destination resolved → 'not-found' (error)"
   [{:keys [phase]} navigated? to-id]
   (cond
@@ -178,7 +178,7 @@
     {:label "blocked" :colour (:warning tokens)}
 
     (= phase :fragment-changed)
-    {:label "fragment changed" :colour (:accent-static tokens)}
+    {:label "fragment changed" :colour (:info tokens)}
 
     (and navigated? (nil? to-id))
     {:label "not-found" :colour (:error tokens)}
@@ -211,7 +211,7 @@
                              :color       (:text-primary tokens)}}
          [:span {:data-testid "rf-causa-routing-nav-from"
                  :style       {:color (if from-id
-                                        (:accent-static tokens)
+                                        (:info tokens)
                                         (:text-tertiary tokens))}}
           (if from-id (str from-id) "—")]
          [:span {:style {:color (:text-tertiary tokens)}} "──►"]
@@ -255,7 +255,7 @@
   [marker]
   (case marker
     :to   {:glyph "◉" :colour (:green tokens)         :label "TO"}
-    :from {:glyph "◇" :colour (:accent-static tokens) :label "FROM"}
+    :from {:glyph "◇" :colour (:info tokens)          :label "FROM"}
     nil))
 
 (defn- tree-prefix

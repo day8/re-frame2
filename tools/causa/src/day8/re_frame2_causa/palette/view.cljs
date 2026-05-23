@@ -56,14 +56,14 @@
 
 ;; ---- per-source visual style --------------------------------------------
 
-;; Per-source categorical legend (rf2-ad7zx). `:command` is the primary
-;; action category → the mode `accent` (orange Dynamic / cyan Static);
-;; `:panel` keeps a fixed cyan (`accent-static`) so it stays a distinct
-;; category against the now-orange command accent. yellow/green/magenta
-;; are functional categorical hues, untouched.
+;; Per-source categorical legend (rf2-ad7zx.13). `:command` is the
+;; primary action category → the single `:accent` (GitHub blue);
+;; `:panel` keeps a fixed cool blue (`:info`) so it stays a distinct
+;; category against the command accent. yellow/green/magenta are
+;; functional categorical hues, untouched.
 (def ^:private source-colour
   {:command          (:accent tokens)
-   :panel            (:accent-static tokens)
+   :panel            (:info tokens)
    :setting          (:yellow tokens)
    :recent-event     (:green tokens)
    :frame            (:magenta tokens)

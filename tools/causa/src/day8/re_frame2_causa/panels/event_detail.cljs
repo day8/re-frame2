@@ -367,8 +367,8 @@
                       :border-bottom (str "1px solid " (:border-subtle tokens))
                       :font-family   sans-stack
                       :font-size     "13px"}}
-     ;; spec/021 §17.1.5 — Event panel header icon: ⚡ in the mode
-     ;; :accent (orange Dynamic / cyan Static).
+     ;; spec/021 §17.1.5 — Event panel header icon: ⚡ in the single
+     ;; :accent (GitHub blue).
      [:span {:data-testid "rf-causa-event-detail-panel-icon"
              :aria-hidden "true"
              :style {:color (:accent tokens)
@@ -406,10 +406,10 @@
      [:span {:style {:flex 1}}]
      (when ssr?
        [:span {:data-testid "rf-causa-event-detail-header-ssr-badge"
-               ;; SSR origin badge — fixed info cyan (`accent-static`,
-               ;; the §007 :story/:test/info hue), kept distinct from the
-               ;; mode accent so it always reads as an origin marker.
-               :style {:color (:accent-static tokens)
+               ;; SSR origin badge — fixed info blue (`:info`, the §007
+               ;; :story/:test/info hue), kept distinct from the primary
+               ;; accent so it always reads as an origin marker.
+               :style {:color (:info tokens)
                        :font-family mono-stack
                        :font-weight 700
                        :font-size "11px"
@@ -1247,8 +1247,8 @@
     [:div {:data-testid "rf-causa-event-detail-cascade"
            :data-dispatch-id (str dispatch-id)
            :data-frame (str frame)
-           ;; §17.1.3 / spec/022 — Event panel header stripe is the mode
-           ;; :accent (orange Dynamic / cyan Static).
+           ;; §17.1.3 / spec/022 — Event panel header stripe is the
+           ;; single :accent (GitHub blue).
            :style {:border-left (str "3px solid " (:accent tokens))}}
      (panel-header cascade)
 

@@ -89,10 +89,11 @@
        200ms cross-fade. Owned by `static/mode_pill.cljs`. The pill
        lives at ribbon-left in BOTH modes (it's the toggle, not the
        indicator).
-    2. **2-px left-edge ribbon stripe** — `:accent-dynamic` (orange) in
-       Dynamic, `:accent-static` (cyan) in Static. Owned by both shells
-       via the explicit `mode-stripe-colour` arg passed into the
-       ribbon's outer div.
+    2. **2-px left-edge ribbon stripe** — the single `:accent` (GitHub
+       blue) in both modes (rf2-ad7zx.13: the Figma export carries one
+       accent, no per-mode colour swap). Owned by both shells via the
+       explicit `mode-stripe-colour` arg passed into the ribbon's outer
+       div.
     3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-
        active pulse + 180ms tab fade. Static drops the continuous
        pulses entirely; the 180ms tab fade collapses to 0ms (instant)
@@ -174,26 +175,24 @@
   KEY (not the resolved hex) so per-theme palette switching (rf2-
   5kfxe.6 light theme) flows through naturally.
 
-  The Dynamic stripe is the orange `:accent-dynamic` token (the brand-
-  orange identity, rf2-ad7zx / spec/022). It reads the per-MODE token
-  directly — not the runtime `:accent` alias — because the stripe IS
-  the mode signal, so it must always paint the Dynamic accent
-  regardless of which mode is active when the stripe is rendered."
-  :accent-dynamic)
+  Post rf2-ad7zx.13 the Figma export carries a SINGLE accent (GitHub
+  blue), so the stripe paints `:accent` in BOTH modes — there is no
+  per-mode accent colour swap. The Dynamic/Static MODE stays functional
+  (it drives motion/pulse), it just no longer drives stripe colour."
+  :accent)
 
 (def static-stripe-token
   "Token-key for the Static mode's 2-px left-edge ribbon stripe per
-  the parent-epic mode-signal mechanism (signal #2). The cyan
-  `:accent-static` token (#43C3D0 dark / #2A8B96 light, spec/022) —
-  the per-MODE Static accent, read directly rather than via the
-  runtime `:accent` alias so the stripe always paints the Static
-  accent as the mode signal."
-  :accent-static)
+  the parent-epic mode-signal mechanism (signal #2). Post rf2-ad7zx.13
+  this is the single `:accent` (GitHub blue) — same as Dynamic; the
+  Figma export has no per-mode accent colour swap."
+  :accent)
 
 (defn stripe-token-for-mode
-  "Pure helper. Returns the token KEY (`:accent-dynamic` /
-  `:accent-static`) the L1 ribbon should paint as its 2-px left-edge
-  stripe for the given mode. JVM-portable so the test corpus can cover
+  "Pure helper. Returns the token KEY (`:accent`) the L1 ribbon should
+  paint as its 2-px left-edge stripe for the given mode. Post
+  rf2-ad7zx.13 both modes resolve to the single `:accent` (the Figma
+  export's one blue accent). JVM-portable so the test corpus can cover
   the round-trip without a CLJS runtime."
   [mode]
   (case mode

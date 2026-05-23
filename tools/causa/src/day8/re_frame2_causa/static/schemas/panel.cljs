@@ -219,7 +219,7 @@
   [kind]
   (let [{:keys [letter colour]}
         (case kind
-          :app-db {:letter "A" :colour (:accent-static tokens)}
+          :app-db {:letter "A" :colour (:info tokens)}
           :event  {:letter "E" :colour (:magenta tokens)}
           :sub    {:letter "S" :colour (:yellow tokens)}
           {:letter "?" :colour (:text-tertiary tokens)})]

@@ -115,25 +115,38 @@
            (set (keys t/light-palette))))))
 
 (deftest light-palette-inverts-surface-lightness
-  (testing "spec/007 §Light theme — bg-0 #FAFBFC / bg-1 #F1F3F6 /
-            bg-2 #FFFFFF. The light theme inverts the lightness of
+  (testing "rf2-ad7zx.13 §Light theme (Figma) — chrome-bg #f5f5f5 /
+            panel #ffffff. The light theme inverts the lightness of
             the dark surfaces."
-    (is (= "#FAFBFC" (:bg-0 t/light-palette)))
-    (is (= "#F1F3F6" (:bg-1 t/light-palette)))
-    (is (= "#FFFFFF" (:bg-2 t/light-palette)))))
+    (is (= "#fbfbfb" (:bg-0 t/light-palette)))
+    (is (= "#f5f5f5" (:bg-1 t/light-palette)))
+    (is (= "#ffffff" (:bg-2 t/light-palette)))))
 
 (deftest light-palette-darkens-accents
-  (testing "spec/007 — 'accents darken slightly to maintain contrast'.
-            Each accent in the light palette is a darker variant of
-            the corresponding dark-palette accent (sanity-check: the
-            light hexes are not the same string as their dark
-            counterparts)."
-    (doseq [k [:brand :accent-dynamic :accent-static :accent
+  (testing "rf2-ad7zx.13 — the single accent + semantics darken on the
+            light canvas to maintain contrast. Each token in the light
+            palette is a distinct variant of its dark counterpart
+            (sanity-check: the light hexes are not the same string as
+            their dark counterparts)."
+    (doseq [k [:accent
                :error :warning :advisory :success
-               :green :yellow :orange :red :magenta]]
+               :green :yellow :orange :red :magenta :info]]
       (is (not= (get t/dark-palette k)
                 (get t/light-palette k))
           (str k " differs between the two palettes")))))
+
+(deftest single-blue-accent-no-orange-scheme
+  (testing "rf2-ad7zx.13 — the orange identity is removed: there is a
+            SINGLE accent (GitHub blue #539bf5 dark / #0969da light),
+            and the removed orange-scheme keys (:brand, :accent-dynamic,
+            :accent-static) are gone from both palettes."
+    (is (= "#539bf5" (:accent t/dark-palette)))
+    (is (= "#0969da" (:accent t/light-palette)))
+    (doseq [removed [:brand :accent-dynamic :accent-static]]
+      (is (not (contains? t/dark-palette removed))
+          (str removed " removed from dark palette"))
+      (is (not (contains? t/light-palette removed))
+          (str removed " removed from light palette")))))
 
 (deftest tokens-is-the-css-variable-surface
   (testing "rf2-on4cm — `tokens` is the CSS-variable map (post v1.0

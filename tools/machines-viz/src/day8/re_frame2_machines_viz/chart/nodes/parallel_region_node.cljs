@@ -50,7 +50,7 @@
   `:accent` (the structural-container colour the compound-node
   chrome already uses) and spreads across cool/warm so adjacent
   regions read as distinct orthogonal zones."
-  [:accent :accent-static :orange :green :magenta :yellow])
+  [:accent :info :orange :green :magenta :yellow])
 
 (defn region-boundary-color-key
   "Map a region's index to a stable token key from

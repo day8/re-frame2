@@ -182,12 +182,12 @@
             "L4 detail panel present (default :event tab)")))))
 
 (deftest shell-root-carries-lens-mode-class
-  (testing "rf2-ad7zx / spec/022 — the shell root carries the
-            `mode-dynamic` / `mode-static` class driven by
-            `:rf.causa/mode`. `theme/global-styles/mode-accent-css`
-            re-points `--rf-causa-accent` off this class, so the whole
-            chrome accent flips orange↔cyan with the mode (the brand
-            wordmark stays orange in either mode)."
+  (testing "rf2-ad7zx.13 — the shell root carries the `mode-dynamic` /
+            `mode-static` class driven by `:rf.causa/mode`. The class
+            still gates functional behaviour (motion / pulse dampening
+            in Static); post rf2-ad7zx.13 it no longer re-points
+            `--rf-causa-accent` — the Figma export carries a SINGLE
+            accent (GitHub blue) in both modes."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-mode :dynamic])

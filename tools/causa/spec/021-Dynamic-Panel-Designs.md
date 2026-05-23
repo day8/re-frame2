@@ -211,7 +211,7 @@ Steps are numbered **dynamically** — an absent optional section consumes no nu
 visible steps always read `1..N` contiguously. Section labels are uppercase caption-weight,
 muted (`var(--text-secondary)`); the numbered circles + the rail carry the ordering.
 
-The **mode-accent stripe** (orange in Dynamic, cyan in Static) sits at the panel's edge.
+The **mode-accent stripe** (the single GitHub-blue accent, both modes) sits at the panel's edge.
 
 Optional sections (COEFFECTS, AFTER INTERCEPTORS, FLOWS) are **shown only when present** —
 absence is conveyed by omission, not an empty-state line. A throwing handler therefore simply
@@ -249,7 +249,7 @@ flows, and fx):
 
 ```
 ┌─ EVENT · :counter-inc · epoch #42 ─────────────────── [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (orange in Dynamic · cyan in Static)                 │
+│▌ stripe: mode accent (one GitHub-blue accent, both modes)                 │
 │                                                                          │
 │  rail                                                                     │
 │   │                                                                       │
@@ -464,7 +464,7 @@ fans out to two views; two Level-1 subs short-circuited):
 
 ```
 ┌─ VIEW · epoch #42 ───────────────────────────────── [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (orange in Dynamic · cyan in Static)               │
+│▌ stripe: mode accent (one GitHub-blue accent, both modes)               │
 │                                                                         │
 │ REACTIVE FLOW                                            unchanged ┄┄    │
 │ ┌─────────────────────────────────────────────────────────────────────┐ │
@@ -640,7 +640,7 @@ panel's left edge.
 
 ```
 ┌─ APP-DB · epoch #42 ────────────────────────────── [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (orange in Dynamic · cyan in Static)             │
+│▌ stripe: mode accent (one GitHub-blue accent, both modes)             │
 │                                                                       │
 │ APP STATE                                                             │
 │   ▾ {:counter 2, :user {:name "Alice" :role :admin}}                  │
@@ -882,7 +882,7 @@ for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
 | Convention | xyflow implementation |
 |---|---|
 | Nested state containment | xyflow's group/parent-node mechanic. Parent state renders as a containing rect; child states are nested xyflow nodes whose `parentNode` references the parent. |
-| Transition edge animation | xyflow's `animated: true` edge prop. Color via Causa palette (`:accent` — the mode accent, orange in Dynamic — for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
+| Transition edge animation | xyflow's `animated: true` edge prop. Color via Causa palette (`:accent` — the single GitHub-blue accent — for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
 | Current-state highlight pulse | Custom node CSS class that applies the `pulse` keyframe (~1.2s ease-in-out; CSS-variable interpolated through `--rf-causa-motion-scale` so `prefers-reduced-motion` collapses it). Pulse outline color = `:green` (the panel-domain accent). |
 | Auto-layout | xyflow's built-in `getLayoutedElements` helper (dagre algorithm). One-shot layout on first render; cached per machine-id; recomputed only when topology changes. |
 | Zoom + pan + fit | xyflow's built-in `Controls` component (re-styled to match Causa's button chrome). Default zoom: fit-on-mount with 20px padding. `[− 100% +] [Fit][Reset]` chrome already shown in the existing mockups maps 1:1 to xyflow's `Controls`. |
@@ -908,7 +908,7 @@ panel, not a generic xyflow diagram):
  :region-container   {:background "transparent"
                       :border (str "1px dashed " (:border-default tokens))}
  :edge-registered    {:stroke (:text-tertiary tokens) :stroke-width 1}
- :edge-fired-this-epoch {:stroke (:accent tokens) :stroke-width 2  ; mode accent (orange in Dynamic)
+ :edge-fired-this-epoch {:stroke (:accent tokens) :stroke-width 2  ; the single GitHub-blue accent
                          :animated true}
  :edge-label         {:fill (:text-secondary tokens)
                       :font-family mono-stack
@@ -938,7 +938,7 @@ the nodes and edges with Causa palette tokens.
 
 ```
 ┌─ MACHINES · epoch #87 ──────────────────────────── [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (orange in Dynamic · cyan in Static)             │
+│▌ stripe: mode accent (one GitHub-blue accent, both modes)             │
 │                                                                       │
 │ machine :title/flow            (no activity this epoch · current ●)   │
 │ ┌─[Canvas]─────────────────────────────────────[− 100% +] [Fit][Reset]│
@@ -967,7 +967,7 @@ accent; the fired transition edge carries its **event label + guard + action inl
 
 ```
 ┌─ MACHINES · epoch #42 (machine :title/flow [:rf/init]) ─ [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (orange in Dynamic · cyan in Static)                   │
+│▌ stripe: mode accent (one GitHub-blue accent, both modes)                   │
 │ machine :title/flow                                                          │
 │ ┌─[Canvas]────────────────────────────────────────[− 100% +] [Fit][Reset]──┐│
 │ │ ┌─ active (compound) ──────────────────────────────────┐                  ││
@@ -1059,7 +1059,7 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 
 ```
 ┌─ ROUTING · epoch #38 ──────────────────────────── [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (orange in Dynamic · cyan in Static)            │
+│▌ stripe: mode accent (one GitHub-blue accent, both modes)            │
 │                                                                      │
 │ CURRENT ROUTE                                                        │
 │   :user/profile    params {:id 42}    /users/42                      │
@@ -1135,7 +1135,7 @@ Silent-by-default — a clean epoch shows a calm positive state, not an error lo
 
 ```
 ┌─ ISSUES · epoch #42 ────────────────────────────── [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (orange in Dynamic · cyan in Static)             │
+│▌ stripe: mode accent (one GitHub-blue accent, both modes)             │
 │                                                                       │
 │ ▌ ERROR     handler-exception   :counter-inc threw …       12:30:05 ↗ │  ← red border
 │ ▌ WARNING   missing-doc         sub ::counter has no :doc   12:30:05 ↗ │  ← amber border
@@ -1290,7 +1290,7 @@ Sparse case — bare scalar (string fx result):
 
 ### §10.3 Keyword accent color (B.9 spec · orange identity — rf2-ad7zx)
 
-**Decision: the mode `accent`** (orange in Dynamic, cyan in Static — the locked identity per
+**Decision: the single `accent`** (GitHub blue — the locked identity per
 [022-Design-Tokens](022-Design-Tokens.md) + [007 §Colour system](007-UX-IA.md#colour-system)).
 EDN keyword **data values** are the single coloured type in the renderer; they read in the mode
 accent, keeping the keyword token visually consistent across L1 filter pills, L2 spine rows, L3
@@ -1726,25 +1726,25 @@ deliberately drew per rf2-5kfxe.9). The L4 surfaces are mono.
 
 All hex resolves through `theme/tokens` (dark) / theme-CSS-variables (light + HCM). Reconciled
 to the Figma export + the locked tokens in [022-Design-Tokens](022-Design-Tokens.md): the brand
-/ active / changed signal is the **mode `accent`** (orange in Dynamic, cyan in Static); the prior
+/ active / changed signal is the **mode `accent`** (the single GitHub-blue accent, both modes); the prior
 `:accent-violet` is retired.
 
 | Role | Token | Note |
 |---|---|---|
-| **Keyword accent** (data values · the only colored type) | `accent` (mode accent) | per §10.3 + 022 — orange in Dynamic, cyan in Static |
+| **Keyword accent** (data values · the only colored type) | `accent` | per §10.3 + 022 — the single GitHub-blue accent |
 | **Changed-value highlight** (left-margin marker + accent color) | `changed` (= `accent`) + cascade-gutter glyph (`+` green / `-` red / `~` amber / `◴` accent) | gutter glyph is the structural signal; the accent is the row tint |
 | **Dim-for-unchanged values** | `unchanged` / `dim` (`:text-tertiary`) | per 022 — `unchanged` is an alias of `dim` |
-| **Settled-success** (fx settled, no error) | `success` (`#4ADE80` / `#3FB950`) | per 022 |
-| **Settled-error** (fx settled with error · issues panel ERROR) | `error` (`#F87171`) for ink; `:red-deep` (`#a83a3a`) for button fills | per 022 |
-| **In-flight** (fx still running, e.g. `⏳ #h-142`) | `warning` (`#FBBF24`) — matches the perf-scale "medium / in-progress" tone | |
+| **Settled-success** (fx settled, no error) | `success` (`#3fb950` / `#1a7f37`) | per 022 |
+| **Settled-error** (fx settled with error · issues panel ERROR) | `error` (`#f85149`) for ink; `:red-deep` (`#a83a3a`) for button fills | per 022 |
+| **In-flight** (fx still running, e.g. `⏳ #h-142`) | `warning` (`#d29922`) — matches the perf-scale "medium / in-progress" tone | |
 | **Stale** (epoch evicted from buffer; placeholder text) | `:text-tertiary` on `:bg-2` | |
-| **Border subtle** (between adjacent rows in a list) | `border-subtle` (`#232730`) | |
-| **Border default** (around cards / canvases) | `border-default` (`#2F3441`) | |
-| **Border strong** (focused-row outline before focus-ring overlay) | `#444B5B` (per §007) | |
-| **Background — panel canvas** | `:bg-2` (`#1B1E24`) | |
-| **Background — hover row** | `hover` / `:bg-active` (`#2A2F3D`) | |
-| **Background — popover** | `:bg-3` (`#232730`) | |
-| **L4 panel header stripe** | the **mode `accent`** (orange in Dynamic, cyan in Static) | rf2-ad7zx — the per-panel domain-colour stripe (§007 Per-L4 panel accent stripe) is superseded by the single mode-accent identity, matching the Figma export's one-accent design (App.tsx active-tab `--devtools-active`). |
+| **Border subtle** (between adjacent rows in a list) | `border-subtle` (`#2a2a2a`) | |
+| **Border default** (around cards / canvases) | `border-default` (`#373737`) | |
+| **Border strong** (focused-row outline before focus-ring overlay) | `border-default` (`#373737`, per §007) | |
+| **Background — panel canvas** | `:bg-2` (`#242424`) | |
+| **Background — hover row** | `hover` / `:bg-active` (`#2a2a2a`) | |
+| **Background — popover** | `:bg-3` (`#2a2a2a`) | |
+| **L4 panel header stripe** | the **mode `accent`** (the single GitHub-blue accent, both modes) | rf2-ad7zx — the per-panel domain-colour stripe (§007 Per-L4 panel accent stripe) is superseded by the single mode-accent identity, matching the Figma export's one-accent design (App.tsx active-tab `--devtools-active`). |
 | **Cross-panel arrow / `⤴` link** | `accent` 600-weight | |
 | **Film-strip back/forward chevron** | `:text-secondary` default · `:text-primary` on hover | |
 
@@ -1984,7 +1984,7 @@ counterpart of the green `rf-causa-machine-pulse`).
 |---|---|---|---|---|
 | `--` (dashed `:text-tertiary`) | `:text-tertiary` | 1px | no | Registered transition, not fired this epoch |
 | `──` (solid `:text-tertiary`) | `:text-tertiary` | 1px | no | Same as above, but represents the most-recent traversal in the buffer |
-| `══` (thick + animated) | `accent` (mode accent — orange in Dynamic) | 2px | yes | Transition fired this epoch (the overlay) |
+| `══` (thick + animated) | `accent` (the single GitHub-blue accent) | 2px | yes | Transition fired this epoch (the overlay) |
 
 Edge label: `:micro` (`~10px`) JetBrains Mono in `:text-secondary`,
 rendered inline on the edge (xyflow's `label` prop), not in a side
@@ -2068,7 +2068,7 @@ xyflow-adapter bead (§17.5) implements against:
                          :stroke-dasharray "4 4"}
    :registered-traversed {:stroke      (:text-tertiary tokens)
                           :stroke-width 1}
-   :fired-this-epoch    {:stroke       (:accent tokens)  ; mode accent (orange in Dynamic)
+   :fired-this-epoch    {:stroke       (:accent tokens)  ; the single GitHub-blue accent
                          :stroke-width 2}})  ; + xyflow :animated true
 
 (def edge-label-style

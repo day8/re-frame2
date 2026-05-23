@@ -27,10 +27,11 @@
   cadence, anchoring the eye at chrome-left where the Frame picker now
   belongs. The reshape collapses it to a compact `<select>` that shares
   the frame picker's weight (`bg-2` fill, `border-default` hairline,
-  4px radius). The MODE SIGNAL is carried elsewhere — the chrome
-  ribbon's 2-px left-edge accent stripe (orange Dynamic / cyan Static,
-  `static/shell/stripe-hex-for-mode` — rf2-ad7zx) — so the control
-  itself can recede without losing the at-a-glance mode cue.
+  4px radius). Post rf2-ad7zx.13 the Figma export carries a single
+  `:accent` (GitHub blue) — the ribbon stripe no longer changes colour
+  by mode; the `<select>`'s `data-active-mode` attribute + active option
+  carry the mode state, and the Dynamic/Static MODE remains functional
+  (it drives motion/pulse), it just no longer drives accent colour.
 
   ## Why a single registered view
 

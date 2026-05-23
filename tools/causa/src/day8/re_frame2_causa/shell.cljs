@@ -750,9 +750,9 @@
   buys the compacted height.
 
   The 2-px left-edge accent stripe (rf2-o5f5f.1 mode-signal mechanism
-  #2 — orange Dynamic / cyan Static, rf2-ad7zx) stays as the at-a-glance
-  mode cue, so the understated mode dropdown can recede without losing
-  the signal.
+  #2 — the single GitHub-blue accent in both modes, rf2-ad7zx.13) stays
+  as the chrome-edge accent; the understated mode dropdown carries the
+  mode state via its active option + `data-active-mode`.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -774,14 +774,13 @@
                    :background       (:bg-1 tokens)
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    ;; rf2-o5f5f.1 — mode-signal mechanism #2: a 2-px
-                   ;; left-edge stripe in the active mode's accent
-                   ;; (orange in Dynamic, cyan in Static — rf2-ad7zx).
-                   ;; Painted on the ribbon so it lines up with the
-                   ;; top-of-shell edge regardless of the L2 resize-
-                   ;; handle. The stripe-hex helper reads the per-mode
-                   ;; `:accent-dynamic` / `:accent-static` token through
-                   ;; the current palette (light vs dark via CSS custom
-                   ;; properties).
+                   ;; left-edge stripe in the single `:accent` (GitHub
+                   ;; blue — the Figma export carries one accent;
+                   ;; rf2-ad7zx.13). Painted on the ribbon so it lines up
+                   ;; with the top-of-shell edge regardless of the L2
+                   ;; resize-handle. The stripe-hex helper resolves the
+                   ;; `:accent` token through the current palette (light
+                   ;; vs dark via CSS custom properties).
                    :border-left      (str "2px solid "
                                           (static-shell/stripe-hex-for-mode :dynamic))
                    :font-family      sans-stack
@@ -794,15 +793,14 @@
       ;; rf2-ad7zx.12 — the `❖ Causa` wordmark, top-left of the chrome
       ;; ribbon per the Figma design-reference (`design-reference/
       ;; components/ChromeRibbon.tsx`). Semibold, `:body-tight`, the
-      ;; ALWAYS-orange `:brand` token (the diamond glyph + the word stay
-      ;; orange in both Dynamic and Static modes — it is the product
-      ;; identity, not the mode accent). `aria-hidden` on the decorative
+      ;; single `:accent` token (GitHub blue — the Figma export carries
+      ;; one accent; rf2-ad7zx.13). `aria-hidden` on the decorative
       ;; `❖` glyph keeps the wordmark from announcing its unicode name.
       [:div {:data-testid "rf-causa-ribbon-logo"
              :style {:display      "flex"
                      :align-items  "center"
                      :gap          "5px"
-                     :color        (:brand tokens)
+                     :color        (:accent tokens)
                      :font-family  sans-stack
                      :font-size    (:body-tight type-scale)
                      :font-weight  600
@@ -2072,13 +2070,13 @@
     (when (not= current-positioning modal-positioning)
       (rf/dispatch-sync [:rf.causa/set-modal-positioning modal-positioning]
                         {:frame :rf/causa})))
-  ;; rf2-ad7zx / spec/022 — the lens mode (`:rf.causa/mode` =
+  ;; rf2-ad7zx.13 / spec/022 — the lens mode (`:rf.causa/mode` =
   ;; :dynamic | :static) drives the `mode-dynamic` / `mode-static`
-  ;; root class. `theme/global-styles/mode-accent-css` re-points
-  ;; `--rf-causa-accent` at the orange (Dynamic) or cyan (Static)
-  ;; accent off this class, so the whole shell's chrome accent flips
-  ;; off ONE token while the brand wordmark stays orange in either
-  ;; mode. Subscribed via the explicit `:rf/causa` frame (same shape
+  ;; root class, which still gates functional behaviour (motion / pulse
+  ;; dampening in Static). Post rf2-ad7zx.13 the Figma export carries a
+  ;; SINGLE accent (GitHub blue) — the mode class no longer re-points
+  ;; `--rf-causa-accent`, so the chrome accent is the same blue in both
+  ;; modes. Subscribed via the explicit `:rf/causa` frame (same shape
   ;; as the modal-positioning read above — `shell-view` sits outside
   ;; its own frame-provider).
   (let [lens-mode @(rf/subscribe :rf/causa [:rf.causa/mode])]

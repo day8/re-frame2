@@ -44,15 +44,15 @@
            (set (keys esc/status->token))))))
 
 (deftest status-token-map-mirrors-tanstack-anchors
-  (testing "rf2-b76v4 / rf2-ad7zx — the per-status token assignments
+  (testing "rf2-b76v4 / rf2-ad7zx.13 — the per-status token assignments
             mirror the TanStack devtool's semantic anchors. The LIVE
-            head (`:in-flight`) IS the current-epoch accent → the mode
-            `:accent` (orange Dynamic / cyan Static); `:paused-by-tool`
-            takes the fixed cyan `:accent-static` as a distinct peer."
+            head (`:in-flight`) IS the current-epoch accent → the single
+            `:accent` (GitHub blue); `:paused-by-tool` takes the fixed
+            cool blue `:info` as a distinct peer."
     (is (= :accent         (esc/status->token :in-flight)))
     (is (= :green          (esc/status->token :settled-success)))
     (is (= :red            (esc/status->token :settled-error)))
-    (is (= :accent-static  (esc/status->token :paused-by-tool)))
+    (is (= :info           (esc/status->token :paused-by-tool)))
     (is (= :yellow         (esc/status->token :stale)))))
 
 (deftest every-status-resolves-to-a-non-nil-hex
@@ -183,7 +183,7 @@
     (is (= :red (esc/event-status-token {:outcome :error})))
     (is (= :green (esc/event-status-token {:outcome :ok})))
     (is (= :yellow (esc/event-status-token {:mode :retro})))
-    (is (= :accent-static (esc/event-status-token {:paused? true})))
+    (is (= :info (esc/event-status-token {:paused? true})))
     (is (= :accent (esc/event-status-token {})))))
 
 (deftest event-status-colour-fallback
@@ -268,10 +268,10 @@
       (is (= (:red palette)
              (esc/event-status-colour {:outcome :error}))
           "settled-error rides red")
-      (is (= (:accent-static palette)
+      (is (= (:info palette)
              (esc/event-status-colour {:paused? true}))
-          "paused-by-tool rides the fixed cyan accent-static (distinct
-           from the in-flight mode accent)")
+          "paused-by-tool rides the fixed cool blue :info (distinct
+           from the in-flight accent)")
       (is (= (:yellow palette)
              (esc/event-status-colour {:mode :retro}))
           "stale rides yellow"))))
