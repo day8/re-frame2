@@ -243,16 +243,26 @@ async function clickSourceCoordChip(page, { panel, sourceIncludes = [] }) {
     if (!root) return { clicked: false, reason: 'Causa root missing', candidates: [] };
     const selector = selectors[targetPanel] || 'button[data-testid*="source"]';
     const buttons = Array.from(root.querySelectorAll(selector));
+    // rf2-ad7zx.9 — the Issues panel's source affordance is now an `↗`
+    // icon (per the Figma design); the `file:line` coord rides the
+    // button's `title` attribute, not its text. Prefer `title` when it
+    // carries the coord (icon affordances), falling back to textContent
+    // for the trace / hydration chips that still render the coord inline.
+    const coordOf = (button) => {
+      const title = (button.getAttribute('title') || '').trim();
+      const text = (button.textContent || '').trim();
+      return title || text;
+    };
     const candidates = buttons.map((button) => {
       const rect = button.getBoundingClientRect();
       return {
         testId: button.getAttribute('data-testid'),
-        text: (button.textContent || '').trim(),
+        text: coordOf(button),
         visible: rect.width > 0 && rect.height > 0,
       };
     });
     const target = buttons.find((button) => {
-      const text = (button.textContent || '').trim();
+      const text = coordOf(button);
       const visible = button.getBoundingClientRect().width > 0 &&
         button.getBoundingClientRect().height > 0;
       return visible && targetNeedles.every((needle) => !needle || text.includes(needle));
@@ -264,7 +274,7 @@ async function clickSourceCoordChip(page, { panel, sourceIncludes = [] }) {
         candidates: candidates.slice(0, 20),
       };
     }
-    const sourceCoord = (target.textContent || '').trim();
+    const sourceCoord = coordOf(target);
     const testId = target.getAttribute('data-testid');
     target.click();
     return { clicked: true, panel: targetPanel, sourceCoord, testId, candidates: candidates.slice(0, 20) };

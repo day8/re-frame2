@@ -1,17 +1,17 @@
 (ns day8.re-frame2-causa.panels.issues-ribbon-helpers
-  "Pure-data helpers for Causa's Issues panel (rf2-jio48 rebuild).
+  "Pure-data helpers for Causa's Issues panel (rf2-jio48 rebuild;
+  Figma reconcile rf2-ad7zx.9).
 
   ## Why a separate `.cljc` ns
 
   The panel view in `issues_ribbon.cljs` paints the per-row issue feed
-  and dispatches into the Causa frame. The *logic* — filter the focused
+  and dispatches into the Causa frame. The *logic* — project the focused
   epoch's `:trace-events` to the issue subset (errors + warnings +
-  hydration mismatches + schema violations), project each trace event
-  into a flat row shape, derive severity / category-prefix groupings,
-  and apply the two chip-filter axes (severity / category-prefix) —
-  is pure data → data. Splitting the algebra into `.cljc` so it runs
-  under the JVM unit-test target (`clojure -M:test`) is required by
-  the standing rule `feedback_jvm_interop_must_work.md`.
+  hydration mismatches + schema violations) and project each trace event
+  into a flat row shape — is pure data → data. Splitting the algebra
+  into `.cljc` so it runs under the JVM unit-test target
+  (`clojure -M:test`) is required by the standing rule
+  `feedback_jvm_interop_must_work.md`.
 
   ## Substrate (per `spec/009-Instrumentation.md` §Error event catalogue)
 
@@ -39,11 +39,16 @@
   ## Severity
 
   Spec 009's `:op-type` field is the universal severity discriminator.
-  The panel ladders it onto three buckets:
+  The panel ladders it onto three tiers (per spec/021 §8.2 +
+  spec/022 §Semantic & change, strongest first):
 
-      :error    — `:op-type :error`
-      :warning  — `:op-type :warning`
-      :advisory — `:op-type :info`
+      :error    — `:op-type :error`     → `error` (red), strongest
+      :warning  — `:op-type :warning`   → `warning` (amber)
+      :advisory — `:op-type :info`      → `advisory` (cool blue; calm)
+
+  Each row reads its 3px LEFT-BORDER + uppercase TEXT badge in its
+  severity colour per the Figma design
+  (`design-reference/components/IssuesPanel.tsx`).
 
   Lifecycle / success-path traces (`:op-type` `:rf.event`, `:rf.fx`,
   `:rf.frame`, `:rf.sub/*`, `:rf.view/*`, etc.) are NOT issues and never reach
@@ -54,17 +59,18 @@
   The panel groups by the keyword namespace of `:operation`. Per
   Spec 009 a consumer routing on the prefix gets the domain
   provenance (`:rf.error/*` vs `:rf.warning/*` vs `:rf.ssr/*` ...).
-  The helper exposes `category-prefix` as the canonical projection.
+  The helper exposes `category-prefix` as the canonical projection,
+  used for the row's muted `category` cell.
 
-  ## Filter axes (per spec/021 §8 + §0 density rule)
+  ## No filtering (rf2-ad7zx.9)
 
-      severity         — #{:error :warning :advisory}
-      category-prefix  — #{\"rf.error\" \"rf.warning\" \"rf.ssr\" ...}
-
-  Each axis is independent; empty filters disable the axis. The
-  legacy `since-ms` axis is gone: per spec/021 §1.2 every L4 panel
-  is focused-epoch-scoped, and an epoch's lifetime is shorter than
-  any time window a `since-ms` filter could narrow.
+  The Figma design (spec/021 §8.2 +
+  `design-reference/components/IssuesPanel.tsx`) renders pure rows
+  with NO filter chrome — the focused epoch IS the scope, and issues
+  are rare-but-high-signal so every one reads inline. The legacy
+  severity / category-prefix chip-filter axes, the `since-ms` axis,
+  and the `:no-matches` empty state are gone, mirroring the Trace
+  panel's no-filter reconcile (rf2-gkczt).
 
   ## Focused-epoch scope (spec/021 §1.2 + §8)
 
@@ -72,8 +78,8 @@
   the global trace bus. The composite is fed the epoch record looked
   up by `:rf.causa/focus`'s `:epoch-id` against `:rf.causa/epoch-
   history`; the helper extracts the record's `:trace-events`, projects
-  the issue subset, applies the chip filters, and computes the row
-  shape + histograms over the resulting slice.
+  the issue subset, and computes the row shape over the resulting
+  slice.
 
   When the operator scrubs onto an epoch evicted from the history
   ring buffer (history capped per the framework's `:epoch-history`
@@ -98,13 +104,6 @@
             [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-causa.theme.tokens :as tokens]))
-
-;; ---- defaults ------------------------------------------------------------
-
-(def severity-order
-  "Render order for severity in the chip-row. Errors first because
-  they're the most urgent; advisories last."
-  [:error :warning :advisory])
 
 ;; ---- severity classification --------------------------------------------
 
@@ -132,8 +131,8 @@
 
 (def severity->token
   "Pure semantic map from severity keyword to token keyword. Mirrors
-  spec/007-UX-IA.md §Issues ribbon. Splitting the semantic map from
-  the hex lookup keeps the data pure + tokens consolidated
+  spec/021 §8.2 + spec/022 §Semantic & change. Splitting the semantic
+  map from the hex lookup keeps the data pure + tokens consolidated
   (rf2-5kfxe.4)."
   {:error    :error
    :warning  :warning
@@ -143,30 +142,25 @@
   "Map a severity keyword to its swatch colour. Resolves the semantic
   token keyword through `theme/tokens` so the palette has exactly one
   source of truth (rf2-5kfxe.4). Falls back to `:text-tertiary` for
-  unknown severities."
+  unknown severities.
+
+  Drives BOTH the row's 3px left-border and the uppercase text badge
+  per the Figma design."
   [severity]
   (get tokens/tokens
        (get severity->token severity :text-tertiary)))
 
-(defn severity-glyph
-  "Single-character glyph the per-row severity dot renders. Pure
-  data → string; JVM-testable. Chosen for low-vision contrast: filled
-  triangle for errors, hollow circle for warnings, dot for advisories."
+(defn severity-badge-label
+  "Uppercase severity label for the per-row TEXT badge — `ERROR` /
+  `WARNING` / `ADVISORY` per the Figma design
+  (`design-reference/components/IssuesPanel.tsx`). Pure data → string;
+  JVM-testable."
   [severity]
   (case severity
-    :error    "▲"
-    :warning  "●"
-    :advisory "·"
-    "○"))
-
-(defn severity-label
-  "Human-readable label for the severity chip. Pure data → string."
-  [severity]
-  (case severity
-    :error    "error"
-    :warning  "warning"
-    :advisory "advisory"
-    (str severity)))
+    :error    "ERROR"
+    :warning  "WARNING"
+    :advisory "ADVISORY"
+    (str/upper-case (str (name (or severity :unknown))))))
 
 ;; ---- category-prefix projection -----------------------------------------
 
@@ -183,11 +177,25 @@
   (when (keyword? operation)
     (namespace operation)))
 
+(defn category-label
+  "Project a trace event onto the row's muted `category` cell — the
+  unqualified name of `:operation` (e.g. `handler-exception`,
+  `hydration-mismatch`). Per the Figma design the category column is
+  the terse op name, NOT the full namespaced keyword (the prefix
+  rides the description / source coord). Falls back to the
+  category-prefix when `:operation` has no name, then to nil. Pure
+  data → string-or-nil; JVM-testable."
+  [{:keys [operation] :as ev}]
+  (cond
+    (keyword? operation) (name operation)
+    (some? operation)    (str operation)
+    :else                (category-prefix ev)))
+
 ;; ---- short description --------------------------------------------------
 
 (defn short-description
-  "Build the per-row one-line description. Per the panel's contract
-  rows render: `timestamp · category · severity · short description`.
+  "Build the per-row one-line description. Per the Figma design rows
+  render: `severity · category · short description · timestamp · ↗`.
   The description is the `:operation` keyword + (when available) a
   terse summary lifted from `:tags`.
 
@@ -240,7 +248,8 @@
        :severity        <:error :warning :advisory>
        :op-type         <kw>
        :operation       <kw>
-       :category-prefix <string-or-nil>
+       :category        <string-or-nil>  ;; muted category cell
+       :category-prefix <string-or-nil>  ;; domain provenance
        :description     <string>
        :source-coord    <string-or-nil>
        :recovery        <kw-or-nil>
@@ -256,6 +265,7 @@
      :severity        (op-type->severity op-type)
      :op-type         op-type
      :operation       operation
+     :category        (category-label ev)
      :category-prefix (category-prefix ev)
      :description     (short-description ev)
      :source-coord    (source-coord ev)
@@ -276,51 +286,6 @@
 ;; keep working without churn. Body lives in `common-helpers`.
 (def now-ms common/now-ms)
 
-;; ---- filter application -------------------------------------------------
-
-(defn passes-severity?
-  "True iff `issue`'s severity is in the active filter set, or if
-  the filter set is empty (= no severity restriction). Pure data →
-  bool; JVM-testable."
-  [active-severities {:keys [severity] :as _issue}]
-  (or (empty? active-severities)
-      (contains? active-severities severity)))
-
-(defn passes-category-prefix?
-  "True iff `issue`'s category-prefix is in the active filter set,
-  or if the filter set is empty. Pure data → bool; JVM-testable."
-  [active-prefixes {:keys [category-prefix] :as _issue}]
-  (or (empty? active-prefixes)
-      (contains? active-prefixes category-prefix)))
-
-(defn apply-filters
-  "Apply the two chip-filter axes to `issues`. Pure data → vector;
-  JVM-testable. Each axis is independent — empty filter sets disable
-  the axis.
-
-  `filters` is `{:severities #{...} :prefixes #{...}}`."
-  [issues filters]
-  (let [{:keys [severities prefixes]} filters]
-    (filterv
-      (fn [issue]
-        (and (passes-severity? severities issue)
-             (passes-category-prefix? prefixes issue)))
-      issues)))
-
-;; ---- category-prefix enumeration ----------------------------------------
-
-(defn distinct-prefixes
-  "Return the distinct category-prefixes present in `issues` in
-  first-seen order. The view uses this to populate the prefix-filter
-  chip row only with prefixes that have at least one issue — empty
-  prefix chips would be noise. Pure data → vector; JVM-testable."
-  [issues]
-  (into []
-        (comp (map :category-prefix)
-              (remove nil?)
-              (distinct))
-        issues))
-
 ;; ---- composite projection (the panel reads this) ------------------------
 
 (defn project-feed
@@ -331,9 +296,10 @@
   is the looked-up `:rf/epoch-record` from `:rf.causa/epoch-history`
   whose `:epoch-id` matches the focused `:epoch-id` from
   `:rf.causa/focus`. Walks the record's `:trace-events` via
-  `project-issues`, applies chip filters via `apply-filters`, and
-  computes the severity histogram + distinct-prefix axis over the
-  projection.
+  `project-issues` and renders newest-first.
+
+  No filtering (rf2-ad7zx.9) — the Figma design renders pure rows; the
+  focused epoch IS the scope.
 
   `focus-status` is one of:
     :no-focus       — no focused epoch AND no history (cold start
@@ -345,15 +311,11 @@
 
   Returns:
 
-      {:issues               [<row> ...]      ;; post-filter, newest first
-       :total                <int>            ;; pre-filter issue count
-       :rendered             <int>            ;; post-chip-filter count
-       :severity-counts      {severity count} ;; over the focused epoch
-       :distinct-prefixes    [<prefix> ...]   ;; over the focused epoch
-       :filters              <pass-through>
-       :epoch-id             <int-or-nil>     ;; the focused epoch's id
-       :empty-kind           <:no-issues / :no-focus / :epoch-evicted /
-                              :no-matches / nil>}
+      {:issues     [<row> ...]      ;; newest first
+       :total      <int>            ;; issue count
+       :rendered   <int>            ;; = total (no filtering)
+       :epoch-id   <int-or-nil>     ;; the focused epoch's id
+       :empty-kind <:no-issues / :no-focus / :epoch-evicted / nil>}
 
   `:empty-kind` discriminates the empty-state branches:
 
@@ -370,38 +332,24 @@
       :no-issues      — focused epoch carries no issues. Render the
                         positive 'No issues in this epoch.' line per
                         spec/021 §8.2.
-      :no-matches     — issues exist in the focused epoch but the
-                        active chip filters hide them all. View
-                        paints 'No issues match filters' with a
-                        clear-filters affordance.
-      nil             — at least one issue passed; render the feed."
-  [epoch-record filters focus-status]
+      nil             — at least one issue; render the feed."
+  [epoch-record focus-status]
   (let [record-present?  (= :focused focus-status)
         trace-events     (when record-present?
                            (:trace-events epoch-record))
         all-issues       (project-issues (or trace-events []))
-        filtered         (apply-filters all-issues filters)
         ;; Newest first for display parity with the legacy ribbon.
-        sorted-display   (vec (reverse filtered))
-        severity-counts  (reduce
-                           (fn [acc {:keys [severity]}]
-                             (update acc severity (fnil inc 0)))
-                           {}
-                           all-issues)
+        sorted-display   (vec (reverse all-issues))
         empty-kind       (cond
                            (= focus-status :no-focus)      :no-focus
                            (= focus-status :epoch-evicted) :epoch-evicted
                            (empty? all-issues)             :no-issues
-                           (empty? filtered)               :no-matches
                            :else                           nil)]
-    {:issues            sorted-display
-     :total             (count all-issues)
-     :rendered          (count filtered)
-     :severity-counts   severity-counts
-     :distinct-prefixes (distinct-prefixes all-issues)
-     :filters           filters
-     :epoch-id          (:epoch-id epoch-record)
-     :empty-kind        empty-kind}))
+    {:issues     sorted-display
+     :total      (count all-issues)
+     :rendered   (count all-issues)
+     :epoch-id   (:epoch-id epoch-record)
+     :empty-kind empty-kind}))
 
 ;; ---- film-strip filter slot (spec/021 §8.5 stretch) ---------------------
 

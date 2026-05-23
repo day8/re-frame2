@@ -1,11 +1,12 @@
 (ns day8.re-frame2-causa.panels.reactivity.issues-reactivity-cljs-test
   "Sub-reactivity guard for the Issues panel's primary composite
-  (rf2-dhoc9, updated for rf2-jio48 rebuild).
+  (rf2-dhoc9, updated for rf2-jio48 rebuild; rf2-ad7zx.9 Figma reconcile).
 
   Per spec/021 §1.2 the Issues panel is focused-epoch-scoped — the
-  composite re-fires when either the focused epoch flips (via
-  `:rf.causa/focus`'s `:epoch-id`) or the user toggles a chip
-  filter. This test pins both invariants."
+  composite re-fires when the focused epoch flips (via
+  `:rf.causa/focus`'s `:epoch-id`). The filter axis was dropped at
+  rf2-ad7zx.9 (the Figma design renders pure rows, no filtering), so
+  focus is now the single reactive input."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-causa.test-helpers.sub-reactivity :as h]))
 
@@ -50,39 +51,9 @@
         (is (= [2] (mapv :id (:issues feed-2)))
             "feed-2 surfaces epoch :e2's issues")))))
 
-(deftest issues-filters-axis-re-fires-on-filter-change
-  (testing "`:rf.causa/issues-filters` re-fires when a filter axis
-            flips; this guards the second reactive input to the
-            composite alongside the focus axis."
-    (h/setup-causa-frame!)
-    (h/seed-cascades! cascades)
-    (let [filters-1 (h/read-sub :rf.causa/issues-filters)]
-      (is (= #{} (:severities filters-1)))
-      (h/dispatch-causa! [:rf.causa.issues/toggle-severity :error])
-      (let [filters-2 (h/read-sub :rf.causa/issues-filters)]
-        (is (= #{:error} (:severities filters-2))
-            "severity toggle wrote the active-severities set")
-        (is (not= filters-1 filters-2)
-            "issues-filters sub re-fired on toggle")))))
-
-(deftest issues-ribbon-composes-focus-and-filters
-  (testing "`:rf.causa/issues-ribbon` recomposes when EITHER input
-            changes (focus OR filters). Pin the composition by
-            changing both in sequence and asserting the composite
-            map changes after each."
-    (h/setup-causa-frame!)
-    (h/seed-cascades! cascades)
-    (h/seed-epoch-history! epoch-records)
-    (h/focus-cascade! :c1)
-    (let [feed-a (h/read-sub :rf.causa/issues-ribbon)]
-      ;; Change focus.
-      (h/focus-cascade! :c2)
-      (let [feed-b (h/read-sub :rf.causa/issues-ribbon)]
-        (is (not= feed-a feed-b)
-            "focus flip changed the composite (focused-epoch axis)"))
-      ;; Then change a filter.
-      (h/dispatch-causa! [:rf.causa.issues/toggle-severity :warning])
-      (let [feed-c (h/read-sub :rf.causa/issues-ribbon)]
-        (is (not= (h/read-sub :rf.causa/issues-ribbon) feed-a)
-            "filter toggle changed the composite too")
-        (is (some? feed-c))))))
+;; rf2-ad7zx.9 — `issues-filters-axis-re-fires-on-filter-change` and
+;; `issues-ribbon-composes-focus-and-filters` were removed with the
+;; Issues panel's filter-chrome reconcile to the Figma design (pure
+;; rows, no filtering — spec/021 §8.2). The `:rf.causa/issues-filters`
+;; sub + the chip-toggle events no longer exist; focus is the single
+;; reactive input, pinned by `issues-ribbon-sub-tracks-focus-flip`.

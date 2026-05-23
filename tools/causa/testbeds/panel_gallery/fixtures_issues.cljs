@@ -3,10 +3,9 @@
   rebuild for new 6-tab Causa shape).
 
   The issues-ribbon panel reads its rows from
-  `:rf.causa/issues-ribbon`, a composite over:
-
-    - `:rf.causa/trace-buffer`     — the raw trace ring buffer
-    - `:rf.causa/issues-filters`   — {:severities :prefixes :since-ms}
+  `:rf.causa/issues-ribbon`, a composite over the focused epoch's
+  `:trace-events` (focus + epoch-history; no filtering — rf2-ad7zx.9
+  reconciled the panel to the Figma design's pure-rows shape).
 
   Each variant seeds via `:rf.causa/sync-trace-buffer` (same as the
   trace panel) — the panel's projection keeps only events whose
@@ -14,10 +13,6 @@
   `issues_ribbon_helpers/issue-event?`). All other events are dropped
   silently, so a buffer of mixed event-types still drives the issues
   feed.
-
-  Where a variant needs to demonstrate the active-filter state it
-  dispatches `:rf.causa.issues/toggle-severity` /
-  `:rf.causa.issues/toggle-prefix` after the seed.
 
   ## Issue-event shape
 
