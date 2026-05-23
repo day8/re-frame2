@@ -63,6 +63,24 @@
   Mixing typed + keyword pills in the same bucket is supported and
   exercised by tests.
 
+  ## Causal-parent matching under epoch-per-event (rf2-a1eld)
+
+  Under epoch-per-event each dequeued event — including `:fx :dispatch`
+  children and machine-internal transitions — is its OWN cascade. A
+  `:machine` / `:http-correlation` / `:fx` IN pill matching only the
+  cascade carrying its tag would lose the link to the PARENT event that
+  spawned the transition (now a sibling cascade). The projection
+  surfaces the causal-parent link once as `:parent-dispatch-id`; a
+  directly-matching cascade pulls in its whole SPAWNING LINEAGE — every
+  causal ancestor walked UP that link to the root user event — so a
+  typed pill on a child transition cascade ALSO keeps the spawning
+  event's cascade. `keep = matching cascades ∪ their ancestors`. The
+  walk is in `cascade-self-and-ancestors` (cycle-guarded,
+  root-terminated); `filter-cascades` builds the
+  `{dispatch-id → cascade}` index once and folds the IN-kept id set
+  in `in-kept-id-set`. OUT (hide) pills stay cascade-local so a hide
+  never silently drops the ancestor that spawned the hidden child.
+
   Pure data → bool. JVM-runnable so the test corpus exercises every
   kind without a CLJS runtime."
   (:require [day8.re-frame2-causa.filters.matcher :as event-matcher]))
@@ -222,27 +240,128 @@
     (when (seq pills)
       (some #(cascade-matches-pill? cascade %) pills))))
 
+;; ---- causal-parent walk (rf2-a1eld) -------------------------------------
+;;
+;; Under epoch-per-event each dequeued event — including `:fx :dispatch`
+;; children and machine-internal transitions — is its OWN cascade
+;; (`re-frame.trace.projection/group-cascades` keys one record per
+;; `:rf.trace/dispatch-id`). A `:machine` / `:http` / `:fx` typed pill
+;; matching ONLY the cascade carrying its tag therefore loses the link
+;; to the PARENT event that spawned the transition (the spawning event
+;; lives in a sibling cascade now). 'Filter to this machine' must
+;; surface the spawning event's cascade too, not just the machine's
+;; bare epoch.
+;;
+;; The projection surfaces the causal-parent link once per cascade as
+;; `:parent-dispatch-id` (read off the dispatched event's
+;; `:rf.trace/parent-dispatch-id` tag — the in-flight cascade that
+;; emitted this dispatch). A MATCHING cascade pulls in its whole
+;; SPAWNING LINEAGE: a `:machine` pill matches the transition CHILD
+;; cascade, and we ALSO keep that child's ancestors (the spawning event
+;; up to the root user event) — `keep = matching cascades ∪ their
+;; ancestors`. Cascades key by `[frame dispatch-id]`; the parent link
+;; is dispatch-id only (parent + child always share a frame under
+;; epoch-per-event), so we index by dispatch-id and walk by id.
+
+(defn index-by-dispatch-id
+  "Build a `{dispatch-id → cascade}` index for ancestor walking. The
+  `:ungrouped` pseudo-cascade and any cascade with a nil dispatch-id
+  are excluded — they are not addressable causal nodes. Pure data."
+  [cascades]
+  (persistent!
+    (reduce (fn [acc cascade]
+              (let [id (:dispatch-id cascade)]
+                (if (and (some? id) (not= :ungrouped id))
+                  (assoc! acc id cascade)
+                  acc)))
+            (transient {})
+            cascades)))
+
+(defn cascade-self-and-ancestors
+  "Return `cascade` followed by its causal ancestors, walking the
+  `:parent-dispatch-id` link up to the root through `index` (a
+  `{dispatch-id → cascade}` map). Cycle-guarded (a malformed trace
+  with a parent loop terminates) and root-terminated (nil parent /
+  missing parent ends the walk). Pure data → vector, self-first."
+  [cascade index]
+  (loop [c    cascade
+         seen #{}
+         acc  []]
+    (if (or (nil? c)
+            (contains? seen (:dispatch-id c)))
+      acc
+      (let [parent-id (:parent-dispatch-id c)]
+        (recur (when (some? parent-id) (get index parent-id))
+               (conj seen (:dispatch-id c))
+               (conj acc c))))))
+
+(defn in-kept-id-set
+  "Compute the set of `:dispatch-id`s kept by the IN pills (rf2-a1eld).
+  A cascade that DIRECTLY matches any IN pill pulls in its whole
+  spawning lineage — itself plus every causal ancestor (walked via
+  `index`). The union is what surfaces the spawning event's cascade
+  alongside the machine/http/fx transition cascade under
+  epoch-per-event. nil / empty `in` returns nil (the 'no IN filter,
+  keep everything' signal — distinct from an empty set, which means
+  'IN active but nothing matched'). Pure data → set-or-nil."
+  [cascades index in]
+  (when (seq in)
+    (reduce (fn [kept cascade]
+              (if (cascade-matches-any? cascade in)
+                (into kept
+                      (map :dispatch-id)
+                      (cascade-self-and-ancestors cascade index))
+                kept))
+            #{}
+            cascades)))
+
 (defn keep-cascade?
   "True iff `cascade` survives the active filter per spec/018 §7:
 
-      keep = (no-IN-pills OR matches-IN) AND NOT (matches-OUT)
+      keep = (no-IN-pills OR in-kept) AND NOT (matches-OUT)
 
   Mirrors `matcher/keep-cascade?` but routes through the typed-
   predicate dispatch so IN and OUT pills can be a mix of keyword
-  patterns + typed predicates. Pure data; JVM-runnable."
-  [cascade {:keys [in out]}]
-  (let [in-ok?  (or (empty? in)
-                    (cascade-matches-any? cascade in))
-        out-hit (cascade-matches-any? cascade out)]
-    (and in-ok? (not out-hit))))
+  patterns + typed predicates.
+
+  `in-kept-ids` is the precomputed set from `in-kept-id-set` — the
+  dispatch-ids kept by the IN pills, INCLUDING the spawning ancestors
+  of every directly-matching cascade (rf2-a1eld). nil `in-kept-ids`
+  means no IN filter is active (keep every cascade subject to OUT). The
+  OUT test stays cascade-local — a hide pill suppresses only the
+  cascade carrying its tag, never its ancestors (so hiding a child's fx
+  does not silently drop the originating user event).
+
+  Pure data; JVM-runnable. The legacy single-cascade arity falls back
+  to direct (ancestor-free) IN matching for callers without the full
+  cascade set."
+  ([cascade {:keys [in out]}]
+   (let [in-ok?  (or (empty? in)
+                     (cascade-matches-any? cascade in))
+         out-hit (cascade-matches-any? cascade out)]
+     (and in-ok? (not out-hit))))
+  ([cascade in-kept-ids {:keys [out]}]
+   (let [in-ok?  (or (nil? in-kept-ids)
+                     (contains? in-kept-ids (:dispatch-id cascade)))
+         out-hit (cascade-matches-any? cascade out)]
+     (and in-ok? (not out-hit)))))
 
 (defn filter-cascades
   "Apply `filters` to `cascades`, returning the surviving subseq in
   order. Pure — no I/O, no atoms read. Drop-in replacement for
   `matcher/filter-cascades` that routes through typed-predicate
-  dispatch."
+  dispatch.
+
+  Builds a `{dispatch-id → cascade}` index once, computes the IN-kept
+  id set (each directly-matching cascade pulls in its spawning
+  ancestors, rf2-a1eld), then keeps cascades whose id is in that set
+  and which no OUT pill suppresses — so a typed pill on a child
+  transition cascade also keeps the spawning event's cascade under
+  epoch-per-event."
   [cascades filters]
-  (filterv #(keep-cascade? % filters) cascades))
+  (let [index    (index-by-dispatch-id cascades)
+        kept-ids (in-kept-id-set cascades index (:in filters))]
+    (filterv #(keep-cascade? % kept-ids filters) cascades)))
 
 ;; ---- pill labels (presentation hooks) -----------------------------------
 
