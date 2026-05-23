@@ -138,8 +138,7 @@
         _            (match/validate-route-pattern! id pattern)
         ;; Single-pass parse: rank + regex + capture names +
         ;; per-optional-group lookup all derive from one left-to-right
-        ;; walk (rf2-uovh5). Pre-rf2-uovh5 these were three separate
-        ;; walkers with hand-replicated segment-end logic.
+        ;; walk (rf2-uovh5).
         parsed       (match/parse-pattern pattern)
         structural   (when parsed (:rank parsed))
         rank         (when structural (conj structural (- idx)))
@@ -210,8 +209,11 @@
   slots. 10000 is generous enough not to false-positive on legitimate
   large URLs, finite enough to bound an attacker-controlled payload.
 
-  Override per route via the `:rf.route/max-decoded-keys` route-meta
-  slot; absent → this default."
+  This is a single global constant. The cap is enforced inside
+  `match-url`'s query-parse, which runs route-agnostically (the raw
+  query map is built once, before any route is matched), so there is no
+  per-route override hook — Spec 012 §Keyword-interning cap names only
+  the global `default-max-decoded-keys`."
   10000)
 
 (defn- compile-query-coercions
@@ -219,8 +221,8 @@
   `{k type-form}` map for O(1) per-key lookup during URL coercion.
   Returns nil when the schema is absent or not a vector. Computed once
   at registration time and cached on the route metadata under
-  `:rf.route/query-coerce` (rf2-yjjrv); pre-rf2-yjjrv this re-scanned
-  `(rest schema)` per query key per nav.
+  `:rf.route/query-coerce` (rf2-yjjrv) — O(1) per-key lookup at nav time
+  rather than re-scanning the schema per query key.
 
   Per rf2-3k3o7: when the slot's type-form is a bare `[:enum ...]` with
   all-keyword choices, the type-form is rewritten as `[:rf.route/enum-keyword #{choice-names...}]`
@@ -351,15 +353,14 @@
   on `default-max-decoded-keys` is a second-line defence that bounds
   the raw-query map size before this fn even sees it.
 
-  Pre-rf2-5ifai a route declaring NO vocabulary at all received the
-  legacy `keyword-all` shortcut — every URL key was promoted to a
-  keyword. That was the symmetrical version of the rf2-3k3o7 enum gap
-  on the value side and was closed for the same reason: hostile URLs
-  composed of N-unique keys burn N permanent JVM keyword slots, and a
-  bare `(reg-route :route/x {:path \"/x\"})` is precisely the high-
-  cardinality public-surface case where this hits hardest. Authors who
-  want keyword keys declare them via `:query` / `:query-defaults` /
-  `:query-retain` — author-named intent is the trust boundary.
+  A route declaring NO vocabulary keeps EVERY URL key as a string
+  (rf2-5ifai) — the value-side rf2-3k3o7 enum gate's key-side mirror:
+  hostile URLs composed of N-unique keys would otherwise burn N
+  permanent JVM keyword slots, and a bare
+  `(reg-route :route/x {:path \"/x\"})` is the high-cardinality
+  public-surface case where this hits hardest. Authors who want keyword
+  keys declare them via `:query` / `:query-defaults` / `:query-retain` —
+  author-named intent is the trust boundary.
 
   `:query-defaults` and `:query-retain` slots widen the declared
   universe (they are author-named intent, identical trust class to
@@ -391,11 +392,10 @@
   when its %-encoding is malformed (rf2-4ic0f — malformed fragment
   fails closed at `match-url`).
 
-  Pre-rf2-4ic0f the fragment was returned as the raw (un-decoded)
-  substring; that left malformed fragments to be silently surfaced into
-  the slice. Per Spec 012 §Routing failure semantics §Malformed
-  percent-encoding the entire URL is treated as a route-miss when the
-  fragment cannot be decoded."
+  Per Spec 012 §Routing failure semantics §Malformed percent-encoding
+  the entire URL is treated as a route-miss when the fragment cannot be
+  decoded — the fragment is %-decoded here (not surfaced raw) so a
+  malformed `#fragment` is caught before it reaches the slice."
   [^String url]
   (let [hash-idx (.indexOf url "#")]
     (cond
@@ -439,14 +439,13 @@
 
 (defn- normalize-match-path
   "Spec 012 trailing-slash normalisation for incoming URLs. `/cart` and
-  `/cart/` are equivalent; root remains `/`, and the historical
-  no-leading-slash leniency remains (`cart/` → `cart`)."
+  `/cart/` are equivalent; root remains `/`, and the no-leading-slash
+  leniency remains (`cart/` → `cart`). Coerces nil to `\"\"` then
+  delegates to the shared `url/strip-trailing-slashes` — the same loop
+  `match/canonical-route-pattern` runs on author patterns, so the
+  incoming-URL and route-pattern surfaces normalise identically."
   [path]
-  (loop [p (or path "")]
-    (if (and (< 1 (count p))
-             (clojure.string/ends-with? p "/"))
-      (recur (subs p 0 (dec (count p))))
-      p)))
+  (url/strip-trailing-slashes (or path "")))
 
 (defn match-url
   "Per Spec 012 §Bidirectional URL ↔ params. Try each registered route's
@@ -478,11 +477,10 @@
   ;; back byte-identical.
   ;;
   ;; Performance (rf2-r1in4): query parsing is deferred behind a `delay`
-  ;; — the URL's query string is only walked once a path-pattern match
-  ;; succeeds. Pre-rf2-r1in4 the parse fired for every URL even when no
-  ;; route matched, and the cost (split + url-decode per pair) hit every
-  ;; URL-driven navigation. The closure captures `query-str`; the delay
-  ;; forces at most once and is held for the lifetime of this call.
+  ;; — the URL's query string (split + url-decode per pair) is only
+  ;; walked once a path-pattern match succeeds, so unmatched URLs pay
+  ;; nothing. The closure captures `query-str`; the delay forces at most
+  ;; once and is held for the lifetime of this call.
   (let [[url-no-frag fragment] (split-fragment url)]
     ;; rf2-4ic0f fast-path: malformed fragment fails closed at the URL
     ;; level, before we touch the route table.
@@ -512,13 +510,12 @@
                             ;; Per Spec 012 §Routing failure semantics
                             ;; (rf2-wbvme + rf2-4ic0f): malformed %-encoding
                             ;; in a query key or value FAILS CLOSED — the
-                            ;; whole URL is treated as a route-miss. Pre-
-                            ;; rf2-4ic0f the offending pair was silently
-                            ;; dropped, which let hostile URLs into the
-                            ;; routing slice when the host route had no
-                            ;; required keys. The empty-value branch (`v`
-                            ;; is nil → "") is distinct from a malformed
-                            ;; value and must not be conflated.
+                            ;; whole URL is treated as a route-miss (rather
+                            ;; than dropping the offending pair, which would
+                            ;; let hostile URLs into the slice when the host
+                            ;; route had no required keys). The empty-value
+                            ;; branch (`v` is nil → "") is distinct from a
+                            ;; malformed value and must not be conflated.
                             kstr  (url/safe-url-decode k)
                             vstr  (if v (url/safe-url-decode v) "")]
                         (if (or (nil? kstr) (nil? vstr))
@@ -758,13 +755,21 @@
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
            path-out (apply str parts)
-           qs (when (seq query-params)
+           ;; Drop nil-valued query keys from emission — `{:page nil}`
+           ;; omits the key rather than emitting a bare `?page=`. Mirrors
+           ;; the path-param `if-some` discipline above: a present-but-
+           ;; falsy value (`false`, `0`, `""`) is a legitimate query value
+           ;; and round-trips, but `nil` means "absent" and is elided.
+           emitted-query (into (array-map)
+                               (remove (fn [[_ v]] (nil? v)))
+                               query-params)
+           qs (when (seq emitted-query)
                 (str "?"
                      (clojure.string/join "&"
                        (map (fn [[k v]]
                               (str (url/url-encode (name k)) "="
                                    (url/url-encode v)))
-                            query-params))))
+                            emitted-query))))
            ;; Per Spec 012 §Fragments §Programmatic navigation with
            ;; fragments: the 4-arity emits `#fragment` when non-nil and
            ;; non-empty. Empty-string fragments collapse to no fragment.
@@ -811,14 +816,25 @@
            :rf.route/scroll-positions       positions
            :rf.route/scroll-positions-order order'')))
 
+(defn- route-descriptor*
+  "Build the canonical `{:id :params :query}` descriptor — the shape
+  :rf.nav/scroll's :from / :to args carry. `:params` / `:query` are
+  included only when non-empty. Single builder shared by
+  `route-descriptor` (slice-driven :from) and the navigate /
+  url-change :to sites (explicit args)."
+  [id params query]
+  (cond-> {:id id}
+    (seq params) (assoc :params params)
+    (seq query)  (assoc :query  query)))
+
 (defn- route-descriptor
   "Build the {:id :params :query} descriptor used by :rf.nav/scroll's
   :from / :to args from a :rf/route slice (or nil if no slice yet)."
   [route-slice]
   (when (and route-slice (:id route-slice))
-    (cond-> {:id (:id route-slice)}
-      (seq (:params route-slice)) (assoc :params (:params route-slice))
-      (seq (:query route-slice))  (assoc :query  (:query route-slice)))))
+    (route-descriptor* (:id route-slice)
+                       (:params route-slice)
+                       (:query route-slice))))
 
 (defn- resolve-scroll-strategy
   "Per Spec 012 §Scroll restoration, resolution order:
@@ -908,6 +924,30 @@
   (when (and next-id (not= prev-id next-id))
     (trace/emit! :rf.event :rf.route/activated
                  {:route-id next-id})))
+
+;; Per Spec 012 §Per-route data loading rule 3: same-route-id
+;; navigations with IDENTICAL params/query (and identical fragment) do
+;; not re-fire `:on-match` — the runtime compares the prospective slice
+;; against the current one and skips the dispatch when nothing relevant
+;; changed. Re-firing the loaders would re-fetch unchanged data on every
+;; redundant navigation (clicking the already-active nav link, a
+;; duplicate `[:rf.route/navigate :route/cart]`, popstate to the current
+;; URL), which is the data-refetch thrash the rule forbids. The
+;; fragment-only case (id/params/query equal, fragment changed) is the
+;; sibling short-circuit (rf2-8oxj6); this predicate is the stricter
+;; "nothing at all changed" case.
+(defn- identical-route-target?
+  "True when the prospective navigation target (`id`/`params`/`query`/
+  `fragment`) is identical to the current `:rf/route` slice — a complete
+  no-op re-navigation. `prev` is the current slice (or nil before first
+  nav)."
+  [prev id params query fragment]
+  (boolean
+    (and prev
+         (= (:id prev)       id)
+         (= (:params prev)   params)
+         (= (:query prev)    query)
+         (= (:fragment prev) fragment))))
 
 ;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
 ;; :rf.route.internal/settle-transition after the :on-match events so
@@ -1094,14 +1134,11 @@
     ;; over a URL-embedded fragment.
     ;;
     ;; Per Spec 012 §Navigation tokens — stale-result suppression and
-    ;; §The :rf/route slice the slice ALWAYS carries :fragment and a
+    ;; §The :rf/route slice: the slice ALWAYS carries :fragment and a
     ;; freshly-allocated :nav-token, and the runtime emits
-    ;; :rf.route.nav-token/allocated as the cascade begins. Pre-fix
-    ;; this handler omitted :fragment + :nav-token from the slice write
-    ;; and never emitted the allocation trace, so the programmatic
-    ;; navigation path diverged from the URL-driven path (rf2-d60go's
-    ;; mirror finding) and async loaders had no token to thread through
-    ;; stale-suppression.
+    ;; :rf.route.nav-token/allocated as the cascade begins (rf2-d60go) —
+    ;; the programmatic path matches the URL-driven path so async loaders
+    ;; have a token to thread through stale-suppression.
     (let [opts (or opts {})
           {:keys [route-id path-params query-params matched-fragment]}
           (cond
@@ -1137,75 +1174,108 @@
           query-params (if (seq retained)
                          (merge retained query-params)
                          query-params)
-          ;; Per Spec 012 §Bidirectional URL ↔ params and rf2-ug2m1:
-          ;; route-url raises :rf.error/route-url-validation /
-          ;; :rf.error/missing-route-param / :rf.error/no-such-route on
-          ;; caller bugs. Surface these as a structured trace + recover
-          ;; to "/" rather than swallowing silently.
+          ;; Per Spec 012 §Param validation at the call site: the
+          ;; event-boundary path `[:rf.route/navigate ...]` runs the
+          ;; route's `:params` / `:query` schema BEFORE transitioning;
+          ;; on failure the navigation is REJECTED — the `:rf/route`
+          ;; slice does not change, no URL is pushed — and the runtime
+          ;; emits `:rf.error/schema-validation-failure` (`:where
+          ;; :event`). `route-url` raises the structured error on a
+          ;; caller bug (`:rf.error/route-url-validation` /
+          ;; `:rf.error/missing-route-param` / `:rf.error/no-such-route`);
+          ;; we catch it, surface the canonical event-boundary error id,
+          ;; and reject (the `::reject` sentinel short-circuits the cond
+          ;; below). The reject is total — no slice write, no fallback URL
+          ;; push — so a caller bug never desyncs the browser URL or
+          ;; strands the slice in an invalid state.
           url (try (route-url route-id path-params query-params fragment)
                    (catch #?(:clj Throwable :cljs :default) ex
-                     (trace/emit-error! :rf.error/route-url-validation
-                                        {:route-id route-id
+                     (trace/emit-error! :rf.error/schema-validation-failure
+                                        {:where    :event
+                                         :route-id route-id
                                          :error    (or (ex-data ex)
                                                        {:message (ex-message ex)})
-                                         :recovery :replaced-with-default})
-                     "/"))
-          push-fx (if (:replace? opts)
-                    [:rf.nav/replace-url url]
-                    [:rf.nav/push-url    url])
+                                         :recovery :no-recovery})
+                     ::reject))
           on-match-vec (vec (or (:on-match route-meta) []))
-          ;; Per Spec 012 §Multi-frame routing nav-token allocation bumps
-          ;; the per-frame counter; thread the new db through the slice
-          ;; write below.
-          [db' token] (alloc-nav-token db)
-          ;; Per Spec 012 §Scroll restoration: forward navigation defaults
-          ;; to :top. Resolve the strategy from opts → route-meta → default.
-          to-route    (cond-> {:id route-id}
-                        (seq path-params)  (assoc :params path-params)
-                        (seq query-params) (assoc :query  query-params))
-          strategy    (resolve-scroll-strategy route-meta opts :top)
-          ;; Per Spec 012 §Multi-frame routing: scroll-position lookup
-          ;; reads the per-frame map under [:rf.route/scroll-positions].
-          scroll-fx   (scroll-fx-entry
-                        {:strategy  strategy
-                         :from      (route-descriptor (:rf/route db))
-                         :to        to-route
-                         :saved-pos (when (= :restore strategy)
-                                      (lookup-scroll-position db url))
-                         :fragment  fragment})
-          capture-fx  (capture-scroll-fx-entry db)]
-      (if-let [blocked (maybe-block-navigation db (or frame :rf/default)
-                                               event-vec url
-                                               (:bypass-leave-guard? opts))]
-        blocked
-        (do
-          (trace/emit! :rf.event :rf.route.nav-token/allocated
-                       {:route-id  route-id
-                        :nav-token token})
-          ;; Per rf2-dn26r: route lifecycle pair. Fires after the
-          ;; nav-token allocation (the cascade-begin marker) so trace
-          ;; consumers see {allocated → deactivated? → activated?} in
-          ;; that order for any cross-route transition.
-          (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
-          {:db (assoc db' :rf/route
-                      {:id         route-id
-                       :params     path-params
-                       :query      query-params
-                       :fragment   fragment
-                       :transition (if (seq on-match-vec) :loading :idle)
-                       :error      nil
-                       :nav-token  token})
-           :fx (vec (concat (when capture-fx [capture-fx])
-                            [push-fx]
-                            (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                            ;; Per Spec 012 §Per-route data loading §2:
-                            ;; transition :loading → :idle when the
-                            ;; on-match drain completes. FIFO order means
-                            ;; the settle dispatch runs after every
-                            ;; on-match event already queued above.
-                            (when (seq on-match-vec)
-                              [[:dispatch [:rf.route.internal/settle-transition token]]])
-                            (when scroll-fx [scroll-fx])))})))))
+          ;; Spec 012 §Per-route data loading rule 3: a programmatic
+          ;; navigation whose target id/params/query/fragment match the
+          ;; current slice exactly is a no-op re-navigation — skip the
+          ;; `:on-match` re-fire and the nav-token allocation. Mirrors the
+          ;; URL-driven path's `identical-nav?` short-circuit so a
+          ;; duplicate `[:rf.route/navigate :route/cart]` doesn't re-fetch
+          ;; unchanged data.
+          identical-nav? (identical-route-target?
+                           (:rf/route db) route-id path-params query-params fragment)]
+      (cond
+        ;; Caller-bug schema failure: reject (slice unchanged, no push).
+        (= ::reject url)
+        {}
+
+        ;; Leave-guard check runs first (mirrors the URL-driven path,
+        ;; where `maybe-block-navigation` precedes `url-change-fx`): a
+        ;; blocked guard wins even over a rule-3 no-op so the pending-nav
+        ;; protocol stays uniform across both entry points.
+        :else
+        (if-let [blocked (maybe-block-navigation db (or frame :rf/default)
+                                                 event-vec url
+                                                 (:bypass-leave-guard? opts))]
+          blocked
+          (if identical-nav?
+            ;; Spec 012 §Per-route data loading rule 3: nothing relevant
+            ;; changed — leave the slice and the standing nav-token as-is;
+            ;; emit no allocation, fire no loaders, push no URL.
+            {}
+          (let [push-fx    (if (:replace? opts)
+                             [:rf.nav/replace-url url]
+                             [:rf.nav/push-url    url])
+                ;; Per Spec 012 §Multi-frame routing nav-token allocation
+                ;; bumps the per-frame counter; thread the new db through
+                ;; the slice write below.
+                [db' token] (alloc-nav-token db)
+                ;; Per Spec 012 §Scroll restoration: forward navigation
+                ;; defaults to :top. Resolve from opts → route-meta →
+                ;; default.
+                to-route   (route-descriptor* route-id path-params query-params)
+                strategy   (resolve-scroll-strategy route-meta opts :top)
+                ;; Per Spec 012 §Multi-frame routing: scroll-position
+                ;; lookup reads the per-frame map under
+                ;; [:rf.route/scroll-positions].
+                scroll-fx  (scroll-fx-entry
+                             {:strategy  strategy
+                              :from      (route-descriptor (:rf/route db))
+                              :to        to-route
+                              :saved-pos (when (= :restore strategy)
+                                           (lookup-scroll-position db url))
+                              :fragment  fragment})
+                capture-fx (capture-scroll-fx-entry db)]
+            (trace/emit! :rf.event :rf.route.nav-token/allocated
+                         {:route-id  route-id
+                          :nav-token token})
+            ;; Per rf2-dn26r: route lifecycle pair. Fires after the
+            ;; nav-token allocation (the cascade-begin marker) so trace
+            ;; consumers see {allocated → deactivated? → activated?} in
+            ;; that order for any cross-route transition.
+            (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
+            {:db (assoc db' :rf/route
+                        {:id         route-id
+                         :params     path-params
+                         :query      query-params
+                         :fragment   fragment
+                         :transition (if (seq on-match-vec) :loading :idle)
+                         :error      nil
+                         :nav-token  token})
+             :fx (vec (concat (when capture-fx [capture-fx])
+                              [push-fx]
+                              (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                              ;; Per Spec 012 §Per-route data loading §2:
+                              ;; transition :loading → :idle when the
+                              ;; on-match drain completes. FIFO order means
+                              ;; the settle dispatch runs after every
+                              ;; on-match event already queued above.
+                              (when (seq on-match-vec)
+                                [[:dispatch [:rf.route.internal/settle-transition token]]])
+                              (when scroll-fx [scroll-fx])))})))))))
 
 (defn reset-counters!
   "Reset the route-registration counter to zero. Test-time helper so
@@ -1223,26 +1293,22 @@
       (keyword? declared) [declared]
       :else nil)))
 
-(defn- can-leave-guard-id [route-meta]
-  (let [declared (:can-leave route-meta)]
-    (cond
-      (vector? declared) (first declared)
-      (keyword? declared) declared
-      :else nil)))
+(defn- can-leave-guard-id
+  "The guard's sub-id — the head of the normalised `:can-leave` query.
+  `(first [kw])` is `kw`, `(first vec)` is its head, `(first nil)` is
+  nil, so the single `can-leave-query` normalisation covers every case."
+  [route-meta]
+  (first (can-leave-query route-meta)))
 
 (defn- can-leave?
   "Resolve and call the route's `:can-leave` sub against the live frame.
   Per Spec 012 §Navigation blocking §Default flow (rf2-5pyyl): the
-  guard contract is strict — return `true` to allow navigation, `false`
-  to block. Non-boolean returns are a hard contract violation.
-
-  Pre-rf2-5pyyl any truthy non-boolean was tolerated with the warning
-  `:rf.warning/can-leave-guard-non-boolean` and treated as allow; that
-  hid the classic polarity bug (a sub `(fn [db _] (:form/dirty? db))`
-  returning truthy-when-dirty silently let the user navigate away and
-  lose form state). The closed contract — reject and BLOCK — forces
-  the route author to write `(boolean ...)` / `(not ...)` or invert
-  their polarity. Pre-alpha posture: no shim, no soft transition.
+  guard contract is closed — only the literals `true` (allow) and
+  `false` (block) are accepted. Any non-boolean return BLOCKS and emits
+  `:rf.error/can-leave-non-boolean`, forcing the author to write
+  `(boolean ...)` / `(not ...)` rather than rely on truthiness (the
+  classic polarity bug: a sub returning the dirty-flag value silently
+  let the user navigate away and lose form state).
 
   Returns `false` (block) when:
     - the sub returns the literal value `false`;
@@ -1256,8 +1322,12 @@
       artefact; the runtime has no way to evaluate the sub, so it
       cannot fail the closed contract). The warning
       `:rf.warning/can-leave-subs-artefact-missing` fires so tooling
-      surfaces the misconfiguration."
-  [frame route-meta]
+      surfaces the misconfiguration.
+
+  `route-id` is the active route's id keyword — threaded in so the
+  `:rf.error/can-leave-non-boolean` trace tags the real id rather than
+  the route's `:path` pattern string."
+  [frame route-id route-meta]
   (if-let [query (can-leave-query route-meta)]
     (if-let [subscribe-once (late-bind/get-fn :subs/subscribe-once)]
       (let [v (subscribe-once frame query)]
@@ -1265,12 +1335,10 @@
           (true?  v) true
           (false? v) false
           :else
-          ;; Per rf2-5pyyl: closed contract. Non-boolean = BLOCK + emit
-          ;; `:rf.error/can-leave-non-boolean`. The pre-rf2-5pyyl slot
-          ;; `:rf.warning/can-leave-guard-non-boolean` is removed
-          ;; entirely — no shim, no soft transition (pre-alpha).
+          ;; rf2-5pyyl closed contract: non-boolean BLOCKs + emits
+          ;; `:rf.error/can-leave-non-boolean`.
           (do (trace/emit-error! :rf.error/can-leave-non-boolean
-                                 {:route-id (some-> route-meta :path)
+                                 {:route-id route-id
                                   :query    query
                                   :value    v
                                   :reason   (str "Non-boolean returned from :can-leave sub; "
@@ -1289,21 +1357,44 @@
   (let [current-route (:rf/route db)
         current-meta  (registrar/lookup :route (:id current-route))
         ok?           (or bypass-leave-guard?
-                          (can-leave? frame-id current-meta))]
+                          (can-leave? frame-id (:id current-route) current-meta))]
     (when-not ok?
       (let [[db' pn-id] (alloc-pending-nav-id db)
-            guard-id    (can-leave-guard-id current-meta)]
+            guard-id    (can-leave-guard-id current-meta)
+            pending-nav (cond-> {:id                 pn-id
+                                 :requested-by-event (vec event-vec)
+                                 :requested-url      requested-url
+                                 :reason             :can-leave
+                                 :rejecting-route    (:id current-route)}
+                          guard-id (assoc :rejecting-guard guard-id))]
+        ;; Per Spec 012 §Navigation blocking §Default flow step 4e: the
+        ;; trace marks the blocked transition for tools.
         (trace/emit! :rf.event :rf.route/navigation-blocked
                      {:requested-url   requested-url
                       :rejecting-route (:id current-route)
                       :rejecting-guard guard-id})
-        {:db (assoc db' :rf/pending-navigation
-                    (cond-> {:id                 pn-id
-                             :requested-by-event (vec event-vec)
-                             :requested-url      requested-url
-                             :reason             :can-leave
-                             :rejecting-route    (:id current-route)}
-                      guard-id (assoc :rejecting-guard guard-id)))}))))
+        ;; Per Spec 012 §Navigation blocking §Default flow step 4d and the
+        ;; Events table: `:rf.route/navigation-blocked` is a USER event the
+        ;; runtime dispatches when a `:can-leave` guard rejects — apps may
+        ;; register their own handler (a confirmation-dialog policy, an
+        ;; analytics ping). The runtime writes `:rf/pending-navigation`
+        ;; FIRST (the slice below), then dispatches the event carrying the
+        ;; pending-nav map as its single arg so a handler reads it without
+        ;; a separate subscription. A default no-op handler (registered
+        ;; below) keeps the dispatch resolving cleanly when the app
+        ;; declares none.
+        {:db (assoc db' :rf/pending-navigation pending-nav)
+         :fx [[:dispatch [:rf.route/navigation-blocked pending-nav]]]}))))
+
+;; Per Spec 012 §Navigation blocking §Default flow step 4d: the runtime
+;; dispatches `[:rf.route/navigation-blocked pending-nav]` on every block.
+;; The framework ships a no-op default handler so the dispatch always
+;; resolves (no `:rf.error/no-such-handler`); apps that want to react
+;; (render a confirm dialog, log) re-register their own handler under the
+;; same id. The pending-nav map is already in `:rf/pending-navigation`
+;; (a sub reads it), so the default handler intentionally does nothing.
+(events/reg-event-fx :rf.route/navigation-blocked
+  (fn [_ _] {}))
 
 (defn- absolute-url-like? [url]
   (boolean
@@ -1401,12 +1492,11 @@
   (fn [{:keys [db]} [_ pn-id]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue
     ;; re-issues the original navigation request, *bypassing* the leave
-    ;; guard for this one shot. Pre-rf2-yursn this dispatched
-    ;; :rf.route/transitioned + :rf.nav/push-url directly, skipping
-    ;; :rf/url-requested's policy interceptors and racing the slice
-    ;; write with the URL push. Right model: re-emit
-    ;; :rf/url-requested with :bypass-leave-guard? true so the same
-    ;; policy chain runs.
+    ;; guard for this one shot (rf2-yursn): re-emit :rf/url-requested with
+    ;; :bypass-leave-guard? true so the same policy chain runs, rather
+    ;; than dispatching :rf.route/transitioned + :rf.nav/push-url directly
+    ;; (which would skip the policy interceptors and race the slice write
+    ;; with the URL push).
     (let [pending  (:rf/pending-navigation db)
           original (:requested-by-event pending)
           url      (:requested-url pending)]
@@ -1538,6 +1628,15 @@
                             (not matched?)   {:url url}
                             :else            (:params m))
         query             (if fallback? {} (:query m))
+        ;; Spec 012 §Per-route data loading rule 3: a re-navigation whose
+        ;; resolved id/params/query/fragment match the current slice
+        ;; exactly is a complete no-op — no new nav-token, no `:on-match`
+        ;; re-fire, no scroll. Computed AFTER fallback resolution so two
+        ;; identical not-found URLs (or two identical validation misses)
+        ;; also skip. Sits alongside `fragment-only?` (the id/params/query
+        ;; equal, fragment-changed sibling); the two are mutually
+        ;; exclusive (fragment-only requires the fragment to differ).
+        identical-nav?    (identical-route-target? prev route-id params query fragment)
         route-meta        (registrar/lookup :route route-id)
         on-match-vec      (vec (or (:on-match route-meta) []))
         transition        (if (seq on-match-vec) :loading :idle)
@@ -1554,12 +1653,24 @@
                              :saved-pos (when (= :restore strategy)
                                           (lookup-scroll-position db url))
                              :fragment  fragment})]
-    (if fragment-only?
+    (cond
+      ;; Spec 012 §Per-route data loading rule 3: nothing relevant
+      ;; changed — skip the dispatch entirely. No nav-token allocation,
+      ;; no `:on-match` drain, no scroll fx, no slice rewrite. The
+      ;; previously-allocated token stands. This is the "redundant
+      ;; navigation to the already-active URL" no-op (clicking the
+      ;; current nav link, popstate to the current URL).
+      identical-nav?
+      {:db db}
+
       ;; Spec 012 §Fragments rules 3-4 (rf2-8oxj6): short-circuit BEFORE
       ;; the nav-token allocation / on-match drain below. Honoured on
       ;; both `:rf.route/transitioned` and `:rf.route/handle-url-change`
       ;; (popstate) because the branch lives in the shared helper.
+      fragment-only?
       (fragment-only-fx db prev fragment)
+
+      :else
       (do
         ;; rf2-4ic0f: structured telemetry for the malformed-URL case so
         ;; SSR error projections, security dashboards, and pair-tools can
@@ -1817,11 +1928,8 @@ per-frame [:rf.route/scroll-positions <url>] map before leaving a route."}
   [do-entry]
   (when (vector? do-entry)
     (let [[fx-id args] do-entry]
-      (cond
-        (and (= :dispatch fx-id) (vector? args) (seq args))
+      (if (and (= :dispatch fx-id) (vector? args) (seq args))
         (first args)
-
-        :else
         fx-id))))
 
 (fx/reg-fx :rf.route/with-nav-token

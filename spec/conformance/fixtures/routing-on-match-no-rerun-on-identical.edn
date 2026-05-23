@@ -1,0 +1,62 @@
+;; Conformance fixture: routing/on-match-no-rerun-on-identical
+;;
+;; Per Spec 012 §Per-route data loading rule 3: same-route-id
+;; navigations with IDENTICAL params/query (and identical fragment) do
+;; NOT re-fire :on-match — the runtime compares the prospective :rf/route
+;; slice against the current one and skips the dispatch when nothing
+;; relevant changed. Re-firing the loaders would re-fetch unchanged data
+;; on every redundant navigation (clicking the already-active nav link,
+;; popstate to the current URL), which is the thrash the rule forbids.
+;;
+;; This is the complement of `routing-on-match-rerun-on-param-change`
+;; (which pins the CHANGED-params re-fire) and `routing-fragment-as-slice`
+;; (which pins the fragment-only short-circuit): here the URL is byte-for-
+;; byte identical across both navigations, so the loader fires exactly
+;; ONCE and no second nav-token is allocated.
+;;
+;; Per [012 §Per-route data loading](../../012-Routing.md#per-route-data-loading).
+
+{:fixture/id           :routing/on-match-no-rerun-on-identical
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler}
+ :fixture/doc          "Navigating to /cart, then to /cart AGAIN (identical route-id, params, query, fragment) re-fires :on-match only ONCE. The loader increments a counter; the fixture verifies the second identical navigation is a rule-3 no-op (counter stays 1, no second nav-token allocation)."
+
+ :fixture/registry
+ {:route
+  {:route/cart {:path     "/cart"
+                :on-match [[:cart/load]]}}
+
+  :event
+  {:rf/init    {:doc "Seed."}
+   :cart/load  {:doc "Loader — fires once per genuine activation; a rule-3 identical re-navigation must NOT re-fire it."}}}
+
+ :fixture/handlers
+ {:event
+  ;; Loader increments a counter each time it fires. A second identical
+  ;; navigation that (incorrectly) re-fired the loader would push this to
+  ;; 2; the rule-3 skip keeps it at 1.
+  {:rf/init    [[:set [:load-count] 0]]
+   :cart/load  [[:update [:load-count] [:fn :inc]]]}}
+
+ :fixture/frame-config {:on-create [:rf/init]}
+
+ :fixture/dispatches
+ [;; Step 1: Navigate to /cart. :cart/load fires (count → 1).
+  [:rf.route/transitioned "/cart"]
+
+  ;; Step 2: Navigate to /cart AGAIN — identical id/params/query/fragment.
+  ;; Rule-3 no-op: the slice is unchanged, so :on-match does NOT re-fire
+  ;; and no fresh nav-token is allocated.
+  [:rf.route/transitioned "/cart"]]
+
+ :fixture/expect
+ {:final-app-db
+  {:rf/route   {:id :route/cart :params {} :query {} :fragment nil
+                :transition :idle :error nil}
+   :load-count 1}                                           ;; fired ONCE, not twice
+
+  :trace-emissions
+  [;; First navigation: nav-token allocated, loader fires once.
+   {:operation :rf.route.nav-token/allocated
+    :tags      {:route-id :route/cart}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :cart/load}}]}}

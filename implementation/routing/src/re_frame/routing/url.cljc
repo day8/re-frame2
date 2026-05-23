@@ -10,6 +10,24 @@
 
   Per the rf2-icrxv cohesion-split audit (Phase-2 Option C): URL seam.")
 
+;; ---- trailing-slash normalisation ----------------------------------------
+;; Per Spec 012 trailing-slash equivalence: `/cart` and `/cart/` name the
+;; same route; root stays `/`. The single shared loop strips trailing
+;; slashes while length > 1. Both the author-pattern canonicaliser
+;; (`match/canonical-route-pattern`) and the incoming-URL normaliser
+;; (`routing/normalize-match-path`) are thin wrappers over this, so the
+;; two surfaces cannot drift.
+
+(defn strip-trailing-slashes
+  "Strip trailing `/` characters from `s` while its length exceeds 1
+  (so `/` itself is preserved). `s` must be a string."
+  [^String s]
+  (loop [p s]
+    (if (and (< 1 (count p))
+             (clojure.string/ends-with? p "/"))
+      (recur (subs p 0 (dec (count p))))
+      p)))
+
 ;; ---- url encoding / decoding ---------------------------------------------
 ;; Per Spec 012 §Bidirectional URL ↔ params. Splat values preserve
 ;; literal '/' between captured segments, so the splat encoder runs

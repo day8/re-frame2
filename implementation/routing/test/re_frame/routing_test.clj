@@ -446,13 +446,17 @@
           ":scroll false on the route suppresses the :rf.nav/scroll fx")
 
       ;; 5. :rf.route/transitioned (URL-driven) also emits the fx — default :top.
+      ;; Land on "/" (route/home, no :scroll meta) so the NEXT step's
+      ;; handle-url-change to "/articles" is a genuine navigation, not a
+      ;; rule-3 identical no-op (Spec 012 §Per-route data loading rule 3).
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles"])
+      (rf/dispatch-sync [:rf.route/transitioned "/"])
       (is (= :top (-> @calls first :strategy))
           ":rf.route/transitioned emits :rf.nav/scroll with default :top")
 
       ;; 6. :rf.route/handle-url-change (popstate / initial) defaults to
       ;;    :restore — the saved position trumps a forward-style :top.
+      ;;    "/articles" differs from the current "/" slice → real nav.
       (reset! calls [])
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles"])
       (is (= :restore (-> @calls first :strategy))
@@ -975,6 +979,27 @@
     (is (= "/k?a%20b=v"
            (routing/route-url :route/k {} {(keyword "a b") "v"}))
         "a space in a query key encodes to %20")))
+
+(deftest route-url-drops-nil-query-values-keeps-falsy
+  (testing "rf2-ee38b.8: a nil-valued query key is ELIDED from the URL
+            (not emitted as a bare `?key=`), while present-but-falsy
+            values (false / 0 / \"\") round-trip"
+    (rf/reg-route :route/list {:path "/list"})
+    (is (= "/list"
+           (routing/route-url :route/list {} {:page nil}))
+        "a sole nil-valued query key is dropped → no query string at all")
+    (is (= "/list?a=1"
+           (routing/route-url :route/list {} (array-map :a "1" :b nil)))
+        "nil-valued keys are dropped; the rest of the query survives")
+    (is (= "/list?flag=false"
+           (routing/route-url :route/list {} {:flag false}))
+        "present-but-falsy `false` is a legitimate value and round-trips")
+    (is (= "/list?n=0"
+           (routing/route-url :route/list {} {:n 0}))
+        "`0` round-trips (falsy, not absent)")
+    (is (= "/list?s="
+           (routing/route-url :route/list {} {:s ""}))
+        "empty-string is a present value → `?s=` (distinct from nil/absent)")))
 
 (deftest match-url-route-url-round-trip-with-fragment
   (testing "URL → match-url → route-url 4-arity → URL recovers the original
@@ -2224,6 +2249,206 @@
             "fragment-only popstate emits :rf.route/fragment-changed")
         (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
             "fragment-only popstate emits NO :rf.route.nav-token/allocated")))))
+
+;; ============================================================================
+;; rf2-ee38b.8 — Spec 012 §Per-route data loading rule 3:
+;; identical-param re-navigation does NOT re-fire :on-match
+;; ============================================================================
+;;
+;; Same-route-id navigations with IDENTICAL params/query (and identical
+;; fragment) are a no-op re-navigation — the runtime compares the
+;; prospective slice against the current one and skips the :on-match
+;; re-fire + nav-token allocation. Re-firing loaders on a redundant
+;; navigation (clicking the already-active link, popstate to the current
+;; URL, a duplicate [:rf.route/navigate ...]) is the data-refetch thrash
+;; the rule forbids. Sibling of the fragment-only short-circuit
+;; (rf2-8oxj6); this is the stricter "nothing at all changed" case.
+
+(deftest identical-url-renav-does-not-refire-on-match
+  (testing "rf2-ee38b.8 / Spec 012 rule 3: a URL-driven re-navigation to
+            the SAME url (same id/params/query/fragment) does NOT re-fire
+            :on-match and does NOT allocate a new nav-token"
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event-db :cart/load (fn [db _] (swap! on-match-calls inc) db))
+      (rf/reg-route :route/cart {:path "/cart" :on-match [[:cart/load]]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      ;; First nav: full rewrite, loader fires once, nav-1 allocated.
+      (rf/dispatch-sync [:rf.route/transitioned "/cart"])
+      (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+        (is (= "nav-1" (:nav-token slice)) "first nav allocates nav-1")
+        (is (= 1 @on-match-calls) ":on-match fired once on the full nav"))
+      (let [traces (atom [])]
+        (rf/register-listener! ::identical (fn [ev] (swap! traces conj ev)))
+        ;; Re-navigate to the SAME url — rule-3 no-op.
+        (rf/dispatch-sync [:rf.route/transitioned "/cart"])
+        (rf/unregister-listener! ::identical)
+        (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+          (is (= "nav-1" (:nav-token slice))
+              "rule 3: no NEW nav-token on identical re-navigation")
+          (is (= 1 @on-match-calls)
+              "rule 3: :on-match did NOT re-fire on identical re-navigation"))
+        (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
+            "identical re-navigation emits NO :rf.route.nav-token/allocated")))))
+
+(deftest changed-params-still-refires-on-match
+  (testing "rf2-ee38b.8 / Spec 012 rule 3: CHANGED params DO re-fire
+            :on-match (the no-op skip must not over-trigger)"
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event-db :article/load (fn [db _] (swap! on-match-calls inc) db))
+      (rf/reg-route :route/article
+                    {:path "/articles/:id" :on-match [[:article/load]]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (is (= 2 @on-match-calls)
+          "same route-id, different :params re-fires :on-match (A then B)")
+      (is (= "nav-2" (:nav-token (:rf/route (rf/get-frame-db :rf/default))))
+          "a changed-params nav DOES allocate a fresh nav-token"))))
+
+(deftest identical-programmatic-renav-does-not-refire-on-match
+  (testing "rf2-ee38b.8 / Spec 012 rule 3: a duplicate
+            [:rf.route/navigate :route/cart] does NOT re-fire :on-match
+            and does NOT allocate a new nav-token"
+    (let [on-match-calls (atom 0)
+          pushed         (atom 0)]
+      (rf/reg-event-db :cart/load (fn [db _] (swap! on-match-calls inc) db))
+      (rf/reg-route :route/cart {:path "/cart" :on-match [[:cart/load]]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] (swap! pushed inc)))
+      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (is (= 1 @on-match-calls) ":on-match fired once on the first navigate")
+      (is (= "nav-1" (:nav-token (:rf/route (rf/get-frame-db :rf/default)))))
+      ;; Duplicate navigate to the same target — rule-3 no-op.
+      (rf/dispatch-sync [:rf.route/navigate :route/cart])
+      (is (= 1 @on-match-calls)
+          "rule 3: :on-match did NOT re-fire on duplicate navigate")
+      (is (= "nav-1" (:nav-token (:rf/route (rf/get-frame-db :rf/default))))
+          "rule 3: no new nav-token on duplicate navigate")
+      (is (= 1 @pushed)
+          "rule 3: no second :rf.nav/push-url on the no-op navigate"))))
+
+;; ---- rf2-ee38b.8: programmatic navigate validation failure REJECTS ----
+;;
+;; Spec 012 §Param validation at the call site: the event-boundary path
+;; [:rf.route/navigate ...] runs the route's :params/:query schema before
+;; transitioning; on failure the navigation is REJECTED — the :rf/route
+;; slice does not change, no URL is pushed — and the runtime emits
+;; :rf.error/schema-validation-failure (:where :event). Pre-fix the
+;; handler recovered the URL to "/" and PROCEEDED to write the slice +
+;; push "/", mutating the slice into an invalid state on a caller bug.
+
+(deftest navigate-validation-failure-rejects-and-leaves-slice-unchanged
+  (testing "rf2-ee38b.8: [:rf.route/navigate] with params that fail the
+            route's :params schema rejects — slice unchanged, no push,
+            :rf.error/schema-validation-failure (:where :event) emitted"
+    (let [restore (with-stub-validator)
+          pushed  (atom [])]
+      (try
+        (rf/reg-route :route/home {:path "/"})
+        (rf/reg-route :route/article
+                      {:path   "/articles/:id"
+                       :params (fn [{:keys [id]}]
+                                 (clojure.string/starts-with? (or id "") "a"))})
+        (rf/reg-fx :rf.nav/push-url
+                   {:platforms #{:server :client}}
+                   (fn [_ url] (swap! pushed conj url)))
+        ;; Land somewhere valid first so we can prove the slice is left
+        ;; untouched by the rejected navigation.
+        (rf/dispatch-sync [:rf.route/navigate :route/article {:id "aardvark"}])
+        (reset! pushed [])
+        (let [before (:rf/route (rf/get-frame-db :rf/default))
+              traces (atom [])]
+          (rf/register-listener! ::reject (fn [ev] (swap! traces conj ev)))
+          ;; Caller bug: :id "zoo" violates the :params schema.
+          (rf/dispatch-sync [:rf.route/navigate :route/article {:id "zoo"}])
+          (rf/unregister-listener! ::reject)
+          (let [after (:rf/route (rf/get-frame-db :rf/default))]
+            (is (= before after)
+                "rejected navigation leaves the :rf/route slice UNCHANGED")
+            (is (= :route/article (:id after))
+                "slice still on the previously-valid route (not desynced)")
+            (is (empty? @pushed)
+                "rejected navigation pushes NO URL (no recovery to \"/\")")
+            (let [err (first (filter #(= :rf.error/schema-validation-failure
+                                         (:operation %))
+                                     @traces))]
+              (is (some? err)
+                  ":rf.error/schema-validation-failure emitted on reject")
+              (is (= :event (-> err :tags :where))
+                  "error tags :where :event (event-boundary path)"))))
+        (finally (restore))))))
+
+;; ---- rf2-ee38b.8: :rf.route/navigation-blocked is a DISPATCHED event --
+;;
+;; Spec 012 §Navigation blocking §Default flow step 4d: the runtime
+;; DISPATCHES [:rf.route/navigation-blocked pending-nav]. An app that
+;; registers its own :rf.route/navigation-blocked handler must see it
+;; fire. Pre-fix only the trace (step 4e) was emitted; no event dispatch.
+
+(deftest navigation-blocked-is-dispatched-as-an-event
+  (testing "rf2-ee38b.8: a :can-leave rejection DISPATCHES
+            [:rf.route/navigation-blocked pending-nav] so an
+            app-registered handler fires (Spec 012 §Default flow 4d)"
+    (let [seen (atom nil)]
+      (rf/reg-route :editor/article
+                    {:path      "/editor/articles/:id"
+                     :params    [:map [:id :string]]
+                     :can-leave :editor/can-leave?})
+      (rf/reg-route :route/cart {:path "/cart"})
+      (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+      (rf/reg-sub :editor/can-leave?
+                  (fn [db _] (not (get-in db [:editor :dirty?]))))
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      ;; App registers its OWN handler over the framework default no-op.
+      (rf/reg-event-fx :rf.route/navigation-blocked
+                       (fn [_ [_ pending-nav]]
+                         (reset! seen pending-nav)
+                         {}))
+      (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+      (rf/dispatch-sync [:editor/dirty true])
+      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (is (some? @seen)
+          "app-registered :rf.route/navigation-blocked handler fired")
+      (is (= "/cart" (:requested-url @seen))
+          "the dispatched event carried the pending-nav map as its arg")
+      (is (= :editor/article (:rejecting-route @seen))
+          "pending-nav names the rejecting route")
+      (is (= :editor/can-leave? (:rejecting-guard @seen))
+          "pending-nav names the rejecting guard sub-id"))))
+
+(deftest can-leave-non-boolean-trace-tags-real-route-id
+  (testing "rf2-ee38b.8: :rf.error/can-leave-non-boolean tags :route-id
+            with the route-id KEYWORD, not the :path pattern string"
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave [:editor/leave?]})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/set-dirty
+                     (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    ;; Polarity bug: returns a truthy non-boolean (42).
+    (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/set-dirty 42])
+    (let [traces (atom [])]
+      (rf/register-listener! ::nb-id (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/unregister-listener! ::nb-id)
+      (let [nb (first (filter #(= :rf.error/can-leave-non-boolean (:operation %))
+                              @traces))]
+        (is (some? nb) ":rf.error/can-leave-non-boolean fired")
+        (is (= :editor/article (-> nb :tags :route-id))
+            ":route-id is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")))))
 
 ;; ---- T8: :fragment in slice after URL-driven nav -----------------------
 

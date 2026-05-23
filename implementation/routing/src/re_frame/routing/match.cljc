@@ -222,12 +222,12 @@
       true)))
 
 (defn canonical-route-pattern [pattern]
-  (loop [p pattern]
-    (if (and (string? p)
-             (< 1 (count p))
-             (clojure.string/ends-with? p "/"))
-      (recur (subs p 0 (dec (count p))))
-      p)))
+  ;; Author-supplied `:path`; gate on `string?` before delegating to the
+  ;; shared `url/strip-trailing-slashes` (a non-string :path is caught by
+  ;; `validate-route-pattern!`).
+  (if (string? pattern)
+    (url/strip-trailing-slashes pattern)
+    pattern))
 
 ;; ---- single-pass pattern parser ------------------------------------------
 ;; Per Spec 012 §Route ranking algorithm + §Bidirectional URL ↔ params.
@@ -323,7 +323,7 @@
             ;; inner-name collection. Seed the entry so an empty group
             ;; still gets `inner-names = []` (route-url's `every?` over
             ;; an empty seq is true → group emitted with just literal
-            ;; segments, matching pre-rf2-uovh5 behaviour).
+            ;; segments).
             (recur (inc i) (inc depth) (conj parts "(?:") names
                    (assoc-in inner [i :inner-names]
                              (get-in inner [i :inner-names] []))
