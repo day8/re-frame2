@@ -15,7 +15,7 @@ Structural signal: the originating event id appears in **both** the `:dispatch` 
 
 ## Why it's an anti-pattern
 
-Retry policy is a **transport concern**, not a domain concern. Hand-rolled loops bake transport semantics (when to retry, how long to wait, when to give up, how to abort an in-flight attempt) into application event handlers — where they cannot be observed, tested, or composed with state-machine lifetimes. They also obscure the eight failure categories the Managed HTTP taxonomy distinguishes (`:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/payload`), collapsing them into a single "it failed, try again" branch that retries on `:rf.http/http-4xx` (which is almost never the right move).
+Retry policy is a **transport concern**, not a domain concern. Hand-rolled loops bake transport semantics (when to retry, how long to wait, when to give up, how to abort an in-flight attempt) into application event handlers — where they cannot be observed, tested, or composed with state-machine lifetimes. They also obscure the eight failure categories the Managed HTTP taxonomy distinguishes (`:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`), collapsing them into a single "it failed, try again" branch that retries on `:rf.http/http-4xx` (which is almost never the right move).
 
 ## The canonical fix
 

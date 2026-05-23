@@ -119,4 +119,4 @@ Use **stable placeholders** so the rendered finding still reads cleanly and the 
 - [`re-frame2-pair-retro/references/known-frictions.md`](../re-frame2-pair-retro/references/known-frictions.md) — recurring friction classes for pair-retro pattern-matching.
 - [`re-frame2-improver/references/README.md`](../re-frame2-improver/references/README.md) — anti-pattern catalogue index for improver pattern-matching.
 - [`re-frame2-pair-retro/references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) — bead body template (re-used by both consumers until improver authors its own).
-- Design rationale: `ai/findings/improver-architecture-20260513-1752.md` (local-only, not committed).
+- Design rationale (improver consumer): [`re-frame2-improver/spec/design.md`](../re-frame2-improver/spec/design.md).
