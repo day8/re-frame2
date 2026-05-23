@@ -1,131 +1,76 @@
 (ns re-frame.adapter.test-react
-  "The Test-React adapter — simulates React class-3 lifecycle in pure
-  CLJC, no React, no DOM, no jsdom. Purpose: catch React-lifecycle-
-  driven bugs (stale closures, unbalanced subscribe/dispose, sync
-  unmount inside render — the rf2-4l7t2 class) at unit-test speed.
+  "The Test-React adapter — simulates the React class-3 lifecycle in pure
+  CLJC (no React, no DOM, no jsdom) so React-lifecycle-driven bugs (stale
+  closures, unbalanced subscribe/dispose, sync unmount inside render — the
+  rf2-4l7t2 class) can be caught at unit-test speed.
 
-  Per Spec 006 §The adapter API contract — implements the same
-  nine-fn contract as the production adapters (Reagent / UIx / Helix /
-  plain-atom). The reactive-container half is shared shape with
-  plain-atom (a `clojure.core/atom` per slot, derived-values recompute
-  on deref). The render half is the novel surface — `render` instantiates
-  a `MountedComponent` that records every lifecycle transition into a
-  per-mount log, throws on illegal transitions (e.g. synchronous
-  `unmount!` while `:currently-rendering?` is true, mirroring React 18+),
-  and exposes inspection helpers (`lifecycle-log`, `current-render-tree`,
-  `mounted-roots`) for tests to assert against.
+  Implements the Spec 006 nine-fn adapter contract. The atom-backed
+  container quartet is shared with plain-atom via
+  `re-frame.substrate.atom-container`; the render half is the novel surface
+  — a `class-3` lifecycle simulator that records every transition into a
+  per-mount log and enforces the `:currently-rendering?` invariant (it
+  throws on a synchronous `unmount!` while a render is in flight, mirroring
+  React 18+).
 
-  Status: minimal viable skeleton (rf2-gqyqv worker; placeholder bead).
-  The skeleton ships:
+  Status: minimal viable skeleton (rf2-gqyqv; placeholder bead).
 
-    - The nine-fn substrate-adapter contract, JVM + CLJS runnable.
-    - A `class-3` lifecycle simulator with mount / update / unmount
-      transitions plus a `:currently-rendering?` invariant.
-    - `lifecycle-log` / `mounted-roots` / `current-render-tree`
-      inspection helpers.
-    - `mount!` / `trigger-update!` / `unmount!` driver helpers for
-      tests to walk a component through its lifecycle.
+  Out of scope (deferred to follow-on beads):
+    - Recursive child mounting: the render tree is treated as opaque data,
+      so the rf2-4l7t2 guard is reachable only via fabricated in-flight
+      state (a test sets `:currently-rendering?` by hand) until recursive
+      child mount lands and a child render-body can organically issue a
+      re-entrant unmount.
+    - Auto-re-render on app-db change: tests drive re-renders explicitly
+      via `trigger-update!`.
+    - React-context provider traversal (frame-routing is via the
+      dynamic-var tier; the React-context tier is degenerate — no React).
+    - Source-coord annotation (Spec 006 §Source-coord annotation): N/A —
+      there is no DOM root to annotate, the render tree is opaque data, and
+      the spec exempts non-DOM roots.
+    - CLJS derived-value disposal / ref-count symmetry (rf2-pyp3n): see the
+      `make-derived-value` comment for the JVM-works / CLJS-silent split.
 
-  Out of scope for this skeleton (defer to follow-on beads):
-    - Walking arbitrary hiccup to instantiate nested child components
-      (the current simulator treats the render tree as opaque data;
-      children are NOT recursively mounted). The `class-3` invariants
-      (one root, one mount, didMount-after-render, willUnmount-before-
-      teardown) catch the rf2-4l7t2 class without recursion.
-    - Reactive subscription tracking that auto-re-renders on
-      app-db change. The test driver calls `trigger-update!` to
-      simulate a re-render after a dispatch settles.
-    - React-context provider traversal. Frame-routing under this
-      adapter is via the dynamic-var tier; the React-context tier
-      is degenerate (no React).
-    - Derived-value disposal / ref-count symmetry under CLJS
-      (rf2-pyp3n). `make-derived-value` reifies `IDeref` ONLY — no
-      `IWatchable`, no disposal protocol. Consequences, split by host:
-        * On the JVM the sub-cache's `interop/add-on-dispose!` works:
-          `re-frame.interop` (interop.clj) implements dispose directly,
-          keyed by reaction identity, and the reify is a valid map key,
-          so the input-ref-count symmetry described in subs.cljc holds.
-        * Under CLJS it is a SILENT no-op: this adapter intentionally
-          does NOT publish the `:adapter/dispose!` /
-          `:adapter/add-on-dispose!` late-bind hooks (see the routing
-          block at the foot of this ns — reactive-substrate hooks are
-          withheld so misconfigured production paths surface rather than
-          paper over), and interop.cljs routes through those late-bind
-          hooks, which no-op when unregistered. So under the CLJS
-          test-react path the per-derived-value dispose hook never fires
-          and ref-count symmetry does NOT hold. This is consistent with
-          the `reactive subscription tracking out of scope` line above
-          but is called out explicitly here because the JVM-works /
-          CLJS-silent split is otherwise surprising.
-      Also masked in practice: `subscribe-container` on a DERIVED value
-      never fires its watch (it watches the source container, not the
-      reified IDeref), but real subs watch the source so no test relies
-      on it.
-    - Per-frame sub-cache teardown on `dispose-adapter!` (rf2-pyp3n).
-      The other four adapters delegate Spec 006 §Adapter disposal
-      lifecycle MUST 1 to `spine/dispose-frame-sub-caches!`; this
-      adapter CANNOT — it is CLJC and the spine is CLJS-only, so
-      reaching for it would break the JVM build. `dispose-adapter!`
-      drains active-mounts (host-resource MUST) but leaves per-frame
-      sub-caches to the host runtime. Acceptable here because the test
-      adapter's `make-derived-value` holds no host resources (it is a
-      plain `IDeref` reify recomputed on deref) — there is nothing for
-      a sub-cache walk to dispose.
-
-  Usage skeleton:
+  See README.md for the family table, the bug-class matrix, and the full
+  scope-boundary narrative. Usage:
 
       (require '[re-frame.core :as rf]
                '[re-frame.adapter.test-react :as test-react])
 
       (rf/init! test-react/adapter)
 
-      (let [root (test-react/mount! [my-view {:title \"hi\"}])]
+      (let [m (test-react/mount! [my-view {:title \"hi\"}])]
         (rf/dispatch-sync [:set-title \"bye\"])
-        (test-react/trigger-update! root)
-        (is (= [my-view {:title \"bye\"}]
-               (test-react/current-render-tree root)))
-        (test-react/unmount! root)
-        (is (= [:constructor :did-mount :did-update :will-unmount]
-               (mapv :phase (test-react/lifecycle-log root))))) "
+        (test-react/trigger-update! m [my-view {:title \"bye\"}])
+        (test-react/unmount! m)
+        (mapv :phase (test-react/lifecycle-log m)))
+      ;; => [:constructor :render :did-mount :render :did-update :will-unmount]"
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.atom-container :as atom-container]
             [re-frame.frame :as frame]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- reactive-container half (shared shape with plain-atom) ----------------
-
-(defn- make-state-container [initial-value]
-  (atom initial-value))
-
-(defn- read-container [container]
-  @container)
-
-(defn- replace-container! [container new-value]
-  (reset! container new-value)
-  nil)
-
-(defn- subscribe-container [container on-change]
-  ;; Optional — the simulator does not auto-re-render on container
-  ;; change; tests drive re-renders explicitly via `trigger-update!`.
-  ;; The watch is still useful for tests that want to assert which
-  ;; replaces fired (e.g. drain balanced).
-  (let [k (gensym "rf-test-react-sub-")]
-    (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
-    (fn unsubscribe [] (remove-watch container k))))
+;; ---- reactive-container half (shared with plain-atom) ----------------------
+;;
+;; `make-state-container` / `read-container` / `replace-container!` /
+;; `subscribe-container` come straight from `re-frame.substrate.atom-container`
+;; — see that ns. The simulator never auto-re-renders on container change;
+;; tests drive re-renders via `trigger-update!`. `subscribe-container` is
+;; still useful for tests that assert which replaces fired.
 
 (defn- make-derived-value [source-containers compute-fn]
-  ;; Recompute on every deref. No caching: the test surface only ever
-  ;; runs a sub a handful of times per test case.
+  ;; Recompute on every deref. No caching: the test surface only runs a sub
+  ;; a handful of times per case.
   ;;
   ;; rf2-pyp3n: IDeref ONLY — deliberately no IWatchable / no disposal
-  ;; protocol. The sub-cache's dispose/ref-count path therefore works on
-  ;; the JVM (interop.clj implements dispose by reaction identity) but is
-  ;; a SILENT no-op under CLJS (this adapter withholds the
-  ;; :adapter/dispose! / :adapter/add-on-dispose! late-bind hooks, and
-  ;; interop.cljs routes through them — unregistered hooks no-op). See the
-  ;; ns docstring's `Out of scope` list for the full JVM-works /
-  ;; CLJS-silent split and why it is acceptable for the test adapter.
+  ;; protocol. The sub-cache's dispose/ref-count path therefore works on the
+  ;; JVM (interop.clj implements dispose by reaction identity) but is a
+  ;; SILENT no-op under CLJS (this adapter withholds the :adapter/dispose! /
+  ;; :adapter/add-on-dispose! late-bind hooks — see the routing block at the
+  ;; foot of this ns — and interop.cljs routes through them, so unregistered
+  ;; hooks no-op). Acceptable for the test adapter: the derived value holds
+  ;; no host resources, so there is nothing for a dispose walk to release.
   (reify
     #?(:clj clojure.lang.IDeref :cljs IDeref)
     (#?(:clj deref :cljs -deref) [_]
@@ -133,43 +78,25 @@
 
 ;; ---- render half — the class-3 lifecycle simulator -------------------------
 ;;
-;; Each `render` call produces a `MountedComponent` record. The record
-;; carries:
+;; Each mount produces a `MountedComponent` record carrying:
 ;;
 ;;   :id              — gensym tag (for log readability)
-;;   :seq             — monotonic integer minted from `mount-counter`
-;;                      at construction. The `:id` gensym is NOT a safe
-;;                      sort key: `mount-record-from-unmount-fn` needs
-;;                      the freshest mount, and a lexicographic sort on
-;;                      the gensym suffix ("…mount-10" < "…mount-9")
-;;                      returns a STALE record after the 10th mint
-;;                      (rf2-ovpl3). `:seq` is the numeric ordering key.
 ;;   :render-tree     — atom holding the currently-rendered tree
-;;   :lifecycle-log   — atom holding a vector of {:phase ... :at ms}
-;;                      entries; the test driver inspects this to
-;;                      assert ordering / counts.
-;;   :currently-rendering? — atom<boolean>; true while a render is
-;;                      in flight. The simulator THROWS on attempts
-;;                      to unmount! synchronously while this is true,
-;;                      mirroring React 18+'s "Attempted to
-;;                      synchronously unmount a root while React was
-;;                      already rendering" guard (the rf2-4l7t2 class).
-;;   :mounted?        — atom<boolean>; false after `unmount!`. The
-;;                      simulator THROWS on attempts to `trigger-update!`
-;;                      or `unmount!` after teardown.
+;;   :lifecycle-log   — atom holding a vector of {:phase ... :at ms} entries;
+;;                      the test driver inspects this to assert ordering.
+;;   :currently-rendering? — atom<boolean>; true while a render is in flight.
+;;                      The simulator THROWS on attempts to unmount!
+;;                      synchronously while this is true, mirroring React
+;;                      18+'s sync-unmount-during-render guard (rf2-4l7t2).
+;;   :mounted?        — atom<boolean>; false after unmount. The simulator
+;;                      THROWS on trigger-update! / unmount! after teardown.
+;;   :unmount-fn      — the unmount thunk for this mount; `unmount!` calls it.
 
 (defrecord ^:no-doc MountedComponent
-  [id seq render-tree lifecycle-log currently-rendering? mounted?])
+  [id render-tree lifecycle-log currently-rendering? mounted? unmount-fn])
 
 ;; All live mounts; `dispose-adapter!` walks this to drain.
 (defonce ^:private active-mounts (atom #{}))
-
-;; Monotonic mount sequence (rf2-ovpl3). `render` mints `(swap! ...
-;; inc)` into each MountedComponent's `:seq`; `mount-record-from-
-;; unmount-fn` sorts on this integer to recover the freshest mount.
-;; The gensym `:id` suffix is NOT monotonic-safe under a lexicographic
-;; sort, so it cannot serve as the ordering key.
-(defonce ^:private mount-counter (atom 0))
 
 (defn- now-ms []
   #?(:clj (System/currentTimeMillis)
@@ -180,11 +107,9 @@
          conj (merge {:phase phase :at (now-ms)} extras)))
 
 (defn- run-render!
-  "Set the :currently-rendering? flag, record a :render phase entry,
-  store the render-tree, clear the flag. Throws from inside the render
-  body are NOT caught — they propagate to the caller (the simulator
-  cannot recover from a render throw in any meaningful way; React 18+
-  unmounts the root)."
+  "Set the :currently-rendering? flag, record a :render phase entry, store the
+  render-tree, clear the flag. Throws from inside the render body are NOT
+  caught — they propagate to the caller (React 18+ unmounts the root)."
   [mount tree]
   (reset! (:currently-rendering? mount) true)
   (try
@@ -193,39 +118,58 @@
     (finally
       (reset! (:currently-rendering? mount) false))))
 
-(defn- render [render-tree _mount-point _opts]
-  ;; Spec 006 §`render` — return an unmount thunk. Under test-react
-  ;; the `mount-point` arg is ignored (no DOM); `opts` is ignored
-  ;; (no `:hydrate?` semantics).
-  (let [mount (->MountedComponent
-                (gensym "test-react-mount-")
-                (swap! mount-counter inc)
-                (atom nil)
-                (atom [])
-                (atom false)
-                (atom true))]
+(defn- unmount-thunk
+  "Build the unmount thunk for `mount`. Idempotent (a second call on an
+  already-unmounted mount is a no-op). Throws
+  `:rf.error/sync-unmount-during-render` if called while a render is in
+  flight (the rf2-4l7t2 class)."
+  [mount]
+  (fn unmount []
+    (when @(:mounted? mount)
+      (when @(:currently-rendering? mount)
+        (throw (ex-info ":rf.error/sync-unmount-during-render"
+                        {:where    'rf/test-react-unmount
+                         :recovery :no-recovery
+                         :reason   (str "Attempted to synchronously unmount a root"
+                                        " while a render is in flight. React 18+"
+                                        " raises the equivalent runtime error; the"
+                                        " Test-React adapter raises here so the bug"
+                                        " is caught at unit-test speed. See"
+                                        " rf2-4l7t2 for the production manifestation.")
+                         :mount-id (:id mount)})))
+      (log-phase! mount :will-unmount)
+      (reset! (:mounted? mount) false)
+      (reset! (:render-tree mount) nil)
+      (swap! active-mounts disj mount))
+    nil))
+
+(defn- mount-tree!
+  "The internal mount seam. Builds the `MountedComponent`, runs the
+  constructor → render → did-mount lifecycle, registers it in
+  `active-mounts`, and returns the record itself (with its unmount thunk
+  stored in the `:unmount-fn` field). Both the substrate `render` fn and the
+  public `mount!` driver call this — `render` discards everything but the
+  thunk; `mount!` returns the whole record so tests can inspect the log."
+  [render-tree]
+  (let [base    (->MountedComponent
+                  (gensym "test-react-mount-")
+                  (atom nil)   ; render-tree
+                  (atom [])    ; lifecycle-log
+                  (atom false) ; currently-rendering?
+                  (atom true)  ; mounted?
+                  nil)         ; unmount-fn — filled in below
+        mount   (assoc base :unmount-fn (unmount-thunk base))]
     (log-phase! mount :constructor)
     (run-render! mount render-tree)
     (log-phase! mount :did-mount)
     (swap! active-mounts conj mount)
-    (fn unmount []
-      (when @(:mounted? mount)
-        (when @(:currently-rendering? mount)
-          (throw (ex-info ":rf.error/sync-unmount-during-render"
-                          {:where    'rf/test-react-unmount
-                           :recovery :no-recovery
-                           :reason   (str "Attempted to synchronously unmount a root"
-                                          " while a render is in flight. React 18+"
-                                          " raises the equivalent runtime error; the"
-                                          " Test-React adapter raises here so the bug"
-                                          " is caught at unit-test speed. See"
-                                          " rf2-4l7t2 for the production manifestation.")
-                           :mount-id (:id mount)})))
-        (log-phase! mount :will-unmount)
-        (reset! (:mounted? mount) false)
-        (reset! (:render-tree mount) nil)
-        (swap! active-mounts disj mount))
-      nil)))
+    mount))
+
+(defn- render [render-tree _mount-point _opts]
+  ;; Spec 006 §`render` — return an unmount thunk. Under test-react the
+  ;; `mount-point` arg is ignored (no DOM); `opts` is ignored (no
+  ;; `:hydrate?` semantics).
+  (:unmount-fn (mount-tree! render-tree)))
 
 ;; ---- render-to-string ------------------------------------------------------
 
@@ -236,9 +180,9 @@
   [f]
   (reset! hiccup-emitter f))
 
-(defn- render-to-string [render-tree _opts]
+(defn- render-to-string [render-tree opts]
   (if-let [emit @hiccup-emitter]
-    (emit render-tree _opts)
+    (emit render-tree opts)
     (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
                     {:reason "Test-React adapter has no built-in hiccup emitter; call set-hiccup-emitter! if a test needs HTML output."
                      :render-tree render-tree}))))
@@ -255,26 +199,32 @@
 ;; ---- adapter disposal ------------------------------------------------------
 
 (defn- dispose-adapter! []
-  ;; Drain any still-mounted components so a test fixture that forgets
-  ;; to unmount doesn't leak across cases. Per the rf2-4l7t2 lesson the
-  ;; drain MUST tolerate the currently-rendering? guard — we set
-  ;; mounted? false WITHOUT routing through the public `unmount!`
-  ;; (which would throw on a stuck currently-rendering? cell) and log
-  ;; a :forced-teardown phase so the test surface can spot drift.
+  ;; Drain any still-mounted components so a test fixture that forgets to
+  ;; unmount doesn't leak across cases. Per the rf2-4l7t2 lesson the drain
+  ;; MUST tolerate the currently-rendering? guard — we set mounted? false
+  ;; WITHOUT routing through the public `unmount!` (which would throw on a
+  ;; stuck currently-rendering? cell) and log a :forced-teardown phase so the
+  ;; test surface can spot drift.
   ;;
-  ;; rf2-pyp3n: this drains active-mounts (the host-resource MUST) but
-  ;; does NOT walk per-frame sub-caches the way the other four adapters
-  ;; do via `spine/dispose-frame-sub-caches!` — this adapter is CLJC and
-  ;; the spine is CLJS-only. Acceptable because test-react's
-  ;; `make-derived-value` holds no host resources (plain IDeref reify);
-  ;; see the ns docstring's `Out of scope` list.
+  ;; The hiccup-emitter is deliberately NOT cleared: it holds no host
+  ;; resource, is re-derivable infrastructure installed once via the
+  ;; `:reagent/set-hiccup-emitter!` chain at SSR ns-load, and is NOT
+  ;; re-published on re-install. Nilling it here would make render-to-string
+  ;; throw :rf.error/no-hiccup-emitter-bound across a dispose/reinstall
+  ;; cycle. Matches plain-atom's dispose-adapter! (a no-op that leaves the
+  ;; emitter alone).
+  ;;
+  ;; rf2-pyp3n: this drains active-mounts (the host-resource MUST) but does
+  ;; NOT walk per-frame sub-caches the way the React adapters do via
+  ;; `spine/dispose-frame-sub-caches!` — this adapter is CLJC and the spine
+  ;; is CLJS-only. Acceptable because test-react's `make-derived-value` holds
+  ;; no host resources (plain IDeref reify); nothing for the walk to dispose.
   (doseq [m @active-mounts]
     (when @(:mounted? m)
       (log-phase! m :forced-teardown)
       (reset! (:mounted? m) false)
       (reset! (:render-tree m) nil)))
   (reset! active-mounts #{})
-  (reset! hiccup-emitter nil)
   nil)
 
 (def adapter
@@ -285,15 +235,15 @@
       (rf/init! test-react/adapter)
 
   Per Spec 006 §The adapter API contract — implements the nine-fn
-  contract. The reactive-container half mirrors plain-atom; the
-  render half is the novel surface (class-3 lifecycle simulation
-  with `:currently-rendering?` invariant). See `mount!` /
-  `trigger-update!` / `unmount!` for the test driver helpers."
+  contract. The reactive-container half is shared with plain-atom; the
+  render half is the novel surface (class-3 lifecycle simulation with the
+  `:currently-rendering?` invariant). See `mount!` / `trigger-update!` /
+  `unmount!` for the test driver helpers."
   {:kind                      :rf.adapter/test-react
-   :make-state-container      make-state-container
-   :read-container            read-container
-   :replace-container!        replace-container!
-   :subscribe-container       subscribe-container
+   :make-state-container      atom-container/make-state-container
+   :read-container            atom-container/read-container
+   :replace-container!        atom-container/replace-container!
+   :subscribe-container       atom-container/subscribe-container
    :make-derived-value        make-derived-value
    :render                    render
    :render-to-string          render-to-string
@@ -303,44 +253,15 @@
 ;; ---- public driver / inspection helpers -----------------------------------
 ;;
 ;; These are the surface tests reach for. They are NOT part of the
-;; substrate-adapter contract — they are test-driver utilities scoped
-;; to this adapter. Other adapters do not expose anything analogous
-;; (because real React drives the lifecycle from JS-side; here the
-;; test owns the clock).
-
-(defn- ^:no-doc mount-record-from-unmount-fn
-  "The substrate adapter's `render` returns an unmount thunk;
-  `mount!` needs the MountedComponent record so tests can inspect
-  the log. We capture the record via a side-channel: `render`
-  itself swaps the record into active-mounts; `mount!` reads the
-  most-recently-added entry and returns the unmount-thunk-paired
-  record. This is a minimal-skeleton hack — a follow-on bead may
-  formalise this by widening the substrate `render` return shape
-  (under a debug-only seam) or by switching to a per-render
-  envelope return value."
-  [unmount-fn]
-  ;; The mount we just added is the only one whose `:mounted?` is
-  ;; true AND that closes over `unmount-fn`. Since closures aren't
-  ;; introspectable in CLJ, we use the active-mounts order: the
-  ;; freshest add is the one with the highest monotonic `:seq`.
-  ;; (For unit-test use this is sufficient; tests mount one root at
-  ;; a time per scope.)
-  (let [live (filter (comp deref :mounted?) @active-mounts)]
-    ;; `set` has no order; each MountedComponent carries a monotonic
-    ;; integer `:seq` minted at construction. Pick the max-`:seq` live
-    ;; mount via a NUMERIC reduction. rf2-ovpl3: the pre-fix code sorted
-    ;; lexicographically on the gensym `:id` string, so once >=10 mounts
-    ;; had been minted in a process "…mount-10" sorted BEFORE "…mount-9"
-    ;; and `last` returned a STALE record. `:seq` is a real integer, so
-    ;; the reduction is monotonic for any mount count.
-    (when (seq live)
-      (reduce (fn [a b] (if (> (:seq b) (:seq a)) b a)) live))))
+;; substrate-adapter contract — they are test-driver utilities scoped to
+;; this adapter. Other adapters expose nothing analogous (real React drives
+;; the lifecycle from JS-side; here the test owns the clock).
 
 (defn mount!
-  "Mount `render-tree` (a hiccup vector or any data the test treats as
-  the rendered output) under the installed Test-React adapter. Returns
-  a `MountedComponent` record carrying the lifecycle log and the
-  unmount thunk. Throws if a non-test-react adapter is installed."
+  "Mount `render-tree` (a hiccup vector or any data the test treats as the
+  rendered output) under the installed Test-React adapter. Returns the
+  `MountedComponent` record carrying the lifecycle log and the unmount
+  thunk. Throws if a non-test-react adapter is installed."
   [render-tree]
   (when-not (identical? adapter (substrate-adapter/current-adapter-spec))
     (throw (ex-info ":rf.error/test-react-not-installed"
@@ -349,18 +270,12 @@
                      :reason   (str "test-react/mount! requires the Test-React adapter"
                                     " to be the (rf/init!)-installed adapter; got "
                                     (substrate-adapter/current-adapter) ".")})))
-  (let [unmount-fn (substrate-adapter/render render-tree nil nil)
-        mount     (mount-record-from-unmount-fn unmount-fn)]
-    ;; Stash the unmount-fn on the record so `unmount!` below can
-    ;; reach for it. (CLJ records support assoc; this mutates a
-    ;; per-mount slot in a way that does not collide with the
-    ;; defrecord fields.)
-    (assoc mount ::unmount-fn unmount-fn)))
+  (mount-tree! render-tree))
 
 (defn trigger-update!
-  "Simulate a React re-render of `mount` with `new-render-tree` as the
-  next render output. Records a `:did-update` phase entry in the
-  lifecycle log. Throws if the mount has already been unmounted."
+  "Simulate a React re-render of `mount` with `new-render-tree` as the next
+  render output. Records a `:did-update` phase entry in the lifecycle log.
+  Throws if the mount has already been unmounted."
   [mount new-render-tree]
   (when-not @(:mounted? mount)
     (throw (ex-info ":rf.error/update-after-unmount"
@@ -374,18 +289,17 @@
 
 (defn unmount!
   "Unmount `mount`. Records a `:will-unmount` phase entry. Throws
-  `:rf.error/sync-unmount-during-render` if called while the mount
-  is in the middle of a render (this is the rf2-4l7t2 class).
-  Idempotent: a second call on the same mount is a no-op."
+  `:rf.error/sync-unmount-during-render` if called while the mount is in the
+  middle of a render (the rf2-4l7t2 class). Idempotent: a second call on the
+  same mount is a no-op."
   [mount]
-  (when-let [f (::unmount-fn mount)]
-    (f))
+  ((:unmount-fn mount))
   nil)
 
 (defn lifecycle-log
   "Return the lifecycle log for `mount` — a vector of `{:phase ... :at ms}`
-  entries, in the order they fired. Test assertions typically map
-  over `:phase` and compare to a canonical sequence."
+  entries, in the order they fired. Test assertions typically map over
+  `:phase` and compare to a canonical sequence."
   [mount]
   @(:lifecycle-log mount))
 
@@ -402,19 +316,19 @@
   (filter (comp deref :mounted?) @active-mounts))
 
 ;; ---- late-bind hook routing -----------------------------------------------
-;; The Test-React adapter publishes only the React-context-tier fallback
-;; for `:adapter/current-frame` — there is no React context, so the
-;; hook drops through to `frame/current-frame` (the dynamic-var tier).
-;; Other reactive-substrate hooks (`:adapter/ratom` / `:adapter/make-
-;; reaction` / `:adapter/after-render`) are intentionally NOT published:
-;; production code paths that reach for them under a non-React adapter
-;; indicate a misconfiguration that should surface, not be papered over.
+;; The Test-React adapter publishes only the React-context-tier fallback for
+;; `:adapter/current-frame` — there is no React context, so the hook drops
+;; through to `frame/current-frame` (the dynamic-var tier). Other
+;; reactive-substrate hooks (`:adapter/ratom` / `:adapter/make-reaction` /
+;; `:adapter/after-render`) are intentionally NOT published: production code
+;; paths that reach for them under a non-React adapter indicate a
+;; misconfiguration that should surface, not be papered over.
 
 (substrate-adapter/route-hook! adapter :adapter/current-frame
   (fn test-react-current-frame [] (frame/current-frame))
   #(frame/current-frame))
 
-;; SSR emitter install — chains onto the existing :reagent/set-hiccup-
-;; emitter! late-bind hook so a single `(require '[re-frame.ssr])` wires
+;; SSR emitter install — chains onto the existing :reagent/set-hiccup-emitter!
+;; late-bind hook so a single `(require '[re-frame.ssr])` wires
 ;; render-to-string for whichever adapter ends up (rf/init!)-installed.
 (late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)

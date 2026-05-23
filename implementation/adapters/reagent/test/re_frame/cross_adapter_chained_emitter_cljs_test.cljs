@@ -5,12 +5,18 @@
   ## Why this test exists
 
   The hook `:reagent/set-hiccup-emitter!` is declared `:chained? true`
-  in `re-frame.late-bind.directory` and lists FOUR producer namespaces:
+  in `re-frame.late-bind.directory` and lists the four React-shaped
+  adapter producer namespaces:
 
       re-frame.adapter.reagent
       re-frame.adapter.reagent-slim
       re-frame.adapter.uix
       re-frame.adapter.helix
+
+  (The headless test-react adapter also chains onto this hook for its
+  SSR emitter slot — it is a legitimate additional producer, but not a
+  React-shaped one, so this test pins the four React adapters as a
+  REQUIRED SUBSET rather than the exact set.)
 
   The contract for chained hooks: every producer publishes via
   `late-bind/chain-fn!`, so a single consumer call (one
@@ -55,6 +61,7 @@
 
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [clojure.set :as set]
             ;; Loading every adapter ns here forces all four to publish
             ;; their chain steps before this test's deftest runs. Every
             ;; require is load-bearing — do not trim.
@@ -91,19 +98,22 @@
     (let [entry (some (fn [e] (when (= hook-key (:key e)) e))
                       directory/hooks)
           producers (set (let [p (:producer-ns entry)]
-                           (if (sequential? p) p [p])))]
+                           (if (sequential? p) p [p])))
+          react-adapters '#{re-frame.adapter.reagent
+                            re-frame.adapter.reagent-slim
+                            re-frame.adapter.uix
+                            re-frame.adapter.helix}]
       (is (some? entry)
           "directory entry for :reagent/set-hiccup-emitter! must exist")
       (is (true? (:chained? entry))
           (str ":reagent/set-hiccup-emitter! must be `:chained? true` — "
-               "it is published by four producers and a `set-fn!` "
+               "it is published by several producers and a `set-fn!` "
                "regression in any of them silently clobbers the chain. "
                "Directory entry: " (pr-str entry)))
-      (is (= producers
-             '#{re-frame.adapter.reagent
-                re-frame.adapter.reagent-slim
-                re-frame.adapter.uix
-                re-frame.adapter.helix})
+      ;; Subset, not exact: every React-shaped adapter MUST stay listed.
+      ;; Additional non-React producers (e.g. the headless test-react
+      ;; adapter, rf2-ee38b.16) legitimately chain onto the same hook.
+      (is (set/subset? react-adapters producers)
           (str "every React-shaped adapter must be listed as a "
                ":reagent/set-hiccup-emitter! producer; got " (pr-str producers))))))
 

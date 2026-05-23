@@ -1,7 +1,7 @@
 (ns re-frame.adapter.test-react-test
   "Demonstration tests for the Test-React adapter (rf2-gqyqv).
 
-  Three scenarios drawn from the rf2-4l7t2 bug class:
+  Scenarios drawn from the rf2-4l7t2 bug class:
 
     1. Happy-path lifecycle ordering — constructor → render → did-mount
        → did-update → will-unmount.
@@ -11,6 +11,11 @@
     3. Adapter-disposal teardown — `dispose-adapter!` drains stranded
        mounts and the test surface can see the `:forced-teardown`
        breadcrumb.
+    4. mount! identity — the record threaded back from the internal mount
+       seam is the one created, even with many mounts live (rf2-ee38b.16,
+       replacing the old :seq scan-recovery tests).
+    5. render-to-string survives a dispose/reinstall cycle — dispose does
+       not clear the chained hiccup emitter (rf2-ee38b.16).
 
   These are minimal demonstration tests, not exhaustive coverage. The
   bead is P4 / placeholder; broader test corpora ship in follow-on
@@ -39,12 +44,11 @@
 
 (deftest happy-path-lifecycle-ordering
   (testing "constructor → render → did-mount → did-update → will-unmount"
-    (let [mount (test-react/mount! [:div "v1"])
-          _     (test-react/trigger-update! mount [:div "v2"])
-          _     (test-react/unmount! mount)
-          phases (mapv :phase (test-react/lifecycle-log mount))]
+    (let [mount (test-react/mount! [:div "v1"])]
+      (test-react/trigger-update! mount [:div "v2"])
+      (test-react/unmount! mount)
       (is (= [:constructor :render :did-mount :render :did-update :will-unmount]
-             phases)
+             (mapv :phase (test-react/lifecycle-log mount)))
           "the simulated lifecycle records constructor, mount-render+did-mount, update-render+did-update, will-unmount"))))
 
 (deftest mounted-roots-and-current-render-tree
@@ -92,45 +96,49 @@
       ;; Re-install so the fixture's outer dispose call below is a no-op.
       (substrate-adapter/install-adapter! test-react/adapter))))
 
-;; ---- scenario 4: monotonic mount ordering (rf2-ovpl3) ---------------------
+;; ---- scenario 4: mount! returns the exact record it created ---------------
 
-(deftest mount-returns-the-freshest-record-past-the-tenth-mint
-  (testing "mount! returns the LATEST mount even after >=10 mounts in one
-            process — rf2-ovpl3. The pre-fix code sorted lexicographically
-            on the gensym :id, so '…mount-10' < '…mount-9' returned a STALE
-            record. The numeric :seq ordering is monotonic for any count."
-    ;; Mount 11 components without unmounting any (they stay live), then
-    ;; mount one more whose render-tree is a unique sentinel. The
-    ;; freshest mount! must return THAT sentinel's record — not a stale
-    ;; mount-9-vs-mount-10 lexicographic loser.
-    (let [_earlier (doall (for [i (range 11)]
-                            (test-react/mount! [:div (str "v" i)])))
-          latest   (test-react/mount! [:div "SENTINEL-LATEST"])]
+(deftest mount-returns-its-own-record-under-many-live-mounts
+  (testing "mount! returns the record it created — and its unmount thunk tears
+            down THAT mount — even with many other mounts live at once. The
+            record is threaded directly through the internal mount seam, so
+            there is no scan/ordering heuristic to alias the wrong mount."
+    ;; Mount a dozen components without unmounting any (they stay live), then
+    ;; mount one more with a unique sentinel render-tree.
+    (let [earlier (doall (for [i (range 12)]
+                           (test-react/mount! [:div (str "v" i)])))
+          latest  (test-react/mount! [:div "SENTINEL-LATEST"])]
       (is (= [:div "SENTINEL-LATEST"] (test-react/current-render-tree latest))
-          "mount! returned the record for the most-recent mount, not a
-           lexicographically-stale one")
-      ;; And the returned record's :seq is the maximum across all live
-      ;; mounts — proves we picked the freshest, not just any live one.
-      (let [max-seq (apply max (map :seq (test-react/mounted-roots)))]
-        (is (= max-seq (:seq latest))
-            "the returned record carries the maximum monotonic :seq"))
+          "mount! returned the record for the mount it just created")
+      (is (= 13 (count (test-react/mounted-roots)))
+          "all thirteen mounts are live")
       ;; The unmount thunk on the returned record tears down the SENTINEL
-      ;; mount specifically (not a stale neighbour).
+      ;; mount specifically — not a neighbour.
       (test-react/unmount! latest)
       (is (nil? (test-react/current-render-tree latest))
           "unmounting the returned record tore down the correct (latest) mount")
-      ;; Drain the 11 still-live earlier mounts so the fixture's
+      (is (= 12 (count (test-react/mounted-roots)))
+          "exactly one mount torn down; the other twelve remain live")
+      ;; Drain the 12 still-live earlier mounts so the fixture's
       ;; dispose-adapter! has nothing surprising to forcibly tear down.
-      (doseq [m _earlier] (test-react/unmount! m)))))
+      (doseq [m earlier] (test-react/unmount! m)))))
 
-(deftest mount-seq-is-strictly-increasing
-  (testing "each mount! mints a strictly-greater :seq than the previous —
-            the monotonic ordering invariant rf2-ovpl3 relies on"
-    (let [a (test-react/mount! [:div "a"])
-          b (test-react/mount! [:div "b"])
-          c (test-react/mount! [:div "c"])]
-      (is (< (:seq a) (:seq b) (:seq c))
-          ":seq is strictly increasing across successive mounts")
-      (test-react/unmount! a)
-      (test-react/unmount! b)
-      (test-react/unmount! c))))
+;; ---- scenario 5: render-to-string survives a dispose/reinstall cycle ------
+
+(deftest render-to-string-survives-dispose-reinstall
+  (testing "dispose-adapter! does NOT clear the chained hiccup emitter, so
+            render-to-string keeps working across a dispose/reinstall cycle"
+    (test-react/set-hiccup-emitter! (fn [tree _opts] (str "HTML:" (pr-str tree))))
+    (try
+      (is (= "HTML:[:div \"a\"]"
+             (substrate-adapter/render-to-string [:div "a"] nil))
+          "emitter is bound before the dispose cycle")
+      ;; Dispose + reinstall (the standard fixture shape). The emitter must
+      ;; survive — it is re-derivable infrastructure, not a host resource.
+      (substrate-adapter/dispose-adapter!)
+      (substrate-adapter/install-adapter! test-react/adapter)
+      (is (= "HTML:[:div \"b\"]"
+             (substrate-adapter/render-to-string [:div "b"] nil))
+          "emitter still bound after dispose + reinstall")
+      (finally
+        (test-react/set-hiccup-emitter! nil)))))
