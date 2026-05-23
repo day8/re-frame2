@@ -36,12 +36,23 @@
                          :else default))
     :else            default))
 
+(def ^:private int-string-re
+  "Strict integer-string grammar: optional sign + one-or-more digits,
+  nothing else. Trailing garbage (`\"12abc\"`) is rejected so the
+  string arm parses byte-identically across hosts (rf2-ee38b.19) —
+  `Long/parseLong` (JVM) already rejects trailing garbage; raw
+  `js/parseInt` (CLJS) parses a numeric PREFIX (`\"12abc\"` ⇒ 12),
+  which would diverge from the JVM default-fallback. Guarding both
+  arms with this regex closes the divergence."
+  #"[-+]?\d+")
+
 (defn- parse-int*
   "Shared helper for `parse-positive-int` / `parse-non-negative-int`.
-  `floor` is the lower clamp (1 for positive, 0 for non-negative); the
-  two input arms (number / string + try/catch) cover every shape the
-  agent surface produces. `integer?` is a subset of `number?`, so the
-  single `number?` arm catches both."
+  `floor` is the lower clamp (1 for positive, 0 for non-negative).
+  Two input arms: a numeric `raw` is floored directly; a string `raw`
+  is strict-parsed (must match `int-string-re` end-to-end — trailing
+  garbage falls back to `default`, identically on JVM and CLJS).
+  Every other shape falls back to `default`."
   [raw default floor]
   (cond
     (nil? raw)
@@ -51,13 +62,23 @@
     (max floor (long raw))
 
     (string? raw)
-    #?(:clj (try
-              (max floor (Long/parseLong (str/trim raw)))
-              (catch NumberFormatException _ default))
-       :cljs (let [n (js/parseInt raw 10)]
-               (if (and (number? n) (not (js/isNaN n)))
-                 (max floor (long n))
-                 default)))
+    (let [s (str/trim raw)]
+      (if-not (re-matches int-string-re s)
+        default
+        #?(:clj  (try
+                   (max floor (Long/parseLong s))
+                   (catch NumberFormatException _ default))
+           ;; Match the JVM `Long/parseLong` posture: a digit string
+           ;; outside the safely-representable integer range is a parse
+           ;; failure → `default` (JVM throws NumberFormatException on
+           ;; long overflow; JS would silently coerce to a lossy float).
+           ;; `js/Number.isSafeInteger` is the CLJS analogue of "fits a
+           ;; long" for the small ints the agent surface produces.
+           :cljs (let [n (js/parseInt s 10)]
+                   (if (and (not (js/isNaN n))
+                            (js/Number.isSafeInteger n))
+                     (max floor (long n))
+                     default)))))
 
     :else
     default))

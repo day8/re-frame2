@@ -72,6 +72,43 @@
   (is (zero? (args/parse-non-negative-int -5 5000))))
 
 ;; ---------------------------------------------------------------------------
+;; Cross-host strict-parse contract (rf2-ee38b.19).
+;;
+;; Pin the trailing-garbage case that previously diverged: JVM
+;; `Long/parseLong` threw on a non-numeric tail and fell back to the
+;; default, while raw CLJS `js/parseInt` parsed a numeric PREFIX
+;; (`"12abc"` ⇒ 12). The strict `int-string-re` guard makes both hosts
+;; fall back to `default`. The mirror CLJS assertions live in
+;; `re-frame.mcp-base.cljs-branches-cljs-test` so the same expectations
+;; are pinned on both platforms.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-positive-int-rejects-trailing-garbage
+  (is (= 50 (args/parse-positive-int "12abc" 50))
+      "trailing garbage falls back to default (was 12 on CLJS before the fix)")
+  (is (= 50 (args/parse-positive-int "5xyz" 50)))
+  (is (= 50 (args/parse-positive-int "12 34" 50)) "internal whitespace rejected")
+  (is (= 50 (args/parse-positive-int "0x10" 50)) "hex-prefixed string rejected")
+  (is (= 50 (args/parse-positive-int "1.5" 50)) "decimal string rejected")
+  (is (= 50 (args/parse-positive-int "1e3" 50)) "scientific notation rejected"))
+
+(deftest parse-positive-int-accepts-clean-and-signed
+  (is (= 12 (args/parse-positive-int "12" 50)))
+  (is (= 12 (args/parse-positive-int "  12  " 50)) "surrounding whitespace trimmed")
+  (is (= 12 (args/parse-positive-int "+12" 50)) "leading plus accepted")
+  (is (= 1 (args/parse-positive-int "-5" 50)) "negative parses then clamps to floor"))
+
+(deftest parse-non-negative-int-rejects-trailing-garbage
+  (is (= 5000 (args/parse-non-negative-int "12abc" 5000)))
+  (is (= 5000 (args/parse-non-negative-int "100x" 5000))))
+
+(deftest parse-positive-int-rejects-out-of-long-range
+  ;; A digit string that overflows a JVM long is a parse failure →
+  ;; default. The CLJS arm mirrors this via Number.isSafeInteger so the
+  ;; two hosts agree on the rejection (not a lossy truncation).
+  (is (= 50 (args/parse-positive-int "99999999999999999999999999" 50))))
+
+;; ---------------------------------------------------------------------------
 ;; fresh-keyword — positive-named intern for operator-gated write paths
 ;; (rf2-xxtrz, the successor to the retired `parse-keyword`).
 ;; ---------------------------------------------------------------------------

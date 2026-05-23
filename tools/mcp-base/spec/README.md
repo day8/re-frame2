@@ -37,18 +37,21 @@ that ride on those framework surfaces.
 
 ## Index
 
-Seven namespaces under `re-frame.mcp-base.*`. Each ships its own
+Ten namespaces under `re-frame.mcp-base.*`. Each ships its own
 per-namespace contract doc; the table below indexes them:
 
-| ns | Lines (src) | Surface | Per-namespace spec |
-|---|---|---|---|
-| `vocab` | 228 | `:rf.mcp/*` + `:rf.size/*` marker keys + envelope slots + JSON-RPC error codes. | [`vocab.md`](vocab.md) |
-| `sensitive` | 212 | spec/009 §Privacy default-suppress filter (`sensitive-event?`, `strip-sensitive`, `scrub-snapshot`) + fail-closed suppressed-event counter. | [`sensitive.md`](sensitive.md) |
-| `elision` | 60 | Wire-boundary `:rf.size/large-elided` walker (`count-elided-markers`, rf2-9fz64). | [`elision.md`](elision.md) |
-| `args` | 253 | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
-| `diff-encode` | 318 | Path-keyed structural diff for epoch `:db-after` slots (rf2-1wdzp) + decoder gate. | [`diff-encode.md`](diff-encode.md) |
-| `overflow` | 60 | Overflow-marker payload SHAPE builder + per-tool hint table (rf2-rvyzy). | [`overflow.md`](overflow.md) |
-| `cap` | 242 | Wire-boundary token-budget cap pipeline + `ResultIO` protocol (rf2-eyelu) + resource controls + token splitter. | [`cap.md`](cap.md) |
+| ns | Surface | Per-namespace spec |
+|---|---|---|
+| `vocab` | `:rf.mcp/*` + `:rf.size/*` marker keys + envelope slots + JSON-RPC error codes. | [`vocab.md`](vocab.md) |
+| `sensitive` | spec/009 §Privacy fail-closed default-suppress filter (`sensitive-event?`, `strip-sensitive`, per-frame `scrub-snapshot`) + malformed-stamp counter. | [`sensitive.md`](sensitive.md) |
+| `elision` | Wire-boundary `:rf.size/large-elided` walker (`count-elided-markers`, rf2-9fz64). | [`elision.md`](elision.md) |
+| `args` | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
+| `diff-encode` | Path-keyed structural diff for epoch `:db-after` slots projected into path-headed cluster sections (rf2-1wdzp / rf2-qeous) + encoder/decoder Malli gate. | [`diff-encode.md`](diff-encode.md) |
+| `section-grouping` | Patch-list → path-headed cluster sections (`group-patches-into-sections` / `sections->patches`, rf2-qeous); consumed by `diff-encode`. | [`section-grouping.md`](section-grouping.md) |
+| `overflow` | Overflow-marker payload SHAPE builder (`overflow-payload`) + `token-estimate` + fallback hint (rf2-rvyzy). | [`overflow.md`](overflow.md) |
+| `cap` | Wire-boundary two-stage token-budget cap pipeline + `max-tokens` resolver + `ResultIO` protocol (rf2-eyelu / rf2-ih7g4). | [`cap.md`](cap.md) |
+| `cursor` | Shared cursor-pagination machinery — base64 codec, opaque encode/decode with `::malformed` recovery, `:limit` clamp, `cursor-stale-result` envelope (rf2-ee38b.19). | _(see ns docstring)_ |
+| `envelope` | Indicator-field `with-indicators` splice (`:dropped-sensitive` / `:elided-large`, omit-when-zero MUST) + wire-bounded `:rf.mcp/*` marker detection (rf2-ee38b.19). | _(see ns docstring)_ |
 
 All `.cljc`, so consumers compile them under their own platform —
 re-frame2-pair-mcp's shadow-cljs node build, story-mcp's JVM
@@ -69,23 +72,29 @@ third server instance and lands as a separate bead.
 
 The bead's scope holds the line at primitives that are truly
 identical across the pair's wire / privacy / size surfaces.
-Three categories stay consumer-side:
+Two categories stay consumer-side:
 
 1. **Wire transport.** story-mcp uses Cheshire for JSON-RPC over
    stdin/stdout; re-frame2-pair-mcp uses the npm `@modelcontextprotocol/sdk`'s
    stdio transport. The framing is different by language; there's
    nothing useful to share here.
 
-2. **Cursor base64 codec.** The cursor *shape* (`{:v 1 :after-id ...
-   :ms ... :until-ms ... :frame ...}`) is conventional — but
-   re-frame2-pair-mcp uses `js/Buffer.from … "base64"` and a JVM consumer
-   would use `java.util.Base64`. Factoring the codec means a
-   protocol-shaped helper per platform; with only one Node-side
-   consumer today, a single codec helper here is not yet warranted.
-
-3. **Tool registries.** Each MCP server's tool catalogue is domain-
+2. **Tool registries.** Each MCP server's tool catalogue is domain-
    specific. The base provides building blocks; it does NOT
    prescribe how the registry is shaped.
+
+> **Note (rf2-ee38b.19):** the cursor base64 codec USED to be listed
+> here as consumer-side, on the premise that `js/Buffer` vs
+> `java.util.Base64` forced a per-platform helper. story-mcp's own
+> `.cljc` cursor codec refuted that — the codec lifts cleanly as a
+> reader-conditional — so the shared machinery (base64 codec, opaque
+> encode/decode + `::malformed` recovery, `:limit` clamp,
+> `cursor-stale-result` envelope) now lives in `cursor.cljc`,
+> parameterised by each consumer's cursor-payload SHAPE. The cursor
+> *resource controls* (concurrent-stream cap, token-bucket rate-limit,
+> abuse window) remain consumer-side — they live only in pair-mcp's
+> `resource_controls.cljs` and are not yet a candidate to lift (single
+> streaming consumer today).
 
 ## Cross-MCP vocabulary as a versioned contract
 

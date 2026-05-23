@@ -29,11 +29,10 @@
                  the wire.
 
   Unqualified envelope slots — `:dropped-sensitive` /
-  `:elided-large` — ride alongside the tool's unqualified envelope
-  slots; they are scalar counters summarising the walker's
-  suppression count on a per-call basis. Per Conventions §Cross-MCP
-  indicator-field vocabulary and Spec 009 §Size elision in traces
-  (Indicator field on tool responses, MUST-level).
+  `:elided-large` — are scalar suppression counters that ride the
+  envelope (MUST-level per Conventions §Cross-MCP indicator-field
+  vocabulary). The rationale for keeping them unqualified lives at
+  their defs below.
 
   ## JSON-RPC error codes
 
@@ -66,9 +65,12 @@
 (def diff-from-key
   "Marker on an epoch's `:db-after` slot indicating it is a structural
   diff against a sibling slot. The value names the source slot
-  (`:db-before`). Shape:
-    `{:db-after {:rf.mcp/diff-from :db-before :patches [...]}}`.
-  Per rf2-1wdzp."
+  (`:db-before`). Shape (path-headed cluster projection, rf2-qeous):
+    `{:db-after {:rf.mcp/diff-from :db-before
+                 :sections [{:section-path [...] :section-kind <kw>
+                             :patches [...]} ...]}}`.
+  Per rf2-1wdzp / rf2-qeous. See `re-frame.mcp-base.diff-encode` and
+  `re-frame.mcp-base.section-grouping`."
   :rf.mcp/diff-from)
 
 (def cursor-stale-reason

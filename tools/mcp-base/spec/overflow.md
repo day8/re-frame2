@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Owns the SHAPE of the overflow marker (the `{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens … :tool … :hint …}}` map). The cap-enforcement glue (counting tokens, replacing the payload) lives in [`cap.md`](cap.md).
 
-This doc is one of seven per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`cap.md`](cap.md).
+This doc is one of eight per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`cap.md`](cap.md).
 
 ## Scope
 
@@ -12,7 +12,7 @@ This doc is one of seven per-namespace contracts indexed from [`README.md`](READ
 - `default-max-tokens` const (**5000**).
 - The `token-estimate` cheap character→token approximation.
 - `overflow-hint-fallback` (generic fallback hint).
-- `overflow-marker` — the builder fn that returns the canonical marker map shape.
+- `overflow-payload` — the builder fn that returns the canonical marker map shape.
 
 `overflow` does NOT own:
 
@@ -40,26 +40,29 @@ The estimate is intentionally simple — running a tokeniser per response would 
 
 Generic hint used when a tool isn't listed in the per-tool hint table:
 
-> "Response exceeded token cap; consider narrowing your query or paginating via the tool's slice args."
+> "Response over budget. Re-call with narrower args, or raise `max-tokens` (0 disables the cap)."
 
 The per-tool hint table lives consumer-side and is keyed by tool id. The builder fn delegates to the consumer's hint resolver via a small adapter.
 
-### `overflow-marker` — builder fn
+### `overflow-payload` — builder fn
 
-Builds the canonical marker map shape:
+Builds the canonical marker map shape. Note the input/output key
+asymmetry: the destructured INPUT key is `:cap` (the cap in tokens),
+which the builder emits into the OUTPUT under the wire slot
+`:cap-tokens`:
 
 ```clojure
-(defn overflow-marker
-  [{:keys [tool token-count cap-tokens hint]}]
+(defn overflow-payload
+  [{:keys [tool token-count cap hint]}]
   {:rf.mcp/overflow
    {:limit       :reached
     :token-count token-count
-    :cap-tokens  cap-tokens
+    :cap-tokens  cap
     :tool        tool
     :hint        (or hint overflow-hint-fallback)}})
 ```
 
-The shape is the wire-protocol contract; the slot names are pinned by the conformance gate. Consumer-side overrides only the `:hint` text via the consumer's per-tool table.
+The output shape is the wire-protocol contract; the slot names are pinned by the conformance gate. Consumer-side overrides only the `:hint` text via the consumer's per-tool table. `cap.cljc`'s `apply-cap` calls `overflow-payload` with `:cap` (the resolved per-call cap) and `:token-count` (the count that tripped the gate).
 
 ## Hint table
 

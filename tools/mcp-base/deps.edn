@@ -21,29 +21,41 @@
 ;;   - `vocab.cljc`     — cross-MCP wire-vocabulary constants (the
 ;;                        `:rf.mcp/*` and `:rf.size/*` namespaced
 ;;                        keywords, JSON-RPC error codes).
-;;   - `sensitive.cljc` — spec/009 §Privacy default-suppress filter.
+;;   - `sensitive.cljc` — spec/009 §Privacy fail-closed default-suppress
+;;                        filter.
 ;;   - `elision.cljc`   — wire-boundary elision-marker walker
 ;;                        (`count-elided-markers`, rf2-9fz64).
 ;;   - `args.cljc`      — argument-coercion helpers (booleans, limits,
 ;;                        keyword reading) used by every MCP tool.
 ;;   - `diff_encode.cljc` — path-keyed structural diff for epoch
-;;                          records (rf2-1wdzp, used at the wire
-;;                          boundary inside re-frame2-pair-mcp; the encoding
-;;                          contract is a cross-MCP convention).
+;;                          records (rf2-1wdzp), projected into
+;;                          path-headed cluster sections (rf2-qeous).
 ;;                          Pinned via Malli `patch-schema` /
-;;                          `patches-schema` at the encoder boundary
-;;                          (rf2-rgg7d) so a future tuple-grammar
-;;                          drift trips the dev-build gate.
+;;                          `patches-schema` / `section-schema` at both
+;;                          the encoder and decoder boundary (rf2-rgg7d)
+;;                          so a future grammar drift trips the gate.
+;;   - `section_grouping.cljc` — patch-list → path-headed cluster
+;;                          sections (rf2-qeous); consumed by
+;;                          diff-encode.
 ;;   - `overflow.cljc`  — overflow-marker payload builder (rf2-rvyzy).
+;;   - `cap.cljc`       — two-stage wire-boundary token-budget cap
+;;                        pipeline + `ResultIO` protocol (rf2-eyelu /
+;;                        rf2-ih7g4).
+;;   - `cursor.cljc`    — shared cursor-pagination machinery: base64
+;;                        codec, opaque encode/decode with `::malformed`
+;;                        recovery, `:limit` clamp, `cursor-stale-result`
+;;                        envelope (rf2-ee38b.19). Parameterised by the
+;;                        consumer's payload-shape predicate so each
+;;                        server keeps its own cursor SHAPE.
+;;   - `envelope.cljc`  — indicator-field `with-indicators` splice
+;;                        (`:dropped-sensitive` / `:elided-large`
+;;                        omit-when-zero MUST) + wire-bounded
+;;                        `:rf.mcp/*` marker detection (rf2-ee38b.19).
 ;;
 ;; What deliberately does NOT live here:
 ;;   - Wire-transport code (cheshire JSON for story-mcp's JVM-side;
 ;;     applied-science.js-interop / npm MCP SDK for re-frame2-pair-mcp's
 ;;     CLJS-side). Each consumer terminates its own transport.
-;;   - Cursor base64 encoding — `js/Buffer` (re-frame2-pair-mcp) vs `Base64`
-;;     (story-mcp would use java.util.Base64 if it had cursors). The
-;;     EDN-cursor SHAPE is conventional; the base64 codec is
-;;     consumer-side.
 ;;   - Tool registry — each MCP server's tools are domain-specific.
 ;;
 ;; ## Bundle isolation
