@@ -36,7 +36,9 @@
   each (see the `:require` list): `cookie` (RFC 6265 Set-Cookie),
   `headers` (pair-vec → Ring header-map collapse + content-type
   default), `shell` (`default-html-shell` + shared envelope helpers),
-  `payload` (`build-payload` / `resolve-version`), `lifecycle` (frame
+  `payload` (`build-payload` — the non-streaming wrapper over the
+  shared `re-frame.ssr.payload-policy` version-resolution + assembly),
+  `lifecycle` (frame
   teardown, root-view / head resolution, required-opt validation,
   `default-on-error`), `pipeline` (the 4-step request pipeline +
   accumulator → Ring-map materialiser), `trust` (trusted-shell-hook

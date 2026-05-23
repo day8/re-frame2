@@ -68,8 +68,27 @@
   `stream-handler`) validates the policy at handler-construction time
   via `validate-policy-opts!` so misconfigured deployments fail at
   boot rather than at first request — the canonical fail-closed
-  pattern."
-  (:refer-clojure :exclude [resolve]))
+  pattern.
+
+  ---- Version resolution + payload assembly ----
+
+  This namespace is also the single home for the hydration-payload's
+  `:rf/version` resolution (`resolve-version`) and the canonical
+  four-key payload assembly (`build-payload`). Both streaming and
+  non-streaming SSR construct the identical `:rf/hydration-payload`
+  shape and pin `:rf/version` from the identical source-of-truth: the
+  caller's explicit `:version` opt, falling back to the
+  `:rf2/runtime-version` late-bind hook the client-side
+  `:rf.ssr/check-version` fx reads, falling back to the v1 pattern-
+  protocol stamp. The two call sites differ only in how they source
+  `app-db` (the non-streaming path is handed it; the streaming path
+  reads it from the live frame after every continuation drains), so
+  each owns a thin wrapper over `build-payload`:
+
+    `re-frame.ssr.ring.payload/build-payload`     - non-streaming SSR
+    `re-frame.ssr.streaming/build-final-payload`  - streaming SSR"
+  (:refer-clojure :exclude [resolve])
+  (:require [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -172,3 +191,71 @@
     ;; arm and the construction arm produce the same structured error
     ;; shape — tests can assert on one keyword and cover both surfaces.
     (validate-policy-opts! opts)))
+
+;; ---- version resolution + payload assembly -------------------------------
+;;
+;; Single home for the hydration-payload `:rf/version` resolution and the
+;; canonical four-key payload map, shared verbatim by the streaming and
+;; non-streaming SSR paths (rf2-8wrzz.4 — previously duplicated in
+;; `re-frame.ssr.ring.payload` and `re-frame.ssr.streaming`).
+
+(def ^:private default-pattern-protocol-version
+  "The v1 pattern-protocol version stamp (per Spec-Schemas
+  §`:rf/hydration-payload` — \"integer; v1 = 1\"). Terminal fallback in
+  `resolve-version` so the canonical `:rf/version` key is always present
+  (Malli `:int` slot, not `:optional`)."
+  1)
+
+(defn resolve-version
+  "Pick the `:rf/version` value to ship in the hydration payload. The
+  resolution order is:
+
+    1. An explicit `:version` opt from the caller (host-supplied stamp;
+       wins so test fixtures and apps that ship their own version source
+       stay in control).
+    2. The framework-global `:rf2/runtime-version` late-bind hook — the
+       same source the client-side `:rf.ssr/check-version` fx reads. When
+       the host registers this hook at boot, both sides of the wire pin
+       the same value with no further wiring (per Spec 011 §The hydration
+       payload + §fx-input shape + Conventions §Late-bind hook key
+       grammar).
+    3. `default-pattern-protocol-version` (v1 = 1) — the canonical schema
+       slot is required (per Spec-Schemas §`:rf/hydration-payload`), so a
+       terminal numeric fallback is structurally necessary. The
+       check-version fx still no-ops cleanly on the client when neither
+       side has the hook registered (matched value → no mismatch).
+
+  Both sides of the wire read `:version` through the same hook so a host
+  that doesn't pass `:version` explicitly still pins a value the client
+  agrees with (the inline `(or version 1)` it replaced silently defeated
+  the version-mismatch check; rf2-asmj1 S8 / rf2-l8fi6 non-streaming,
+  rf2-via0g streaming)."
+  [explicit-version]
+  (or explicit-version
+      (when-let [f (late-bind/get-fn :rf2/runtime-version)]
+        (f))
+      default-pattern-protocol-version))
+
+(defn build-payload
+  "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
+  hydration payload — the four canonical keys (`:rf/version`,
+  `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`) plus the optional
+  `:rf/schema-digest`.
+
+  The `:rf/app-db` slice is the already-projected `db-slice` — callers
+  run `apply-policy` (the fail-closed allowlist / whole-app-db contract,
+  rf2-gtgf9) and hand the result here. `:rf/version` is resolved via
+  `resolve-version` (caller's `:version` opt → `:rf2/runtime-version`
+  hook → v1 stamp). Schema-digest is supplied by the caller when their
+  app participates in the schema-digest check; nil otherwise.
+
+  Shared verbatim by both SSR paths (rf2-8wrzz.4): the non-streaming
+  `re-frame.ssr.ring.payload/build-payload` and the streaming
+  `re-frame.ssr.streaming/build-final-payload`, which differ only in how
+  they source `app-db` before projecting it."
+  [frame-id db-slice render-hash {:keys [version schema-digest]}]
+  (cond-> {:rf/version     (resolve-version version)
+           :rf/frame-id    frame-id
+           :rf/app-db      db-slice
+           :rf/render-hash render-hash}
+    schema-digest (assoc :rf/schema-digest schema-digest)))
