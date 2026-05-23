@@ -6,8 +6,9 @@
 
     1. Default-focus / cascade selection / clear (carried over from v1
        — the panel's spine plumbing didn't change).
-    2. Cascade-outcome line (top-of-panel) — glyph + colour + SSR badge
-       per §5.1 + the hydration-outcome addendum.
+    2. No top header/ribbon (rf2-ad7zx.17) — the panel leads with the
+       numbered pipeline; the pipeline rail runs through the circle
+       centres from step 1; the FROM row matches EventPanel.tsx.
     3. The 7 sections render in order (Mike's Q1 verbatim per
        rf2-jhhqt): DISPATCH SITE, EVENT, COEFFECTS, INTERCEPTORS,
        HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN.
@@ -322,102 +323,89 @@
         (is (= "3" (step-of "db-changes")) "DB CHANGES numbered 3")
         (is (= "4" (step-of "fx")) "FX numbered 4 (contiguous despite omissions)")))))
 
-(deftest panel-header-replaces-literal-event-detail-h1-and-has-no-outcome-badge
-  (testing "rf2-ad7zx.5 — spec/021 §2.2 forbids the outcome badge. The
-            header carries the event-id (no `✓ ok` glyph/label cluster,
-            no duration tier-dot); the literal 'Event detail' h1 stays
-            gone."
+(deftest panel-has-no-top-header-ribbon-and-leads-with-dispatch
+  (testing "rf2-ad7zx.17 — per EventPanel.tsx the panel has NO top
+            header/ribbon: the prior identity ribbon (⚡ panel icon +
+            lifecycle status dot + event-id label + `epoch #N` + SSR
+            badge) is gone. The panel leads directly with step 1
+            (DISPATCH). The literal 'Event detail' h1 stays gone too."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)
-            header   (find-by-testid tree "rf-causa-event-detail-header")
-            event-id (find-by-testid tree "rf-causa-event-detail-header-event-id")
-            text     (->> (hiccup-seq tree) (filter string?) (apply str))]
-        (is (some? header) "header present")
-        (is (some? event-id) "event-id shown in header")
+            text (->> (hiccup-seq tree) (filter string?) (apply str))]
+        ;; No top header/ribbon — none of its parts survive.
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-header"))
+            "no top header element")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-panel-icon"))
+            "no ⚡ panel icon")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-header-event-id"))
+            "no event-id ribbon label")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-header-epoch"))
+            "no `epoch #N` ribbon label")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-header-ssr-badge"))
+            "no SSR badge in a (now-absent) header")
+        ;; The status-dot testid is dynamic; assert no dot of any state.
+        (is (every? (fn [st]
+                      (nil? (find-by-testid
+                              tree
+                              (str "rf-causa-event-detail-status-dot-" st))))
+                    ["in-flight" "settled-success" "settled-error"
+                     "paused-by-tool" "stale"])
+            "no lifecycle status dot (it lived only in the removed ribbon)")
+        ;; The panel leads with the DISPATCH step.
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-dispatch"))
+            "panel leads with the DISPATCH step")
         (is (not (re-find #"Event detail" text))
             "literal 'Event detail' h1 stays removed")
         ;; spec/021 §2.2 — NO outcome badge.
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok"))
-            "no ✓ ok outcome glyph")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome"))
             "the prior outcome badge container is gone")))))
 
-;; ---- (3) header status dot + SSR badge (no outcome badge) --------------
-
-(deftest header-status-dot-flips-to-error-when-handler-threw
-  (testing "rf2-ad7zx.5 — the outcome badge is gone; a handler exception
-            now surfaces via the lifecycle status dot (settled-error) on
-            the header, NOT a `✗ error` glyph."
-    (seed-buffer!
-      (conj (cascade-evs 100 [:foo] 0)
-            {:id 99 :op-type :error :operation :rf.error/handler-exception
-             :tags {:rf.trace/dispatch-id 100 :rf.trace/event-id :foo}}))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree   (event-detail/Panel)
-            header (find-by-testid tree "rf-causa-event-detail-header")]
-        (is (= "settled-error" (:data-rf-causa-status (second header)))
-            "header lifecycle status reads settled-error")
-        (is (some? (find-by-testid tree
-                     "rf-causa-event-detail-status-dot-settled-error"))
-            "settled-error status dot rendered")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-error"))
-            "no `✗ error` outcome glyph (forbidden by spec/021 §2.2)")))))
-
-(deftest header-ssr-badge-when-hydrated
-  (testing "rf2-ad7zx.5 — a :rf.ssr/hydrated event surfaces the SSR✓
-            origin badge on the header (the badge is an origin marker,
-            not the forbidden outcome badge)."
-    (seed-buffer! (cascade-evs 100 [:rf.ssr/hydrated {:duration-ms 87 :mismatches 0}] 0))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-header-ssr-badge")))))))
-
-(deftest header-no-ssr-badge-for-ordinary-event
-  (testing "ordinary client-only cascades do NOT carry the SSR badge"
-    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-header-ssr-badge")))))))
-
 ;; ---- (4) DISPATCH step (event vector + FROM origin) -------------------
 
-(deftest dispatch-step-renders-call-site-coord-and-open-chip
-  (testing "rf2-ad7zx.5 — the DISPATCH step (spec/021 §2.2 step 1) reads
-            :rf.trace/call-site off the :rf.event/dispatched trace and
-            renders the FROM caption + the coord + the click-to-source ↗
-            link"
+(deftest dispatch-from-row-matches-eventpanel-tsx-source-link
+  (testing "rf2-ad7zx.17 — the FROM row matches EventPanel.tsx: `FROM:`
+            then the dispatch SOURCE as a SINGLE click-to-source link
+            (`view ↗`) — the `↗` chip trails the source text. The prior
+            `· origin <origin>` clutter and the standalone `file:line`
+            coord span are dropped (the mock surfaces neither)."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0
                                 {:call-site {:file "src/views.cljs" :line 127}
-                                 :source :ui :origin :app}))
+                                 :source :view :origin :app}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)
-            coord (find-by-testid tree "rf-causa-event-detail-dispatch-coord")
-            chip  (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip")
             caption (find-by-testid tree "rf-causa-event-detail-dispatch-caption")
+            from    (find-by-testid tree "rf-causa-event-detail-dispatch-from")
+            chip    (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip")
             caption-text (->> (hiccup-seq caption) (filter string?) (apply str))
-            coord-text  (->> (hiccup-seq coord) (filter string?) (apply str))]
-        (is (some? coord) "dispatch coord rendered")
-        (is (some? chip)  "click-to-source ↗ link rendered alongside coord")
-        (is (re-find #"src/views\.cljs:127" coord-text)
-            "coord display includes the file:line")
-        (is (re-find #"FROM:" caption-text) "FROM: origin caption rendered")
-        (is (re-find #"ui" caption-text) "dispatch source surfaced in caption")))))
+            from-text    (->> (hiccup-seq from) (filter string?) (apply str))]
+        (is (re-find #"FROM:" caption-text) "FROM: caption rendered")
+        (is (some? from) "the source is rendered as a single FROM link span")
+        (is (re-find #"view" from-text) "dispatch source is the link text")
+        (is (some? chip) "the ↗ click-to-source chip trails the source")
+        ;; EventPanel.tsx shape — NO `· origin` clutter, NO standalone
+        ;; file:line coord span.
+        (is (not (re-find #"origin" caption-text))
+            "no `· origin <origin>` clutter (dropped per the mock)")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-dispatch-coord"))
+            "no standalone file:line coord span (dropped per the mock)")))))
 
-(deftest dispatch-step-without-call-site-renders-placeholder
-  (testing "when no :rf.trace/call-site is captured the DISPATCH step
-            renders the absent placeholder (not the open chip)"
-    (seed-buffer! (cascade-evs 100 [:counter/inc] 0 {:call-site nil}))
+(deftest dispatch-from-row-without-call-site-renders-plain-source-no-chip
+  (testing "rf2-ad7zx.17 — when no :rf.trace/call-site is captured the
+            FROM row renders the source as plain (unlinked) text and
+            omits the ↗ click-to-source chip"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0 {:call-site nil :source :timer}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-dispatch-coord-absent")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip")))))))
+      (let [tree (event-detail/Panel)
+            from (find-by-testid tree "rf-causa-event-detail-dispatch-from")
+            from-text (->> (hiccup-seq from) (filter string?) (apply str))]
+        (is (some? from) "plain source text rendered")
+        (is (re-find #"timer" from-text) "source surfaced as plain text")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip"))
+            "no ↗ chip without a call-site coord")))))
 
 (deftest dispatch-step-renders-event-vector
   (testing "rf2-ad7zx.5 — the DISPATCH step carries the dispatched event
@@ -954,11 +942,12 @@
 ;; ---- (9) handler-threw — omits post-handler steps, NO footer ----------
 
 (deftest handler-threw-omits-post-handler-steps-and-has-no-footer
-  (testing "rf2-ad7zx.5 — spec/021 §2.2: a throwing handler simply has no
-            DB CHANGES / AFTER INTERCEPTORS / FLOWS / FX steps (absence by
-            omission). There is NO handler-threw footer. DISPATCH +
-            EVENT HANDLER still render; the header status dot carries the
-            error signal."
+  (testing "rf2-ad7zx.5 / rf2-ad7zx.17 — spec/021 §2.2: a throwing handler
+            simply has no DB CHANGES / AFTER INTERCEPTORS / FLOWS / FX
+            steps (absence by omission). There is NO handler-threw footer
+            and NO outcome badge. DISPATCH + EVENT HANDLER still render;
+            the throw is conveyed purely by the omission of post-handler
+            steps (the top ribbon + its status dot are gone)."
     (seed-buffer!
       (concat (cascade-evs 100 [:checkout/submit] 0
                             {:fx nil :db-present? false})
@@ -980,11 +969,9 @@
             "DISPATCH step still present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-handler"))
             "EVENT HANDLER step still present")
-        ;; Error signalled via the lifecycle status dot, not a badge.
-        (is (= "settled-error"
-               (:data-rf-causa-status
-                (second (find-by-testid tree "rf-causa-event-detail-header"))))
-            "header status dot reads settled-error")))))
+        ;; No top ribbon to editorialise the throw (rf2-ad7zx.17).
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-header"))
+            "no top header/ribbon")))))
 
 ;; ---- (10) pure projection helpers --------------------------------------
 
@@ -1156,10 +1143,19 @@
                                      (str "rf-causa-event-detail-chevron-" from-id)))
               (str "no chevron after section '" from-id "'")))))))
 
-(deftest event-lens-pipeline-has-left-rail-container
-  (testing "rf2-ad7zx.5 — the pipeline body sits inside a left-RAIL
-            container that draws the thin vertical line (spec/021 §2.2).
-            The rail is `1px solid var(:border-subtle)`."
+(deftest event-lens-pipeline-rail-runs-through-circle-centres-from-step-1
+  (testing "rf2-ad7zx.17 — the pipeline vertical line is a dedicated
+            absolutely-positioned RAIL element (NOT a container
+            border-left) that runs through the CENTRE of the numbered
+            step circles and STARTS at circle 1's centre (not the panel
+            top), matching EventPanel.tsx.
+
+            Geometry: the step circle sits at section-left -22px with
+            width 20px, so its centre-x is at 12px from the pipeline
+            container's inner-left (section content-left 24px + -22px +
+            10px); the 2px rail centres there at left 11px. The rail's
+            `top` is circle 1's centre-y (padding-top 12px + half the
+            20px circle = 22px), NOT 0."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
@@ -1167,10 +1163,34 @@
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree     (event-detail/Panel)
             pipeline (find-by-testid tree "rf-causa-event-detail-pipeline")
-            rail     (get-in pipeline [1 :style :border-left])]
+            rail     (find-by-testid tree "rf-causa-event-detail-pipeline-rail")
+            rail-style   (second rail)
+            circle       (find-by-testid tree "rf-causa-event-detail-step-circle-dispatch")
+            circle-style (second circle)]
         (is (some? pipeline) "pipeline container rendered")
-        (is (and (string? rail) (str/includes? rail "1px") (str/includes? rail "solid"))
-            "left rail is a 1px solid border")))))
+        ;; The line is NOT the old container border-left.
+        (is (nil? (get-in pipeline [1 :style :border-left]))
+            "the pipeline container no longer draws the line via border-left")
+        (is (some? rail) "a dedicated rail element draws the vertical line")
+        (is (= "absolute" (get-in rail-style [:style :position]))
+            "rail is absolutely positioned inside the relative pipeline")
+        ;; Centred through the circle: circle centre-x = -22 + 10 = -12px
+        ;; in section coords → 12px from container inner-left; the 2px rail
+        ;; centres there at left 11px.
+        (is (= "11px" (get-in rail-style [:style :left]))
+            "rail left centres the line on the circles' centre-x")
+        (is (= "2px" (get-in rail-style [:style :width]))
+            "rail is a 2px line")
+        ;; Starts at circle 1's centre-y, NOT the panel top (0).
+        (is (= "22px" (get-in rail-style [:style :top]))
+            "rail starts at circle 1's centre-y (padding-top + half circle)")
+        (is (not= "0" (get-in rail-style [:style :top]))
+            "rail does NOT start at the panel top")
+        ;; Sanity-check the circle geometry the math depends on.
+        (is (= "-22px" (get-in circle-style [:style :left]))
+            "step circle sits at -22px (geometry the rail centring assumes)")
+        (is (= "20px" (get-in circle-style [:style :width]))
+            "step circle is 20px wide (geometry the rail centring assumes)")))))
 
 (deftest event-lens-omits-cascade-id-label
   (testing "rf2-ad7zx.5 — the `cascade #NNN` label is not surfaced. The
@@ -1189,9 +1209,10 @@
 
 (deftest cascade-container-carries-accent-stripe-per-section-17
   (testing "rf2-zv9r9 / rf2-ad7zx — per spec/021 §17.1.3 + spec/022 the
-            Event panel header stripe is the mode :accent (orange in
-            Dynamic, cyan in Static). Rendered as a 3px left border on
-            the outer cascade container."
+            Event panel identity stripe is the mode :accent (the single
+            GitHub blue). Rendered as a 3px left border on the outer
+            cascade container — it survives the top-ribbon removal
+            (rf2-ad7zx.17)."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
@@ -1203,19 +1224,6 @@
                  (str/includes? border "3px")
                  (str/includes? border "solid"))
             "stripe is a 3px solid left border")))))
-
-(deftest panel-header-icon-rendered-per-section-17-1-5
-  (testing "rf2-zv9r9 — per spec/021 §17.1.5 the Event panel header
-            carries the ⚡ icon in the mode :accent to the left of the
-            lifecycle status dot"
-    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)
-            icon (find-by-testid tree "rf-causa-event-detail-panel-icon")
-            icon-text (->> (hiccup-seq icon) (filter string?) (apply str))]
-        (is (some? icon) "panel icon span present")
-        (is (= "⚡" icon-text) "icon glyph is the ⚡ Event-panel marker")))))
 
 ;; ---- (13) handler-source slot (rf2-xgfuy DEBUG-stamp consumer) --------
 

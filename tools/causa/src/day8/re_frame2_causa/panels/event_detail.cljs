@@ -22,8 +22,13 @@
   (COEFFECTS / AFTER INTERCEPTORS / FLOWS) consumes no number; absence is
   conveyed by OMISSION, not an empty-state line. There is **no outcome
   badge** and **no `db committed` footer** (the prior superseded shape):
-  a throwing handler simply omits DB CHANGES and the later steps; the
-  header's lifecycle status dot carries the error signal.
+  a throwing handler simply omits DB CHANGES and the later steps —
+  absence conveys the throw.
+
+  Per `EventPanel.tsx` there is **no top header/ribbon** (rf2-ad7zx.17):
+  the panel leads directly with step 1 (DISPATCH). The vertical pipeline
+  RAIL runs through the CENTRE of the numbered step circles, starting at
+  circle 1 (not the panel top).
 
   All non-handling dominos (subs, renders, errors) live in their own
   tabs (Views / Issues).
@@ -60,7 +65,6 @@
             [re-frame.core :as rf]
             [day8.re-frame2-causa.views.edn-widget.widget :as edn]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
-            [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.managed-fx-helpers :as managed-fx-h]
             [day8.re-frame2-causa.panels.managed-fx-template :as managed-fx]
@@ -324,98 +328,6 @@
                        :color       (:text-secondary tokens)}}
         (str duration-ms "ms")]])))
 
-;; ---- chrome: panel header (spec/021 §2.2 — NO outcome badge) -----------
-
-(defn- panel-header
-  "Top-of-panel identity line. Per spec/021 §2.2 the Event panel
-  carries **no outcome badge** — the prior `✓ ok` / `✗ error` /
-  `⚠ warning` glyph+label cluster (and its trailing duration tier-dot)
-  is removed (rf2-ad7zx.5). Absence of a pipeline step conveys a
-  thrown handler; the header no longer editorialises the outcome.
-
-  What survives is the minimal identity chrome the Figma design keeps:
-
-    - ⚡ panel icon in the mode `:accent` (spec/021 §17.1.5).
-    - the lifecycle status DOT (rf2-b76v4) — a colour-only lifecycle
-      signal (`:in-flight` / `:settled-*` / `:stale` / `:paused-by-tool`),
-      NOT the forbidden ok/error/warning outcome badge. It rides the
-      canonical `event-status-colour` vocabulary the L2 row + Trace
-      panel also consume.
-    - the event-id + `epoch #N` label (the Figma header's `EVENT ·
-      :id · epoch #N`).
-    - the SSR origin badge when the cascade is an SSR-hydration epoch."
-  [{:keys [dispatch-id] :as cascade}]
-  (let [{:keys [event-id ssr?]} (cascade-outcome cascade)
-        ;; rf2-b76v4 — read the spine focus so the status fn can pick
-        ;; up :stale (RETRO mode) + :paused-by-tool. `:rf.causa/focus`
-        ;; is the canonical spine sub; nil-safe inside
-        ;; `event-status/cascade->state`.
-        focus        @(rf/subscribe [:rf.causa/focus])
-        status-state (event-status/cascade->state
-                       cascade focus cascade-outcome)
-        status-kw    (event-status/classify-status status-state)
-        status-hex   (event-status/event-status-colour status-state)
-        record       @(rf/subscribe [:rf.causa/selected-epoch-record])
-        epoch-id     (or (:epoch-id record) dispatch-id)]
-    [:header {:data-testid "rf-causa-event-detail-header"
-              :data-rf-causa-status (name status-kw)
-              :style {:display       "flex"
-                      :align-items   "center"
-                      :gap           "10px"
-                      :padding       "12px 16px"
-                      :background    (:bg-3 tokens)
-                      :border-bottom (str "1px solid " (:border-subtle tokens))
-                      :font-family   sans-stack
-                      :font-size     "13px"}}
-     ;; spec/021 §17.1.5 — Event panel header icon: ⚡ in the single
-     ;; :accent (GitHub blue).
-     [:span {:data-testid "rf-causa-event-detail-panel-icon"
-             :aria-hidden "true"
-             :style {:color (:accent tokens)
-                     :font-weight 600
-                     :font-size "14px"}}
-      "⚡"]
-     ;; rf2-b76v4 — lifecycle-status dot (colour-only; not the outcome
-     ;; badge). One fn drives the colour across the whole devtool.
-     [:span {:data-testid (str "rf-causa-event-detail-status-dot-"
-                               (name status-kw))
-             :style {:display "inline-block"
-                     :width   "10px"
-                     :height  "10px"
-                     :border-radius "50%"
-                     :background status-hex
-                     :flex-shrink 0}
-             :title (case status-kw
-                      :in-flight       "in-flight"
-                      :settled-success "settled — success"
-                      :settled-error   "settled — error"
-                      :paused-by-tool  "paused by tool"
-                      :stale           "stale (replayed / RETRO)"
-                      (name status-kw))}]
-     [:span {:data-testid "rf-causa-event-detail-header-event-id"
-             :style {:color (:accent tokens)
-                     :font-family mono-stack
-                     :font-weight 600}}
-      (pr-str event-id)]
-     (when epoch-id
-       [:span {:data-testid "rf-causa-event-detail-header-epoch"
-               :style {:color (:text-tertiary tokens)
-                       :font-family mono-stack
-                       :font-size "11px"}}
-        (str "epoch #" epoch-id)])
-     [:span {:style {:flex 1}}]
-     (when ssr?
-       [:span {:data-testid "rf-causa-event-detail-header-ssr-badge"
-               ;; SSR origin badge — fixed info blue (`:info`, the §007
-               ;; :story/:test/info hue), kept distinct from the primary
-               ;; accent so it always reads as an origin marker.
-               :style {:color (:info tokens)
-                       :font-family mono-stack
-                       :font-weight 700
-                       :font-size "11px"
-                       :margin-left "6px"}}
-        "SSR✓"])]))
-
 ;; ---- step DISPATCH (spec/021 §2.2 step 1) ------------------------------
 
 (defn- coord-chip
@@ -448,41 +360,51 @@
   "Step DISPATCH body — the dispatched event vector + the `FROM:
   <source>` dispatch-origin (a click-to-source link). Per spec/021 §2.2
   step 1 these are the SAME step (the prior split DISPATCH SITE / EVENT
-  sub-sections are merged; rf2-ad7zx.5). Returns body hiccup."
+  sub-sections are merged; rf2-ad7zx.5).
+
+  The FROM row matches `EventPanel.tsx`'s dispatch presentation
+  (rf2-ad7zx.17): `FROM:` then the dispatch SOURCE rendered as a single
+  accent-coloured click-to-source link (`view ↗`) — the `↗`
+  external-link glyph trails the source text and opens the call-site in
+  the editor. The prior `· origin <origin>` clutter and the standalone
+  `file:line` coord span are dropped (the mock surfaces neither); when no
+  call-site coord was captured the source renders as plain muted text
+  with no link affordance. Returns body hiccup."
   [cascade event-vec]
-  (let [coord           (dispatch-call-site cascade)
-        [source origin] (dispatch-source+origin cascade)
-        display         (format-coord-display coord)]
+  (let [coord      (dispatch-call-site cascade)
+        [source _] (dispatch-source+origin cascade)
+        label      (or (some-> source name) "unknown")
+        linked?    (and (map? coord) (seq (:file coord)))]
     [:div
      ;; The dispatched event vector.
      [:div {:data-testid "rf-causa-event-detail-event-vector"
             :style {:font-weight 600
                     :margin-bottom "4px"}}
       (edn/inspect event-vec "event-detail/event")]
-     ;; FROM: <source> — the dispatch-origin click-to-source link.
+     ;; FROM: <source> ↗ — the dispatch-origin as a single
+     ;; click-to-source link (EventPanel.tsx shape; rf2-ad7zx.17).
      [:div {:data-testid "rf-causa-event-detail-dispatch-caption"
             :style {:display "flex"
                     :align-items "center"
+                    :gap "6px"
                     :color (:text-tertiary tokens)
                     :font-family sans-stack
                     :font-size "11px"}}
-      "FROM: "
-      [:span {:style {:color (:text-secondary tokens)
-                      :margin-left "6px"}}
-       (cond-> (or (some-> source name) "unknown")
-         origin (str " · origin " (name origin)))]
-      (if display
-        [:span {:data-testid "rf-causa-event-detail-dispatch-coord"
-                :style {:color (:text-primary tokens)
-                        :font-family mono-stack
-                        :margin-left "8px"}}
-         display]
-        [:span {:data-testid "rf-causa-event-detail-dispatch-coord-absent"
-                :style {:color (:text-tertiary tokens)
-                        :font-style "italic"
-                        :margin-left "8px"}}
-         "source coord unavailable"])
-      (coord-chip coord "rf-causa-event-detail-dispatch-open-chip")]]))
+      "FROM:"
+      (if linked?
+        ;; Accent-coloured source link + trailing ↗ (the coord-chip).
+        [:span {:data-testid "rf-causa-event-detail-dispatch-from"
+                :style {:display "inline-flex"
+                        :align-items "center"
+                        :color (:accent tokens)
+                        :font-family mono-stack}}
+         label
+         (coord-chip coord "rf-causa-event-detail-dispatch-open-chip")]
+        ;; No call-site coord — plain muted source text, no link.
+        [:span {:data-testid "rf-causa-event-detail-dispatch-from"
+                :style {:color (:text-secondary tokens)
+                        :font-family mono-stack}}
+         label])]]))
 
 ;; ---- shared id → testid-suffix renderer --------------------------------
 
@@ -1048,10 +970,11 @@
 ;;
 ;; Per the Figma design (`tools/causa/design-reference/components/
 ;; EventPanel.tsx`) + spec/021 §2.2 the Event panel expresses its
-;; top-to-bottom one-way pipeline as a thin vertical RAIL down the
-;; panel's left edge with a small NUMBERED STEP CIRCLE (1, 2, …) at
-;; each section. The rail is muted (`:border-subtle`); the circles are
-;; filled muted (`:text-tertiary` background) with white numerals.
+;; top-to-bottom one-way pipeline as a thin vertical RAIL running
+;; through the CENTRE of a column of NUMBERED STEP CIRCLEs (1, 2, …),
+;; one per section (rf2-ad7zx.17). The rail is muted (`:border-subtle`)
+;; and starts at circle 1; the circles are filled muted
+;; (`:text-tertiary` background) with white numerals and ride on it.
 ;;
 ;; Steps are numbered DYNAMICALLY — an absent optional section consumes
 ;; no number, so the visible steps always read 1..N contiguously. This
@@ -1213,8 +1136,14 @@
   When the cascade carries a handler exception the handler never
   returned, so the post-handler steps (DB CHANGES, AFTER INTERCEPTORS,
   FLOWS, FX) are simply omitted — absence conveys the throw (spec/021
-  §2.2: no footer). The lifecycle status dot in the header carries the
-  error signal. Only DISPATCH / COEFFECTS? / EVENT HANDLER render.
+  §2.2: no footer). Only DISPATCH / COEFFECTS? / EVENT HANDLER render.
+
+  ## No top header (rf2-ad7zx.17)
+
+  Per `EventPanel.tsx` the panel has NO top header/ribbon — it leads
+  directly with step 1 (DISPATCH). The prior identity ribbon (⚡ icon +
+  lifecycle status dot + event-id + `epoch #N` + SSR badge) is removed;
+  the film-strip header is a future MVP item, not the current chrome.
 
   The stripe (mode `:accent`) sits on the outer container per §17.1.3."
   [{:keys [dispatch-id frame event] :as cascade}]
@@ -1248,23 +1177,39 @@
            :data-dispatch-id (str dispatch-id)
            :data-frame (str frame)
            ;; §17.1.3 / spec/022 — Event panel header stripe is the
-           ;; single :accent (GitHub blue).
+           ;; single :accent (GitHub blue). No top ribbon (rf2-ad7zx.17):
+           ;; the panel leads with the numbered pipeline.
            :style {:border-left (str "3px solid " (:accent tokens))}}
-     (panel-header cascade)
 
-     ;; Numbered vertical-flow pipeline body. The thin left RAIL draws
-     ;; the one-way flow; each step's numbered circle sits on it. Optional
-     ;; steps are already filtered out of `present`.
+     ;; Numbered vertical-flow pipeline body. A thin vertical RAIL runs
+     ;; through the CENTRE of the numbered step circles (rf2-ad7zx.17,
+     ;; matching `EventPanel.tsx`): an absolutely-positioned line whose
+     ;; `left` sits on the circles' centre-x and whose `top` starts at
+     ;; circle 1's centre (NOT the panel top). Each step's circle rides
+     ;; on it. Optional steps are already filtered out of `present`.
      (into [:div {:data-testid "rf-causa-event-detail-pipeline"
                   :style {:position      "relative"
-                          :border-left   (str "1px solid " (:border-subtle tokens))
                           :margin-left   "28px"
                           :padding-left  "24px"
                           :padding-top   "12px"
                           :padding-bottom "12px"
                           :display       "flex"
                           :flex-direction "column"
-                          :gap           "20px"}}]
+                          :gap           "20px"}}
+            ;; The vertical pipeline RAIL — centred through the step
+            ;; circles. Circle centre-x sits at 12px from the container's
+            ;; inner-left (section content-left 24px + circle left -22px +
+            ;; half the 20px circle = 12px); the 2px line centres there at
+            ;; left 11px. It STARTS at circle 1's centre-y (padding-top
+            ;; 12px + half the 20px circle = 22px) and runs to the bottom.
+            [:div {:data-testid "rf-causa-event-detail-pipeline-rail"
+                   :aria-hidden  "true"
+                   :style {:position   "absolute"
+                           :left       "11px"
+                           :top        "22px"
+                           :bottom     "0"
+                           :width      "2px"
+                           :background (:border-subtle tokens)}}]]
            (map-indexed
              (fn [i [id title body]]
                (with-meta

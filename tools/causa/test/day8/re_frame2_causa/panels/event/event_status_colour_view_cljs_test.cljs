@@ -11,20 +11,20 @@
   refactor could leave the helper detached from its call sites and
   the suite would still pass.
 
-  The three call sites (per the bead's contract):
+  The render sites (per the bead's contract):
 
     1. **L2 event-list row** — `shell/event-row` carries
        `data-rf-causa-status` + an inset `box-shadow` painted with
        the lifecycle colour. Each lifecycle state surfaces in the
        expected anchor colour.
 
-    2. **Event L4 header dot** — `panels/event-detail` renders a
-       leading status dot with `rf-causa-event-detail-status-dot-
-       <status>` testid + the lifecycle colour as its background.
-
-    3. **Trace timeline bar** — `panels/trace/Panel` renders a 3px
+    2. **Trace timeline bar** — `panels/trace/Panel` renders a 3px
        cascade-status bar above the ribbon (cascade-scoped per
        rf2-ycoct so the bar represents every visible row's parent).
+
+  The Event L4 header dot was a third site until rf2-ad7zx.17 removed
+  the Event panel's top ribbon (matching `EventPanel.tsx`); the Event
+  panel now renders no status dot at all.
 
   ## Pure hiccup walk
 
@@ -181,52 +181,34 @@
         (is (= (name classify) status)
             "row's vocabulary matches the helper's classifier output")))))
 
-;; ---- (2) Event L4 header status-dot pickups ----------------------------
+;; ---- (2) Event panel no longer carries a status dot (rf2-ad7zx.17) -----
+;;
+;; The Event panel's top header/ribbon — which carried the lifecycle
+;; status dot — was removed to match `EventPanel.tsx` (rf2-ad7zx.17). The
+;; status-colour vocabulary now has TWO render sites (L2 row + Trace bar)
+;; rather than three; the pure-data layer is exercised in
+;; `event_status_colour_cljs_test.cljc`.
 
-(deftest event-header-status-dot-success
-  (testing "rf2-b76v4 — happy-path cascade → Event L4 header renders
-            a status dot with `rf-causa-event-detail-status-dot-
-            settled-success` testid + the green background."
-    (causa-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 1])
-      (let [tree (event-detail/Panel)
-            dot  (find-by-testid tree
-                                 "rf-causa-event-detail-status-dot-settled-success")]
-        (is (some? dot) "status dot renders for the success-cascade")
-        (is (= (:green tokens/tokens)
-               (get-in (second dot) [:style :background]))
-            "dot's background is the canonical green hex")))))
-
-(deftest event-header-status-dot-error
-  (testing "rf2-b76v4 — errored cascade → red dot with the
-            settled-error testid suffix."
+(deftest event-panel-no-longer-renders-a-status-dot
+  (testing "rf2-ad7zx.17 — the Event panel has no top ribbon, so it
+            renders NO lifecycle status dot and NO header carrying
+            data-rf-causa-status. The vocabulary lives at the L2 row +
+            Trace bar sites instead."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-bus/collect-trace! (handler-exception-ev 99 1))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 1])
-      (let [tree (event-detail/Panel)
-            dot  (find-by-testid tree
-                                 "rf-causa-event-detail-status-dot-settled-error")]
-        (is (some? dot) "settled-error dot renders for the error cascade")
-        (is (= (:red tokens/tokens)
-               (get-in (second dot) [:style :background])))))))
-
-(deftest event-header-carries-rf-causa-status-attribute
-  (testing "rf2-b76v4 — the <header> wrapper carries
-            data-rf-causa-status so smoke tests + the pure-hiccup
-            walker can assert the vocabulary without parsing inline
-            styles. Same shape as the L2 row's attribute."
-    (causa-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 1])
-      (let [tree   (event-detail/Panel)
-            header (find-by-testid tree "rf-causa-event-detail-header")
-            attrs  (second header)]
-        (is (= "settled-success" (:data-rf-causa-status attrs)))))))
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-header"))
+            "no top header carrying data-rf-causa-status")
+        (is (every? (fn [st]
+                      (nil? (find-by-testid
+                              tree
+                              (str "rf-causa-event-detail-status-dot-" st))))
+                    ["settled-success" "settled-error" "in-flight"
+                     "paused-by-tool" "stale"])
+            "no lifecycle status dot of any state")))))
 
 ;; ---- (3) Trace timeline bar pickups ------------------------------------
 
@@ -254,8 +236,7 @@
 
 (deftest trace-cascade-status-bar-error
   (testing "rf2-b76v4 — an errored focused cascade flips the bar to
-            red. Same helper drives the colour the L2 row + Event
-            header pick up."
+            red. Same helper drives the colour the L2 row picks up."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-bus/collect-trace! (handler-exception-ev 99 1))
@@ -270,30 +251,26 @@
 
 ;; ---- (4) cross-site consistency — ONE vocabulary ------------------------
 
-(deftest all-three-sites-agree-on-cascade-status
-  (testing "rf2-b76v4 — the L2 row, Event L4 header, and Trace
-            timeline bar ALL resolve to the SAME status keyword for
-            the same cascade. This is the bead's headline contract:
-            ONE canonical map, NO per-call-site rolling."
+(deftest both-sites-agree-on-cascade-status
+  (testing "rf2-b76v4 / rf2-ad7zx.17 — the L2 row + the Trace timeline
+            bar resolve to the SAME status keyword for the same cascade.
+            This is the bead's headline contract: ONE canonical map, NO
+            per-call-site rolling. (The Event L4 header dot was a third
+            site until rf2-ad7zx.17 removed the top ribbon.)"
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-bus/collect-trace! (handler-exception-ev 99 1))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 1])
       (let [shell-tree   (shell/shell-view)
-            event-tree   (event-detail/Panel)
             trace-tree   (trace/Panel)
             l2-row       (find-by-testid shell-tree "rf-causa-event-row-1")
-            event-header (find-by-testid event-tree
-                                         "rf-causa-event-detail-header")
             trace-bar    (find-by-testid-prefix
                            trace-tree
                            "rf-causa-trace-cascade-status-bar-")
             l2-status    (:data-rf-causa-status (second l2-row))
-            event-status (:data-rf-causa-status (second event-header))
             trace-status (:data-rf-causa-status (second trace-bar))]
-        (is (= l2-status event-status trace-status "settled-error")
-            (str "all three consumers ride the same vocabulary — "
+        (is (= l2-status trace-status "settled-error")
+            (str "both consumers ride the same vocabulary — "
                  "l2: " l2-status
-                 " · event: " event-status
                  " · trace: " trace-status))))))
