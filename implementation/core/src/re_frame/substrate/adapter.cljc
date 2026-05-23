@@ -213,6 +213,66 @@
   (let [a (require-adapter! 'rf/read-container)]
     ((:read-container a) container)))
 
+(defn- base-atom-shaped-container?
+  "True when `container` is a base, writable atom-shape: it satisfies the
+  host's atom marker protocol — `clojure.lang.IAtom` on the JVM,
+  `cljs.core/IAtom` on CLJS. The host-uniform fall-back discriminator for
+  `derived-container?` when the installed adapter ships no
+  `:derived-container?` predicate.
+
+  Why `IAtom`, not `ISwap`/`IReset`: a CLJS `cljs.core/Atom` implements
+  `IAtom` but NOT `ISwap`/`IReset` — `swap!` / `reset!` fast-path on
+  `(instance? Atom …)` and only dispatch the `ISwap`/`IReset` protocols
+  for non-Atom types. So `(satisfies? ISwap (atom 0))` is FALSE; only
+  `IAtom` reliably marks a base atom on both hosts.
+
+  Sound for the plain-atom, test-react, UIx, and Helix adapters: their
+  base container is a `clojure.core/atom` (an `IAtom`) and their derived
+  value is an `IDeref`-only reify (plain-atom JVM / test-react), an
+  `IDeref`+`IDisposable` reify (plain-atom CLJS), or an
+  `IDeref`+`IWatchable`+`IDisposable` reify (the React spine) — none of
+  which is an `IAtom`. NOT sound for the Reagent family: a Reagent
+  `Reaction` (stock or reagent-slim) reifies `IAtom` too, so it cannot be
+  separated from a base `r/atom` this way — those adapters publish an
+  `:adapter/derived-container?` late-bind hook (see
+  `spine/make-ratom-adapter`) so `derived-container?` does not rely on
+  this heuristic for a `Reaction`."
+  [container]
+  #?(:clj  (instance? clojure.lang.IAtom container)
+     :cljs (satisfies? IAtom container)))
+
+(defn- derived-container?
+  "True when `container` is a derived value (a `make-derived-value`
+  result) rather than a base, writable container. Per Spec 006
+  §`make-derived-value` a derived container supports `read-container` but
+  NOT `replace-container!`.
+
+  No single host protocol distinguishes the two shapes across every
+  reference adapter — a Reagent `Reaction` reifies `IAtom` exactly like a
+  base `r/atom`, so the atom-marker heuristic alone is wrong for the
+  Reagent family. The installed adapter is the authority on its own
+  derived-value shape, so the ratom adapters (Reagent / reagent-slim)
+  publish an `:adapter/derived-container?` late-bind hook keyed on their
+  reaction's substrate disposal protocol (a `Reaction` is disposable, an
+  `r/atom` is not). The hook is routed (per `route-hook!`) so it answers
+  authoritatively only while its adapter is installed, and returns false
+  otherwise.
+
+  Combined reading: a container is derived when EITHER the adapter hook
+  says so OR — for adapters that ship no hook (plain-atom / test-react /
+  UIx / Helix, whose derived values are NOT atom-shaped) — it is not a
+  base atom shape. For the ratom family the hook is decisive (true for a
+  `Reaction`, false for a base `r/atom`), and the atom-marker arm agrees
+  on the base case (`r/atom` is an `IAtom` → not derived). For the others
+  the hook is false (chain fallback) and the atom-marker arm decides.
+
+  The hook lives in the late-bind table (not the adapter spec map) so the
+  9-fn adapter contract shape is preserved."
+  [container]
+  (let [hook (late-bind/get-fn :adapter/derived-container?)]
+    (or (boolean (and hook (hook container)))
+        (not (base-atom-shaped-container? container)))))
+
 (defn replace-container!
   "Write `new-value` into `container` via the installed adapter.
 
@@ -225,14 +285,49 @@
   implementations may assume `container` is non-nil; this wrapper is the
   single choke point through which every frame app-db write flows, so
   guarding here covers the router :db commit, drain rollback, flows, epoch
-  restore, and SSR write paths in one place."
+  restore, and SSR write paths in one place.
+
+  Derived-container guard (rf2-8wrzz.3): a derived container (the result
+  of `make-derived-value`) supports `read-container` but NOT
+  `replace-container!` — partial/whole replacement of a value computed
+  from sources is meaningless (per Spec 006 §`make-derived-value`).
+  Writing to one is a programmer error. The choke point detects the
+  derived container (`derived-container?` — the ratom adapters'
+  `:adapter/derived-container?` late-bind hook, or an atom-marker
+  fall-back), emits a `:rf.error/derived-container-replaced` trace so
+  error-listeners observe it, and throws the canonical thrown-error
+  ex-info (per Spec 009 §The thrown-error shape) so a `try`/`catch` and
+  `(:rf.error/id (ex-data e))` pivot on one vocabulary. The underlying
+  adapter `replace-container!` is NOT invoked. Guarding here (rather than
+  per-adapter) gives one uniform contract across every reference adapter —
+  the same single choke point that carries the nil guard above."
   [container new-value]
   (if (nil? container)
+    ;; rf2-ft2b nil guard runs BEFORE the adapter lookup (a scheduled drain
+    ;; racing frame destruction must not surface a misleading
+    ;; no-adapter-installed throw — see `replace-container-nil-container-
+    ;; skips-adapter-check`).
     (trace/emit! :warning :rf.warning/write-after-destroy
                  {:reason   "replace-container! called with nil container; the frame was likely destroyed mid-drain or before a scheduled write fired"
                   :recovery :no-recovery})
+    ;; Resolve the adapter FIRST so a write before `(rf/init! ...)` or after
+    ;; dispose surfaces the uniform `:rf.error/no-adapter-installed` /
+    ;; `:rf.error/adapter-disposed` throw (rf2-zdfi1) — the derived-container
+    ;; classification is meaningless without a seated adapter (you cannot say
+    ;; what shape a container is for a substrate that isn't installed).
     (let [a (require-adapter! 'rf/replace-container!)]
-      ((:replace-container! a) container new-value))))
+      (if (derived-container? container)
+        (let [reason "replace-container! is not supported on a derived container; derived containers are read-only (per Spec 006 §make-derived-value). Write to the source container(s) the derived value is computed from instead."]
+          (trace/emit-error! :rf.error/derived-container-replaced
+                             {:category  :rf.error/derived-container-replaced
+                              :recovery  :no-recovery
+                              :reason    reason})
+          (throw (ex-info ":rf.error/derived-container-replaced"
+                          {:rf.error/id :rf.error/derived-container-replaced
+                           :where       'rf/replace-container!
+                           :recovery    :no-recovery
+                           :reason      reason})))
+        ((:replace-container! a) container new-value)))))
 
 (defn make-derived-value [source-containers compute-fn]
   (let [a (require-adapter! 'rf/make-derived-value)]

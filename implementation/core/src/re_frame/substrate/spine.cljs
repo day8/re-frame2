@@ -1651,4 +1651,24 @@
       (constantly false))
     (substrate-adapter/route-hook! adapter :adapter/after-render
       after-render)
+    ;; rf2-8wrzz.3 — the derived-container discriminator the core's
+    ;; `replace-container!` choke point consults to reject writes to a
+    ;; `make-derived-value` result (Spec 006 §`make-derived-value`). The
+    ;; ratom family CANNOT rely on the choke point's atom-marker fall-back:
+    ;; a Reagent `Reaction` reifies `IAtom` exactly like a base `r/atom`, so
+    ;; the heuristic would never fire. The disposal protocol IS the
+    ;; discriminator — a derived value is disposable, a base `r/atom` /
+    ;; `RAtom` is not. Dual-protocol like the dispose dispatch above: the
+    ;; re-frame-owned IDisposable FIRST (a spine-produced derived value
+    ;; inherited through a cross-substrate test bundle, rf2-jicu2) then the
+    ;; substrate's own `:disposable?`. Routed (not an adapter-map key) so
+    ;; the 9-fn adapter contract shape is preserved; the choke point reads
+    ;; it via `late-bind/get-fn :adapter/derived-container?`. Chain-bottom
+    ;; fallback is `(constantly false)` — a non-ratom adapter answers
+    ;; "false" and the choke point's atom-marker heuristic takes over.
+    (substrate-adapter/route-hook! adapter :adapter/derived-container?
+      (fn derived-container?-dispatch [a]
+        (or (satisfies? rf-disposable/IDisposable a)
+            (boolean (disposable? a))))
+      (constantly false))
     adapter))

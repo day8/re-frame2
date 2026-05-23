@@ -52,7 +52,8 @@
     :adapter/add-on-dispose!
     :adapter/dispose!
     :adapter/reactive?
-    :adapter/after-render})
+    :adapter/after-render
+    :adapter/derived-container?})
 
 (deftest reagent-adapter-publishes-its-documented-hooks
   (testing "every hook re-frame.adapter.reagent is documented to publish is

@@ -488,6 +488,12 @@
     :chained?    true
     :design-bead "rf2-s36l"
     :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Per rf2-jicu2 not published by UIx/Helix; absent-hook fallback returns false."}
+   {:key         :adapter/derived-container?
+    :producer-ns '[re-frame.adapter.reagent
+                   re-frame.adapter.reagent-slim]
+    :chained?    true
+    :design-bead "rf2-8wrzz.3"
+    :description "Derived-container predicate the core's replace-container! choke point consults to reject writes to a make-derived-value result (Spec 006 §make-derived-value). Published only by the ratom family (Reagent / reagent-slim): their Reaction reifies IAtom exactly like a base r/atom, so the choke point's atom-marker fall-back cannot tell them apart — the hook keys on the substrate disposal protocol (a Reaction is disposable, a base r/atom is not). Not published by plain-atom / test-react / UIx / Helix, whose derived values are NOT atom-shaped (the atom-marker fall-back classifies them correctly); absent-hook fallback returns false."}
    {:key         :adapter/after-render
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
