@@ -101,13 +101,13 @@ state-mutating vs state-observing.
 
 | Phase | Steps | What |
 |---|---|---|
-| **Handling** (state-mutating) | 1 Dispatch → 2 Coeffects → 3 Handler → 4 Effects returned → 5 Effects applied → 6 Flows recompute | The `Event` L4 panel renders these six steps as a linear pipeline. Ends with "db committed." |
-| **Pivot** (the keystone) | — | Step 6 → step 7 transition. The architectural inflection. App-db panel sits on this boundary. |
-| **Reactive** (state-observing) | 7 Subs recompute → 8 Views re-render | The `Reactive` L4 panel renders the cascade as a DAG. |
+| **Handling** (state-mutating) | Dispatch → Coeffects → Handler → Effects → Flows recompute | The `Event` L4 panel renders the handling pipeline as a numbered vertical flow (the rendered section order — DISPATCH · COEFFECTS · EVENT HANDLER · DB CHANGES · AFTER INTERCEPTORS · FLOWS · FX — is in §2.2; optional sections are omitted when absent). |
+| **Pivot** (the keystone) | — | Handling → reactive transition. The architectural inflection. App-db panel sits on this boundary. |
+| **Reactive** (state-observing) | Subs recompute → Views re-render | The `View` L4 panel renders the cascade as a left → right graph (§3). |
 
-The pivot from step 6 to step 7 is the architectural keystone (per A.3
+The pivot from handling to reactive is the architectural keystone (per A.3
 super-prompt). All state mutation is left of the line; all state
-observation is right of it. **Event** and **Reactive** are PEERS — not
+observation is right of it. **Event** and **View** are PEERS — not
 master + detail — bridged by **App-db**.
 
 ### §1.2 Scope rule — every L4 panel is focused-epoch-scoped
@@ -183,7 +183,7 @@ scope](018-Event-Spine.md) + [`020-Filter-Predicates.md` §3](020-Filter-Predica
 
 ---
 
-## §2 The Event panel (handling perspective · steps 1-6)
+## §2 The Event panel (handling perspective)
 
 ### §2.1 Question
 
@@ -191,11 +191,11 @@ scope](018-Event-Spine.md) + [`020-Filter-Predicates.md` §3](020-Filter-Predica
 
 End-to-end mutation pipeline for the focused epoch.
 
-**Density note** (per §0). Workstation feel: all six steps render
+**Density note** (per §0). Workstation feel: all sections render
 default-expanded; the pipeline IS the punch and hiding it behind
 "Show details" would undercut the lens. Target ~28-40 lines visible at
-default density on a 1080p screen (the cosy case in §2.2 lands at ~36
-lines including arrows). Per-step collapse stays available via header
+default density on a 1080p screen (the dense case in §2.2 lands at ~40
+lines including the rail). Per-section collapse stays available via header
 click for the operator who wants to focus, but is opt-out, not default.
 
 ### §2.2 Layout — numbered vertical-flow pipeline (Figma design — rf2-ad7zx)
@@ -235,82 +235,81 @@ Section order (numbered; optional sections shown only when present):
 The cascade-id stays internal (`data-dispatch-id` on the lens root for tests/agents); not
 shown. The sections form a one-way pipeline — **linear numbered flow, not a flat list.**
 
-> **Note (rf2-ad7zx):** the two ASCII sketches below predate the Figma reconciliation — they
-> still show the prior chevron / `EFFECTS RETURNED+APPLIED` / violet-stripe shape. They are
-> being **regenerated** to match the numbered section order above +
-> `tools/causa/design-reference/components/EventPanel.tsx`. The prose above is authoritative.
+The sketches below match the numbered section order above +
+`tools/causa/design-reference/components/EventPanel.tsx`: a thin vertical rail down the left
+edge with a small **numbered step circle** (`①②…`) at each section, sections rendered top→bottom,
+optional sections (COEFFECTS / AFTER INTERCEPTORS / FLOWS) shown only when present. The `↗`
+glyphs mark click-to-source links (DISPATCH origin, each COEFFECT id, EVENT HANDLER, each AFTER
+INTERCEPTOR id, each FLOW id). There is **no outcome badge** and **no "db committed" footer** —
+absence of a step is conveyed by omission. Diff glyphs follow the cascade gutter (`~` modified ·
+`+` added · `-` removed).
 
-Dense case (default — focused epoch is a normal event with effects):
+Dense case (default — focused epoch is a normal event with coeffects, after-interceptors,
+flows, and fx):
 
 ```
-┌─ EVENT · :checkout/submit · epoch #42 ─────────────── [◀ Prev] [Next ▶] ─┐
-│ Stripe: violet (:accent-violet)                                          │
+┌─ EVENT · :counter-inc · epoch #42 ─────────────────── [◀ Prev] [Next ▶] ─┐
+│▌ stripe: mode accent (orange in Dynamic · cyan in Static)                 │
 │                                                                          │
-│ DISPATCH                                                                  │
-│   Event       [:checkout/submit {:cart-id "c123"}]                        │
-│   Origin      :user                                                       │
-│   Call-site   views/checkout.cljs:142  ⎘ ⤴ open-in-editor                │
-│   At          14:32:01.231                                                │
-│       │                                                                   │
-│       ⋁                                                                   │
-│ COEFFECTS ASSEMBLED                                                       │
-│   :db         {…current slice…}            [▸ expand]                     │
-│   :now        2026-05-20T14:32:01.231Z                                    │
-│   :http-cache {3 entries}                  [▸ expand]                     │
-│       │                                                                   │
-│       ⋁                                                                   │
-│ HANDLER INVOKED                                                           │
-│   :checkout/submit · reg-event-fx                                         │
-│   ↳ impl/events.cljs:88   ⤴ open-in-editor                               │
-│   ↳ source (DEBUG-gated, when available):                                │
-│       (reg-event-fx :checkout/submit                                      │
-│         (fn [{:keys [db]} [_ {:keys [cart-id]}]]                          │
-│           {:db (assoc-in db [:cart :state] :submitting)                   │
-│            :fx [[:http/managed {…}]]}))                                   │
-│       │                                                                   │
-│       ⋁                                                                   │
-│ EFFECTS RETURNED  (handler intent)                                        │
-│   :db   {…new slice…}                      [▸ diff inline]                │
-│   :fx   [[:http/managed {:method :post :url "/orders" …}]]                │
-│       │                                                                   │
-│       ⋁                                                                   │
-│ EFFECTS APPLIED  (what actually happened)                                 │
-│   :db          written  ✓                                                 │
-│   :http/managed  POST /orders   in-flight  ⏳   #h-142                   │
-│       │                                                                   │
-│       ⋁                                                                   │
-│ FLOWS RECOMPUTED                                                          │
-│   :cart/total           re-fired  (input [:cart :items] changed)          │
-│   :cart/eligibility     unchanged input — skipped (dim)                   │
-│                                                                          │
-│ ━━━━━━━━━━━━━━━━ db now committed for epoch #42 ━━━━━━━━━━━━━━━━━        │
+│  rail                                                                     │
+│   │                                                                       │
+│  ①  DISPATCH                                                              │
+│   │    [:counter-inc]                                                     │
+│   │    FROM: view ↗                                                       │
+│   │                                                                       │
+│  ②  COEFFECTS                              (optional · shown when present) │
+│   │    :now ↗                                                             │
+│   │      + [:now]      #inst "2026-05-23T12:30:05.123Z"                   │
+│   │    :session ↗                                                         │
+│   │      + [:session]  {:user-id 42, :token "..."}                       │
+│   │                                                                       │
+│  ③  EVENT HANDLER ↗                                                       │
+│   │    (rf/reg-event-db :counter-inc          ← syntax-highlighted        │
+│   │      [:rf/db]                                                         │
+│   │      (fn [db _]                                                       │
+│   │        (update db :counter inc)))                                     │
+│   │                                                                       │
+│  ④  DB CHANGES                                                            │
+│   │    ~ [:counter]       1 → 2                                           │
+│   │    + [:last-updated]  #inst "2026-05-23T12:30:05"                     │
+│   │                                                                       │
+│  ⑤  AFTER INTERCEPTORS                     (optional · shown when present) │
+│   │    :persist-db ↗                                                      │
+│   │      + [:fx :local-storage]  {:key "app-state" :value {...}}          │
+│   │    :analytics ↗                                                       │
+│   │      + [:fx :track]          {:event "counter-inc"}                   │
+│   │                                                                       │
+│  ⑥  FLOWS                                  (optional · shown when present) │
+│   │    :totals-flow ↗  →  [:totals] recomputed                           │
+│   │      + [:totals :sum]  42                                            │
+│   │                                                                       │
+│  ⑦  FX                                                                    │
+│        :dispatch    → [:title/flow [:rf/init]]                            │
+│        :http-xhrio  → {:method :get, :uri "/api/data"}                    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-Sparse case (focused epoch is a noisy timer with no effects):
+Sparse case (focused epoch is a noisy timer — no coeffects, no after-interceptors, no flows;
+the optional sections are simply omitted, so the visible steps renumber `①②③`):
 
 ```
-┌─ EVENT · :ping/tick · epoch #87 ─────────────────── [◀ Prev] [Next ▶] ─┐
-│                                                                        │
-│ DISPATCH    [:ping/tick]    origin :timer                              │
-│       │                                                                │
-│       ⋁                                                                │
-│ COEFFECTS   :db (sliced)                                               │
-│       │                                                                │
-│       ⋁                                                                │
-│ HANDLER     :ping/tick · reg-event-db                                  │
-│       │                                                                │
-│       ⋁                                                                │
-│ EFFECTS     :db only — no :fx returned                                 │
-│       │                                                                │
-│       ⋁                                                                │
-│ APPLIED     :db written ✓     (no fx)                                  │
-│       │                                                                │
-│       ⋁                                                                │
-│ FLOWS       (no flow inputs changed)                                   │
-│                                                                        │
-│ ━━━ db committed ━━━                                                   │
-└────────────────────────────────────────────────────────────────────────┘
+┌─ EVENT · :poll/tick · epoch #87 ───────────────────── [◀ Prev] [Next ▶] ─┐
+│▌ stripe: mode accent                                                      │
+│                                                                          │
+│   │                                                                       │
+│  ①  DISPATCH                                                              │
+│   │    [:poll/tick]                                                       │
+│   │    FROM: timer ↗                                                      │
+│   │                                                                       │
+│  ②  EVENT HANDLER ↗                                                       │
+│   │    (rf/reg-event-db :poll/tick …)        ← syntax-highlighted         │
+│   │                                                                       │
+│  ③  DB CHANGES                                                            │
+│   │    ~ [:poll :n]  41 → 42                                              │
+│   │                                                                       │
+│  ④  FX                                                                    │
+│        (none)                                                             │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### §2.3 Queries (what the panel reads)
@@ -319,20 +318,18 @@ Sparse case (focused epoch is a noisy timer with no effects):
 |---|---|
 | Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.fx/do-fx` (step 4 — effects returned, carries `:rf.event/fx`), `:rf.fx/handled` per fx-id (step 5 — effects applied), `:rf.flow/computed` (step 6) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
 | Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated) |
-| App-db panel (bridge) | Inline diff renderer for step 4's `:db` value (reuses §8) |
+| App-db panel (bridge) | Inline diff renderer for the handler's `:db` effect — the DB CHANGES section (reuses the shared renderer §10) |
 
 ### §2.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
-| Step 1 `Origin :user` chip | (no-op MVP; stretch: filter-IN on origin) |
-| Step 1 call-site | Open-in-editor (Causa's existing `:rf.causa/open-in-editor`) |
-| Step 3 handler source ↳ | Open-in-editor at handler file:line |
-| Step 4 `:fx` row | Switch to **Trace** panel, scrolled to the `:rf.fx/do-fx` / `:rf.fx/handled` op for that fx |
-| Step 5 fx settlement | Switch to **Trace** panel, scrolled to settlement op; if `:http/managed`, badge offers the wire-trace popover |
-| Step 6 flow row | Switch to **App-db** panel, scrolled to the path that flow wrote |
-| "db committed" marker | Switch to **App-db** panel (focused-epoch diff view) |
-| Click any path segment in step 2/4 value | Cross-panel propagation per §10.5 (App-db ↔ Reactive); no other value interactions |
+| DISPATCH `FROM: <source>` link | Open-in-editor (Causa's existing `:rf.causa/open-in-editor`) at the dispatch-origin call-site |
+| COEFFECTS / AFTER-INTERCEPTORS id ↗ | Open-in-editor at the coeffect / interceptor registration file:line |
+| EVENT HANDLER ↗ | Open-in-editor at handler file:line |
+| FX row | Switch to **Trace** panel, scrolled to the `:rf.fx/do-fx` / `:rf.fx/handled` op for that fx; if `:http/managed`, the badge offers the wire-trace popover |
+| FLOWS row | Switch to **App-db** panel, scrolled to the path that flow wrote |
+| Click any path segment in a COEFFECTS / DB CHANGES value | Cross-panel propagation per §10.5 (App-db ↔ View); no other value interactions |
 
 ### §2.5 Film-strip back/forward
 
@@ -374,7 +371,7 @@ rhythm — thin left rail + downward chevrons):
 
      | column | meaning |
      | --- | --- |
-     | `sub-id` | the sub's query-id (violet) |
+     | `sub-id` | the sub's query-id (mode-accent keyword tone) |
      | `changed?` | ✓ when the sub's value changed (`sub-changed?` — `:value-changed?` / `:prev-value` ≠ `:value`) |
      | `cascaded?` | ✓ when an upstream sub drove the recompute (`sub-cascaded?` — `:cascade?` / `:cause-sub`); the upstream `:cause-sub` rides as muted `← :s/foo` secondary text on the ✓ |
      | `code` | the `[code]` source-coord chip — opens the sub's registration in the editor |
@@ -416,60 +413,86 @@ deeper than 4 levels rare enough that vertical scroll is acceptable.
 
 ### §3.2 Layout — DAG visualised as indented cascade
 
-The reactive cascade is a DAG (§A.3 super-prompt). The Reactive panel
-renders it depth-first with explicit indentation showing sub-of-sub layering.
+The reactive cascade is a DAG (§A.3 super-prompt).
 
-**Cascade scope — flows are NOT in the reactive cascade.** The cascade
-is strictly **db-paths → subs → views**. Flows mutate state — they
-belong to the handling pipeline (step 6) — and they may **feed** the
-cascade by writing db-paths the subs are watching, but they don't
-participate in the read-only subs/views flow. Quoted from the
-super-prompt (A.3):
+**Layout — a left → right reactive-flow graph (Figma design — rf2-ad7zx).** Reconciled to
+`tools/causa/design-reference/components/ViewsPanel.tsx`, the later iteration. The panel renders
+the cascade as a **left → right node-and-edge graph** (an inline SVG canvas headed `REACTIVE
+FLOW`), not the prior depth-first indented tree. Columns, left → right:
+
+- **app-db** — a **single source node** at the left, with an edge to **each Level-1 sub** (every
+  Level-1 sub reads app-db; the fan-out is a plain edge, no path detail — see §3.2 constraint 1).
+- **Level-1 subs** (extractors) — each drawn with its changed/unchanged state.
+- **Level-2 subs** (derived via `:<-`; *optional* layer; precise `:<-` edges).
+- **Views** (right-most — **the focus**) — each tagged re-rendered + *why*.
+
+**Node + edge encoding (colour/edge first, per Visual encoding §022 — NOT glyphs):**
+
+- **Changed / recomputed** node → filled tint + `changed` (mode accent) border + bold label;
+  its outgoing edges are solid `changed` arrows that **propagate downstream**.
+- **Unchanged / short-circuited** node → transparent fill + dashed `unchanged` (`dim`) outline +
+  dim label; its edges are **dashed grey** and **visually cut** (downstream did not re-run).
+- **View** node → `success`-tinted box labelled `(rerendered)`; it is the cascade's leaf and focus.
+- **Shared subscription** → a sub with edges to **two or more views** is shared; the topology (two
+  edges) carries the "one sub drives N views" fact (a small `×N` may annotate it).
+
+**Cascade scope — flows are NOT in the reactive graph.** The graph is strictly **app-db → subs →
+views**. Flows mutate state — they belong to the handling pipeline (Event panel step 6) — and they
+may **feed** the cascade by writing db-paths the subs watch, but they do not appear as graph nodes.
+Quoted from the super-prompt (A.3):
 
 > The Reactive panel renders the cascade (subs + views); the Event panel
 > renders flows (alongside other handling steps).
 
-This is binding for the DAG diagram below: the only nodes are db-paths
-(seed), subs (intermediate), and views (leaf). No flow node ever
-appears as a branch of the cascade. The L2 row's `🌊 flow-recomputed`
-badge surfaces flows as a cross-epoch signal; per-epoch flow detail
-lives in Event panel step 6.
+The L2 row's `🌊 flow-recomputed` badge surfaces flows as a cross-epoch signal; per-epoch flow
+detail lives in Event panel step 6.
 
-Dense case (focused epoch ripples through several subs into multiple
-views):
+Below the graph, two list sections record the epoch's reactive teardown (Figma design):
+
+- **UNMOUNTED VIEWS** — views whose component unmounted this epoch (one row each: view name +
+  `unmounted` tag; a small `error`-tinted swatch as the row marker).
+- **DESTROYED SUBSCRIPTIONS** — subs cleaned up when their last reader unmounted (one row each:
+  sub-id + `no readers remaining` tag; a small `unchanged`/`dim`-tinted swatch). Caption below:
+  "Subscriptions cleaned up when their last reader unmounted."
+
+A legend closes the panel ("Views (right) are the focus — each: re-rendered + why (reactive vs
+parent re-render)") with three swatches: `changed (propagates downstream)` · `no change
+(short-circuits)` · `unmounted / destroyed`.
+
+Dense case (focused epoch ripples through several subs into multiple views; one shared sub
+fans out to two views; two Level-1 subs short-circuited):
 
 ```
-┌─ REACTIVE · epoch #42 ───────────────────────────── [◀ Prev] [Next ▶] ─┐
-│ Stripe: cyan (:cyan)                                                    │
+┌─ VIEW · epoch #42 ───────────────────────────────── [◀ Prev] [Next ▶] ─┐
+│▌ stripe: mode accent (orange in Dynamic · cyan in Static)               │
 │                                                                         │
-│ Triggered by   [:checkout/submit …]                                     │
-│ Seed paths     [:cart :state]  [:cart :items]                           │
-│       │                                                                 │
-│       ▼                                                                 │
-│ [7] SUBS RECOMPUTED  (8 ran · 4 changed · 4 dim short-circuits)         │
+│ REACTIVE FLOW                                            unchanged ┄┄    │
+│ ┌─────────────────────────────────────────────────────────────────────┐ │
+│ │            ╌╌╌▷ ::title-state  [no change]   (downstream cut)        │ │
+│ │ ┌────────┐ ╌╌╌▷ ::settings     [no change]                          │ │
+│ │ │ app-db │                                                          │ │
+│ │ └───┬────┘ ───▶ ::counter ───▶ ::counter-parity ───▶ counter-view   │ │
+│ │     │           [changed]        [changed]            (rerendered)   │ │
+│ │     │                                          ┌────▶ header-view    │ │
+│ │     └─────────▶ ::session ──────┤              │      (rerendered)   │ │
+│ │                  [changed]       └─────────────┤ ×2 (shared)         │ │
+│ │                                                └────▶ sidebar-view   │ │
+│ │                                                       (rerendered)   │ │
+│ │  changed = filled + accent border · no change = dashed dim outline   │ │
+│ │  short-circuit = dashed-grey cut edge · shared sub = N edges (×N)    │ │
+│ └─────────────────────────────────────────────────────────────────────┘ │
 │                                                                         │
-│   ◆ :cart/state                  :idle → :submitting                    │
-│       └─ ◆ :cart/can-submit?     true → false                           │
-│             └─ ▢ CheckoutButton  view re-rendered                       │
-│       └─ ▢ StateBanner           view re-rendered                       │
-│   ◆ :cart/items                  +1 entry                               │
-│       └─ ◆ :cart/total           48.00 → 71.00                          │
-│             └─ ▢ TotalsRow       view re-rendered                       │
-│   ○ :user/name                   (input unchanged · skipped)            │
-│   ○ :cart/eligibility            (input unchanged · skipped)            │
-│       │                                                                 │
-│       ▼                                                                 │
-│ [8] VIEWS RE-RENDERED  (3)                                              │
+│ UNMOUNTED VIEWS                                                          │
+│   ▪ modal-view                                              unmounted    │
+│   ▪ tooltip-view                                            unmounted    │
 │                                                                         │
-│   ▢ CheckoutButton   views/checkout.cljs:88                             │
-│       caused-by ← :cart/can-submit? ← [:cart :state]                    │
-│   ▢ StateBanner      views/cart/banner.cljs:14                          │
-│       caused-by ← :cart/state ← [:cart :state]                          │
-│   ▢ TotalsRow        views/cart/totals.cljs:22                          │
-│       caused-by ← :cart/total ← [:cart :total]                          │
+│ DESTROYED SUBSCRIPTIONS                                                  │
+│   ▪ ::modal-state                              no readers remaining      │
+│   ▪ ::tooltip-position                         no readers remaining      │
+│   Subscriptions cleaned up when their last reader unmounted             │
 │                                                                         │
-│ ─────────────────────────────────────────────────────────────────       │
-│  [Show 4 unchanged subs ▾]  ← collapsed by default (B.10 pick: dim)     │
+│ Legend  ■ changed (propagates)  ⬚ no change (short-circuits)            │
+│         ▪ unmounted / destroyed                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -477,27 +500,33 @@ Sparse case (the epoch's db change touched no subscribed paths — common
 for tool-frame internal events):
 
 ```
-┌─ REACTIVE · epoch #87 ──────────────────────────── [◀ Prev] [Next ▶] ─┐
-│                                                                       │
-│ Triggered by   [:ping/tick]                                           │
-│ Seed paths     [:ping :count]                                         │
-│                                                                       │
-│ [7] SUBS        No subs subscribed to changed paths.                  │
-│ [8] VIEWS       No views re-rendered.                                 │
-│                                                                       │
-│ This epoch produced no reactive cascade. State changed at the seed    │
-│ path but nothing downstream was observing it.                         │
-└───────────────────────────────────────────────────────────────────────┘
+┌─ VIEW · epoch #87 ───────────────────────────────── [◀ Prev] [Next ▶] ─┐
+│▌ stripe: mode accent                                                    │
+│                                                                         │
+│ REACTIVE FLOW                                                           │
+│   No subs subscribed to changed paths · no views re-rendered.           │
+│                                                                         │
+│ This epoch produced no reactive cascade. State changed at the seed      │
+│ path but nothing downstream was observing it.                           │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Attribution detail (`caused-by ← sub ← path`).** The depth-first cause chain the prior
+> indented tree carried per leaf — `CheckoutButton  caused-by ← :cart/can-submit? ← [:cart
+> :state]` — survives as the **per-view causation tooltip / cross-panel chip** (§3.6), not as
+> the panel's primary layout. The graph's edges ARE the causation; the chip spells it out for
+> the click-to-App-db jump. (Whole-cascade `caused-by` attribution depends on the deref-subs
+> sink — see §3.2 constraint 2; until it lands, the sub→view edge names only the triggering
+> view of each recompute.)
 
 ### §3.3 Sub-layer placement (B.6 decision)
 
 **Decision: (b) inside Reactive + (d) hover-over in App-db.**
 
-- **In Reactive (b):** subs appear inline in the cascade tree (above)
-  indented under their seed paths, with view-render leaves under the
-  causing sub-chain. Each re-rendered view in step 8 lists its full
-  causation chain in `caused-by ← sub ← path` form.
+- **In Reactive (b):** subs appear inline in the left → right reactive-flow graph (above)
+  as the intermediate column between `app-db` and the view leaves, on the edge from app-db
+  through the causing sub-chain to each view. Each re-rendered view carries its full
+  causation chain in `caused-by ← sub ← path` form (as the cross-panel chip per §3.6).
 - **In App-db (d):** hover any changed path → popover lists "subs
   depending on this path" (§4.4). No peer L4 Subs panel — keeps panel
   count stable; the sub layer is reached organically by drilling down
@@ -529,6 +558,31 @@ the "I want to see what DIDN'T fire" affordance.
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
 
+Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
+(nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;
+`:rf.sub/value-changed?` / `:rf.sub/prev-value` / `:rf.sub/value` drive the changed/unchanged
+node state. The per-epoch aggregate `:rf.cascade/captured` (subs recomputed/skipped, flows
+computed/skipped, views rendered) feeds the counts. The **UNMOUNTED VIEWS** + **DESTROYED
+SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same epoch slice.
+
+**Constraints the graph layout is shaped around:**
+
+1. **app-db → Level-1 is a plain fan-out, not path-wired.** re-frame subs read app-db
+   imperatively; nothing records which paths a Level-1 sub reads (`sub-topology` `:inputs`
+   is empty for Level-1; the trace records re-runs + value-changes, not paths). So `app-db`
+   is one source node with an arrow to each Level-1 sub — no per-path edges. Only **flows**
+   declare `:inputs` paths (precise app-db-path → flow), and flows are not in this graph.
+2. **`:rf.view/rendered` carries no deref-subs list** (live: only render-key / id / frame /
+   mount?). The sub→view link comes from `:rf.sub/reader-render-key`, which names only the
+   **triggering** view of a recompute — not all readers. So BOTH the per-view
+   "reactive-vs-parent" reason AND **shared-subscription detection** (which views read a
+   given sub) need the deref-subs sink (spec'd, absent in the current build) or sub-cache
+   reader introspection. Until it lands, the `×N (shared)` annotation + the precise
+   "reactive vs parent re-render" tag render only for edges the triggering-view key resolves.
+3. **`:rf.sub/skipped`** ("considered, didn't recompute") appears only when skips happen;
+   `:rf.sub/value-changed? false` carries the changed/not story regardless, so the dashed
+   `no change` node renders from the run-set alone.
+
 ### §3.6 Cross-panel navigation
 
 | Click | Navigates to |
@@ -553,50 +607,75 @@ filter "next epoch with view re-render" (skip the silent epochs).
 App-db is the bridge between Event (writes) and Reactive (reads). It
 anchors the cascade's seed paths.
 
-**Density note** (per §0). The DIFF zone shows changed paths only —
-narrow, dense, scannable. The STATE zone uses the shared lazy-tree
-renderer with App-db's own depth heuristic (depth-3-collapsed by
-default — see §10.4) so a 5-level-deep production db doesn't blow the
-viewport. The hover popover (§4.4) is the canonical example of a
-**hover affordance** in Causa: never replacing inline content, always
-augmenting. Lines-per-screen target ~30-50 depending on db shape.
+**Density note** (per §0). The panel renders the complete app-db as **vertical sections, each
+a cljs-devtools-style collapsible widget** (§10), sectioned by reserved `:rf/*` area. Each
+section's value uses the shared lazy-tree renderer with App-db's depth heuristic
+(depth-3-collapsed by default — see §10.4) so a 5-level-deep production db doesn't blow the
+viewport. Diff is carried **inline as `← changed` annotations** on the changed nodes within
+each section (not a separate zone). The hover popover (§4.4) is the canonical example of a
+**hover affordance** in Causa: never replacing inline content, always augmenting.
+Lines-per-screen target ~30-50 depending on db shape.
 
-### §4.2 Layout
+### §4.2 Layout (Figma design — rf2-ad7zx)
 
-Two zones inside the panel:
+Reconciled to `tools/causa/design-reference/components/AppDbPanel.tsx`, the later iteration —
+the **sectioned-by-reserved-area** model (the prior separate DIFF / STATE two-zone split is
+superseded). The complete app-db renders as **vertical sections**, each headed by an uppercase
+caption label and rendering its value as a collapsible widget; adjacent sections are separated
+by a 1px hairline. Section order, top → bottom:
+
+- **APP STATE** (TOP, always shown) — the app-db **minus** every reserved `:rf/*` key (the
+  application's own state).
+- **MACHINE `<id>`** — `:rf/machines` **fans out: one section per machine**, headed by the
+  machine id (e.g. `MACHINE :title/flow`).
+- **SPAWNED `<id>`** — `:rf/spawned` fans out the same way, one section per spawned instance.
+- **ROUTE** — `:rf/route` is a **single section** (singleton — the current-route slice; NOT
+  fanned out).
+- **Other reserved singletons** — `SYSTEM-IDS` (`:rf/system-ids`), `PENDING-NAVIGATION`
+  (`:rf/pending-navigation`), `ELISION` (`:rf/elision`) — one section each.
+
+Every reserved area renders **even when absent/empty** (empty-state placeholder) so the
+operator always sees the full reserved-key inventory. The mode-accent stripe sits at the
+panel's left edge.
 
 ```
 ┌─ APP-DB · epoch #42 ────────────────────────────── [◀ Prev] [Next ▶] ─┐
-│ Stripe: cyan (:cyan)                                                  │
+│▌ stripe: mode accent (orange in Dynamic · cyan in Static)             │
 │                                                                       │
-│  ─ DIFF (this epoch) ──────────────────────────────────────────────   │
-│   ◆ [:cart :state]              :idle → :submitting                   │
-│       Subs depending: [:cart/state] [:cart/can-submit?]               │
-│   ◆ [:cart :items]              +1 entry                              │
-│       Subs depending: [:cart/items] [:cart/total] [:cart/eligibility] │
+│ APP STATE                                                             │
+│   ▾ {:counter 2, :user {:name "Alice" :role :admin}}                  │
+│     · :counter  2             ← changed from 1                        │
+│ ───────────────────────────────────────────────────────────────────  │
+│ MACHINE :title/flow                                                   │
+│   ▾ {:state :loaded, :context {:data [...]}}                          │
+│ MACHINE :other/flow                                                   │
+│   ▸ {:state :idle}                                                    │
+│ ───────────────────────────────────────────────────────────────────  │
+│ ROUTE                                                                 │
+│   ▸ {:id :home, :params {}}                                           │
+│ ───────────────────────────────────────────────────────────────────  │
+│ SYSTEM-IDS                                                            │
+│   ▸ #{:app :causa}                                                    │
+│ PENDING-NAVIGATION   (empty this epoch)                               │
+│ ELISION              (empty this epoch)                               │
 │                                                                       │
-│  ─ STATE (browseable, full db at end of epoch #42) ─────────────────  │
-│   ▾ :cart                                                             │
-│     ▾ :items   [2 items]                                              │
-│       ▸ 0  {:id 7  :qty 1}                                            │
-│       ▸ 1  {:id 22 :qty 1}    ← changed                              │
-│     · :state  :submitting     ← changed from :idle                    │
-│     · :total  71.00           ← changed from 48.00                    │
-│   ▸ :user      {3 keys}                                               │
-│   ▸ :session   {5 keys}                                               │
-│   ▸ :http      {1 in-flight}                                          │
-│                                                                       │
-│  Empty diff state (no app-db change this epoch):                      │
-│  "Epoch produced no app-db changes — handler returned no :db effect." │
+│  Empty section state (reserved area absent):  shows the header + a    │
+│  dim "(empty)" placeholder — the area renders even when unused.       │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-### §4.3 The diff renderer
+> **Note (rf2-ad7zx):** Machines and Route also have their own dedicated L4 tabs (richer,
+> specialized lenses). The app-db tab is deliberately the **raw, complete state** view — it
+> shows everything, sectioned, including those reserved areas, with each value as a
+> collapsible inspector widget.
 
-Reuses the shared lazy-tree + inline-diff + keyword-accent + clickable-paths
-renderer (§8). The DIFF zone is the lazy tree narrowed to changed paths;
-the STATE zone is the lazy tree rooted at `[]` with diff annotations
-inline ("← changed from X").
+### §4.3 The section renderer
+
+Every section's value renders as a cljs-devtools-style collapsible inspector widget via the
+shared lazy-tree + inline-diff + keyword-accent + clickable-paths renderer (§10) — App state,
+each machine, each spawned instance, Route, and every reserved singleton alike. Diff is
+annotation in place on the changed nodes within each section ("← changed from X"), with the
+ancestor chain force-expanded so the operator never expands to find a change (§10.4).
 
 ### §4.4 Cascade overlay — downstream subs
 
@@ -621,9 +700,9 @@ dismissable, click-through to Reactive panel via the `⤴` footer link.
 
 ### §4.5 No epoch focused (LIVE mode at head)
 
-When the L2 spine is at head (no historical epoch focused), the diff zone
-shows the most-recent epoch's diff (head-cascade); the state zone shows
-current db. Same render shape — no second mode.
+When the L2 spine is at head (no historical epoch focused), the sections
+show the most-recent epoch's state with its diff annotations (head-cascade)
+— current db, sectioned. Same render shape — no second mode.
 
 ### §4.6 Queries
 
@@ -658,11 +737,11 @@ tracing.
 Per-epoch raw trace ops ordered by emission time. The underlying stream
 that Event + Reactive summarise. NOT aggregate across epochs (per §1.2).
 
-**Density note** (per §0). Each op renders as a single mono row —
-`timestamp · op-type-dot · operation · description · source-coord` — so
-a 30-op epoch reads as a 30-line scroll. Per-row payload expansion via
-click reuses the shared data-display renderer's `browse` (cljs-devtools)
-variant (§10). Lines-per-screen target ~30-60.
+**Density note** (per §0). Each op renders as a single mono row in **plain language**
+(`relative-timestamp · op-family colour-band · readable description · duration`) — so a
+30-op epoch reads as a 30-line scroll. The raw `:operation` + tag-map is **expandable detail**
+via click, reusing the shared data-display renderer's `browse` (cljs-devtools) variant (§10),
+not the default line. Lines-per-screen target ~30-60.
 
 ### §5.2 Scope + layout (reworked — rf2-o6yqq + rf2-td380 + rf2-gkczt)
 
@@ -690,17 +769,36 @@ epoch-per-event (§1.1), one epoch = one event, so the focused epoch's
   (This makes the Trace panel the one L4 panel with NO film-strip header —
   the others retain it; see §2.5.)
 
+**Readable rows (Figma design — rf2-ad7zx).** Reconciled to
+`tools/causa/design-reference/components/TracePanel.tsx`, the later iteration. Each op renders
+as a **plain-language line**, not its raw op-type:
+`dispatched [:counter-inc]` · `db changed [:counter] 1 → 2` · `fx :dispatch → [:title/flow …]`
+· `machine :title/flow idle → loading`. Each row carries:
+
+1. a **relative timestamp** (`t+0.0ms`) at the left,
+2. a **3px coloured left-border banded by op-family** (dispatch = mode accent · db = `changed`
+   · fx = `warning` · reactive = `dim` · machine = chart/machine tone), so the epoch's shape
+   scans at a glance,
+3. the readable description (mono), and
+4. a **per-op duration** at the right (event-emit / `do-fx` rows carry elapsed timing; reactive
+   point-in-time emits show a timestamp, not a bar).
+
+The reactive aftermath (the many `:rf.sub/run` / `:rf.view/render`) **collapses under one
+expandable group** — `▸ reactive aftermath (N subs, M renders)` — so the core dominoes stand
+out (collapsible groups, not filter chrome). **Causal nesting:** child dispatches indent under
+their parent (the cascade tree) so structure is visible even in the raw view. Clicking any row
+expands its raw `:operation` + tag-map inline (no nav).
+
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ ▔▔▔▔▔▔▔▔▔▔▔▔▔  3px cascade-status bar (lifecycle colour)  ▔▔▔▔▔▔▔▔▔▔▔ │
-│ 14:42:14.701  ● :rf.event/dispatched  [:checkout/submit …]  events:88 │
-│ 14:42:14.701  ● :rf.event/run         :checkout/submit       events:88 │
-│ 14:42:14.702  ● :rf.fx/do-fx          :http/managed          —         │
-│ 14:42:14.703  ● :rf.sub/run           :cart/state            subs:21   │
-│ 14:42:14.703  ● :rf.sub/run           :cart/can-submit?      subs:33   │
-│ 14:42:14.714  ● :rf.view/render       CheckoutButton         views:12  │
-│ 14:42:14.714  ● :rf.view/render       StateBanner            views:40  │
-│  (click any row → inline payload expansion · no nav)                    │
+│ ▌ t+0.0ms  dispatched [:counter-inc]                          0.4 ms  │  ← accent band
+│ ▌ t+0.1ms  db changed [:counter] 1 → 2                                 │  ← changed band
+│ ▌ t+0.2ms  fx :dispatch → [:title/flow [:rf/init]]                     │  ← warning band
+│ ▌ t+0.3ms  ▸ reactive aftermath (2 subs, 1 render)                     │  ← dim · collapsible
+│ ▌ t+0.5ms  machine :title/flow idle → loading                         │  ← machine band
+│      ▌ t+0.6ms  └─ dispatched [:title/loaded]   (child cascade)        │  ← indented
+│  colour-banded by op-family · click a row → expand raw :operation + tags│
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -781,7 +879,7 @@ for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
 | Convention | xyflow implementation |
 |---|---|
 | Nested state containment | xyflow's group/parent-node mechanic. Parent state renders as a containing rect; child states are nested xyflow nodes whose `parentNode` references the parent. |
-| Transition edge animation | xyflow's `animated: true` edge prop. Color via Causa palette (`:accent-violet` for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
+| Transition edge animation | xyflow's `animated: true` edge prop. Color via Causa palette (`:accent` — the mode accent, orange in Dynamic — for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
 | Current-state highlight pulse | Custom node CSS class that applies the `pulse` keyframe (~1.2s ease-in-out; CSS-variable interpolated through `--rf-causa-motion-scale` so `prefers-reduced-motion` collapses it). Pulse outline color = `:green` (the panel-domain accent). |
 | Auto-layout | xyflow's built-in `getLayoutedElements` helper (dagre algorithm). One-shot layout on first render; cached per machine-id; recomputed only when topology changes. |
 | Zoom + pan + fit | xyflow's built-in `Controls` component (re-styled to match Causa's button chrome). Default zoom: fit-on-mount with 20px padding. `[− 100% +] [Fit][Reset]` chrome already shown in the existing mockups maps 1:1 to xyflow's `Controls`. |
@@ -807,7 +905,7 @@ panel, not a generic xyflow diagram):
  :region-container   {:background "transparent"
                       :border (str "1px dashed " (:border-default tokens))}
  :edge-registered    {:stroke (:text-tertiary tokens) :stroke-width 1}
- :edge-fired-this-epoch {:stroke (:accent-violet tokens) :stroke-width 2
+ :edge-fired-this-epoch {:stroke (:accent tokens) :stroke-width 2  ; mode accent (orange in Dynamic)
                          :animated true}
  :edge-label         {:fill (:text-secondary tokens)
                       :font-family mono-stack
@@ -837,77 +935,60 @@ the nodes and edges with Causa palette tokens.
 
 ```
 ┌─ MACHINES · epoch #87 ──────────────────────────── [◀ Prev] [Next ▶] ─┐
-│ Stripe: green (:green)                                                │
+│▌ stripe: mode accent (orange in Dynamic · cyan in Static)             │
 │                                                                       │
-│ :rf.machine.checkout/flow      (no activity this epoch · current ●)   │
+│ machine :title/flow            (no activity this epoch · current ●)   │
 │ ┌─[Canvas]─────────────────────────────────────[− 100% +] [Fit][Reset]│
-│ │  ▢ :idle ──→ ◉ :authing ──→ ▢ :settled                              │
-│ │              ↑ current                                              │
+│ │  ( idle ) ──→ (( loaded )) ──→ ( error )                            │
+│ │                  ↑ current                                          │
 │ └────────────────────────────────────────────────────────────────────┘│
 │                                                                       │
-│ :rf.machine.cart/lifecycle     (no activity this epoch · current ●)   │
+│ machine :other/flow            (no activity this epoch · current ●)   │
 │ ┌─[Canvas]──────────────────────────────────────────────────────────┐ │
-│ │  ▢ :empty  ◉ :populated  ▢ :submitting  ▢ :settled                │ │
+│ │  ( empty )  (( populated ))  ( submitting )  ( settled )           │ │
 │ └────────────────────────────────────────────────────────────────────┘│
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
 Topology stays visible — only the overlay (highlight on the transition
-edge, `:after`-rings, action chips) is absent.
+edge, `:after`-rings, action/guard labels) is absent.
 
-**Case C — focused epoch triggered ≥1 transitions:**
+**Case C — focused epoch triggered ≥1 transitions (Figma design — rf2-ad7zx).**
+
+Reconciled to `tools/causa/design-reference/components/MachinePanel.tsx`, the later iteration —
+the FROM/TO states are circle nodes inside a dashed **compound-state container** (`active
+(compound)`); the FROM is dashed/dim, the TO is a **double-circle active node** in the mode
+accent; the fired transition edge carries its **event label + guard + action inline**
+(`[:rf/init]` · `guard: token? [pass]` · `do: fetch!`); the error state is `error`-toned; and a
+**details row** below restates `guards · actions · after`:
 
 ```
-┌─ MACHINES · epoch #42 ─────────────────────────── [◀ Prev] [Next ▶] ─┐
-│                                                                      │
-│ :rf.machine.cart/lifecycle   :populated → :submitting   [click → L4] │
-│ ┌─[Canvas]─────────────────────────────────────────────────────────┐ │
-│ │  ▢ :empty  ▢ :populated ══▶ ◉ :submitting  ▢ :settled            │ │
-│ │                  ↑ FROM      ↑ TO  (this epoch)                  │ │
-│ │  ◔ :after ring · :submit-timeout · 30s countdown                 │ │
-│ └──────────────────────────────────────────────────────────────────┘ │
-│ Guards    ✓ :cart-non-empty?                                         │
-│ Actions   ✓ :clear-form  ✓ :set-submitting-state                     │
-│ Cancellation cascade (none)                                          │
-└──────────────────────────────────────────────────────────────────────┘
+┌─ MACHINES · epoch #42 (machine :title/flow [:rf/init]) ─ [◀ Prev] [Next ▶] ─┐
+│▌ stripe: mode accent (orange in Dynamic · cyan in Static)                   │
+│ machine :title/flow                                                          │
+│ ┌─[Canvas]────────────────────────────────────────[− 100% +] [Fit][Reset]──┐│
+│ │ ┌─ active (compound) ──────────────────────────────────┐                  ││
+│ │ │  ( idle ) ════════▶ (( loading )) ───→ ( loaded )     │      ( error )   ││
+│ │ │   FROM    [:rf/init]    TO/current                    │       ↑          ││
+│ │ │           guard: token? [pass]                        │   loading→error  ││
+│ │ │           do: fetch!                                  │                  ││
+│ │ └───────────────────────────────────────────────────────┘                 ││
+│ │  FROM = dashed/dim · TO = double-circle, mode-accent, pulse                 ││
+│ │  fired edge = mode-accent 2px animated · registered = dim 1px · error = red ││
+│ └────────────────────────────────────────────────────────────────────────────┘│
+│ guards: token? [pass]    actions: [fetch!]    after: ◴ 5s → :timeout         │
+│ Cancellation cascade (none)                                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Per §003, the interactive chart adapter (zoom / pan / fit / Canvas|List
 view-mode) wraps each per-machine canvas. **The Canvas mode is the
 xyflow surface described in §6.0**; the List view-mode is a flat
 xyflow-free fallback for accessibility / low-power devices (preserved
-from §003 — unchanged here).
-
-**Focused-epoch overlay applied to xyflow rendering:**
-
-Mock of Case C with the overlay applied (the operator's actual visual):
-
-```
-┌─ MACHINES · epoch #42 ─────────────────────────────[◀ Prev] [Next ▶]─┐
-│ Stripe: green (:green)                                               │
-│                                                                      │
-│ :rf.machine.cart/lifecycle   :populated → :submitting                │
-│ ┌─[xyflow canvas]────────────────────────────[− 100% +] [Fit][Reset]│
-│ │                                                                   │
-│ │   ┌────────┐ registered  ┌────────────┐ fired this epoch  ┌──────│
-│ │   │ :empty │ ─ ─ ─ ─ ─ ▷ │ :populated │ ══════ animate ══▶│:subm │
-│ │   └────────┘             └────────────┘   :submit          │itti │
-│ │                                                            │ ng  │
-│ │                                                            └─◉───│
-│ │                                                              ↑   │
-│ │                                                          current │
-│ │                                                          (pulse) │
-│ │                                                                   │
-│ │     fired-edge: stroke :accent-violet · 2px · animated            │
-│ │     registered edge: stroke :text-tertiary · 1px · dashed         │
-│ │     current node:  2px :green border · 1.2s pulse                 │
-│ │                                                                   │
-│ └────────────────────────────────────────────────────────────────────┘
-│ Guards    ✓ :cart-non-empty?                                         │
-│ Actions   ✓ :clear-form  ✓ :set-submitting-state                     │
-│ Cancellation cascade (none)                                          │
-└──────────────────────────────────────────────────────────────────────┘
-```
+from §003 — unchanged here). The mode-accent fired-edge / double-circle
+active-node / dashed compound container / inline guard+action labels +
+the `after: ◴ Ns → :event` countdown ring are the visual elements the
+Figma design fixes; xyflow renders them with the §6.0 palette mapping.
 
 Layout direction: **left-to-right by default** (matches typical state-
 machine convention; xyflow's dagre layout option `rankdir: 'LR'`).
@@ -949,38 +1030,50 @@ when no machine is highlighted.
 
 Same topology-plus-overlay pattern as Machines.
 
-**Density note** (per §0). Most route trees are shallow (≤ 4 levels) so
-the tree renders inline as text with `├─ └─ │` box-drawing — no canvas
-needed. The "This epoch" block below the tree renders four short rows
-(`Phase / From / To / Match / Events`) — dense, scannable, no expand-to-
-see. Routing CAN escalate to xyflow if a future bead surfaces a route
-tree large enough to demand auto-layout; until then, the textual tree
-is denser AND simpler. Lines-per-screen target ~16-30.
+**Density note** (per §0). Most route trees are shallow (≤ 4 levels) so the route table renders
+inline as an indented tree with expand chevrons — no canvas needed. The three sections
+(`Current route` · `Navigation this epoch` · `Route table`) are dense KV/row blocks, scannable,
+no expand-to-see. Routing CAN escalate to xyflow if a future bead surfaces a route tree large
+enough to demand auto-layout; until then, the textual tree is denser AND simpler. Lines-per-
+screen target ~16-30.
 
-### §7.2 Layout
+### §7.2 Layout (Figma design — rf2-ad7zx)
+
+Reconciled to `tools/causa/design-reference/components/RoutesPanel.tsx`, the later iteration —
+**three stacked sections** (the prior "Active route tree first + This-epoch KV" shape is
+superseded). Section order, top → bottom, each separated by a 1px hairline:
+
+1. **CURRENT ROUTE** (always shown) — the active route **id** (mode-accent, bold), its
+   **params**, and the **matched path / URL**. The "where am I."
+2. **NAVIGATION THIS EPOCH** (event-driven lens) — when the focused event navigated:
+   **FROM route ──► TO route**, the **params**, and the **outcome** (*transitioned* ·
+   *blocked* (+ reason) · *cancelled* · *not-found*; outcome coloured by result). Quiet/absent
+   when the focused event isn't a navigation.
+3. **ROUTE TABLE** — all **registered routes** (id → path pattern), drawn as a **tree when
+   nested** (expand chevrons; else a flat list), with the **current route highlighted**
+   (mode-accent row + `◀ current` marker) and the focused navigation's FROM→TO marked on it.
+   Click a route → its definition / source coord.
 
 ```
 ┌─ ROUTING · epoch #38 ──────────────────────────── [◀ Prev] [Next ▶] ─┐
-│ Stripe: yellow (:yellow)                                             │
+│▌ stripe: mode accent (orange in Dynamic · cyan in Static)            │
 │                                                                      │
-│ Active route tree                                                    │
-│  /                                                                   │
-│  ├─ /cart      ◉  (active this epoch — :on-match)                    │
-│  │  └─ /cart/:id                                                     │
-│  ├─ /orders                                                          │
-│  │  └─ /orders/:order-id                                             │
-│  └─ /settings                                                        │
+│ CURRENT ROUTE                                                        │
+│   :user/profile    params {:id 42}    /users/42                      │
+│ ──────────────────────────────────────────────────────────────────  │
+│ NAVIGATION THIS EPOCH        (event-driven · quiet when not a nav)   │
+│   :dashboard ──► :user/profile   params {:id 42}  outcome: transitioned│
+│ ──────────────────────────────────────────────────────────────────  │
+│ ROUTE TABLE    (registered · current highlighted · tree when nested) │
+│   :home               /                                              │
+│   :dashboard          /dashboard                                     │
+│   ▾ :users            /users                                         │
+│       :user/profile   /users/:id            ◀ current                │
+│   :settings           /settings                                      │
 │                                                                      │
-│ This epoch                                                           │
-│   Phase       :on-match                                              │
-│   From        /                                                      │
-│   To          /cart                                                  │
-│   Match       {:route :cart}                                         │
-│   Events      [:rf.route/transitioned] [:cart/route-entered]                │
-│                                                                      │
-│ Empty (no route activity this epoch):                                │
-│   Shows tree with current active node highlighted; "This epoch"      │
-│   section reads "No route activity in this epoch."                   │
+│ Empty (no route activity this epoch):  CURRENT ROUTE + ROUTE TABLE   │
+│   still render; NAVIGATION THIS EPOCH reads "No route activity in    │
+│   this epoch."                                                       │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -996,9 +1089,9 @@ is denser AND simpler. Lines-per-screen target ~16-30.
 
 | Click | Navigates to |
 |---|---|
-| Route node | Set as "selected route" for filter-IN candidate |
-| Phase chip | Filter trace panel to route ops in that phase |
-| Event in "Events" list | Switch to **Event** panel for that event |
+| Route-table row | Open the route's definition / source coord in the editor (`:rf.causa/open-in-editor`); doubles as the filter-IN "selected route" candidate |
+| Current-route id | (no-op MVP; stretch: filter-IN on the active route) |
+| FROM / TO chip in NAVIGATION | Marks the corresponding nodes in the route table |
 
 ### §7.5 Film-strip
 
@@ -1014,54 +1107,60 @@ MVP chronological; stretch "next route activity" (skip silent epochs).
 
 Per-epoch errors, warnings, schema violations, a11y violations.
 
-**Density note** (per §0). Issues are rare per epoch but high-signal —
-each renders as a 4-6 row block (severity · op-key · message · path ·
-ex-data) with the ex-data laid out via the shared data-display renderer
-(§10) at depth-2-expanded. No expand-to-see-message — the whole issue
-block reads inline so the operator sees the punch at a glance. Empty
-state is a single line. Lines-per-screen target ~6-24 (it's variable;
-the panel is fine being shorter than its peers).
+**Density note** (per §0). Issues are rare per epoch but high-signal — each renders as a
+**single row** (`severity · category · short description · timestamp · ↗source`) with a 3px
+severity-coloured left border. No expand-to-see — the row reads inline so the operator sees the
+punch at a glance. The `↗` opens the responsible handler at `file:line`; the row itself pivots
+to the Event panel. Empty state is a single calm line. Lines-per-screen target ~6-24.
 
-### §8.2 Layout
+### §8.2 Layout (Figma design — rf2-ad7zx)
 
-Dense case:
+Reconciled to `tools/causa/design-reference/components/IssuesPanel.tsx`, the later iteration —
+**one row per issue** (the prior multi-row KV block per issue is superseded). Each row carries a
+**3px left border coloured by severity** + an uppercase **severity badge** (in its severity
+colour) + the **category** (muted) + the **short description** (primary) + the **timestamp**
+(mono, muted) + an **↗source** affordance. Severity is **three tiers** (per
+[022-Design-Tokens](022-Design-Tokens.md) — strongest first):
+
+- **error** — handler/sub/fx exception, no-such-sub, flow-eval, schema violation, etc. → `error`
+  (red), strongest.
+- **warning** — plain-fn-under-non-default-frame, missing-doc, etc. → `warning` (amber).
+- **advisory** — fx skipped-on-platform, SSR hydration mismatch, cofx skipped, etc. → `advisory`
+  (cool blue; calm, ≠ warning).
+
+Silent-by-default — a clean epoch shows a calm positive state, not an error look.
 
 ```
 ┌─ ISSUES · epoch #42 ────────────────────────────── [◀ Prev] [Next ▶] ─┐
-│ Stripe: red (:red)                                                    │
+│▌ stripe: mode accent (orange in Dynamic · cyan in Static)             │
 │                                                                       │
-│ 2 issues                                                              │
+│ ▌ ERROR     handler-exception   :counter-inc threw …       12:30:05 ↗ │  ← red border
+│ ▌ WARNING   missing-doc         sub ::counter has no :doc   12:30:05 ↗ │  ← amber border
+│ ▌ ADVISORY  fx-skipped          :rf.nav/scroll skipped (node) 12:30:05 ↗│  ← advisory border
+│ ─────────────────────────────────────────────────────────────────────│
+│  click a row → Event panel (the cascade) · click ↗ → source file:line │
 │                                                                       │
-│ ⚠ ERROR    :rf.error/handler-exception                               │
-│   Handler  :checkout/submit                                           │
-│   Message  AssertionError: cart-id must be string, got nil            │
-│   At       impl/events.cljs:88                                        │
-│   ex-data  {:cart-id nil :event [:checkout/submit nil]}               │
-│                                                                       │
-│ ⚠ WARN    :rf.schema/violation                                        │
-│   Schema   :cart/item                                                 │
-│   Path     [:cart :items 1]                                           │
-│   Value    {:id 22}                                                   │
-│   Expected :cart/item — missing :qty                                  │
-│                                                                       │
-│ Empty state (no issues):                                              │
-│   "No issues in this epoch."                                          │
+│  clean epoch →  "No issues in this epoch."                            │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
 ### §8.3 Queries
 
-| From | Reads |
-|---|---|
-| Focused epoch record | `:rf.error/*`, `:rf.warning/*`, `:rf.schema/violation`, `:rf.a11y/violation` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`) |
+| From | Reads | Severity |
+|---|---|---|
+| Focused epoch record | `:rf.error/*`, `:rf.schema/violation`, `:rf.a11y/violation` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`) | **error** |
+| Focused epoch record | `:rf.warning/*` (plain-fn-under-non-default-frame, missing-doc, …) | **warning** |
+| Focused epoch record | advisories — `:rf.fx/skipped-on-platform`, `:rf.ssr/*` (hydration mismatch), `:rf.cofx/*` (cofx skipped) | **advisory** |
+
+Each error carries the responsible handler's source coord (`:rf.trace/trigger-handler`) for
+jump-to-source, and rides the cascade's `:dispatch-id` so the row → Event pivot works.
 
 ### §8.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
-| Issue handler | Open-in-editor at handler file:line |
-| Issue path | Switch to **App-db** panel at that path |
-| ex-data value | Data-display renderer expand inline |
+| Issue row | Selects the parent dispatch and **pivots to the Event panel** (the full cascade that produced the issue) |
+| `↗` source coord | Open the responsible handler at `file:line` (`:rf.causa/open-in-editor`) |
 
 ### §8.5 Film-strip
 
@@ -1113,8 +1212,11 @@ three variants:
 
 The facade also ships `code-block {:source src :lang :clojure}` —
 a lightweight Clojure-token highlighter used by the Event panel's
-HANDLER source slot (keywords violet, strings green, numbers cyan,
-builtins violet).
+HANDLER source slot. Token colours follow the Figma export's syntax theme
+(`design-reference/styles/devtools.css` `.syntax-*`): **keywords red**
+(`#cf222e` light / `#ff7b72` dark), **strings** blue/green, **numbers** blue,
+**comments** muted-italic. (This is the code surface — distinct from the
+data-value keyword accent in §10.3, which is the mode accent.)
 
 cljs-devtools formatter installation (Chrome console custom
 formatters) is a complementary follow-on bead. In-DOM widget
@@ -1183,22 +1285,27 @@ Sparse case — bare scalar (string fx result):
 "POST /orders → 201"
 ```
 
-### §10.3 Keyword accent color (B.9 spec)
+### §10.3 Keyword accent color (B.9 spec · orange identity — rf2-ad7zx)
 
-**Decision: `:accent-violet` (`#7C5CFF`)** — already Causa's brand
-keyword tone (per §007 colour system, panel-domain `:event` stripe, and
-existing long-keyword-treatment §007). Reusing keeps the keyword token
-visually consistent across L1 filter pills, L2 spine rows, L3 tab labels,
-and L4 data values.
+**Decision: the mode `accent`** (orange in Dynamic, cyan in Static — the locked identity per
+[022-Design-Tokens](022-Design-Tokens.md) + [007 §Colour system](007-UX-IA.md#colour-system)).
+EDN keyword **data values** are the single coloured type in the renderer; they read in the mode
+accent, keeping the keyword token visually consistent across L1 filter pills, L2 spine rows, L3
+tab labels, and L4 data values. (The prior `:accent-violet #7C5CFF` keyword tone is retired with
+the violet → orange identity change.)
 
 Other types render in `text-primary` (`#E8EAF0`), monospaced. Dimmed
-unchanged values render in `text-tertiary` (`#6B7080`).
+unchanged values render in `dim` / `text-tertiary`.
 
 The diff annotation (`← changed from <prior>`) renders in
 `:text-secondary` at 80% size (12px @ cosy density).
 
-The left-gutter diff glyph follows §007's cascade-gutter token mapping:
-`+` green · `-` red · `~` yellow · `◴` violet · space tertiary.
+The left-gutter diff glyph follows the cascade-gutter token mapping (§007 / §022): `+` green
+(`success`) · `-` red (`error`) · `~` amber (`warning`) · `◴` mode accent · space tertiary.
+
+> **Note:** the **code-block** syntax highlighter (§10.0 `code-block`, the Event-panel HANDLER
+> source slot) is a separate surface — code keywords/strings/numbers render per the syntax
+> theme (the Figma export's `syntax-*` classes), not the data-value keyword accent here.
 
 ### §10.4 Lazy-expansion heuristic
 
@@ -1425,8 +1532,8 @@ real beads after approving this doc.
   panels rebind to this renderer. Includes evicted-epoch placeholder.
 
 - **rf2-?????** — *Causa: Event panel — pipeline rendering.* Replace
-  `event_detail.cljs` content with the 6-step pipeline (§2). Reads new
-  `:rf.flow/computed` + handler `:origin` tag. Stripe `:accent-violet`.
+  `event_detail.cljs` content with the numbered pipeline (§2). Reads new
+  `:rf.flow/computed` + handler `:origin` tag. Mode-accent stripe (`accent`).
   Depends on substrate `:origin` + `:rf.flow/computed`.
 
 - **rf2-?????** — *Causa: Reactive panel rebuild + rename.* Rename L3
@@ -1612,29 +1719,31 @@ used inside Dynamic-mode panels; Fraunces is reserved for Static-mode
 landing-page header surfaces (the audit-trail divergence Causa
 deliberately drew per rf2-5kfxe.9). The L4 surfaces are mono.
 
-#### §17.1.3 Palette token mapping (per rf2-z7ms8)
+#### §17.1.3 Palette token mapping (orange identity — rf2-ad7zx)
 
-Confirming + amending the structural worker's picks. All hex resolves
-through `theme/tokens` (dark) / theme-CSS-variables (light + HCM).
+All hex resolves through `theme/tokens` (dark) / theme-CSS-variables (light + HCM). Reconciled
+to the Figma export + the locked tokens in [022-Design-Tokens](022-Design-Tokens.md): the brand
+/ active / changed signal is the **mode `accent`** (orange in Dynamic, cyan in Static); the prior
+`:accent-violet` is retired.
 
-| Role | Token (dark hex) | Confirmed / amended |
+| Role | Token | Note |
 |---|---|---|
-| **Keyword accent** (data values · the only colored type) | `:accent-violet` (`#7C5CFF`) | ✅ confirmed (per §10.3 + §007 panel-domain mapping) |
-| **Changed-value highlight** (left-margin marker + accent color) | `:accent-violet` + glyph from cascade-gutter (§007: `+` green / `-` red / `~` yellow / `◴` violet) | ✅ confirmed — gutter glyph is the structural signal; accent-violet is the row tint |
-| **Dim-for-unchanged values** | `:text-tertiary` (`#8990A0`) | ✅ confirmed (already lifted to AA-passing 4.7:1 per rf2-0fr6v) |
-| **Settled-success** (fx settled, no error) | `:green` (`#4ADE80`) | ✅ |
-| **Settled-error** (fx settled with error · issues panel ERROR) | `:red` (`#F87171`) for ink; `:red-deep` (`#a83a3a`) for button fills | ✅ |
-| **In-flight** (fx still running, e.g. `⏳ #h-142`) | `:yellow` (`#FBBF24`) — matches §007 perf-scale "medium / in-progress" tone | ✅ amend (structural draft was ambiguous; lock to `:yellow`) |
-| **Stale** (epoch evicted from buffer; placeholder text) | `:text-tertiary` on `:bg-2` | ✅ |
-| **Border subtle** (between adjacent rows in a list) | `:border-subtle` (`#232730`) | ✅ |
-| **Border default** (around cards / canvases) | `:border-default` (`#2F3441`) | ✅ |
-| **Border strong** (focused-row outline before focus-ring overlay) | `#444B5B` (per §007) | ✅ |
-| **Background — panel canvas** | `:bg-2` (`#1B1E24`) | ✅ |
-| **Background — hover row** | `:bg-active` (`#2A2F3D`) | ✅ |
-| **Background — popover** | `:bg-3` (`#232730`) | ✅ |
-| **L4 panel header stripe** | `theme/tokens/panel-accent` table (§007): Event violet · App-db cyan · Reactive cyan · Trace orange · Machines green · Routing yellow · Issues red (rf2-4v67l — Chrome A11y removed) | ✅ |
-| **Cross-panel arrow / `⤴` link** | `:accent-violet` 600-weight | ✅ |
-| **Film-strip back/forward chevron** | `:text-secondary` default · `:text-primary` on hover | ✅ |
+| **Keyword accent** (data values · the only colored type) | `accent` (mode accent) | per §10.3 + 022 — orange in Dynamic, cyan in Static |
+| **Changed-value highlight** (left-margin marker + accent color) | `changed` (= `accent`) + cascade-gutter glyph (`+` green / `-` red / `~` amber / `◴` accent) | gutter glyph is the structural signal; the accent is the row tint |
+| **Dim-for-unchanged values** | `unchanged` / `dim` (`:text-tertiary`) | per 022 — `unchanged` is an alias of `dim` |
+| **Settled-success** (fx settled, no error) | `success` (`#4ADE80` / `#3FB950`) | per 022 |
+| **Settled-error** (fx settled with error · issues panel ERROR) | `error` (`#F87171`) for ink; `:red-deep` (`#a83a3a`) for button fills | per 022 |
+| **In-flight** (fx still running, e.g. `⏳ #h-142`) | `warning` (`#FBBF24`) — matches the perf-scale "medium / in-progress" tone | |
+| **Stale** (epoch evicted from buffer; placeholder text) | `:text-tertiary` on `:bg-2` | |
+| **Border subtle** (between adjacent rows in a list) | `border-subtle` (`#232730`) | |
+| **Border default** (around cards / canvases) | `border-default` (`#2F3441`) | |
+| **Border strong** (focused-row outline before focus-ring overlay) | `#444B5B` (per §007) | |
+| **Background — panel canvas** | `:bg-2` (`#1B1E24`) | |
+| **Background — hover row** | `hover` / `:bg-active` (`#2A2F3D`) | |
+| **Background — popover** | `:bg-3` (`#232730`) | |
+| **L4 panel header stripe** | the **mode `accent`** (orange in Dynamic, cyan in Static) | rf2-ad7zx — the per-panel domain-colour stripe (§007 Per-L4 panel accent stripe) is superseded by the single mode-accent identity, matching the Figma export's one-accent design (App.tsx active-tab `--devtools-active`). |
+| **Cross-panel arrow / `⤴` link** | `accent` 600-weight | |
+| **Film-strip back/forward chevron** | `:text-secondary` default · `:text-primary` on hover | |
 
 Under Windows High-Contrast Mode (`@media (forced-colors: active)`),
 the existing global_styles forced-colors block (§007 / rf2-wxepo)
@@ -1655,15 +1764,14 @@ becoming a grid of boxes.
 | Where borders appear | Where they DON'T |
 |---|---|
 | Around the L4 panel itself (`:bg-2` on `:bg-1`, 1px `:border-default`) | Between sibling rows in a dense list (use `:gap-1` vertical rhythm only) |
-| Around each xyflow canvas (1px `:border-default`) | Between pipeline steps in §2.2 (the arrow `▼` IS the divider) |
-| Between DIFF zone and STATE zone in App-db (1px `:border-subtle`, full width) | Inside the data-display tree (indentation IS the structure) |
+| Around each xyflow / SVG canvas (1px `:border-default`) | Between pipeline steps in §2.2 (the numbered rail IS the divider) |
+| Between reserved-area sections in App-db (1px `:border-subtle`, full width) | Inside the data-display tree (indentation IS the structure) |
 | Around hover popovers (1px `:border-default` + 4px shadow) | Between cells of an inline KV row (whitespace alone) |
 | Around xyflow group/parent nodes (1px solid; 1px dashed for parallel-region containers) | Between L4 tabs (the L3 tab strip handles this) |
 
-The "`──────`" full-width separators in the ASCII mockups (e.g.
-`━━━ db committed ━━━` in §2.2) render as **1px `:border-subtle`** in
-HTML, not as text characters. The `━` characters in the ASCII are
-narrative shorthand for the operator to visualise.
+The "`──────`" full-width separators in the ASCII mockups (e.g. the section hairlines in §4.2 /
+§7.2 / §8.2) render as **1px `:border-subtle`** in HTML, not as text characters. The box-drawing
+characters in the ASCII are narrative shorthand for the operator to visualise.
 
 #### §17.1.5 Iconography
 
@@ -1678,7 +1786,7 @@ The mockups in §1-§9 already pick these. §17.1.5 binds them.
 | 🌐 | HTTP request lifecycle touched (managed-HTTP settle / response) | `:orange` |
 | ⚡ | fx-emit child — dispatched from a parent's `do-fx` | `:magenta` |
 | 💧 | SSR hydration phase | `:cyan` |
-| 🌊 | A flow recomputed | `:accent-violet` |
+| 🌊 | A flow recomputed | `accent` (mode accent) |
 | ⏲ | Timer-triggered dispatch | `:text-tertiary` |
 
 Emoji glyphs are deliberate (consistent with existing Causa
@@ -1691,7 +1799,7 @@ alone (§007).
 
 | Panel | Icon (Unicode glyph) | Token |
 |---|---|---|
-| Event | ⚡ | `:accent-violet` |
+| Event | ⚡ | `accent` (mode accent) |
 | Reactive | ◉ | `:cyan` |
 | App-db | ◐ | `:cyan` |
 | Trace | ⬢ | `:orange` |
@@ -1714,7 +1822,7 @@ the panel itself.)
 **Cross-panel arrows / link affordances:**
 
 - `⤴` (return arrow) — used in hover popovers to indicate
-  "jump to this panel." `:accent-violet`, 12px.
+  "jump to this panel." `accent` (mode accent), 12px.
 - `↳` (turn-down arrow) — used in pipeline-step source links + cause
   attribution chips. `:text-tertiary`, 11px.
 - `→` (right arrow) — used as a transition glyph in machine-state
@@ -1822,7 +1930,7 @@ operators will see.
 │  │                                                                  │ │
 │  │   Edge stroke palette:                                          │ │
 │  │     ─── registered, not fired this epoch   :text-tertiary, 1px  │ │
-│  │     ═══ fired this epoch (animated)        :accent-violet, 2px  │ │
+│  │     ═══ fired this epoch (animated)        accent, 2px          │ │
 │  │     ╶ ╶ registered, no path traversed       :border-default     │ │
 │  │                                                                  │ │
 │  │   Node fill:                                                    │ │
@@ -1860,7 +1968,7 @@ operators will see.
 |---|---|---|---|---|
 | `--` (dashed `:text-tertiary`) | `:text-tertiary` | 1px | no | Registered transition, not fired this epoch |
 | `──` (solid `:text-tertiary`) | `:text-tertiary` | 1px | no | Same as above, but represents the most-recent traversal in the buffer |
-| `══` (thick + animated) | `:accent-violet` | 2px | yes | Transition fired this epoch (the overlay) |
+| `══` (thick + animated) | `accent` (mode accent — orange in Dynamic) | 2px | yes | Transition fired this epoch (the overlay) |
 
 Edge label: `:micro` (`~10px`) JetBrains Mono in `:text-secondary`,
 rendered inline on the edge (xyflow's `label` prop), not in a side
@@ -1925,7 +2033,7 @@ xyflow-adapter bead (§17.5) implements against:
                          :stroke-dasharray "4 4"}
    :registered-traversed {:stroke      (:text-tertiary tokens)
                           :stroke-width 1}
-   :fired-this-epoch    {:stroke       (:accent-violet tokens)
+   :fired-this-epoch    {:stroke       (:accent tokens)  ; mode accent (orange in Dynamic)
                          :stroke-width 2}})  ; + xyflow :animated true
 
 (def edge-label-style
