@@ -422,6 +422,23 @@
                             (walk-hiccup out))]
         (is (some? code-node))))))
 
+(deftest code-block-pre-clamps-and-scrolls-within-container
+  ;; rf2-l7ha9 — at narrow panel widths the EVENT HANDLER source rendered
+  ;; broken (first line clipped, later lines run off the right) because the
+  ;; `white-space:pre` block grew to its longest line's intrinsic width and
+  ;; expanded its flex ancestors past the panel edge. The `<pre>` MUST clamp
+  ;; to its containing block and scroll long lines WITHIN it.
+  (let [out   (w/code-block {:source "(reg-event-db :counter/inc (fn [db _] (update db :counter/value inc)))"})
+        style (-> out second :style)]
+    (testing "the code-block <pre> never exceeds its containing block"
+      (is (= "100%" (:max-width style))
+          "max-width:100% clamps the pre to its container")
+      (is (= "border-box" (:box-sizing style))
+          "border-box keeps padding inside the clamped width"))
+    (testing "long lines scroll within the pre rather than overflowing"
+      (is (= "auto" (:overflow-x style))
+          "overflow-x:auto keeps long handler lines scrollable in-panel"))))
+
 (deftest code-block-keyword-token-uses-accent
   (let [out      (w/code-block {:source ":foo"})
         spans    (walk-hiccup out)
