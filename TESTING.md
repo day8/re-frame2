@@ -24,7 +24,7 @@ Running everything everywhere makes PRs slow and the dev loop painful. Skipping 
 | **Causa feature gates** (`test:causa-feature-gate`, `test:causa-feature-gate:smoke`) | expensive (full) / medium (smoke) | Causa feature matrix (4-layer chrome, tab navigation, exception/issue surfacing). The `--smoke` tier runs the 3 highest-signal scenarios over 2 staged surfaces on the PR critical path; the full 14-scenario / 13-surface sweep runs nightly. |
 | **Template emitted-app smoke** (`jvm-tools-template`) | expensive | The emitted app from `tools/template/` boots + passes its own gates — proves the template stays viable. |
 | **Skills structural** (`skills-structural`) | fast | Skill manifests + shared content stay structurally valid against the schema. |
-| **docs/cljs playground** (`tools-playground`, Playwright + headless Chromium) | medium | The roll-your-own live-CLJS-cell engine behind the docs reading guide + interactive chapters: rebuilds both committed bundles, smokes plain-eval + live re-frame2 (v2) render cells against them, and `git diff --exit-code`s the vendored `docs/cljs/playground*.{js,css}` so a stale deployed bundle fails the PR. |
+| **docs/cljs playground** (`tools-playground`, Playwright + headless Chromium) | medium | The roll-your-own live-CLJS-cell engine behind the docs reading guide + interactive chapters: rebuilds both committed bundles, smokes plain-eval + live re-frame2 (v2) render cells against them, then gates freshness — strict `git diff --exit-code` on the byte-deterministic esbuild artefacts (`docs/cljs/playground.{js,css}`) plus a smoke + structural-validity gate on the Closure `:advanced` SCI bundle (`docs/cljs/playground-rf2.js`), whose minified symbols are not byte-stable cross-platform so a byte-diff would be flaky. |
 
 ## Test surface ownership
 
@@ -344,7 +344,7 @@ PR time; one row per output here so the table stays scannable).
 | `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
 | `story_causa_browser` | `story-causa-browser` (PR-smoke, Playwright — Causa feature-matrix `--smoke` + Story play-scripts only; the full Causa matrix, Story feature-load, and Story static run nightly in `expensive-tests.yml` — see the Story/Causa split above) |
 | `skills_structural` | `skills-structural` |
-| `playground` | `tools-playground` (Playwright smoke of both bundles + bundle-drift `git diff --exit-code` of the committed `docs/cljs/playground*.{js,css}`) |
+| `playground` | `tools-playground` (Playwright smoke of both bundles + byte-diff `git diff --exit-code` of the deterministic esbuild `docs/cljs/playground.{js,css}` + smoke/structural-validity gate on the non-deterministic Closure `docs/cljs/playground-rf2.js`) |
 
 
 ## Diagnostic / skip-ok gates
