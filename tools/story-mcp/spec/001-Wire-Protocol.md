@@ -23,7 +23,7 @@
 
 The MCP protocol revision string is pinned at `2025-06-18` (see
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §protocol-version-pin).
-The pin lives in `re-frame.story-mcp.config/mcp-protocol-version`;
+The pin lives in `re-frame.story-mcp.config/protocol-version`;
 the `initialize` response advertises this version. Bumping the pin
 is a deliberate Story-MCP change — Story's own stage marker is
 independent.
@@ -61,7 +61,7 @@ The server uses the standard JSON-RPC 2.0 error codes:
 | `-32700` | Parse error | Malformed JSON. The reply carries `id: null`; the run-loop survives and continues reading. |
 | `-32600` | Invalid request | The frame is JSON but not a valid JSON-RPC request shape. |
 | `-32601` | Method not found | Unknown method name. |
-| `-32602` | Invalid params | `tools/call` arguments fail input-schema validation. |
+| `-32602` | Invalid params | `tools/call` `name` is missing or not a string. Argument-shape failures do NOT surface here — each tool self-validates (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. |
 | `-32603` | Internal error | An unexpected exception during dispatch. |
 
 **Tool-execution errors** (a tool ran, but its semantic failed —

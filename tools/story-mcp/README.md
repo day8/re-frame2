@@ -86,11 +86,12 @@ tools/story-mcp/
     ├── server.cljc                               ; dispatcher + -main + run-loop
     └── tools/                                    ; tool implementations (rf2-3ukix split)
         ├── cap.cljc                              ; invoke-tool dispatcher + token-cap egress
+        ├── cursor.cljc                           ; Docs list-* pagination (consumes mcp-base.cursor)
         ├── registry.cljc                         ; tool-registry + descriptors + by-name
         ├── helpers.cljc                          ; result builders, args coercers, scrubbers
         ├── schemas.cljc                          ; recurring JSON-schema fragments
         ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
-        ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-assertions, variant->edn
+        ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-decorators, list-assertions, variant->edn, get-docs-markdown
         ├── testing.cljc                          ; run-variant, snapshot-identity, run-a11y, read-failures
         ├── write.cljc                            ; gated: register-variant, unregister-variant
         └── recorder.cljc                         ; gated: record-as-variant

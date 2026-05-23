@@ -1735,6 +1735,153 @@
           (is (= "DEEP" (get-in bypass [:nested :also-secret]))
               "nested sensitive slot rides through"))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-ee38b.17 (headline P1) — derived-tree wire-egress redaction.
+;;
+;; `elide-app-db` scrubs the `:app-db` slot by PATH. But the same sensitive
+;; value reappears, verbatim, in `:rendered-hiccup` / `:effective-args` /
+;; `:snapshot` — at a hiccup-tree position the path-based walker can't reach.
+;; `scrub-rendered` closes that leak by VALUE: it collects the live values at
+;; the frame's declared-`:sensitive?` paths and substitutes any matching leaf
+;; in the derived tree with `:rf/redacted`. These tests pin that a redacted
+;; value MUST NOT appear in the rendered-hiccup wire output, and that the
+;; `:include-sensitive` opt-out forwards it.
+;; ---------------------------------------------------------------------------
+
+(defn- tree-contains?
+  "Deep membership: true iff `needle` appears anywhere as a value inside
+  `tree` (walking maps/vectors/sets/seqs). Used to assert a secret has
+  been scrubbed OUT of a rendered tree regardless of its position."
+  [tree needle]
+  (cond
+    (= tree needle) true
+    (map? tree)     (boolean (some (fn [[k v]] (or (tree-contains? k needle)
+                                                   (tree-contains? v needle)))
+                                   tree))
+    (coll? tree)    (boolean (some #(tree-contains? % needle) tree))
+    :else           false))
+
+(deftest scrub-rendered-redacts-sensitive-value-in-derived-tree
+  (testing "a value at a declared-sensitive app-db path is redacted wherever it appears in the derived tree"
+    (with-clean-frame [vid :story.button/primary]
+      (let [db    {:public "ok" :token "TOPSECRET"}
+            ;; A rendered hiccup tree that embeds the sensitive value at
+            ;; a non-app-db position (an attribute value + a text node).
+            hiccup [:div {:class "card"}
+                    [:input {:type "password" :value "TOPSECRET"}]
+                    [:span "label: " "TOPSECRET"]]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:token])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out "TOPSECRET"))
+              "the sensitive value MUST NOT survive anywhere in the derived tree")
+          (is (tree-contains? out :rf/redacted)
+              "matching leaves are replaced with the :rf/redacted sentinel")
+          (is (tree-contains? out "label: ")
+              "non-sensitive leaves are preserved")
+          (is (= "card" (get-in out [1 :class]))
+              "benign attribute values survive untouched"))))))
+
+(deftest scrub-rendered-include?-true-forwards-raw-value
+  (testing ":include? true bypasses the value-redaction walk entirely"
+    (with-clean-frame [vid :story.button/primary]
+      (let [db     {:token "TOPSECRET"}
+            hiccup [:input {:value "TOPSECRET"}]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:token])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+              out            (scrub-rendered hiccup db vid true)]
+          (is (identical? hiccup out)
+              "include? true returns the input tree unchanged (no walk)")
+          (is (tree-contains? out "TOPSECRET")
+              "the opt-out forwards the raw sensitive value"))))))
+
+(deftest scrub-rendered-no-declarations-is-noop
+  (testing "with no declared-sensitive paths the tree is returned unwalked"
+    (with-clean-frame [vid :story.button/primary]
+      (let [db     {:public "ok"}
+            hiccup [:span "ok"]]
+        (seed-app-db! vid db)
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (identical? hiccup out)
+              "no secrets ⇒ no walk, input ref returned"))))))
+
+;; The two integration tests below pin the WIRING — that `preview-variant`
+;; and `run-variant` route `:rendered-hiccup` / `:effective-args` / `:snapshot`
+;; through `scrub-rendered`. They `with-redefs` `story/run-variant` to a
+;; controlled result that embeds the secret in the derived trees, so the
+;; assertion is independent of whatever the fixture's render would actually
+;; produce (the leak exists regardless of WHICH view renders the secret).
+
+(defn- secret-bearing-run-result
+  "A `run-variant`-shaped result whose :app-db carries the secret at a
+  declared-sensitive path AND whose derived trees re-embed the same value
+  at non-app-db positions."
+  [vid]
+  {:frame          vid
+   :lifecycle      :ok
+   :elapsed-ms     1
+   :app-db         {:public "ok" :token "TOPSECRET"}
+   :assertions     []
+   :rendered-hiccup [:input {:type "password" :value "TOPSECRET"}]
+   :effective-args {:label "Save" :token "TOPSECRET"}
+   :snapshot       {:db {:token "TOPSECRET"}}})
+
+(deftest preview-variant-rendered-hiccup-redacts-sensitive-by-default
+  (testing "the secret MUST NOT leak through preview-variant's derived trees"
+    (with-clean-frame [vid :story.button/primary]
+      (declare-sensitive! vid [:token])
+      (with-redefs [story/run-variant
+                    (fn [_vk _opts]
+                      (java.util.concurrent.CompletableFuture/completedFuture
+                        (secret-bearing-run-result vid)))]
+        (let [r (invoke "preview-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :rf/redacted (get-in s [:app-db :token]))
+              "app-db path-redaction still holds")
+          (is (not (tree-contains? (:rendered-hiccup s) "TOPSECRET"))
+              "rendered-hiccup MUST NOT carry the redacted value at egress")
+          (is (not (tree-contains? (:effective-args s) "TOPSECRET"))
+              "effective-args MUST NOT carry the redacted value at egress")
+          (is (not (tree-contains? (:snapshot s) "TOPSECRET"))
+              "snapshot MUST NOT carry the redacted value at egress"))))))
+
+(deftest run-variant-rendered-hiccup-redacts-sensitive-by-default
+  (testing "the secret MUST NOT leak through run-variant's derived trees"
+    (with-clean-frame [vid :story.button/primary]
+      (declare-sensitive! vid [:token])
+      (with-redefs [story/run-variant
+                    (fn [_vk _opts]
+                      (java.util.concurrent.CompletableFuture/completedFuture
+                        (secret-bearing-run-result vid)))]
+        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :rf/redacted (get-in s [:app-db :token])))
+          (is (not (tree-contains? (:rendered-hiccup s) "TOPSECRET"))
+              "rendered-hiccup MUST NOT carry the redacted value at egress")
+          (is (not (tree-contains? (:snapshot s) "TOPSECRET"))
+              "snapshot MUST NOT carry the redacted value at egress"))))))
+
+(deftest run-variant-rendered-hiccup-forwards-secret-when-opted-in
+  (testing ":include-sensitive true forwards the raw value through the derived trees"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (declare-sensitive! vid [:token])
+      (with-redefs [story/run-variant
+                    (fn [_vk _opts]
+                      (java.util.concurrent.CompletableFuture/completedFuture
+                        (secret-bearing-run-result vid)))]
+        (let [r (invoke "run-variant" {:variant-id "story.button/primary"
+                                       :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (tree-contains? (:rendered-hiccup s) "TOPSECRET")
+              "opt-in surfaces the raw value in rendered-hiccup"))))))
+
 (deftest read-failures-strips-sensitive-assertion-records-by-default
   (testing "an assertion record stamped :sensitive? true is dropped at egress"
     (with-clean-frame [vid :story.button/primary]

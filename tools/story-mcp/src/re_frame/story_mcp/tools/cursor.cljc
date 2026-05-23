@@ -7,36 +7,35 @@
   continuation. The default `:limit` MUST keep the response under the
   cap (5,000 tokens).
 
-  ## Why story-mcp's cursor differs from pair-mcp's
+  ## Shared codec, story-specific shape (rf2-ee38b.17)
 
-  Pair-MCP's cursors (`tools/re-frame2-pair-mcp/tools/cursor.cljs`) carry
-  an `:after-id` epoch-id because epochs live in a bounded ring buffer
-  — staleness matters: when enough new epochs land between calls that
-  the ring rotates past the cursor's id, the server returns
-  `:rf.mcp/cursor-stale` so the agent can recover. The cursor is opaque
-  base64-encoded EDN to keep the encoding implementation-detail.
+  The base64 codec, the tagged-literal-rejecting EDN reader, the 1 KB
+  size cap, the `::malformed` recovery posture, the `:limit` clamp, and
+  the `cursor-stale-result` envelope all live in
+  `re-frame.mcp-base.cursor` — one cross-MCP implementation shared with
+  re-frame2-pair-mcp (the clarity review's `mcp-base` deferral premise
+  went stale once story-mcp shipped its own copy). This ns now owns
+  only what is genuinely story-specific:
 
-  Story-MCP's registries (`stories`, `tags`, `modes`, `decorators`,
-  `assertions`) are append-mostly stable structures — no ring rotation,
-  no buffer eviction. A stable sort over the id-set + integer offset
-  is sufficient. We still wrap the offset in an opaque base64 cursor
-  so the wire shape matches pair-mcp's contract — an agent that
-  learned `:cursor`/`:next-cursor` on pair-mcp uses the same slot here.
+    - the cursor PAYLOAD shape (`{:v :offset :total :sig}`) + its
+      `valid?` predicate,
+    - the whole-set `fingerprint` drift detector,
+    - the `default-limit` / `max-limit` numbers, and
+    - the `page` windowing logic.
 
-  ## Cursor shape
+  ## Why story-mcp's cursor SHAPE differs from pair-mcp's
 
-  Opaque base64 of a pr-str'd EDN map:
-
-      {:v 1
-       :offset N             ; 0-based index into the stable-sorted seq
-       :total  N             ; total count at the time the cursor was minted
-       :sig    \"<digest>\"} ; cheap whole-set fingerprint
-
-  The `:sig` slot lets us detect a registry that materially changed
-  between calls (e.g. a new `register-variant` landed between the
-  first list-stories page and the second). When the live signature
-  doesn't match the cursor's, we return `:rf.mcp/cursor-stale` —
-  same vocab as pair-mcp's ring-rotation case. The agent restarts.
+  Pair-MCP's cursors carry an `:after-id` epoch-id because epochs live
+  in a bounded ring buffer — staleness matters when the ring rotates
+  past the cursor's id. Story-MCP's registries (`stories`, `tags`,
+  `modes`, `decorators`, `assertions`) are append-mostly stable
+  structures — no ring rotation, no buffer eviction. A stable sort over
+  the id-set + integer offset is sufficient; the `:sig` fingerprint
+  detects a registry that materially changed between cursor mint and
+  dereference (e.g. a `register-variant` landed between two pages of
+  `list-stories`). When the live signature doesn't match the cursor's,
+  we return `:rf.mcp/cursor-stale` — same vocab as pair-mcp's
+  ring-rotation case. The agent restarts.
 
   ## When pagination kicks in
 
@@ -61,12 +60,8 @@
        :limit 25
        :has-more? false
        :next-cursor nil}"
-  (:require [clojure.edn :as edn]
-            [clojure.string :as str]
-            [re-frame.mcp-base.args :as args]
-            [re-frame.mcp-base.vocab :as vocab]
-            [re-frame.story-mcp.tools.helpers :as h])
-  #?(:clj (:import (java.util Base64))))
+  (:require [re-frame.mcp-base.cursor :as base-cursor]
+            [re-frame.story-mcp.tools.helpers :as h]))
 
 (def ^:const default-limit
   "Default page size for the Docs `list-*` tools. Sized to keep the
@@ -85,22 +80,6 @@
   registry should need on a single page."
   200)
 
-(defn- b64-encode
-  "Base64-encode a UTF-8 string. JVM-only (story-mcp's canonical
-  deploy)."
-  [^String s]
-  #?(:clj  (-> (Base64/getEncoder)
-               (.encodeToString (.getBytes s "UTF-8")))
-     :cljs (-> (js/Buffer.from s "utf8")
-               (.toString "base64"))))
-
-(defn- b64-decode
-  "Decode a base64 string back to UTF-8."
-  [^String s]
-  #?(:clj  (String. (.decode (Base64/getDecoder) s) "UTF-8")
-     :cljs (-> (js/Buffer.from s "base64")
-               (.toString "utf8"))))
-
 (defn- fingerprint
   "Cheap whole-set fingerprint — a sorted-hash of the id-set. We use
   this to detect a registry that materially changed between cursor
@@ -112,67 +91,49 @@
   [ids]
   (str (hash (vec (sort-by str ids)))))
 
+(defn- payload-valid?
+  "The story cursor payload shape: a versioned map carrying the integer
+  offset/total + the whole-set fingerprint. Passed to the shared
+  `base-cursor/decode-cursor` so the codec is shared while the shape
+  check stays story-specific."
+  [v]
+  (and (map? v)
+       (= 1 (:v v))
+       (integer? (:offset v))
+       (integer? (:total v))
+       (string? (:sig v))))
+
 (defn parse-limit-arg
-  "Normalise the `:limit` MCP arg into an integer in
-  `[1, max-limit]`. Default `default-limit`. Caller-supplied values
-  above `max-limit` clamp DOWN (the same posture as `run-variant`'s
-  `:timeout-ms` ceiling — a legitimate large request still works,
-  just capped)."
+  "Normalise the `:limit` MCP arg into an integer in `[1, max-limit]`,
+  default `default-limit`. Thin wrapper over the shared
+  `base-cursor/parse-limit-arg` baking story-mcp's default + ceiling."
   [raw]
-  (min max-limit (args/parse-positive-int raw default-limit)))
+  (base-cursor/parse-limit-arg raw default-limit max-limit))
 
 (defn encode-cursor
   "Encode a cursor payload as a base64 string. Returns nil when there
-  are no more entries — the absence-of-cursor IS the end-of-pagination
-  signal."
+  are no more entries (offset has reached total) — the absence-of-cursor
+  IS the end-of-pagination signal. Delegates the codec to the shared
+  `base-cursor/encode-cursor`; owns only the story-specific
+  `{:v :offset :total :sig}` shape + the end-of-page guard."
   [{:keys [offset total sig]}]
   (when (and (integer? offset) (< offset total))
-    (b64-encode (pr-str {:v 1 :offset offset :total total :sig sig}))))
+    (base-cursor/encode-cursor {:v 1 :offset offset :total total :sig sig})))
 
 (defn decode-cursor
-  "Decode a base64 cursor back to its EDN payload. Returns:
-    - `nil` if the cursor arg is absent or blank.
-    - `::malformed` if the cursor exists but doesn't decode to a
-      well-formed payload map. Callers treat `::malformed` the same as
-      `::stale` — the agent must drop the cursor and restart.
-
-  Hardened against the same EDN-reader posture as `register-variant`'s
-  body slot (`tools/write.cljc`): the `:default` reader handler throws
-  on any custom tagged literal; the input is decoded only once.
-  Cursors are short opaque tokens — anything longer than 1 KB is
-  rejected before parsing."
+  "Decode a base64 cursor back to its `{:v :offset :total :sig}` payload.
+  Returns nil for an absent/blank cursor, `::base-cursor/malformed` for
+  one that doesn't decode to a valid story payload. The codec + size cap
+  + tagged-literal rejection are shared (`base-cursor/decode-cursor`);
+  the `payload-valid?` shape check is story-specific."
   [s]
-  (cond
-    (or (nil? s) (and (string? s) (str/blank? s))) nil
-    (not (string? s)) ::malformed
-    (> (count s) 1024) ::malformed
-    :else
-    (try
-      (let [edn (b64-decode s)
-            v   (edn/read-string {:default (fn [_t _v]
-                                             ;; Caught by the surrounding try
-                                             ;; → ::malformed; the canonical
-                                             ;; :rf.error/id rides on ex-data
-                                             ;; for any consumer that inspects.
-                                             (throw (ex-info ":rf.error/story-mcp-bad-edn-tag"
-                                                             {:rf.error/id :rf.error/story-mcp-bad-edn-tag
-                                                              :where    'story-mcp/decode-cursor
-                                                              :recovery :no-recovery
-                                                              :reason   "EDN cursor carried a tagged literal — none are permitted"})))} edn)]
-        (if (and (map? v)
-                 (= 1 (:v v))
-                 (integer? (:offset v))
-                 (integer? (:total v))
-                 (string? (:sig v)))
-          v
-          ::malformed))
-      (catch #?(:clj Throwable :cljs :default) _ ::malformed))))
+  (base-cursor/decode-cursor s payload-valid?))
 
 (defn cursor-stale-result
-  "Structured cursor-stale error result. Uses the cross-MCP vocab
-  `:rf.mcp/cursor-stale` (`re-frame.mcp-base.vocab/cursor-stale-reason`)
-  — same vocab pair-mcp uses for ring-rotation staleness, so an agent
-  that learned the recovery path on pair-mcp reuses it here.
+  "Structured cursor-stale error result via the shared envelope builder.
+  Uses the cross-MCP vocab `:rf.mcp/cursor-stale` — same vocab pair-mcp
+  uses for ring-rotation staleness, so an agent that learned the
+  recovery path on pair-mcp reuses it here.
 
   In story-mcp's case staleness means the underlying id-set changed
   between cursor-mint and cursor-deref (e.g. a `register-variant`
@@ -180,13 +141,12 @@
   there is no recovery via wider window — the registry is the source
   of truth."
   [tool]
-  (h/error-result
-    (str "Cursor stale: the registry changed between pages. Drop the "
-         "cursor and restart `" tool "`.")
-    {:ok?    false
-     :reason vocab/cursor-stale-reason
-     :tool   tool
-     :hint   "Drop :cursor and re-request from offset 0."}))
+  (base-cursor/cursor-stale-result
+    h/error-result
+    tool
+    {:message (str "Cursor stale: the registry changed between pages. Drop the "
+                   "cursor and restart `" tool "`.")
+     :hint    "Drop :cursor and re-request from offset 0."}))
 
 (defn page
   "Apply pagination to a sorted seq of entries.
@@ -220,7 +180,7 @@
         live-sig      (fingerprint ids)]
     (cond
       ;; Malformed or stale cursor — same recovery (drop + restart).
-      (= cursor ::malformed)
+      (base-cursor/malformed? cursor)
       [:err (cursor-stale-result tool-name)]
 
       ;; Cursor present but the underlying set changed between mint

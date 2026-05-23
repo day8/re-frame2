@@ -48,9 +48,10 @@
 
 (deftest envelope-validity
   (testing "request shape"
-    (is (proto/request? {:jsonrpc "2.0" :method "tools/list" :id 1})))
+    (is (proto/valid-envelope? {:jsonrpc "2.0" :method "tools/list" :id 1}))
+    (is (not (proto/notification? {:jsonrpc "2.0" :method "tools/list" :id 1}))
+        "a message carrying :id is a request, not a notification"))
   (testing "missing id → notification"
-    (is (not (proto/request? {:jsonrpc "2.0" :method "x"})))
     (is (proto/notification? {:jsonrpc "2.0" :method "x"}))
     (is (proto/valid-envelope? {:jsonrpc "2.0" :method "x"})))
   (testing "missing jsonrpc version → invalid"

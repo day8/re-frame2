@@ -182,11 +182,12 @@
             ;;   operator chose to grow the registry). When
             ;;   `:write-back` is false the slot exists only for the
             ;;   rendered snippet's first-line `:variant-id` literal —
-            ;;   we render the caller's string as `:<string>` via
-            ;;   `read-string` ONLY when the existing variant-id grammar
-            ;;   admits it. If not, we fall back to the source `vk`.
-            ;;   This avoids interning a JVM keyword for what may be a
-            ;;   one-shot agent suggestion.
+            ;;   we resolve the caller's string via `safe-keyword`
+            ;;   against the live registered-variant set, so it renders
+            ;;   only when it ALREADY names a registered variant. An
+            ;;   unregistered suggested id falls back to the source `vk`
+            ;;   (no intern) rather than minting a fresh keyword for what
+            ;;   may be a one-shot agent suggestion.
             (let [extends     (if-let [e-arg (:extends arguments)]
                                 (or (args/safe-keyword e-arg (story/ids :variant))
                                     ;; Reject unknown :extends so the snippet
@@ -248,7 +249,7 @@
     :category       :write
     :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`). Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
                          "Examples: "
-                         "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :play [[:cart/add ...]]})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
+                         "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :play-script {:auto-run? true :script [[:dispatch-sync [:cart/add ...]]]}})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
                          "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
                          "3. Duration too long: {:variant-id \":story.cart/full\" :duration-ms 60000} -> {:isError true :content [{:text \":duration-ms 60000 exceeds ceiling 30000ms...\"}] :structuredContent {:rf.error :rf.story-mcp/duration-ms-too-large :duration-ms 60000 :max-allowed 30000}}.")
     :typicalTokens  1500

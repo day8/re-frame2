@@ -131,9 +131,10 @@
     ;; request without an `id`. We accept the canonical handshake-
     ;; completion notification (`notifications/initialized`) and any
     ;; other notification silently — the absence of `:id` is the
-    ;; complete dispatch rule. No defensive arm needed in the
-    ;; method `case` below.
-    (not (contains? message :id))
+    ;; complete dispatch rule (`proto/notification?` is its single
+    ;; home; rf2-ee38b.17). No defensive arm needed in the method
+    ;; `case` below.
+    (proto/notification? message)
     nil
 
     :else

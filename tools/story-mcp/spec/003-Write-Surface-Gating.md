@@ -25,8 +25,8 @@ Two tools sit behind the gate (see
 - `register-variant`
 - `unregister-variant`
 
-Read tools are never gated. The 14 Dev / Docs / Testing tools work
-regardless of `allow-writes?`.
+Read tools are never gated. The 16 Dev / Docs / Testing tools (Dev 3 +
+Docs 9 + Testing 4) work regardless of `allow-writes?`.
 
 ## How the gate fails
 

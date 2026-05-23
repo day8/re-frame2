@@ -65,12 +65,16 @@
                                         :passed? false
                                         :reason (ex-message e)}]}))
             incl?    (h/include-sensitive? args)
+            raw-db   (:app-db result)
             payload  {:frame           (:frame result vk)
-                      :app-db          (h/elide-app-db (:app-db result) vk incl?)
+                      :app-db          (h/elide-app-db raw-db vk incl?)
                       :assertions      (h/scrub-assertions (:assertions result) incl?)
-                      :rendered-hiccup (:rendered-hiccup result)
+                      ;; Derived trees re-key the same sensitive value at a
+                      ;; non-app-db path, so the path-based walker can't reach
+                      ;; them — value-redact instead (rf2-ee38b.17).
+                      :rendered-hiccup (h/scrub-rendered (:rendered-hiccup result) raw-db vk incl?)
                       :elapsed-ms      (:elapsed-ms result)
-                      :snapshot        (:snapshot result)
+                      :snapshot        (h/scrub-rendered (:snapshot result) raw-db vk incl?)
                       :lifecycle       (:lifecycle result)
                       :passing?        (story/assertions-passing? result)}]
         (h/text-result (h/pr-edn payload) payload)))))
@@ -124,9 +128,11 @@
         (h/text-result (h/pr-edn payload) payload)))))
 
 (defn tool-read-failures
-  "Testing: accumulated assertion failures across recent `run-variant`
-  calls. Reads the variant frame's `:rf.story/assertions` accumulator
-  via `re-frame.story/read-assertions`.
+  "Testing: the variant frame's current accumulated assertion records
+  (as of the most recent `run-variant`). Reads the frame's
+  `:rf.story/assertions` accumulator once via
+  `re-frame.story/read-assertions` — no re-run, no cross-call history; a
+  later `run-variant` overwrites the accumulator.
 
   Useful for an agent that ran a variant a moment ago and wants to
   inspect failures without re-running.
@@ -159,7 +165,7 @@
   "Testing-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` trees are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true}] :elapsed-ms 42 :passing? true :lifecycle :ok}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:assertions [{:assertion :rf.assert/sub-equals :passed? false :actual nil :expected 3}] :passing? false}. "

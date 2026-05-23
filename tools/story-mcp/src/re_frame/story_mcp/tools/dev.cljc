@@ -92,23 +92,20 @@
                                           :passed? false
                                           :reason (ex-message e)}]}))
             incl?      (h/include-sensitive? args)
+            raw-db     (:app-db result)
             payload    {:variant-id   vk
                         :share-url    share-url
                         :lifecycle    (:lifecycle result)
                         :elapsed-ms   (:elapsed-ms result)
-                        :app-db       (h/elide-app-db (:app-db result) vk incl?)
+                        :app-db       (h/elide-app-db raw-db vk incl?)
                         :assertions   (h/scrub-assertions (:assertions result) incl?)
-                        :rendered-hiccup (:rendered-hiccup result)
-                        :snapshot     (:snapshot result)
-                        :effective-args (:effective-args result)}]
+                        ;; Derived trees re-key the same sensitive value at a
+                        ;; non-app-db path, so the path-based walker can't
+                        ;; reach them — value-redact instead (rf2-ee38b.17).
+                        :rendered-hiccup (h/scrub-rendered (:rendered-hiccup result) raw-db vk incl?)
+                        :snapshot     (h/scrub-rendered (:snapshot result) raw-db vk incl?)
+                        :effective-args (h/scrub-rendered (:effective-args result) raw-db vk incl?)}]
         (h/text-result (h/pr-edn payload) payload)))))
-
-;; `story/registered-substrates` is CLJS-only — resolved once at ns-load
-;; via `helpers/resolve-cljs-var`. The JVM-standalone deploy reads nil
-;; and returns an empty set; the shared-process (nREPL-attached CLJS)
-;; deploy reads the var.
-(defonce ^:private registered-substrates-var
-  (h/resolve-cljs-var 'story/registered-substrates))
 
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
@@ -120,14 +117,13 @@
   set is the CLJS-side one ONLY when the server is co-hosted with the
   CLJS runtime (a shared-process deploy via nREPL). The JVM-standalone
   deploy reads an empty set — that's a correct answer for that deploy
-  (no CLJS substrates are runnable from a JVM-only host)."
+  (no CLJS substrates are runnable from a JVM-only host).
+
+  The CLJS var is resolved once, in `helpers` — `h/registered-substrates`
+  is the single accessor (rf2-ee38b.17 removed the duplicate `defonce`
+  that used to live here)."
   [_args]
-  (let [subs (try
-               (if registered-substrates-var
-                 (sort (vec (registered-substrates-var)))
-                 [])
-               (catch Throwable _ []))
-        payload {:substrates (vec subs)}]
+  (let [payload {:substrates (vec (h/registered-substrates))}]
     (h/text-result (h/pr-edn payload) payload)))
 
 ;; ---------------------------------------------------------------------------
@@ -151,7 +147,7 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :lifecycle :ok :app-db {...} :assertions [] :rendered-hiccup [...]}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
