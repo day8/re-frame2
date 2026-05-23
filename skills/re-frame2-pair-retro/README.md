@@ -1,6 +1,6 @@
 # re-frame2-pair-retro
 
-> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+> ↑ [`skills/`](../) — index of all eight re-frame2 skills.
 
 `re-frame2-pair-retro` is a Claude ***meta-skill*** for [`re-frame2-pair`](../re-frame2-pair/). It reviews a user's `re-frame2-pair` session, identifies friction and wasted effort, and suggests how `re-frame2-pair` itself could be improved to become a better pair programmer.
 
