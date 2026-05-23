@@ -107,6 +107,40 @@
   [r]
   (::info r))
 
+(defn with-handled
+  "Stamp the optional `::handled?` flag onto an `:ok` Result. Per Spec 005
+  §Transition resolution / §Parallel regions (005:1168-1171): a region of
+  a parallel-region machine reports whether its inbound event resolved to
+  a transition so the parent can emit `:rf.error/machine-unhandled-event`
+  exactly once when EVERY region declines. The flag is internal to the
+  machines engine — `:fail` Results and non-region callers ignore it; the
+  key is namespaced so it never collides with snapshot / fx slots."
+  [r handled?]
+  (if (ok? r) (assoc r ::handled? handled?) r))
+
+(defn handled?
+  "Read the `::handled?` flag off a Result. Defaults to `true` when absent
+  so non-region single-machine results (which never stamp it) are never
+  mistaken for declined events."
+  [r]
+  (get r ::handled? true))
+
+(defn with-microsteps
+  "Stamp the optional `::microsteps` count onto an `:ok` Result. Per Spec
+  005 §Trace events: the macrostep's `:always` microstep count rides the
+  Result so the lifecycle handler can stamp `:microsteps` on the outer
+  `:rf.machine/transition` trace. Internal to the machines engine; the
+  key is namespaced so it never collides with snapshot / fx slots."
+  [r n]
+  (if (ok? r) (assoc r ::microsteps n) r))
+
+(defn microsteps
+  "Read the `::microsteps` count off a Result. Defaults to 0 when absent
+  (e.g. an unhandled-event / stale-timer / depth-exceeded path took no
+  `:always` microsteps)."
+  [r]
+  (get r ::microsteps 0))
+
 #?(:clj
    (defmacro with-ok
      "Pair-destructure an `:ok` Result's `::snap` and `::fx` slots into

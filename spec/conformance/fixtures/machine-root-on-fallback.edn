@@ -1,0 +1,139 @@
+;; Conformance fixture: machine/root-on-fallback
+;;
+;; Top-level (machine root) `:on` fallback. Per [005 §Transition resolution
+;; — deepest-wins with parent fallthrough]
+;; (../../005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough)
+;; the leaf→root walk terminates at the MACHINE ROOT's own `:on` (steps 6-7:
+;; top-level explicit match, then top-level `:*` wildcard). The root `:on` is
+;; the documented place to factor common transitions every state inherits
+;; (`:logout` from every authenticated descendant; a global `:reset`).
+;;
+;; This pins the four root-`:on` behaviours:
+;;   1. Root `:on` explicit match fires from a state lacking its own handler
+;;      (keyword target — resolves root-relative).
+;;   2. Root `:on` vector target — absolute path from root.
+;;   3. Root `:on` `:*` wildcard — fires for any otherwise-unhandled event.
+;;   4. A leaf/state-level handler OVERRIDES the root `:on` for the same id
+;;      (deepest-wins; the root fallback is consulted only on a miss).
+;;   5. Root `:on` guard gates the fallback (guard false → unhandled).
+
+{:fixture/id           :machine/root-on-fallback
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/hierarchical}
+ :fixture/doc          "Top-level (root) `:on` fallback is consulted at runtime: explicit + vector + `:*` wildcard targets fire from states lacking their own handler; a state-level handler overrides the root fallback; a root `:on` guard gates the fallback."
+
+ :fixture/registry
+ {:machine-action
+  {:auth/parent-handles-help {:doc "Action declared at the root `:on` (and root `:*`)."}
+   :auth/leaf-handles-help   {:doc "Action declared at a leaf, overriding the root fallback."}}
+  :machine-guard
+  {:auth/may-reset {:doc "Guard on the root `:on` :gated transition."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:auth/parent-handles-help [[:fx :log {:msg "parent handled :help"}]]
+   :auth/leaf-handles-help   [[:fx :log {:msg "leaf handled :help"}]]}
+  :machine-guard
+  {:auth/may-reset [[:fn := [:get [:allow-reset?]] true]]}}
+
+ :fixture/calls
+ ;; Case 1: root `:on` explicit match — keyword target resolves root-relative.
+ ;; The active leaf [:authenticated :dashboard] has no :logout handler, nor
+ ;; does :authenticated; the walk terminates at the root `:on`, which targets
+ ;; the top-level :idle state.
+ [{:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :on      {:logout :idle                              ;; root keyword target → top-level :idle
+              :goto-settings [:authenticated :settings]  ;; root vector target → absolute
+              :* {:action :auth/parent-handles-help}     ;; root wildcard (internal)
+              :gated {:target :idle :guard :auth/may-reset}}
+    :states
+    {:idle {}
+     :authenticated
+     {:initial :dashboard
+      :states
+      {:dashboard {}
+       :settings  {:on {:logout {:action :auth/parent-handles-help}}}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:logout]
+   ;; Walk: :dashboard (miss) → :authenticated (miss) → root :on :logout
+   ;; (match). Keyword :idle resolves at top level → [:idle].
+   :expect-next-snapshot {:state :idle :data {}}
+   :expect-effects       []}
+
+  ;; Case 2: root `:on` vector target — absolute path from root.
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :on      {:logout :idle
+              :goto-settings [:authenticated :settings]
+              :* {:action :auth/parent-handles-help}}
+    :states
+    {:idle {}
+     :authenticated
+     {:initial :dashboard
+      :states
+      {:dashboard {}
+       :settings  {}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:goto-settings]
+   :expect-next-snapshot {:state [:authenticated :settings] :data {}}
+   :expect-effects       []}
+
+  ;; Case 3: root `:on` `:*` wildcard — fires for an otherwise-unhandled
+  ;; event. Internal transition (no :target) — state unchanged.
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :on      {:logout :idle
+              :* {:action :auth/parent-handles-help}}
+    :states
+    {:idle {}
+     :authenticated
+     {:initial :dashboard
+      :states {:dashboard {}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:some-unhandled-event]
+   :expect-next-snapshot {:state [:authenticated :dashboard] :data {}}
+   :expect-effects       [[:log {:msg "parent handled :help"}]]}
+
+  ;; Case 4: deepest-wins — the :settings leaf declares its OWN :logout, so
+  ;; the root `:on` :logout is SHADOWED (not also-fired). Internal.
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :on      {:logout :idle}
+    :states
+    {:idle {}
+     :authenticated
+     {:initial :dashboard
+      :states
+      {:dashboard {}
+       :settings  {:on {:logout {:action :auth/leaf-handles-help}}}}}}}
+   :snapshot     {:state [:authenticated :settings] :data {}}
+   :event        [:logout]
+   ;; Leaf wins — internal transition, no state change, leaf action fires.
+   :expect-next-snapshot {:state [:authenticated :settings] :data {}}
+   :expect-effects       [[:log {:msg "leaf handled :help"}]]}
+
+  ;; Case 5: root `:on` guard gates the fallback. Guard false → no level
+  ;; matches → snapshot unchanged (unhandled).
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {:allow-reset? false}
+    :on      {:gated {:target :idle :guard :auth/may-reset}}
+    :states
+    {:idle {}
+     :authenticated
+     {:initial :dashboard
+      :states {:dashboard {}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {:allow-reset? false}}
+   :event        [:gated]
+   :expect-next-snapshot {:state [:authenticated :dashboard] :data {:allow-reset? false}}
+   :expect-effects       []}]}

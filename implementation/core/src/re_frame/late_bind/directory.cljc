@@ -262,6 +262,9 @@
    {:key         :machines/after-cancel-fx
     :producer-ns 're-frame.machines
     :description "Effect handler cancelling a previously-scheduled transition."}
+   {:key         :machines/update-snapshot-fx
+    :producer-ns 're-frame.machines
+    :description "Effect handler for the :rf.machine/update-snapshot snapshot-level escape hatch."}
 
    ;; ---- re-frame.routing (rf2-k682) -----------------------------------------
    {:key         :routing/reg-route

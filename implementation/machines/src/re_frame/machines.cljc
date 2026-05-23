@@ -48,6 +48,7 @@
             [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
+            [re-frame.machines.lifecycle-fx.update-snapshot :as update-snapshot]
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.spawn-order :as spawn-order]
@@ -186,6 +187,10 @@
   {:doc "Machine-internal: cancel a previously-scheduled `:after` timer. Per Spec 005 §Timed transitions. Not for direct application use."}
   after-cancel-fx)
 
+(fx/reg-fx :rf.machine/update-snapshot
+  {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:errors ... :status ...}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:errors` / `:status` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
+  update-snapshot/update-snapshot-fx)
+
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
 ;; Per Spec 005 §Subscribing to machines via sub-machine: the framework
@@ -265,6 +270,7 @@
 (late-bind/set-fn! :machines/spawn-all-init-fx      invoke-all-init-fx)
 (late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
 (late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
+(late-bind/set-fn! :machines/update-snapshot-fx     update-snapshot/update-snapshot-fx)
 
 ;; rf2-ijm7 — load-order resilience for the `:rf.http/managed` machine-shape
 ;; wrapper. The wrapper is registered by re-frame.http-managed via the
