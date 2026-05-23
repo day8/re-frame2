@@ -25,6 +25,7 @@
   namespace dereferences the var once and exposes it as
   `compute-digest`, so per-fixture assertions are runtime-agnostic."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.schemas.digest]
             [re-frame.schemas.digest-parity-fixtures :as fixtures]))
 
 ;; ---- pinned-literal vectors -----------------------------------------------
@@ -85,3 +86,45 @@
       (is (= (count literals) (count (set literals)))
           (str "Fixture literals must be pairwise distinct — got "
                (pr-str literals))))))
+
+;; ---- UTF-8 byte-order line sort (rf2-ee38b.6, Spec 010 step 4) ------------
+;;
+;; Spec 010 §Digest algorithm step 4 mandates the lines be sorted
+;; "lexicographically as byte sequences (UTF-8) … identical across
+;; hosts." Host-native string compare (JVM String.compareTo / JS string
+;; compare) is UTF-16 code-unit order, which diverges from UTF-8 byte
+;; order for supplementary-plane (> U+FFFF) characters. For ASCII the
+;; two coincide (so every pinned fixture above is unaffected). These
+;; pins lock the comparator to the normative UTF-8 byte order so a
+;; non-CLJS/JVM port that byte-sorts agrees with the reference.
+
+(def ^:private compare-utf8-bytes
+  #'re-frame.schemas.digest/compare-utf8-bytes)
+
+(deftest utf8-byte-sort-diverges-from-utf16-on-supplementary-plane
+  (testing "rf2-ee38b.6 — the comparator orders by UTF-8 bytes, not
+            UTF-16 code units. U+1F600 (UTF-8 F0 9F 98 80; UTF-16
+            surrogate D83D DE00) vs U+FFFD (replacement, UTF-8 EF BF BD;
+            UTF-16 FFFD): UTF-16 order says U+1F600 < U+FFFD (D83D <
+            FFFD) but UTF-8 byte order says U+1F600 > U+FFFD (F0 > EF).
+            The comparator MUST follow UTF-8. Code points are built via
+            `Character/toChars` to avoid source-encoding fragility."
+    (let [astral (String. (Character/toChars 0x1F600))  ;; supplementary plane
+          bmp    (String. (Character/toChars 0xFFFD))]   ;; BMP replacement char
+      (is (pos? (compare-utf8-bytes astral bmp))
+          "UTF-8 byte order: astral (F0…) sorts AFTER bmp (EF…)")
+      (is (neg? (compare-utf8-bytes bmp astral)))
+      ;; Sanity: host-native compare gives the OPPOSITE (UTF-16) answer,
+      ;; confirming the comparator is genuinely doing byte-order work.
+      (is (neg? (compare astral bmp))
+          "host-native String.compareTo is UTF-16 order (the bug we fixed)"))))
+
+(deftest utf8-byte-sort-agrees-with-string-compare-on-ascii
+  (testing "rf2-ee38b.6 — for ASCII the UTF-8 byte order and native
+            string order coincide, so the pinned ASCII fixtures above
+            are byte-for-byte unaffected by the comparator switch."
+    (doseq [[a b] [["[:a]" "[:b]"] ["[:auth]" "[:user]"]
+                   ["abc" "abd"] ["[:n]" "[:n]"]]]
+      (is (= (Integer/signum (compare-utf8-bytes a b))
+             (Integer/signum (compare a b)))
+          (str "ASCII order coincides for " (pr-str [a b]))))))

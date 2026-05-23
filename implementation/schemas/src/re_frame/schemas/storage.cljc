@@ -25,6 +25,7 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.schemas.validator :as validator]
+            [re-frame.schemas.walker :as walker]
             [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -90,21 +91,37 @@
 ;;
 ;; Per Spec 010 §The `:schema` value is opaque to re-frame, the framework's
 ;; schema walker (`re-frame.schemas.walker`) is pure data — it handles
-;; vector-form Malli EDN and treats compiled `m/schema` values, registry
-;; refs, and anything-else-non-vector as opaque leaves. A user that
-;; registers a registry-ref schema (`(rf/reg-app-schema [:user]
-;; :my/user-schema)`) and puts `:sensitive?` / `:large?` per-slot flags
-;; inside the registry definition will see the walker **silently skip**
-;; them — the validation-failure trace won't redact the sensitive slot
-;; and the size-elision walker won't see the `:large?` declarations.
+;; vector-form Malli EDN and treats compiled `m/schema` values as opaque
+;; leaves. A user that registers a compiled `m/schema` value and puts
+;; `:sensitive?` / `:large?` per-slot flags inside the compiled value will
+;; see the walker **silently skip** them — the validation-failure trace
+;; won't redact the sensitive slot and the size-elision walker won't see
+;; the `:large?` declarations.
 ;;
 ;; This warning fires once per process from `reg-app-schema` /
-;; `reg-app-schemas` when the registered schema is not a vector form
-;; (i.e. the walker cannot introspect it). Symmetric with the
+;; `reg-app-schemas` when the registered schema is a genuinely opaque
+;; NON-keyword value (compiled `m/schema` object, etc.) the walker
+;; cannot introspect. Symmetric with the
 ;; `:rf.warning/schema-validator-unavailable` warn-once-per-process
 ;; pattern above. Cost is one boot-time predicate per `reg-app-schema`
 ;; call; the warning is the discoverability nudge for the two workable
 ;; fallbacks (vector form, or registration-meta `:sensitive?`).
+;;
+;; Keyword schemas DO NOT warn (rf2-ee38b.6 — correctness P2). A bare
+;; keyword is non-vector but is a valid, idiomatic Malli schema in two
+;; flavours: a primitive type (`:int` / `:string` / `:boolean` / `:any`)
+;; and a registry reference (`:my/user-schema`). The walker's keyword
+;; clause returns `acc` with no declarations because a bare keyword
+;; CANNOT carry per-slot props — for a primitive there is provably
+;; nothing to skip, so the warning was a pure false positive on the
+;; common case. The predicate cannot cheaply distinguish a primitive
+;; keyword from a registry-ref keyword without a Malli registry consult
+;; (which would violate Spec 010 §The `:schema` value is opaque to
+;; re-frame). Rather than warn on every keyword — a frequent
+;; false-positive to catch a rare registry-ref true-positive — we
+;; suppress the keyword case entirely. Registry refs that hide per-slot
+;; flags are an advanced shape covered by the walker docstring's
+;; discoverability caveat (rf2-yaioz).
 
 (defonce ^:private walker-opaque-warned
   ;; Process-lifecycle one-shot. Reset by `clear-walker-opaque-warned!`
@@ -117,34 +134,44 @@
   []
   (reset! walker-opaque-warned false))
 
+(defn- walker-introspectable?
+  "True when the schema value is a form the pure-data walker can
+  introspect for per-slot `:sensitive?` / `:large?` flags. Vector-form
+  Malli EDN is introspectable; so is a bare keyword (primitive type or
+  registry ref) — a keyword cannot carry per-slot props, so the walker
+  provably skips nothing and there is nothing to warn about (rf2-ee38b.6).
+  Compiled `m/schema` objects, maps, and other opaque values are NOT
+  introspectable — their internal per-slot flags are silently skipped."
+  [schema]
+  (or (vector? schema) (keyword? schema)))
+
 (defn- maybe-warn-walker-opaque!
   "Emit `:rf.warning/schema-walker-opaque` once per process when
-  `reg-app-schema` / `reg-app-schemas` is invoked with a schema value
-  that is NOT a vector form (the walker can only introspect Malli EDN
-  vector forms — `m/schema` compiled values and registry-ref keywords
-  are treated as opaque leaves).
+  `reg-app-schema` / `reg-app-schemas` is invoked with a genuinely
+  opaque schema value the walker cannot introspect (a compiled
+  `m/schema` object / other non-vector, non-keyword value). Vector
+  forms and bare keywords do not warn — see `walker-introspectable?`.
 
   Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
   §Production builds)."
   [schema path]
-  (when (and (not (vector? schema))
+  (when (and (not (walker-introspectable? schema))
              (not @walker-opaque-warned))
     (when (compare-and-set! walker-opaque-warned false true)
       (when-let [emit! (late-bind/get-fn :trace/emit!)]
         (emit! :warning :rf.warning/schema-walker-opaque
                {:path path
-                :schema-kind (cond
-                               (keyword? schema) :registry-ref
-                               (map?     schema) :compiled-schema-object
-                               :else             :unknown)
+                :schema-kind (if (map? schema)
+                               :compiled-schema-object
+                               :unknown)
                 :reason
-                (str "reg-app-schema was called with a non-vector schema"
-                     " form (registry ref / compiled m/schema / other"
-                     " opaque value). The schema-walker (used for"
-                     " per-slot `:sensitive?` / `:large?` extraction)"
-                     " can only introspect vector-form Malli EDN —"
-                     " per-slot flags inside an opaque value are"
+                (str "reg-app-schema was called with a compiled / opaque"
+                     " schema value (a non-vector, non-keyword form such"
+                     " as a compiled m/schema object). The schema-walker"
+                     " (used for per-slot `:sensitive?` / `:large?`"
+                     " extraction) can only introspect vector-form Malli"
+                     " EDN — per-slot flags inside an opaque value are"
                      " silently skipped. Two workable shapes: (1)"
                      " register the vector form directly so the walker"
                      " can introspect it; (2) use registration-level"
@@ -180,6 +207,129 @@
                      " `set-schema-validator!` with a non-default fn"
                      " to suppress this warning.")})))))
 
+;; ---- hot-reload :rf.schema/violation trace (rf2-ee38b.6) ------------------
+;;
+;; Per Spec 010 §Schema migration on hot-reload + Spec 009 error catalogue
+;; row `:rf.schema/violation`: when a `(frame-id, path)` schema is
+;; re-registered during dev (a file save re-evaluates `reg-app-schema`
+;; with a DIFFERENT schema for the same path), the live `app-db` value at
+;; that path may now violate the new schema. The runtime emits a
+;; `:rf.schema/violation` trace (`:op-type :warning`, recovery
+;; `:logged-and-skipped`) so dev panels highlight the stale slice — the
+;; live app continues running; `app-db` is NOT auto-cleared or rewound.
+;;
+;; Distinct from `:rf.error/schema-validation-failure` (dispatch-time
+;; boundary validation): this fires at the hot-reload edge against
+;; PRE-EXISTING state, only when the schema actually changed AND the live
+;; value fails the new schema. A no-op re-eval with the same schema does
+;; nothing; a re-eval that the live value still satisfies does nothing.
+
+(def ^:private redacted-sentinel
+  "The `:rf/redacted` privacy sentinel — Spec 009 §Privacy. Stamped in
+  place of `:mismatching-value` when the new schema declares the slot
+  sensitive, mirroring the `:rf.error/schema-validation-failure`
+  redaction posture so the hot-reload trace never re-leaks a credential."
+  :rf/redacted)
+
+(defn- maybe-emit-schema-violation!
+  "Emit `:rf.schema/violation` when a re-registration changes the schema
+  at `(frame-id, path)` AND the live `app-db` value at `path` fails the
+  NEW schema. `prior-schema` is the schema the path carried before this
+  registration (nil when first registration). No-op when there is no
+  prior schema, the schema is unchanged, no validator is registered, or
+  the live value still validates.
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  so the production bundle DCEs the consult+emit branch (Spec 009
+  §Production builds)."
+  [frame-id path prior-schema new-schema]
+  (when (and (some? prior-schema)
+             (not= prior-schema new-schema))
+    (when-let [vf @validator/validator-fn]
+      (let [db        (frame/frame-app-db-value frame-id)
+            live-val  (get-in db path)
+            ;; A malformed new schema can make the validator throw
+            ;; (e.g. Malli's `:malli.core/child-error` on a childless
+            ;; `[:vector]`). A bad schema is not a hot-reload violation
+            ;; and MUST NOT crash registration — treat a throwing
+            ;; validator as "cannot determine a violation" (pass).
+            passes?   (try (boolean (vf new-schema live-val))
+                           (catch #?(:clj Throwable :cljs :default) _ true))]
+        (when-not passes?
+          (when-let [emit! (late-bind/get-fn :trace/emit!)]
+            (let [sensitive? (walker/schema-has-sensitive? new-schema)]
+              (emit! :warning :rf.schema/violation
+                     {:path               path
+                      :pre-reload-schema  prior-schema
+                      :post-reload-schema new-schema
+                      :mismatching-value  (if sensitive?
+                                            redacted-sentinel
+                                            live-val)
+                      :frame              frame-id
+                      :recovery           :logged-and-skipped
+                      :sensitive?         sensitive?}))))))))
+
+;; ---- schema-driven elision registry population (rf2-ee38b.6) --------------
+;;
+;; Per Spec 010 §`:large?` ("at boot, and on `reg-app-schema`
+;; re-registration") and §Registry feeder (rf2-c1l4d): the runtime walks
+;; every registered app-schema and writes the `{:large? true …}` /
+;; `{:sensitive? true …}` declarations into the frame's
+;; `[:rf/elision :declarations]` / `[:rf/elision :sensitive-declarations]`
+;; slots. `re-frame.router` already refreshes these per-dispatch via the
+;; same `:elision/populate-from-schemas!` hook, but that leaves a gap for
+;; wire-boundary emits / digests that fire BEFORE the first dispatch
+;; (boot-time SSR serialise, initial epoch snapshot). Populating at
+;; registration closes that gap and matches the spec's "on re-registration"
+;; contract. Best-effort: the hook is a no-op when the elision artefact is
+;; absent, and the elision write itself no-ops when the frame's app-db
+;; container does not exist yet (registration before frame creation).
+;;
+;; PERF (rf2-ee38b.6): `:elision/populate-from-schemas!` re-walks EVERY
+;; registered schema in the frame, so it is O(n) in the frame's schema
+;; count. Running it on every single `reg-app-schema` therefore makes
+;; bulk registration O(n²) — registering n schemas wedges (the rf2-utdxg
+;; concurrency-stress harness registers 8 × 5000 schemas one-at-a-time on
+;; one frame and timed out the JVM gate). The fix is `populate-relevant?`:
+;; a fresh registration whose schema contributes NO `:large?` /
+;; `:sensitive?` slot cannot change the elision registry, so the walk is
+;; skipped. We only pay the O(n) refresh when the new schema actually
+;; carries an elision flag, OR when this is a re-registration (where the
+;; PRIOR schema may have carried a flag that is now removed and must be
+;; dropped). The common case — many flag-free fresh registrations — is
+;; O(1) per call.
+
+(defn- schema-contributes-elision?
+  "True when `schema` carries at least one `:large?` or `:sensitive?`
+  per-slot flag the walker can introspect — i.e. registering it could
+  add a declaration to the frame's elision registry. Pure walk over the
+  single schema (the sensitive walk is memoised by `(schema, path)`);
+  cheap relative to the full-frame `populate-from-schemas!` refresh."
+  [schema path]
+  (or (seq (walker/extract-large-paths-from-schema schema path))
+      (seq (walker/extract-sensitive-paths-from-schema schema path))))
+
+(defn- populate-relevant?
+  "Decide whether a `reg-app-schema` call needs an elision-registry
+  refresh. Skips the O(n) full-frame walk for the dominant case — a
+  fresh registration of a flag-free schema, which provably cannot change
+  any declaration. Refreshes when the new schema contributes a flag, or
+  when this is a re-registration (the prior schema may have carried a
+  flag now being removed)."
+  [prior-schema schema path]
+  (or (some? prior-schema)
+      (schema-contributes-elision? schema path)))
+
+(defn- populate-elision-for-frame!
+  "Refresh schema-derived `:large?` / `:sensitive?` elision declarations
+  for `frame-id` via the `:elision/populate-from-schemas!` late-bind
+  hook. No-op when the elision artefact is not on the classpath.
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`."
+  [frame-id]
+  (when-let [populate! (late-bind/get-fn :elision/populate-from-schemas!)]
+    (populate! frame-id)))
+
 ;; ---- app-db schema registration -------------------------------------------
 
 (defn reg-app-schema
@@ -199,9 +349,13 @@
   entries. Pair-tools and source-coord tests read via `app-schema-meta-at`."
   ([path schema] (reg-app-schema path schema {}))
   ([path schema opts]
-   (let [frame-id (resolve-frame opts)
-         meta     (source-coords/merge-coords
-                    {:schema schema :path path :frame frame-id})]
+   (let [frame-id     (resolve-frame opts)
+         ;; Capture the path's prior schema BEFORE the swap so the
+         ;; hot-reload `:rf.schema/violation` check (rf2-ee38b.6) can
+         ;; compare pre- vs post-reload shapes. nil on first registration.
+         prior-schema (get-in @schemas-by-frame [frame-id path :schema])
+         meta         (source-coords/merge-coords
+                        {:schema schema :path path :frame frame-id})]
      (swap! schemas-by-frame assoc-in [frame-id path] meta)
      ;; Per rf2-fq7d2: dev-time nudge when the Malli adapter is unloaded
      ;; AND the framework-default validator is still installed — the
@@ -212,12 +366,36 @@
      (when interop/debug-enabled?
        (maybe-warn-validator-unavailable!)
        ;; Per rf2-jsokn: dev-time nudge when the registered schema is
-       ;; a non-vector form (registry-ref keyword, compiled m/schema
+       ;; an opaque non-vector, non-keyword form (compiled m/schema
        ;; object, etc.) — the schema walker can only introspect vector
        ;; Malli EDN, so per-slot `:sensitive?` / `:large?` flags inside
        ;; an opaque value are silently skipped. Production elides via
        ;; the outer `interop/debug-enabled?` gate.
-       (maybe-warn-walker-opaque! schema path))
+       (maybe-warn-walker-opaque! schema path)
+       ;; Per rf2-ee38b.6 / Spec 010 §Schema migration on hot-reload:
+       ;; emit `:rf.schema/violation` when a re-registration changes the
+       ;; schema and the live app-db value at `path` fails the new shape.
+       ;; O(1) per call — reads the prior schema + one validation of the
+       ;; live value at this path; safe to run per-entry even in bulk.
+       (maybe-emit-schema-violation! frame-id path prior-schema schema)
+       ;; Per rf2-ee38b.6 / Spec 010 §`:large?` ("at boot, and on
+       ;; re-registration"): refresh the schema-derived elision
+       ;; declarations so size-elision / privacy redaction is live even
+       ;; for wire emits that fire before the first dispatch.
+       ;;
+       ;; This walks EVERY registered schema in the frame, so it is O(n)
+       ;; in the frame's schema count. Two guards keep it cheap:
+       ;;   - `:rf/defer-elision-populate?` lets the bulk
+       ;;     `reg-app-schemas` path run the walk ONCE after all entries
+       ;;     land instead of once per entry.
+       ;;   - `populate-relevant?` skips the walk entirely for the common
+       ;;     case (a fresh registration of a flag-free schema), which
+       ;;     provably cannot change the elision registry.
+       ;; Without both, registering n schemas is O(n²) and wedged the
+       ;; rf2-utdxg concurrency-stress JVM gate.
+       (when (and (not (:rf/defer-elision-populate? opts))
+                  (populate-relevant? prior-schema schema path))
+         (populate-elision-for-frame! frame-id)))
      path)))
 
 (defn reg-app-schemas
@@ -251,8 +429,38 @@
   `reg-app-schema` chain instead)."
   ([path->schema] (reg-app-schemas path->schema {}))
   ([path->schema opts]
-   (mapv (fn [[path schema]] (reg-app-schema path schema opts))
-         path->schema)))
+   ;; Defer the per-entry schema-derived elision repopulation (rf2-ee38b.6):
+   ;; `populate-elision-for-frame!` walks EVERY registered schema in the
+   ;; frame, so running it once per entry is O(n²) in the frame's schema
+   ;; count — fine for the documented 5–20-schema feature module, but it
+   ;; wedges large/concurrent bulk registration (the rf2-utdxg
+   ;; concurrency-stress harness registers 8 × 5000 on one frame and timed
+   ;; out the JVM gate). Each singular call still does its O(1) per-entry
+   ;; work (validator nudge, walker-opaque nudge, hot-reload
+   ;; `:rf.schema/violation` check); the O(n) full-frame elision walk is
+   ;; hoisted out and run AT MOST ONCE after all entries land, and only
+   ;; when at least one entry could actually change the elision registry
+   ;; (`populate-relevant?` — a batch of flag-free fresh registrations,
+   ;; the stress workload, skips the walk entirely).
+   (let [frame-id   (resolve-frame opts)
+         entry-opts (assoc opts :rf/defer-elision-populate? true)
+         ;; Snapshot prior schemas BEFORE registering so relevance
+         ;; reflects each entry's true re-registration status, matching
+         ;; the singular path's per-call decision.
+         relevant?  (when interop/debug-enabled?
+                      (let [snapshot (get @schemas-by-frame frame-id)]
+                        (boolean
+                          (some (fn [[path schema]]
+                                  (populate-relevant?
+                                    (get-in snapshot [path :schema])
+                                    schema path))
+                                path->schema))))
+         paths      (mapv (fn [[path schema]]
+                            (reg-app-schema path schema entry-opts))
+                          path->schema)]
+     (when (and interop/debug-enabled? relevant?)
+       (populate-elision-for-frame! frame-id))
+     paths)))
 
 (defn app-schema-at
   "Look up the registered schema for a path in a frame, or nil.
@@ -331,8 +539,17 @@
 ;; `schemas-by-frame`. Re-registering a `(frame-id, path)` entry is an
 ;; ordinary `swap!`: the new meta replaces the prior entry atomically, and
 ;; the validation hot path (`frame-schema-entries`) picks up the new
-;; schema on its next read. There is nothing to invalidate elsewhere —
-;; the per-frame map IS the cache.
+;; schema on its next read. The per-frame map IS the validation cache.
+;;
+;; Two dev-only side effects DO accompany a re-registration (rf2-ee38b.6):
+;;   1. `:rf.schema/violation` — emitted when the schema CHANGED and the
+;;      live `app-db` value at the path fails the new shape (Spec 010
+;;      §Schema migration on hot-reload). See `maybe-emit-schema-violation!`.
+;;   2. Schema-derived elision-registry refresh — re-populates the
+;;      frame's `[:rf/elision …]` declarations so size-elision / privacy
+;;      stays in sync with the schema set (Spec 010 §`:large?` /
+;;      §Registry feeder). See `populate-elision-for-frame!`.
+;; Both are gated on `interop/debug-enabled?` and DCE'd in production.
 
 ;; ---- test-support snapshot / restore -------------------------------------
 ;;

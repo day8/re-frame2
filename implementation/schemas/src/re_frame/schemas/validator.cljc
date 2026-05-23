@@ -204,7 +204,14 @@
     (let [m validate-fn-or-map]
       (when (contains? m :validate) (reset! validator-fn (:validate m)))
       (when (contains? m :explain)  (reset! explainer-fn (:explain m)))
-      (when (contains? m :print)    (reset! printer-fn   (:print m)))
+      ;; Per rf2-ee38b.6 (clarity P2): coerce `nil` to the default
+      ;; identically to the dedicated `set-schema-printer!` setter, so
+      ;; "printer-fn is never nil" is a true invariant established at the
+      ;; write site — not re-asserted defensively in `run-printer`. The
+      ;; map-arity docstring promises this fallback; the coercion makes
+      ;; it honest.
+      (when (contains? m :print)
+        (reset! printer-fn (or (:print m) default-edn-print)))
       @validator-fn)
     (do (reset! validator-fn validate-fn-or-map)
         @validator-fn)))
@@ -288,14 +295,12 @@
     (f schema value)))
 
 (defn run-printer
-  "Hot-path entry — invoke the registered schema-print companion (or
-  the default EDN canonicaliser when none is registered) against a
-  single schema value. Per Spec 010 §Schema digest line 491 — the
-  digest pipeline (`re-frame.schemas.digest`) hashes this fn's UTF-8
-  bytes (rf2-wla45). Never returns nil for a non-nil schema value:
-  a nil registration falls back to `default-edn-print` so the
-  cross-runtime digest contract holds even when the validator
-  surface is fully nilled out."
+  "Hot-path entry — invoke the registered schema-print companion against
+  a single schema value. Per Spec 010 §Schema digest line 491 the digest
+  pipeline (`re-frame.schemas.digest`) hashes this fn's UTF-8 bytes
+  (rf2-wla45). `printer-fn` is never nil: both write sites
+  (`set-schema-printer!` and the `set-schema-validator!` map-arity)
+  coerce a nil `:print` to `default-edn-print` (rf2-ee38b.6), so the
+  cross-runtime digest contract holds without a read-site guard."
   [schema-value]
-  (let [f (or @printer-fn default-edn-print)]
-    (f schema-value)))
+  (@printer-fn schema-value))

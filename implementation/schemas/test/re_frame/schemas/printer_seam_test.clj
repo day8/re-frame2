@@ -103,6 +103,23 @@
       (is (= "::FROM-MAP-ARITY::" (validator/run-printer :int))
           "the registered printer reaches the hot path"))))
 
+(deftest set-schema-validator!-map-arity-nil-print-coerces-to-default
+  (testing "rf2-ee38b.6 — `(set-schema-validator! {:print nil})` coerces
+            to the default EDN canonicaliser, identically to
+            `(set-schema-printer! nil)`. Reconciles the two printer-
+            setter paths so `printer-fn` is never nil (the read-site
+            guard in `run-printer` was dropped) — the map-arity
+            docstring's 'falls back to the default' promise is now true
+            at the write site."
+    ;; Poison first so a no-op would be observable.
+    (schemas/set-schema-printer! (fn [_] "::POISONED::"))
+    (is (= "::POISONED::" (validator/run-printer :int)))
+    (schemas/set-schema-validator! {:print nil})
+    (is (some? @validator/printer-fn)
+        "printer-fn is never nil after a {:print nil} map-arity swap")
+    (is (= ":int" (validator/run-printer :int))
+        "{:print nil} falls back to default-edn-print, not 'no printer'")))
+
 (deftest set-schema-printer!-nil-falls-back-to-default
   (testing "Passing `nil` to `set-schema-printer!` reinstalls the
             default EDN canonicaliser — the digest is never undefined

@@ -78,14 +78,42 @@
        (sha256-hex (validator/run-printer schema-value))
        "\n"))
 
+(defn- compare-utf8-bytes
+  "Lexicographic comparison of two strings as UTF-8 byte sequences, per
+  Spec 010 §Digest algorithm step 4 (\"sort the lines lexicographically
+  as byte sequences (UTF-8) … identical across hosts\"). Bytes are
+  compared unsigned (0..255) so the order matches a byte-sort on any
+  port (rf2-ee38b.6).
+
+  Host-native string `compare` (JVM `String.compareTo` / JS string
+  comparison) is UTF-16 code-unit order, which diverges from UTF-8 byte
+  order for supplementary-plane (> U+FFFF) characters — a latent
+  cross-port gap for exotic path keywords. For ASCII the two orders
+  coincide, so this is byte-compatible with the prior pinned vectors."
+  [a b]
+  (let [ba   (utf8-bytes a)
+        bb   (utf8-bytes b)
+        na   (count ba)
+        nb   (count bb)
+        n    (min na nb)]
+    (loop [i 0]
+      (if (== i n)
+        (compare na nb)
+        (let [ua (bit-and (long (nth ba i)) 0xff)
+              ub (bit-and (long (nth bb i)) 0xff)]
+          (if (== ua ub)
+            (recur (inc i))
+            (compare ua ub)))))))
+
 (defn- compute-digest
   "Run the Spec 010 §Digest algorithm against the supplied
   `{path → schema-value}` map. Returns the canonical wire form
-  `\"sha256:\" + first-16-hex-chars`."
+  `\"sha256:\" + first-16-hex-chars`. Lines are sorted as UTF-8 byte
+  sequences (`compare-utf8-bytes`) per Spec 010 §Digest algorithm step 4."
   [path->schema]
   (let [lines       (mapv (fn [[path schema]] (digest-line path schema))
                           path->schema)
-        sorted      (sort lines)            ;; lexicographic byte order
+        sorted      (sort compare-utf8-bytes lines)
         concatted   (apply str sorted)
         full-hex    (sha256-hex concatted)]
     (str "sha256:" (subs full-hex 0 16))))
