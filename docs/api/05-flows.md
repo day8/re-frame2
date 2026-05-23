@@ -32,32 +32,30 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
 
 ```clojure
 (rf/reg-flow
-  {:id     :cart/total
-   :inputs {:items [:cart :items]
-            :rate  [:tax :rate]}
-   :output (fn [{:keys [items rate]}]
+  {:id     :cart/subtotal
+   :inputs [[:cart :items] [:tax :rate]]      ;; vector of app-db paths
+   :output (fn [items rate]                    ;; values arrive positionally
              (let [subtotal (reduce + (map :price items))]
-               {:subtotal subtotal
-                :tax      (* subtotal rate)
-                :total    (* subtotal (+ 1 rate))}))
-   :path   [:cart :total]})
+               (* subtotal (+ 1 rate))))
+   :path   [:cart :subtotal]})
 
-;; Now [:cart :total] in app-db is always derived. Read it via a plain sub
-;; or with subscribe-once. Adding an item triggers recompute; updating the
-;; rate triggers recompute; nothing else writes [:cart :total].
+;; Now [:cart :subtotal] in app-db is always derived. Read it via a plain
+;; sub or a plain handler. Adding an item triggers recompute; updating the
+;; rate triggers recompute; nothing else writes [:cart :subtotal].
 ```
 
-The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised `app-db`.
+`:inputs` is a **positional vector** of `app-db` paths; the values at those paths arrive as positional args to `:output` in the same order (a map-keyed `:inputs` form is a deferred design option per [Spec 013 §Open questions](../../spec/013-Flows.md#open-questions), not v1). The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised `app-db`.
 
 ### The flow map
 
 | Key | Required | Notes |
 |---|---|---|
 | `:id` | yes | The registry key. Use a namespaced keyword. |
-| `:inputs` | yes | A map of `{slot-name path-or-sub-vector}`. Path vectors read from `app-db`; sub-vectors subscribe through the sub graph. |
-| `:output` | yes | `(fn [inputs-map] new-output)`. Pure; called every time inputs change; must be deterministic. |
+| `:inputs` | yes | A vector of `app-db` path vectors. Read positionally; the value at each path is passed to `:output` in order. |
+| `:output` | yes | `(fn [in-1 in-2 ...] new-output)`. Pure; receives the input values positionally; called every time inputs change; must be deterministic. |
 | `:path` | yes | Where to write the output in `app-db`. |
-| `:live?` | no | Predicate fn — when present, the flow only fires while it returns true. Used to short-circuit expensive flows when their consumer isn't on-screen. |
+| `:doc` | no | One-sentence what-and-why; surfaces in tooling. |
+| `:schema` | no | Malli schema for the **output value**. Validated on every recompute in dev (and elided in production, like all schema validation). On failure the runtime emits `:rf.error/schema-validation-failure :where :flow-output` — **observational**: the output is still written (a flow output is materialised state downstream already reads), the trace surfaces the producer bug. Routes through the registered validator, so an app without the schemas artefact pays nothing. See [Spec 013 §Flow output validation](../../spec/013-Flows.md#flow-output-validation). |
 
 ### Frame-scoping
 

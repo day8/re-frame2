@@ -1,0 +1,233 @@
+(ns re-frame.flows-schema-validation-test
+  "JVM coverage for Spec 013 §Flow output validation (rf2-ee38b.9).
+
+  Pins the `:schema` flow-map key as load-bearing: a flow's computed
+  `:output` value is validated against its optional `:schema` on every
+  recompute, dev-only, via the pluggable validator seam the rest of
+  Spec 010 uses (`:schemas/validate-with-registered-fn` /
+  `:schemas/explain-with-registered-fn`). Before this slice the key was
+  stored in the registrar and runtime registry but never read by any
+  code path.
+
+  The tests register a predicate-based validator via
+  `set-schema-validator!` rather than depending on Malli being on the
+  classpath — the seam is pluggable per Spec 010 §Non-Malli validators,
+  so a tiny `(fn [schema value] (schema value))` validator exercises the
+  exact production code path while keeping the test self-contained.
+
+  Contract pinned:
+    - conforming output: no error trace; value written as normal.
+    - non-conforming output: `:rf.error/schema-validation-failure
+      :where :flow-output` emitted with `:rf.flow/id` / `:path` /
+      `:value` / `:explain` / `:recovery :no-recovery`; the value is
+      STILL written (observational, not a rollback).
+    - no `:schema`: validator never consulted.
+    - no validator registered: soft-pass (no error trace).
+    - production gate: with `debug-enabled?` false the validation is
+      silent (the whole surface DCEs in prod CLJS)."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
+            [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
+            [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.trace :as trace]))
+
+;; ---- per-test reset / error-trace recorder -------------------------------
+
+(def ^:dynamic ^:private *captured* nil)
+
+(defn- reset-runtime [test-fn]
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
+  (schemas/reset-schema-validator!)
+  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
+    (reset! (deref li-var) {}))
+  (error-emit/clear-error-listeners!)
+  (rf/init! plain-atom/adapter)
+  (require 're-frame.routing :reload)
+  (require 're-frame.ssr :reload)
+  (let [captured (atom [])]
+    (binding [*captured* captured]
+      (trace/register-listener!
+        ::schema-violation-recorder
+        (fn [ev]
+          (when (= :rf.error/schema-validation-failure (:operation ev))
+            (swap! captured conj ev))))
+      (try
+        (test-fn)
+        (finally
+          (trace/unregister-listener! ::schema-violation-recorder)
+          (schemas/reset-schema-validator!))))))
+
+(use-fixtures :each reset-runtime)
+
+;; A trivial pluggable validator: a schema here is a 1-arg predicate fn.
+;; This exercises the `:schemas/validate-with-registered-fn` seam without
+;; pulling Malli onto the test classpath (Spec 010 §Non-Malli validators).
+(defn- install-predicate-validator! []
+  (schemas/set-schema-validator!
+    {:validate (fn [schema value] (boolean (schema value)))
+     :explain  (fn [schema value]
+                 (when-not (schema value)
+                   {:failed value}))}))
+
+(defn- violations [] @*captured*)
+
+;; ---------------------------------------------------------------------------
+;; 1. Conforming output: no error trace; value written.
+;; ---------------------------------------------------------------------------
+
+(deftest conforming-output-passes-silently
+  (testing "a flow whose output conforms to :schema emits no violation and writes the value"
+    (install-predicate-validator!)
+    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]
+                  :schema (fn [v] (and (integer? v) (pos? v)))})
+    (rf/dispatch-sync [:seed])
+    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+        "the flow computed and wrote its output")
+    (is (empty? (violations))
+        "a conforming output emits no :rf.error/schema-validation-failure")))
+
+;; ---------------------------------------------------------------------------
+;; 2. Non-conforming output: violation emitted, value STILL written.
+;; ---------------------------------------------------------------------------
+
+(deftest non-conforming-output-emits-violation-but-still-writes
+  (testing "a flow whose output violates :schema emits :where :flow-output and STILL writes (observational)"
+    (install-predicate-validator!)
+    ;; Output is negative; the schema demands a non-negative integer.
+    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h -4}))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]
+                  :schema (fn [v] (and (integer? v) (not (neg? v))))})
+    (rf/dispatch-sync [:seed])
+    (is (= -12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+        "the output is STILL written — flow validation is observational, not a rollback")
+    (let [vs (violations)]
+      (is (= 1 (count vs))
+          "exactly one violation fired for the non-conforming output")
+      (let [ev   (first vs)
+            tags (:tags ev)]
+        (is (= :rf.error/schema-validation-failure (:operation ev)))
+        (is (= :error      (:op-type ev))          "op-type :error")
+        (is (= :flow-output (:where tags))         ":where :flow-output")
+        (is (= :area        (:rf.flow/id tags))    ":rf.flow/id names the failing flow")
+        (is (= :area        (:failing-id tags))    ":failing-id mirrors the flow id")
+        (is (= [:rect :area] (:path tags))         ":path is the flow's output path")
+        (is (= -12          (:value tags))         ":value carries the failing output")
+        ;; `build-event` hoists `:recovery` from `:tags` to the event's
+        ;; top level (per the trace error-shape hoist contract).
+        (is (= :no-recovery (:recovery ev))        ":recovery :no-recovery (hoisted to top level)")
+        (is (= :rf/default  (:frame tags))         ":frame stamped")
+        (is (some? (:explain tags))                ":explain carries the registered explainer's output")
+        (is (string? (:reason tags))               ":reason is a human-readable string")))))
+
+;; ---------------------------------------------------------------------------
+;; 3. No :schema: validator never consulted.
+;; ---------------------------------------------------------------------------
+
+(deftest absent-schema-skips-validation
+  (testing "a flow without :schema never consults the validator (no violation even on a 'bad' value)"
+    (let [validator-calls (atom 0)]
+      (schemas/set-schema-validator!
+        {:validate (fn [_ _] (swap! validator-calls inc) false)})
+      (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+      (rf/reg-flow {:id     :area
+                    :inputs [[:w] [:h]]
+                    :output (fn [w h] (* w h))
+                    :path   [:rect :area]})
+      (rf/dispatch-sync [:seed])
+      (is (zero? @validator-calls)
+          "no :schema means the validator is never invoked")
+      (is (empty? (violations))
+          "no :schema means no violation regardless of output value"))))
+
+;; ---------------------------------------------------------------------------
+;; 4. No validator registered: soft-pass.
+;; ---------------------------------------------------------------------------
+
+(deftest no-validator-soft-passes
+  (testing "with the validator set to nil, a :schema flow soft-passes (no violation)"
+    ;; nil validator => the `:schemas/validate-with-registered-fn` seam
+    ;; treats 'no validator' as 'no validation' (Spec 010 soft-pass).
+    (schemas/set-schema-validator! nil)
+    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]
+                  :schema (fn [_] false)}) ;; would reject everything IF consulted
+    (rf/dispatch-sync [:seed])
+    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+        "value written")
+    (is (empty? (violations))
+        "no registered validator => soft-pass, no violation")))
+
+;; ---------------------------------------------------------------------------
+;; 5. Production gate: silent under debug-enabled? false.
+;; ---------------------------------------------------------------------------
+
+(deftest production-gate-elides-validation
+  (testing "with debug-enabled? false the whole validation surface is silent (prod elision mirror)"
+    (install-predicate-validator!)
+    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]
+                  :schema (fn [_] false)}) ;; would reject IF the gate let it run
+    (with-redefs [interop/debug-enabled? false]
+      (rf/dispatch-sync [:seed]))
+    (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
+        "value written even with validation elided")
+    (is (empty? (violations))
+        "no violation under debug-enabled? false — the surface DCEs in prod")))
+
+;; ---------------------------------------------------------------------------
+;; 6. Cascade: an upstream flow's bad output is validated independently of
+;;    a downstream flow that consumes it (per-flow :schema).
+;; ---------------------------------------------------------------------------
+
+(deftest each-flow-validates-its-own-output
+  (testing "in a flow-reads-flow cascade each flow validates its own output against its own :schema"
+    (install-predicate-validator!)
+    (rf/reg-event-db :seed (fn [_ _] {:cart {:items [{:price 10} {:price -5}]}}))
+    ;; subtotal sums the (here intentionally negative-capable) prices.
+    (rf/reg-flow {:id     :cart/subtotal
+                  :inputs [[:cart :items]]
+                  :output (fn [items] (reduce + 0 (map :price items)))
+                  :path   [:cart :subtotal]
+                  :schema (fn [v] (and (integer? v) (not (neg? v))))})
+    ;; total doubles the subtotal; demands a non-negative result too.
+    (rf/reg-flow {:id     :cart/total
+                  :inputs [[:cart :subtotal]]
+                  :output (fn [subtotal] (* 2 subtotal))
+                  :path   [:cart :total]
+                  :schema (fn [v] (and (integer? v) (not (neg? v))))})
+    (rf/dispatch-sync [:seed])
+    ;; subtotal = 10 + -5 = 5 (conforms); total = 10 (conforms). No violation.
+    (is (= 5  (get-in (rf/get-frame-db :rf/default) [:cart :subtotal])))
+    (is (= 10 (get-in (rf/get-frame-db :rf/default) [:cart :total])))
+    (is (empty? (violations))
+        "both outputs conform — no violation")
+    ;; Now drive the subtotal negative; subtotal violates, total (= 2*subtotal)
+    ;; also violates. Each surfaces independently with its own :rf.flow/id.
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed] )         ;; re-seed is a no-op write (same value)
+    (rf/reg-event-db :seed-neg (fn [_ _] {:cart {:items [{:price -100}]}}))
+    (rf/dispatch-sync [:seed-neg])
+    (let [ids (set (map #(get-in % [:tags :rf.flow/id]) (violations)))]
+      (is (= #{:cart/subtotal :cart/total} ids)
+          "both flows' bad outputs surface, each attributed to its own id"))))

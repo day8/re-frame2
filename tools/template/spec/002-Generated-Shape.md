@@ -103,7 +103,7 @@ identically across all three substrates:
 Causa is default-on because the scaffold's headline promise is
 "save and see it live" — the dispatch log, app-db diff, causality
 graph, and time-travel scrubber are the on-ramp's primary feedback
-surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md#9--causa-on-by-default)
+surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md#9--causa-on-by-default-rf2-y9zqc)
 for the WHY and the release-elision guarantee. The generated
 `README.md` documents the runtime experience (the
 `Ctrl+Shift+C` toggle, what each panel shows).

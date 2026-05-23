@@ -96,8 +96,10 @@
             "the legacy :error slot is gone (rename, not back-compat shim)")
         (is (= 'rf/reg-flow (:where data))
             "ex-data carries :where 'rf/reg-flow — points at the user-facing call site")
-        (is (= :no-recovery (:recovery data))
-            "ex-data carries :recovery :no-recovery")
+        (is (= :fix-registration (:recovery data))
+            "ex-data carries :recovery :fix-registration — a cycle is caller-fixable
+             (detected at reg-flow time on a prospective map; prior state preserved),
+             so it reads as user-fixable like the sibling validate-flow rejections (rf2-ee38b.9)")
         (is (string? (:reason data))
             "ex-data carries :reason as a string diagnostic")
         (is (vector? (:cycle data))

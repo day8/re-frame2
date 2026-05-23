@@ -18,6 +18,7 @@
   their documented namespace-qualified names."
   (:require [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
@@ -47,6 +48,43 @@
           §Frame-scoping)."}
   last-inputs
   (atom {}))
+
+;; ---- two-level-map maintenance helpers -----------------------------------
+;;
+;; Both the `last-inputs` cache (`{flow-id {frame-id inputs}}`) and the
+;; per-frame `flows` registry (`{frame-id {flow-id flow-map}}`) are
+;; two-level maps maintained across three lifecycle paths (clear-flow,
+;; frame-destroy teardown, hot-reload invalidate). The two operations
+;; below are the invariants those paths share — extracted to one home
+;; each (rf2-ee38b.9 clarity) so the `{flow-id {frame-id ...}}` /
+;; "last surviving frame?" shapes live in exactly one place instead of
+;; being open-coded (and kept in sync) at every call site.
+
+(defn- prune-frame-row
+  "Drop `frame-id`'s slot for `flow-id` in a `{flow-id {frame-id v}}`
+  map; remove the `flow-id` key entirely when its inner map empties.
+  The single home for the `last-inputs` two-level-map maintenance the
+  clear / teardown / hot-reload paths share."
+  [m flow-id frame-id]
+  (let [m' (update m flow-id dissoc frame-id)]
+    (if (empty? (get m' flow-id))
+      (dissoc m' flow-id)
+      m')))
+
+(defn- no-frame-holds?
+  "True iff no frame in the per-frame `flows` map (`{frame-id {flow-id
+  flow-map}}`) still registers `flow-id` — i.e. the destroyed/cleared
+  frame was the last owner and the shared `:flow` registrar slot can be
+  released. `not-any?` short-circuits on the first holding frame; O(F)
+  over frame count (typically 1-3 at v1).
+
+  Cost note: if a profile-driven hot path ever shows many-frame
+  topologies stressing this, the optimisation is a reverse index
+  `{flow-id #{frame-id ...}}` maintained by `reg-flow` / `clear-flow`,
+  making the check O(1). Deferred until measurement warrants the extra
+  atom."
+  [flows-map flow-id]
+  (not-any? #(contains? % flow-id) (vals flows-map)))
 
 ;; ---- validation ----------------------------------------------------------
 ;;
@@ -228,7 +266,13 @@
        ;; the hot-reload path. Op-type :flow is the discriminator for
        ;; the whole flow trace stream (per Spec 009 §:op-type
        ;; vocabulary, §Flow tracing).
-       (when (nil? was)
+       ;;
+       ;; The outer `debug-enabled?` gate matches the hot-path emits in
+       ;; flows.cljc (per Spec 009 §Production builds, "keep the gate
+       ;; OUTERMOST"); reg-flow is a cold path so the cost is negligible,
+       ;; but the gate keeps the tag-map literal out of CLJS prod and the
+       ;; convention uniform across every flow emit site (rf2-ee38b.9).
+       (when (and interop/debug-enabled? (nil? was))
          (trace/emit! :flow :rf.flow/registered
                       {:flow-id flow-id
                        :inputs  (:inputs flow)
@@ -284,7 +328,17 @@
   Per audit rf2-q25os: the nested-path dissoc is robust against the
   output path never having been materialised (no spurious nil parent
   created) and against a non-map intermediate (no ClassCastException
-  thrown) — see `dissoc-in-safe` above."
+  thrown) — see `dissoc-in-safe` above.
+
+  Vacation contract (rf2-ee38b.9): clearing a flow with `:path
+  [:wizard :result]` removes the LEAF (`:result`) only. If `:result`
+  was the sole key under `:wizard`, an empty parent map `{:wizard {}}`
+  remains — this is deliberate, not a leak. The flow's *value* is
+  fully gone (the spec's \"vacate the slot\" requirement); pruning empty
+  ancestor maps would risk deleting unrelated sibling slots that happen
+  to be empty and own ancestors this flow never created, so leaf-only
+  vacation is the correct contract. Downstream consumers read the leaf,
+  not the parent's emptiness."
   ([id] (clear-flow id {}))
   ([id {:keys [frame] :as _opts}]
    (let [frame-id (or frame (frame/current-frame))]
@@ -325,38 +379,30 @@
                (adapter/replace-container! container new-db))))
          (swap! flows update frame-id dissoc id)
          ;; `last-inputs` is shaped {flow-id {frame-id inputs}} — clear
-         ;; this frame's slot for the cleared flow id, then drop the
-         ;; whole flow row if no other frame still holds an entry.
-         (swap! last-inputs
-                (fn [m]
-                  (let [m' (update m id dissoc frame-id)]
-                    (if (empty? (get m' id))
-                      (dissoc m' id)
-                      m'))))
-         ;; Only unregister from the registrar if this was the LAST
-         ;; frame holding the flow id — otherwise other frames still
-         ;; need the registry slot for hot-reload tracking.
-         ;;
-         ;; Cost shape: O(F) over frame count, short-circuits on first
-         ;; hit via `not-any?` (cheaper than the prior double-negated
-         ;; `every? not contains?`). At v1 frame counts (typically 1-3
-         ;; — :rf/default plus the occasional `:left`/`:right`/`:scratch`)
-         ;; this is trivial. If a profile-driven hot path shows
-         ;; many-frame topologies stressing `clear-flow`, the optimisation
-         ;; is a reverse index `{flow-id #{frame-id ...}}` maintained by
-         ;; `reg-flow` and `clear-flow` — the contains-by-other-frame
-         ;; check then becomes O(1). Deferred until measurement warrants
-         ;; the extra atom.
-         (when (not-any? #(contains? % id) (vals @flows))
+         ;; this frame's slot for the cleared flow id, dropping the whole
+         ;; flow row when no other frame still holds an entry (the shared
+         ;; `prune-frame-row` invariant).
+         (swap! last-inputs prune-frame-row id frame-id)
+         ;; Only unregister from the registrar if this was the LAST frame
+         ;; holding the flow id (the shared `no-frame-holds?` predicate) —
+         ;; otherwise other frames still need the registry slot for
+         ;; hot-reload tracking.
+         (when (no-frame-holds? @flows id)
            (registrar/unregister! :flow id))
          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
          ;; clear-flow has removed the flow from the per-frame registry
          ;; and dissoc-in'd its output path. Tools observe this to drop
-         ;; their per-flow display state.
-         (trace/emit! :flow :rf.flow/cleared
-                      {:flow-id id
-                       :path    path
-                       :frame   frame-id})))
+         ;; their per-flow display state. The outer `debug-enabled?` gate
+         ;; matches the hot-path emits in flows.cljc (per Spec 009
+         ;; §Production builds, "keep the gate OUTERMOST"); clear-flow is
+         ;; a cold path so the cost is negligible, but the gate keeps the
+         ;; tag-map literal out of CLJS prod and the convention uniform
+         ;; across every flow emit site (rf2-ee38b.9).
+         (when interop/debug-enabled?
+           (trace/emit! :flow :rf.flow/cleared
+                        {:flow-id id
+                         :path    path
+                         :frame   frame-id}))))
      nil)))
 
 ;; ---- frame-destroy teardown ---------------------------------------------
@@ -392,23 +438,21 @@
   (when frame-id
     (let [owned-flow-ids (keys (get @flows frame-id))]
       (swap! flows dissoc frame-id)
+      ;; Drop the destroyed frame's row from every flow-id via the shared
+      ;; `prune-frame-row` invariant (drops the flow-id key when its inner
+      ;; map empties).
       (swap! last-inputs
              (fn [m]
-               (reduce-kv
-                 (fn [acc flow-id by-frame]
-                   (let [by-frame' (dissoc by-frame frame-id)]
-                     (if (empty? by-frame')
-                       acc
-                       (assoc acc flow-id by-frame'))))
-                 {}
-                 m)))
+               (reduce (fn [acc flow-id] (prune-frame-row acc flow-id frame-id))
+                       m
+                       (keys m))))
       ;; Registrar prune: drop the `:flow` slot for any flow-id the
-      ;; destroyed frame owned that no other frame still holds. The
-      ;; surviving-frame check mirrors `clear-flow`'s shape — O(F) over
-      ;; remaining frame count, short-circuits on first hit.
+      ;; destroyed frame owned that no surviving frame still holds (the
+      ;; shared `no-frame-holds?` predicate — same shape `clear-flow`
+      ;; uses).
       (let [remaining @flows]
         (doseq [flow-id owned-flow-ids]
-          (when (not-any? #(contains? % flow-id) (vals remaining))
+          (when (no-frame-holds? remaining flow-id)
             (registrar/unregister! :flow flow-id))))))
   nil)
 
@@ -431,16 +475,11 @@
     ;; isolation and wasting work under multi-frame setups (per-tenant
     ;; SSR, pair-tool replays). The registrar replacement-hook payload
     ;; carries `:now` (the new metadata) with `:frame` stamped at
-    ;; `reg-flow`-time (registry.cljc:189-191); read the frame from
-    ;; there and dissoc only that frame's row. Drop the whole flow-id
-    ;; key when no frame still holds an entry — keeps the map tidy.
+    ;; `reg-flow`-time; read the frame from there and dissoc only that
+    ;; frame's row via the shared `prune-frame-row` invariant (drops the
+    ;; whole flow-id key when no frame still holds an entry).
     (let [frame-id (:frame now)]
-      (swap! last-inputs
-             (fn [m]
-               (let [m' (update m id dissoc frame-id)]
-                 (if (empty? (get m' id))
-                   (dissoc m' id)
-                   m')))))))
+      (swap! last-inputs prune-frame-row id frame-id))))
 
 (defonce ^:private _hot-reload-hook
   ;; `defonce` only needs the side-effect to fire once at namespace

@@ -129,23 +129,12 @@
   correct option."
   [flow-map]
   (let [ids (vec (keys flow-map))]
-    ;; Fast-paths for the trivial sizes — topo-sort runs on every drain
-    ;; AND every `reg-flow`, so the dominant call shape during steady-
-    ;; state is the small-registry case where the O(n²) graph build is
-    ;; pure waste. Self-edges are excluded (per the `(not= id %)` filter
-    ;; below), so a single-flow registry has no dependency edges and
-    ;; the sort order is just `[that-id]`.
+    ;; 0/1 flows have no edges — order is trivial; skip the O(n²) graph
+    ;; build (the cost note lives once on `topo-sort`'s docstring above).
     (case (count ids)
       0 []
       1 ids
       ;; ≥2 flows: build the full dep graph and run Kahn's algorithm.
-      ;; Graph construction is O(n² · max-inputs · max-path-length) —
-      ;; tiny at v1 per-frame flow counts (a handful of nodes); even a
-      ;; 20-flow registry stays under a millisecond. If a real
-      ;; bottleneck shows up at larger node counts, a memo keyed on
-      ;; the flow-map identity would be the next move (rf2-cd00
-      ;; removed the previous memo; the contract is just deterministic
-      ;; order per drain).
       (let [graph (into {}
                         (map (fn [id]
                                (let [flow (flow-map id)]
@@ -179,10 +168,23 @@
               ;; `topo.cljc` is the pure-data module — no `:require`s —
               ;; so the shape is inlined rather than reaching for
               ;; `registry.cljc`'s `flow-error` helper.
+              ;;
+              ;; `:recovery :fix-registration` (rf2-ee38b.9) — a cycle is
+              ;; the same class of error as the sibling `validate-flow`
+              ;; rejections: detected at `reg-flow` time on a PROSPECTIVE
+              ;; map BEFORE any state mutates (rf2-7csri), so the prior
+              ;; registration survives and the caller fixes their
+              ;; `:inputs` / `:path` and retries. Stamping `:no-recovery`
+              ;; would make an `:on-error` policy or tool that branches on
+              ;; `:recovery` to decide "is this user-fixable?" treat a
+              ;; fixable cycle as terminal — inconsistent with every other
+              ;; registration rejection. (The `extract-cycle-path`
+              ;; dead-end throw below stays `:no-recovery`; that one is a
+              ;; genuine internal-invariant violation, not caller-fixable.)
               (throw (ex-info ":rf.error/flow-cycle"
                               {:rf.error/id :rf.error/flow-cycle
                                :where    'rf/reg-flow
-                               :recovery :no-recovery
+                               :recovery :fix-registration
                                :reason   "Cyclic flow dependency — at least one pair of flows' :path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."
                                :cycle    (extract-cycle-path graph
                                                              (set (keys remaining)))}))
