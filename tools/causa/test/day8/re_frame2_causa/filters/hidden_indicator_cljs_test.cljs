@@ -87,6 +87,17 @@
             node))
         (hiccup-seq tree)))
 
+(defn- count-by-testid
+  "How many nodes in the expanded tree carry `testid` — used to assert a
+  committed pill renders EXACTLY once (rf2-ad7zx.18: the hidden-message
+  no longer re-renders the pills as cause chips)."
+  [tree testid]
+  (count (filter (fn [node]
+                   (and (vector? node)
+                        (map? (second node))
+                        (= testid (:data-testid (second node)))))
+                 (hiccup-seq tree))))
+
 (defn- text-of
   "Concatenate the string leaves under a node — good enough to assert
   the count message reads as expected."
@@ -189,9 +200,33 @@
       (is (some? indicator) "banner renders when rows are hidden")
       (is (some? (find-by-testid tree "rf-causa-filters-hidden-clear"))
           "Clear filters button present")
-      (is (some? (find-by-testid tree "rf-causa-filters-hidden-pill-0"))
-          "the OUT pill is named as the cause")
       (is (re-find #"1 event hidden by filters" (text-of count-node))))))
+
+(deftest hidden-message-does-not-duplicate-the-committed-pills
+  (testing "rf2-ad7zx.18 — per the Figma EventsRibbon mock the hidden-state
+            is a plain count beside `Clear Filters`. The committed pill must
+            render EXACTLY ONCE (in the LEFT cluster via pills-view); the
+            hidden-message must NOT re-render it as a cause chip."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 3 [:noise/tick]))
+    (frame-dispatch [:rf.causa/add-filter :out {:pattern :noise/tick}])
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        ;; the committed OUT pill renders ONCE — in the left cluster.
+        (is (= 1 (count-by-testid tree "rf-causa-filter-pill-out-0"))
+            "the committed pill renders exactly once (left cluster)")
+        ;; the duplicate cause-chip cluster is gone.
+        (is (nil? (find-by-testid tree "rf-causa-filters-hidden-causes"))
+            "no duplicate cause-chip cluster in the hidden-message")
+        (is (nil? (find-by-testid tree "rf-causa-filters-hidden-pill-0"))
+            "no duplicate pill chip in the hidden-message")
+        ;; the count + Clear Filters survive (Figma mock).
+        (is (some? (find-by-testid tree "rf-causa-filters-hidden-count"))
+            "the hidden count is kept")
+        (is (some? (find-by-testid tree "rf-causa-filters-hidden-clear"))
+            "Clear Filters is kept")))))
 
 (deftest indicator-absent-when-nothing-hidden
   (causa-setup!)
