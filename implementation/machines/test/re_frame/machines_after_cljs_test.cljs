@@ -171,6 +171,60 @@
             "sibling timer transitions on its own")
         (trace-tooling/unregister-listener! ::mg)))))
 
+;; ---- guarded candidate-vector :after (rf2-vvbdl) -------------------------
+;;
+;; Per Spec 005 §Delayed :after transitions §Transition spec: the :after
+;; value admits the SAME guarded candidate-vector form as an :on clause —
+;; [{:guard g :target s} {:target s2 :action a}] — first-guard-pass-wins.
+;; Pre-rf2-vvbdl this silently no-op'd (the vector was passed whole into the
+;; single-guard resolver). The live repro was the step-deck :ws/connection
+;; machine stuck in [:active :authenticating]. This is the CLJS / reactive-
+;; substrate counterpart to the pure-engine sweep + JVM integration tests.
+
+(deftest machine-after-guarded-vector-cljs
+  (testing "guarded candidate-vector :after under the reactive substrate —
+            first guard passes → first target"
+    (let [m {:initial :idle
+             :data    {:handshake-ok? true}
+             :guards  {:handshake-ok? (fn [{data :data}] (:handshake-ok? data))}
+             :states
+             {:idle           {:on {:go :authenticating}}
+              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
+                                             {:target :failed :action :record-error}]}}
+              :connected      {}
+              :failed         {}}
+             :actions {:record-error (fn [{data :data}]
+                                       {:data (assoc data :error :handshake)})}}]
+      (rf/reg-machine :a/gv-pass-cljs m)
+      (rf/dispatch-sync [:a/gv-pass-cljs [:go]])
+      (is (= :authenticating (:state (snapshot :a/gv-pass-cljs))))
+      (let [epoch (get-in (snapshot :a/gv-pass-cljs) [:data :rf/after-epoch [:authenticating]])]
+        (rf/dispatch-sync [:a/gv-pass-cljs [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
+        (is (= :connected (:state (snapshot :a/gv-pass-cljs)))
+            "first candidate's guard passes → :connected (NOT stranded)"))))
+
+  (testing "guarded candidate-vector :after under the reactive substrate —
+            first guard fails → unguarded fallback target + action"
+    (let [m {:initial :idle
+             :data    {:handshake-ok? false}
+             :guards  {:handshake-ok? (fn [{data :data}] (:handshake-ok? data))}
+             :states
+             {:idle           {:on {:go :authenticating}}
+              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
+                                             {:target :failed :action :record-error}]}}
+              :connected      {}
+              :failed         {}}
+             :actions {:record-error (fn [{data :data}]
+                                       {:data (assoc data :error :handshake)})}}]
+      (rf/reg-machine :a/gv-fallback-cljs m)
+      (rf/dispatch-sync [:a/gv-fallback-cljs [:go]])
+      (let [epoch (get-in (snapshot :a/gv-fallback-cljs) [:data :rf/after-epoch [:authenticating]])]
+        (rf/dispatch-sync [:a/gv-fallback-cljs [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
+        (is (= :failed (:state (snapshot :a/gv-fallback-cljs)))
+            "first guard fails → unguarded fallback :failed fires")
+        (is (= :handshake (get-in (snapshot :a/gv-fallback-cljs) [:data :error]))
+            "the fallback candidate's :action ran")))))
+
 ;; ---- subscription-vector :after delay (dynamic) --------------------------
 
 (deftest machine-after-subscription-delay-cljs

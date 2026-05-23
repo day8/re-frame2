@@ -167,6 +167,104 @@
             "sibling :after timer continues and transitions on its own"))
       (rf/unregister-listener! ::g))))
 
+;; ---- guarded candidate-vector :after (rf2-vvbdl) --------------------------
+;;
+;; Per Spec 005 §Delayed :after transitions §Transition spec: the :after
+;; value admits the SAME guarded candidate-vector form as an :on clause —
+;; [{:guard g :target s} {:target s2 :action a}] — resolved first-guard-
+;; pass-wins. Pre-rf2-vvbdl pick-after-transition normalised only keyword /
+;; single-map values, so a guarded vector was passed whole into the single-
+;; guard resolver: the guard passed vacuously, the whole vector became the
+;; :transition, and the timer fired with NO transition + NO effects (the
+;; machine was silently stranded). This is the integration counterpart to
+;; the pure-engine sweep in re-frame.after-value-forms-test — driving the
+;; full runtime so the action's :data write and the cascade are exercised.
+;; The live repro was the step-deck :ws/connection machine stuck in
+;; [:active :authenticating].
+
+(deftest after-guarded-vector-first-pass-runtime
+  (testing "guarded candidate-vector :after through the runtime — first guard
+            passes → first target (the step-deck :authenticating repro, pass arm)"
+    (let [m {:initial :idle
+             :data    {:handshake-ok? true}
+             :guards  {:handshake-ok? (fn [{:keys [data]}] (:handshake-ok? data))}
+             :actions {:record-error (fn [{:keys [data]}]
+                                       {:data (assoc data :error :handshake)})}
+             :states
+             {:idle           {:on {:go :authenticating}}
+              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
+                                             {:target :failed :action :record-error}]}}
+              :connected      {}
+              :failed         {}}}]
+      (rf/reg-machine :a/gv-pass m)
+      (rf/dispatch-sync [:a/gv-pass [:go]])
+      (is (= :authenticating (:state (snapshot :a/gv-pass))))
+      (let [epoch (get-in (snapshot :a/gv-pass) [:data :rf/after-epoch [:authenticating]])]
+        (rf/dispatch-sync [:a/gv-pass [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
+        (is (= :connected (:state (snapshot :a/gv-pass)))
+            "first candidate's guard passes → :connected (NOT stranded)")
+        (is (nil? (get-in (snapshot :a/gv-pass) [:data :error]))
+            "the fallback candidate's :action did NOT run on the pass arm")))))
+
+(deftest after-guarded-vector-fallback-runtime
+  (testing "guarded candidate-vector :after through the runtime — first guard
+            fails → unguarded fallback target + its :action runs (fail arm)"
+    (let [m {:initial :idle
+             :data    {:handshake-ok? false}
+             :guards  {:handshake-ok? (fn [{:keys [data]}] (:handshake-ok? data))}
+             :actions {:record-error (fn [{:keys [data]}]
+                                       {:data (assoc data :error :handshake)})}
+             :states
+             {:idle           {:on {:go :authenticating}}
+              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
+                                             {:target :failed :action :record-error}]}}
+              :connected      {}
+              :failed         {}}}]
+      (rf/reg-machine :a/gv-fallback m)
+      (rf/dispatch-sync [:a/gv-fallback [:go]])
+      (let [epoch (get-in (snapshot :a/gv-fallback) [:data :rf/after-epoch [:authenticating]])]
+        (rf/dispatch-sync [:a/gv-fallback [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
+        (is (= :failed (:state (snapshot :a/gv-fallback)))
+            "first guard fails → unguarded fallback :failed fires")
+        (is (= :handshake (get-in (snapshot :a/gv-fallback) [:data :error]))
+            "the fallback candidate's :action ran (recorded the error)")))))
+
+(deftest after-guarded-vector-all-fail-suppressed-runtime
+  (testing "guarded candidate-vector :after through the runtime — all guards
+            fail, no fallback → suppressed; sibling :after timer continues"
+    (let [m {:initial :idle
+             :data    {:a? false :b? false}
+             :guards  {:a? (fn [{:keys [data]}] (:a? data))
+                       :b? (fn [{:keys [data]}] (:b? data))}
+             :states
+             {:idle    {:on {:go :loading}}
+              :loading {:after {5000  [{:guard :a? :target :x}
+                                       {:guard :b? :target :y}]
+                                30000 :timeout}}
+              :x       {}
+              :y       {}
+              :timeout {}}}
+          traces (atom [])]
+      (rf/reg-machine :a/gv-allfail m)
+      (rf/register-listener! ::gva (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:a/gv-allfail [:go]])
+      (let [epoch (get-in (snapshot :a/gv-allfail) [:data :rf/after-epoch [:loading]])]
+        (rf/dispatch-sync [:a/gv-allfail [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
+        (is (= :loading (:state (snapshot :a/gv-allfail)))
+            "all guards fail, no fallback → no transition (suppressed)")
+        (is (= epoch (get-in (snapshot :a/gv-allfail) [:data :rf/after-epoch [:loading]]))
+            "suppressed firing does not advance the epoch")
+        (is (some #(and (= :rf.machine.timer/fired (:operation %))
+                        (false? (:fired? (:tags %)))
+                        (= 5000  (:delay (:tags %))))
+                  @traces)
+            ":fired? false trace emitted on all-guards-fail suppression")
+        ;; The sibling 30000 timer (same epoch) is still live.
+        (rf/dispatch-sync [:a/gv-allfail [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
+        (is (= :timeout (:state (snapshot :a/gv-allfail)))
+            "sibling :after timer continues and transitions on its own"))
+      (rf/unregister-listener! ::gva))))
+
 ;; ---- no-invoke variant (splash screen) -----------------------------------
 
 (deftest after-no-invoke-splash
