@@ -356,7 +356,7 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn ^:export run []
+(defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   ;; Install the demo override so `:rf.http/managed` calls route to the
