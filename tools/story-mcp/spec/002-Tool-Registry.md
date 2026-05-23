@@ -360,9 +360,14 @@ contract per
 [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
 §Test Codegen.
 
-Optional `:write-back` re-registers the source variant with
-`:play <captured-events>` via `reg-variant*` (preserving the
-existing `:component`, `:args`, `:decorators`, etc.). This branch is
+Optional `:write-back` re-registers the source variant with the
+captured recording translated to a live `:play-script` body via
+`reg-variant*` (preserving the existing `:component`, `:args`,
+`:decorators`, etc.). The translation routes through
+`re-frame.story/recording->play-script` — each captured event becomes
+a `[:dispatch ...]` step under `:play-script {:script [...]}`, the
+canonical AND ONLY phase-4 replay slot (per rf2-0wrud; the legacy
+`:play` slot was removed and no runner executes it). This branch is
 gated behind the same `allow-writes?` flag as `register-variant`; the
 read-only path (snippet only) needs no gate.
 

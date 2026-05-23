@@ -141,16 +141,20 @@ runWithWatchdog(
     // write gate, so they cover the success path here with zero extra
     // setup. Each routes through the SDK's `CallToolResultSchema` parse.
     //
-    // NOTE: `get-story-instructions` is deliberately NOT walked here. It
-    // declares an `:outputSchema` but returns text-only (no
-    // structuredContent), so the SDK's high-level `callTool` rejects it
-    // with `-32600` ("has an output schema but did not return structured
-    // content"). That is a latent story-mcp tool defect surfaced by this
-    // very broadening (the tool was never SDK-driven before) — tracked
-    // separately, out of scope for the conformance-harness bead. The
-    // `list-*` reads below DO emit structuredContent and are the clean
-    // success-envelope coverage.
-    for (const readTool of ['list-substrates', 'list-modes', 'list-tags']) {
+    // `get-story-instructions` is walked here too (rf2-vyacl). It
+    // declares an `:outputSchema`, so the SDK's high-level `callTool`
+    // REJECTS a result with no structuredContent with `-32600` ("has an
+    // output schema but did not return structured content"). The handler
+    // now emits a matching `{:instructions <text>}` structuredContent
+    // (mirroring re-frame2-pair-mcp's sibling `get-re-frame2-pair-
+    // instructions`), so the SDK parse passes — this assertion pins that
+    // the latent defect stays fixed across the wire.
+    for (const readTool of [
+      'get-story-instructions',
+      'list-substrates',
+      'list-modes',
+      'list-tags',
+    ]) {
       const r = await client.callTool({ name: readTool, arguments: {} });
       if (r.isError) {
         throw new Error(
@@ -168,8 +172,8 @@ runWithWatchdog(
       }
     }
     console.log(
-      'OK   closed-world reads (list-substrates/list-modes/list-tags) ' +
-        '-> success envelopes',
+      'OK   closed-world reads (get-story-instructions/list-substrates/' +
+        'list-modes/list-tags) -> success envelopes',
     );
 
     // 3. register-variant — body as an EDN string so JSON's lack of

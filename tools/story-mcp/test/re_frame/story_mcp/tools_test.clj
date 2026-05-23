@@ -371,6 +371,27 @@
       (is (re-find #":rf.assert" text))
       (is (re-find #"snapshot-identity" text)))))
 
+(deftest get-story-instructions-emits-structured-content
+  ;; rf2-vyacl — the descriptor declares an `:outputSchema`, so the
+  ;; official MCP SDK's high-level callTool REJECTS a result with no
+  ;; `:structuredContent` (JSON-RPC -32600). The handler MUST emit a
+  ;; structuredContent slot. Mirrors re-frame2-pair-mcp's sibling
+  ;; `get-re-frame2-pair-instructions` (which always emits structured
+  ;; content via `wire/ok-text`).
+  (testing "the result carries a non-nil :structuredContent matching the text"
+    (let [r (invoke "get-story-instructions" {})]
+      (is (success? r))
+      (is (some? (:structuredContent r))
+          "an outputSchema-declaring tool MUST return structuredContent (SDK -32600)")
+      (is (= (-> r :content first :text)
+             (-> r :structuredContent :instructions))
+          "structuredContent mirrors the text slot under :instructions")))
+  (testing "the descriptor declares an outputSchema — the invariant that makes structuredContent mandatory"
+    (let [d (some #(when (= "get-story-instructions" (:name %)) %)
+                  registry/tool-registry)]
+      (is (map? (:outputSchema d))
+          "get-story-instructions declares an :outputSchema, so it MUST emit structuredContent"))))
+
 (deftest preview-variant-happy
   (let [r (invoke "preview-variant" {:variant-id "story.button/primary"
                                      :base-url "http://localhost:8000/"})
@@ -510,7 +531,15 @@
       (let [text (-> r :content first :text)
             back (clojure.edn/read-string text)]
         (is (map? back))
-        (is (= "Primary button." (:doc back)))))))
+        (is (= "Primary button." (:doc back))))))
+  (testing "rf2-vyacl: variant->edn ALSO emits structuredContent (it declares an outputSchema, so the SDK requires it)"
+    ;; `variant->edn` was the only other tool besides get-story-instructions
+    ;; that returned text-only while declaring an :outputSchema — the same
+    ;; -32600 latent defect. It now mirrors the body into structuredContent.
+    (let [r (invoke "variant->edn" {:variant-id "story.button/primary"})]
+      (is (some? (:structuredContent r))
+          "an outputSchema-declaring tool MUST return structuredContent (SDK -32600)")
+      (is (= "Primary button." (-> r :structuredContent :doc))))))
 
 ;; rf2-i0kyy — `get-docs-markdown` is the agent-paste shape.
 (deftest get-docs-markdown-renders-story-and-variants
@@ -1140,15 +1169,27 @@
                     {:variant-id  "story.button/primary"
                      :duration-ms 100
                      :write-back  true})
-          s (:structuredContent r)]
+          s (:structuredContent r)
+          n (:recorded-event-count s)]
       (is (success? r))
       (is (true? (:written-back? s)))
       (is (= :story.button/primary (:new-variant-id s)))
-      ;; Source variant's :play slot now carries the captured events.
-      (is (= [[:counter/inc] [:counter/inc]]
-             (:play (story/variant->edn :story.button/primary))))
-      ;; Pre-existing body keys survive (e.g. :doc).
-      (is (= "Primary button." (:doc (story/variant->edn :story.button/primary)))))))
+      (is (pos? n) "the recorder captured at least one event")
+      ;; rf2-50jzf: the source variant's `:play-script` slot now carries
+      ;; the captured events as a LIVE, replayable script — NOT the dead
+      ;; `:play` slot the schema dropped in rf2-0wrud (which no runner
+      ;; executes). Each captured event becomes a `[:dispatch ...]` step.
+      ;; The exact count is derived from `:recorded-event-count` because
+      ;; the live-recorder capture races the :duration-ms window.
+      (let [body (story/variant->edn :story.button/primary)]
+        (is (nil? (:play body))
+            "the legacy dead :play slot must NOT be written")
+        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
+                :auto-run? true}
+               (:play-script body))
+            "write-back emits the canonical :play-script slot the runner replays")
+        ;; Pre-existing body keys survive (e.g. :doc).
+        (is (= "Primary button." (:doc body)))))))
 
 (deftest record-as-variant-write-back-new-id
   (testing ":new-variant-id lands the capture under a fresh id"
@@ -1159,13 +1200,83 @@
                      :new-variant-id "story.button/recorded"
                      :duration-ms    100
                      :write-back     true})
-          s (:structuredContent r)]
+          s (:structuredContent r)
+          n (:recorded-event-count s)]
       (is (success? r))
       (is (true? (:written-back? s)))
       (is (= :story.button/recorded (:new-variant-id s)))
-      (is (= [[:counter/inc]] (:play (story/variant->edn :story.button/recorded))))
+      (is (pos? n) "the recorder captured at least one event")
+      ;; rf2-50jzf: capture lands under the live `:play-script` slot
+      ;; (count derived from `:recorded-event-count` — capture races the
+      ;; :duration-ms window).
+      (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
+             (:play-script (story/variant->edn :story.button/recorded))))
+      (is (nil? (:play (story/variant->edn :story.button/recorded))))
       ;; Source variant is untouched.
+      (is (nil? (:play-script (story/variant->edn :story.button/primary))))
       (is (nil? (:play (story/variant->edn :story.button/primary)))))))
+
+(deftest record-as-variant-write-back-round-trips-and-replays
+  (testing "rf2-50jzf: a written-back recording's :play-script ACTUALLY replays"
+    ;; The headline acceptance criterion for rf2-50jzf — the previous
+    ;; write-back wrote a dead `:play` slot the schema dropped in
+    ;; rf2-0wrud, so a round-tripped recording silently never replayed.
+    ;; This test closes the loop end-to-end: record real dispatches →
+    ;; write them back under a fresh variant → run THAT variant through
+    ;; the MCP `run-variant` tool → assert the captured dispatches fired
+    ;; against the frame's app-db (proving the slot the runner executes
+    ;; is the one write-back wrote).
+    ;;
+    ;; The live-recorder capture races the tool's :duration-ms window
+    ;; (the worker may push 1–N of the driven events before
+    ;; `stop-recording!` closes the window), so the EXPECTED replay count
+    ;; is derived from `:recorded-event-count` rather than hard-coded —
+    ;; the invariant under test is "`:n` after replay == number of
+    ;; captured `:test/bump` steps", which holds regardless of how many
+    ;; the race captured. We require at least one capture so the replay
+    ;; path is genuinely exercised.
+    (config/set-allow-writes! true)
+    ;; A real event-db handler whose effect is observable in app-db.
+    (rf/reg-event-db :test/bump (fn [db _] (update db :n (fnil inc 0))))
+    (drive-events-during-recording [[:test/bump] [:test/bump] [:test/bump]])
+    (let [rec (invoke "record-as-variant"
+                      {:variant-id     "story.button/primary"
+                       :new-variant-id "story.button/replayed"
+                       :duration-ms    100
+                       :write-back     true})
+          s   (:structuredContent rec)
+          n   (:recorded-event-count s)]
+      (is (success? rec))
+      (is (true? (:written-back? s)))
+      (is (pos? n) "the recorder captured at least one :test/bump step")
+      ;; The written-back body carries the LIVE :play-script slot —
+      ;; n `[:dispatch [:test/bump]]` steps, NOT the dead `:play` slot.
+      (let [body (story/variant->edn :story.button/replayed)]
+        (is (nil? (:play body)) "no dead :play slot is written")
+        (is (= {:script    (vec (repeat n [:dispatch [:test/bump]]))
+                :auto-run? true}
+               (:play-script body))
+            "write-back emits the live :play-script slot, one :dispatch step per captured event"))
+      ;; Run the written-back variant: the replayed :test/bump dispatches
+      ;; must land on the frame's app-db. This is the load-bearing
+      ;; distinction — a dead `:play` slot is never executed by any runner,
+      ;; so :n would be nil; the live `:play-script` slot replays, so :n is
+      ;; a positive count.
+      ;;
+      ;; The recorder emits `:dispatch` (ASYNC) steps (per
+      ;; play-export/event->step), and on the JVM run-variant queues them
+      ;; via `rf/dispatch*` without an inter-step yield (runner_events
+      ;; run-loop! :clj branch). So the exact settled :n is not
+      ;; deterministic — what IS deterministic is the qualitative replay:
+      ;; the dead-slot bug leaves :n nil, the fix leaves :n a positive
+      ;; integer no greater than the captured count.
+      (let [run    (invoke "run-variant" {:variant-id "story.button/replayed"})
+            rs     (:structuredContent run)
+            run-n  (get-in rs [:app-db :n])]
+        (is (success? run))
+        (is (and (integer? run-n) (pos? run-n) (<= run-n n))
+            (str "the recording replayed — :test/bump dispatches incremented :n to "
+                 (pr-str run-n) " (captured " n "); a dead :play slot would leave :n nil"))))))
 
 (deftest record-as-variant-snippet-honours-doc-and-alias
   (testing ":doc and :alias flow into the rendered snippet"
@@ -1241,14 +1352,20 @@
                        {:variant-id  "story.button/primary"
                         :duration-ms 100
                         :write-back  true})
+          n    (-> r :structuredContent :recorded-event-count)
           body (story/variant->edn :story.button/primary)]
       (is (success? r))
       (is (true? (-> r :structuredContent :written-back?)))
+      (is (pos? n) "the recorder captured at least one event")
       (is (= :story-mcp (:origin body))
           "write-back body must carry :origin :story-mcp")
-      ;; Pre-existing body keys + the captured :play slot still land.
+      ;; Pre-existing body keys + the captured :play-script slot still land
+      ;; (step count derived from `:recorded-event-count` — capture races
+      ;; the :duration-ms window).
       (is (= "Primary button." (:doc body)))
-      (is (= [[:counter/inc]] (:play body))))))
+      (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
+             (:play-script body)))
+      (is (nil? (:play body))))))
 
 (deftest record-as-variant-write-back-new-id-stamps-origin
   (testing ":new-variant-id write-back also carries :origin :story-mcp"

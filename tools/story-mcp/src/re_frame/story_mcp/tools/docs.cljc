@@ -246,12 +246,20 @@
 
 (defn tool-variant->edn
   "Docs: round-trippable EDN of a registered variant. Identical payload
-  to `get-variant` but framed as EDN-only — the `structuredContent`
-  slot is omitted so agents that want strict EDN parse the text."
+  to `get-variant`; the text slot is the byte-stable `pr-str` EDN
+  (keyword keys preserved) for agents that want strict EDN diffing.
+
+  Emits a matching `:structuredContent` too (rf2-vyacl). The descriptor
+  declares an `:outputSchema`; the official MCP SDK's high-level
+  `callTool` REJECTS an outputSchema-declaring tool that returns no
+  structuredContent with JSON-RPC -32600. (Same latent defect class as
+  `get-story-instructions` — `variant->edn` was the only other tool
+  still text-only.) The structured slot carries the same body map; the
+  text slot remains the byte-stable EDN source of truth."
   [args]
   (h/with-variant args
     (fn [_vk body]
-      (h/text-result (h/pr-edn body)))))
+      (h/text-result (h/pr-edn body) body))))
 
 (defn- md-h1 [s] (str "# " s "\n\n"))
 (defn- md-h2 [s] (str "\n## " s "\n\n"))
@@ -376,7 +384,7 @@
     :category       :docs
     :description    (str "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time). "
                          "Examples: "
-                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:id :story.cart/full :body {:doc \"...\" :args {:item-count 3} :play [...] :tags #{:dev}}}. "
+                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:id :story.cart/full :body {:doc \"...\" :args {:item-count 3} :play-script {:script [...]} :tags #{:dev}}}. "
                          "2. With extends already applied: {:variant-id \":story.cart/full-with-discount\"} -> {:body {... merged from :story.cart/full ...}}. "
                          "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
@@ -454,7 +462,7 @@
                          "Examples: "
                          "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/dispatched? :rf.assert/effect-emitted ...]}. "
                          "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "
-                         "3. Pair with run-variant: discover the assertion vocab here, then write :play sequences referencing those event ids. "
+                         "3. Pair with run-variant: discover the assertion vocab here, then write :play-script sequences referencing those event ids. "
                          "4. Paginated: {:limit 5} -> {:canonical [...7...] :registered [...5...] :total 14 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
     :inputSchema    {:type "object"
@@ -466,9 +474,9 @@
 
    {:name           "variant->edn"
     :category       :docs
-    :description    (str "Round-trippable EDN of a registered variant. Text result only (no structuredContent); use this when you want byte-stable EDN. "
+    :description    (str "Round-trippable EDN of a registered variant. The text slot is the byte-stable pr-str EDN (keyword keys preserved); a matching :structuredContent carries the same body map. Use the text slot when you want byte-stable EDN for diffing. "
                          "Examples: "
-                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:doc \"...\" :args {:item-count 3} :tags #{:dev} :play [...]} (as pr-str EDN text). "
+                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:doc \"...\" :args {:item-count 3} :tags #{:dev} :play-script {:script [...]}} (as pr-str EDN text). "
                          "2. Byte-stable for diffing two registries: same input always emits same text bytes (no JSON re-projection). "
                          "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000

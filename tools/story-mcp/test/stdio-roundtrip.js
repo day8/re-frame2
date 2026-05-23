@@ -211,13 +211,21 @@ function run() {
       console.log('OK   tools/call list-substrates -> vector (count=' + subsArr.length + ')');
 
       // 3c. tools/call get-story-instructions — returns the agent-onboarding
-      // text. Smoke-check key authoring vocab is present.
+      // text. Smoke-check key authoring vocab is present AND that the
+      // result carries structuredContent (rf2-vyacl): the descriptor
+      // declares an :outputSchema, so an SDK-driven consumer rejects a
+      // text-only result with -32600. Pinning the structured slot here
+      // catches a regression to the text-only shape at the wire.
       const instrResp = await call('tools/call', { name: 'get-story-instructions', arguments: {} });
       const instrText = instrResp.result?.content?.[0]?.text || '';
       if (instrResp.result?.isError || !instrText.includes('reg-story')) {
         throw new Error('get-story-instructions did not contain `reg-story`: ' + JSON.stringify(instrResp).slice(0, 300));
       }
-      console.log('OK   tools/call get-story-instructions -> text contains reg-story/reg-variant');
+      const instrStruct = instrResp.result?.structuredContent;
+      if (!instrStruct || typeof instrStruct !== 'object' || typeof instrStruct.instructions !== 'string') {
+        throw new Error('get-story-instructions missing structuredContent.instructions (SDK -32600 risk): ' + JSON.stringify(instrResp).slice(0, 300));
+      }
+      console.log('OK   tools/call get-story-instructions -> text + structuredContent.instructions');
 
       // 4. tools/call preview-variant on an unknown variant — expect
       // tool-execution error (`isError: true`) with a "not found" message.
