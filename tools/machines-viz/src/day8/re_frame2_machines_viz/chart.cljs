@@ -422,6 +422,31 @@
                    :data-node-count (str n-states)
                    :data-region-count (str n-regions)
                    :data-edge-count (str n-trans)
+                   ;; rf2-8d7w1 — stash the export/share-relevant chart
+                   ;; state on the root DOM node as a JS property so the
+                   ;; `export` namespace can derive a share-URL / alt-text
+                   ;; summary from `chart-element` without re-stamping the
+                   ;; (potentially large) definition into a data-attribute.
+                   ;; The seam carries ONLY topology + the active-state
+                   ;; NAME + summary counts — never runtime `:data` (per
+                   ;; Principles §No session data in shares). Plain
+                   ;; per-render mutation (no animation-clock coupling); it
+                   ;; lives on the topology plane (definition-derived), so
+                   ;; it does not violate Lock #11's plane separation.
+                   :ref (fn [el]
+                          (when el
+                            ;; Store the CLJS chart-state map directly as
+                            ;; an opaque JS property (NOT a #js object —
+                            ;; that would munge the dashed keyword keys).
+                            ;; `export/chart-state-of` reads it back as a
+                            ;; CLJS map.
+                            (set! (.-_rfMvChartState el)
+                                  {:machine-id    machine-id
+                                   :definition    definition
+                                   :current-state current-state
+                                   :node-count    n-states
+                                   :edge-count    n-trans
+                                   :region-count  n-regions})))
                    ;; rf2-k647w — the resolved density surfaces here so
                    ;; hosts + tests read the active density without
                    ;; re-reading the bound prop (per spec/API.md

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>re-frame2 · Machine chart viewer</title>
+  <!--
+    Read-only viewer for re-frame2 machine charts (rf2-8d7w1 · v1.0).
+
+    Statically hostable: this is a single HTML file plus the compiled
+    Machines-Viz viewer bundle (`viewer.js`). It decodes a
+    `#machine=<base64url>` URL fragment entirely client-side and renders
+    the encoded chart with interactions disabled. The fragment is never
+    transmitted to a server (URL hash components are not sent in HTTP
+    requests). Per spec/API.md §Read-only viewer + DESIGN-RATIONALE
+    Lock #6 / Lock #7.
+
+    Canonical hosted instance:
+      https://day8.github.io/re-frame2-machines-viz/viewer.html
+    is a convenience, not a contract — consumers may self-host this file
+    alongside their own `viewer.js` bundle and point share-URLs at it.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #1a1d23; }
+    #app { min-height: 100vh; }
+    /* Pre-bundle fallback so an unbooted page isn't a blank void. */
+    .rf-mv-boot {
+      color: #a8aeb6; font-family: system-ui, sans-serif;
+      padding: 24px; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main id="app"><div class="rf-mv-boot">Loading machine chart…</div></main>
+  <script src="viewer.js"></script>
+  <script>
+    // The shadow-cljs :browser build for the viewer exposes the entry as
+    // day8.re_frame2_machines_viz.viewer.run — call it once the bundle
+    // has loaded.
+    if (window.day8 && window.day8.re_frame2_machines_viz
+        && window.day8.re_frame2_machines_viz.viewer) {
+      window.day8.re_frame2_machines_viz.viewer.run();
+    }
+  </script>
+</body>
+</html>
