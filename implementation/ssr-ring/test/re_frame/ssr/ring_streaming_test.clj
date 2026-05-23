@@ -8,9 +8,12 @@
     3. streaming writer flushes shell → continuations → final payload → close
     4. response body is a PipedInputStream; we drain it into a string
     5. asserts on chunk shapes + final-payload."
-  (:require [clojure.string :as str]
+  (:require [clojure.set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.test-fixture :as tf])
   (:import [java.io InputStream]))
@@ -155,3 +158,92 @@
       (is (str/includes? body "__rf_payload") "final payload emitted")
       (is (not (str/includes? body "data-rf2-suspense-id")) "no boundary markers")
       (is (str/includes? body "</body></html>") "body closes cleanly"))))
+
+;; ===========================================================================
+;; rf2-ee38b.11 — streaming redirect short-circuit MUST destroy the
+;; per-request frame.
+;;
+;; The redirect branch returns BEFORE the writer thread (whose `finally`
+;; tears the frame down on the streaming path) is ever spawned, so the
+;; teardown must happen inline. Pre-fix the redirect branch returned
+;; directly from inside the `try` with no enclosing `finally`, leaking
+;; the per-request frame + its three side-channel slots (request /
+;; response / pending-error-trace) on every redirected streaming request
+;; — a per-request leak on auth-gated SSR routes (login redirects) where
+;; redirects are common. Spec 011 §Per-request frame teardown contract.
+;; ===========================================================================
+
+(deftest stream-handler-redirect-destroys-frame
+  (testing "rf2-ee38b.11: a :rf.server/redirect on the streaming path
+            short-circuits to a Location response AND destroys the per-
+            request frame inline — no frame / side-channel-slot leak.
+            The redirect branch never spawns the writer thread, so the
+            teardown CANNOT defer to the writer's finally."
+    (rf/reg-event-fx :rf.test.stream/redirect
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
+    (rf/reg-view ^{:rf/id :test/should-not-stream} should-not-stream []
+      [:div "should not render under redirect"])
+    (let [handler       (ssr-ring/stream-handler
+                          {:on-create [:rf.test.stream/redirect]
+                           :root-view [:test/should-not-stream]
+                           :payload-policy :rf.ssr.payload/whole-app-db})
+          baseline-fids (disj (frame/frame-ids) :rf/default)
+          response      (handler {:uri "/secret" :request-method :get})]
+      ;; Redirect response shape — status + Location, empty body, no
+      ;; chunked InputStream (a redirect has no streamed body).
+      (is (= 302 (:status response)) "redirect status on the wire")
+      (let [headers (:headers response)
+            loc     (or (get headers "Location") (get headers "location"))]
+        (is (= "/login" loc) "Location header carries the redirect target"))
+      (is (= "" (:body response))
+          "redirect short-circuits the stream — empty body, no InputStream")
+      (is (not (instance? InputStream (:body response)))
+          "redirect body is NOT a streamed pipe — it short-circuits")
+      ;; Teardown — the per-request frame + its request slot MUST be
+      ;; gone immediately after the call (no writer thread to wait on).
+      (let [end-fids (disj (frame/frame-ids) :rf/default)
+            leaked   (clojure.set/difference end-fids baseline-fids)]
+        (is (empty? leaked)
+            (str "the per-request frame MUST be destroyed on the streaming
+                 redirect path — found leaked frame-ids: " (vec leaked))))
+      (doseq [fid (disj (frame/frame-ids) :rf/default)]
+        (is (nil? (ssr/get-request fid))
+            (str "no request slot leaks for frame " fid))))))
+
+(deftest stream-handler-redirect-no-content-type-stamped
+  (testing "rf2-ee38b.11: the streaming redirect path does NOT stamp a
+            default Content-Type on the bodiless 302 — it agrees with the
+            non-streaming redirect path (which passes no default-content-
+            type). A redirect has no body, so a defaulted Content-Type is
+            meaningless; the two handlers must not diverge."
+    (rf/reg-event-fx :rf.test.stream/redirect-ct
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
+    (rf/reg-view ^{:rf/id :test/redirect-ct-root} redirect-ct-root []
+      [:div "noop"])
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.stream/redirect-ct]
+                      :root-view [:test/redirect-ct-root]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/secret" :request-method :get})
+          headers  (:headers response)
+          ct       (or (get headers "Content-Type") (get headers "content-type"))]
+      (is (= 302 (:status response)))
+      ;; The SSR runtime may set a Content-Type in the response
+      ;; accumulator's default headers; the contract under test is that
+      ;; the streaming redirect does not ADD the handler's
+      ;; `:content-type` default on top — it passes the 2-arg form. Pin
+      ;; the agreement: whatever Content-Type rides is the accumulator's,
+      ;; identical to the non-streaming redirect of the same response.
+      (let [ns-handler (ssr-ring/ssr-handler
+                         {:on-create [:rf.test.stream/redirect-ct]
+                          :root-view [:test/redirect-ct-root]
+                          :payload-policy :rf.ssr.payload/whole-app-db})
+            ns-resp    (ns-handler {:uri "/secret" :request-method :get})
+            ns-ct      (or (get (:headers ns-resp) "Content-Type")
+                           (get (:headers ns-resp) "content-type"))]
+        (is (= ct ns-ct)
+            "streaming + non-streaming redirect paths agree on Content-Type")))))

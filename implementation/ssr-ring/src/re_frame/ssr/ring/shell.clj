@@ -91,6 +91,48 @@
                                  "security audit 2026-05-14 §P3.4 / rf2-2n5gg")})))
           (recur))))))
 
+;; ---- shared <html> attribute bag (lang fallback) --------------------------
+
+(defn html-attr-bag
+  "Resolve the `<html>` attribute bag from the `:html-attrs` opt with a
+  `:lang` fallback. `:html-attrs` wins; when absent OR omitting `:lang`,
+  the `lang` argument is the fallback (an explicit `:lang` inside
+  `:html-attrs` takes precedence — the bag is used verbatim). Shared by
+  `default-html-shell` and the streaming prefix so the two envelopes
+  can't silently diverge on the lang-fallback rule."
+  [html-attrs lang]
+  (if (seq html-attrs)
+    (cond-> html-attrs
+      (not (contains? html-attrs :lang)) (assoc :lang lang))
+    {:lang lang}))
+
+;; ---- shared hydration-payload <script> envelope (rf2-7ksyr) ---------------
+;;
+;; The id-pinned, `</script>`-escaped payload `<script>` is emitted in
+;; two places — the non-streaming `default-html-shell` and the streaming
+;; final chunk (`re-frame.ssr.ring.streaming`). The escape is security-
+;; load-bearing (rf2-7ksyr); a fix or id change to one path MUST track
+;; the other, so both call this single helper.
+
+(defn payload-script-tag
+  "Build the id-pinned `<script type=\"application/edn\">` carrying the
+  already-`pr-str`'d hydration payload EDN. `payload-edn` is escaped
+  through `html/escape-script-body-string` so a payload containing
+  `</script>` (sourced from any user-controlled string round-tripped
+  through app-db) can't close the envelope — the XSS gate from
+  security audit 2026-05-14 §P1 (rf2-7ksyr). The EDN reader accepts the
+  `\\u003c` escape for `<`, so the payload round-trips through
+  `clojure.edn/read-string` on the client unchanged.
+
+  The id is pinned in `re-frame.ssr.constants/payload-script-id`
+  (`\"__rf_payload\"`) — the contract between this server-side emit and
+  the client bootstrap's `document.getElementById(...)` read (Spec 011
+  §Hydration payload script id, rf2-cegm7 CQ-3 / rf2-j54ee)."
+  [payload-edn]
+  (str "<script id=\"" constants/payload-script-id "\" type=\"application/edn\">"
+       (html/escape-script-body-string payload-edn)
+       "</script>"))
+
 (defn default-html-shell
   "The default HTML envelope. Returns a string wrapping the rendered
   body in a minimal-but-runnable document. Override via `:html-shell`
@@ -165,35 +207,18 @@
            script-src      "/main.js"
            lang            "en"}}]
   (check-body-end-csp-hosts! body-end csp-script-src-allowlist)
-  (let [;; :html-attrs wins; otherwise fall back to {:lang lang}. An
-        ;; explicit :lang inside :html-attrs takes precedence over the
-        ;; :lang opt without us having to do anything special — the
-        ;; bag is used verbatim.
-        html-attr-bag (if (seq html-attrs)
-                        (cond-> html-attrs
-                          (not (contains? html-attrs :lang)) (assoc :lang lang))
-                        {:lang lang})]
+  (let [attr-bag (html-attr-bag html-attrs lang)]
     (str "<!DOCTYPE html>"
-         "<html" (html/attr-string html-attr-bag) ">"
+         "<html" (html/attr-string attr-bag) ">"
          "<head>"
          "<meta charset=\"utf-8\">"
          (or head "")
          "</head>"
          "<body" (html/attr-string body-attrs) ">"
          "<div id=\"" app-element-id "\">" body-html "</div>"
-         ;; The id is pinned in `re-frame.ssr.constants/payload-script-id`
-         ;; — the contract between this server-side emit and the client-
-         ;; side bootstrap's `document.getElementById(...)` read. Per
-         ;; Spec 011 §Hydration payload script id (rf2-cegm7 CQ-3).
-         "<script id=\"" constants/payload-script-id "\" type=\"application/edn\">"
-         ;; rf2-7ksyr — escape `<` chars in the EDN string so a payload
-         ;; containing `</script>` (sourced from any user-controlled
-         ;; string round-tripped through app-db) can't close the
-         ;; envelope. The EDN reader accepts `<` as the literal
-         ;; escape for `<`, so this round-trips through
-         ;; `clojure.edn/read-string` on the client unchanged.
-         (html/escape-script-body-string payload-edn)
-         "</script>"
+         ;; Shared id-pinned, `</script>`-escaped payload <script>
+         ;; (rf2-7ksyr) — same helper the streaming final chunk uses.
+         (payload-script-tag payload-edn)
          (when script-src
            (str "<script src=\"" script-src "\"></script>"))
          (or body-end "")

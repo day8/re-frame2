@@ -32,39 +32,22 @@
 
   ---- file split (rf2-pjsrc, rf2-zkca8.1) ----
 
-  Pre-split this namespace was 747 LoC carrying nine independent
-  concerns enumerated by its own `;; ----` banners. After the rf2-pjsrc
-  split it became a thin façade over eight flat sub-namespaces; the
-  rf2-zkca8.1 recombine pass merged the two single-consumer-trivia
-  leaves back here / into `pipeline`. Current sub-namespaces:
-
-    - `re-frame.ssr.ring.cookie`           — RFC 6265 Set-Cookie wire
-                                             serialisation.
-    - `re-frame.ssr.ring.headers`          — pair-vec → Ring header-map
-                                             collapse, multi-valued
-                                             headers, content-type
-                                             default.
-    - `re-frame.ssr.ring.shell`            — `default-html-shell`.
-    - `re-frame.ssr.ring.payload`          — `build-payload`,
-                                             `resolve-version`.
-    - `re-frame.ssr.ring.lifecycle`        — frame teardown, root-view /
-                                             head resolution, on-create
-                                             enrichment.
-    - `re-frame.ssr.ring.pipeline`         — `setup-request-frame!` +
-                                             `build-full-response` +
-                                             `ssr-response->ring-response`
-                                             (the 4-step request pipeline
-                                             and its accumulator →
-                                             Ring-map materialiser).
-
-  `default-on-error` + `handler-defaults` + `validate-handler-opts!`
-  live here (the pre-rf2-zkca8.1 `handler-defaults` sub-ns was 45 L
-  and had `ring` as its only consumer; folding them in keeps the
-  handler-constructor reading top-down as one concept).
+  This namespace is a thin façade over flat sub-namespaces, one concern
+  each (see the `:require` list): `cookie` (RFC 6265 Set-Cookie),
+  `headers` (pair-vec → Ring header-map collapse + content-type
+  default), `shell` (`default-html-shell` + shared envelope helpers),
+  `payload` (`build-payload` / `resolve-version`), `lifecycle` (frame
+  teardown, root-view / head resolution, required-opt validation,
+  `default-on-error`), `pipeline` (the 4-step request pipeline +
+  accumulator → Ring-map materialiser), `trust` (trusted-shell-hook
+  contract), `streaming` (chunked-HTTP counterpart). `handler-defaults`
+  + `validate-handler-opts!` live here so the handler constructor reads
+  top-down as one concept.
 
   This façade re-exposes the public surface (`ssr-handler`,
-  `ssr-middleware`, `cookie->set-cookie-header`, `default-html-shell`)
-  and wires the sub-namespaces into the request lifecycle.
+  `ssr-middleware`, `stream-handler`, `cookie->set-cookie-header`,
+  `default-html-shell`) and wires the sub-namespaces into the request
+  lifecycle.
 
   Public surface:
 
@@ -134,31 +117,11 @@
 ;;
 ;; Pre-rf2-zkca8.1 these lived in `re-frame.ssr.ring.handler-defaults`
 ;; (45 L, one consumer — this ns). Recombined here so the handler
-;; constructor reads top-down as one concept.
+;; constructor reads top-down as one concept. `default-on-error` is
+;; re-exported from `lifecycle` (shared with `stream-handler` so the
+;; rf2-kzvwq topology-leak contract lives in one place).
 
-(defn default-on-error
-  "Minimal 500 response used when the caller doesn't supply `:on-error`.
-  The SSR runtime's error projector handles trace-emitted errors
-  during drain; this hook covers exceptions the projector can't see
-  (Ring-layer throws, render-time CLJ exceptions).
-
-  rf2-kzvwq / security audit 2026-05-14 §P2.1 — the body MUST NOT leak
-  the throwable's message. `.getMessage` carries internal topology that
-  has no business reaching the wire: JDBC URLs (host, port, database
-  name), file paths under deploy roots, partial SQL fragments, server-
-  internal class names. Pre-fix, an attacker who could trigger any
-  unhandled JVM exception would see e.g.
-  `\"SSR error: Connection refused: jdbc:postgresql://internal-db.svc:5432/auth\"`
-  on the public wire — direct topology disclosure.
-
-  We now emit a fixed generic body matching the projector's
-  `fallback-public-error` shape. Apps that want dev-mode detail
-  override via `:on-error` (the recommended pattern is
-  `(if dev? log-and-detail log-only-quietly)`)."
-  [_request ^Throwable _t]
-  {:status  500
-   :headers {"Content-Type" "text/plain; charset=utf-8"}
-   :body    "Internal error"})
+(def default-on-error lifecycle/default-on-error)
 
 (def handler-defaults
   {:emit-hash?   true
@@ -197,20 +160,14 @@
   a structural error (map / vector / symbol) surfaces here as
   `:rf.error/ssr-trusted-shell-opt-invalid`. The framework names the
   trust boundary; the content trust itself remains the caller's per
-  Spec 011 §Trusted shell hook contract."
-  [{:keys [on-create root-view] :as opts}]
-  (when-not on-create
-    (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
-                    {:rf.error/id :rf.error/ssr-ring-missing-on-create
-                     :where    'rf.ssr/ssr-handler
-                     :reason   "ssr-handler requires :on-create (an event vector)"
-                     :recovery :no-recovery})))
-  (when-not root-view
-    (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
-                    {:rf.error/id :rf.error/ssr-ring-missing-root-view
-                     :where    'rf.ssr/ssr-handler
-                     :reason   "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"
-                     :recovery :no-recovery})))
+  Spec 011 §Trusted shell hook contract.
+
+  The required-opt presence checks (`:on-create` / `:root-view`) and
+  the policy / trusted-shell checks are shared with `stream-handler`
+  (`lifecycle/validate-required-opts!` + `payload-policy` + `trust`) so
+  both handlers fail closed at the same boundary."
+  [opts]
+  (lifecycle/validate-required-opts! opts)
   (payload-policy/validate-policy-opts! opts)
   (trust/validate-trusted-shell-opts! opts))
 
@@ -270,12 +227,27 @@
                       \"text/html; charset=utf-8\" (matches the SSR
                       runtime's default in the response accumulator).
     :on-error       — (request throwable) → ring-response. Called when
-                      the per-request frame setup OR render throws.
-                      Defaults to a minimal 500 response. The SSR
-                      runtime's error projector handles trace-emitted
-                      errors during drain; this hook covers the
-                      exceptions the projector can't see (Ring-layer
-                      throws, render-time CLJ exceptions).
+                      the per-request frame setup OR a Ring-layer /
+                      transport failure the projector can't see throws.
+                      Defaults to a minimal 500 response. NOTE: normal
+                      projected render/drain errors do NOT reach this
+                      hook — they flow through the error projector and
+                      render `:error-view` / the default error template
+                      (see below). `:on-error` is the last-resort
+                      transport-failure net.
+    :error-view     — (optional) the projected-error page body (Spec 011
+                      §Server error projection step 5). Either a
+                      registered-view keyword (resolved as
+                      `[error-view public-error]` — the view receives
+                      the public-error map as its single prop) OR a
+                      1-arity fn `(public-error) → hiccup`. Rendered
+                      through the standard SSR emitter so the public-
+                      error map flows through position-appropriate
+                      escaping and the app's own styling. When absent,
+                      the host emits a minimal default error template.
+                      A buggy `:error-view` falls back to the default
+                      template (the error boundary cannot be bypassed
+                      by a bug in the caller's error page).
 
   Trusted shell-hook opts (per Spec 011 §Trusted shell hook contract,
   rf2-o6ndb) — four optional strings the default shell injects RAW

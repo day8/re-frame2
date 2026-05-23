@@ -25,6 +25,27 @@
 
 (set! *warn-on-reflection* true)
 
+(defn default-on-error
+  "Minimal 500 response used when a handler caller doesn't supply
+  `:on-error`. Shared by `ssr-handler` AND `stream-handler` so the
+  topology-leak contract below lives in exactly one place.
+
+  The SSR runtime's error projector handles trace-emitted errors during
+  drain; this hook covers exceptions the projector can't see (Ring-layer
+  throws, render-time CLJ exceptions, writer-thread-pre-spawn throws).
+
+  rf2-kzvwq / security audit 2026-05-14 §P2.1 — the body MUST NOT leak
+  the throwable's message. `.getMessage` carries internal topology that
+  has no business reaching the wire: JDBC URLs (host, port, database
+  name), file paths under deploy roots, partial SQL fragments, server-
+  internal class names. We emit a fixed generic body matching the
+  projector's `fallback-public-error` shape. Apps that want dev-mode
+  detail override via `:on-error`."
+  [_request _t]
+  {:status  500
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body    "Internal error"})
+
 (defn destroy-frame-quietly!
   "Best-effort frame teardown. Exceptions during destroy must not mask
   a real handler error; swallow + emit a `:warning` trace is preferred
@@ -107,9 +128,9 @@
 
 (defn validate-on-create!
   "Validate the caller's :on-create event vector and return it verbatim.
-  `:on-create` is required (per `handler-defaults/validate-handler-opts!`),
-  so a non-vector here is a programmer error — surface it as an
-  ex-info rather than letting `reg-frame` produce an obscure failure
+  `:on-create` is required (per `validate-required-opts!`), so a
+  non-vector here is a programmer error — surface it as an ex-info
+  rather than letting `reg-frame` produce an obscure failure
   downstream. Audit rf2-cegm7 A3 / rf2-j54ee."
   [on-create]
   (if (vector? on-create)
@@ -120,3 +141,37 @@
                      :reason   ":on-create must be a vector (event)"
                      :received on-create
                      :recovery :no-recovery}))))
+
+(defn validate-required-opts!
+  "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
+  caller omits a required handler opt (`:on-create` / `:root-view`).
+
+  Shared by `re-frame.ssr.ring/ssr-handler` AND
+  `re-frame.ssr.ring.streaming/stream-handler` so both fail closed at
+  handler-construction time (boot) rather than at first request — the
+  canonical fail-closed pattern (rf2-gtgf9, extended here to the two
+  required opts). A streaming handler built without `:on-create` would
+  otherwise fail per-request inside `setup-request-frame!`; one built
+  without `:root-view` would fail inside the writer thread, truncating
+  the chunked response. Both must refuse to construct, exactly as the
+  non-streaming handler does. Returns `opts` unchanged on success.
+
+  Sibling-validator placement (not in the `ring` façade): `streaming`
+  already requires `lifecycle` and the `ring` façade does too, so
+  hosting the check here avoids the circular-require between the
+  streaming sub-namespace and the façade — same rationale as
+  `trust`/`payload-policy`."
+  [{:keys [on-create root-view] :as opts}]
+  (when-not on-create
+    (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
+                    {:rf.error/id :rf.error/ssr-ring-missing-on-create
+                     :where    'rf.ssr/ssr-handler
+                     :reason   "ssr-handler requires :on-create (an event vector)"
+                     :recovery :no-recovery})))
+  (when-not root-view
+    (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
+                    {:rf.error/id :rf.error/ssr-ring-missing-root-view
+                     :where    'rf.ssr/ssr-handler
+                     :reason   "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"
+                     :recovery :no-recovery})))
+  opts)

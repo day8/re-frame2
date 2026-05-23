@@ -40,7 +40,8 @@
             [re-frame.ssr.html-helpers :as html-helpers]
             [re-frame.ssr.ring.headers :as headers]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.payload :as payload]))
+            [re-frame.ssr.ring.payload :as payload]
+            [re-frame.trace :as trace]))
 
 (set! *warn-on-reflection* true)
 
@@ -54,15 +55,30 @@
   The optional 3-arg form (rf2-uj9z8) accepts a `default-content-type`
   that's stamped onto the Ring header map if (and only if) the response
   pairs don't already carry a Content-Type (case-insensitive). The
-  defaulting happens INSIDE the single header-fold pass — pre-fix the
-  pipeline called `ensure-content-type` over the pairs vector, then
-  `headers->ring-map` re-walked the same pairs to fold them. Single
-  pass now."
+  defaulting happens INSIDE the single header-fold pass
+  (`headers->ring-map+default-content-type`)."
   ([resp body] (ssr-response->ring-response resp body nil))
   ([{:keys [status headers cookies redirect]} body default-content-type]
    (if redirect
      (let [{:keys [location url to] redirect-status :status} redirect
            target (or location url to)]
+       ;; A redirect with no target is a malformed wire response — a
+       ;; 3xx with no `Location` leaves the browser nowhere to go. The
+       ;; runtime accepts a target-less `:rf.server/redirect` (the
+       ;; location is caller-trusted and optional at the fx boundary),
+       ;; so the adapter is the last line: emit a warning trace so the
+       ;; defect is observable rather than silently shipping a broken
+       ;; redirect. We still emit the status (we have no target to
+       ;; invent) — the trace is the signal.
+       (when-not target
+         (trace/emit! :warning :rf.ssr/ssr-redirect-no-target
+                      {:where    :ssr-ring/ssr-response->ring-response
+                       :status   (or redirect-status status 302)
+                       :reason   (str ":rf.server/redirect set :redirect with no "
+                                      ":location/:url/:to — the response carries a "
+                                      "3xx status with no Location header (malformed "
+                                      "redirect; the browser has no target)")
+                       :recovery :warned-and-emitted-statusonly}))
        {:status  (or redirect-status status 302)
         :headers (-> (headers/headers->ring-map+default-content-type
                        headers default-content-type)
@@ -128,20 +144,19 @@
         {:short-circuit (on-error request t)}))))
 
 (defn ^:private render-error-body
-  "Build a minimal HTML body from a public-error map. Used by the
-  render-time projector path (rf2-zwgsv) when `render-to-string`
-  throws and the host can no longer rely on the user's root-view to
-  produce wire bytes. The body is fully escaped through
-  `escape-html` — the public-error's `:message` is caller-controlled
-  (custom projectors may produce arbitrary strings) so we treat it
-  as untrusted-for-HTML.
+  "Build a minimal HTML body from a public-error map — the host's
+  DEFAULT error template (Spec 011 §Server error projection step 5,
+  the \"or the host's default error template\" branch). Used when no
+  caller `:error-view` is registered and `render-to-string` has
+  thrown, so the host can no longer rely on the user's root-view to
+  produce wire bytes. The body is fully escaped through `escape-html`
+  / `escape-attr` — the public-error's `:message`/`:code` are caller-
+  controlled (custom projectors may produce arbitrary strings) so we
+  treat them as untrusted-for-HTML.
 
-  Carries no internal trace detail — Spec 011 §Server error
-  projection §Where sanitisation happens locks the wire surface to
-  the four public-error keys. The internal Throwable already rode
-  the trace bus via `project-render-exception!`'s
-  `trace/emit-error!` call; monitoring listeners see it, the wire
-  does not."
+  Carries no internal trace detail — the wire surface is locked to the
+  public-error keys; the internal Throwable already rode the trace bus
+  via `project-render-exception!`."
   [{:keys [status code message]}]
   (let [status* (or status 500)
         code*   (when code (name code))
@@ -157,6 +172,55 @@
                 " (status " status* ")"
                 "</p>"))
          "</body></html>")))
+
+(defn ^:private resolve-error-body
+  "Resolve the projected-error HTML body (Spec 011 §Server error
+  projection step 5 — \"a registered view (or the host's default error
+  template) … receiving the public-error map as its prop\").
+
+  When the caller supplied an `:error-view` opt, render it through the
+  standard SSR emitter so the public-error map flows through position-
+  appropriate escaping and the app's own styling/shell, instead of the
+  hardcoded minimal `render-error-body`:
+
+    - a keyword → resolved as a registered view: `[error-view public]`
+      (the view receives the public-error map as its single prop),
+    - a 1-arity fn → called with the public-error map, returning hiccup.
+
+  Both paths render via `render-to-string` (no doctype, no hash — the
+  error body is the inner shell body). If the error-view itself throws
+  (a buggy error page must not take down the error response), we fall
+  back to the host default `render-error-body` — the boundary cannot be
+  bypassed by a bug in the caller's error view, mirroring the runtime's
+  projector-throws-→-locked-500 fallback (Spec 011 §Where sanitisation
+  happens). When no `:error-view` is supplied, the default template is
+  used directly."
+  [frame-id error-view public]
+  (if (nil? error-view)
+    (render-error-body public)
+    (try
+      (let [hiccup (cond
+                     (keyword? error-view) [error-view public]
+                     (fn? error-view)      (error-view public)
+                     :else
+                     (throw (ex-info ":rf.error/ssr-ring-invalid-error-view"
+                                     {:rf.error/id :rf.error/ssr-ring-invalid-error-view
+                                      :where    'rf.ssr/ssr-handler
+                                      :reason   ":error-view must be a registered-view keyword or a 1-arity fn"
+                                      :received error-view
+                                      :recovery :no-recovery})))]
+        (rf/with-frame frame-id
+          (ssr/render-to-string hiccup {:doctype? false :emit-hash? false})))
+      (catch Throwable t
+        ;; A buggy error-view must not bypass the error boundary —
+        ;; surface the throw on the trace bus and fall back to the
+        ;; locked host default template.
+        (trace/emit-error! :rf.error/ssr-ring-error-view-failed
+                           {:frame     frame-id
+                            :exception (.getMessage t)
+                            :ex-class  (.getName (class t))
+                            :recovery  :fell-back-to-default-error-template})
+        (render-error-body public)))))
 
 (defn ^:private build-full-response*
   "The non-error path of `build-full-response`. Split into its own fn
@@ -210,14 +274,12 @@
                            :html-attrs  html-attrs
                            :body-attrs  body-attrs)
         html        (html-shell body-html payload-edn shell-opts)]
-    ;; Content-Type defaulting (rf2-uj9z8): pre-fix the pipeline called
-    ;; ensure-content-type over the pairs vector, then
-    ;; ssr-response->ring-response re-walked the same pairs to fold them
-    ;; into the Ring header map — two passes. The 3-arg form folds and
-    ;; defaults in one walk. The SSR runtime defaults [:rf/response
-    ;; :headers] to include content-type so the default is usually a
-    ;; no-op, but we still pass `content-type` through so an opts
-    ;; override and absence-of-default both work.
+    ;; Content-Type defaulting (rf2-uj9z8): the 3-arg form folds the
+    ;; header pairs into the Ring map AND defaults Content-Type in one
+    ;; walk. The SSR runtime defaults [:rf/response :headers] to include
+    ;; content-type so the default is usually a no-op, but we still pass
+    ;; `content-type` through so an opts override and absence-of-default
+    ;; both work.
     (ssr-response->ring-response resp html content-type)))
 
 (defn build-full-response
@@ -286,6 +348,9 @@
                               {:status 500 :code :internal-error
                                :message "Something went wrong"
                                :retryable? false})
-            body-html     (render-error-body public*)
+            ;; Spec 011 §Server error projection step 5: render a
+            ;; caller-registered `:error-view` (receiving the public-
+            ;; error map) when present, else the host default template.
+            body-html     (resolve-error-body frame-id (:error-view opts) public*)
             content-type  (:content-type opts)]
         (ssr-response->ring-response resp* body-html content-type)))))

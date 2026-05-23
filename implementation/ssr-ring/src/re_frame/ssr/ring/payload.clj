@@ -41,14 +41,10 @@
        check-version fx still no-ops cleanly on the client when neither
        side has the hook registered (matched value → no mismatch).
 
-  Audit rf2-asmj1 S8 / cluster rf2-l8fi6: prior to this the adapter
-  hard-coded `(or version 1)` inline, which silently disagreed with
-  whatever the client-side `:rf2/runtime-version` hook returned and
-  defeated the version-mismatch check on every host that hadn't passed
-  `:version` explicitly. Threading both sides through the same hook
-  eliminates the silent-divergence trap; the terminal `1` is the v1
-  pattern-protocol stamp, named instead of inlined so the convention
-  travels back to Spec-Schemas via search."
+  Both sides of the wire read `:version` through the same hook so a host
+  that doesn't pass `:version` explicitly still pins a value the client
+  agrees with (the inline `(or version 1)` it replaced silently defeated
+  the version-mismatch check; rf2-asmj1 S8 / rf2-l8fi6)."
   [explicit-version]
   (or explicit-version
       (when-let [f (late-bind/get-fn :rf2/runtime-version)]

@@ -43,11 +43,11 @@
   forthcoming as host-opt-in)."
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.constants :as constants]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
+            [re-frame.ssr.ring.shell :as shell]
             [re-frame.ssr.ring.trust :as trust]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.trace :as trace])
@@ -71,15 +71,14 @@
 
 (defn default-streaming-prefix
   "The shell prefix flushed as the first chunk. Mirrors the non-streaming
-  `default-html-shell`'s open + head + body-open + app-div-open."
+  `default-html-shell`'s open + head + body-open + app-div-open. Shares
+  the `:html-attrs`/`:lang` fallback with the non-streaming shell via
+  `shell/html-attr-bag` so the two envelopes can't diverge."
   [head-html {:keys [html-attrs body-attrs lang app-element-id]
               :or   {lang "en" app-element-id "app"}}]
-  (let [html-attr-bag (if (seq html-attrs)
-                        (cond-> html-attrs
-                          (not (contains? html-attrs :lang)) (assoc :lang lang))
-                        {:lang lang})]
+  (let [attr-bag (shell/html-attr-bag html-attrs lang)]
     (str "<!DOCTYPE html>"
-         "<html" (html/attr-string html-attr-bag) ">"
+         "<html" (html/attr-string attr-bag) ">"
          "<head>"
          "<meta charset=\"utf-8\">"
          (or head-html "")
@@ -168,12 +167,9 @@
                                :schema-digest  schema-digest
                                :payload-keys   payload-keys
                                :payload-policy payload-policy}))]
-        (write-chunk! out
-                      (str "<script id=\"" constants/payload-script-id
-                           "\" type=\"application/edn\">"
-                           (html/escape-script-body-string
-                             (pr-str final-payload))
-                           "</script>")))
+        ;; Shared id-pinned, `</script>`-escaped payload <script>
+        ;; (rf2-7ksyr) — same helper the non-streaming shell uses.
+        (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))
       ;; Chunk N+3 — shell suffix close.
       (write-chunk! out (default-streaming-suffix opts)))
     (catch Throwable t
@@ -202,11 +198,13 @@
       synchronous :on-create drain),
     - reads the response accumulator; if :redirect is set, short-
       circuits to a non-streamed Location response (Spec 011 §Redirect
-      precedence),
-    - otherwise spawns a streaming writer (same calling thread) that
-      flushes shell → continuations → final payload → close,
-    - destroys the frame in finally so the per-frame side-channels
-      clear (Spec 011 §Per-request frame teardown contract).
+      precedence) AND destroys the per-request frame inline (the writer
+      thread is never spawned on this branch),
+    - otherwise spawns a streaming writer on a daemon thread that
+      flushes shell → continuations → final payload → close, and
+      destroys the frame in that thread's finally so the per-frame
+      side-channels clear (Spec 011 §Per-request frame teardown
+      contract) without blocking the response close.
 
   The response body is a `PipedInputStream` Ring accepts directly; the
   pipe's writer side runs on a daemon thread so Jetty/http-kit/Aleph
@@ -218,28 +216,33 @@
 
     (fn handler [ring-request] ring-response)"
   [raw-opts]
-  ;; Per rf2-gtgf9 — validate the hydration-payload policy at handler-
-  ;; construction time so misconfigured deployments fail at boot rather
-  ;; than at first request. Mirrors `ssr-handler`'s validate-handler-
-  ;; opts! call site in `re-frame.ssr.ring`. Throws
-  ;; `:rf.error/ssr-missing-payload-policy` on absence of both
-  ;; `:payload-keys` and `:payload-policy`.
+  ;; Construction-time validation — identical fail-closed-at-boot
+  ;; contract as `ssr-handler`'s `validate-handler-opts!`. A
+  ;; misconfigured streaming handler MUST refuse to construct, not fail
+  ;; per-request (missing :on-create → per-request 500; missing
+  ;; :root-view → silently-truncated chunked response from the writer
+  ;; thread). The three checks are the same ones the non-streaming
+  ;; handler runs:
+  ;;   - required-opt presence (:on-create / :root-view) per rf2-gtgf9,
+  ;;     shared via `lifecycle/validate-required-opts!`,
+  ;;   - hydration-payload policy (:payload-keys / :payload-policy) per
+  ;;     rf2-gtgf9 — throws `:rf.error/ssr-missing-payload-policy`,
+  ;;   - the four trusted-shell-hook opts are strings (or nil) per
+  ;;     rf2-o6ndb — the streaming prefix/suffix injects these RAW into
+  ;;     the HTML envelope, same trust contract as the non-streaming
+  ;;     `default-html-shell`. Throws
+  ;;     `:rf.error/ssr-trusted-shell-opt-invalid` on a structural
+  ;;     mistake (map / vector / symbol / number).
+  (lifecycle/validate-required-opts! raw-opts)
   (payload-policy/validate-policy-opts! raw-opts)
-  ;; Per rf2-o6ndb — validate the four trusted-shell-hook opts are
-  ;; strings (or nil) at construction time. The streaming prefix/suffix
-  ;; injects these RAW into the rendered HTML envelope, same trust
-  ;; contract as the non-streaming `default-html-shell`. Throws
-  ;; `:rf.error/ssr-trusted-shell-opt-invalid` on a structural-shape
-  ;; mistake (map / vector / symbol / number).
   (trust/validate-trusted-shell-opts! raw-opts)
-  ;; Mirror ssr-handler's defaults + validation so streaming and non-
-  ;; streaming handlers feel symmetric to callers.
+  ;; Mirror ssr-handler's defaults so streaming and non-streaming
+  ;; handlers feel symmetric to callers. `:on-error` reuses the shared
+  ;; `lifecycle/default-on-error` so the rf2-kzvwq topology-leak
+  ;; contract is not silently re-implemented.
   (let [opts        (merge {:emit-hash?   true
                             :content-type "text/html; charset=utf-8"
-                            :on-error     (fn [_req _t]
-                                            {:status  500
-                                             :headers {"Content-Type" "text/plain; charset=utf-8"}
-                                             :body    "Internal error"})}
+                            :on-error     lifecycle/default-on-error}
                            raw-opts)
         {:keys [on-error content-type]} opts]
     (fn ring-handler [request]
@@ -250,8 +253,22 @@
           (try
             (let [resp (ssr/get-response frame-id)]
               (if (some? (:redirect resp))
-                ;; Redirect short-circuits the stream — no chunked body.
-                (pipeline/ssr-response->ring-response resp nil content-type)
+                ;; Redirect short-circuits the stream — no chunked body,
+                ;; so the writer thread (whose `finally` normally tears
+                ;; the frame down) is never spawned. Destroy the per-
+                ;; request frame inline BEFORE returning, or every
+                ;; redirected streaming request leaks the frame + its
+                ;; three side-channel slots (request / response /
+                ;; pending-error-trace) — a per-request leak on auth-
+                ;; gated SSR routes where redirects are common (Spec 011
+                ;; §Per-request frame teardown contract). The 2-arg form
+                ;; (no `content-type`) matches the non-streaming redirect
+                ;; path — a bodiless redirect has no meaningful Content-
+                ;; Type to default.
+                (try
+                  (pipeline/ssr-response->ring-response resp nil)
+                  (finally
+                    (lifecycle/destroy-frame-quietly! frame-id)))
                 ;; Streaming path: build a pipe + spawn the writer thread.
                 ;; 16 KiB pipe buffer — large enough to absorb the shell
                 ;; chunk in one write so the writer thread rarely blocks
