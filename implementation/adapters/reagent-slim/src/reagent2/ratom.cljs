@@ -342,20 +342,35 @@
       (._run this true)))
 
   (_try-capture [this f]
+    ;; Mirror stock Reagent: on the success branch SET `state` to the
+    ;; recomputed value here (and return it); on the throw branch capture
+    ;; the error in BOTH `state` and `caught`. `_run` must NOT overwrite
+    ;; `state` in check mode (`(when-not check (set! state res))`) — doing
+    ;; so clobbers the captured error (`_try-capture`'s catch returns the
+    ;; value of `(set! dirty? false)`, i.e. `false`, not the error), so a
+    ;; throwing queued/flush! recompute would leave `state` = false instead
+    ;; of the error AND notify watchers of a spurious `false` change
+    ;; (rf2-ee38b.15 P2). Returning the new state keeps `_run`'s
+    ;; `notify-w … res` reflecting the recompute on the success path.
     (try
       (set! caught nil)
-      (deref-capture f this)
+      (set! state (deref-capture f this))
       (catch :default e
         (set! state e)
         (set! caught e)
-        (set! dirty? false))))
+        (set! dirty? false)
+        e)))
 
   (_run [this check]
     (let [oldstate state
           res      (if check
                      (._try-capture this f)
                      (deref-capture f this))]
-      (set! state res)
+      ;; In check mode `_try-capture` has already set `state` (success or
+      ;; error path); only the unchecked path sets it here. See the
+      ;; rationale on `_try-capture` (rf2-ee38b.15 P2).
+      (when-not check
+        (set! state res))
       ;; Equality memoisation per IMPL-SPEC §3.2: use = (not identical?)
       ;; because Reaction bodies produce new data structures every run.
       ;; Skip notify-watches when the recomputed value is = the old one.

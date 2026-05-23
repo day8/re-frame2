@@ -124,11 +124,6 @@
   (let [platforms (:platforms meta #{:client :server})]
     (contains? platforms active-platform)))
 
-;; Local alias kept for internal call sites' readability — `(fx-runs-on-
-;; platform? meta plat)` reads better at `do-fx` than `(runs-on-platform?
-;; meta plat)` where the fx-vs-cofx context is implicit.
-(def ^:private fx-runs-on-platform? runs-on-platform?)
-
 ;; ---- do-fx ----------------------------------------------------------------
 
 (declare dispatch-fx-handler)
@@ -492,7 +487,7 @@
       ;; honours both registry hits and the fn-value override branch
       ;; without a second lookup.
       (if-let [meta resolved-meta]
-      (if (fx-runs-on-platform? meta active-platform)
+      (if (runs-on-platform? meta active-platform)
         ;; Per Spec 010 §Validation order step 5 (rf2-xp2o3): before the
         ;; fx handler runs, validate its args against any `:schema` on
         ;; the fx's registration meta. The schemas artefact is optional
@@ -617,58 +612,63 @@
   fx does not halt the rest).
 
   Per Spec 002 §Per-frame and per-call overrides: an fx-id override map
-  may be provided. Each [fx-id args] is rewritten through that map
-  before lookup.
+  may be provided via `opts`. Each [fx-id args] is rewritten through that
+  map before lookup.
 
-  The 5-arity passes the originating event vector through to user-
-  registered fx handlers as `:event` on their ctx — needed by Spec 014
-  §Reply addressing (the fx captures the originating event-id from the
-  dispatch envelope's cofx).
+  Optional `opts` map (rf2-ee38b.1 — collapsed the former six-step nil-
+  padding arity ladder, which threaded these positionally one accreted
+  arg at a time, into a single keyword-keyed map):
 
-  The 6-arity additionally threads the originating dispatch envelope
-  through to reserved-fx defmethods (and exposes it at `(:envelope m)`
-  on user-fx ctx) per Spec 002 §The binary fx-handler signature (line
-  603) and §Drain-loop pseudocode (lines 916, 961-963). Reserved-fx
-  bodies for `:dispatch` and `:dispatch-later` read the envelope to
-  propagate inheritable keys onto the child dispatch per §Cascade
-  propagation.
+    :overrides        an fx-id override map (Spec 002 §Per-frame and
+                      per-call overrides). Each [fx-id args] is rewritten
+                      through it before lookup. Defaults to `{}`.
+    :origin-event     the originating event vector, passed through to
+                      user-registered fx handlers as `:event` on their
+                      ctx — needed by Spec 014 §Reply addressing (the fx
+                      captures the originating event-id from the dispatch
+                      envelope's cofx).
+    :parent-envelope  the originating dispatch envelope, threaded to
+                      reserved-fx defmethods (and exposed at `(:envelope
+                      m)` on user-fx ctx) per Spec 002 §The binary
+                      fx-handler signature (line 603) + §Drain-loop
+                      pseudocode (lines 916, 961-963). Reserved-fx bodies
+                      for `:dispatch` / `:dispatch-later` read it to
+                      propagate inheritable keys onto the child dispatch
+                      per §Cascade propagation.
+    :effects          the originating handler's full effects map (the
+                      closed `{:db ... :fx ...}` shape). Used ONLY to
+                      stamp shape info onto the terminating
+                      `:event/do-fx` trace marker's `:tags` (rf2-twt7m
+                      Change 2): `:fx` (the vector returned) and
+                      `:db-present?` (boolean, true iff the handler
+                      returned a `:db` slot). NOT threaded into per-fx
+                      invocations — fx handlers already receive the
+                      effects shape they need via per-fx args. Absent ⇒
+                      the trace marker degrades gracefully (no `:fx` /
+                      `:db-present?` slots).
+    :coeffects        the handler's final coeffects map (rf2-jhhqt). The
+                      USER-INJECTED subset (everything outside
+                      `framework-coeffect-keys`) is stamped onto the
+                      `:event/do-fx` marker's `:tags` under `:coeffects`
+                      so the Causa Event lens's COEFFECTS section can
+                      render values without a second emit. The filter
+                      mirrors the INTERCEPTORS section's filter-out-
+                      framework-defaults posture; the stamp is absent
+                      entirely (not an empty map) when zero user
+                      coeffects were injected. `trace/emit!` is itself
+                      DCE-gated so prod CLJS bundles elide both the
+                      projection and the emit.
 
-  The 7-arity additionally accepts the originating handler's full
-  effects map (the closed `{:db ... :fx ...}` shape, per Spec 002
-  §The binary fx-handler signature). It is used only to stamp shape
-  info onto the terminating `:event/do-fx` trace marker's `:tags`
-  (rf2-twt7m Change 2): `:fx` (the vector returned) and
-  `:db-present?` (boolean, true iff the handler returned a `:db`
-  slot). The map itself is NOT threaded into per-fx invocations —
-  fx handlers already receive the effects shape they need via per-
-  fx args. Callers without an effects map (e.g. machine-exit fx
-  walks) use a lower arity; the trace marker degrades gracefully
-  (no `:fx` / `:db-present?` slots on the emit).
-
-  The 8-arity additionally accepts the handler's final coeffects map
-  (per rf2-jhhqt). The USER-INJECTED subset (everything outside
-  `framework-coeffect-keys`) is stamped onto the `:event/do-fx`
-  marker's `:tags` under `:coeffects` so the Causa Event lens's
-  COEFFECTS section can render values without a second emit. The
-  filter mirrors the INTERCEPTORS section's filter-out-framework-
-  defaults posture; the stamp is absent entirely (not an empty map)
-  when zero user coeffects were injected — `trace/emit!` itself is
-  DCE-gated so prod CLJS bundles elide both the projection and the
-  emit."
+  The 3-arity (no `opts`) is the bare machine-exit / cascade-fx walk
+  shape; the router supplies the full opts map once per drained event."
   ([frame-id fx-vec active-platform]
-   (do-fx frame-id fx-vec active-platform {} nil nil nil nil))
-  ([frame-id fx-vec active-platform overrides]
-   (do-fx frame-id fx-vec active-platform overrides nil nil nil nil))
-  ([frame-id fx-vec active-platform overrides origin-event]
-   (do-fx frame-id fx-vec active-platform overrides origin-event nil nil nil))
-  ([frame-id fx-vec active-platform overrides origin-event parent-envelope]
-   (do-fx frame-id fx-vec active-platform overrides origin-event parent-envelope nil nil))
-  ([frame-id fx-vec active-platform overrides origin-event parent-envelope effects]
-   (do-fx frame-id fx-vec active-platform overrides origin-event parent-envelope effects nil))
-  ([frame-id fx-vec active-platform overrides origin-event parent-envelope effects coeffects]
+   (do-fx frame-id fx-vec active-platform nil))
+  ([frame-id fx-vec active-platform
+    {:keys [overrides origin-event parent-envelope effects coeffects]}]
    (doseq [pair fx-vec]
      (when (and (vector? pair) (seq pair))
-       (handle-one-fx frame-id pair active-platform overrides origin-event parent-envelope)))
+       (handle-one-fx frame-id pair active-platform (or overrides {})
+                      origin-event parent-envelope)))
    ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto the
    ;; `:event/do-fx` marker's `:tags` when the caller supplied the
    ;; effects map. The full `:db` VALUE is NOT stamped — slice

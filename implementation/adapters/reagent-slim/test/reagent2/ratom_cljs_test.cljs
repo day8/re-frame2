@@ -331,6 +331,54 @@
       (is (= [30] @r-vals)))))
 
 ;; ---------------------------------------------------------------------------
+;; throwing Reaction body — the check=true (_queued-run / flush!) error path
+;; rf2-ee38b.15 P2 regression pin
+;; ---------------------------------------------------------------------------
+
+(deftest throwing-reaction-checked-recompute-preserves-error
+  ;; Pre-rf2-ee38b.15, `_run` did `(set! state res)` unconditionally; on the
+  ;; check=true error path `_try-capture` had already set `state` to the
+  ;; caught error, but `_run` then clobbered it with the catch-block's
+  ;; return value (`false`), AND `notify-w` fired with that spurious `false`.
+  ;; The fix: `_try-capture` sets state on the success branch; `_run` only
+  ;; sets state when NOT check.
+  ;;
+  ;; Drive the checked (`_queued-run` → `_run this true`) path: a no-auto-run
+  ;; inner reaction, subscribed to its source by deref'ing it inside an
+  ;; outer reaction. The outer's auto-run is a NO-OP fn so the inner's
+  ;; error-recompute notify does NOT cascade into an outer re-deref (which
+  ;; would rethrow the captured error out of flush! — correct behaviour, but
+  ;; not what this test isolates).
+  (testing "a throwing Reaction body on the checked recompute path"
+    (let [a            (ratom/atom 1)
+          ;; Inner reaction throws once a crosses a threshold.
+          inner        (ratom/make-reaction
+                         (fn []
+                           (when (> @a 1)
+                             (throw (ex-info "boom" {:a @a})))
+                           @a))
+          ;; Outer derefs inner once (wiring outer→inner and, via inner's
+          ;; own _run, inner→a). NO-OP auto-run: on inner's change the outer
+          ;; just marks, never re-derefs the errored inner.
+          outer        (ratom/make-reaction (fn [] @inner)
+                                            :auto-run (fn [_this] nil))
+          watch-fires  (atom [])]
+      ;; Force initial run paths (a=1 ⇒ inner=1, no throw).
+      @outer
+      (is (= 1 @inner) "precondition: inner computes cleanly at a=1")
+      ;; Watch the INNER reaction so we can detect a spurious notify.
+      (add-watch inner :w (fn [_ _ _ nu] (swap! watch-fires conj nu)))
+      ;; Cross the threshold ⇒ inner's queued/checked recompute throws.
+      (reset! a 2)
+      (ratom/flush!)
+      (testing "the captured error rethrows on deref (not a clobbered false)"
+        (is (thrown-with-msg? cljs.core/ExceptionInfo #"boom" @inner)))
+      (testing "watchers are NOT notified of a spurious `false` value change"
+        (is (not (some false? @watch-fires))
+            "the error recompute must not notify watchers with the catch
+             block's `false` return")))))
+
+;; ---------------------------------------------------------------------------
 ;; reaction macro — 5-line indirection
 ;; ---------------------------------------------------------------------------
 

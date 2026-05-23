@@ -389,8 +389,8 @@
                                 :recovery      :no-recovery
                                 :from-fixture? true}))
 
-    ;; :get and :reduce-input are sub-body ops; the realise-sub-handler
-    ;; reads them separately. Treated as no-op here.
+    ;; :get and :reduce-input are sub-body ops; `realise-sub` reads them
+    ;; separately. Treated as no-op here.
     :get       ctx
     :reduce-input ctx
     :db-get    ctx
@@ -603,9 +603,3 @@
                      v))
                  nil
                  steps))})))
-
-(defn realise-sub-handler
-  "Backwards-compatible: returns just the body fn. Prefer realise-sub when
-  layer-2+ registration is needed."
-  [steps]
-  (:body (realise-sub steps)))

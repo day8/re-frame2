@@ -44,3 +44,8 @@
 
 (deftest after-render-runs-callback-after-next-commit-helix
   (suite/assert-after-render-runs-after-commit cfg))
+
+;; rf2-ee38b.1 — the spine `make-render` :hydrate? true branch
+;; (hydrateRoot) had no React-hook coverage; close it for UIx + Helix.
+(deftest render-hydrate-branch-mounts-without-remount-helix
+  (suite/assert-render-hydrate-branch-mounts-without-remount cfg))
