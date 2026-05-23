@@ -8,7 +8,7 @@ When an agent migrating a v1 codebase needs to answer *"is this error name old o
 
 The migration touches three surfaces that hand-off to the error event stream:
 
-- **M-13** — `reg-event-error-handler` is gone. The replacements (frame-level `:on-error`, `register-listener!`) consume events from the catalogue.
+- **M-13** — `reg-event-error-handler` is gone. The replacements (frame-level `:on-error` for recovery policy, `register-listener!` for dev-loop observation, `register-error-listener!` for always-on production egress) consume events from the catalogue.
 - **M-17 / M-26** — observer-shaped interceptors / post-event callbacks become trace listeners; they filter on `:operation` / `:op-type` from the catalogue.
 - **M-23** — `re-frame.alpha` lifecycle annotations dropped; some user error-recognition code referenced old category names.
 
@@ -39,7 +39,7 @@ The closed catalogue at [Spec 009 §Error event catalogue](../../../spec/009-Ins
 
 ## How an `:on-error` policy uses the catalogue
 
-A frame's `:on-error` policy (M-13 replacement) receives any error event whose `:frame` matches the policy's frame. The policy fn dispatches on `:operation`:
+A frame's `:on-error` policy (M-13 replacement) receives any error event whose `:frame` matches the policy's frame. The policy fn dispatches on `:operation` and **returns a closed-shape recovery map (or `nil`)** — never a raw effect-map. The return-map contract is pinned in [Spec 009 §Return-map contract](../../../spec/009-Instrumentation.md#return-map-contract): the recognised keys are `:recovery` (REQUIRED — one of the closed recovery keywords), `:replacement` (only honoured when `:recovery` is `:replaced-with-default`), and `:notes`. A bare `{:fx [...]}` map has **no `:recovery` key and is rejected** by the runtime (`:rf.error/bad-on-error-return`); the effects never run. To run effects, side-effect in the policy body and return `nil`, or dispatch a fresh event — the runtime never re-runs the failing handler.
 
 ```clojure
 (rf/reg-frame
@@ -47,31 +47,59 @@ A frame's `:on-error` policy (M-13 replacement) receives any error event whose `
   {:on-error
    (fn [{:keys [operation tags] :as evt}]
      (case operation
-       :rf.error/handler-exception {:fx [[:dispatch [:app/log-error evt]]]}
-       :rf.error/sub-exception     {:recovery :replaced-with-default :replacement nil}
+       ;; Observe-only: side-effect in the body, return nil to let the
+       ;; runtime apply its documented per-category default recovery.
+       :rf.error/handler-exception      (do (log-to-monitoring evt) nil)
+       ;; Substitute a value: :replaced-with-default + a :replacement of the
+       ;; failing slot's normal return type (for handler-exception, an effect-map).
+       :rf.error/schema-validation-failure
+       {:recovery :replaced-with-default
+        :replacement (:default-value tags)}
        ;; ... etc — see the catalogue for every :operation the policy may receive
        nil))})                                       ; let the default recovery apply
 ```
 
-The full list of `:operation` values the policy may see is exactly the catalogue. **Reference Spec 009 when writing the `case` arms** — don't guess from memory.
+The full list of `:operation` values the policy may see is exactly the catalogue; the recovery keywords (`:no-recovery` / `:replaced-with-default` / `:skipped` / `:warned-and-replaced` / `:logged-and-skipped` / `:ignored`) are the closed set in [Spec 009 §Recovery contract](../../../spec/009-Instrumentation.md#recovery-contract). **Reference Spec 009 when writing the `case` arms** — don't guess from memory, and don't return a raw effect-map.
 
-## How a trace listener filters
+## Trace listener vs. error-emit listener (dev-only vs. always-on)
 
-`register-listener!` (M-13's process-wide-observer replacement and M-17's audit-interceptor replacement) sees every emitted trace event. Filter on `:op-type` for severity branching, `:operation` for category routing:
+Two distinct listener surfaces exist; picking the wrong one for production monitoring is the single most common error-handling mistake in a migration.
+
+- **`register-listener!`** — the **dev-only** raw trace listener (M-13's process-wide-observer replacement and M-17's audit-interceptor replacement). Sees every emitted trace event with full dev-side enrichment, but is **production-elided**: under `:advanced` + `goog.DEBUG=false` the `emit!` gate is constant-folded out, registration is a no-op, and the listener never fires (per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Use it for dev-loop observability, never for production error egress.
+- **`register-error-listener!`** — the **always-on** error-emit listener. Survives `:advanced` + `goog.DEBUG=false`; the router fans out one tight record (`{:error :event :event-id :frame :time :exception :elapsed-ms}`, post-elision) per `:rf.error/*` event. This is the correct surface for production Sentry / Honeybadger / Datadog forwarding (per [API.md §Error-emit](../../../spec/API.md#error-emit-always-on-production-survivable)).
 
 ```clojure
-(rf/register-listener!
+;; Production error egress — always-on. (register-error-listener!, NOT register-listener!)
+(rf/register-error-listener!
   :audit/sentry
+  (fn [{:keys [error event-id frame exception] :as record}]
+    (sentry/capture record)))                        ; fires under goog.DEBUG=false
+
+;; Dev-loop observability only — production-elided.
+(rf/register-listener!
+  :dev/trace
   (fn [evt]
     (when (= :error (:op-type evt))                  ; severity branch
-      (sentry/capture evt))))
+      (js/console.warn evt))))
 ```
 
-`:op-type` values: `:error`, `:warning`, `:info`, `:fx`, `:cofx`, `:frame`, `:flow`. The mapping from `:operation` prefix to `:op-type` is in the catalogue's `:op-type` column.
+`:op-type` values on the trace stream: `:error`, `:warning`, `:info`, `:fx`, `:cofx`, `:frame`, `:flow`. The mapping from `:operation` prefix to `:op-type` is in the catalogue's `:op-type` column. (The corpus's M-13/M-26 entries recommend `register-listener!` for the cross-frame *observer* role; for a listener that must keep firing in production, prefer `register-error-listener!` per the dev/prod split above.)
 
-## Production elision
+## Production elision — what elides and what stays always-on
 
-Every recovery in the catalogue applies in **dev only** — trace emission is production-elided per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code). Registered `:on-error` callbacks **do not fire in CLJS prod**. Migration audits that surface "the new error-handler doesn't run" reports in production are hitting the elision, not a bug.
+The error-handling surface is **split** across the dev/prod gate. Getting this backwards leads to wiring production monitoring on a surface that silently goes dark.
+
+**Always-on (survives `:advanced` + `goog.DEBUG=false`):**
+
+- **The per-frame `:on-error` policy slot.** It is NOT gated by `re-frame.interop/debug-enabled?` — it rides a small always-on error-emit substrate (`re-frame.error-emit`) that survives production builds. Registered policy fns **fire on production handler exceptions** (`:rf.error/handler-exception`, the primary production-monitoring case) per [Spec 009 §What is available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production). A migration audit that reports "the new `:on-error` doesn't run in production" is hitting a **real bug**, not the elision — the slot is meant to fire.
+- **`register-error-listener!`** (the error-emit listener) — same always-on substrate, independent fan-out path.
+
+**Dev-only (production-elided per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)):**
+
+- The raw **trace stream** and `register-listener!` listeners — no events delivered in prod.
+- Dev-side enrichments on the always-on path: `:rf.trace/dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, the `:rf.error/bad-on-error-return` / `:rf.error/on-error-policy-exception` validation traces, and the retain-N ring buffer.
+
+So: route **production** error monitoring through the `:on-error` slot and/or `register-error-listener!` (always-on); use `register-listener!` only for the **dev** loop.
 
 ## Stale advice the migration agent will encounter
 

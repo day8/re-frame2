@@ -109,6 +109,8 @@ The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cach
 
 ## Listener-registration verb unification (M-55)
 
+> **Superseded for the event/error-emit half by M-66.** M-66 consolidates the event-emit / error-emit listener names along a namespace-based axis (`register-event-emit-listener!` → `register-event-listener!`, `register-error-emit-listener!` → `register-error-listener!`, and the trace half `register-trace-listener!` → `register-listener!`). On a v2-pre-rename codebase apply the **M-66** table for those names; see `breaking-changes.md` M-66. (A pure v1→v2 migration lands directly on the current names via M-26 and never sees either M-55 or M-66.)
+
 Closed mechanical rename table. The trace and epoch listener APIs collapse onto the same `register-*-listener!` / `unregister-*-listener!` shape already used by `register-event-listener!` / `register-error-listener!`. Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
 
 ```
@@ -278,8 +280,9 @@ When a per-feature surface is in use, add the dep AND add the `:require` of the 
 | `[:rf.http/managed ...]` | `day8/re-frame2-http` | `re-frame.http` |
 | `render-to-string` (SSR) | `day8/re-frame2-ssr` | `re-frame.ssr` |
 | `epoch-history` / `restore-epoch` | `day8/re-frame2-epoch` | `re-frame.epoch` |
+| managed-HTTP canned-stub fxs (`:rf.http/managed-canned-success` / `-canned-failure`) or stub macros (`with-managed-request-stubs` family) **in test code** (M-31a / M-65) | (no separate Maven dep — ships with `day8/re-frame2-http`) | `re-frame.http-test-support` (in the **test** ns require closure) |
 
-The `:require` is what triggers the artefact's load-time hook registrations. Without it the public surface throws `:rf.error/<artefact>-artefact-missing` at the first call.
+The `:require` is what triggers the artefact's load-time hook registrations. Without it the public surface throws `:rf.error/<artefact>-artefact-missing` at the first call (the `re-frame.http-test-support` require is the test-side counterpart — its omission raises `:rf.error/http-artefact-missing` from the `rf/<stub>` re-exports).
 
 ---
 

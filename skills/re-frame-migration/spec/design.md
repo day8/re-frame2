@@ -10,9 +10,9 @@ Help a programmer migrate an existing re-frame v1.x ClojureScript codebase to re
 
 The skill's success criterion: the author runs the migration, ends up on `day8/re-frame2`, the project compiles and tests pass, and every Type B decision the author had to make is documented in the final report.
 
-## 2. Pillars (locked, derived from `ai/findings/re-frame2-skill-design-v2.md`)
+## 2. Pillars (locked)
 
-The same four pillars as the `re-frame2` skill, adapted to the migration domain:
+The same four pillars as the `re-frame2` skill, adapted to the migration domain. (The original derivation lived in a local-only `ai/findings/` exploration doc, which is gitignored and not in-repo; the pillars and the Q14 lock are reproduced in full below and in §3 so this `spec/` folder is self-contained — a future reauthor needs nothing outside it.)
 
 1. **Correctness** — recipes over explanations. The agent applies the M-rule it cites; it doesn't synthesise novel rewrites. **Q14 lock applies: NO verification module.** The agent doesn't run the author's tests; running tests is general software practice, not migration-specific.
 2. **Idiomaticness** — verified against `migration/from-re-frame-v1/README.md` (which is itself verified against `implementation/**`). The skill is downstream of MIGRATION.md; if MIGRATION.md is authoritative, the skill is correct by construction.
@@ -35,7 +35,7 @@ Type A is applied automatically; Type B halts and asks. This dichotomy comes fro
 
 ### L3 — Q14 — NO verification module
 
-Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule. The agent applies the rules; the author runs the tests. This matches the `re-frame2` skill's lock — consistent across the skill family.
+**Q14 lock (reproduced here so this folder is self-contained; original rationale lived in a local-only `ai/findings/` doc, gitignored):** the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule. The agent applies the rules; the author runs the tests. This matches the `re-frame2` skill's lock — consistent across the skill family.
 
 **Why**: running tests is general software practice. Pillar 4 says don't teach what the AI already knows.
 

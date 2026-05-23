@@ -95,86 +95,9 @@ Explicit opens still use the normal host contract.
 
 ## Resizing the inline host (`--rf-causa-inline-width`)
 
-The recommended host CSS reads its `flex-basis` from a single CSS custom property — `--rf-causa-inline-width` — so the panel can be resized without forking the host rule or falling back to overlay modes.
+The recommended host CSS reads its `flex-basis` from a single CSS custom property — `--rf-causa-inline-width` (default `560px`, with a `min-width: 320px` floor) — so the panel resizes without forking the host rule or falling back to overlay modes. The custom property is the **only** supported resize knob.
 
-```css
-/* Global default — every page in the app */
-:root { --rf-causa-inline-width: 560px; }
-
-/* Per-route override (e.g. a debugging route that wants more room) */
-.debug-route { --rf-causa-inline-width: 720px; }
-
-/* Per-user override via a developer stylesheet */
-[data-rf-causa-host] { --rf-causa-inline-width: 380px; }
-```
-
-The default (`560px`) is the same one Causa ships in its config defaults. A 320px floor is built into the recommended CSS (`min-width: 320px`) so the panel never collapses below readable.
-
-The custom property is the **only** supported resize knob. Don't fork the `flex-basis` literal; readers (linters, tooling, story-mode chrome) look for the property name. See [`tools/causa/spec/API.md` §Resizing the inline host](../../../tools/causa/spec/API.md) for the full contract.
-
-### The resize *handle* is project-side
-
-Causa ships the custom property and the host contract; it does **not** ship a drag-handle widget. The pointer interaction that writes `--rf-causa-inline-width` (a vertical splitter between `[data-rf-causa-host]` and `#app`) is the app's responsibility — keep it in the project's own dev-only HTML/JS alongside the host element. This keeps the framework surface a single CSS knob and leaves UX decisions (handle thickness, hit-target padding, persistence, a11y semantics) to the app where they belong.
-
-### Containment — keep viewport-fixed children inside the column
-
-When the app's existing layout uses `position: fixed` overlays (modals, toasts, sticky headers), those children are positioned against the **viewport** by default — which means they escape Causa's column and float over the panel even though Causa is inline. The right fix is at the layout shell, **not** at Causa's host:
-
-```css
-.app-shell { display: flex; min-height: 100vh; }
-[data-rf-causa-host] { /* ...flex-basis as above... */ }
-
-#app {
-  flex: 1;
-  min-width: 0;
-  position: relative;   /* establish a containing block for fixed descendants */
-  isolation: isolate;   /* new stacking context — no z-index war with the panel */
-  overflow: hidden;     /* clip anything that still tries to escape */
-}
-```
-
-**Avoid the z-index escalation footgun.** A common (wrong) first reaction is to slap `z-index: 99999` on the Causa host. Don't — it papers over the symptom, leaves fixed children rendered viewport-wide (just under the panel), and gets copy-pasted by every other team that hits the same thing. The containment sub-rule above fixes the root cause: fixed children are scoped to `#app`'s box, the panel sits in its own column, and no z-index argument is needed.
-
-### Canonical resize-handle recipe (20 lines, project-side)
-
-A minimal IDE-splitter recipe the app can drop into its dev-only HTML. Pointer events (not mouse events) so pen + touch + stylus work; `setPointerCapture` so the drag survives the cursor leaving the handle; a transient full-viewport overlay during drag so the cursor stays consistent without the `* { cursor: ew-resize !important }` sledgehammer; localStorage persistence; ARIA semantics for screen readers.
-
-```html
-<div class="rf-causa-resize" role="separator" aria-orientation="vertical" tabindex="0"
-     aria-label="Resize Causa panel"></div>
-```
-
-```css
-.rf-causa-resize { position: absolute; top: 0; right: -4px; width: 9px; height: 100%;
-  cursor: ew-resize; z-index: 1; touch-action: none; }
-.rf-causa-resize::after { content: ""; position: absolute; top: 0; left: 4px;
-  width: 1px; height: 100%; background: rgba(0,0,0,0.12); }
-.rf-causa-resize:hover::after, .rf-causa-resize:focus-visible::after { background: rgba(0,0,0,0.32); }
-.rf-causa-drag-overlay { position: fixed; inset: 0; cursor: ew-resize; z-index: 9999; }
-```
-
-```js
-const h = document.querySelector('.rf-causa-resize');
-const root = document.documentElement;
-const KEY = 'rf-causa-inline-width';
-const saved = localStorage.getItem(KEY); if (saved) root.style.setProperty('--rf-causa-inline-width', saved);
-h.addEventListener('pointerdown', e => {
-  h.setPointerCapture(e.pointerId);
-  const overlay = document.createElement('div'); overlay.className = 'rf-causa-drag-overlay';
-  document.body.appendChild(overlay);
-  const move = ev => {
-    const w = Math.max(320, Math.min(window.innerWidth - 240, ev.clientX));
-    root.style.setProperty('--rf-causa-inline-width', w + 'px');
-  };
-  const up = () => {
-    h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up);
-    overlay.remove(); localStorage.setItem(KEY, getComputedStyle(root).getPropertyValue('--rf-causa-inline-width').trim());
-  };
-  h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
-});
-```
-
-Mount the `.rf-causa-resize` element as a positioned child of `[data-rf-causa-host]` (the host needs `position: relative` for the `right: -4px` overhang to land between the columns). The handle is a 9px-wide grab zone with a 1px hairline indicator centred inside — wide hit target, thin visual. Authors who want fancier UX (double-click to reset, keyboard arrow nudges, snap points) extend from this base; the recipe is a floor, not a ceiling.
+The resize *handle* (a vertical splitter that writes the property), the per-route / per-user width overrides, and the `position: fixed`-overlay containment guidance are **project-side UX detail, not migration content** — they live in the canonical Causa docs. For the full install + resize-handle recipe + containment guidance see [`docs/causa/01-installation.md`](../../../docs/causa/01-installation.md) and [`tools/causa/spec/API.md` §Resizing the inline host](../../../tools/causa/spec/API.md). The migration step is just: drop the 10x dep+preload, add the Causa dep+preload+host, set `--rf-causa-inline-width` if the default doesn't fit.
 
 ---
 
