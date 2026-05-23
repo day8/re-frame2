@@ -686,9 +686,9 @@
 
   ;; rf2-t7t6f — Reagent design-led example. Three-pane editorial layout
   ;; (documents tree + markdown editor + live preview) proving Reagent
-  ;; builds substantive UIs, not just counters. Pairs with the Reagent
-  ;; 'Editorial Warm' visual identity (rf2-nfg15) from
-  ;; examples/_shared/css/reagent.css.
+  ;; builds substantive UIs, not just counters. Pairs with the shared
+  ;; 'Editorial Warm' visual identity (rf2-v4fpe Option 2) from
+  ;; examples/_shared/css/style.css.
   :examples/notebook
   {:target     :browser
    :output-dir "out/examples/notebook"
