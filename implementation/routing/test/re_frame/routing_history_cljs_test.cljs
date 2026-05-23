@@ -56,6 +56,33 @@
 
 (defn- install-window-stub! []
   (let [state (new-history-stub)
+        location #js {:origin   "https://app.example"
+                      :href     "https://app.example/"
+                      :pathname "/"
+                      :search   ""
+                      :hash     ""}
+        ;; Keep `location` in sync with the current history entry, the way
+        ;; a real browser updates `window.location` on pushState / back /
+        ;; forward. `install-history-listener!`'s popstate handler reads
+        ;; the new URL off `window.location` (not the test's state atom),
+        ;; so the stub MUST reflect the navigation here for the
+        ;; listener-driven Back/Forward tests (rf2-6qgbs.4). Splits the
+        ;; entry into pathname / search / hash so `current-url` reassembles
+        ;; the same string.
+        sync-location!
+        (fn []
+          (let [{:keys [entries index]} @state
+                url    (nth entries index)
+                [path+ hash]   (let [i (.indexOf url "#")]
+                                 (if (neg? i) [url ""]
+                                     [(subs url 0 i) (subs url i)]))
+                [path search]  (let [i (.indexOf path+ "?")]
+                                 (if (neg? i) [path+ ""]
+                                     [(subs path+ 0 i) (subs path+ i)]))]
+            (set! (.-pathname location) path)
+            (set! (.-search location) search)
+            (set! (.-hash location) hash)
+            (set! (.-href location) (str (.-origin location) url))))
         ;; Synthetic event factory the stub passes to listeners.
         mk-event (fn [type]
                    #js {:type type})
@@ -71,25 +98,29 @@
                                 (let [kept (subvec entries 0 (inc index))]
                                   (-> s
                                       (assoc :entries (conj kept url))
-                                      (update :index inc))))))
+                                      (update :index inc)))))
+                       (sync-location!))
                      :replaceState
                      (fn [_state _title url]
                        (swap! state assoc-in
-                              [:entries (:index @state)] url))
+                              [:entries (:index @state)] url)
+                       (sync-location!))
                      :back
                      (fn []
                        (swap! state
                               (fn [{:keys [index] :as s}]
                                 (if (pos? index)
                                   (assoc s :index (dec index))
-                                  s))))
+                                  s)))
+                       (sync-location!))
                      :forward
                      (fn []
                        (swap! state
                               (fn [{:keys [entries index] :as s}]
                                 (if (< index (dec (count entries)))
                                   (assoc s :index (inc index))
-                                  s))))
+                                  s)))
+                       (sync-location!))
                      :go
                      (fn [delta]
                        (swap! state
@@ -98,12 +129,8 @@
                                   (if (and (>= next 0)
                                            (< next (count entries)))
                                     (assoc s :index next)
-                                    s)))))}
-        location #js {:origin   "https://app.example"
-                      :href     "https://app.example/"
-                      :pathname "/"
-                      :search   ""
-                      :hash     ""}
+                                    s))))
+                       (sync-location!))}
         window  #js {:history history
                      :location location
                      :scrollX 0
@@ -373,6 +400,85 @@
       (is (= :hist/cart
              (:id (:rf/route (rf/get-frame-db :rf/default))))
           "the slice landed on /cart through the listener-driven popstate path"))))
+
+;; ---- rf2-6qgbs.4: popstate drives the URL-OWNER frame --------------------
+;;
+;; Regression for the step-deck Back/Forward bug. After rf2-6qgbs.3 a
+;; non-default frame can own the URL (`:rf/default` opts out, the
+;; non-default frame opts in). The PUSH side already routed through that
+;; owner (`:rf.nav/push-url` gate). The POP side did not — a hand-rolled
+;; popstate listener dispatched `:rf.route/handle-url-change` with no
+;; `:frame`, hitting `:rf/default` (now frozen) instead of the owner, so
+;; Back/Forward left the owner's route — and the rendered body — unchanged.
+;;
+;; `install-history-listener!` resolves `url-owner-frame-id` at pop time
+;; and targets THAT frame. The test asserts the owner frame's slice
+;; round-trips on back AND forward while `:rf/default` stays put.
+
+;; The installed popstate handler dispatches synchronously
+;; (`dispatch-sync!`) — a real `popstate` fires on the browser macrotask
+;; loop, never nested in a drain — so the route slice settles within the
+;; same turn as `dispatchEvent` and the assertions can read it directly.
+
+(deftest popstate-drives-url-owner-non-default-frame-cljs
+  (testing "rf2-6qgbs.4: install-history-listener! drives the non-default URL-owner frame on Back/Forward"
+    (register-routes!)
+    ;; Single-non-default-owner setup (the step-deck shape): default opts
+    ;; OUT, a non-default frame opts IN, so `url-owner-frame-id` resolves
+    ;; to the non-default owner.
+    (rf/reg-frame :rf/default {:url-bound? false})
+    (rf/reg-frame :sd/owner   {:url-bound? true})
+    (is (= :sd/owner (routing/url-owner-frame-id))
+        "the non-default :url-bound? true frame owns the URL after default opts out")
+
+    ;; The framework wiring under test.
+    (rf/install-history-listener!)
+
+    ;; Forward nav on the owner frame pushes the URL (owner gates push).
+    (rf/dispatch-sync [:rf.route/navigate :hist/cart]     {:frame :sd/owner})
+    (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :sd/owner})
+    (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
+        "owner-frame forward nav pushed both URLs onto the history stack")
+    (is (= :hist/checkout (:id (:rf/route (rf/get-frame-db :sd/owner))))
+        "owner slice is on /checkout before Back")
+
+    ;; --- Back: browser moves the pointer + fires popstate. ---
+    (.back (.-history js/globalThis.window))
+    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+    (is (= :hist/cart (:id (:rf/route (rf/get-frame-db :sd/owner))))
+        "Back restored the OWNER frame's slice to /cart via the installed listener")
+    (is (nil? (:id (:rf/route (rf/get-frame-db :rf/default))))
+        ":rf/default (the non-owner) was NOT mutated by the popstate")
+
+    ;; --- Forward: pointer moves up, popstate fires again. ---
+    (.forward (.-history js/globalThis.window))
+    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+    (is (= :hist/checkout (:id (:rf/route (rf/get-frame-db :sd/owner))))
+        "Forward restored the OWNER frame's slice back to /checkout")
+    (is (nil? (:id (:rf/route (rf/get-frame-db :rf/default))))
+        ":rf/default still untouched after Forward")
+
+    (rf/remove-history-listener!)))
+
+(deftest popstate-drives-default-owner-when-default-bound-cljs
+  (testing "rf2-6qgbs.4: install-history-listener! drives :rf/default when it is the owner (no regression)"
+    (register-routes!)
+    ;; Default-owned app: url-owner-frame-id resolves to :rf/default.
+    (is (= :rf/default (routing/url-owner-frame-id))
+        ":rf/default owns the URL by default")
+    (rf/install-history-listener!)
+
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (is (= :hist/checkout (:id (:rf/route (rf/get-frame-db :rf/default))))
+        "default slice on /checkout before Back")
+
+    (.back (.-history js/globalThis.window))
+    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+    (is (= :hist/cart (:id (:rf/route (rf/get-frame-db :rf/default))))
+        "Back restored :rf/default's slice to /cart — default-owned routing unregressed")
+
+    (rf/remove-history-listener!)))
 
 ;; =========================================================================
 ;; 3. hashchange — fragment-only round-trip

@@ -276,4 +276,17 @@
   (rf/reg-frame :rf/default {:url-bound? false})
   (rf/reg-frame frame-id {:url-bound? true
                           :on-create  [:testdeck/initialise]})
+  ;; Browser Back/Forward → route (rf2-6qgbs.4). The framework's
+  ;; `install-history-listener!` wires `popstate` to dispatch
+  ;; `:rf.route/handle-url-change` against the current URL-OWNER frame
+  ;; (`:step-deck` here, resolved via `url-owner-frame-id`), so a Back/
+  ;; Forward restores BOTH the route slice and the visible tab body. It
+  ;; is the inbound counterpart of the outbound `:rf.nav/push-url` gate
+  ;; the url-bound frame already drives — same single owner, both
+  ;; directions. Installed AFTER the frames are registered so the owner
+  ;; resolves to `:step-deck`, and AFTER `:on-create` seeds the initial
+  ;; route (the listener's initial sync then no-ops on the already-correct
+  ;; slice). With `:rf/default` the same call drives default-owned apps
+  ;; identically — this is a substrate helper, not a step-deck special-case.
+  (rf/install-history-listener!)
   (rdc/render react-root [root]))

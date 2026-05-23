@@ -1055,9 +1055,18 @@ The corpus-wide `:rf.error/handler-exception` listener (`on-match-error-listener
 Each frame has its own `:rf/route` slice. Only the default frame is URL-bound. Non-default frames have independent routes that don't push to the browser URL.
 
 1. Every frame's `app-db` may have a `:rf/route` slice (it's a regular `app-db` path, not a special concept).
-2. The default frame (`:rf/default`) is **URL-bound**: `:rf.route/navigate` events on that frame fire `:rf.nav/push-url`; `popstate` listeners fire `[:rf.route/handle-url-change url] {:frame :rf/default}`. The browser URL reflects the default frame's route.
+2. The default frame (`:rf/default`) is **URL-bound** by default: `:rf.route/navigate` events on that frame fire `:rf.nav/push-url`, and `popstate` (Back/Forward) drives it. The browser URL reflects the URL-owning frame's route.
 3. Non-default frames are **not URL-bound** by default. `:rf.route/navigate` updates their `:rf/route` slice (state changes) but does not fire `:rf.nav/push-url`. This is the right default for story-variant frames, devcards, per-test fixtures.
-4. Opt-in URL binding for non-default frames via `(rf/reg-frame :my-frame {:url-bound? true})`. The runtime enforces "only one frame can own the URL at a time" — re-registering a second `:url-bound? true` frame is a `:rf.error/duplicate-url-binding` trace event.
+4. Opt-in URL binding for non-default frames via `(rf/reg-frame :my-frame {:url-bound? true})`. The runtime enforces "only one frame can own the URL at a time" — re-registering a second `:url-bound? true` frame is a `:rf.error/duplicate-url-binding` trace event. When the default frame opts out (`{:url-bound? false}`) and a single non-default frame opts in, that frame becomes the sole URL owner.
+
+### popstate drives the URL-owner frame, both directions (rf2-6qgbs.4)
+
+URL ownership is symmetric across the app↔browser boundary, and resolves to the **same single owner** in both directions:
+
+- **Outbound (app → browser).** `:rf.nav/push-url` / `:rf.nav/replace-url` consult `url-owner-frame-id` (public) and only the owner mutates browser history. A non-owner's navigation updates its own `:rf/route` slice but no-ops the history push.
+- **Inbound (browser → app).** A `popstate` listener fires `[:rf.route/handle-url-change url] {:frame (url-owner-frame-id)}` — targeted at the **current** owner resolved at pop time, NOT hard-coded to `:rf/default`. So Back/Forward restores the owner frame's `:rf/route` slice (and the body rendered off it), whether the owner is `:rf/default` or a non-default `:url-bound? true` frame.
+
+The routing artefact ships `install-history-listener!` (CLJS) — re-exported as `rf/install-history-listener!` — which wires this `popstate` listener and does the initial URL → owner-slice sync. Apps boot it once after registering frames. It is idempotent (re-install replaces the listener, hot-reload safe) and is the inbound counterpart of the `:rf.nav/push-url` gate; `rf/remove-history-listener!` tears it down. Targeting `url-owner-frame-id` at pop time means default-owned apps and url-bound-non-default-frame apps behave identically through the same helper — a popstate dispatched at the old owner (`:rf/default`) after ownership transferred would update a frozen slice and leave Back/Forward broken (the bug rf2-6qgbs.4 fixed).
 
 The story / devcard / SSR cases all benefit:
 

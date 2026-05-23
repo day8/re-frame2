@@ -846,6 +846,30 @@
   \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
   route-link  rf-routing/route-link)
 
+(def ^{:doc "Read the current browser URL as an app-relative string
+  `pathname + search + hash` (CLJS), or `\"/\"` on the JVM / SSR. The
+  projection `install-history-listener!` feeds to
+  `:rf.route/handle-url-change`. Per Spec 012 §URL changes are events.
+  Implementation ships in `day8/re-frame2-routing`."}
+  current-url  rf-routing/current-url)
+
+(def ^{:doc "Install a browser `popstate` listener that drives the
+  URL-owning frame: Back/Forward dispatches `:rf.route/handle-url-change`
+  to `(url-owner-frame-id)` (resolved at pop time), so the owner's
+  `:rf/route` slice and rendered body restore — whether the owner is
+  `:rf/default` or a non-default `:url-bound? true` frame (rf2-6qgbs.4).
+  Also syncs the initial URL on install. Idempotent (hot-reload safe).
+  CLJS-only. The inbound counterpart of the outbound `:rf.nav/push-url`
+  gate. Per Spec 012 §Multi-frame routing. Implementation ships in
+  `day8/re-frame2-routing`."}
+  install-history-listener!  rf-routing/install-history-listener!)
+
+(def ^{:doc "Tear down the `popstate` listener installed by
+  `install-history-listener!`. No-op when none is installed. CLJS-only.
+  Per Spec 012 §Multi-frame routing. Implementation ships in
+  `day8/re-frame2-routing`."}
+  remove-history-listener!  rf-routing/remove-history-listener!)
+
 ;; ---- machine helpers ------------------------------------------------------
 ;;
 ;; Plain-fn `reg-machine*` for code-gen pipelines / conformance corpus
