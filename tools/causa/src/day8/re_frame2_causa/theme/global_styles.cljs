@@ -793,6 +793,18 @@
     "    45deg,\n"
     "    rgba(236, 72, 153, 0.30) 0 6px,\n"
     "    rgba(236, 72, 153, 0.10) 6px 12px) !important;\n"
+    "}\n"
+    ;; rf2-ad7zx.16 — L3 tab-bar hover. The Figma button-bar
+    ;; (`design-reference/components/Tabs.tsx` + App.tsx TabsList) gives
+    ;; inactive tabs a subtle `hover:bg-[var(--devtools-hover)]` fill;
+    ;; the active tab keeps its filled `:accent` background. Inline
+    ;; styles can't carry a `:hover` pseudo-class, so the hover lift is a
+    ;; scoped CSS rule keyed off the `rf-causa-tab-*` testid. The
+    ;; `[aria-selected="false"]` predicate scopes it to inactive tabs so
+    ;; hovering the active tab doesn't override its accent fill.
+    "[data-testid^=\"rf-causa-tab-\"][aria-selected=\"false\"]:hover {\n"
+    "  background-color: " (:hover tokens/tokens) ";\n"
+    "  color: " (:text-primary tokens/tokens) ";\n"
     "}\n"))
 
 (defn- inject-motion-style!

@@ -511,6 +511,65 @@
                 (str "after select-tab :machines, tab " tab-id
                      " aria-selected reflects the new active tab"))))))))
 
+(deftest tab-bar-is-figma-button-bar-not-radios
+  (testing "rf2-ad7zx.16 — the L3 tab strip renders as the Figma
+            button-bar (design-reference/components/Tabs.tsx + App.tsx
+            TabsList), NOT radio-circle glyphs. Each tab is a rounded
+            button; the ACTIVE tab carries a filled `:accent` background
+            with white text; inactive tabs are transparent with
+            secondary ink. The decorative `●/◉/○` radio glyph that the
+            previous tab-button rendered is GONE."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        ;; (a) NO radio-circle glyphs anywhere in the tab strip. The
+        ;; old tab-button stamped a `◉` (active) / `○` (inactive) span;
+        ;; the L2 gutter glyph `◉/○` lives in event rows, NOT in the
+        ;; tab buttons — so we assert per-button.
+        (doseq [tab-id expected-tab-ids]
+          (let [btn  (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
+                txt  (text-nodes btn)]
+            (is (some? btn) (str "tab button for " tab-id " present"))
+            (is (not (re-find #"[◉○●]" txt))
+                (str "tab " tab-id " carries no radio-circle glyph"))))
+        ;; (b) Every tab is a rounded button (`rounded` → border-radius).
+        (doseq [tab-id expected-tab-ids]
+          (let [btn   (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
+                style (:style (second btn))]
+            (is (= :button (first btn))
+                (str "tab " tab-id " is a <button>"))
+            (is (some? (:border-radius style))
+                (str "tab " tab-id " is rounded (border-radius set)"))))
+        ;; (c) The ACTIVE tab (default :event) is a filled-accent button
+        ;; with white text — the Figma `data-[state=active]:bg-…/text-white`.
+        (let [active (find-by-testid tree "rf-causa-tab-event")
+              style  (:style (second active))]
+          (is (= (:accent tokens) (:background style))
+              "active tab background is the filled :accent token")
+          (is (= (:white tokens) (:color style))
+              "active tab text is white"))
+        ;; (d) INACTIVE tabs are transparent with secondary ink.
+        (doseq [tab-id (remove #{:event} expected-tab-ids)]
+          (let [btn   (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
+                style (:style (second btn))]
+            (is (= "transparent" (:background style))
+                (str "inactive tab " tab-id " background is transparent"))
+            (is (= (:text-secondary tokens) (:color style))
+                (str "inactive tab " tab-id " text is secondary ink"))))))
+    ;; (e) After switching the active tab, the filled-accent treatment
+    ;; follows the new selection (and the old tab reverts to transparent).
+    (select-tab! :machines)
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            mach   (:style (second (find-by-testid tree "rf-causa-tab-machines")))
+            event  (:style (second (find-by-testid tree "rf-causa-tab-event")))]
+        (is (= (:accent tokens) (:background mach))
+            "newly-active :machines tab fills with :accent")
+        (is (= (:white tokens) (:color mach))
+            "newly-active :machines tab text is white")
+        (is (= "transparent" (:background event))
+            "previously-active :event tab reverts to transparent")))))
+
 (deftest tab-click-dispatches-select-tab
   (testing "spec/018 §5 — clicking a tab fires :rf.causa/select-tab"
     (causa-setup!)
