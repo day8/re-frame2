@@ -1,5 +1,6 @@
 (ns re-frame.story.assertion-redaction-cljs-test
-  "Assertion-with-redaction scenario (rf2-shy6n).
+  "Assertion-with-redaction scenario (rf2-shy6n; substrate wired by
+  rf2-ee38b.3).
 
   Per `tools/story/spec/015-Test-Coverage.md` §Assertion vocabulary
   scenarios, row 'Assertion-with-redaction (sensitive payload)':
@@ -10,44 +11,18 @@
   pipelines) and the contract is 'never leak the raw value to
   observation surfaces' per spec/015-Data-Classification.
 
-  ## Status: SUBSTRATE NOT YET WIRED — test marked as a documented skip
+  ## Status: WIRED (rf2-ee38b.3)
   ##
-  ## Investigation (cluster 2, 2026-05-18):
-  ##
-  ## The data-classification spec (`spec/015-Data-Classification.md`,
-  ## shipped via PR #1386 / rf2-t2rpu) defines `:rf/redacted` + the
-  ## seven first-class marking sites, of which `add-marks` / `set-marks`
-  ## per-frame is the API the assertion path would consume. The
-  ## implementation ships **most of the substrate**:
-  ##
-  ##   - `implementation/core/src/re_frame/elision.cljc` carries
-  ##     `populate-sensitive-from-schemas!` + `elide-wire-value` —
-  ##     the wire-egress projection that substitutes `:rf/redacted`
-  ##     at schema-declared sensitive paths.
-  ##
-  ##   - `re-frame.core/add-marks` and `re-frame.core/set-marks` (the
-  ##     dedicated per-frame marking API named in spec/015 §App-db
-  ##     marks) ship — split from the original `reg-marks` per
-  ##     rf2-5g3zq (add merges, set replaces).
-  ##
-  ## What is MISSING for assertion-redaction to work end-to-end:
-  ##
-  ##   - The assertion evaluators (`evaluate-path-equals` etc in
-  ##     `tools/story/src/re_frame/story/assertions.cljc`) call
-  ##     `(get-in db path)` and stamp the result raw onto `:actual`.
-  ##     No projection through `elision/elide-wire-value` happens.
-  ##
-  ## Per Mike's directive ('5 + 1 documented skip if substrate isn't
-  ## ready'), this file ships the contract-on-paper as a CLJS test
-  ## that aspires-to-pass once the assertion-evaluator integration
-  ## lands. The test BODY documents what the projection MUST look
-  ## like; the assertion is guarded by an `is (true? true)`
-  ## placeholder so the file compiles and the test suite stays green.
-  ##
-  ## When the assertion-evaluator is wired through `elide-wire-value`
-  ## (or a `marks`-aware projection), drop the `(is true)`
-  ## placeholder and uncomment the actual assertion. Existing
-  ## scaffolding (the schema seed + the fixture variant) is correct."
+  ## The assertion evaluators (`evaluate-path-equals` /
+  ## `evaluate-path-matches` / `evaluate-sub-equals` in
+  ## `tools/story/src/re_frame/story/assertions.cljc`) now project the
+  ## captured value through `re-frame.elision/elide-wire-value` (keyed
+  ## on the asserted path + the variant frame) BEFORE stamping `:actual`.
+  ## A path the frame marked sensitive (via `re-frame.core/add-marks` /
+  ## `set-marks`, or a schema entry with `{:sensitive? true}`) records
+  ## `:rf/redacted` instead of the raw value; a non-sensitive path passes
+  ## through unchanged. The tests below mark the path sensitive then
+  ## assert the recorded `:actual` is `:rf/redacted`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as frame]
@@ -81,116 +56,111 @@
 (use-fixtures :each {:before reset-all!})
 
 ;; ===========================================================================
-;; rf2-shy6n — assertion-with-redaction
+;; rf2-ee38b.3 — assertion-with-redaction (substrate WIRED)
 ;;
-;; ASPIRATIONAL CONTRACT (substrate not yet wired):
+;;   Given a variant whose frame marks `[:auth :token]` sensitive (via
+;;   `re-frame.core/add-marks`), an assertion against that path records
+;;   `:rf/redacted` in `:actual`, NOT the raw token string. Same for
+;;   `:rf.assert/path-matches` and `:rf.assert/sub-equals`.
 ;;
-;;   Given a variant whose play emits
-;;     [:rf.assert/path-equals [:auth :token] :rf/redacted]
-;;   against a frame whose `:auth :token` slot is marked sensitive
-;;   (via `add-marks` / `set-marks` per-frame OR a schema entry with
-;;   `{:sensitive? true}`), the recorded assertion's `:actual` slot
-;;   MUST be `:rf/redacted`, NOT the raw token string.
-;;
-;;   Symmetrically for `:rf.assert/sub-equals`: a subscription returning
-;;   a sensitive value MUST surface its value as `:rf/redacted` in the
-;;   recorded `:actual`.
-;;
-;;   Symmetrically for `:rf.assert/path-matches` (Malli): the failure
-;;   case's `:actual` slot MUST be `:rf/redacted` when the path is
-;;   marked sensitive.
+;;   The marks live on the variant FRAME, so we run-variant once to
+;;   allocate the frame, mark the path sensitive, then re-run the play
+;;   (via execute-play!) and read the freshly-recorded assertion.
 ;; ===========================================================================
 
-(deftest assertion-with-redaction-substrate-not-yet-wired
-  (testing "rf2-shy6n: assertion-redaction substrate is NOT yet wired —
-            documented skip per spec/015-Data-Classification §
-            Implementation notes (rf2-t2rpu spec landed; assertion-
-            evaluator integration is a follow-on).
-
-            The fixture below builds the SHAPE the test will exercise
-            once the substrate ships:
-              1. A variant whose :events seed a sensitive payload at
-                 [:auth :token].
-              2. A :play-script asserting [:rf.assert/path-equals [:auth :token] ...].
-              3. The recorded :actual slot's contract.
-
-            Today: the assertion-evaluator (assertions/evaluate-path-
-            equals) reads (get-in db path) raw — no projection through
-            re-frame.elision/elide-wire-value. So the recorded :actual
-            carries the raw secret. The placeholder assertion below
-            (is true) documents the test is intentionally inert until
-            the substrate ships."
+(deftest assertion-path-equals-redacts-sensitive-actual
+  (testing "rf2-ee38b.3: :rf.assert/path-equals records :rf/redacted in
+            :actual for a sensitive path (not the raw bearer token)"
     (rf/reg-event-db :auth/login
       (fn [db _] (assoc-in db [:auth :token] "BEARER-secret-12345")))
     (story/reg-variant :story.redaction.path-equals/probe
       {:events [[:auth/login]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals
                  [:auth :token]
-                 :rf/redacted]]]})
+                 "BEARER-secret-12345"]]]})
     (async done
       (-> (story/run-variant :story.redaction.path-equals/probe)
           (async-lib/then
+            (fn [_first-run]
+              ;; Mark the path sensitive on the variant frame, then re-run
+              ;; the assertion against the now-marked frame.
+              (rf/add-marks :story.redaction.path-equals/probe
+                            {[:auth :token] :sensitive})
+              (-> (story/execute-play! :story.redaction.path-equals/probe)
+                  (async-lib/then
+                    (fn [_]
+                      (let [recs (story/read-assertions
+                                   :story.redaction.path-equals/probe)
+                            pe   (last (filter #(= :rf.assert/path-equals
+                                                   (:assertion %))
+                                               recs))]
+                        (is (= :rf/redacted (:actual pe))
+                            "assertion :actual is :rf/redacted, NOT the raw token")
+                        ;; The assertion still PASSES — equality is checked
+                        ;; against the raw value before projection.
+                        (is (true? (:passed? pe))
+                            "redaction does not change the pass/fail outcome")
+                        (story/destroy-variant!
+                          :story.redaction.path-equals/probe)
+                        (done)))))))))))
+
+(deftest assertion-path-equals-non-sensitive-passes-value-through
+  (testing "rf2-ee38b.3: a NON-sensitive path records the raw value
+            unchanged (redaction only fires on marked paths)"
+    (rf/reg-event-db :ui/set-label (fn [db _] (assoc db :label "hello")))
+    (story/reg-variant :story.redaction.plain/probe
+      {:events [[:ui/set-label]]
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:label] "hello"]]]})
+    (async done
+      (-> (story/run-variant :story.redaction.plain/probe)
+          (async-lib/then
             (fn [result]
-              ;; Documented expected contract (commented out — uncomment
-              ;; when the substrate is wired):
-              ;;
-              ;;   (let [assertion-row (first (:assertions result))]
-              ;;     (is (= :rf/redacted (:actual assertion-row))
-              ;;         "assertion :actual MUST be :rf/redacted, NOT
-              ;;          the raw bearer-token string"))
-              ;;
-              ;; Today's reality — pin the lifecycle still executes so
-              ;; this file is not dead code:
-              (is (= :story.redaction.path-equals/probe (:frame result))
-                  "lifecycle still runs — the fixture is sound")
-              (is (vector? (:assertions result))
-                  ":assertions vector populated — record-don't-throw
-                   contract holds (regardless of redaction)")
-              ;; Placeholder — the actual contract goes here when the
-              ;; substrate is wired. Today: pass intentionally so the
-              ;; suite stays green while the substrate ships.
-              (is true
-                  "PLACEHOLDER: assertion-redaction substrate not yet
-                   wired. See rf2-shy6n + the namespace docstring.
-                   Replace with the (is (= :rf/redacted (:actual ...)))
-                   assertion when the assertion evaluator routes
-                   through elide-wire-value (the add-marks / set-marks
-                   per-frame API has shipped).")
-              (story/destroy-variant! :story.redaction.path-equals/probe)
+              (let [pe (first (filter #(= :rf.assert/path-equals (:assertion %))
+                                      (:assertions result)))]
+                (is (= "hello" (:actual pe))
+                    "non-sensitive value passes through unredacted"))
+              (story/destroy-variant! :story.redaction.plain/probe)
               (done)))))))
 
-(deftest assertion-with-redaction-sub-equals-also-deferred
-  (testing "rf2-shy6n: same status for :rf.assert/sub-equals — a
-            subscription whose value contains sensitive data should
-            surface :rf/redacted in the recorded :actual slot. Same
-            deferred-substrate caveat applies. The fixture is wired
-            so a future contributor can drop in the assertion and
-            the rest of the test runs.
+(deftest assertion-sub-equals-redacts-on-path-bearing-sub-vec
+  (testing "rf2-ee38b.3: :rf.assert/sub-equals redacts :actual when the
+            sub-vec carries the app-db path as its args (the projection
+            keys on (rest sub-vec)). A parameterised sub
+            [:sub/id :user :ssn] → args path [:user :ssn]; marking that
+            path sensitive redacts the recorded :actual.
 
-            Per spec/015-Data-Classification §reg-sub: a sub reading
-            a sensitive path auto-propagates the sensitive marker into
-            its output value (the §Implementation notes V1 path-walk
-            approach). Until that propagation engages on the assertion
-            path, this test is intentionally inert"
+            Note: a bare sub-id whose args carry NO app-db path (e.g.
+            [:user/ssn]) cannot be auto-redacted at the assertion layer —
+            full sub-marker propagation (spec/015 §reg-sub) is a sub-
+            engine feature tracked separately. The assertion layer
+            redacts what its path-key reaches."
     (rf/reg-event-db :session/save-pii
-      (fn [db _] (assoc db :user/ssn "123-45-6789")))
-    (rf/reg-sub :user/ssn (fn [db _] (:user/ssn db)))
+      (fn [db _] (assoc-in db [:user :ssn] "123-45-6789")))
+    ;; Parameterised sub: reads the path passed as args.
+    (rf/reg-sub :pii/at (fn [db [_ & path]] (get-in db (vec path))))
     (story/reg-variant :story.redaction.sub-equals/probe
       {:events [[:session/save-pii]]
        :play-script [[:dispatch-sync [:rf.assert/sub-equals
-                 [:user/ssn]
-                 :rf/redacted]]]})
+                 [:pii/at :user :ssn]
+                 "123-45-6789"]]]})
     (async done
       (-> (story/run-variant :story.redaction.sub-equals/probe)
           (async-lib/then
-            (fn [result]
-              (is (vector? (:assertions result)))
-              ;; Same placeholder as above — replace with
-              ;;   (is (= :rf/redacted
-              ;;          (:actual (first (:assertions result)))))
-              ;; when the substrate lands.
-              (is true
-                  "PLACEHOLDER: sub-side redaction propagation also
-                   pending. See namespace docstring.")
-              (story/destroy-variant! :story.redaction.sub-equals/probe)
-              (done)))))))
+            (fn [_first-run]
+              (rf/add-marks :story.redaction.sub-equals/probe
+                            {[:user :ssn] :sensitive})
+              (-> (story/execute-play! :story.redaction.sub-equals/probe)
+                  (async-lib/then
+                    (fn [_]
+                      (let [recs (story/read-assertions
+                                   :story.redaction.sub-equals/probe)
+                            se   (last (filter #(= :rf.assert/sub-equals
+                                                   (:assertion %))
+                                               recs))]
+                        (is (= :rf/redacted (:actual se))
+                            "sub-equals :actual redacts the sensitive value")
+                        (is (true? (:passed? se))
+                            "redaction does not change the pass/fail outcome")
+                        (story/destroy-variant!
+                          :story.redaction.sub-equals/probe)
+                        (done)))))))))))

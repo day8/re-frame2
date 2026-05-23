@@ -27,15 +27,15 @@
 ;; reset-variant promise.
 
 (defn- seed-slot!
-  [variant-id play-events]
-  (let [total (count play-events)]
+  [variant-id play-steps]
+  (let [total (count play-steps)]
     (swap! st/results-atom assoc variant-id
            {:variant-id    variant-id
             :active?       true
             :auto-playing? false
             :cursor        0
             :total         total
-            :play-events   (vec play-events)
+            :play-steps    (vec play-steps)
             :statuses      []
             :breakpoints   #{}
             :epoch-stack   [:epoch/seed]

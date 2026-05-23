@@ -382,6 +382,19 @@ will land); watch mode has nothing to detect in that build.
 > `begin-stepper!` / `step-once!` / `end-stepper!` per
 > [spec/004 §Play sequence execution](004-Assertions.md#play-sequence-execution).
 > What this section locks is the chrome that surfaces it.
+>
+> **rf2-ee38b.3 — full-script stepping.** The substrate walks the FULL
+> coerced `:play-script` — EVERY step type (`:dispatch` /
+> `:dispatch-sync` / `:wait` / `:click` / `:type` / `:assert-db` /
+> `:assert-dom`) — driving each through the SAME rich-DSL executor
+> (`runner-events/run-step!`) the canvas auto-run path uses. Each
+> `step-once!` returns the executed STEP (a coerced step vector) and
+> records the step-result into `play/stepper-state`'s `:results`. The
+> debugger and the auto-run path are therefore equivalent: the cursor /
+> total count every step, and `:assert-db` / `:assert-dom` outcomes
+> surface live during a stepped run. (Before rf2-ee38b.3 the stepper
+> drove only the dispatch steps from the legacy `variant-play-events`
+> projection and silently dropped the rest.)
 
 The step-debugger renders as a new section in the `:test` pane,
 positioned between the **Summary badge** (§2 above) and the
@@ -416,9 +429,14 @@ clicking **Start** brings up the full controls + step list.
 (breakpoint-hit? cursor breakpoints)
   ; bool — auto-play tick should pause before dispatching
 
+;; full-script step list (rf2-ee38b.3, JVM-testable):
+(step-statuses steps results)
+  ; → one row {:index :step :label :status} per coerced step; outcome
+  ;   read from the per-step result record (or :event for not-yet-run)
+
 ;; CLJS local state — re-frame.story.ui.test-mode.stepper-state:
 (begin!              variant-id)       ; re-allocate the frame + prime the substrate
-(step!               variant-id)       ; dispatch the next play event
+(step!               variant-id)       ; run the next play STEP (any step type)
 (step-back!          variant-id)       ; restore the prior epoch + decrement cursor
 (rewind!             variant-id)       ; restore the pre-play epoch + reset cursor
 (pause!              variant-id)       ; stop auto-play
@@ -435,7 +453,7 @@ The strip renders (left-to-right) when the stepper is active:
 |--------------|----------------------------------------------------------|----------------------------------------------|
 | Stop         | Tear down the stepper (return to inactive state).        | never (always available when active)         |
 | ← Back       | Restore the prior epoch; cursor decrements by one.       | `cursor = 0`                                 |
-| Step →       | Dispatch the next play event; cursor increments.         | `cursor = total` (parked at end)             |
+| Step →       | Run the next play step (any step type); cursor increments. | `cursor = total` (parked at end)             |
 | Pause / Play | Toggle auto-play (default 600ms between steps).          | Pause: not auto-playing. Play: auto-playing OR at end. |
 | ↺ Rewind     | Restore the pre-play epoch + reset cursor to 0.          | `cursor = 0`                                 |
 
@@ -497,14 +515,17 @@ The section renders (top-to-bottom):
 |---|---------------------|---------------------------------------------------------------|
 | 1 | Header strip        | "Step-debugger · {progress-label} · playing?" + keyboard hint |
 | 2 | Controls strip      | Start (inactive) OR Stop / Back / Step / Pause/Play / Rewind  |
-| 3 | Step list           | One row per `:play-script` step with glyph / index / label / BP chip; active state only |
+| 3 | Step list           | One row per coerced `:play-script` step (EVERY step type — rf2-ee38b.3) with glyph / index / label / BP chip; active state only |
 | 3'| Inactive hint       | One-line "Click Start to step…" placeholder; inactive only    |
 
 Each step row carries:
 - A position glyph (`▶` current, `○` pending, or the outcome glyph
-  `✓` / `✗` / `⊘` / `•` for done rows).
+  `✓` / `✗` / `⊘` / `•` for done rows). The outcome comes from the
+  step's recorded result (`:pass` / `:fail` / `:skip` / neutral
+  `:event`) per `stepper-pure/step-statuses`.
 - The step index (1-based for display) + the step label
-  (`(first event)` per `stepper-pure/play-step-label`).
+  (`runner/step-summary` — a human-readable summary of the step,
+  e.g. `assert-db [:n] = 5` / `wait 100ms` / `click "button.x"`).
 - A BP chip on the right; clicking the chip OR the row body toggles
   the breakpoint at that index.
 

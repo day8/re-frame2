@@ -35,6 +35,7 @@
             [re-frame.story            :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.loaders    :as loaders]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.ui.docs    :as docs]
             [re-frame.story.ui.state   :as state]
             [re-frame.story.ui.state.transitions :as transitions]))
@@ -115,7 +116,7 @@
     (register-rich-variant!)
     ;; Parent story id is derived from the variant id namespace.
     (is (= :story.docs-rich
-           (docs/parent-story-id :story.docs-rich/v))
+           (pred/parent-story-id :story.docs-rich/v))
         "parent-story chip reads :story.docs-rich")
     ;; The header chip vector is the variant's :tags set sorted.
     (let [tags (docs/variant-tags :story.docs-rich/v)]

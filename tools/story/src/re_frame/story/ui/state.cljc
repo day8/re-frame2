@@ -35,7 +35,6 @@
   the shell entry point short-circuits before any subscription / mount
   call. Per IMPL-SPEC §6.3."
   (:require [re-frame.story.config                :as config]
-            [re-frame.story.predicates            :as pred]
             [re-frame.story.ui.state.filters      :as state.filters]
             [re-frame.story.ui.state.snapshot     :as state.snapshot]
             [re-frame.story.ui.state.tests        :as state.tests]
@@ -208,11 +207,10 @@
 (def filter-variants              state.filters/filter-variants)
 (def group-variants-by-story      state.filters/group-variants-by-story)
 
-(def parent-story-id
-  "Cheap parent-story derivation. Canonical definition lives in
-  `re-frame.story.predicates`; aliased here so existing sidebar call
-  sites keep their `state/parent-story-id` shape."
-  pred/parent-story-id)
+;; rf2-ee38b.3: the `state/parent-story-id` re-export was dropped — it
+;; had no internal src caller (sidebar / filters call
+;; `pred/parent-story-id` directly). The canonical helper lives in
+;; `re-frame.story.predicates`.
 
 ;; ---- registry snapshot (extracted to state.snapshot, rf2-gcpon) ---------
 

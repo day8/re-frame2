@@ -418,10 +418,12 @@ This replaces the legacy `ensure-causa-mounted!` whose name
 implied a mount but in practice fired the same three bridges PLUS
 called `mount/open!` on Causa's whole-shell mount path. Under the
 per-panel embed the panel-host owns the mount; `wire-cross-host!`
-fires the bridges only. `ensure-causa-mounted!` survives in the
-ns as a deprecated alias for callers that explicitly want the
-whole-shell shape (vanishingly rare; the popout escape hatch is
-the supported route).
+fires the bridges only. The deprecated `ensure-causa-mounted!`
+shim was REMOVED (rf2-ee38b.3 — no production caller, per the
+project's no-back-compat posture). A caller that genuinely needs
+the legacy whole-shell open composes
+`(do (wire-cross-host!) (apply-open!))` directly; the supported
+route is the popout escape hatch.
 
 ### Adding a third-party panel
 

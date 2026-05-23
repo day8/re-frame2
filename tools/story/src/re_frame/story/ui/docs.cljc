@@ -170,11 +170,8 @@
         ts       (or (:tags vb) (:tags sb) #{})]
     (vec (sort ts))))
 
-(def parent-story-id
-  "Cheap parent-story derivation. Canonical definition lives in
-  `re-frame.story.predicates`; aliased here so the docs header chips
-  keep their `docs/parent-story-id` call shape."
-  pred/parent-story-id)
+;; rf2-ee38b.3: the `docs/parent-story-id` re-export was dropped; the
+;; header chips now call `pred/parent-story-id` directly.
 
 ;; ---- CLJS-side rendering -------------------------------------------------
 
@@ -286,7 +283,7 @@
            tag-filter (or (:tag-filter shell) #{})
            tags       (variant-tags variant-id)
            vb         (registrar/handler-meta :variant variant-id)
-           story-id   (parent-story-id variant-id)
+           story-id   (pred/parent-story-id variant-id)
            sb         (when story-id (registrar/handler-meta :story story-id))
            vdoc       (:doc vb)
            sdoc       (:doc sb)]

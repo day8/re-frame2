@@ -64,10 +64,14 @@
 
 ;; ---- parent-story lookup --------------------------------------------------
 ;;
-;; Re-export from `re-frame.story.predicates` so existing call sites keep
-;; their `args/parent-story-id` shape. The canonical definition lives in
-;; the leaf namespace; this is a transitional alias for the rest of the
-;; tree that hasn't yet migrated.
+;; Re-export from `re-frame.story.predicates` (the canonical leaf home).
+;; rf2-ee38b.3 dropped the docs / state / test-mode pure re-exports (which
+;; had ≤1 caller each); this `args/parent-story-id` alias survives because
+;; ~9 sibling namespaces (decorators, identity, runtime, canvas, controls,
+;; multi-substrate, panels, schema-validation, workspace) `:require` args
+;; already and call it through this alias. Folding those onto
+;; `pred/parent-story-id` directly is a mechanical follow-up; the alias is
+;; a thin pass-through, not new behaviour.
 
 (def parent-story-id
   "Derive the parent story id from a variant id. Per spec/007

@@ -21,6 +21,7 @@
             [re-frame.story           :as story]
             [re-frame.story.config    :as config]
             [re-frame.story.loaders   :as loaders]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.command-palette :as command-palette]
             [re-frame.story.ui.docs   :as docs]
@@ -398,9 +399,9 @@
       (is (= 2 (count (get entries :story.g)))))))
 
 (deftest parent-story-id-derivation
-  (testing "parent-story-id mirrors args/parent-story-id"
-    (is (= :story.foo (state/parent-story-id :story.foo/bar)))
-    (is (nil? (state/parent-story-id :unqualified)))))
+  (testing "parent-story-id (canonical leaf in re-frame.story.predicates)"
+    (is (= :story.foo (pred/parent-story-id :story.foo/bar)))
+    (is (nil? (pred/parent-story-id :unqualified)))))
 
 ;; ---- faceted filter (rf2-7ncf9 — SB9 facet taxonomy) -------------------
 
@@ -628,11 +629,9 @@
 
 ;; ---- docs mode (rf2-rodx) -----------------------------------------------
 
-(deftest docs-parent-story-id
-  (testing "parent-story-id mirrors args/parent-story-id"
-    (is (= :story.foo (docs/parent-story-id :story.foo/bar)))
-    (is (nil? (docs/parent-story-id :no-namespace)))
-    (is (nil? (docs/parent-story-id nil)))))
+;; rf2-ee38b.3: the `docs/parent-story-id` re-export was dropped; the
+;; canonical helper lives in `re-frame.story.predicates` (covered there).
+;; The docs header chip calls `pred/parent-story-id` directly.
 
 (deftest docs-variant-tags-falls-back-to-story
   (testing "variant-tags reads variant :tags first"
@@ -757,11 +756,10 @@
 
 ;; ---- test mode (rf2-qmjo) -----------------------------------------------
 
-(deftest test-mode-parent-story-id
-  (testing "parent-story-id mirrors the docs helper"
-    (is (= :story.foo (test-mode/parent-story-id :story.foo/bar)))
-    (is (nil? (test-mode/parent-story-id :no-namespace)))
-    (is (nil? (test-mode/parent-story-id nil)))))
+;; rf2-ee38b.3: the `test-mode/parent-story-id` re-export was dropped;
+;; the canonical `parent-story-id` lives in `re-frame.story.predicates`
+;; (covered by its own tests). The view calls `pred/parent-story-id`
+;; directly.
 
 (deftest test-mode-variant-has-tests?-checks-play-slot
   (testing "variant-has-tests? is false when :play-script is absent or empty"
@@ -773,6 +771,12 @@
     (story/reg-variant :story.tm/has
       {:events [] :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
     (is (test-mode/variant-has-tests? :story.tm/has)))
+  (testing "rf2-ee38b.3: variant-has-tests? recognises the :plays slot too"
+    (story/reg-variant :story.tm/plays
+      {:events [] :plays [{:name "happy"
+                           :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]}]})
+    (is (test-mode/variant-has-tests? :story.tm/plays)
+        "a :plays-only variant is testable (was false before the fix)"))
   (testing "variant-has-tests? returns false for an unknown variant-id"
     (is (not (test-mode/variant-has-tests? :story.tm/unknown)))))
 

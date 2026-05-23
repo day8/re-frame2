@@ -132,6 +132,53 @@
   (is (false? (pure/breakpoint-hit? 2 [2]))
       "non-set inputs are rejected — only a set returns hit"))
 
+;; ---- step-statuses (rf2-ee38b.3 — full-script step list) ----------------
+
+(deftest step-statuses-one-row-per-step
+  (testing "step-statuses produces one row per coerced step, covering EVERY
+            step type — not just the dispatch steps the legacy projection
+            surfaced"
+    (let [steps   [[:dispatch-sync [:e/a]]
+                   [:wait 50]
+                   [:assert-db [:n] 5]
+                   [:assert-dom "div.x" :visible]
+                   [:click "button.y"]]
+          rows    (pure/step-statuses steps [])]
+      (is (= 5 (count rows)) "all five step types render a row")
+      (is (= [0 1 2 3 4] (mapv :index rows)))
+      (is (= steps (mapv :step rows)))
+      ;; Labels come from runner/step-summary (every step type, not just
+      ;; the dispatch event id).
+      (is (= "dispatch-sync [:e/a]" (:label (nth rows 0))))
+      (is (= "wait 50ms"            (:label (nth rows 1))))
+      (is (= "assert-db [:n] = 5"   (:label (nth rows 2))))
+      ;; No results yet — every row is neutral.
+      (is (every? #(= :event (:status %)) rows)))))
+
+(deftest step-statuses-outcome-from-results
+  (testing "each run step takes its outcome from the matching result record"
+    (let [steps   [[:assert-db [:n] 5]      ; pass
+                   [:assert-db [:n] 9]      ; fail
+                   [:assert-dom "x" :visible] ; skip
+                   [:dispatch [:e/a]]]      ; neutral (dispatch)
+          results [{:type :assert-db  :passed? true}
+                   {:type :assert-db  :passed? false}
+                   {:type :assert-dom :passed? false :skipped? true}
+                   {:type :dispatch   :passed? nil}]
+          rows    (pure/step-statuses steps results)]
+      (is (= :pass  (:status (nth rows 0))))
+      (is (= :fail  (:status (nth rows 1))))
+      (is (= :skip  (:status (nth rows 2))))
+      (is (= :event (:status (nth rows 3)))))))
+
+(deftest step-statuses-not-yet-run-is-neutral
+  (testing "steps beyond the results length render neutral (not yet run)"
+    (let [steps   [[:assert-db [:n] 5] [:assert-db [:n] 6]]
+          results [{:type :assert-db :passed? false}]
+          rows    (pure/step-statuses steps results)]
+      (is (= :fail  (:status (nth rows 0))) "first step ran → its outcome")
+      (is (= :event (:status (nth rows 1))) "second step not yet run → neutral"))))
+
 ;; ---- play-step-label re-export ------------------------------------------
 
 (deftest play-step-label-roundtrips

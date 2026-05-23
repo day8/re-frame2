@@ -199,7 +199,7 @@
 ;; Fires from two seams:
 ;;   1. `story/configure!` after `set-project-root!` lands — the common
 ;;      case (Causa's preload runs before the testbed `run` fn).
-;;   2. `ensure-causa-mounted!` — defense-in-depth for the (rare) case
+;;   2. `wire-cross-host!` — defense-in-depth for the (rare) case
 ;;      where Causa's config ns loads AFTER `story/configure!` has
 ;;      already fired (e.g. lazy loader / hot-reload edge).
 ;;
@@ -257,15 +257,15 @@
 ;; Per rf2-4eyik (the sibling bead that shipped the config slot) +
 ;; rf2-xea9u (the :rf.causa/* configure! rename): "Hosts MUST set
 ;; this BEFORE the Causa preload runs". Setting it from
-;; `ensure-causa-mounted!` means the slot lands at variant-selection
-;; time, after the preload's `keybinding/attach!` has already fired
-;; with the default `true`. The Causa-side bead is the slot owner;
-;; preload-time sequencing (e.g. a Story preload that sets the slot
-;; before Causa's preload runs) is the follow-on shape for live
-;; runtime collision removal. This wire-up is the in-source
-;; declaration of intent — every embed surface that drives Causa
-;; through `ensure-causa-mounted!` sets the slot, so downstream
-;; load-order fixes have a single canonical site to honour.
+;; `wire-cross-host!` means the slot lands at variant-selection time,
+;; after the preload's `keybinding/attach!` has already fired with the
+;; default `true`. The Causa-side bead is the slot owner; preload-time
+;; sequencing (e.g. a Story preload that sets the slot before Causa's
+;; preload runs) is the follow-on shape for live runtime collision
+;; removal. This wire-up is the in-source declaration of intent —
+;; every embed surface that drives Causa through `wire-cross-host!`
+;; sets the slot, so downstream load-order fixes have a single
+;; canonical site to honour.
 
 #?(:cljs
    (defn disable-keybinding!
@@ -274,17 +274,17 @@
      the call landed, or `nil` when Causa's `configure!` is not on the
      classpath (preload absent).
 
-     Called by `ensure-causa-mounted!` so Story-driven Causa-as-RHS
-     mounts never have Causa swallow the host's global keybindings
-     (typically `Cmd/Ctrl+K` for Story's command palette). Per
-     rf2-q7who.1 (rf2-4eyik sibling on the Causa side) + rf2-xea9u
-     (:rf.causa/* configure! rename). Idempotent — writing `false`
-     over an existing `false` is a plain reset!.
+     Called by `wire-cross-host!` so Story-driven Causa-as-RHS mounts
+     never have Causa swallow the host's global keybindings (typically
+     `Cmd/Ctrl+K` for Story's command palette). Per rf2-q7who.1
+     (rf2-4eyik sibling on the Causa side) + rf2-xea9u (:rf.causa/*
+     configure! rename). Idempotent — writing `false` over an existing
+     `false` is a plain reset!.
 
      Sequencing: `disable-keybinding!` flips the slot (intent
      declaration); rf2-ycrt2's `detach-keybinding!` removes the
      listener Causa's preload already installed under the default-true
-     posture (runtime mechanism). Both fire from `ensure-causa-mounted!`
+     posture (runtime mechanism). Both fire from `wire-cross-host!`
      in that order."
      []
      (when (and config/enabled? (causa-config-available?))
@@ -322,8 +322,8 @@
      call landed, or `nil` when Causa's `keybinding` ns is not on the
      classpath (preload absent).
 
-     Called by `ensure-causa-mounted!` AFTER `disable-keybinding!`
-     flipped the slot — the slot declares intent, `detach!` removes the
+     Called by `wire-cross-host!` AFTER `disable-keybinding!` flipped
+     the slot — the slot declares intent, `detach!` removes the
      listener Causa's preload installed under the default-true posture.
      The runtime gap rf2-q7who.1 declared but did not close — rf2-ycrt2
      closes it.
@@ -358,24 +358,15 @@
        (disable-keybinding!)
        (detach-keybinding!))))
 
-#?(:cljs
-   (defn ensure-causa-mounted!
-     "DEPRECATED — pre-rf2-v1ach the Story shell drove the full Causa
-     4-layer shell into a `[data-rf-causa-host]` 320px column. The
-     per-panel embed (`re-frame.story.ui.causa-embed`) replaced this
-     mount path; the new shape mounts one panel at a time via the
-     `panels/mount-<panel>!` contract.
-
-     Kept for back-compat callers that drove the whole-shell shape
-     explicitly. New code should let the embed own its mount and use
-     `wire-cross-host!` above for the project-root / keybinding
-     bridges."
-     []
-     (when (and config/enabled? (causa-available?))
-       (propagate-project-root!)
-       (disable-keybinding!)
-       (detach-keybinding!)
-       (apply-open!))))
+;; rf2-ee38b.3: the DEPRECATED `ensure-causa-mounted!` whole-shell-open
+;; shim was REMOVED (no production caller; the per-panel embed
+;; `re-frame.story.ui.causa-embed` owns its mount via the
+;; `panels/mount-<panel>!` contract). Cross-host configuration bridges
+;; (project-root + keybinding disable + listener detach) are driven by
+;; `wire-cross-host!` above; a caller that genuinely needs the legacy
+;; whole-shell open composes `(do (wire-cross-host!) (apply-open!))`
+;; directly — there is no shim. Matches the project's no-back-compat
+;; posture (the spec carve-out in 003-Render-Shell.md was removed too).
 
 #?(:cljs
    (defn- apply-tab!

@@ -14,11 +14,12 @@
 
       {:active?        <bool>         ; the stepper is in flight
        :auto-playing?  <bool>         ; the interval is ticking
-       :cursor         <int>          ; number of events dispatched so far
-       :total          <int>          ; count of play-script events in this run
-       :play-events    <vector>       ; immutable snapshot of the events
-                                      ;   (derived from :play-script via
-                                      ;    re-frame.story.play/variant-play-events)
+       :cursor         <int>          ; number of steps run so far
+       :total          <int>          ; count of play-script STEPS in this run
+       :play-steps     <vector>       ; immutable snapshot of the FULL coerced
+                                      ;   :play-script step vector (every step
+                                      ;   type — rf2-ee38b.3; derived via
+                                      ;   re-frame.story.play/variant-play-steps)
        :statuses       <vector>       ; `stepper-pure/enrich-statuses` rows
        :breakpoints    #{<int>}       ; step indices that pause auto-play
        :epoch-stack    <vector>       ; per-step :epoch-id pre-images, for
@@ -53,7 +54,6 @@
             [re-frame.story.play                          :as play]
             [re-frame.story.runtime                       :as runtime]
             [re-frame.story.assertions                    :as assertions]
-            [re-frame.story.ui.test-mode.pure             :as test-mode-pure]
             [re-frame.story.ui.test-mode.stepper-pure     :as stepper-pure]))
 
 ;; ---- ratom ---------------------------------------------------------------
@@ -73,17 +73,20 @@
 
 (defn- recompute-statuses
   "Pure: re-derive the enriched step list from a slot. Called after every
-  mutator that moves the cursor / changes breakpoints / records a step."
+  mutator that moves the cursor / changes breakpoints / records a step.
+
+  rf2-ee38b.3: the rows now cover the FULL coerced step vector (every
+  step type), and each row's outcome comes from the per-step result the
+  rich-DSL executor recorded into `play/stepper-state` — not from the
+  dispatch-only `:rf.story/assertions` projection (which never saw
+  rich-DSL `:assert-db` / `:assert-dom` / `:wait` / `:click` / `:type`
+  steps)."
   [slot]
-  (let [{:keys [play-events cursor breakpoints]} slot
-        ;; Read the assertion accumulator off the variant frame so the
-        ;; outcome glyphs land as the run progresses. The variant frame
-        ;; lives in `play/stepper-state` so we read the assertions via
-        ;; the assertions module.
-        records (assertions/read-assertions (:variant-id slot))]
+  (let [{:keys [play-steps cursor breakpoints variant-id]} slot
+        results (:results (get @play/stepper-state variant-id))]
     (assoc slot :statuses
            (stepper-pure/enrich-statuses
-             (test-mode-pure/play-step-statuses play-events records)
+             (stepper-pure/step-statuses play-steps results)
              cursor
              breakpoints))))
 
@@ -116,12 +119,13 @@
   ;; documented initial state.
   (-> (runtime/reset-variant variant-id)
       (.then  (fn [_]
-                ;; Per rf2-0wrud `:play-script` is the canonical AND ONLY
-                ;; phase-4 slot. `play/variant-play-events` derives the
-                ;; flat event-vec list from the variant's :play-script
-                ;; body — the same shape the legacy `:play` slot carried.
-                (let [play-events (play/variant-play-events variant-id)
-                      total       (count play-events)]
+                ;; rf2-ee38b.3: the stepper walks the FULL coerced
+                ;; :play-script (every step type), not just the dispatch-
+                ;; bearing events. `play/variant-play-steps` returns the
+                ;; complete step vector and `play/begin-stepper!` seeds the
+                ;; substrate from the same source.
+                (let [play-steps (play/variant-play-steps variant-id)
+                      total      (count play-steps)]
                   (play/begin-stepper! variant-id)
                   (swap! results-atom assoc variant-id
                          {:variant-id     variant-id
@@ -129,7 +133,7 @@
                           :auto-playing?  false
                           :cursor         0
                           :total          total
-                          :play-events    (vec play-events)
+                          :play-steps     (vec play-steps)
                           :statuses       []
                           :breakpoints    #{}
                           :epoch-stack    [(current-epoch-id variant-id)]
@@ -177,6 +181,9 @@
             target-id (peek new-stack)]
         (when target-id
           (epoch/restore-epoch variant-id target-id))
+        ;; Pop the substrate's last-run step + result so the row outcomes
+        ;; track the cursor and a re-step re-runs the popped step cleanly.
+        (play/stepper-step-back! variant-id)
         (swap! results-atom update variant-id
                (fn [s]
                  (-> s
@@ -200,6 +207,9 @@
         ;; Also reset the assertion accumulator so a fresh forward run
         ;; doesn't pile new records on top of the old ones.
         (assertions/reset-trace-accumulators! variant-id)
+        ;; Reset the substrate's run cursor (every step back to pending)
+        ;; so the rewound stepper re-runs the whole script cleanly.
+        (play/stepper-rewind! variant-id)
         (swap! results-atom update variant-id
                (fn [s]
                  (-> s
