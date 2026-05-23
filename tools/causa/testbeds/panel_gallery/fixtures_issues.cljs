@@ -85,7 +85,7 @@
   "Single error event — panel surfaces one feed row."
   []
   [(issue {:id 1 :time 1000 :severity :error
-           :operation :rf.error/handler-threw
+           :operation :rf.error/handler-exception
            :event [:cart/add :apple] :dispatch-id 100
            :reason "handler threw NPE on :cart/add"
            :exception-message "NullPointerException at cart/add-h"})])
@@ -97,13 +97,15 @@
   (vec
     (for [i (range 24)]
       (let [sev (nth [:error :warning :advisory] (mod i 3))
-            ops [:rf.error/handler-threw
-                 :rf.error/fx-failed
-                 :rf.warning/large-value-unschema'd
-                 :rf.warning/handler-replaced
+            ;; Real substrate ops (per implementation/**) so the gallery
+            ;; mirrors the shapes the Issues panel actually classifies.
+            ops [:rf.error/handler-exception
+                 :rf.error/drain-depth-exceeded
+                 :rf.warning/large-value-unschema
+                 :rf.warning/registration-collision
                  :rf.info/snapshot-restored
                  :rf.ssr/hydration-mismatch
-                 :rf.fx/dispatch-loop-suspected
+                 :rf.fx/no-such-fx
                  :rf.epoch/ring-evict
                  :rf.http/request-timeout]
             op  (nth ops (mod i (count ops)))]
@@ -117,7 +119,7 @@
   the chip ladder is readable at a glance."
   []
   [(issue {:id 1 :time 1000 :severity :error
-           :operation :rf.error/handler-threw :dispatch-id 100
+           :operation :rf.error/handler-exception :dispatch-id 100
            :reason "handler threw NPE"})
    (issue {:id 2 :time 1001 :severity :error
            :operation :rf.error/fx-failed :dispatch-id 101
@@ -141,7 +143,7 @@
   §Privacy."
   []
   [(issue {:id 1 :time 1000 :severity :error
-           :operation :rf.error/handler-threw
+           :operation :rf.error/handler-exception
            :event [:auth/sign-in {:email "ada@example.com"
                                   :password :rf/redacted
                                   :totp :rf/redacted}]
@@ -165,7 +167,7 @@
            :path [:cart :items 0 :id] :dispatch-id 101
            :reason "expected keyword, got integer"})
    (issue {:id 3 :time 1002 :severity :error
-           :operation :rf.error/handler-threw
+           :operation :rf.error/handler-exception
            :event [:user/save :profile] :dispatch-id 100
            :reason "handler threw"})])
 
@@ -197,7 +199,7 @@
   (vec
     (for [i (range 4)]
       (issue {:id (+ i 1) :time (+ 1000 (* 10 i)) :severity :error
-              :operation :rf.error/handler-threw
+              :operation :rf.error/handler-exception
               :event [(nth [:cart/add :auth/sign-in :report/upload :dashboard/refresh] i)]
               :dispatch-id (+ 100 i)
               :exception-message (nth ["NullPointerException at cart/add-h:42"
@@ -211,7 +213,7 @@
   many warnings + errors). Mixes exceptions + schema + SSR + HTTP."
   []
   [(issue {:id 1 :time 1000 :severity :error
-           :operation :rf.error/handler-threw :dispatch-id 100
+           :operation :rf.error/handler-exception :dispatch-id 100
            :event [:cart/add :apple]
            :reason "handler threw"
            :exception-message "NullPointerException at cart/add-h:42"})
@@ -245,7 +247,7 @@
   surfaces the spread."
   []
   [(issue {:id 1 :time 1000 :severity :error
-           :operation :rf.error/handler-threw :dispatch-id 100
+           :operation :rf.error/handler-exception :dispatch-id 100
            :reason "handler threw" :recovery :rollback})
    (issue {:id 2 :time 1001 :severity :error
            :operation :rf.error/fx-failed :dispatch-id 101

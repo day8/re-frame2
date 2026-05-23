@@ -431,6 +431,26 @@ empty-state removal), PR #1439 (7-pattern text-audit cluster).
 - [`000-Vision.md`](./000-Vision.md) — Causa's claim; the cascade you
   can see, not the cascade you can read narration about.
 
+## Docstrings state the present contract, not the change history
+
+(rf2-ee38b.2) Source docstrings and section comments describe what the
+code does **now** — the present-state contract. Superseded-design
+rationale and bead lineage belong in commit messages and bead notes, not
+in the source the next reader must scan to learn the current behaviour.
+
+- **Good:** "Reads focus off the spine `:rf.causa/focus` — the single
+  source of truth."
+- **Avoid:** "This used to read `:selected-dispatch-id` (rf2-aaa), then
+  Mike changed it to the spine on 2026-05-19 (rf2-bbb) because the old
+  design double-wrote two slots…"
+
+A single bead reference is fine when it points a reader at the
+authoritative context (`per rf2-xxx`); a multi-paragraph archaeology of
+how the code reached its current shape is not. When editing a file,
+collapse any "this replaced X because…" passage you touch to a one-line
+present-tense statement. This is a judgement pass per file, never a bulk
+find-replace over the ~1.3K `rf2-*` references tree-wide.
+
 ## See also
 
 - `tools/causa/spec/017-Test-Coverage-Matrix.md` — feature-level coverage

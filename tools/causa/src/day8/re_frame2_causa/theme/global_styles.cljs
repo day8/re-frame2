@@ -1505,3 +1505,45 @@
     (inject-grain-style!)
     (reset! installed? true))
   nil)
+
+;; ---- host-supplied theme override (rf2-ee38b.2) -------------------------
+;;
+;; The public `core/load-theme` entry point lets an embedding host swap the
+;; Causa shell's palette by handing in a CSS string (e.g. editor-driven
+;; palette sync). The override rides in a single dedicated `<style>` block
+;; appended LAST to `<head>`, so its rules win on authoring order against
+;; the built-in `inject-themes-style!` block. Re-injecting REPLACES the
+;; node's text (not append), so successive calls swap cleanly and an empty
+;; / nil string clears the override.
+
+(def ^:private host-theme-style-id
+  "rf-causa-host-theme")
+
+(defn set-host-theme-css!
+  "Install (or replace) the host-supplied theme override `<style>` block.
+  `css` is an arbitrary CSS string — typically a block re-declaring the
+  `--rf-causa-*` custom properties the shell reads. Idempotent on id:
+  successive calls overwrite the same node so the theme swaps in place.
+  A nil / blank string clears the override. No-op outside a DOM."
+  [css]
+  (when (and (exists? js/document)
+             (.-head js/document)
+             (.-createElement js/document)
+             (.-getElementById js/document))
+    (let [existing (.getElementById js/document host-theme-style-id)]
+      (cond
+        ;; Clear: blank / nil drops the override node entirely.
+        (or (nil? css) (= "" (.trim (str css))))
+        (when existing (.remove existing))
+
+        ;; Replace the text of the existing node.
+        existing
+        (set! (.-textContent existing) (str css))
+
+        ;; First install — append last so it outranks the built-in block.
+        :else
+        (let [node (.createElement js/document "style")]
+          (set! (.-id node) host-theme-style-id)
+          (.appendChild node (.createTextNode js/document (str css)))
+          (.appendChild (.-head js/document) node)))))
+  nil)

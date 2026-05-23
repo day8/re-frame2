@@ -250,7 +250,7 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})])])
+                               :operation :rf.error/handler-exception})])])
       (focus! 11)
       ;; Toggle in a severity the issue doesn't carry — filter excludes it.
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :advisory])
@@ -272,7 +272,7 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})
+                               :operation :rf.error/handler-exception})
                     (mk-issue {:id 2 :op-type :warning
                                :operation :rf.warning/missing})])])
       (focus! 11)
@@ -292,7 +292,7 @@
       (seed-history!
         [(mk-epoch 42 142
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})])])
+                               :operation :rf.error/handler-exception})])])
       (focus! 142)
       (let [tree (issues-ribbon/Panel)
             chip (find-by-testid tree "rf-causa-issues-epoch-chip")]
@@ -310,7 +310,7 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 3 :op-type :error
-                               :operation :rf.error/handler-threw})])])
+                               :operation :rf.error/handler-exception})])])
       (focus! 11)
       (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-row-3-time"))
@@ -352,7 +352,7 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})])])
+                               :operation :rf.error/handler-exception})])])
       (focus! 11)
       (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-prefix-chips"))
@@ -385,7 +385,7 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})
+                               :operation :rf.error/handler-exception})
                     (mk-issue {:id 2 :op-type :warning
                                :operation :rf.warning/recoverable})
                     (mk-issue {:id 3 :op-type :info
@@ -418,7 +418,7 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})
+                               :operation :rf.error/handler-exception})
                     (mk-issue {:id 2 :op-type :error
                                :operation :rf.ssr/hydration-mismatch})])])
       (focus! 11)
@@ -434,7 +434,7 @@
     (rf/with-frame :rf/causa
       (seed-history!
         [(mk-epoch 1 11 [(mk-issue {:id 1 :op-type :error
-                                    :operation :rf.error/handler-threw})])])
+                                    :operation :rf.error/handler-exception})])])
       (focus! 11)
       (is (nil? (find-by-testid (issues-ribbon/Panel)
                                 "rf-causa-issues-clear-filters"))
@@ -455,12 +455,12 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})
+                               :operation :rf.error/handler-exception})
                     (mk-issue {:id 2 :op-type :warning
                                :operation :rf.warning/recoverable})])
          (mk-epoch 2 12
                    [(mk-issue {:id 3 :op-type :error
-                               :operation :rf.error/handler-threw})
+                               :operation :rf.error/handler-exception})
                     (mk-issue {:id 4 :op-type :warning
                                :operation :rf.warning/recoverable})])])
       ;; Pin the spine focus to epoch 1 (defaults to head = 2 in LIVE).
@@ -479,10 +479,10 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})])
+                               :operation :rf.error/handler-exception})])
          (mk-epoch 2 12
                    [(mk-issue {:id 2 :op-type :error
-                               :operation :rf.error/handler-threw})])])
+                               :operation :rf.error/handler-exception})])])
       ;; Initially focus epoch 1.
       (focus! 11)
       (let [data-a @(rf/subscribe [:rf.causa/issues-ribbon])]
@@ -500,12 +500,12 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 1 :op-type :error
-                               :operation :rf.error/handler-threw})
+                               :operation :rf.error/handler-exception})
                     (mk-issue {:id 2 :op-type :warning
                                :operation :rf.warning/recoverable})])
          (mk-epoch 2 12
                    [(mk-issue {:id 3 :op-type :error
-                               :operation :rf.error/handler-threw})])])
+                               :operation :rf.error/handler-exception})])])
       (focus! 11)
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
       (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
@@ -523,7 +523,7 @@
       (seed-history!
         [(mk-epoch 1 11
                    [(mk-issue {:id 4 :op-type :error
-                               :operation :rf.error/handler-threw})])])
+                               :operation :rf.error/handler-exception})])])
       (focus! 11)
       (let [dispatches (atom [])]
         (with-redefs [rf/dispatch* (fn
@@ -545,7 +545,7 @@
     (rf/with-frame :rf/causa
       ;; Issue whose :rf.trace/trigger-handler carries source-coord.
       (let [iss (-> (mk-issue {:id 8 :op-type :error
-                               :operation :rf.error/handler-threw})
+                               :operation :rf.error/handler-exception})
                     (assoc :rf.trace/trigger-handler
                            {:source-coord {:file "events.cljs" :line 17}}))]
         (seed-history! [(mk-epoch 1 11 [iss])]))

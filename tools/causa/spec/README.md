@@ -62,10 +62,10 @@ main read**.
   via the `:rf/causa` frame-provider.
 - **[011-Launch-Modes.md](011-Launch-Modes.md)** — In-app true-inline
   host and standalone-via-MCP remote-attach.
-- **[012-Views.md](012-Views.md)** — Views tab: three-group layout
-  (mounted / re-rendered / unmounted); subs nested under each view row;
-  cluster-large-grids; per-component inline drilldown. Replaces the
-  legacy Subscriptions panel.
+- **[012-Views.md](012-Views.md)** — _Superseded by [021 §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8)
+  (rf2-ee38b.2)._ The shipped Views panel is 021 §3's lean three-stacked-tables
+  design; 012's richer three-temporal-group surface is unimplemented historical
+  design exploration. Read **021 §3** for the normative Views design.
 - **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector
   contract: the ring-buffer data plane every panel reads from, the
   consumer-side filter algebra, the `:sensitive?` privacy gate. Future:

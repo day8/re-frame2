@@ -134,7 +134,10 @@
   (is (false? (h/abort-event? (destroy-ev {:machine-id :x})))))
 
 (deftest cancellation-anchor?-true-for-cancel-reasons
-  (doseq [r [:explicit :parent-unmount-cascade :parent-frame-destroyed]]
+  ;; rf2-ee38b.2 — pinned to the destroy reasons the substrate actually
+  ;; stamps (:explicit / :parent-frame-destroyed / :actor-destroyed);
+  ;; the phantom :parent-unmount-cascade was never emitted.
+  (doseq [r [:explicit :parent-frame-destroyed :actor-destroyed]]
     (is (true? (h/cancellation-anchor?
                  (destroy-ev {:machine-id :x :reason r}))))))
 
@@ -241,10 +244,10 @@
                             :reason :explicit})
                (destroy-ev {:machine-id :child-a :dispatch-id 1
                             :time 1011 :id 3
-                            :reason :parent-unmount-cascade})
+                            :reason :parent-frame-destroyed})
                (destroy-ev {:machine-id :child-b :dispatch-id 1
                             :time 1012 :id 4
-                            :reason :parent-unmount-cascade})
+                            :reason :parent-frame-destroyed})
                (http-abort-ev {:request-id :r1 :actor-id :child-a
                                :dispatch-id 1 :time 1020 :id 5})
                (http-abort-ev {:request-id :r2 :actor-id :child-b

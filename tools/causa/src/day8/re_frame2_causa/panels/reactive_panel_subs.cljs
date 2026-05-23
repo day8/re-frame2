@@ -389,13 +389,11 @@
                         :flows-skipped    flows-skipped}})))
 
 (defn- triggered-by
-  "Reconstruct the triggering event from the epoch record. Reuses the
-  `:event` slot the spine seeds on every record (per spec/018)."
+  "The triggering event vector for the epoch. Reads the `:event` slot
+  the spine seeds on every epoch record (per spec/018) — the single
+  reliable source. Returns nil for records without a seeded event."
   [record]
-  (or (:event record)
-      (some (fn [e] (when (= :rf/event-dispatched (op-kw e))
-                      (or (:payload e) (:args e))))
-            (:trace-events record))))
+  (:event record))
 
 (defn- seed-paths
   "Derive seed paths from the cascade `:db-before` → `:db-after` diff.

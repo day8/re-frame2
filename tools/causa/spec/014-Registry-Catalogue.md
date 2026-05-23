@@ -21,6 +21,16 @@ the registry's surface from this catalogue alone, without reading
 > separately; until then, treat any §Time-travel / §MCP server /
 > §Routes / §Schemas / §Hydration / §Effects / §Flows / §Performance
 > subsection as historical reference, not normative spec.
+>
+> **rf2-ee38b.2 follow-up (2026-05-23).** The dead `:rf.causa/selected-
+> dispatch-id` / `:rf.causa/selected-dispatch-frame` shim subs were
+> deleted (zero production consumers; the Event panel reads focus off the
+> spine `:rf.causa/focus`). Their rows are removed from §Event detail
+> below. A full regeneration of this catalogue from `registry_cljs_test`'s
+> `all-sub-names` / `all-event-names` / `all-fx-names` enumerations (the
+> authoritative live shape) remains the proper fix and is left for the
+> mayor — a 581-line blind regen inside a remediation PR carries its own
+> drift risk.
 
 The thesis: per [`spec/Conventions.md` §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes)
 and [`008-Embedding-Contract.md` §Registry-key isolation via `:rf.causa/*` prefix](./008-Embedding-Contract.md#registry-key-isolation-via-rfcausa-prefix),
@@ -110,9 +120,7 @@ Spec: [`007-UX-IA.md`](./007-UX-IA.md) §The default landing view, §10 Lock 7.
 
 | Sub | Inputs | Returns | When recomputes |
 |---|---|---|---|
-| `:rf.causa/selected-dispatch-id` | `db` | Dispatch-id keyword or `nil` (empty-state). | On selection-change events. |
-| `:rf.causa/selected-dispatch-frame` | `db` | Frame-id keyword the selected dispatch ran in, or `nil`. Resolved from the selected-dispatch ref (either `:selected-dispatch` map or `:selected-dispatch-id` keyword). | On selection-change events. |
-| `:rf.causa/event-detail` | `:rf.causa/trace-buffer`, `:rf.causa/selected-dispatch-id` | `{:cascades [...] :selected-dispatch-id ... :selected-cascade ...}` — composite. `:selected-cascade` is `nil` when no selection OR when the id is no longer in the buffer. | Buffer or selection change. |
+| `:rf.causa/event-detail` | `:rf.causa/cascades`, `:rf.causa/focus` | `{:cascades [...] :selected-dispatch-id ... :selected-dispatch-frame ... :selected-cascade ...}` — composite. Derives the focused cascade off the spine `:rf.causa/focus` (rf2-ee38b.2 removed the standalone `:rf.causa/selected-dispatch-id` / `-frame` shim subs — focus is the single source of truth; the `:selected-dispatch-id`/`-frame` KEYS in this composite's return map remain live). `:selected-cascade` is `nil` when no selection OR when the id is no longer in the buffer. | Cascades or focus change. |
 
 ### Events
 

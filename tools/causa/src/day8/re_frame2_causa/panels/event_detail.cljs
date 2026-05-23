@@ -79,15 +79,6 @@
 
 ;; ---- selection plumbing (survives from v1) -----------------------------
 
-(defn- selected-ref
-  "Normalise the selection slot. Newer callers pass
-  `{:dispatch-id <id> :frame <frame-id>}`; older callers continue to
-  resolve by raw id."
-  [selection]
-  (if (map? selection)
-    selection
-    {:dispatch-id selection}))
-
 (defn- cascade-has-event?
   "True iff `cascade` carries a real `:event` vector. The `:ungrouped`
   bucket produced by `re-frame.trace.projection/group-cascades` for
@@ -104,11 +95,13 @@
   (last (filterv cascade-has-event? cascades)))
 
 (defn- cascade-matches-selection?
-  [{:keys [dispatch-id frame]} selection]
-  (let [{selected-id :dispatch-id selected-frame :frame} (selected-ref selection)]
-    (and (= selected-id dispatch-id)
-         (or (nil? selected-frame)
-             (= selected-frame frame)))))
+  "True iff `cascade` is the one named by the `selection`
+  `{:dispatch-id <id> :frame <frame-id>}` map. A nil selection frame
+  matches any frame (frame-agnostic selection)."
+  [{:keys [dispatch-id frame]} {selected-id :dispatch-id selected-frame :frame}]
+  (and (= selected-id dispatch-id)
+       (or (nil? selected-frame)
+           (= selected-frame frame))))
 
 ;; ---- pure projection helpers --------------------------------------------
 
@@ -143,29 +136,53 @@
   handler)
 
 (defn- has-handler-exception?
-  "True iff the cascade's `:other` bucket carries a handler exception
-  trace. Used to swap the cascade-outcome glyph from ✓ to ✗ and to
-  suppress §5/§6 (the handler never returned)."
+  "True iff the cascade's `:other` bucket carries the specific
+  `:rf.error/handler-exception` trace — the handler threw and never
+  returned. This is the narrow signal used to SUPPRESS §5/§6 (effects
+  returned / fx handlers ran): when the handler itself blew up there
+  were no effects to walk. The broader `has-error?` predicate (any
+  `:op-type :error` / `:rf.error/*` op) drives the outcome glyph; this
+  one is reserved for the section-suppression behaviour where only a
+  thrown handler is meaningful. Pure predicate over `:other`."
   [{:keys [other]}]
   (boolean
-    (some (fn [ev]
-            (let [op (:operation ev)]
-              (or (= :rf.error/handler-exception op)
-                  (= :rf.error/handler-threw op))))
+    (some (fn [ev] (= :rf.error/handler-exception (:operation ev)))
           (or other []))))
 
-(defn- has-warning?
-  "True iff the cascade carries a non-fatal warning that should pivot
-  the outcome glyph to ⚠ (amber). Per §5.1 the warning set is:
-  depth-exceeded, schema-violation-then-skipped. Pure predicate over
-  the cascade's `:other` bucket."
+(defn- error-trace?
+  "True iff `ev` is an error trace — classified by the universal
+  severity axis (`:op-type :error`, per Spec 009) with a namespace
+  fallback for any `:rf.error/*` operation. Mirrors the namespace-based
+  idiom in `shell/row-badges` and `issues-ribbon-helpers/op-type->severity`
+  rather than enumerating individual ops the substrate may add over time."
+  [{:keys [op-type operation] :as _ev}]
+  (or (= :error op-type)
+      (and (keyword? operation) (= "rf.error" (namespace operation)))))
+
+(defn- warning-trace?
+  "True iff `ev` is a warning trace — `:op-type :warning` (per Spec 009)
+  with an `:rf.warning/*` namespace fallback. Severity-driven, not
+  op-enumerated."
+  [{:keys [op-type operation] :as _ev}]
+  (or (= :warning op-type)
+      (and (keyword? operation) (= "rf.warning" (namespace operation)))))
+
+(defn- has-error?
+  "True iff the cascade carries ANY error trace (severity `:error` /
+  `:rf.error/*`) in its `:other` bucket — handler exceptions, drain-depth
+  overflow, flow-eval failures, fx/cofx errors, machine action throws,
+  etc. Drives the outcome glyph to ✗. Pure predicate over `:other`."
   [{:keys [other]}]
-  (boolean
-    (some (fn [ev]
-            (let [op (:operation ev)]
-              (or (= :rf.warning/depth-exceeded op)
-                  (= :rf.warning/schema-violation-skipped op))))
-          (or other []))))
+  (boolean (some error-trace? (or other []))))
+
+(defn- has-warning?
+  "True iff the cascade carries any non-fatal warning that should pivot
+  the outcome glyph to ⚠ (amber). Classified by the universal severity
+  axis (`:op-type :warning` / `:rf.warning/*`), so every warning the
+  substrate emits flips the glyph — not a hand-maintained op enumeration.
+  Pure predicate over the cascade's `:other` bucket."
+  [{:keys [other]}]
+  (boolean (some warning-trace? (or other []))))
 
 (defn cascade-outcome
   "Project a cascade record into a outcome-summary map for the top-of-
@@ -185,9 +202,9 @@
         ssr?        (or (= :rf.ssr/hydrated event-id)
                         (= :rf.ssr/hydration-complete event-id))
         [outcome glyph] (cond
-                          (has-handler-exception? cascade) [:error   "✗"]
-                          (has-warning? cascade)           [:warning "⚠"]
-                          :else                            [:ok      "✓"])]
+                          (has-error? cascade)   [:error   "✗"]
+                          (has-warning? cascade) [:warning "⚠"]
+                          :else                  [:ok      "✓"])]
     {:event-id    event-id
      :glyph       glyph
      :outcome     outcome
@@ -1510,27 +1527,16 @@
 
 (defn install!
   "Idempotent install for the Event Detail panel's Causa-side
-  registrations. Owns the selection slot the panel + its cross-panel
-  `:rf.causa/cascades` consumers read off:
+  registrations:
 
-    - `:rf.causa/selected-dispatch-id` sub (cascade selection)
-    - `:rf.causa/event-detail` composite sub
-    - `:rf.causa/select-dispatch-id` event
-    - `:rf.causa/clear-selected-dispatch-id` event
+    - `:rf.causa/event-detail` composite sub (the panel's single read —
+      derives the focused cascade off the spine `:rf.causa/focus`)
+    - `:rf.causa/select-dispatch-id` event (writes focus through the spine)
+    - `:rf.causa/clear-selected-dispatch-id` event (resets focus to LIVE)
 
   The cross-panel `:rf.causa/cascades` projection itself lives in
-  `registry.cljs` — it is shared with the Performance panel."
+  `registry.cljs`."
   []
-  (rf/reg-sub :rf.causa/selected-dispatch-id
-    (fn [db _query]
-      (:dispatch-id (selected-ref (or (get db :selected-dispatch)
-                                      (get db :selected-dispatch-id))))))
-
-  (rf/reg-sub :rf.causa/selected-dispatch-frame
-    (fn [db _query]
-      (:frame (selected-ref (or (get db :selected-dispatch)
-                                (get db :selected-dispatch-id))))))
-
   ;; Event-detail composite — produces everything the panel needs in
   ;; one read so the view stays a thin renderer. Reads the EFFECTIVE
   ;; focused dispatch-id off the spine sub (`:rf.causa/focus`); spine
@@ -1587,7 +1593,7 @@
   (rf/reg-event-db :rf.causa/clear-selected-dispatch-id
     (fn [db _event]
       (-> db
-          (dissoc :selected-dispatch :selected-dispatch-id :selected-epoch-id)
+          (dissoc :selected-epoch-id)
           (update :focus (fnil assoc {})
                   :dispatch-id nil
                   :epoch-id    nil

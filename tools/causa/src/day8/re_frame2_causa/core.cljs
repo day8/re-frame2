@@ -54,12 +54,12 @@
   seam) live in their own namespaces by design — see the per-namespace
   documentation for the rationale on each."
   (:require [re-frame.core :as rf]
-            [re-frame.trace :as trace]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.keybinding :as keybinding]
             [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.preload :as preload]
-            [day8.re-frame2-causa.registry :as registry]))
+            [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.theme.global-styles :as global-styles]))
 
 ;; ---- mount entry points (re-exports from mount.cljs) --------------------
 ;;
@@ -177,26 +177,20 @@
     (rf/dispatch [:rf.causa/set-target-frame frame-id]))
   nil)
 
-;; ---- TBD-impl stubs -----------------------------------------------------
-;;
-;; `load-theme` is promised by `spec/API.md` §Public CLJS API but the
-;; runtime CSS-swap plumbing has not landed. Calling it emits a
-;; `:rf.warning/*` trace event so the gap is visible in the trace stream
-;; (and surfaces in Causa's own Issues ribbon).
+;; ---- runtime theme override ---------------------------------------------
 
 (defn load-theme
-  "Programmatically swap the Causa shell's CSS theme. **TBD-impl.**
-  The theme module exists (`day8.re-frame2-causa.theme/*`) but the
-  runtime CSS-swap surface is not yet wired. This stub emits
-  `:rf.warning/causa-load-theme-not-yet-implemented` and returns nil.
+  "Programmatically swap the Causa shell's palette by handing in a CSS
+  string (typically a block re-declaring the `--rf-causa-*` custom
+  properties the shell reads). Useful for editor-driven palette sync.
 
-  Forward-compatible — host code may call with a CSS string today and
-  expect the impl to land under a follow-on bead."
-  [_css-string]
-  (trace/emit! :rf.warning
-               :rf.warning/causa-load-theme-not-yet-implemented
-               {:origin :causa
-                :where  'day8.re-frame2-causa.core/load-theme})
+  The CSS rides in a single dedicated `<style>` block appended LAST to
+  `<head>` so its rules win on authoring order against the built-in
+  per-theme block. Idempotent: successive calls REPLACE the override in
+  place; a nil / blank string clears it and restores the built-in
+  palette. No-op outside a DOM (server render / JVM). Returns nil."
+  [css-string]
+  (global-styles/set-host-theme-css! css-string)
   nil)
 
 ;; ---- config knob re-exports --------------------------------------------

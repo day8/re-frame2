@@ -12,10 +12,10 @@
      re-frame machinery needed.
   2. `compose-focus` derives `:head?` + the effective `:dispatch-id`
      correctly across LIVE / RETRO / paused / evicted-cascade states.
-  3. The legacy shim — `:rf.causa/select-dispatch-id` writes through
-     to `:focus`, and `:rf.causa/focus-cascade` writes through to the
-     legacy `:selected-dispatch-id` slot. Existing panels continue to
-     read the legacy slot; new spine consumers read `:rf.causa/focus`.
+  3. The `:selected-epoch-id` shim — `:rf.causa/select-dispatch-id` and
+     `:rf.causa/focus-cascade` write `:focus` AND mirror the epoch into
+     `:selected-epoch-id` (the slot App-DB-diff / Views follow). Spine
+     consumers read `:rf.causa/focus`.
   4. The registered sub composes the slot + cascades via the standard
      re-frame reactive path."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -268,36 +268,38 @@
     (is (= :retro (get-in r [:focus :mode])))
     (is (= :rf/default (get-in r [:focus :frame])))))
 
-(deftest focus-cascade-reducer-writes-legacy-shim
-  (testing "the legacy :selected-dispatch-id + :selected-dispatch slots
-            update in lockstep so existing event-detail / machine-
-            inspector panels keep rendering"
-    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default)]
-      (is (= :c2 (:selected-dispatch-id r)))
-      (is (= {:dispatch-id :c2 :frame :rf/default}
-             (:selected-dispatch r))))))
+(deftest focus-cascade-reducer-writes-epoch-shim
+  (testing "rf2-ee38b.2 — the only surviving shim slot is
+            :selected-epoch-id (App-DB-diff / Views follow it). The dead
+            :selected-dispatch-id / :selected-dispatch mirror slots are
+            gone — the Event panel reads focus off the spine composite."
+    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default 77)]
+      (is (= 77 (:selected-epoch-id r)) ":selected-epoch-id mirrors :focus epoch")
+      (is (not (contains? r :selected-dispatch-id))
+          "dead :selected-dispatch-id slot is no longer written")
+      (is (not (contains? r :selected-dispatch))
+          "dead :selected-dispatch slot is no longer written"))))
 
 (deftest focus-cascade-reducer-without-frame-omits-frame
   (let [r (spine/focus-cascade-reducer {} :c2 nil)]
     (is (= :c2 (get-in r [:focus :dispatch-id])))
-    (is (= :c2 (:selected-dispatch-id r)))
-    (is (= {:dispatch-id :c2} (:selected-dispatch r))
-        "no :frame key when frame-id was nil")))
+    (is (nil? (get-in r [:focus :frame]))
+        "no :frame key in the focus slot when frame-id was nil")))
 
 ;; -------------------------------------------------------------------------
 ;; (4) focus-step-reducer — prev/next stepping
 ;; -------------------------------------------------------------------------
 
 (deftest focus-step-reducer-prev-flips-to-retro
-  (let [db {:focus {:dispatch-id :c3 :mode :live} :selected-dispatch-id :c3}
+  (let [db {:focus {:dispatch-id :c3 :mode :live}}
         r  (spine/focus-step-reducer db fixture-cascades -1)]
     (is (= :c2 (get-in r [:focus :dispatch-id])))
     (is (= :retro (get-in r [:focus :mode])))
-    (is (= :c2 (:selected-dispatch-id r))
-        "legacy shim updated alongside")))
+    (is (not (contains? r :selected-dispatch-id))
+        "dead :selected-dispatch-id mirror slot is no longer written")))
 
 (deftest focus-step-reducer-next-returns-to-head-as-live
-  (let [db {:focus {:dispatch-id :c2 :mode :retro} :selected-dispatch-id :c2}
+  (let [db {:focus {:dispatch-id :c2 :mode :retro}}
         r  (spine/focus-step-reducer db fixture-cascades +1)]
     (is (= :c3 (get-in r [:focus :dispatch-id])))
     (is (= :live (get-in r [:focus :mode]))
@@ -305,12 +307,11 @@
 
 (deftest focus-step-reducer-from-empty-slot-snaps-to-head-then-steps
   (testing "rf2-s0s5x Phase A — with an empty `:focus` slot the
-            current-id is derived through `compose-focus` (which
-            snaps to head in :live), not lifted off the legacy
-            `:selected-dispatch-id` slot. The legacy slot is a
-            shim-write-target now, not a read source — keeping
-            spine as the canonical source of truth."
-    (let [db {:selected-dispatch-id :c2}
+            current-id is derived through `compose-focus` (which snaps
+            to head in :live). The spine `:focus` slot is the sole
+            source of truth — there is no legacy selection slot to lift
+            a stale id from."
+    (let [db {}
           r  (spine/focus-step-reducer db fixture-cascades -1)]
       (is (= :c2 (get-in r [:focus :dispatch-id]))
           "step prev: empty :focus → composer derives head (c3) → prev
@@ -322,16 +323,14 @@
 
 (deftest follow-head-reducer-snaps-to-live
   (let [db {:focus {:dispatch-id :c1 :mode :retro :paused? true}
-            :selected-dispatch-id :c1
-            :selected-dispatch    {:dispatch-id :c1}}
+            :selected-epoch-id 5}
         r  (spine/follow-head-reducer db)]
     (is (nil? (get-in r [:focus :dispatch-id]))
         "follow-head clears :dispatch-id so compose-focus snaps to head")
     (is (= :live (get-in r [:focus :mode])))
     (is (false? (get-in r [:focus :paused?])))
-    (is (nil? (:selected-dispatch-id r))
-        "legacy slots cleared in lockstep")
-    (is (nil? (:selected-dispatch r)))))
+    (is (nil? (:selected-epoch-id r))
+        ":selected-epoch-id shim cleared in lockstep")))
 
 ;; -------------------------------------------------------------------------
 ;; (6) toggle-live-pause-reducer
@@ -348,7 +347,7 @@
 (deftest toggle-live-pause-reducer-noop-in-retro
   (testing "in :retro, toggle-live-pause is a no-op — Space has no
             meaning when the user has pinned an older row"
-    (let [db {:focus {:mode :retro :paused? false} :selected-dispatch-id :c1}
+    (let [db {:focus {:mode :retro :paused? false}}
           r  (spine/toggle-live-pause-reducer db)]
       (is (= db r) "db unchanged"))))
 
@@ -493,20 +492,6 @@
       (is (= :c2 (:dispatch-id r))
           "spine focus tracks the legacy selection event")
       (is (= :retro (:mode r))))))
-
-(deftest legacy-selected-dispatch-id-shimmed-by-focus-cascade
-  (testing "dispatching the new :rf.causa/focus-cascade writes
-            through to the legacy slot — existing event-detail panel
-            keeps reading :selected-dispatch-id unchanged"
-    (setup-causa-frame!)
-    (seed-cascades! fixture-cascades)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/focus-cascade :c2 :rf/default]))
-    (let [legacy (rf/with-frame :rf/causa
-                   @(rf/subscribe [:rf.causa/selected-dispatch-id]))]
-      (is (= :c2 legacy)
-          "legacy sub rebinds because the focus-cascade event also
-           wrote the legacy slot"))))
 
 (deftest focus-sub-step-events-walk-cascades
   (setup-causa-frame!)
@@ -867,14 +852,13 @@
 
 (deftest focus-cascade-reducer-4-arg-writes-epoch-id
   (testing "the 4-arg reducer writes :epoch-id into the :focus slot AND
-            the legacy :selected-epoch-id shim slot — App-db pivots
+            the :selected-epoch-id shim slot — App-db pivots
             from L2-list clicks once this lands (rf2-ak3ty)"
     (let [r (spine/focus-cascade-reducer {} :c2 :rf/default :e2)]
       (is (= :e2 (get-in r [:focus :epoch-id])))
       (is (= :e2 (:selected-epoch-id r))
-          "legacy slot the App-db panel reads pivots in lockstep")
-      (is (= :c2 (get-in r [:focus :dispatch-id])))
-      (is (= :c2 (:selected-dispatch-id r))))))
+          "the slot the App-db panel reads pivots in lockstep")
+      (is (= :c2 (get-in r [:focus :dispatch-id]))))))
 
 (deftest focus-cascade-reducer-3-arg-leaves-epoch-id-nil
   (testing "the back-compat 3-arg reducer leaves :epoch-id nil — the
@@ -921,8 +905,7 @@
 
 (deftest focus-step-reducer-4-arg-writes-epoch-id
   (testing "step events resolve :epoch-id for the new dispatch-id"
-    (let [db       {:focus {:dispatch-id :c3 :mode :live}
-                    :selected-dispatch-id :c3}
+    (let [db       {:focus {:dispatch-id :c3 :mode :live}}
           history  [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
           r        (spine/focus-step-reducer db fixture-cascades history -1)]
       (is (= :c2 (get-in r [:focus :dispatch-id])))
@@ -933,10 +916,9 @@
   (testing "follow-head clears the App-db legacy slot in lockstep with
             the dispatch-id slot — the panel returns to its landing
             view"
-    (let [db {:focus                {:dispatch-id :c1 :epoch-id :e1
-                                     :mode :retro}
-              :selected-dispatch-id :c1
-              :selected-epoch-id    :e1}
+    (let [db {:focus             {:dispatch-id :c1 :epoch-id :e1
+                                  :mode :retro}
+              :selected-epoch-id :e1}
           r  (spine/follow-head-reducer db)]
       (is (nil? (get-in r [:focus :epoch-id])))
       (is (nil? (:selected-epoch-id r))))))
@@ -1043,8 +1025,7 @@
   (testing "rf2-r9lyy — when `show-ungrouped?` is on, stepping forward
             from the last real cascade lands on :ungrouped (the bucket
             sorts at the head per the first-id sentinel)"
-    (let [db {:focus {:dispatch-id :c2 :mode :retro}
-              :selected-dispatch-id :c2}
+    (let [db {:focus {:dispatch-id :c2 :mode :retro}}
           r  (spine/focus-step-reducer db
                                        fixture-cascades-with-ungrouped
                                        []
@@ -1056,8 +1037,7 @@
 (deftest focus-step-reducer-skips-ungrouped-when-opt-in-off
   (testing "rf2-r9lyy — when `show-ungrouped?` is off (default), the
             step walk never lands on :ungrouped (rf2-fzbrw default)"
-    (let [db {:focus {:dispatch-id :c2 :mode :retro}
-              :selected-dispatch-id :c2}
+    (let [db {:focus {:dispatch-id :c2 :mode :retro}}
           r  (spine/focus-step-reducer db
                                        fixture-cascades-with-ungrouped
                                        []
@@ -1071,8 +1051,7 @@
             unchanged. The boundary is a true no-op so focus cannot
             shuffle into the :ungrouped bucket or any other aggregate
             state."
-    (let [db {:focus {:dispatch-id :c1 :mode :retro}
-              :selected-dispatch-id :c1}
+    (let [db {:focus {:dispatch-id :c1 :mode :retro}}
           r  (spine/focus-step-reducer db
                                        fixture-cascades-with-ungrouped
                                        -1)]
@@ -1081,8 +1060,7 @@
 (deftest focus-step-reducer-next-on-head-is-no-op
   (testing "rf2-fzbrw — [>] on the head (newest real event) returns db
             unchanged. Symmetric counterpart of the [<] boundary."
-    (let [db {:focus {:dispatch-id :c2 :mode :live}
-              :selected-dispatch-id :c2}
+    (let [db {:focus {:dispatch-id :c2 :mode :live}}
           r  (spine/focus-step-reducer db
                                        fixture-cascades-with-ungrouped
                                        +1)]
@@ -1094,8 +1072,7 @@
             the bucket, [<] at the only real event is a no-op."
     (let [cascades [(cascade :ungrouped nil)
                     (cascade :only-real :rf/default)]
-          db       {:focus {:dispatch-id :only-real :mode :live}
-                    :selected-dispatch-id :only-real}
+          db       {:focus {:dispatch-id :only-real :mode :live}}
           r        (spine/focus-step-reducer db cascades -1)]
       (is (= db r)
           "single real event → [<] is a no-op, not a slide into :ungrouped"))))
@@ -1178,7 +1155,6 @@
       (is (= :c3 (get-in r [:focus :dispatch-id])))
       (is (= :live (get-in r [:focus :mode]))
           "head click → :live (auto-follow continues)")
-      (is (= :c3 (:selected-dispatch-id r)))
       (is (= :e3 (get-in r [:focus :epoch-id]))))))
 
 (deftest focus-cascade-reducer-5-arg-non-head-pins-retro

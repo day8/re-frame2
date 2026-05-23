@@ -437,85 +437,34 @@
     ;; registrar replaces in place (rf2-fq491).
     (mount/install-fx!)
 
-    ;; ---- trace-buffer mirror events (rf2-in6l2 / rf2-wq6gx) -------
+    ;; ---- trace-buffer mirror events -------------------------------
     ;;
     ;; The reactive surface for the layer-1 `:rf.causa/trace-buffer`
     ;; sub is Causa's `:rf/causa` app-db `:trace-buffer` slot. Three
-    ;; events drive that slot:
+    ;; events drive that slot, all flagged `:rf.trace/no-emit? true`
+    ;; (rf2-qsjda) so the mirror dispatch does not re-enter the trace
+    ;; fan-out and loop:
     ;;
     ;;   `:rf.causa/sync-trace-buffer` — wholesale overwrite with a
-    ;;     full buffer vector. The PRODUCTION write path under
-    ;;     rf2-wq6gx: `trace-bus/request-mirror-sync!` coalesces every
-    ;;     same-tick mirror request (collect-trace! / clear-buffer! /
-    ;;     set-buffer-depth!) into ONE dispatch of this event carrying
-    ;;     `@trace-bus/buffer-state` — capping the cascade at depth 1
-    ;;     regardless of host trace-event volume. Also used by
-    ;;     `mount.cljs/ensure-causa-frame!` for the first-mount seed.
+    ;;     full buffer vector. The PRODUCTION write path:
+    ;;     `trace-bus/request-mirror-sync!` coalesces every same-tick
+    ;;     mirror request into ONE dispatch carrying the atom snapshot,
+    ;;     capping the cascade at depth 1 regardless of trace volume.
+    ;;     Also seeds the slot at first mount.
     ;;
     ;;   `:rf.causa/note-trace-event` — single-event append with
-    ;;     capped-vector eviction. The legacy per-event mirror under
-    ;;     rf2-in6l2; the production trace-bus collector no longer
-    ;;     dispatches this (replaced by the coalesced sync above to
-    ;;     fix the drain-depth saturation regression — rf2-wq6gx).
-    ;;     Retained as a registered handler for direct callers
-    ;;     (consumer-test surface in
-    ;;     `tools/causa/test/.../registry_cljs_test.cljs` and
-    ;;     `panels/trace_view_cljs_test.cljs`).
+    ;;     capped-vector eviction. No production caller (the coalesced
+    ;;     sync above owns the live path); retained as a directly-callable
+    ;;     append helper for the test surface.
     ;;
     ;;   `:rf.causa/clear-trace-buffer` — drop the slot entirely.
-    ;;     The production clear path under rf2-wq6gx routes through
-    ;;     the coalesced sync (an empty atom snapshot clears the
-    ;;     slot), but this event is retained for direct callers and
-    ;;     for the test surface that asserts the documented contract.
-    ;;
-    ;; Per rf2-qsjda + the matching `:rf.causa/note-sensitive-
-    ;; suppressed` pattern: `:rf.trace/no-emit? true` opts every
-    ;; handler in this group out of framework trace emission. Without
-    ;; it the dispatch would emit `:rf.event/dispatched` etc. back
-    ;; through the trace-cb fan-out, the collector would see its own
-    ;; self-emit, and the cascade would loop until `drain-depth-
-    ;; default` terminated it.
-    ;;
-    ;; ## Why snapshot semantics obviate the rf2-z4fza dedup walk
-    ;;
-    ;; The original rf2-in6l2 per-event mirror dispatched
-    ;; `:rf.causa/note-trace-event` for every trace event AND seeded
-    ;; via `:rf.causa/sync-trace-buffer` at mount time. The seed and
-    ;; the per-event mirror raced inside `ensure-causa-frame!`: the
-    ;; `(rf/reg-frame :rf/causa {})` call synchronously emitted a
-    ;; `:frame/created` trace event whose note-trace-event dispatch
-    ;; queued before the seed's dispatch-sync ran; once the queued
-    ;; dispatch drained, it re-pushed the same `:id` already inside
-    ;; the seeded slot, producing duplicate React keys (per rf2-z4fza
-    ;; the Trace panel keys `<li>`s on `t:<id>`). The fix was an
-    ;; O(slot) dedup walk inside `:rf.causa/note-trace-event`.
-    ;;
-    ;; Under the rf2-wq6gx coalesced-snapshot design the production
-    ;; path NEVER appends per-event into the slot — every mirror is a
-    ;; wholesale overwrite. Seeds and post-seed syncs idempotently
-    ;; write the atom's current contents; a duplicate `:id` is
-    ;; structurally impossible in production. The dedup walk inside
-    ;; `:rf.causa/note-trace-event` is retained because the handler
-    ;; is still callable by tests that exercise the legacy per-event
-    ;; shape — there it preserves the rf2-z4fza contract those tests
-    ;; assert.
-    ;;
-    ;; rf2-td380: the `:trace-feed-state` incremental snapshot
-    ;; (rf2-44vzy) was the read-side substrate for the OLD Trace feed,
-    ;; which scoped the global buffer by `:dispatch-id`. The Trace
-    ;; panel now reads the focused epoch record's `:trace-events`
-    ;; directly (epoch-scoped), so the snapshot has no consumer — it
-    ;; is gone, and these handlers single-write `:trace-buffer` again.
     (rf/reg-event-db :rf.causa/note-trace-event
       {:rf.trace/no-emit? true}
       (fn [db [_ event]]
-        (let [buf   (get db :trace-buffer [])
-              depth (trace-bus/current-depth)
-              ev-id (:id event)]
-          (if (and ev-id (some #(= ev-id (:id %)) buf))
-            db
-            (assoc db :trace-buffer
-                   (trace-bus/push buf depth event))))))
+        (assoc db :trace-buffer
+               (trace-bus/push (get db :trace-buffer [])
+                               (trace-bus/current-depth)
+                               event))))
 
     ;; Clear the mirrored slot in lockstep with the trace-bus atom
     ;; (dispatched from `trace-bus/clear-buffer!` in CLJS). Per

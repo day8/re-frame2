@@ -154,7 +154,7 @@
             :source :http :origin :app :frame :rf/default :dispatch-id 100
             :sub-id :user/profile :severity :warning
             :reason "payload truncated at 1MB"})
-       (ev {:id 10 :time 1201 :op-type :error :operation :rf.error/handler-threw
+       (ev {:id 10 :time 1201 :op-type :error :operation :rf.error/handler-exception
             :source :http :origin :app :frame :rf/default
             :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100
             :severity :error :reason "handler threw NPE"})])))
@@ -248,7 +248,7 @@
   "A buffer where every row is an issue (error / warning / info) —
   exercises the severity chip row with all three levels populated."
   []
-  [(ev {:id 1 :time 1000 :op-type :error :operation :rf.error/handler-threw
+  [(ev {:id 1 :time 1000 :op-type :error :operation :rf.error/handler-exception
         :source :ui :origin :app :frame :rf/default
         :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100
         :severity :error :reason "handler threw NPE on :cart/add"})

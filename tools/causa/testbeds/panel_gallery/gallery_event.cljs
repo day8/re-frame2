@@ -119,7 +119,7 @@
   ;; ----- 6. cascade with handler exception ----------------------------
   (story/reg-variant :story.causa.event/exception
     {:doc        "Selected cascade carries a handler exception
-                 (`:rf.error/handler-threw`) alongside the domino emits.
+                 (`:rf.error/handler-exception`) alongside the domino emits.
                  The panel's `other-row` branch surfaces the error row
                  with severity dot + exception-message."
      :events     [[:rf.causa/sync-trace-buffer (fixtures/exception-cascade-buffer)]

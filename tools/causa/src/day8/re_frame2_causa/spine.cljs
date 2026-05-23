@@ -39,23 +39,16 @@
   `:dispatch-id` are always derived from the current cascade vector —
   never stale.
 
-  ## Shim to legacy selection slots
+  ## `:selected-epoch-id` shim slot
 
-  Pre-rf2-adve5, two panels owned their own selection: event-detail
-  owned `:selected-dispatch-id` / `:selected-dispatch` and time-travel
-  owned `:selected-epoch-id`. Spec 018 §6 collapses those into the
-  spine, but legacy event handlers + their sibling subs continue to
-  exist (each panel reads its own slot directly today). The spine's
-  `:rf.causa/focus-cascade` event writes BOTH the new `:focus` slot
-  AND the legacy `:selected-dispatch-id` slot so existing panels keep
-  rendering with no per-panel change.
-
-  The legacy `:rf.causa/select-dispatch-id` and `:rf.causa/select-
-  epoch` events also write through the spine (in their existing
-  install! fns under event_detail.cljs / time_travel_events.cljs) so
-  the other direction shims too — a click in the existing Time Travel
-  panel updates the spine, and a click in a future spine-aware list
-  updates the legacy slots."
+  Spec 018 §6 collapses per-panel selection into the spine. The one
+  surviving mirror is `:selected-epoch-id`: the spine reducers stamp it
+  alongside `:focus`'s `:epoch-id` so the App-DB-diff / Views panels can
+  follow the focused epoch through `epoch.cljs`'s `:selected-epoch-id`
+  sub → `app_db_diff_subs`. The Event panel reads focus directly off the
+  `:rf.causa/event-detail` composite (derived from the spine), so the
+  former `:selected-dispatch-id` / `:selected-dispatch` mirror slots are
+  gone — there is no longer a dual-write for them."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.config :as config]
@@ -408,10 +401,9 @@
   "Pure reducer for the `:rf.causa/focus-cascade <id>` event. Writes
   `:dispatch-id` into the `:focus` slot, picks the spine `:mode`,
   stamps `:epoch-id` (the cascade's settling epoch primary key per
-  spec/018 §6 Spine events), and shims the legacy
-  `:selected-dispatch-id` / `:selected-dispatch` / `:selected-epoch-
-  id` slots so the existing event-detail / machine-inspector / app-db
-  / time-travel panels keep rendering without per-panel change.
+  spec/018 §6 Spine events), and mirrors `:epoch-id` into the
+  `:selected-epoch-id` shim slot the App-DB-diff / Views panels follow
+  (epoch.cljs sub → app_db_diff_subs).
 
   ## Mode selection (rf2-xzzih)
 
@@ -444,18 +436,20 @@
                           :mode        mode
                           :previewing? false)
        frame-id   (assoc-in [:focus :frame] frame-id)
-       ;; Legacy shim — panels reading these slots stay live.
-       true       (assoc :selected-dispatch-id dispatch-id
-                         :selected-epoch-id    epoch-id
-                         :selected-dispatch    (cond-> {:dispatch-id dispatch-id}
-                                                 frame-id (assoc :frame frame-id)))))))
+       ;; `:selected-epoch-id` is the live App-DB-diff shim slot
+       ;; (epoch.cljs sub → app_db_diff_subs) — App-DB / Views follow the
+       ;; spine's focused epoch through it. The dispatch-id slots are gone:
+       ;; the Event panel reads focus off the `:rf.causa/event-detail`
+       ;; composite (which derives off the spine), not a mirrored db slot.
+       true       (assoc :selected-epoch-id epoch-id)))))
 
 (defn focus-step-reducer
   "Pure reducer for `:rf.causa/focus-cascade-prev` / `-next`. Steps
   the `:dispatch-id` through the cascade vector by `delta` (-1 or
   +1), resolves the cascade's settling `:epoch-id` from
-  `epoch-history` (per spec/018 §6 Spine events), updates the legacy
-  shim slots, and flips mode based on the step's outcome — stepping
+  `epoch-history` (per spec/018 §6 Spine events), mirrors it into the
+  `:selected-epoch-id` shim slot, and flips mode based on the step's
+  outcome — stepping
   back from head → :retro; stepping forward back to head → :live (the
   user has scrubbed home).
 
@@ -530,18 +524,16 @@
                             :previewing? false
                             :paused? false)
            frame-id (assoc-in [:focus :frame] frame-id)
-           true     (assoc :selected-dispatch-id new-id
-                           :selected-epoch-id    epoch-id
-                           :selected-dispatch    (cond-> {:dispatch-id new-id}
-                                                   frame-id (assoc :frame frame-id)))))))))
+           ;; `:selected-epoch-id` is the live App-DB-diff shim (see
+           ;; focus-cascade-reducer); the dispatch-id slots are gone.
+           true     (assoc :selected-epoch-id epoch-id)))))))
 
 (defn follow-head-reducer
   "Pure reducer for `:rf.causa/follow-head`. Snaps the spine to LIVE,
   clears the pinned id (`:dispatch-id nil` means 'track head'), and
   clears `:paused?` so the LIVE buffer flow resumes. Also clears the
-  legacy `:selected-dispatch-id` / `:selected-epoch-id` slots in
-  lockstep so the event-detail / app-db / time-travel panels return
-  to their LIVE-tracking landing views."
+  `:selected-epoch-id` shim slot so the App-DB / Views panels return to
+  their LIVE-tracking landing views."
   [db]
   (-> db
       (update :focus (fnil assoc {})
@@ -550,7 +542,7 @@
               :mode :live
               :paused? false
               :previewing? false)
-      (dissoc :selected-dispatch :selected-dispatch-id :selected-epoch-id)))
+      (dissoc :selected-epoch-id)))
 
 (defn toggle-live-pause-reducer
   "Pure reducer for `:rf.causa/toggle-live-pause`. Toggles `:paused?`

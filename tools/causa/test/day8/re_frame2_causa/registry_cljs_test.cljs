@@ -245,8 +245,6 @@
    :rf.causa.static.interceptors/registry
    :rf.causa.static.interceptors/registry-override
    :rf.causa.static.interceptors/tab-data
-   :rf.causa/selected-dispatch-frame
-   :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
    :rf.causa/selected-epoch-diff
    ;; rf2-39n8h discovered — selected-epoch composites: per-flow writes
@@ -812,15 +810,15 @@
           "empty atom → sub returns []"))))
 
 (deftest sub-trace-buffer-immediate-reactive-update-via-mirror
-  (testing "Per rf2-in6l2 — once the `:rf/causa` frame is registered,
-            `collect-trace!` mirrors each push into Causa's app-db slot
-            `:trace-buffer` via `:rf.causa/note-trace-event` so the
-            layer-1 sub fires on the standard app-db-write reactive
-            path. Drive the mirror event synchronously via dispatch-
-            sync (the production path uses dispatch — async drain —
-            but the same handler runs); assert that the sub reads
-            from app-db rather than the atom fall-through once the
-            slot is populated."
+  (testing "Per rf2-in6l2 — mirroring trace pushes into Causa's app-db
+            slot `:trace-buffer` makes the layer-1 sub fire on the
+            standard app-db-write reactive path. This drives the
+            directly-callable `:rf.causa/note-trace-event` append helper
+            (the production live path is the coalesced
+            `:rf.causa/sync-trace-buffer` per rf2-wq6gx; the append
+            handler is the per-event surface tests exercise); assert the
+            sub reads from app-db rather than the atom fall-through once
+            the slot is populated."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Seed the app-db slot via the production event handler. With
@@ -878,56 +876,6 @@
         (rf/dispatch-sync [:rf.causa/sync-trace-buffer [{:id 200 :tags {}}]])
         (is (= [{:id 200 :tags {}}] @(rf/subscribe [:rf.causa/trace-buffer]))
             "second sync wholly replaces the slot (no merge)")))))
-
-(deftest sub-trace-buffer-note-event-dedupes-on-id
-  (testing "rf2-z4fza follow-up: `:rf.causa/note-trace-event` skips the
-            push when the incoming event's `:id` already exists in the
-            slot. The mount seed-race window — where the `:frame/created`
-            trace for `:rf/causa` lands in both the atom snapshot the
-            seed reads AND a queued mirror dispatch — would otherwise
-            land the same event id twice, producing a duplicate React
-            `t:<id>` key in the Trace panel and one extra `<li>` past
-            the 200-row budget that survives reconciliation."
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; Simulate the seed-race directly: seed lands the event id 42 in
-      ;; the slot wholesale, then a `:rf.causa/note-trace-event` for the
-      ;; same id arrives from a queued mirror dispatch.
-      (rf/dispatch-sync [:rf.causa/sync-trace-buffer
-                         [{:id 42 :op-type :rf.frame :operation :rf.frame/created
-                           :tags {:frame :rf/causa}}]])
-      (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
-      (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 42 :op-type :rf.frame :operation :rf.frame/created
-                          :tags {:frame :rf/causa}}])
-      (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer])))
-          "duplicate-id push is a no-op — slot length unchanged")
-      (is (= [42] (mapv :id @(rf/subscribe [:rf.causa/trace-buffer])))
-          "only the seeded entry remains; the duplicate mirror push was
-           skipped")
-      ;; Distinct ids still push normally — dedup is per-id, not blanket
-      ;; deduplication-by-anything.
-      (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:id 43 :op-type :rf.event :operation :rf.test/y
-                          :tags {}}])
-      (is (= [42 43] (mapv :id @(rf/subscribe [:rf.causa/trace-buffer])))
-          "fresh ids still append — dedup is :id-keyed, not push-blocking"))))
-
-(deftest sub-trace-buffer-note-event-allows-events-without-id
-  (testing "rf2-z4fza follow-up: the dedup gate predicates on `:id`
-            being present (the framework's `next-event-id` stamp). An
-            event without `:id` is still pushed — defensive against
-            synthetic/test events that omit the slot."
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:op-type :rf.event :operation :rf.test/no-id
-                          :tags {}}])
-      (rf/dispatch-sync [:rf.causa/note-trace-event
-                         {:op-type :rf.event :operation :rf.test/also-no-id
-                          :tags {}}])
-      (is (= 2 (count @(rf/subscribe [:rf.causa/trace-buffer])))
-          "events without :id are not deduped — both push lands"))))
 
 (deftest sub-trace-buffer-evicts-on-overflow
   (testing "trace-bus enforces the eviction-on-overflow algebra against
@@ -1186,13 +1134,16 @@
 ;; ---- (4) high-value event contracts -------------------------------------
 
 (deftest event-select-dispatch-id-and-clear
-  (testing ":rf.causa/select-dispatch-id + clear round-trip"
+  (testing ":rf.causa/select-dispatch-id + clear round-trip — rf2-ee38b.2
+            reads focus off the canonical spine `:rf.causa/focus` sub
+            (the dead standalone :rf.causa/selected-dispatch-id sub is
+            gone; focus is the single source of truth)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 42])
-      (is (= 42 @(rf/subscribe [:rf.causa/selected-dispatch-id])))
+      (is (= 42 (:dispatch-id @(rf/subscribe [:rf.causa/focus]))))
       (rf/dispatch-sync [:rf.causa/clear-selected-dispatch-id])
-      (is (nil? @(rf/subscribe [:rf.causa/selected-dispatch-id]))))))
+      (is (nil? (:dispatch-id @(rf/subscribe [:rf.causa/focus])))))))
 
 (deftest event-select-epoch-passive-scrub
   (testing ":rf.causa/select-epoch sets selected-epoch-id (passive scrub)"
@@ -1407,10 +1358,13 @@
     (let [causa-db   (frame/frame-app-db-value :rf/causa)
           default-db (frame/frame-app-db-value :rf/default)]
       (is (= :event (:selected-tab causa-db)))
-      (is (= 1 (:selected-dispatch-id causa-db)))
+      ;; rf2-ee38b.2 — :rf.causa/select-dispatch-id writes focus to the
+      ;; spine `:focus` slot (the dead :selected-dispatch-id mirror is
+      ;; gone); :select-epoch writes the surviving :selected-epoch-id shim.
+      (is (= 1 (get-in causa-db [:focus :dispatch-id])))
       (is (= :e (:selected-epoch-id causa-db)))
       (is (nil? (:selected-tab default-db)))
-      (is (nil? (:selected-dispatch-id default-db)))
+      (is (nil? (get-in default-db [:focus :dispatch-id])))
       (is (nil? (:selected-epoch-id default-db))))))
 
 ;; ---- (9) edge cases over a dormant frame --------------------------------

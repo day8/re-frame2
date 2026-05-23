@@ -52,8 +52,8 @@
 
   The cascade pivots on a single anchor: a `:rf.machine.lifecycle/
   destroyed` or `:rf.machine/destroyed` trace event whose `:reason`
-  is one of the cancellation reasons (`:explicit`,
-  `:parent-unmount-cascade`, `:parent-frame-destroyed`). The anchor's
+  is one of the cancellation reasons the substrate emits (`:explicit`,
+  `:parent-frame-destroyed`, `:actor-destroyed`). The anchor's
   `:dispatch-id` (when present) is the cascade boundary; aborts that
   share the same `:dispatch-id` (or land within a small wall-clock
   window of the anchor for the actor-destroy case where the abort
@@ -114,13 +114,13 @@
     :rf.machine.spawn/cancelled-on-join-resolution})
 
 (def ^:private cancellation-reasons
-  "Reasons that classify a destroy as part of a cancellation cascade
-  (per Spec 009 §Trace events L110-L119). `:rf.machine/finished` is
-  excluded — it represents a natural termination, not a cancellation."
+  "Destroy `:reason` values that classify a destroy as part of a
+  cancellation cascade — the reasons the substrate actually stamps on
+  `:rf.machine/destroyed` traces (per `machines/lifecycle_fx/destroy`,
+  `frame_destroy`, and the destroy-trace-shape tests). `:rf.machine/finished`
+  is excluded — it is a natural termination, not a cancellation."
   #{:explicit
-    :parent-unmount-cascade
     :parent-frame-destroyed
-    :rf.machine/cancelled
     :actor-destroyed})
 
 (def ^:const default-actor-destroy-window-ms
