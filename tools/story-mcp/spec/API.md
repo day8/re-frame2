@@ -366,7 +366,7 @@ Bridges `re-frame.story`'s recorder primitives (per
  :doc            string  (optional)                ; embedded in snippet
  :extends        keyword (optional)                ; defaults to :variant-id
  :alias          string  (optional, default "story")
- :write-back     boolean (optional, default false) ; re-register with :play <captured>
+ :write-back     boolean (optional, default false) ; re-register with :play-script <captured>
 }
 ```
 

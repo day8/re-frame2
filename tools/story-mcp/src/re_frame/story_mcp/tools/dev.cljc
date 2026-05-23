@@ -24,7 +24,7 @@
     "\n"
     "  (reg-story   :story.<path>              { :doc :component :decorators :args :argtypes\n"
     "                                            :tags :modes :substrates :platforms :variants })\n"
-    "  (reg-variant :story.<path>/<variant>    { :doc :extends :events :play :args :argtypes\n"
+    "  (reg-variant :story.<path>/<variant>    { :doc :extends :events :play-script :args :argtypes\n"
     "                                            :tags :decorators :loaders :loaders-complete-when\n"
     "                                            :args->events :platforms :substrates :modes })\n"
     "  (reg-workspace :Workspace.<path>/<name> { :doc :layout :variants :content :render :modes })\n"
@@ -47,8 +47,8 @@
     "    dispatched?, state-is, no-warnings, effect-emitted.\n"
     "\n"
     "Lifecycle (`run-variant`): four phases — loaders → events → render\n"
-    "→ play. `:rf.assert/*` events in `:play` accumulate records on the\n"
-    "frame; they do NOT throw on failure. `assertions-passing?` is the\n"
+    "→ play. `:rf.assert/*` steps in `:play-script` accumulate records on\n"
+    "the frame; they do NOT throw on failure. `assertions-passing?` is the\n"
     "vacuous-pass predicate (empty assertions vector is green).\n"
     "\n"
     "Snapshots: `snapshot-identity` hashes the canonical (variant ×\n"
@@ -56,9 +56,20 @@
     "across hosts; use for visual-regression keying.\n"))
 
 (defn tool-get-story-instructions
-  "Dev: return the Story authoring conventions in agent-friendly form."
+  "Dev: return the Story authoring conventions in agent-friendly form.
+
+  Emits BOTH the `:content` text slot AND a matching
+  `:structuredContent` map (rf2-vyacl). The descriptor declares an
+  `:outputSchema` (`s/default-output-schema`); the official MCP SDK's
+  high-level `callTool` REJECTS a tool that declares an output schema
+  but returns no `:structuredContent` with JSON-RPC -32600. Mirroring
+  re-frame2-pair-mcp's sibling `get-re-frame2-pair-instructions` (which
+  routes through `wire/ok-text` and always emits structuredContent), we
+  carry the prose under `:instructions` so the structured slot satisfies
+  the permissive `additionalProperties: true` envelope schema."
   [_args]
-  (h/text-result story-instructions-text))
+  (let [payload {:instructions story-instructions-text}]
+    (h/text-result story-instructions-text payload)))
 
 (defn tool-preview-variant
   "Dev: given a variant id, return the canvas state + share URL.
