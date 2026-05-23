@@ -85,7 +85,7 @@
   DOM seam (rf2-ed099)."
   [^js root node-id]
   (when (and root node-id)
-    (anchor/query-node-rect-by-testid root (geo/state->node-testid node-id))))
+    (anchor/query-node-rect-by-testid root (anchor/node->testid node-id))))
 
 (defn- measure-rings
   "Walk the DOM under `root` for every ring-spec's bearing node and

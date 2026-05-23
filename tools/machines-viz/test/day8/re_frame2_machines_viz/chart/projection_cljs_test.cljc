@@ -61,6 +61,35 @@
    :states  {:idle {:on {:ping :idle :go :busy}}
              :busy {:on {:done :idle}}}})
 
+(def same-state-machine
+  "rf2-ee38b.21 — external self-transition via the `:target :same-state`
+  sentinel (Spec 005). Must project a self-loop, not a phantom node."
+  {:initial :a
+   :states  {:a {:on {:ping {:target :same-state}}}}})
+
+(def internal-self-machine
+  "rf2-ee38b.21 — internal self-transition (omit :target). Self-anchors
+  and projects `:internal true`."
+  {:initial :a
+   :states  {:a {:on {:tick {:action :inc}}}}})
+
+(def wildcard-machine
+  "rf2-ee38b.21 — a `:*` wildcard `:on` arm (Spec 005 §Wildcard)."
+  {:initial :a
+   :states  {:a {:on {:start :b :* :err}}
+             :b {}
+             :err {}}})
+
+(def machine-level-on-machine
+  "rf2-ee38b.21 — a machine-level (top-level) :on fallback."
+  {:initial :a :on {:logout :a} :states {:a {} :b {}}})
+
+(def entry-exit-machine
+  "rf2-ee38b.21 — :entry / :exit state actions."
+  {:initial :a
+   :states  {:a {:entry :on-enter :exit :on-leave}
+             :b {}}})
+
 (defn- edge-by-id
   "Pluck an edge from a projected graph by xyflow id."
   [graph id]
@@ -591,3 +620,81 @@
       (is (some? authed) "compound parent is a top-level elk child")
       (is (= 2 (count (:children authed)))
           "browsing + paying nest inside"))))
+
+;; ---- self-transitions / wildcard / machine-level :on (rf2-ee38b.21) ----
+
+(deftest xyflow-graph-same-state-projects-self-loop
+  (testing "rf2-ee38b.21 — `:target :same-state` projects a true
+            self-loop (source == target, :selfLoop true) into a REAL
+            node — not a dangling edge to a phantom :same-state node"
+    (let [parsed   (layout/parse-definition same-state-machine)
+          graph    (projection/xyflow-graph parsed {} {})
+          node-ids (set (map :id (:nodes graph)))
+          ;; the only non-entry edge is the :ping self-transition
+          ping     (first (remove #(:entry (:data %)) (:edges graph)))]
+      (is (some? ping))
+      (is (= (:source ping) (:target ping)) "source == target")
+      (is (true? (:selfLoop (:data ping))))
+      (is (contains? node-ids (:target ping))
+          "target is a real node, not a phantom :same-state"))))
+
+(deftest xyflow-graph-internal-self-transition-flagged
+  (testing "rf2-ee38b.21 — an internal self-transition (omit :target)
+            projects a self-loop flagged `:internal true`"
+    (let [parsed (layout/parse-definition internal-self-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          tick   (first (remove #(:entry (:data %)) (:edges graph)))]
+      (is (some? tick))
+      (is (= (:source tick) (:target tick)))
+      (is (true? (:selfLoop (:data tick))))
+      (is (true? (:internal (:data tick)))))))
+
+(deftest xyflow-graph-wildcard-not-fireable
+  (testing "rf2-ee38b.21 — the `:*` wildcard edge carries a NIL :eventId
+            so the on-chart sim can't dispatch a literal `[:* ...]`
+            (same inert posture as :after / :always); the real `:start`
+            event stays fireable"
+    (let [parsed (layout/parse-definition wildcard-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          wild   (first (filter #(re-find #"\(any\)"
+                                          (or (:eventLabel (:data %)) ""))
+                                (:edges graph)))
+          start  (first (filter #(= :start (:eventId (:data %)))
+                                (:edges graph)))]
+      (is (some? wild) "the wildcard edge is present")
+      (is (nil? (:eventId (:data wild))) "wildcard is NOT fireable")
+      (is (some? start) "the real :start edge stays fireable")
+      (is (= :start (:eventId (:data start)))))))
+
+(deftest xyflow-graph-machine-level-on-flagged
+  (testing "rf2-ee38b.21 — machine-level (top-level) :on fallback edges
+            project with `:machineLevel true` from every leaf"
+    (let [parsed (layout/parse-definition machine-level-on-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          logout (filter #(= :logout (:eventId (:data %))) (:edges graph))]
+      (is (= 2 (count logout)) "one inherited edge per leaf")
+      (is (every? #(true? (:machineLevel (:data %))) logout)))))
+
+(deftest xyflow-graph-state-only-transitions-not-machine-level
+  (testing "rf2-ee38b.21 — a normal state-local transition carries
+            `:machineLevel false`"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          start  (first (filter #(= :start (:eventId (:data %))) (:edges graph)))]
+      (is (some? start))
+      (is (false? (:machineLevel (:data start))))
+      (is (false? (:internal (:data start)))))))
+
+;; ---- entry / exit state actions (rf2-ee38b.21) -------------------------
+
+(deftest xyflow-graph-threads-entry-exit-onto-node-data
+  (testing "rf2-ee38b.21 — :entry / :exit action name strings ride the
+            node :data so state-node can paint `entry / <name>` rows"
+    (let [parsed (layout/parse-definition entry-exit-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          a      (node-by-id graph (layout/node-id [:a]))
+          b      (node-by-id graph (layout/node-id [:b]))]
+      (is (= "on-enter" (:entry (:data a))))
+      (is (= "on-leave" (:exit (:data a))))
+      (is (nil? (:entry (:data b))) "a state with no entry carries nil")
+      (is (nil? (:exit (:data b)))))))

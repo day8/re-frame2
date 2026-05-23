@@ -71,6 +71,14 @@
              :ready    {}
              :blocked  {}}})
 
+(def machine-level-on-machine
+  "rf2-ee38b.21 — a flat machine with a top-level (machine-level) :on
+  fallback transition every state inherits (Spec 005 §top-level :on)."
+  {:initial :a
+   :on      {:logout :a}
+   :states  {:a {:on {:go :b}}
+             :b {}}})
+
 (def parallel-machine
   "A `:type :parallel` machine with two regions."
   {:type    :parallel
@@ -139,6 +147,20 @@
     (let [out (scxml/spec->scxml after-machine)]
       (is (str/includes? out "event=\"after.5000\""))
       (is (str/includes? out "target=\"timeout\"")))))
+
+(deftest emit-machine-level-on-not-dropped
+  (testing "rf2-ee38b.21 — a top-level (machine-level) :on fallback is
+            emitted (as a documented <transition> under <scxml>) rather
+            than silently dropped (the parser-side P2 mirror). W3C SCXML
+            has no clean root-fallback slot so this can't round-trip,
+            but the topology survives the export."
+    (let [out (scxml/spec->scxml machine-level-on-machine)]
+      (is (str/includes? out "machine-level")
+          "a comment documents the inherited fallback")
+      (is (str/includes? out "event=\"logout\"")
+          "the machine-level :logout transition is emitted")
+      ;; the per-state :go transition still emits normally
+      (is (str/includes? out "event=\"go\"")))))
 
 (deftest emit-always-transitions-omit-event-attribute
   (testing ":always candidates render as eventless <transition>s
@@ -243,3 +265,16 @@
                          ["parallel-machine"            parallel-machine]]]
       (testing name
         (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)))))))
+
+(deftest round-trip-machine-level-on-is-lossy
+  (testing "rf2-ee38b.21 — a machine-level (top-level) :on fallback is
+            EXPORTED (no longer silently dropped) but does NOT round-trip:
+            W3C SCXML has no root-fallback-transition slot, and the
+            import side drops root-level transitions. Naming the loss
+            explicitly per this section's contract."
+    (let [spec machine-level-on-machine
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (not= spec back) "the top-level :on does not survive the import")
+      (is (nil? (:on back)) "the inherited fallback is lost on import")
+      (is (= (:states spec) (:states back))
+          "the per-state topology DOES round-trip"))))

@@ -36,8 +36,12 @@ shipped surface is the Mermaid `stateDiagram-v2` exporter.
 - **Mermaid `stateDiagram-v2` exporter** — per
   [rf2-deo2i](../../../.beads/) and
   [`API.md`](API.md) §Mermaid `stateDiagram-v2`. Implemented at
-  `src/day8/re_frame2_machines_viz/mermaid.cljc` (~500 LoC). Covers
-  the read-only diagram surface enumerated in
+  `implementation/machines/src/re_frame/machines/mermaid.cljc`
+  (namespace `re-frame.machines.mermaid`) — rf2-ee38b.21 corrected the
+  prior `src/day8/re_frame2_machines_viz/mermaid.cljc` claim; the
+  emitter lives under `implementation/machines/` per
+  [`000-Vision.md`](000-Vision.md) §Static renderer, NOT under this
+  tool. Covers the read-only diagram surface enumerated in
   [`000-Vision.md`](000-Vision.md) §item 5 (single-state machines,
   composite states, parallel regions, transition labels, entry/exit
   actions, action/`do` labels, `invoke-all` row layout). JVM + CLJS

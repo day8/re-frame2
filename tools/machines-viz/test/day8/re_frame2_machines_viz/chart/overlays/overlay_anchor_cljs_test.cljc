@@ -15,17 +15,17 @@
             [day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
              :as anchor]))
 
-;; ---- node->card-testid --------------------------------------------------
+;; ---- node->testid (rf2-ee38b.21 — the single canonical helper) -----------
 
-(deftest node-card-testid-matches-state-node-contract
-  (is (= "rf-mv-chart-node-idle" (anchor/node->card-testid "idle")))
+(deftest node-testid-matches-state-node-contract
+  (is (= "rf-mv-chart-node-idle" (anchor/node->testid "idle")))
   (is (= "rf-mv-chart-node-auth_login__hydrating"
-         (anchor/node->card-testid "auth_login__hydrating"))))
+         (anchor/node->testid "auth_login__hydrating"))))
 
-(deftest node-card-testid-nil-on-blank
-  (is (nil? (anchor/node->card-testid nil)))
-  (is (nil? (anchor/node->card-testid "")))
-  (is (nil? (anchor/node->card-testid "   "))))
+(deftest node-testid-nil-on-blank
+  (is (nil? (anchor/node->testid nil)))
+  (is (nil? (anchor/node->testid "")))
+  (is (nil? (anchor/node->testid "   "))))
 
 ;; ---- anchor-right-of (join inspector) -----------------------------------
 

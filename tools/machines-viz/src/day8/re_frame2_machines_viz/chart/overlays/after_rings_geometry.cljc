@@ -30,8 +30,7 @@
   Radius is half the node's longer dimension plus a breathing gap so
   the ring sits clearly OUTSIDE the node's border, then scaled by the
   rendered zoom (the node rect is already zoom-scaled by xyflow, so a
-  proportional gap keeps the ring crisp at any zoom level)."
-  (:require [clojure.string :as str]))
+  proportional gap keeps the ring crisp at any zoom level).")
 
 (def ring-gap-px
   "Breathing gap (px, at 1x zoom) between the node's bounding box and
@@ -89,20 +88,10 @@
         :cy (- ncy cy-origin)
         :r  (ring-radius node-rect zoom)}))))
 
-(defn state->node-testid
-  "The xyflow node `data-testid` the overlay queries for a given
-  resolved node-id. Mirrors `chart.nodes/state-node`'s
-  `(str \"rf-mv-chart-node-\" id)` contract — the overlay walks the
-  DOM with `[data-testid=\"<this>\"]` to find the bearing node.
-
-  `node-id` is the string `chart.layout/node-id` mints from a state
-  path; the overlay's `:id-fn` resolves a timer's `:state` to it.
-
-  Returns nil for a nil / blank node-id so the overlay skips the
-  ring rather than querying for a garbage selector."
-  [node-id]
-  (when (and node-id (not (str/blank? (str node-id))))
-    (str "rf-mv-chart-node-" node-id)))
+;; rf2-ee38b.21 — the byte-identical `state->node-testid` helper that
+;; lived here was removed; the canonical node-id → testid helper is
+;; `overlay-anchor/node->testid` (the shared overlay seam). `after_rings`
+;; calls it directly.
 
 (defn overlay-rings
   "Pure projection: for each `{:node-id ...}`-bearing ring spec, merge

@@ -194,13 +194,34 @@
               [(str (indent-str depth) "</" tag ">")])
       [(str (indent-str depth) "<" tag " " attrs "/>")])))
 
+(defn- emit-machine-level-on
+  "Emit the machine-level (top-level) `:on` fallback transitions
+  (Spec 005 `005-StateMachines.md:181,199`) directly under `<scxml>`.
+
+  rf2-ee38b.21 — these were previously dropped entirely (mirroring the
+  parser bug). W3C SCXML has no clean root-fallback-transition slot
+  (`<scxml>` does not host `<transition>` children per the schema, and
+  the import side drops root-level transitions), so a perfect
+  round-trip is impossible. Rather than silently lose the topology we
+  emit them as `<transition>` elements wrapped in a documenting comment
+  so the information survives the export and a human/tool reading the
+  SCXML sees the machine-wide fallback."
+  [on depth]
+  (when (seq on)
+    (concat
+      [(str (indent-str depth)
+            "<!-- machine-level (top-level) :on fallback transitions"
+            " — inherited by every state (Spec 005 §top-level :on) -->")]
+      (emit-transitions-for-on on depth))))
+
 (defn- emit-flat-or-compound
-  [{:keys [initial states]} depth]
+  [{:keys [initial states on]} depth]
   (concat
     [(str (indent-str depth)
           "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\""
           " version=\"1.0\""
           " initial=\"" (escape-xml-attr (path->id-string initial)) "\">")]
+    (emit-machine-level-on on (inc depth))
     (mapcat (fn [[child-id child-node]]
               (emit-state child-id child-node (inc depth)))
             states)

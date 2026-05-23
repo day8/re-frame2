@@ -22,9 +22,10 @@
       large body containing nested children (xyflow's `parentNode`
       mechanic handles the hierarchical layout; this node renders
       the outer container chrome).
-    - `initial-marker` + `final-marker` — small glyph nodes paired
-      with state nodes to mark the machine's initial / final
-      transitions.
+    - `initial-marker` — a small glyph node paired with the initial
+      state to mark the machine's entry transition. (Final states paint
+      a doubled ring + ✓ glyph inline on `state-node`; there is no
+      separate final-marker node — rf2-ee38b.21 removed the dead one.)
 
   ## Token integration
 
@@ -174,6 +175,8 @@
         sim?           (boolean (.-sim d))
         final?         (boolean (.-final d))
         tags           (js->clj (.-tags d))
+        entry          (.-entry d)
+        exit           (.-exit d)
         on-click       (.-onClick d)
         emphasised?    (or active? from-highlight? to-highlight?)
         active-affordance? (or active? to-highlight?)
@@ -250,6 +253,26 @@
                (for [t tags] (tag-pill t vc))))
        ;; Label
        [:div {:style {:line-height "1.2"}} label]
+       ;; rf2-ee38b.21 — :entry / :exit action rows (Stately parity:
+       ;; `entry / <name>` / `exit / <name>` below the label, mono, dim).
+       (when (or entry exit)
+         [:div {:data-testid "rf-mv-chart-state-actions"
+                :style {:display        "flex"
+                        :flex-direction "column"
+                        :align-items    "center"
+                        :margin-top     "3px"
+                        :font-family    mono-stack
+                        :font-size      (str (max 8 (- state-label-px 3)) "px")
+                        :color          (:text-tertiary tokens/tokens)
+                        :line-height    "1.3"}}
+          (when entry
+            [:div {:data-testid "rf-mv-chart-state-entry"
+                   :data-entry  entry}
+             (str "entry / " entry)])
+          (when exit
+            [:div {:data-testid "rf-mv-chart-state-exit"
+                   :data-exit   exit}
+             (str "exit / " exit)])])
        ;; Final-state check glyph
        (when final?
          [:div {:style {:position    "absolute"
@@ -310,7 +333,7 @@
                      :color       (:accent-violet tokens/tokens)}}
         label]])))
 
-;; ---- initial / final marker nodes --------------------------------------
+;; ---- initial marker node ------------------------------------------------
 
 (defn initial-marker
   "Reagent component for the machine's initial-state marker — a
@@ -326,29 +349,12 @@
      [:> Handle {:type "source" :position pos-right
                  :style {:opacity 0}}]]))
 
-(defn final-marker
-  "Reagent component for a final-state marker — concentric circle
-  glyph. Reserved for the `[*]` end-state-as-node pattern when a
-  future bead surfaces it; v1 paints the doubled ring inline on
-  `state-node`."
-  [^js _props]
-  (r/as-element
-    [:div {:data-testid "rf-mv-chart-final-marker"
-           :style {:width            "14px"
-                   :height           "14px"
-                   :border-radius    "50%"
-                   :border           (str "2px solid " (:green tokens/tokens))
-                   :background       "transparent"
-                   :position         "relative"}}
-     [:div {:style {:position         "absolute"
-                   :top              "3px"
-                   :left             "3px"
-                   :width            "4px"
-                   :height           "4px"
-                   :border-radius    "50%"
-                   :background       (:green tokens/tokens)}}]
-     [:> Handle {:type "target" :position pos-left
-                 :style {:opacity 0}}]]))
+;; rf2-ee38b.21 — the dead `final-marker` component + its node-type
+;; registration were removed. The projector only ever emits
+;; `initial-marker` nodes; final states paint the doubled ring + ✓
+;; glyph inline on `state-node`. The end-state-as-node `[*]` pattern,
+;; if it ever lands, files its own bead (same posture the codebase
+;; took when it removed the dead `spawn-edge` registration).
 
 ;; ---- node-types map -----------------------------------------------------
 
@@ -361,5 +367,4 @@
   #js {"state"           state-node
        "compound"        compound-node
        "parallel-region" parallel-region-node/parallel-region-node
-       "initial-marker"  initial-marker
-       "final-marker"    final-marker})
+       "initial-marker"  initial-marker})

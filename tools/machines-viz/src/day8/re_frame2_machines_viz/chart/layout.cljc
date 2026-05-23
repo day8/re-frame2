@@ -110,29 +110,75 @@
     (pop path)
     []))
 
+(defn name-of
+  "Render a guard / action / entry / exit symbol-like value as a short
+  string WITHOUT throwing on fn values. Keywords use `ns/name` when
+  namespaced, plain `name` otherwise; non-keywords fall through to
+  `str`. Inlined fn guards / actions surface their `:name` meta (named
+  `(fn name [...] ...)` / `(defn ...)`) or `\"fn\"` when anonymous — so
+  the xstate label reads cleanly instead of `#object[Function]`.
+
+  Public + namespace-preserving — `chart.projection` reuses this (it
+  previously carried a near-duplicate `safe-name` that dropped the
+  namespace; rf2-ee38b.21 collapses the two)."
+  [v]
+  (cond
+    (nil? v)     nil
+    (keyword? v) (if-let [n (namespace v)]
+                   (str n "/" (name v))
+                   (name v))
+    (fn? v)      (or (some-> v meta :name str) "fn")
+    :else        (str v)))
+
 (defn- resolve-target-path
-  "Resolve a transition target relative to source-path."
+  "Resolve a transition target relative to source-path.
+
+  Per Spec 005 §Self-transitions (`spec/005-StateMachines.md:206,263,
+  289-294`):
+
+  - `:target :same-state` — the **external** self-transition sentinel.
+    Resolve to `source-path` so the edge is a true self-loop
+    (source == target) and renders via the existing `:selfLoop` path.
+  - a plain keyword target — resolve relative to the parent path.
+  - a vector-path target — take it verbatim.
+  - nil (no `:target`) — returns nil. The **internal** self-transition
+    case (a candidate map that omits `:target`) is NOT handled here:
+    `collect-state-edges` detects the missing key and self-anchors the
+    edge itself (flagging `:internal? true`), so this fn never sees it."
   [source-path target]
   (cond
-    (keyword? target)     (conj (parent-path source-path) target)
-    (target-path? target) (vec target)
-    :else                 nil))
+    (= :same-state target) (vec source-path)
+    (keyword? target)      (conj (parent-path source-path) target)
+    (target-path? target)  (vec target)
+    :else                  nil))
 
 (defn- collect-state-edges
   "Walk a state node and return edge-maps for every statically-
-  resolvable transition declared on it. Compound substates recurse."
+  resolvable transition declared on it. Compound substates recurse.
+
+  Self-transitions (Spec 005 §Self-transitions) chart as self-loops:
+  `:target :same-state` (external) resolves to the source path; a
+  candidate that omits `:target` entirely (internal — runs only its
+  `:action`) self-anchors and is flagged `:internal? true` so the
+  renderer can distinguish it (no exit/entry re-trigger)."
   [state-path state-node]
   (let [edges-from
         (concat
          (mapcat (fn [[event-id spec]]
                    (keep (fn [candidate]
-                           (when-let [tp (resolve-target-path state-path
-                                                              (:target candidate))]
-                             {:from   state-path
-                              :to     tp
-                              :event  event-id
-                              :guard  (:guard candidate)
-                              :action (:action candidate)}))
+                           (let [internal? (and (map? candidate)
+                                                (not (contains? candidate :target)))
+                                 tp        (if internal?
+                                             (vec state-path)
+                                             (resolve-target-path state-path
+                                                                  (:target candidate)))]
+                             (when tp
+                               (cond-> {:from   state-path
+                                        :to     tp
+                                        :event  event-id
+                                        :guard  (:guard candidate)
+                                        :action (:action candidate)}
+                                 internal? (assoc :internal? true)))))
                          (transition-candidates spec)))
                  (:on state-node))
          (mapcat (fn [[delay spec]]
@@ -174,13 +220,20 @@
   [parent-path state-map]
   (mapcat (fn [[state-id state-node]]
             (let [path (conj parent-path state-id)
-                  self {:path     path
-                        :label    (name state-id)
-                        :depth    (count parent-path)
-                        :initial? (boolean (:initial? state-node))
-                        :final?   (:final? state-node)
-                        :compound? (boolean (:states state-node))
-                        :tags     (set (:tags state-node))}
+                  self (cond-> {:path     path
+                                :label    (name state-id)
+                                :depth    (count parent-path)
+                                :initial? (boolean (:initial? state-node))
+                                :final?   (boolean (:final? state-node))
+                                :compound? (boolean (:states state-node))
+                                :tags     (set (:tags state-node))}
+                         ;; rf2-ee38b.21 — :entry / :exit state actions
+                         ;; (Spec 005 §State nodes L218-219) surface as
+                         ;; short name strings so the renderer can paint
+                         ;; `entry / <name>` / `exit / <name>` rows. nil
+                         ;; when absent (cond-> skips the assoc).
+                         (:entry state-node) (assoc :entry (name-of (:entry state-node)))
+                         (:exit state-node)  (assoc :exit  (name-of (:exit state-node))))
                   init-key     (:initial state-node)
                   raw-children (when (:states state-node)
                                  (collect-nodes path (:states state-node)))
@@ -196,53 +249,74 @@
 
 ;; ---- public ids ---------------------------------------------------------
 
+(defn- escape-id-segment
+  "Sanitise one path segment into an xyflow-id-safe string
+  INJECTIVELY — distinct inputs always yield distinct outputs.
+
+  The naive `str/replace #\"[^a-zA-Z0-9_]\" \"_\"` collapses `:a/b`,
+  `:a-b`, `:a_b` all to `\"a_b\"` (rf2-ee38b.21 P2): a React key
+  collision drops one node + makes every edge addressing either
+  ambiguous. Hyphens are pervasive in re-frame keywords
+  (`:logged-in`, `:rate-limited`), so the collision is reachable.
+
+  Scheme: every char outside `[a-zA-Z0-9]` becomes `_<hex>` (the
+  underscore itself included), so the mapping is reversible and no two
+  distinct chars share an encoding. The path separator `__` (double
+  underscore) can never appear inside a segment because a literal `_`
+  encodes to `_5f`."
+  [s]
+  (str/join
+    (map (fn [ch]
+           (if (re-matches #"[a-zA-Z0-9]" (str ch))
+             (str ch)
+             (str "_" #?(:clj  (format "%02x" (int ch))
+                         :cljs (let [h (.toString (.charCodeAt (str ch) 0) 16)]
+                                 (if (= 1 (count h)) (str "0" h) h))))))
+         s)))
+
 (defn node-id
   "Stable string id for a node, suitable for xyflow ids and SCXML
   / Mermaid emitter ids. Exported so every consumer addresses nodes
-  the same way."
+  the same way.
+
+  rf2-ee38b.21 — the id is INJECTIVE: distinct paths always mint
+  distinct ids (the old `[^a-zA-Z0-9_]`-collapse merged `:a/b` /
+  `:a-b` / `:a_b`). Segments are `_<hex>`-escaped (see
+  `escape-id-segment`) and joined with `__`."
   [path]
   (->> path
        (map (fn [p]
               (if (keyword? p)
                 (if-let [ns (namespace p)]
-                  (str ns "_" (name p))
-                  (name p))
-                (str p))))
-       (str/join "__")
-       (#(str/replace % #"[^a-zA-Z0-9_]" "_"))))
+                  (str (escape-id-segment ns) "_2f" (escape-id-segment (name p)))
+                  (escape-id-segment (name p)))
+                (escape-id-segment (str p)))))
+       (str/join "__")))
 
 (defn region-node-id
   "Stable string id for a parallel region's synthetic compound node.
   Prefixed `region__` so it never collides with a state `node-id`
-  (rf2-lkwev). `region-id` is the region's key in the `:regions` map."
+  (rf2-lkwev). `region-id` is the region's key in the `:regions` map.
+
+  rf2-ee38b.21 — segments are `escape-id-segment`-escaped (the same
+  injective scheme `node-id` uses) so a region named `:auth/main` and
+  a state `:auth-main` can never collapse to the same id."
   [region-id]
   (str "region__"
        (if (keyword? region-id)
          (if-let [ns (namespace region-id)]
-           (str ns "_" (name region-id))
-           (name region-id))
-         (str region-id))))
-
-(defn- name-of
-  "Render a guard/action symbol-like value as a short string. Keywords
-  use `ns/name` when namespaced, plain `name` otherwise. Non-keywords
-  fall through to `str`."
-  [v]
-  (cond
-    (nil? v)     nil
-    (keyword? v) (if-let [n (namespace v)]
-                   (str n "/" (name v))
-                   (name v))
-    ;; Inlined fn guards / actions surface their `:name` meta (named
-    ;; `(fn name [...] ...)` / `(defn ...)`) or `fn` when anonymous —
-    ;; so the xstate label reads cleanly instead of `#object[Function]`.
-    (fn? v)      (or (some-> v meta :name str) "fn")
-    :else        (str v)))
+           (str (escape-id-segment ns) "_2f" (escape-id-segment (name region-id)))
+           (escape-id-segment (name region-id)))
+         (escape-id-segment (str region-id)))))
 
 (defn event-segment
   "Render the leading event segment of an edge label per the
   xstate-stately convention.
 
+    - `:*` wildcard         → `\"* (any)\"` (Spec 005 §Wildcard — the
+                              `:on` key that matches any otherwise-
+                              unhandled event; NOT a real fireable
+                              event, so it reads as an 'otherwise' arm)
     - regular event keyword → `\"event-id\"` (with namespace when present)
     - `:after` transition   → `\"after(<delay>)\"`
     - `:always` transition  → `\"always\"`"
@@ -250,6 +324,7 @@
   (cond
     after            (str "after(" after ")")
     always?          "always"
+    (= :* event)     "* (any)"
     (keyword? event) (if-let [n (namespace event)]
                        (str n "/" (name event))
                        (name event))
@@ -283,14 +358,68 @@
 
 (defn- edge-id
   "Stable string id for an edge — composite of source-id, target-id,
-  and event segment so multiple parallel edges between the same pair
-  of states do not collide."
-  [from-path to-path edge]
+  event segment, AND the guard/action segment so multiple candidate
+  edges between the same pair of states do not collide. The vector-of-
+  candidates grammar (`spec/005-StateMachines.md:253-256`) routinely
+  produces same-event/same-target edges differing only by guard, so
+  folding the guard/action in keeps them distinct (xyflow drops a
+  duplicate-id edge). The `parse-flat` caller appends a per-key ordinal
+  as a final tiebreak for the rare byte-identical-candidate case."
+  [from-path to-path {:keys [guard action] :as edge}]
   (str (node-id from-path)
        "__"
        (node-id to-path)
        "__"
-       (event-segment edge)))
+       (event-segment edge)
+       (when guard  (str "__g_" (name-of guard)))
+       (when action (str "__a_" (name-of action)))))
+
+(defn- collect-machine-edges
+  "Emit edges for the machine-level (top-level) `:on` fallback
+  transitions (Spec 005 `spec/005-StateMachines.md:181,199` — `:on`
+  is valid `per-state AND top-level`; a top-level entry is a machine-
+  wide fallback every state inherits).
+
+  Renders one edge from every LEAF state to the transition's target,
+  flagged `:machine-level? true` so the projection / SCXML emitter can
+  distinguish an inherited fallback from a state-local transition. Leaf
+  states (no `:states`) are the real transition sources — a compound
+  parent's inherited fallback fires from whichever leaf is active.
+  Edges back into a leaf's own state are kept (they self-loop). The
+  `:*` wildcard fallback is supported too (rendered as a non-fireable
+  affordance downstream)."
+  [machine-on leaf-paths]
+  (when (seq machine-on)
+    (mapcat
+      (fn [[event-id spec]]
+        (mapcat
+          (fn [leaf-path]
+            (keep (fn [candidate]
+                    (let [target    (:target candidate)
+                          internal? (and (map? candidate)
+                                         (not (contains? candidate :target)))
+                          ;; A machine-level transition's target is
+                          ;; resolved at the TOP level (a top-level
+                          ;; state), NOT relative to the inheriting
+                          ;; leaf's parent — so `resolve-target-path`
+                          ;; is called with a root-level `[]` source.
+                          ;; `:same-state` / omitted-target self-loop on
+                          ;; the leaf itself.
+                          tp        (cond
+                                      internal?              (vec leaf-path)
+                                      (= :same-state target) (vec leaf-path)
+                                      :else (resolve-target-path [] target))]
+                      (when tp
+                        (cond-> {:from           leaf-path
+                                 :to             tp
+                                 :event          event-id
+                                 :guard          (:guard candidate)
+                                 :action         (:action candidate)
+                                 :machine-level? true}
+                          internal? (assoc :internal? true)))))
+                  (transition-candidates spec)))
+          leaf-paths))
+      machine-on)))
 
 ;; ---- public projection --------------------------------------------------
 
@@ -301,7 +430,7 @@
   machine (the per-region nodes/edges then get tagged with their
   region + parent-id)."
   [definition]
-  (let [{:keys [initial states]} definition
+  (let [{:keys [initial states on]} definition
         base-nodes (vec (collect-nodes [] states))
         initial-path (when initial [initial])
         nodes (mapv (fn [n]
@@ -318,18 +447,40 @@
                                    (assoc :parent-id (node-id (pop path))))]
                         (assoc n' :id (node-id path))))
                     base-nodes)
-        raw-edges (vec (mapcat (fn [[state-id state-node]]
-                                 (collect-state-edges [state-id] state-node))
-                               states))
-        edges (vec (map (fn [e]
-                          (assoc e
-                            :id          (edge-id (:from e) (:to e) e)
-                            :source      (node-id (:from e))
-                            :target      (node-id (:to e))
-                            :from-path   (:from e)
-                            :to-path     (:to e)
-                            :event-label (edge-label e)))
-                        raw-edges))]
+        leaf-paths (->> base-nodes
+                        (remove :compound?)
+                        (mapv :path))
+        raw-edges (vec (concat
+                         (mapcat (fn [[state-id state-node]]
+                                   (collect-state-edges [state-id] state-node))
+                                 states)
+                         ;; Machine-level (top-level) :on fallback
+                         ;; transitions every state inherits (Spec 005).
+                         (collect-machine-edges on leaf-paths)))
+        ;; rf2-ee38b.21 — disambiguate edges that share source/target/
+        ;; event but differ by guard/action/machine-level (the vector-of-
+        ;; candidates grammar routinely produces same-event/same-target
+        ;; forks that differ only by guard). `edge-id` folds guard/action
+        ;; in; a trailing per-key ordinal guarantees uniqueness even when
+        ;; two candidates are byte-identical.
+        edges (->> raw-edges
+                   (reduce
+                     (fn [{:keys [seen out]} e]
+                       (let [base (edge-id (:from e) (:to e) e)
+                             n    (get seen base 0)
+                             id   (if (zero? n) base (str base "__" n))]
+                         {:seen (assoc seen base (inc n))
+                          :out  (conj out
+                                      (assoc e
+                                        :id          id
+                                        :source      (node-id (:from e))
+                                        :target      (node-id (:to e))
+                                        :from-path   (:from e)
+                                        :to-path     (:to e)
+                                        :event-label (edge-label e)))}))
+                     {:seen {} :out []})
+                   :out
+                   vec)]
     {:nodes        nodes
      :edges        edges
      :initial-path initial-path}))

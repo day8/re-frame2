@@ -175,9 +175,10 @@
 
 (deftest region-node-id-is-prefixed-and-distinct
   (testing "rf2-lkwev — region node-ids are region__-prefixed so they
-            never collide with a state node-id"
+            never collide with a state node-id. rf2-ee38b.21 — segments
+            are injectively escaped (the `/` ns separator → `_2f`)."
     (is (= "region__r1" (layout/region-node-id :r1)))
-    (is (= "region__auth_main" (layout/region-node-id :auth/main)))
+    (is (= "region__auth_2fmain" (layout/region-node-id :auth/main)))
     (is (not= (layout/region-node-id :r1) (layout/node-id [:r1]))
         "a region container id differs from the same-named state id")))
 
@@ -273,3 +274,166 @@
           labels (set (map :event-label edges))]
       (is (contains? labels "submit [authed?] / log-it"))
       (is (contains? labels "submit [anon?]")))))
+
+;; ---- self-transitions (rf2-ee38b.21) -----------------------------------
+;;
+;; Spec 005 §Self-transitions: `:target :same-state` is the EXTERNAL
+;; self-transition (exit+entry fire); omitting `:target` is the INTERNAL
+;; one (only :action runs). Both must chart as a self-loop (source ==
+;; target). Pre-fix, `:same-state` resolved to a phantom node-id and
+;; the internal form emitted nothing.
+
+(deftest parse-definition-external-self-transition-same-state
+  (testing "rf2-ee38b.21 — `:target :same-state` resolves to the source
+            path itself (a true self-loop), NOT a phantom :same-state
+            node"
+    (let [m {:initial :a :states {:a {:on {:ping {:target :same-state}}} }}
+          {:keys [nodes edges]} (layout/parse-definition m)
+          node-ids (set (map :id nodes))
+          self     (first (filter #(= :ping (:event %)) edges))]
+      (is (some? self) "the :ping self-transition is charted")
+      (is (= [:a] (:from self)))
+      (is (= [:a] (:to self)) "target resolves to the source path")
+      (is (= (:source self) (:target self)) "source == target → self-loop")
+      (is (contains? node-ids (:target self))
+          "the self-loop target is a REAL node (no phantom :same-state)")
+      (is (not (contains? node-ids "same_state"))
+          "no dangling :same-state node is minted"))))
+
+(deftest parse-definition-internal-self-transition-omit-target
+  (testing "rf2-ee38b.21 — a transition that omits :target (internal —
+            runs only :action) charts as a self-anchored edge flagged
+            :internal? rather than silently dropping"
+    (let [m {:initial :a :states {:a {:on {:tick {:action :inc}}}}}
+          {:keys [edges]} (layout/parse-definition m)
+          tick (first (filter #(= :tick (:event %)) edges))]
+      (is (some? tick) "the internal :tick transition is charted")
+      (is (= [:a] (:from tick)))
+      (is (= [:a] (:to tick)) "internal transition self-anchors")
+      (is (true? (:internal? tick)) "flagged internal")
+      (is (= :inc (:action tick))))))
+
+;; ---- wildcard `:*` (rf2-ee38b.21) --------------------------------------
+
+(deftest parse-definition-wildcard-event-label
+  (testing "rf2-ee38b.21 — the `:*` wildcard `:on` arm (Spec 005
+            §Wildcard) renders as `* (any)`, not a bare `*` that reads
+            like a real event"
+    (let [m {:initial :a :states {:a {:on {:* :b}} :b {}}}
+          {:keys [edges]} (layout/parse-definition m)
+          wild (first (filter #(= :* (:event %)) edges))]
+      (is (some? wild) "the wildcard transition is charted")
+      (is (= "* (any)" (:event-label wild))))))
+
+;; ---- machine-level (top-level) :on fallback (rf2-ee38b.21) -------------
+
+(deftest parse-definition-machine-level-on-fallback
+  (testing "rf2-ee38b.21 — a top-level (machine-level) :on fallback
+            (Spec 005 — `:on` valid per-state AND top-level) charts one
+            edge from every leaf state, flagged :machine-level?, rather
+            than being dropped entirely"
+    (let [m {:initial :a :on {:logout :a} :states {:a {} :b {}}}
+          {:keys [edges]} (layout/parse-definition m)
+          logout (filter #(= :logout (:event %)) edges)]
+      (is (= 2 (count logout)) "one inherited edge per leaf state")
+      (is (every? :machine-level? logout) "flagged machine-level")
+      (is (= #{[:a] [:b]} (set (map :from logout))) "from every leaf")
+      (is (every? #(= [:a] (:to %)) logout) "all land on the target"))))
+
+(deftest parse-definition-machine-level-on-targets-top-level-state
+  (testing "rf2-ee38b.21 — a machine-level :on target is a TOP-LEVEL
+            state, resolved at the root — NOT relative to the inheriting
+            leaf's parent (a compound leaf must still reach :unauth)"
+    (let [m {:initial :authenticated
+             :on      {:logout :unauth}
+             :states  {:unauth        {}
+                       :authenticated {:initial :browsing
+                                       :states  {:browsing {}
+                                                 :paying   {}}}}}
+          {:keys [edges]} (layout/parse-definition m)
+          logout (filter #(= :logout (:event %)) edges)]
+      (is (every? #(= [:unauth] (:to %)) logout)
+          "every inherited :logout lands on the top-level :unauth")
+      (is (contains? (set (map :from logout)) [:authenticated :browsing])
+          "compound leaves inherit it too"))))
+
+;; ---- node-id injectivity (rf2-ee38b.21) --------------------------------
+
+(deftest node-id-is-injective-over-hyphen-ns-underscore
+  (testing "rf2-ee38b.21 — distinct paths mint DISTINCT ids. The old
+            `[^a-zA-Z0-9_]`-collapse merged `:a/b`, `:a-b`, `:a_b` all
+            to `\"a_b\"` (React key collision dropped a node)"
+    (let [ids (map (comp layout/node-id vector) [:a/b :a-b :a_b :logged-in :logged_in])]
+      (is (= (count ids) (count (set ids)))
+          "all five distinct keywords yield distinct ids")
+      (is (not= (layout/node-id [:a/b]) (layout/node-id [:a-b])))
+      (is (not= (layout/node-id [:a-b]) (layout/node-id [:a_b])))
+      (is (not= (layout/node-id [:logged-in]) (layout/node-id [:logged_in]))))))
+
+(deftest node-id-distinct-from-region-container-id
+  (testing "rf2-ee38b.21 — a state literally named :region__foo cannot
+            collide with a region container's id"
+    (is (not= (layout/node-id [:region__foo])
+              (layout/region-node-id :foo)))))
+
+;; ---- edge-id collision (rf2-ee38b.21) ----------------------------------
+
+(deftest parse-definition-edge-ids-distinct-for-guarded-fork
+  (testing "rf2-ee38b.21 — a same-event/same-target fork that differs
+            only by guard mints DISTINCT edge ids so xyflow keeps both
+            branches (pre-fix the ids collided → one branch dropped)"
+    (let [m {:initial :a
+             :states  {:a {:on {:go [{:target :b :guard :g1}
+                                     {:target :b :guard :g2}]}}
+                       :b {}}}
+          {:keys [edges]} (layout/parse-definition m)
+          go-edges (filter #(= :go (:event %)) edges)
+          ids      (map :id go-edges)]
+      (is (= 2 (count go-edges)) "both candidate edges survive")
+      (is (= 2 (count (set ids))) "their xyflow ids are distinct"))))
+
+(deftest parse-definition-edge-ids-distinct-for-identical-candidates
+  (testing "rf2-ee38b.21 — even byte-identical candidates (same target,
+            no guard/action) get distinct ids via the per-key ordinal"
+    (let [m {:initial :a
+             :states  {:a {:on {:go [{:target :b} {:target :b}]}}
+                       :b {}}}
+          {:keys [edges]} (layout/parse-definition m)
+          ids (map :id (filter #(= :go (:event %)) edges))]
+      (is (= 2 (count ids)))
+      (is (= 2 (count (set ids))) "ordinal disambiguates identical candidates"))))
+
+;; ---- entry / exit state actions (rf2-ee38b.21) -------------------------
+
+(deftest parse-definition-threads-entry-exit-onto-nodes
+  (testing "rf2-ee38b.21 — :entry / :exit state actions (Spec 005
+            §State nodes) surface as name strings on the parsed node"
+    (let [m {:initial :a
+             :states  {:a {:entry :on-enter :exit :on-leave}
+                       :b {:entry (with-meta (fn [_]) {:name 'do-thing})}}}
+          {:keys [nodes]} (layout/parse-definition m)
+          a (first (filter #(= [:a] (:path %)) nodes))
+          b (first (filter #(= [:b] (:path %)) nodes))]
+      (is (= "on-enter" (:entry a)))
+      (is (= "on-leave" (:exit a)))
+      (is (= "do-thing" (:entry b)) "fn entry surfaces its :name meta")
+      (is (not (contains? b :exit)) "absent exit is omitted"))))
+
+(deftest parse-definition-no-entry-exit-when-absent
+  (testing "rf2-ee38b.21 — a state with no :entry / :exit carries
+            neither key (cond-> skips the assoc)"
+    (let [{:keys [nodes]} (layout/parse-definition idle-loading-success)
+          idle (first (filter #(= [:idle] (:path %)) nodes))]
+      (is (not (contains? idle :entry)))
+      (is (not (contains? idle :exit))))))
+
+;; ---- :final? is always boolean (rf2-ee38b.21) --------------------------
+
+(deftest parse-definition-final-flag-is-boolean
+  (testing "rf2-ee38b.21 — :final? is boolean-wrapped (false, not nil)
+            for non-final states, matching its sibling flags"
+    (let [{:keys [nodes]} (layout/parse-definition idle-loading-success)
+          idle    (first (filter #(= [:idle] (:path %)) nodes))
+          success (first (filter #(= [:success] (:path %)) nodes))]
+      (is (false? (:final? idle)) ":final? is false, not nil")
+      (is (true?  (:final? success))))))
