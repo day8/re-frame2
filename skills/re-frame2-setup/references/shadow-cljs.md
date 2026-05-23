@@ -16,99 +16,105 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
 ## Minimal `shadow-cljs.edn`
 
 ```clojure
-{:source-paths ["src"]
+{:deps   {:aliases [:shadow]}           ;; pull classpath from deps.edn's :shadow alias
+ :source-paths ["src"]
 
- :dependencies []                       ;; deps come from deps.edn
+ :dev-http {8280 "resources/public"}    ;; dev server: serve resources/public on :8280
 
  :builds
  {:app
   {:target     :browser
-   :output-dir "public/js"
+   :output-dir "resources/public/js"
    :asset-path "/js"
    :modules    {:main {:init-fn your-app.core/init}}}}}
 ```
 
-The smallest greenfield build entry. Three things matter for re-frame2:
+The greenfield build entry, matching the generator template. Four things matter for re-frame2:
 
-1. **`:dependencies []`.** shadow-cljs reads `deps.edn` automatically. Don't duplicate the `day8/re-frame2-*` coordinates here; that's where they'd shadow each other if their VERSION ever drifted.
-2. **`:init-fn your-app.core/init`.** shadow-cljs calls this symbol at bundle-init time. The function must be exported (`(defn ^:export init [] ...)`). This is the entry point that calls `(rf/init! reagent-adapter/adapter)` — see `entry-namespace.md`. (`init` matches the generator template; the symbol name is yours to choose, as long as `:init-fn` points at it.)
-3. **One module.** A single-page re-frame2 app needs exactly one `:modules` entry. Code-splitting is possible later but not part of greenfield.
+1. **`:deps {:aliases [:shadow]}`.** shadow-cljs reads the classpath from `deps.edn` via the `:shadow` alias — don't duplicate the `day8/re-frame2-*` coordinates here. The alias is where the JVM-side build deps live: it supplies `thheller/shadow-cljs` + `org.clojure/tools.namespace` and `:extra-paths ["test" "dev"]`. The template defines it in `deps.edn`:
+   ```clojure
+   :aliases
+   {:shadow
+    {:extra-paths ["test" "dev"]
+     :extra-deps  {thheller/shadow-cljs        {:mvn/version "<shadow-version>"}
+                   org.clojure/tools.namespace {:mvn/version "1.5.0"}}
+     :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}
+   ```
+2. **`:dev-http {8280 "resources/public"}`.** The top-level dev-server form (current shadow-cljs idiom). It serves `resources/public/` on port `8280` — `index.html` lives at `resources/public/index.html`. The template uses `8280`; reuse it so a teammate on the template route sees the same number.
+3. **`:init-fn your-app.core/init`.** shadow-cljs calls this symbol at bundle-init time. The function must be exported (`(defn ^:export init [] ...)`). This is the entry point that calls `(rf/init! reagent-adapter/adapter)` — see `entry-namespace.md`. (`init` matches the generator template; the symbol name is yours to choose, as long as `:init-fn` points at it — see `entry-namespace.md`.)
+4. **One module.** A single-page re-frame2 app needs exactly one `:modules` entry. Code-splitting is possible later but not part of greenfield.
 
-Substitute `your-app.core/init` with whatever your entry namespace + entry symbol actually is. If you call your namespace `myapp.core` and your entry fn `start`, this becomes `:init-fn myapp.core/start`.
+The template also ships a second `:test {:target :node-test ...}` build under `:builds` (for `cljs.test` runners) and `:source-paths ["src" "test" "dev"]`. That test build is out of scope for this skill (it stops at "the counter mounts"), but it's there in the scaffold — don't be surprised comparing the two.
 
 The build id (`:app` above) is the name you give the build for `shadow-cljs watch <build-id>`. Use anything that reads naturally; `:app` is convention.
 
 ## The `index.html` that loads the bundle
 
-A re-frame2 app needs an HTML page that loads the compiled JS and has a mount point. Drop this at `public/index.html`:
+A re-frame2 app needs an HTML page that loads the compiled JS and has a mount point. Drop this at `resources/public/index.html` (matching `:dev-http`'s serve root), with the styles in an external `resources/public/css/app.css`:
 
 ```html
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>your-app</title>
-  <style>
-    :root { --rf-causa-accent: #7C5CFF; } /* brand-accent var — host stylesheets read var(--rf-causa-accent) to tint dev chrome */
-    body { margin: 0; }
-    .app-shell { display: flex; min-height: 100vh; }
-    [data-rf-causa-host] {
-      flex: 0 0 var(--rf-causa-inline-width, 560px);
-      min-width: 320px;
-      box-sizing: border-box;            /* the border lives inside the
-                                            documented width */
-      border-left: 1px solid #2a2a2a;   /* visual separator on the app side */
-    }
-    #app { flex: 1; min-width: 0; }
-    /* Resize from anywhere up the cascade: */
-    /*   :root { --rf-causa-inline-width: 720px; } */
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Strict default-safe CSP: same-origin JS/CSS only, no inline
+       script/style. The template ships this; serve the same policy
+       via a response header in production. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+  <title>your-app — re-frame2</title>
+  <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div class="rf2-app-shell">
+    <aside class="rf2-causa-host" data-rf-causa-host></aside>
     <main id="app"></main>
-    <aside data-rf-causa-host></aside>
   </div>
   <script src="/js/main.js"></script>
 </body>
 </html>
 ```
 
-Four contractual bits:
+`resources/public/css/app.css` (the minimal layout — three rules carry the host-column contract):
+
+```css
+body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
+.rf2-app-shell { display: flex; min-height: 100vh; }
+.rf2-causa-host { flex: 0 0 420px; min-width: 320px; }
+#app { flex: 1; min-width: 0; padding: 2em; }
+```
+
+Five contractual bits:
 
 - **`<main id="app"></main>`** — the app mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`.
-- **`<aside data-rf-causa-host></aside>`** — Causa's default true-inline devtools host. Keep it as a right-side layout column beside `#app` when you enable `day8.re-frame2-causa.preload` (DOM order: `<main>` first, `<aside>` second — flex flow puts the aside on the right); otherwise Causa logs an actionable missing-host diagnostic and exposes the same status through `window.day8.re_frame2_causa.status()`.
-- **`.app-shell` flex CSS** — the host app owns sizing and layout. The minimal contract is a right column (`flex: 0 0 var(--rf-causa-inline-width, 560px); min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0; }`). Two complementary resize mechanisms ship together: (1) **CSS variable** — override `--rf-causa-inline-width` anywhere up the cascade (e.g. `:root { --rf-causa-inline-width: 720px; }`) to set the initial width (host-owned; default is 560px); (2) **Causa drag handle** — auto-injected by Causa (see `spec/007-UX-IA.md` §Resize affordance) on the panel's outer edge, persisted across reloads via `configure! :settings :general :panel-width-px`, double-click to reset. No `resize: horizontal` / `overflow: auto` on the host — Causa owns the handle, the consumer's CSS surface stays minimal. A consumer that prefers the browser-native handle opts out by setting `resize: horizontal` on the host (yield-to-consumer detection). The snippet also publishes `--rf-causa-accent` (default `#7C5CFF`) on `:root` so host stylesheets can colour their own dev chrome to match Causa.
-- **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows.
-- **`/js/main.js` is an absolute path from site root.** That's correct for shadow-cljs's dev server.
+- **`<aside class="rf2-causa-host" data-rf-causa-host></aside>`** — Causa's default true-inline devtools host, the **left** layout column beside `#app`. Order it **first** in the DOM (`<aside>` then `<main>`) so flex flow places Causa on the left, matching the template. When `day8.re-frame2-causa.preload` is enabled Causa auto-opens into this host; if it's missing, Causa logs an actionable diagnostic, also reachable via `window.day8.re_frame2_causa.status()`.
+- **`.rf2-causa-host` flex CSS** — the host app owns sizing. The contract is a fixed-width column (`flex: 0 0 420px; min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0 }`). Causa injects its own drag handle on the panel's outer edge (persisted across reloads, double-click to reset), so the consumer's CSS stays this minimal. To change the default width, edit `flex-basis` here; the full resize-affordance / theming surface is the `re-frame2-causa` skill's territory, not greenfield's.
+- **CSP + external stylesheet.** The CSP meta tag declares `style-src 'self'`, which blocks inline `<style>`/`style=` attributes — so styles live in `css/app.css`, not inline. Keep them out of the HTML to stay CSP-clean (and matching the template).
+- **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows. The absolute path from site root is correct for shadow-cljs's dev server.
 
 ## `:devtools` block (hot-reload + Causa)
 
-Add `:devtools` to enable shadow-cljs's hot-reload + dev server, and to load the Causa devtools panel — both wired by default in the generator template:
+The top-level `:dev-http` (above) already starts the dev server. Add a `:devtools` block per build for hot-reload + the Causa devtools panel — both wired this way in the generator template:
 
 ```clojure
 :builds
 {:app
  {:target     :browser
-  :output-dir "public/js"
+  :output-dir "resources/public/js"
   :asset-path "/js"
   :modules    {:main {:init-fn your-app.core/init}}
-  :devtools   {:http-port 8020
-               :http-root "public"
-               :watch-dir "public"
-               :after-load your-app.core/init
+  :devtools   {:after-load your-app.core/init
                :preloads   [day8.re-frame2-causa.preload]}}}
 ```
 
-- `:http-port` — port the dev server listens on. `8020` is convention; pick anything free.
-- `:http-root "public"` — the dev server serves files from this directory. Your `index.html` lives at `public/index.html`.
-- `:watch-dir "public"` — shadow-cljs reloads the browser when any file under here changes (including the compiled `main.js`).
-- `:after-load your-app.core/init` — re-run the entry fn after each hot reload so the freshly-loaded code re-installs the adapter and re-renders.
+- `:after-load your-app.core/init` — re-run the entry fn after each hot reload so the freshly-loaded code re-installs the adapter and re-renders. **Note:** if `init` also runs `(rf/dispatch-sync [:your-app/initialise])` (the seed event — see `entry-namespace.md`), `:after-load` re-runs that seed on **every** hot reload, resetting `app-db` to its initial state each save. For a counter that means the count jumps back to 0 on every reload. If preserving in-progress state across reloads matters, point `:after-load` at a separate fn that re-renders **without** re-seeding (calls `rdc/render` but not `dispatch-sync`).
 - `:preloads [day8.re-frame2-causa.preload]` — loads the Causa in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Causa never ships to production.
+- The dev server itself comes from the top-level `:dev-http {8280 "resources/public"}` (not from a `:http-port`/`:http-root` inside `:devtools` — that's the older style; the template uses the top-level `:dev-http` form).
 
-With this block in place, `shadow-cljs watch app` starts the dev server. Visit `http://localhost:8020/` and the browser auto-refreshes on every recompile.
+With this block in place, `shadow-cljs watch app` starts the dev server. Visit `http://localhost:8280/` and the browser auto-refreshes on every recompile.
 
-re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Causa is the one default preload:** because Causa is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-causa.preload` here, and the page must provide the `[data-rf-causa-host]` layout column shown above. The Causa preload registers listeners/keybindings and auto-opens into that app-provided host after `rf/init!` installs the substrate adapter; there is no lazy/manual-only launch step. If you genuinely want a Causa-free build, drop the `:preloads` entry and the `day8/re-frame2-causa` dep together.
+re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Causa is the one default preload:** because Causa is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-causa.preload` here. It auto-opens into the `[data-rf-causa-host]` column from the `index.html` above after `rf/init!` installs the substrate adapter (there is no lazy/manual-only launch step). If you genuinely want a Causa-free build, drop the `:preloads` entry and the `day8/re-frame2-causa` dep together.
 
 ## Production build (`release`)
 
@@ -128,7 +134,7 @@ If you want to pin the port explicitly (e.g. for editor integrations), add a top
 
 A few things you might pull in by reflex from other CLJS framework setups that re-frame2 specifically does not require:
 
-- **No *framework* preload required** — re-frame2's core has no preload analogue to re-frame v1. The one default preload is Causa's devtools (`day8.re-frame2-causa.preload`, wired in `:devtools/preloads`); its default surface is the `[data-rf-causa-host]` true-inline panel on app load. Overlay/body-padding chrome is optional debug tooling, not the default, and pop-out remains available from the mounted panel.
-- **No `:closure-defines`** for re-frame2 itself in dev. The single exception is opting into the performance-API instrumentation (Spec 009 §Performance instrumentation) — set `re-frame.performance/enabled? true` only if the author asks for it explicitly. Default dev is fine.
+- **No *framework* preload required** — re-frame2's core has no preload analogue to re-frame v1. The one default preload is Causa's devtools (`day8.re-frame2-causa.preload`, wired in `:devtools/preloads` — see the `index.html` section above for the host column it opens into).
+- **No `:closure-defines`** for re-frame2 itself in dev. The single exception is opting into the performance-API instrumentation (Spec 009 §Performance instrumentation) — add `:compiler-options {:closure-defines {re-frame.performance/enabled? true}}` to the build only if the author asks for it explicitly. Default dev is fine.
 - **No special compiler options** for dev. `{:compiler-options {:warnings {...}}}` is up to the author.
 - **No SSR build entry** unless the author wants SSR. SSR is opt-in via `day8/re-frame2-ssr` (separate per-feature artefact); the SSR build is a separate `:target :node-script` (or `:target :browser` running in a static-render harness). Out of scope for greenfield.

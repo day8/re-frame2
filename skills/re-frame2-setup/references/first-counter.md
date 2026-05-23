@@ -108,7 +108,7 @@ shadow-cljs watch app
 
 Wait for the compile to land. The terminal prints something like `[:app] Build completed.`
 
-Visit `http://localhost:8020/` (or whatever `:http-port` you set in `shadow-cljs.edn`).
+Visit `http://localhost:8280/` (the template's port — or whatever you set in `:dev-http` in `shadow-cljs.edn`).
 
 You should see:
 
@@ -118,17 +118,24 @@ You should see:
 
 Click `+` — the number becomes `1`. Click `-` — back to `0`. Refresh the page — back to `0` (state lives in app-db, which resets on full reload).
 
+First-run failures, in roughly the order you'll hit them:
+- **`shadow-cljs: command not found` / `Cannot find module`** — `npm install` hasn't run (or you ran `npx shadow-cljs` before installing). Run `npm install`, then retry `npx shadow-cljs watch app`.
+- **Page loads but the browser console shows `main.js` 404 (`GET /js/main.js 404`)** — `:output-dir`, `:asset-path`, and `index.html`'s `<script src>` disagree. The template serves `resources/public` with `:output-dir "resources/public/js"` + `:asset-path "/js"` + `<script src="/js/main.js">`; if you changed any one, change the others to match.
+- **Blank page, no console errors** — `index.html` is missing `<main id="app">`, or the entry ns looks up a different id than `index.html` declares.
+
 If you see a blank page, open the browser console. Most failures land there with a clear error:
 - `Cannot read property 'getElementById' of undefined` — script ran before DOM was ready; check `index.html` loads `main.js` at the *bottom* of `<body>`.
 - `Could not find frame :rf/default` — `rf/init!` didn't run before render. Check `init` is the `:init-fn` shadow-cljs is calling.
 - `No subscription handler registered for: :count` — registrations didn't run. If you split into multiple namespaces, make sure `core.cljs` `:require`s them so they load.
+
+**No schema errors? That's expected.** This counter attaches no app-db schema, so even with `day8/re-frame2-schemas` on the classpath there's nothing to validate — CLJS soft-passes (Spec 010). Validation only fires once you `reg-app-schema` a schema; until then the absence of errors means "no schema attached," not "validation ran and passed."
 
 ## What to do next
 
 **Setup is done.** From here, **switch skills**:
 
 - **Writing more code (events, subs, machines, schemas, frames, fx, flows, routing, SSR)** — load the **`re-frame2`** skill. It covers the API surface in modular files; you can load just the pieces relevant to what you're building.
-- **Inspecting the running app live from the REPL** — install the **`re-frame2-pair`** skill. It attaches over nREPL, lets you walk app-db, dispatch from the REPL, hot-swap handlers, time-travel through epoch history. nREPL is a remote-evaluation surface: keep it dev-only and bound to localhost (shadow-cljs's default). Never expose the nREPL port on `0.0.0.0` or a shared / public interface — anything that can connect can evaluate arbitrary code in the running JVM.
+- **Inspecting the running app live from the REPL** — install the **`re-frame2-pair`** skill. It attaches over nREPL, lets you walk app-db, dispatch from the REPL, hot-swap handlers, time-travel through epoch history. nREPL stays dev-only and bound to localhost — see SKILL.md cardinal rule 6.
 
 Both skills are independent of this one and can be loaded individually.
 

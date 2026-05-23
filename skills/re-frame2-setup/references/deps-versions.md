@@ -27,7 +27,7 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-reagent` | substrate | **Always (for a Reagent app).** The Reagent adapter map. |
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
 | `day8/re-frame2-helix` | substrate | Instead of `-reagent` if you target Helix. |
-| `day8/re-frame2-schemas` | per-feature | **Day one** (the template attaches a whole-app-db schema). Required whenever you call `reg-app-schema` / `reg-event-schema`; without it CLJS schema validation soft-passes per Spec 010. |
+| `day8/re-frame2-schemas` | per-feature | **Day one** (the template attaches a whole-app-db schema). Required whenever you call `reg-app-schema` / `reg-app-schemas`; without it CLJS schema validation soft-passes per Spec 010. |
 | `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
@@ -35,7 +35,7 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
 | `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch` (also pulled in transitively by `re-frame2-pair`). |
 
-The eleven above are the **publishable** lockstep set. Two more local roots ride the same version but sit outside the publishable count: `day8/reagent-slim` (an alternate slim Reagent substrate) and `day8/re-frame2-ssr-ring` (a Ring adaptor over `-ssr`) — niche, not part of greenfield. Separately, the in-app devtools panel `day8/re-frame2-causa` ships on the same version line and is a **day-one** dep in the template (see the day-one shape below); it is tooling, not one of the eleven library artefacts.
+These eleven are the **publishable** lockstep set. (Two niche local roots — `day8/reagent-slim` and `day8/re-frame2-ssr-ring` — ride the same version but aren't part of greenfield.) Separately, the in-app devtools panel `day8/re-frame2-causa` ships on the same version line and is a **day-one** dep in the template (see the day-one shape below); it is tooling, not one of the eleven library artefacts.
 
 **Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual route and the one-command route land on the same scaffold. The template ships **four** re-frame2 coords on day one — core + the Reagent adapter, plus `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; without this artefact CLJS soft-passes per Spec 010) and `day8/re-frame2-causa` (the in-app devtools panel, wired via `:devtools/preloads` and Causa-priority by default) — plus an explicit `reagent/reagent` pin.
 
@@ -52,6 +52,8 @@ For the author's reference (so they can pick), three sources, in order of author
 3. **The GitHub releases page** — `https://github.com/day8/re-frame2/releases` shows the tags. The latest tag is `v<VERSION>`.
 
 For the bleeding edge (e.g. chasing a fix that hasn't released yet), the author can use a `:git/url` + `:git/sha` coord instead of `:mvn/version`. Niche; the skill takes the SHA from the author and writes it in — it does not pick.
+
+(The generator template ships a **pinned baseline** — it hardcodes `:rf2-version`, `:shadow-version`, and `:react-version` in its `hooks.clj` so the one-command route hands you a known-good set with no discovery step. The version-discovery discipline above applies to the **manual** route and to later upgrades; the template route gives you a fixed pin you can bump.)
 
 **Never invent a version. Never silently pick `latest`.** Both are accidents the policy exists to prevent. If the author hasn't supplied a VERSION, stop and ask before editing any dep file.
 
@@ -85,17 +87,23 @@ re-frame2 itself ships no npm code — but Reagent depends on React, and shadow-
 ```json
 {
   "name": "your-app",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "watch":   "shadow-cljs watch app",
+    "release": "shadow-cljs release app"
+  },
   "devDependencies": {
-    "shadow-cljs": "<from pinned implementation/package.json>",
-    "react":       "<from pinned implementation/package.json>",
-    "react-dom":   "<from pinned implementation/package.json>"
+    "shadow-cljs": "<from pinned implementation/package.json>"
+  },
+  "dependencies": {
+    "react":     "<from pinned implementation/package.json>",
+    "react-dom": "<from pinned implementation/package.json>"
   }
 }
 ```
 
-Read `<path-to-re-frame2>/implementation/package.json` (verified pinned checkout — see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the `shadow-cljs` / `react` / `react-dom` versions verbatim. This is the **default path** and the safer baseline; pinning what the framework itself builds against avoids surprise breakage and silent exposure to newly published packages.
+`shadow-cljs` is a build-only tool, so it lives in `devDependencies`. `react` / `react-dom` are runtime dependencies of the shipped app (Reagent renders against them), so they live in `dependencies` — this matches the generator template's `package.json`. Read `<path-to-re-frame2>/implementation/package.json` (verified pinned checkout — see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the `shadow-cljs` / `react` / `react-dom` versions verbatim. This is the **default path** and the safer baseline; pinning what the framework itself builds against avoids surprise breakage and silent exposure to newly published packages.
 
 **Latest-from-npm is opt-in only.** If the author explicitly asks for the newest versions, run `npm view shadow-cljs version` / `npm view react version` / `npm view react-dom version` and **show the result for confirmation before writing it into `package.json`**. Do not auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop.
 
