@@ -88,7 +88,7 @@ function parseFilterPatterns(raw) {
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // rf2-043cm — `EXAMPLES_PORT` env-var override defaults to 8030. Lets
 // parallel workers / contended dev sessions (e.g. a long-running
-// `shadow-cljs watch` on the parallel-frames testbed at 8030)
+// `shadow-cljs watch` on the two-frame-isolation testbed at 8030)
 // retarget this orchestrator to a free port without editing the
 // script. No CLI surface is added.
 const PORT = Number(process.env.EXAMPLES_PORT || 8030);
