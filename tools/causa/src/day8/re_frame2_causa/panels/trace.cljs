@@ -8,12 +8,22 @@
 
   ## What this panel shows
 
-  A scrollable, timestamped ribbon scoped to the spine's focused
-  epoch. Each row carries:
+  A scrollable, relative-timestamped ribbon scoped to the spine's
+  focused epoch. Per the Figma design (rf2-ad7zx.8 — spec/021 §5.2 +
+  `design-reference/components/TracePanel.tsx`) each row carries:
 
-      timestamp · op-type-dot · operation · description · source-coord
+      relative-time · readable plain-language description · duration
 
-  Clicking a row toggles its inline payload expansion (no nav).
+  with the op-FAMILY colour rendered as a **3px left-border band**
+  (dispatch = mode accent · db = changed · fx = warning · reactive =
+  dim · machine = chart tone) — NOT an op-type dot. Child dispatches
+  **indent** under their parent cascade (causal nesting), and the
+  post-cascade reactive aftermath **collapses** under one expandable
+  `▸ reactive aftermath (N subs, M renders)` group so the core
+  dominoes stand out.
+
+  Clicking a row toggles its inline payload expansion (no nav);
+  clicking the reactive group toggles its children.
 
   ## Epoch-scoped feed (rf2-td380)
 
@@ -107,8 +117,52 @@
       :panel-id  :trace
       :render-id (str "trace-row-" id)})])
 
+;; ---- row layout constants (rf2-ad7zx.8) --------------------------------
+
+(def ^:private indent-px
+  "Causal-nesting indent per depth level (spec/021 §5.2 — child
+  dispatches indent under their parent cascade)."
+  20)
+
+(defn- op-row-cells
+  "The inner grid of one op row — relative timestamp · readable
+  description · per-op duration. Per spec/021 §5.2 the Figma row is
+  `t+N.Nms · readable description · duration` with the op-family band
+  as a 3px LEFT-BORDER on the row container (not a dot). The duration
+  column shows elapsed for event/view rows; reactive point-in-time
+  emits leave it blank."
+  [{:keys [rel-time time description duration-ms] :as _row} row-test-id]
+  [:div {:data-testid (str row-test-id "-summary")
+         :style       {:display       "grid"
+                       :grid-template-columns "84px minmax(0, 1fr) auto"
+                       :gap           "12px"
+                       :align-items   "center"
+                       :padding       "6px 16px"}}
+   ;; Relative timestamp (`t+N.Nms`); absolute clock as the hover title.
+   [:span {:data-testid (str row-test-id "-time")
+           :title       (or (h/format-time time) "")
+           :style {:color (:text-tertiary tokens)
+                   :font-size "11px"
+                   :white-space "nowrap"}}
+    (or rel-time "—")]
+   ;; Readable plain-language description (the dense default line).
+   [:span {:data-testid (str row-test-id "-description")
+           :style       {:color         (:text-primary tokens)
+                         :overflow      "hidden"
+                         :text-overflow "ellipsis"
+                         :white-space   "nowrap"}
+           :title       description}
+    description]
+   ;; Per-op duration column (blank for point-in-time reactive emits).
+   [:span {:data-testid (str row-test-id "-duration")
+           :style {:color (:text-tertiary tokens)
+                   :font-size "11px"
+                   :white-space "nowrap"
+                   :text-align "right"}}
+    (or (h/format-duration duration-ms) "")]])
+
 (defn- trace-row
-  "One row in the trace ribbon.
+  "One op row in the trace ribbon.
 
   Per rf2-z4fza: the React `:key` is the row's stable trace `:id`
   (via `h/row-key`). The earlier shape keyed on a tuple that mixed
@@ -118,6 +172,14 @@
   EVERY push. Same discipline class as rf2-kgn0c's `v:<variant-id>`
   cell-keying in the story workspace.
 
+  Per rf2-ad7zx.8 (spec/021 §5.2 · design-reference/TracePanel.tsx):
+  the op-family colour is a **3px left-border band** on the row
+  container (dispatch = mode accent · db = changed · fx = warning ·
+  reactive = dim · machine = chart tone) — NOT an op-type dot. Child
+  dispatches **indent** under their parent cascade via `:depth`. The
+  row body is the readable plain-language description with a per-op
+  duration column at the right.
+
   Per spec/021 §5.4 + rf2-7dyi8 the row-click behaviour is **inline
   payload expansion** (NOT pivot to event-detail) — the Trace panel
   is already scoped to the focused epoch (rf2-ycoct), so pivoting
@@ -125,20 +187,22 @@
   membership in `:rf.causa/trace-expanded-row-ids`; expanded rows
   render the shared data-display renderer below the row inside the
   same `<li>` so the React-key + scroll-anchoring discipline holds."
-  [{:keys [id time op-type operation description
-           source-coord dispatch-id]
+  [{:keys [id operation source-coord dispatch-id op-family depth]
     :as row}
    {:keys [expanded?]}]
   (let [row-test-id (str "rf-causa-trace-row-" id)
-        dot-colour  (h/op-type-colour op-type)
+        band-colour (h/op-family-colour row)
+        depth*      (or depth 0)
         ;; rf2-59e7k — destroy-event rows surface a 'Show cancellation
-        ;; cascade' action button next to the source-coord cell. The
-        ;; classifier mirrors helpers/destroy-operations so the trace
-        ;; ns has no upward dep on the cascade view.
+        ;; cascade' action button. The classifier mirrors
+        ;; helpers/destroy-operations so the trace ns has no upward dep
+        ;; on the cascade view.
         destroy?    (cch/destroy-event? {:operation operation})]
     [:li {:key         (h/row-key row)
           :data-testid row-test-id
           :data-rf-causa-expanded (boolean expanded?)
+          :data-rf-causa-op-family (some-> op-family name)
+          :data-rf-causa-depth depth*
           :on-click    (fn []
                          ;; rf2-7dyi8 — toggle inline payload expansion
                          ;; rather than pivoting to event-detail (spec
@@ -154,104 +218,141 @@
                                  [:rf.causa/cancellation-cascade-open
                                   {:kind :dispatch-id :id dispatch-id}]
                                  {:frame :rf/causa})))
-          :style       {:display        "block"
+          :style       {:display        "flex"
+                        :align-items    "stretch"
+                        ;; op-family colour band as a 3px LEFT-BORDER.
+                        :border-left    (str "3px solid " band-colour)
                         :border-bottom  (str "1px solid "
                                              (:border-subtle tokens))
                         :background     (when expanded? (:bg-1 tokens))
+                        ;; Causal-nesting indent (cascade tree).
+                        :margin-left    (str (* depth* indent-px) "px")
                         :cursor         "pointer"
                         :color          (:text-primary tokens)
                         :font-family    mono-stack
                         :font-size      "12px"
                         :line-height    1.35}}
-     ;; Row grid — the dense single-line summary per spec/021 §5.2.
-     ;; Held in an inner div so the optional payload can render as a
-     ;; sibling inside the same `<li>` without breaking the row's
-     ;; React-key stability discipline (rf2-z4fza).
-     [:div {:data-testid (str row-test-id "-summary")
-            :style       {:display       "grid"
-                          :grid-template-columns
-                          "84px 14px minmax(140px, 1fr) 2fr auto auto"
-                          :gap           "10px"
-                          :align-items   "center"
-                          :padding       "6px 16px"}}
-     ;; Timestamp
-     [:span {:data-testid (str row-test-id "-time")
-             :style {:color (:text-tertiary tokens)
-                     :font-size "11px"
-                     :white-space "nowrap"}}
-      (or (h/format-time time) "—")]
-     ;; op-type dot
-     [:span {:data-testid (str row-test-id "-op-type-dot")
-             :title       (str op-type)
-             :style       {:color dot-colour
-                           :font-weight 700
-                           :text-align "center"}}
-      "●"]
-     ;; Operation
-     [:span {:data-testid (str row-test-id "-operation")
-             :style       {:color         (:accent tokens)
-                           :overflow      "hidden"
-                           :text-overflow "ellipsis"
-                           :white-space   "nowrap"}
-             :title       (str operation)}
-      (or (some-> operation str) "—")]
-     ;; Description
-     [:span {:data-testid (str row-test-id "-description")
-             :style       {:color         (:text-secondary tokens)
-                           :overflow      "hidden"
-                           :text-overflow "ellipsis"
-                           :white-space   "nowrap"}
-             :title       description}
-      description]
-     ;; Source-coord (when present)
-     (if source-coord
-       [:button {:data-testid (str row-test-id "-source-coord")
-                 :on-click    (fn [e]
-                                (.stopPropagation e)
-                                (rf/dispatch [:rf.causa/open-in-editor
-                                              {:source-coord source-coord}] {:frame :rf/causa}))
-                 :style       {:background  "transparent"
-                               :color       (:accent tokens)
-                               :border      (str "1px solid " (:border-subtle tokens))
-                               :padding     "1px 6px"
-                               :border-radius "3px"
-                               :cursor      "pointer"
-                               :font-family mono-stack
-                               :font-size   "10px"}}
-        source-coord]
-       [:span {:style {:color (:text-tertiary tokens)
-                       :font-size "10px"}}
-        "—"])
-     ;; rf2-59e7k cancellation-cascade action (destroy rows only).
-     ;; Opens the popover focused on this row's dispatch-id. Right-
-     ;; clicking the row anywhere is the same action — this button is
-     ;; the visible affordance for the same shortcut.
-     (if destroy?
-       [:button {:data-testid (str row-test-id "-cancellation-cascade")
-                 :title       "Show cancellation cascade"
-                 :on-click    (fn [e]
-                                (.stopPropagation e)
-                                (rf/dispatch
-                                  [:rf.causa/cancellation-cascade-open
-                                   {:kind :dispatch-id :id dispatch-id}]
-                                  {:frame :rf/causa}))
-                 :style       {:background  "transparent"
-                               :color       (or (:red tokens)
-                                                (:text-secondary tokens))
-                               :border      (str "1px solid " (:border-subtle tokens))
-                               :padding     "1px 6px"
-                               :border-radius "3px"
-                               :cursor      "pointer"
-                               :font-family mono-stack
-                               :font-size   "10px"}}
-        "⟲ cascade"]
-       [:span {:style {:color (:text-tertiary tokens)
-                       :font-size "10px"
-                       :min-width "10px"}}
-        ""])]
-     ;; rf2-7dyi8 — inline payload expansion. Consumes the shared
-     ;; rf2-jgip1 data-display renderer (#1739, landed in main).
-     (when expanded? (render-payload row))]))
+     [:div {:style {:flex 1 :min-width 0}}
+      ;; Row grid + the per-row actions, held in an inner div so the
+      ;; optional payload renders as a sibling inside the same `<li>`
+      ;; without breaking the row's React-key discipline (rf2-z4fza).
+      [:div {:style {:display "flex" :align-items "center"}}
+       [:div {:style {:flex 1 :min-width 0}}
+        (op-row-cells row row-test-id)]
+       ;; Source-coord chip (when present).
+       (when source-coord
+         [:button {:data-testid (str row-test-id "-source-coord")
+                   :on-click    (fn [e]
+                                  (.stopPropagation e)
+                                  (rf/dispatch [:rf.causa/open-in-editor
+                                                {:source-coord source-coord}] {:frame :rf/causa}))
+                   :style       {:background  "transparent"
+                                 :color       (:accent tokens)
+                                 :border      (str "1px solid " (:border-subtle tokens))
+                                 :padding     "1px 6px"
+                                 :margin-right "8px"
+                                 :border-radius "3px"
+                                 :cursor      "pointer"
+                                 :font-family mono-stack
+                                 :font-size   "10px"}}
+          source-coord])
+       ;; rf2-59e7k cancellation-cascade action (destroy rows only).
+       (when destroy?
+         [:button {:data-testid (str row-test-id "-cancellation-cascade")
+                   :title       "Show cancellation cascade"
+                   :on-click    (fn [e]
+                                  (.stopPropagation e)
+                                  (rf/dispatch
+                                    [:rf.causa/cancellation-cascade-open
+                                     {:kind :dispatch-id :id dispatch-id}]
+                                    {:frame :rf/causa}))
+                   :style       {:background  "transparent"
+                                 :color       (or (:red tokens)
+                                                  (:text-secondary tokens))
+                                 :border      (str "1px solid " (:border-subtle tokens))
+                                 :padding     "1px 6px"
+                                 :margin-right "8px"
+                                 :border-radius "3px"
+                                 :cursor      "pointer"
+                                 :font-family mono-stack
+                                 :font-size   "10px"}}
+          "⟲ cascade"])]
+      ;; rf2-7dyi8 — inline payload expansion. Consumes the shared
+      ;; rf2-jgip1 data-display renderer (#1739, landed in main).
+      (when expanded? (render-payload row))]]))
+
+;; ---- reactive-aftermath collapse group (rf2-ad7zx.8) -------------------
+
+(defn- reactive-group-row
+  "Render one collapsed reactive-aftermath group — the spec/021 §5.2
+  `▸ reactive aftermath (N subs, M renders)` row. Clicking toggles the
+  group open via `:rf.causa/toggle-trace-group-expand`; expanded groups
+  render their child reactive rows (subs ran · views rendered) inline
+  inside the same `<li>` so the React-key + scroll discipline holds.
+  The group rides the dim op-family band so the core dominoes stand
+  out."
+  [{:keys [id rel-time summary children depth] :as _group}
+   {:keys [expanded? expanded-row-ids]}]
+  (let [grp-test-id (str "rf-causa-trace-group-" id)
+        depth*      (or depth 0)
+        {:keys [subs renders]} summary
+        band-colour (h/op-family-colour {:op-family :reactive})]
+    [:li {:key         (str "g:" id)
+          :data-testid grp-test-id
+          :data-rf-causa-expanded (boolean expanded?)
+          :data-rf-causa-op-family "reactive"
+          :on-click    (fn []
+                         (rf/dispatch [:rf.causa/toggle-trace-group-expand id]
+                                      {:frame :rf/causa}))
+          :style       {:display       "block"
+                        :border-left   (str "3px solid " band-colour)
+                        :border-bottom (str "1px solid " (:border-subtle tokens))
+                        :margin-left   (str (* depth* indent-px) "px")
+                        :cursor        "pointer"
+                        :color         (:text-secondary tokens)
+                        :font-family   mono-stack
+                        :font-size     "12px"
+                        :line-height   1.35}}
+     [:div {:data-testid (str grp-test-id "-summary")
+            :style {:display "grid"
+                    :grid-template-columns "84px minmax(0, 1fr)"
+                    :gap "12px"
+                    :align-items "center"
+                    :padding "6px 16px"}}
+      [:span {:style {:color (:text-tertiary tokens)
+                      :font-size "11px"
+                      :white-space "nowrap"}}
+       (or rel-time "—")]
+      [:span {:style {:color (:text-secondary tokens)}}
+       (str (if expanded? "▾" "▸")
+            " reactive aftermath ("
+            subs " sub" (when (not= 1 subs) "s") ", "
+            renders " render" (when (not= 1 renders) "s") ")")]]
+     ;; Expanded — render the child reactive rows inline.
+     (when expanded?
+       [:div {:data-testid (str grp-test-id "-children")
+              :style {:padding-left "16px"
+                      :background (:bg-1 tokens)}}
+        (for [child children]
+          ^{:key (h/row-key child)}
+          (trace-row child
+                     {:expanded? (contains? (or expanded-row-ids #{})
+                                            (:id child))}))])]))
+
+(defn- trace-node
+  "Render one display node — either a `:reactive-group` collapse group
+  or a plain op row. The view feeds the structural `:nodes` projection
+  (rf2-ad7zx.8) through this so the reactive-aftermath group, causal
+  nesting, and op-family bands all render from one pure-data tree."
+  [node {:keys [expanded-row-ids expanded-group-ids] :as _state}]
+  (if (= :reactive-group (:kind node))
+    (reactive-group-row node
+                        {:expanded? (contains? (or expanded-group-ids #{})
+                                               (:id node))
+                         :expanded-row-ids expanded-row-ids})
+    (trace-row node
+               {:expanded? (contains? (or expanded-row-ids #{})
+                                      (:id node))})))
 
 ;; ---- empty states -------------------------------------------------------
 
@@ -341,7 +442,7 @@
   lifecycle-status colour — ONE bar driven by `event-status-colour`,
   the same fn the L2 row + Event header consume."
   []
-  (let [{:keys [rows empty-kind] :as _data}
+  (let [{:keys [nodes empty-kind] :as _data}
         @(rf/subscribe [:rf.causa/trace-feed])
         ;; rf2-b76v4 — pull the focused cascade + focus map so the
         ;; cascade-status timeline bar can render with the canonical
@@ -353,16 +454,16 @@
         focused-cascade (when focused-id
                           (some #(when (= focused-id (:dispatch-id %)) %)
                                 cascades))
-        ;; rf2-7dyi8 — per-row inline payload expansion set. The
-        ;; trace-row hiccup reads `expanded?` from the closure built
-        ;; here so the row-fn keeps the single-arg shape `overflow/
-        ;; capped-list` requires.
+        ;; rf2-7dyi8 — per-row inline payload expansion set; rf2-ad7zx.8
+        ;; — per-group reactive-aftermath expansion set. The node-fn
+        ;; reads both from the closure built here so it keeps the
+        ;; single-arg shape `overflow/capped-list` requires.
         expanded-ids   @(rf/subscribe [:rf.causa/trace-expanded-row-ids])
-        row-with-state (fn [row]
-                         (trace-row row
-                                    {:expanded?
-                                     (contains? (or expanded-ids #{})
-                                                (:id row))}))]
+        expanded-groups @(rf/subscribe [:rf.causa/trace-expanded-group-ids])
+        node-with-state (fn [node]
+                          (trace-node node
+                                      {:expanded-row-ids   expanded-ids
+                                       :expanded-group-ids expanded-groups}))]
     [:section {:data-testid "rf-causa-trace"
                :style       {:height         "100%"
                              :display        "flex"
@@ -385,13 +486,13 @@
         :no-focus      (empty-state-no-focus)
         :epoch-evicted (empty-state-epoch-evicted)
         nil            (overflow/capped-list
-                         rows
+                         nodes
                          {:panel-id "trace"
                           :ul-attrs {:data-testid "rf-causa-trace-feed"
                                      :style       {:list-style "none"
                                                    :margin     0
                                                    :padding    0}}
-                          :row-fn   row-with-state}))]]))
+                          :row-fn   node-with-state}))]]))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -464,7 +565,27 @@
 
   (rf/reg-event-db :rf.causa/clear-trace-expand
     (fn [db _event]
-      (dissoc db :trace-expanded-row-ids)))
+      (dissoc db :trace-expanded-row-ids :trace-expanded-group-ids)))
+
+  ;; ---- rf2-ad7zx.8 — reactive-aftermath collapse groups --------------
+  ;;
+  ;; Per spec/021 §5.2 the post-cascade reactive emits collapse under
+  ;; one expandable `▸ reactive aftermath (N subs, M renders)` group so
+  ;; the core dominoes stand out. The expanded-group set lives in app-db
+  ;; (keyed by the group's stable `react-grp:<id>` id) so the toggle
+  ;; survives sub-recomputes, exactly as the per-row expansion set does.
+
+  (rf/reg-sub :rf.causa/trace-expanded-group-ids
+    (fn [db _query]
+      (get db :trace-expanded-group-ids #{})))
+
+  (rf/reg-event-db :rf.causa/toggle-trace-group-expand
+    (fn [db [_ group-id]]
+      (let [current (get db :trace-expanded-group-ids #{})]
+        (assoc db :trace-expanded-group-ids
+               (if (contains? current group-id)
+                 (disj current group-id)
+                 (conj current group-id))))))
 
   ;; rf2-2moh1 — register the Dynamic Trace tab with the internal L4
   ;; tab registry.

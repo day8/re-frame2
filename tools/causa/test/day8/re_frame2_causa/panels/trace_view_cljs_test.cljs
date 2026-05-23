@@ -242,8 +242,11 @@
             "per-row chip cell is gone")))))
 
 (deftest feed-list-renders-when-focused-epoch-has-events
-  (testing "rf2-td380: with a focused epoch the panel renders the <ul>
-            feed with one <li> per row"
+  (testing "rf2-td380 + rf2-ad7zx.8: with a focused epoch the panel
+            renders the <ul> feed; the core dominoes (dispatch/fx) are
+            top-level op rows and the reactive aftermath (the
+            nil-dispatch-id :rf.sub/run) collapses under one group
+            (spec/021 §5.2)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (seed-history!
@@ -258,10 +261,18 @@
             rows (find-all-by-testid-prefix tree "rf-causa-trace-row-")]
         (is (some? (find-by-testid tree "rf-causa-trace-feed"))
             "feed <ul> present")
-        (is (some? (find-by-testid tree "rf-causa-trace-row-3"))
-            "the async nil-dispatch-id reactive row is present (rf2-td380)")
-        (is (>= (count rows) 3)
-            "at least one rendered node per row")))))
+        (is (some? (find-by-testid tree "rf-causa-trace-row-1"))
+            "the dispatch op row is a top-level row")
+        (is (some? (find-by-testid tree "rf-causa-trace-row-2"))
+            "the fx op row is a top-level row")
+        ;; The async nil-dispatch-id :rf.sub/run folds into the reactive
+        ;; aftermath collapse group — NOT a top-level row (rf2-ad7zx.8).
+        (is (nil? (find-by-testid tree "rf-causa-trace-row-3"))
+            "the reactive sub row is collapsed (not a top-level row)")
+        (is (some? (find-by-testid tree "rf-causa-trace-group-react-grp:3"))
+            "a reactive-aftermath collapse group renders for the sub run")
+        (is (>= (count rows) 2)
+            "the two core-domino op rows render")))))
 
 ;; ---- (3) empty states ---------------------------------------------------
 
@@ -445,6 +456,161 @@
         (is @stop-evt "stopPropagation was called so the row's pivot
                        handler doesn't also fire")))))
 
+;; ---- (5b) Figma structural surfaces — rf2-ad7zx.8 ----------------------
+
+(defn- node-attrs
+  "The attribute map of the rendered <li> with the given data-testid."
+  [tree testid]
+  (some-> (find-by-testid tree testid) second))
+
+(deftest op-rows-band-by-op-family-left-border
+  (testing "rf2-ad7zx.8: each op row carries a 3px op-family LEFT-BORDER
+            (not an op-type dot) and a data-rf-causa-op-family attr"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :dispatch-id 1})
+                    (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                               :dispatch-id 1})
+                    (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
+                               :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree (trace/Panel)]
+        ;; The legacy op-type dot is gone.
+        (is (nil? (find-by-testid tree "rf-causa-trace-row-1-op-type-dot"))
+            "op-type dot is removed (rf2-ad7zx.8)")
+        (is (= "dispatch" (:data-rf-causa-op-family
+                            (node-attrs tree "rf-causa-trace-row-1")))
+            "dispatch row carries the dispatch op-family")
+        (is (= "db" (:data-rf-causa-op-family
+                      (node-attrs tree "rf-causa-trace-row-2")))
+            "db-changed row carries the db op-family")
+        (is (= "fx" (:data-rf-causa-op-family
+                      (node-attrs tree "rf-causa-trace-row-3")))
+            "fx row carries the fx op-family")
+        (let [border (get-in (node-attrs tree "rf-causa-trace-row-1")
+                             [:style :border-left])]
+          (is (and (string? border) (re-find #"^3px solid " border))
+              "the op-family band is a 3px left-border on the row"))))))
+
+(deftest op-rows-render-relative-time-and-duration-columns
+  (testing "rf2-ad7zx.8: rows lead with a relative t+N.Nms time and
+            carry a duration column (elapsed for event/view rows)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :time 1000 :dispatch-id 1})
+                    (-> (mk-trace {:id 2 :op-type :rf.view :operation :rf.view/render
+                                   :time 1002})
+                        (assoc-in [:tags :elapsed-ms] 0.4))])])
+      (focus! 1)
+      (let [tree (trace/Panel)]
+        (is (= "t+0.0ms" (->> (find-by-testid tree "rf-causa-trace-row-1-time")
+                              last))
+            "first row reads t+0.0ms relative to the epoch origin")
+        ;; The view-render row carries its elapsed duration; it folds into
+        ;; the reactive group, so expand the group to read its child cell.
+        (rf/dispatch-sync [:rf.causa/toggle-trace-group-expand "react-grp:2"])
+        (let [tree (trace/Panel)
+              dur  (->> (find-by-testid tree "rf-causa-trace-row-2-duration")
+                       last)]
+          (is (= "0.4 ms" dur)
+              "the view-render row shows its 0.4 ms elapsed duration"))))))
+
+(deftest reactive-aftermath-group-renders-and-toggles
+  (testing "rf2-ad7zx.8: the reactive aftermath collapses under one
+            expandable group; toggling it renders the child reactive
+            rows inline"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :time 100 :dispatch-id 1})
+                    (mk-trace {:id 2 :op-type :rf.sub :operation :rf.sub/run :time 110})
+                    (mk-trace {:id 3 :op-type :rf.sub :operation :rf.sub/run :time 111})
+                    (mk-trace {:id 4 :op-type :rf.view :operation :rf.view/render :time 120})])])
+      (focus! 1)
+      ;; Collapsed by default — the group renders, children do not.
+      (let [tree (trace/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-trace-group-react-grp:2"))
+            "reactive-aftermath group renders")
+        (is (nil? (find-by-testid tree "rf-causa-trace-row-2"))
+            "child reactive rows are collapsed by default"))
+      ;; Expand the group → children render.
+      (rf/dispatch-sync [:rf.causa/toggle-trace-group-expand "react-grp:2"])
+      (let [tree (trace/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-trace-group-react-grp:2-children"))
+            "expanded group renders its children container")
+        (is (some? (find-by-testid tree "rf-causa-trace-row-2"))
+            "a child reactive row renders when the group is expanded")))))
+
+(deftest reactive-group-click-fires-toggle-event
+  (testing "rf2-ad7zx.8: clicking the reactive group dispatches
+            :rf.causa/toggle-trace-group-expand with the group's id"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :time 100 :dispatch-id 1})
+                    (mk-trace {:id 2 :op-type :rf.sub :operation :rf.sub/run :time 110})])])
+      (focus! 1)
+      (let [dispatches (atom [])]
+        (with-redefs [rf/dispatch* (fn
+                                     ([ev]    (swap! dispatches conj ev) nil)
+                                     ([ev _o] (swap! dispatches conj ev) nil))]
+          (let [tree    (trace/Panel)
+                grp     (find-by-testid tree "rf-causa-trace-group-react-grp:2")
+                handler (:on-click (second grp))]
+            (is (some? grp) "reactive group node present")
+            (when handler (handler))))
+        (is (some #(= [:rf.causa/toggle-trace-group-expand "react-grp:2"] %)
+                  @dispatches)
+            "group click fires the toggle event with the group id")))))
+
+(deftest toggle-trace-group-expand-event-mutates-set
+  (testing "rf2-ad7zx.8: :rf.causa/toggle-trace-group-expand toggles
+            membership in :trace-expanded-group-ids"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/toggle-trace-group-expand "react-grp:5"])
+      (is (= #{"react-grp:5"}
+             @(rf/subscribe [:rf.causa/trace-expanded-group-ids]))
+          "first toggle adds the group id")
+      (rf/dispatch-sync [:rf.causa/toggle-trace-group-expand "react-grp:5"])
+      (is (= #{} @(rf/subscribe [:rf.causa/trace-expanded-group-ids]))
+          "toggling again removes it"))))
+
+(deftest child-dispatch-rows-indent-via-depth
+  (testing "rf2-ad7zx.8: a child dispatch (parent-dispatch-id → a parent
+            in the same epoch) renders with a causal-nesting depth attr
+            and a margin-left indent"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(-> (mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                                   :time 100 :dispatch-id 1}))
+                    ;; child dispatch — parent-dispatch-id points at 1
+                    (-> (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/dispatched
+                                   :time 110 :dispatch-id 2})
+                        (assoc-in [:tags :rf.trace/parent-dispatch-id] 1))])])
+      (focus! 1)
+      (let [tree    (trace/Panel)
+            parent  (node-attrs tree "rf-causa-trace-row-1")
+            child   (node-attrs tree "rf-causa-trace-row-2")]
+        (is (= 0 (:data-rf-causa-depth parent)) "root dispatch is depth 0")
+        (is (= 1 (:data-rf-causa-depth child))  "child dispatch is depth 1")
+        (is (= "0px" (get-in parent [:style :margin-left]))
+            "root row has no indent")
+        (is (not= "0px" (get-in child [:style :margin-left]))
+            "child row is indented under its parent (cascade tree)")))))
+
 ;; ---- (6) frame isolation ------------------------------------------------
 
 (deftest trace-expand-state-does-not-leak-into-default-frame
@@ -485,14 +651,18 @@
             component"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
+      ;; All three are core-domino op rows (event/fx/db-changed) so they
+      ;; render as top-level rows — the reactive aftermath collapses into
+      ;; a group (rf2-ad7zx.8), so this test uses non-reactive rows to
+      ;; exercise the per-row key discipline directly.
       (seed-history!
         [(mk-epoch 1 1
                    [(mk-trace {:id 11 :op-type :rf.event :operation :rf.event/dispatched
                                :time 100 :dispatch-id 1})
                     (mk-trace {:id 22 :op-type :rf.fx :operation :rf.fx/handled
                                :time 200 :dispatch-id 1})
-                    (mk-trace {:id 33 :op-type :rf.sub :operation :rf.sub/run
-                               :time 300})])])
+                    (mk-trace {:id 33 :op-type :rf.event :operation :rf.event/db-changed
+                               :time 300 :dispatch-id 1})])])
       (focus! 1)
       (let [tree (trace/Panel)
             k11  (:key (second (row-li-by-id tree 11)))

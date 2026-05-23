@@ -818,13 +818,16 @@ history buffer.").
 
 | Sub | Reads |
 |---|---|
-| `:rf.causa/trace-feed` | The focused epoch record's `:trace-events`, resolved via `:rf.causa/focus` (`:epoch-id`) + `:rf.causa/epoch-history`. No filtering. Returns `{:rows :total :rendered :epoch-id :empty-kind}` (`:rendered` = `:total` since there is no filter). |
+| `:rf.causa/trace-feed` | The focused epoch record's `:trace-events`, resolved via `:rf.causa/focus` (`:epoch-id`) + `:rf.causa/epoch-history`. No filtering. Returns `{:rows :nodes :total :rendered :epoch-id :empty-kind}` (`:rendered` = `:total` since there is no filter). `:rows` is the flat oldest-first projection (each row carries `:op-family` · `:rel-time` · `:duration-ms` · `:parent-dispatch-id`). `:nodes` is the structural display tree the view paints: contiguous reactive emits fold into one `:reactive-group` node (`{:summary {:subs N :renders M} :children [...]}`), and every node carries a causal-nesting `:depth` (rf2-ad7zx.8). |
+| `:rf.causa/trace-expanded-row-ids` | The set of trace `:id`s whose payload is expanded inline (per-row click). |
+| `:rf.causa/trace-expanded-group-ids` | The set of reactive-aftermath group ids that are expanded (group click — rf2-ad7zx.8). |
 
 ### §5.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
 | Row → expand payload | Inline in panel (no nav — toggles membership in `:rf.causa/trace-expanded-row-ids`) |
+| Reactive-aftermath group → expand | Inline in panel (no nav — toggles membership in `:rf.causa/trace-expanded-group-ids`, revealing the collapsed `:rf.sub/run` / `:rf.view/render` children; rf2-ad7zx.8) |
 | Source-coord chip | Opens the source coord in the editor (`:rf.causa/open-in-editor`) |
 | Right-click a destroy-event row / `⟲ cascade` button | Opens the cancellation-cascade popover for that row's dispatch-id |
 

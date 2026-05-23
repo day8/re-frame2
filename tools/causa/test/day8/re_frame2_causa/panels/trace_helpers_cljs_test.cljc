@@ -154,12 +154,14 @@
       (is (= 17 (:epoch-id feed)))
       (is (nil? (:empty-kind feed))))))
 
-(deftest project-feed-from-epoch-rows-newest-first
-  (testing "rows render newest-first for display parity with the issues
-            ribbon (the epoch's :trace-events are oldest-first)"
+(deftest project-feed-from-epoch-rows-oldest-first
+  (testing "rf2-ad7zx.8: rows now render OLDEST-first (chronological)
+            so the Figma causal nesting reads top-down — a parent
+            dispatch then its indented child — and the reactive
+            aftermath collapses between the core dominoes"
     (let [epoch (domino-trail-epoch)
           feed  (h/project-feed-from-epoch epoch :focused)]
-      (is (= [7 6 5 4 3 2 1] (mapv :id (:rows feed)))))))
+      (is (= [1 2 3 4 5 6 7] (mapv :id (:rows feed)))))))
 
 (deftest project-feed-from-epoch-no-events
   (testing "a focused epoch with empty :trace-events → :no-events"
@@ -231,6 +233,219 @@
   (let [rows [{:id 1} {:id 2} {:id 3}]]
     (is (= {:id 2} (h/find-row rows 2)))
     (is (nil? (h/find-row rows 99)))))
+
+;; ---- (4b) op-family classification — rf2-ad7zx.8 -----------------------
+;;
+;; Per spec/021 §5.2 + design-reference/components/TracePanel.tsx each
+;; row bands a 3px op-FAMILY-coloured left-border — FIVE families plus
+;; the two severity tiers — not the full op-type vocabulary.
+
+(deftest op-family-classifies-the-five-figma-families
+  (testing "dispatch family — the event side (run-start / run-end /
+            dispatched), minus db-changed"
+    (is (= :dispatch (h/op-family {:op-type :rf.event
+                                   :operation :rf.event/dispatched})))
+    (is (= :dispatch (h/op-family {:op-type :rf.event
+                                   :operation :rf.event/run-end}))))
+  (testing "db family — the db-changed operation specifically"
+    (is (= :db (h/op-family {:op-type :rf.event
+                             :operation :rf.event/db-changed}))))
+  (testing "fx family — the effect side"
+    (is (= :fx (h/op-family {:op-type :rf.fx :operation :rf.fx/handled}))))
+  (testing "reactive family — both subs and views"
+    (is (= :reactive (h/op-family {:op-type :rf.sub :operation :rf.sub/run})))
+    (is (= :reactive (h/op-family {:op-type :rf.view
+                                   :operation :rf.view/render}))))
+  (testing "machine family"
+    (is (= :machine (h/op-family {:op-type :rf.machine
+                                  :operation :rf.machine/transition}))))
+  (testing "severity tiers are preserved — a failure never hides under
+            a family band"
+    (is (= :error   (h/op-family {:op-type :error :operation :rf.error/x})))
+    (is (= :warning (h/op-family {:op-type :warning :operation :rf.warn/x}))))
+  (testing "unknown op-types fall back to :dispatch-adjacent neutral"
+    (is (= :dispatch (h/op-family {:op-type :totally-made-up})))))
+
+(deftest project-row-carries-op-family
+  (let [row (h/project-row (ev {:id 1 :op-type :rf.event
+                                :operation :rf.event/db-changed}))]
+    (is (= :db (:op-family row))
+        "project-row stamps :op-family for the left-border band")))
+
+(deftest op-family-colour-maps-each-family-to-a-distinct-token
+  ;; Post rf2-on4cm the colours are CSS-variable strings (`tokens/tokens`).
+  ;; Compare against the var-map so the test pins the indirection.
+  (is (= (:accent tokens/tokens)
+         (h/op-family-colour {:op-type :rf.event :operation :rf.event/dispatched})))
+  (is (= (:accent-static tokens/tokens)
+         (h/op-family-colour {:op-type :rf.event :operation :rf.event/db-changed})))
+  (is (= (:warning tokens/tokens)
+         (h/op-family-colour {:op-type :rf.fx :operation :rf.fx/handled})))
+  (is (= (:dim tokens/tokens)
+         (h/op-family-colour {:op-type :rf.sub :operation :rf.sub/run})))
+  (is (= (:green tokens/tokens)
+         (h/op-family-colour {:op-type :rf.machine :operation :rf.machine/transition})))
+  (is (= (:red tokens/tokens)
+         (h/op-family-colour {:op-type :error :operation :rf.error/x})))
+  (testing "the five op-family bands resolve to distinct colours"
+    (let [bands (mapv (fn [[ot op]] (h/op-family-colour {:op-type ot :operation op}))
+                      [[:rf.event :rf.event/dispatched]
+                       [:rf.event :rf.event/db-changed]
+                       [:rf.fx :rf.fx/handled]
+                       [:rf.sub :rf.sub/run]
+                       [:rf.machine :rf.machine/transition]])]
+      (is (= 5 (count (distinct bands)))
+          "dispatch / db / fx / reactive / machine bands are all distinct"))))
+
+;; ---- (4c) readable plain-language description — rf2-ad7zx.8 ------------
+
+(deftest readable-description-figma-plain-language
+  (testing "dispatch → 'dispatched <event-vec>'"
+    (is (= "dispatched [:counter/inc]"
+           (h/readable-description
+             (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                  :tags {:rf.event/v [:counter/inc]}})))))
+  (testing "machine → 'machine <id> <from> → <to>' (states without colons)"
+    (is (= "machine :title/flow idle → loading"
+           (h/readable-description
+             (ev {:id 1 :op-type :rf.machine :operation :rf.machine/transition
+                  :tags {:machine-id :title/flow :from :idle :to :loading}})))))
+  (testing "sub → 'sub ran <id>'"
+    (is (= "sub ran :app/counter"
+           (h/readable-description
+             (ev {:id 1 :op-type :rf.sub :operation :rf.sub/run
+                  :tags {:rf.sub/id :app/counter}})))))
+  (testing "fx → 'fx <id>'"
+    (is (= "fx :dispatch"
+           (h/readable-description
+             (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
+                  :tags {:rf.fx/id :dispatch}})))))
+  (testing "unknown op falls back to short-description (never blank)"
+    (is (= ":rf.event/run-end"
+           (h/readable-description
+             (ev {:id 1 :op-type :rf.event :operation :rf.event/run-end
+                  :tags {}}))))))
+
+;; ---- (4d) duration — rf2-ad7zx.8 --------------------------------------
+
+(deftest duration-ms-reads-elapsed
+  (testing "duration-ms pulls :elapsed-ms from tags"
+    (is (= 0.4 (h/duration-ms (ev {:id 1 :op-type :rf.view
+                                   :operation :rf.view/render
+                                   :tags {:elapsed-ms 0.4}})))))
+  (testing "reactive point-in-time emits carry no elapsed → nil"
+    (is (nil? (h/duration-ms (ev {:id 1 :op-type :rf.sub
+                                  :operation :rf.sub/run
+                                  :tags {:rf.sub/id :x}}))))))
+
+(deftest format-duration-figma-form
+  (is (= "0.4 ms" (h/format-duration 0.4)))
+  (is (= "12.0 ms" (h/format-duration 12)))
+  (is (nil? (h/format-duration nil)))
+  (is (nil? (h/format-duration "nope"))))
+
+;; ---- (4e) relative timing — rf2-ad7zx.8 -------------------------------
+
+(deftest relative-time-figma-form
+  (testing "epoch-t0 is the earliest row time"
+    (is (= 100 (h/epoch-t0 [{:time 300} {:time 100} {:time 200}])))
+    (is (nil? (h/epoch-t0 [{:time nil} {:time nil}]))))
+  (testing "format-rel-time renders 't+N.Nms' relative to t0"
+    (is (= "t+0.0ms" (h/format-rel-time 100 100)))
+    (is (= "t+2.0ms" (h/format-rel-time 102 100)))
+    (is (nil? (h/format-rel-time nil 100))))
+  (testing "with-rel-times stamps :rel-time on every row"
+    (let [rows (h/with-rel-times [{:time 100} {:time 103}])]
+      (is (= ["t+0.0ms" "t+3.0ms"] (mapv :rel-time rows))))))
+
+;; ---- (4f) reactive-aftermath collapse group — rf2-ad7zx.8 -------------
+
+(deftest reactive-aftermath-collapses-to-one-group
+  (testing "a contiguous run of reactive rows folds into one group node
+            carrying the (N subs, M renders) summary + the children"
+    (let [rows  (h/project-rows (:trace-events (domino-trail-epoch)))
+          nodes (h/group-reactive-aftermath rows)
+          groups (filter #(= :reactive-group (:kind %)) nodes)]
+      (is (= 1 (count groups))
+          "the trailing 2 subs + 1 render fold into ONE group")
+      (let [g (first groups)]
+        (is (= {:subs 2 :renders 1} (:summary g))
+            "summary counts subs ran vs views rendered")
+        (is (= 3 (count (:children g)))
+            "the group carries its 3 child reactive rows")
+        (is (= :reactive (:op-family g)))
+        (is (string? (:id g))))
+      (testing "the core dominoes (dispatch/db/fx) stay as flat op rows"
+        (is (= 4 (count (remove #(= :reactive-group (:kind %)) nodes)))
+            "4 event-side rows remain ungrouped")))))
+
+(deftest reactive-runs-fold-in-place-preserving-causal-structure
+  (testing "a reactive run BETWEEN two event-side rows stays between
+            them — the fold is per-contiguous-run, not a global sweep"
+    (let [rows  [{:id 1 :op-type :rf.event :op-family :dispatch}
+                 {:id 2 :op-type :rf.sub   :op-family :reactive}
+                 {:id 3 :op-type :rf.event :op-family :dispatch}
+                 {:id 4 :op-type :rf.sub   :op-family :reactive}
+                 {:id 5 :op-type :rf.view  :op-family :reactive}]
+          nodes (h/group-reactive-aftermath rows)]
+      (is (= [:op :reactive-group :op :reactive-group]
+             (mapv #(or (:kind %) :op) nodes))
+          "two separate reactive runs → two separate groups, in place"))))
+
+;; ---- (4g) causal nesting — rf2-ad7zx.8 --------------------------------
+
+(deftest causal-nesting-indents-child-dispatches
+  (testing "a child dispatch (parent-dispatch-id → an in-epoch dispatch)
+            gets depth 1; the root dispatch is depth 0"
+    (let [rows  [{:dispatch-id 1 :parent-dispatch-id nil}
+                 {:dispatch-id 2 :parent-dispatch-id 1}
+                 {:dispatch-id 3 :parent-dispatch-id 2}]
+          depths (h/nesting-depths rows)]
+      (is (= 0 (get depths 1)))
+      (is (= 1 (get depths 2)))
+      (is (= 2 (get depths 3)))))
+  (testing "a parent not present in this epoch ⇒ the child is a root
+            (depth 0) — the lineage walk only counts in-epoch hops"
+    (let [depths (h/nesting-depths [{:dispatch-id 5 :parent-dispatch-id 99}])]
+      (is (= 0 (get depths 5)))))
+  (testing "with-nesting-depth stamps :depth onto op nodes"
+    (let [nodes (h/with-nesting-depth
+                  [{:kind :op :dispatch-id 1 :parent-dispatch-id nil}
+                   {:kind :op :dispatch-id 2 :parent-dispatch-id 1}])]
+      (is (= [0 1] (mapv :depth nodes))))))
+
+(deftest build-display-nodes-end-to-end
+  (testing "build-display-nodes folds rel-times + reactive group +
+            nesting depth in one pass; oldest-first ordering"
+    (let [rows  (h/project-rows (:trace-events (domino-trail-epoch)))
+          nodes (h/build-display-nodes rows)]
+      ;; 4 event-side op rows + 1 reactive group = 5 nodes.
+      (is (= 5 (count nodes)))
+      (is (= 1 (count (filter #(= :reactive-group (:kind %)) nodes))))
+      (is (every? #(contains? % :depth) nodes)
+          "every node carries a causal-nesting :depth")
+      (is (every? (fn [n]
+                    (if (= :reactive-group (:kind n))
+                      (some? (:rel-time n))
+                      (contains? n :rel-time)))
+                  nodes)
+          "every node carries a relative time"))))
+
+;; ---- (4h) feed exposes :nodes — rf2-ad7zx.8 ---------------------------
+
+(deftest project-feed-from-epoch-exposes-structural-nodes
+  (testing "the feed carries the structural :nodes tree the Figma view
+            paints (reactive group + nesting + bands) AND the flat
+            oldest-first :rows"
+    (let [feed (h/project-feed-from-epoch (domino-trail-epoch) :focused)]
+      (is (contains? feed :nodes))
+      (is (= 5 (count (:nodes feed)))
+          "4 event-side op rows + 1 reactive-aftermath group")
+      (is (= 1 (count (filter #(= :reactive-group (:kind %)) (:nodes feed)))))
+      (testing "rows are OLDEST-first now (Figma reads top-down for
+                causal nesting), with rel-times stamped"
+        (is (= [1 2 3 4 5 6 7] (mapv :id (:rows feed))))
+        (is (every? #(contains? % :rel-time) (:rows feed)))))))
 
 ;; ---- (5) op-type-colour ------------------------------------------------
 
