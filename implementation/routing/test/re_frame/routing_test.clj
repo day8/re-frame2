@@ -2806,6 +2806,48 @@
       (is (empty? @pushed)
           "non-URL-bound frame's push is suppressed by the gated fx"))))
 
+(deftest single-non-default-frame-owns-url-when-default-opts-out
+  (testing "a non-default frame becomes the URL owner when :rf/default opts
+            OUT (:url-bound? false) and the non-default opts IN
+            (:url-bound? true) — the step-deck ownership contract
+            (rf2-6qgbs.3, Spec 012 §Multi-frame routing)"
+    ;; The step-deck mounts its content in the NON-DEFAULT :step-deck
+    ;; frame and wants it to own the URL. A bare `:step-deck {:url-bound?
+    ;; true}` is NOT enough: the auto-registered :rf/default frame's
+    ;; missing `:url-bound?` reads as default-true, so it keeps winning the
+    ;; ownership tie and :step-deck's navs never push the URL. Releasing
+    ;; the default (`:url-bound? false`) hands ownership to :step-deck.
+    (rf/reg-frame :rf/default {:url-bound? false})
+    (rf/reg-frame :step-deck  {:url-bound? true})
+    (is (= :step-deck (routing/url-owner-frame-id))
+        "with :rf/default opted out, the lone :url-bound? true frame owns the URL")
+
+    ;; End-to-end through the real production :rf.nav/push-url fx: the
+    ;; owner pushes, a non-owner is suppressed. We re-register the fx with
+    ;; a spy that consults the REAL `url-owner-frame-id` (NOT a
+    ;; reimplemented gate — a reimplemented gate cannot catch a regression
+    ;; in the resolution itself, which is the bug rf2-6qgbs.3 surfaced).
+    (rf/reg-route :route/home {:path "/home"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}
+                  :doc       "test re-registration consulting the production
+                              url-owner-frame-id resolver"}
+                 (fn [{:keys [frame]} url]
+                   (when (= (or frame :rf/default) (routing/url-owner-frame-id))
+                     (swap! pushed conj {:frame frame :url url}))))
+
+      ;; :step-deck is the owner → its nav pushes the URL.
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :step-deck})
+      (is (= [{:frame :step-deck :url "/home"}] @pushed)
+          ":step-deck owns the URL, so its navigate pushes /home")
+
+      ;; :rf/default opted out → its nav is suppressed (no longer the owner).
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
+      (is (empty? @pushed)
+          ":rf/default opted out of URL ownership, so its push is suppressed"))))
+
 ;; ===========================================================================
 ;; rf2-aleg9 — match-against direct function-boundary tests
 ;; (follow-on from rf2-q1z1u F8)

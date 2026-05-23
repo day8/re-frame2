@@ -1781,12 +1781,19 @@
   (when (map? config)
     (:url-bound? config)))
 
-(defn- url-owner-frame-id
+(defn url-owner-frame-id
   "Return the single frame allowed to mutate browser history. The default
   frame owns the URL unless it explicitly opts out; otherwise the first
   explicit non-default `:url-bound? true` frame wins deterministically.
   Duplicate registrations still emit `:rf.error/duplicate-url-binding`,
-  but this predicate enforces the one-owner rule at fx time."
+  but this predicate enforces the one-owner rule at fx time.
+
+  Public (rather than `defn-`) so the ownership-resolution contract is
+  directly assertable — in particular the single-non-default-owner case
+  the step-deck testbed relies on (rf2-6qgbs.3): when `:rf/default` opts
+  OUT (`:url-bound? false`) a non-default `:url-bound? true` frame becomes
+  the owner. A reimplemented gate cannot catch a regression in THIS
+  resolution; the test must reach the real fn."
   []
   (let [frames       (registrar/registrations :frame)
         default-meta (get frames :rf/default)]
