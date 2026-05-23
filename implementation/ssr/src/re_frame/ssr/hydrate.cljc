@@ -181,11 +181,33 @@
 
       :else nil)))                                     ;; match → silent
 
+(defn- detect-mismatch?
+  "Per Spec 011 §Mismatch recovery and configuration item 4. Read the
+  frame's `:ssr {:detect-mismatch? …}` knob — default `true` (detection
+  on in all builds). When a production build sets it `false`, the
+  hash-comparison work is skipped entirely for a small first-render perf
+  win, at the cost of silent mismatches. Absence of the key (the common
+  case) leaves detection ON."
+  [frame-id]
+  (let [v (get-in (frame/frame-meta frame-id) [:ssr :detect-mismatch?])]
+    (if (some? v) (boolean v) true)))
+
+(defn- on-mismatch
+  "Per Spec 011 §Mismatch recovery and configuration item 2. Read the
+  frame's `:ssr {:on-mismatch …}` knob — default `:warn` (the
+  `:warned-and-replaced` recovery). `:hard-error` escalates a mismatch to
+  a thrown structured exception (dev/CI fail-fast). Any other value falls
+  back to `:warn`."
+  [frame-id]
+  (let [v (get-in (frame/frame-meta frame-id) [:ssr :on-mismatch])]
+    (if (= :hard-error v) :hard-error :warn)))
+
 (defn verify-hydration!
-  "Per Spec 011 §Hydration-mismatch detection. Called by client code
-  after the first render. Compares the post-render hash to the server
-  hash stashed during :rf/hydrate; on disagreement emits
-  :rf.ssr/hydration-mismatch with :recovery :warned-and-replaced.
+  "Per Spec 011 §Hydration-mismatch detection + §Mismatch recovery and
+  configuration. Called by client code after the first render. Compares
+  the post-render hash to the server hash stashed during :rf/hydrate; on
+  disagreement emits :rf.ssr/hydration-mismatch with :recovery
+  :warned-and-replaced.
 
   The second arg may be EITHER a render tree (we hash it) OR a
   pre-computed hash string (used by test harnesses that simulate the
@@ -197,27 +219,50 @@
   opts may carry :first-diff-path, :failing-id, AND :server-hash.
   The :server-hash opt overrides the [:rf/hydration :server-hash]
   slot in app-db — useful when the user's :rf/hydrate handler doesn't
-  populate that slot (e.g. fixture-overridden handlers)."
+  populate that slot (e.g. fixture-overridden handlers).
+
+  Two per-frame `:ssr` config knobs govern detection + recovery
+  (Spec 011 §Mismatch recovery and configuration):
+
+    - `:ssr {:detect-mismatch? false}` — skip the hash comparison
+      entirely (production perf win; silent mismatches). Default: detect.
+    - `:ssr {:on-mismatch :hard-error}` — escalate a detected mismatch to
+      a thrown `:rf.ssr/hydration-mismatch` structured exception (dev/CI
+      fail-fast) carrying the same `:server-hash` / `:client-hash` /
+      `:failing-id` payload as the trace. Default: `:warn`
+      (`:warned-and-replaced`)."
   ([frame-id tree-or-hash] (verify-hydration! frame-id tree-or-hash {}))
   ([frame-id tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
-   (let [db          (frame/frame-app-db-value frame-id)
-         server-hash (or server-hash
-                         (get-in db [:rf/hydration :server-hash]))
-         client-hash (cond
-                       (string? tree-or-hash) tree-or-hash
-                       tree-or-hash           (hash/render-tree-hash tree-or-hash))]
-     (when (and server-hash client-hash (not= server-hash client-hash))
-       (let [trace-fn (late-bind/get-fn :trace/emit-error!)]
-         (when trace-fn
-           (trace-fn :rf.ssr/hydration-mismatch
-            (cond-> {:server-hash server-hash
-                     :client-hash client-hash
-                     :frame       frame-id
-                     :failing-id  (or failing-id :rf/hydrate)
-                     :reason      (str "Hydration mismatch: server hash '"
-                                       server-hash
-                                       "' != client hash '"
-                                       client-hash
-                                       "'. Re-rendering client-side.")
-                     :recovery    :warned-and-replaced}
-              first-diff-path (assoc :first-diff-path first-diff-path)))))))))
+   (when (detect-mismatch? frame-id)
+     (let [db          (frame/frame-app-db-value frame-id)
+           server-hash (or server-hash
+                           (get-in db [:rf/hydration :server-hash]))
+           client-hash (cond
+                         (string? tree-or-hash) tree-or-hash
+                         tree-or-hash           (hash/render-tree-hash tree-or-hash))]
+       (when (and server-hash client-hash (not= server-hash client-hash))
+         (let [strict?  (= :hard-error (on-mismatch frame-id))
+               recovery (if strict? :hard-error :warned-and-replaced)
+               payload  (cond-> {:server-hash server-hash
+                                 :client-hash client-hash
+                                 :frame       frame-id
+                                 :failing-id  (or failing-id :rf/hydrate)
+                                 :reason      (str "Hydration mismatch: server hash '"
+                                                   server-hash
+                                                   "' != client hash '"
+                                                   client-hash
+                                                   "'. "
+                                                   (if strict?
+                                                     "Strict mode — throwing."
+                                                     "Re-rendering client-side."))
+                                 :recovery    recovery}
+                          first-diff-path (assoc :first-diff-path first-diff-path))
+               trace-fn (late-bind/get-fn :trace/emit-error!)]
+           ;; Always emit the trace (monitoring integrations rely on it),
+           ;; THEN escalate in strict mode. The thrown ex-info carries the
+           ;; same structured payload so a CI run sees the full diff.
+           (when trace-fn
+             (trace-fn :rf.ssr/hydration-mismatch payload))
+           (when strict?
+             (throw (ex-info ":rf.ssr/hydration-mismatch"
+                             (assoc payload :rf.error/id :rf.ssr/hydration-mismatch))))))))))

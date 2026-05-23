@@ -135,7 +135,7 @@
   R6 cluster was fixing; keep the symmetry."
   [frame-id]
   (error-listener/clear-pending-error-traces! frame-id)
-  (swap! request-slots dissoc frame-id)
+  (clear-request! frame-id)
   (response/clear-response! frame-id)
   (when-let [head-cleanup! (late-bind/get-fn :ssr/head-on-frame-destroyed)]
     (try (head-cleanup! frame-id)

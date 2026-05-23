@@ -230,3 +230,84 @@
           "the handler on the boundary-bearing element is stripped")
       (is (not (str/includes? shell-html "alert(1)"))
           "the handler body never reaches the shell"))))
+
+;; ===========================================================================
+;; rf2-ee38b.10 — body-position raw <script>/<style> string content is
+;; fail-loud, not silently HTML-escaped (which corrupted legit inline JS /
+;; CSS / JSON-LD). Element-only / empty raw-text tags are inert.
+;; ===========================================================================
+
+(deftest render-to-string-rejects-raw-string-under-body-script
+  (testing "rf2-ee38b.10 — a `<script>` in the body render-tree with a raw
+            string child throws :rf.error/ssr-raw-text-in-body rather than
+            corrupting the content via escape-html."
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/ssr-raw-text-in-body"
+                          (emit/render-to-string
+                            [:script {:type "application/ld+json"} "{\"a\":\"<b>\"}"] {})))))
+
+(deftest render-to-string-rejects-raw-string-under-body-style
+  (testing "rf2-ee38b.10 — a body `<style>` with raw string content throws
+            rather than mangling `a > b {…}` into `a &gt; b`."
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/ssr-raw-text-in-body"
+                          (emit/render-to-string [:style "a > b { color: red }"] {})))))
+
+(deftest render-to-string-allows-empty-or-element-only-raw-text-tags
+  (testing "rf2-ee38b.10 — a raw-text tag with NO string child is inert
+            and emits unchanged; only a raw STRING child trips the guard."
+    (is (= "<script></script>"
+           (emit/render-to-string [:script] {}))
+        "empty <script> is fine")
+    (is (= "<style></style>"
+           (emit/render-to-string [:style {}] {}))
+        "empty <style> with an attrs map is fine")
+    (is (= "<script src=\"/main.js\"></script>"
+           (emit/render-to-string [:script {:src "/main.js"}] {}))
+        "an attribute-only <script> (the common external-script shape) is fine")))
+
+(deftest render-shell-rejects-raw-string-under-body-script
+  (testing "rf2-ee38b.10 — the streaming walk's DOM-tag branch mirrors the
+            non-streaming guard."
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/ssr-raw-text-in-body"
+                          (streaming/render-shell
+                            [:div [:style "p { margin: 0 }"]])))))
+
+;; ===========================================================================
+;; rf2-ee38b.10 — Reagent-native interop head `:>` cannot be statically
+;; rendered server-side (no React on the JVM); fail loud rather than dump
+;; the component+props as raw text.
+;; ===========================================================================
+
+(deftest render-to-string-rejects-reagent-native-head
+  (testing "rf2-ee38b.10 — `[:> Component {props} child]` throws
+            :rf.error/ssr-reagent-native-head instead of stringifying the
+            component ref + dumping the props map as raw EDN into markup."
+    (let [some-component (fn [_props] [:div "react"])]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/ssr-reagent-native-head"
+                            (emit/render-to-string
+                              [:> some-component {:prop "v"} [:span "child"]] {})))
+      (testing "the props map is never emitted as raw text on the wire"
+        (let [thrown (try (emit/render-to-string
+                            [:> some-component {:secret "leak-me"}] {})
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (instance? clojure.lang.ExceptionInfo thrown))
+          (is (= :rf.error/ssr-reagent-native-head
+                 (:rf.error/id (ex-data thrown)))))))))
+
+(deftest render-shell-rejects-reagent-native-head
+  (testing "rf2-ee38b.10 — the streaming walk routes `:>` through the same
+            single throw (no raw component+props splice)."
+    (let [some-component (fn [_props] [:div "react"])]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/ssr-reagent-native-head"
+                            (streaming/render-shell
+                              [:div [:> some-component {:prop "v"}]]))))))
+
+(deftest render-to-string-still-handles-fragment-head
+  (testing "rf2-ee38b.10 — splitting `:>` out of the `:<>` branch leaves
+            the fragment head working: children splice with no wrapper."
+    (is (= "<p>a</p><p>b</p>"
+           (emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))

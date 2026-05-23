@@ -343,6 +343,30 @@
           "`<` in keys comes through escaped (only `<` is escaped — `>`
            is harmless inside a <script> body and remains literal)"))))
 
+(deftest head-model->html-json-ld-non-string-keys-are-quoted
+  (testing "rf2-ee38b.10 — JSON object keys MUST be quoted strings. The
+            JVM emitter previously emitted a bare key for number / boolean
+            keys (`1:\"a\"`, `true:\"a\"`), invalid JSON the client's
+            JSON.parse rejects; the CLJS branch coerces via JSON.stringify.
+            The JVM branch now coerces every key to a quoted string."
+    (testing "a numeric key is quoted (mirrors JSON.stringify)"
+      (let [html (rf/head-model->html {:json-ld [{1 "a"}]})]
+        (is (str/includes? html "\"1\":\"a\"")
+            "the number key 1 is emitted as the quoted string key \"1\"")
+        (is (not (str/includes? html "1:\"a\""))
+            "no bare-number key survives — that is invalid JSON")))
+    (testing "a boolean key is quoted"
+      (let [html (rf/head-model->html {:json-ld [{true "a"}]})]
+        (is (str/includes? html "\"true\":\"a\""))
+        (is (not (str/includes? html ">true:")))))
+    (testing "a ratio key is coerced to its double then quoted"
+      (let [html (rf/head-model->html {:json-ld [{1/2 "a"}]})]
+        (is (str/includes? html "\"0.5\":\"a\""))))
+    (testing "a nil key has no JSON representation — fail fast"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo #":rf\.error/invalid-json-ld-key"
+            (rf/head-model->html {:json-ld [{nil "a"}]}))))))
+
 (deftest head-model->html-empty-model
   (testing "an empty / minimal model emits nothing (no orphan tags)"
     (is (= "" (rf/head-model->html {})))

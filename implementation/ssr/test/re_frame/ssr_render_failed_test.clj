@@ -120,3 +120,44 @@
                non-server frame"))
         (finally
           (rf/unregister-listener! ::srf-client))))))
+
+(deftest project-render-exception-rethrows-under-on-view-exception-throw
+  (testing "rf2-ee38b.10 — a server frame with :ssr {:on-view-exception
+            :throw} re-throws the original Throwable instead of projecting
+            it to a sanitised public-error (Spec 011 §View-time
+            exceptions — dev escape-hatch)."
+    (let [traces (atom [])]
+      (rf/register-listener! ::srf-throw
+                             (fn [ev]
+                               (when (= :rf.error/ssr-render-failed
+                                        (:operation ev))
+                                 (swap! traces conj ev))))
+      (try
+        (let [f (rf/make-frame
+                  {:platform :server
+                   :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                              :on-view-exception :throw}})
+              t (ex-info "eager dev failure" {:reason :test})]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #"eager dev failure"
+                                (ssr/project-render-exception! f t))
+              "the original throwable surfaces unchanged to the host")
+          (is (zero? (count @traces))
+              "the projection path (and its trace) is skipped when the
+               dev escape-hatch is on — the host's outer handler owns it"))
+        (finally
+          (rf/unregister-listener! ::srf-throw))))))
+
+(deftest project-render-exception-projects-when-on-view-exception-absent
+  (testing "rf2-ee38b.10 — without the :on-view-exception knob (the
+            production default) project-render-exception! projects as
+            normal. Pins the default so the escape-hatch can't silently
+            become the default."
+    (let [f (rf/make-frame
+              {:platform :server
+               :ssr      {:public-error-id :rf.ssr/default-error-projector}})
+          t (ex-info "normal failure" {})
+          public (ssr/project-render-exception! f t)]
+      (is (map? public) "projection path runs by default")
+      (is (= 500 (:status public))
+          "the default projector maps to 500 — no re-throw"))))

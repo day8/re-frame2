@@ -53,6 +53,32 @@
   #{:area :base :br :col :embed :hr :img :input :link :meta :param :source
     :track :wbr})
 
+;; ---- raw-text body tags (rf2-ee38b.10) ------------------------------------
+;;
+;; `<script>` and `<style>` are HTML "raw text" elements: their content is
+;; NOT parsed as markup, so the body emitter's `escape-html` (which rewrites
+;; `<`→`&lt;`, `>`→`&gt;`, `&`→`&amp;`, `"`/`'` → entities) does the WRONG
+;; thing — it is XSS-safe but silently CORRUPTS legitimate inline content
+;; (`[:style "a > b {…}"]` → `a &gt; b`, `[:script "if (a<b){…}"]` →
+;; `if (a&lt;b)`, an inline JSON-LD blob → broken JSON).
+;;
+;; There is no single correct escape for raw author content in the body:
+;;   - JSON-LD wants `<` → `<` (round-trips through `JSON.parse`),
+;;   - raw JS/CSS must NOT be `<`-escaped (JS does not decode `<`
+;;     outside string literals — `if (a < b)` is a syntax error).
+;; So body-position `<script>`/`<style>` with raw STRING content is
+;; unsupported by design: it is fail-loud rather than silently corrupting
+;; the author's content (or, worse, guessing an escape that opens an XSS or
+;; breaks the script). The two structured channels are:
+;;   - JSON-LD / structured `<head>` content → `reg-head` (its emitter
+;;     applies the JSON-LD `<` escape — see `re-frame.ssr.head.emit`),
+;;   - trusted inline JS/CSS → the host shell's trusted `:body-end` /
+;;     `:head-extra` opt (caller-trusted, not author-data).
+;; A `<script>`/`<style>` with NO string children (element-only or empty)
+;; is left alone — it is structurally inert and the guard only fires on a
+;; raw string child.
+(def ^:private raw-text-tags #{"script" "style"})
+
 ;; rf2-z7gor / security audit 2026-05-14 — tag-name injection gate.
 ;; `parse-tag-name` historically split the keyword on `#` / `.` and handed
 ;; the leading fragment straight to `<...>` / `</...>` emission with no
@@ -113,32 +139,19 @@
                      :recovery :no-recovery})))
   tag-name)
 
-;; Tag-name parsing for the :div#id.cls syntax. Reagent / Hiccup convention.
-;;
-;; Per rf2-ezdwh (perf-sweep H1, ai/findings/perf-sweep-2026-05-15.md):
-;; `parse-tag-name` is called once per DOM-tag emission. Repeated heads
-;; (`:div`, `:span`, `:p`, `:div#main.col-12`, …) appear thousands of
-;; times in a single render and re-parsed every time — `(name kw)` +
-;; `re-matches` + optional `string/split` + `remove empty?` + `join` +
-;; a second `re-matches` inside `validate-tag-name!`. The result
-;; depends solely on keyword identity.
-;;
-;; The memo is per-render (bound at `render-to-string` /
-;; `streaming/render-shell` / `streaming/render-continuation` entry)
-;; rather than process-wide so cache size never outlives one render
-;; pass. A volatile! map `{kw [tag-name tag-attrs]}` is fine — emit is
-;; single-threaded per render. When the cache is unbound (caller
-;; invokes `parse-tag-name` outside an emit pass — tests, custom
-;; consumers, the streaming `walk-dom-tag`) the call falls through to
-;; the uncached parse, so the public surface is unchanged.
+;; Tag-name parsing for the :div#id.cls syntax (Reagent / Hiccup
+;; convention). Memoised per-render by keyword identity: the result
+;; depends solely on the keyword, and a single shell repeats `:div` /
+;; `:span` / `:p` thousands of times. The memo (`*tag-name-cache*`) is
+;; bound at the emit entry points and never outlives one render pass;
+;; when unbound (cold callers — tests, custom consumers) the call falls
+;; through to the uncached parse, so the public surface is unchanged.
 
 (defn- parse-tag-name*
   "Pure parse — the body the memo wraps."
   [tag-kw]
   (let [s     (name tag-kw)
         ;; Match: tag-name optionally followed by #id and .class fragments.
-        ;; `re-matches` reads identically on both platforms — no reader-
-        ;; conditional needed (audit rf2-asmj1 Q6 / cluster rf2-sljs1).
         [_ tag id classes] (re-matches #"([^#.]+)(?:#([^.]+))?(.*)" s)
         class-list (when (and classes (seq classes))
                      (->> (clojure.string/split classes #"\.")
@@ -175,14 +188,15 @@
     (parse-tag-name* tag-kw)))
 
 (defn merge-class-attrs
-  "Merge the class from the tag-name into the attrs map's :class."
+  "Merge the class from the tag-name into the attrs map's :class.
+  `merged` is the space-joined concatenation of whichever class strings
+  exist, or nil when neither is present — nil is the documented
+  \"omit :class\" signal the `cond->` below consumes."
   [tag-attrs user-attrs]
-  (let [t-class (:class tag-attrs)
-        u-class (:class user-attrs)
-        merged  (cond
-                  (and t-class u-class) (str t-class " " u-class)
-                  t-class                t-class
-                  u-class                u-class)]
+  (let [merged (some->> [(:class tag-attrs) (:class user-attrs)]
+                        (remove nil?)
+                        seq
+                        (clojure.string/join " "))]
     (cond-> (merge tag-attrs (dissoc user-attrs :class))
       merged (assoc :class merged))))
 
@@ -266,6 +280,33 @@
              attrs
              root-attrs))
 
+(defn reject-raw-text-string-children!
+  "Throw `:rf.error/ssr-raw-text-in-body` when a body-position raw-text
+  element (`<script>` / `<style>`, per `raw-text-tags`) carries a raw
+  STRING child. Per rf2-ee38b.10 — the body emitter cannot apply a single
+  correct escape to raw author content (JSON-LD needs `<`→`\\u003c`; raw
+  JS/CSS must not be `<`-escaped at all), so silently `escape-html`-ing it
+  corrupted legit inline content while masking the lack of a real channel.
+  Fail loud and point the author at the structured surfaces. Element-only
+  / empty `<script>`/`<style>` is left alone (no string child → no throw)."
+  [tag-name children source-head]
+  (when (and (contains? raw-text-tags tag-name)
+             (some string? children))
+    (throw (ex-info ":rf.error/ssr-raw-text-in-body"
+                    {:rf.error/id :rf.error/ssr-raw-text-in-body
+                     :where    'rf.ssr/emit
+                     :reason   (str "Raw string content under a body-position <"
+                                    tag-name "> (hiccup head " (pr-str source-head)
+                                    ") is unsupported — the body emitter has no"
+                                    " single safe escape for raw script/style"
+                                    " content. Put JSON-LD / structured head"
+                                    " content through reg-head, and trusted"
+                                    " inline JS/CSS through the host shell's"
+                                    " trusted :body-end / :head-extra opt.")
+                     :tag      tag-name
+                     :source   source-head
+                     :recovery :no-recovery}))))
+
 (defn emit-element
   "Emit a hiccup node as an HTML string. The optional `root-attrs` map
   (per rf2-lxwse) carries attributes destined for the first DOM-tag
@@ -283,15 +324,36 @@
      (vector? el)
      (let [head (first el)]
        (cond
-         ;; Fragment `:<>` and Reagent-native `:>` are special heads — not
-         ;; DOM tag-name keywords. Per Spec 011: a fragment emits its
-         ;; rendered children with no wrapper; root-attrs (rf2-lxwse) skip
-         ;; these heads, source-coord annotation skips these heads, and
-         ;; the tag-name validator (rf2-z7gor) does not apply. Handled
-         ;; ahead of the general keyword branch so they never reach
-         ;; `parse-tag-name`.
-         (or (= :<> head) (= :> head))
+         ;; Fragment `:<>` — emits its rendered children with no wrapper.
+         ;; Per Spec 011: root-attrs (rf2-lxwse) skip this head, source-
+         ;; coord annotation skips it, and the tag-name validator
+         ;; (rf2-z7gor) does not apply. Handled ahead of the general
+         ;; keyword branch so it never reaches `parse-tag-name`.
+         (= :<> head)
          (emit-children (rest el))
+
+         ;; Reagent-native interop head `:>` — `[:> Component {props} …]`
+         ;; passes its children through to a React COMPONENT, not a DOM
+         ;; tag. There is no React on the JVM, so `:>` cannot be statically
+         ;; rendered server-side. Per rf2-ee38b.10 — fail loud rather than
+         ;; splice `(rest el)` through `emit-children`, which would stringify
+         ;; the component ref and dump the props map as raw EDN into the
+         ;; markup (garbage output, not a rendered component). The author
+         ;; must wrap the React component in a `reg-view` (which the SSR
+         ;; emitter resolves) or render it client-only.
+         (= :> head)
+         (throw (ex-info ":rf.error/ssr-reagent-native-head"
+                         {:rf.error/id :rf.error/ssr-reagent-native-head
+                          :where    'rf.ssr/emit
+                          :reason   (str "Reagent-native interop head `:>` "
+                                         "(element " (pr-str el) ") cannot be "
+                                         "rendered server-side — it targets a "
+                                         "React component and there is no React "
+                                         "on the JVM. Wrap the component in a "
+                                         "reg-view for SSR, or render it "
+                                         "client-only.")
+                          :element  el
+                          :recovery :no-recovery}))
 
          (keyword? head)
          (let [;; Look up registered view first.
@@ -321,9 +383,11 @@
                    void?        (contains? void-elements (keyword tag-name))]
                (if void?
                  (str "<" tag-name (attr-string attrs) ">")
-                 (str "<" tag-name (attr-string attrs) ">"
-                      (emit-children children)
-                      "</" tag-name ">")))))
+                 (do
+                   (reject-raw-text-string-children! tag-name children head)
+                   (str "<" tag-name (attr-string attrs) ">"
+                        (emit-children children)
+                        "</" tag-name ">"))))))
 
          (fn? head)
          ;; Pass root-attrs through fn-headed component resolution too —

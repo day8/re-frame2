@@ -54,8 +54,8 @@
   Useful for tests and introspection. Returns `{}` for a frame that has
   never seen a `render-head` call (or whose snapshot has been cleared
   via the per-request frame teardown hook)."
-  ([frame-id]
-   (get @head-snapshots frame-id {})))
+  [frame-id]
+  (get @head-snapshots frame-id {}))
 
 (defn on-frame-destroyed!
   "Clear the head-snapshot entry for `frame-id`. Wired into the
