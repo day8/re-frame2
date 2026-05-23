@@ -60,7 +60,7 @@ This is a **router skill**. The trigger-time guard rails live below; the operati
 
 ## The three primitives
 
-Your agency runs through three coupled primitives, all part of re-frame2's own [Tool-Pair contract](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md):
+Your agency runs through three coupled primitives, all part of re-frame2's own [Tool-Pair contract](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md):
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime, where ClojureScript forms evaluate against the real app.
 2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live trace events; `(re-frame.trace.tooling/trace-buffer opts)` for the retain-N ring of recent events. (`register-listener!` is re-exported on `rf/`, but `trace-buffer` is a **JVM-only** alias on `rf/` — CLJS callers, including this shim's `cljs-eval`, must reach for `re-frame.trace.tooling/trace-buffer` directly or the form silently returns nil.) This skill registers exactly *one* trace listener (under id `:re-frame2-pair`) so multiple tools can coexist.
@@ -89,7 +89,7 @@ Where the runtime lives:
 - **npm consumers**: the `@day8/re-frame2-pair` package ships the `preload/` directory; the source-path entry above points there.
 - **Local-dev / linked checkouts**: substitute the absolute path to `skills/re-frame2-pair/preload/` for the `node_modules/...` entry.
 
-Verification — run `discover-app` (the MCP tool `mcp__re-frame2-pair__discover-app`). The success result includes `:ok? true :session-id "..." :build-id :app`. If the preload is missing you get back:
+Verification — run `discover-app` (the MCP tool `mcp__re-frame2-pair__discover-app`). The success result is the runtime health map merged with `:ok? true` and `:build-id`, e.g. `:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :app` (plus `:session-id`, `:selected-frame`, `:operating-frame` and the other health slots). If the preload is missing you get back:
 
 ```edn
 {:ok? false :reason :runtime-not-preloaded

@@ -624,6 +624,17 @@
   (let [[ob oa c] (data/diff db-before db-after)]
     {:only-before ob :only-after oa :common c}))
 
+(defn frame-diff
+  "Cross-frame counterpart to `epoch-diff`: diff the current `app-db`
+   of two frames. Use to compare two Story variants (variant-id IS the
+   frame-id) or any two live frames. Returns the cross-frame vocabulary:
+       {:only-in-a <map> :only-in-b <map> :common <map>}
+   where A is `frame-id-a` and B is `frame-id-b`."
+  [frame-id-a frame-id-b]
+  (let [[a b c] (data/diff (rf/get-frame-db frame-id-a)
+                           (rf/get-frame-db frame-id-b))]
+    {:only-in-a a :only-in-b b :common c}))
+
 ;; ---------------------------------------------------------------------------
 ;; Trace stream listener (raw-trace, retain-N buffer is in framework)
 ;; ---------------------------------------------------------------------------

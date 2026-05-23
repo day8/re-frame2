@@ -24,7 +24,7 @@ Two transports cover the same buses; pick by interaction shape.
 | Want | Reach for |
 |---|---|
 | Live narration while the user interacts; report events the moment they fire | `subscribe` (push-mode) |
-| Finite window summary at the end (e.g. "show me everything in the next 30s") | `watch-epochs` (pull-mode) with `since-id` polling. Legacy fallback: the `scripts/watch-epochs.sh --window-ms` shim. |
+| Finite window summary at the end (e.g. "show me everything in the next 30s") | `watch-epochs` (pull-mode): poll in a loop, advancing `since-id` to each response's `:head-id`, until your window elapses. |
 | Stream until a fixed number of matches, then summarise | `subscribe` with `max-events` |
 | Agent host doesn't surface `notifications/progress` to the model | `watch-epochs` (pull-mode) |
 
@@ -56,11 +56,11 @@ Mirrors `(re-frame.trace.tooling/trace-buffer)` per Spec 009. Recognised keys:
 - `:operation` — exact trace operation keyword (e.g. `:rf.event/dispatched`)
 - `:op-type` — broad category: `:rf.event` `:rf.sub` `:rf.fx` `:rf.view` `:rf.registry` `:rf.frame` `:rf.machine` `:error` `:warning` `:info`
 - `:frame` — frame id (e.g. `:rf/default`)
-- `:severity` — `:debug` `:info` `:warn` `:error`
+- `:severity` — alias for `:op-type`, restricted to `:error` `:warning` `:info` (no `:debug`; the spelling is `:warning`, not `:warn`)
 - `:event-id` — exact event id keyword
 - `:handler-id` — exact handler id keyword (e.g. for `:rf.sub/run` traces)
-- `:source` — `:tags.source` value
-- `:origin` — `:tags.origin` value (`:pair` `:app` `:ui` `:timer` `:http`)
+- `:source` — `:tags.source` value (trigger kind: `:ui` `:timer` `:http` `:repl` `:machine` `:ssr-hydration`)
+- `:origin` — `:tags.origin` value (actor: `:app` `:pair` `:story` `:test`)
 - `:dispatch-id` — exact dispatch-id; combine with `cascade-of` for tree drills
 - `:since-ms` / `:between` — time-window keys (see [ops.md](ops.md) `trace/buffer`)
 

@@ -10,7 +10,7 @@
 
 `re-frame2-pair` is a Claude Code Skill (and Plugin) that lets Claude act as a pair programmer for a **live, running [re-frame2](https://github.com/day8/re-frame2) application**. It attaches to the application's runtime via shadow-cljs nREPL and exposes a small set of operations that map directly onto re-frame2's primitives: frames, `app-db`, events, subscriptions, effects, interceptors, machines.
 
-This is the re-frame2 sibling of v1 [`re-frame-pair`](https://github.com/day8/re-frame-pair). It consumes only re-frame2's own [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md) surfaces. **It has no re-frame-10x dependency.**
+This is the re-frame2 sibling of v1 [`re-frame-pair`](https://github.com/day8/re-frame-pair). It consumes only re-frame2's own [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) surfaces. **It has no re-frame-10x dependency.**
 
 ### Why this shape
 
@@ -50,7 +50,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 - **Reactive graph.** re-frame2's subscription signal graph, with value-equal recompute suppression.
 - **Per-frame state.** Each frame's `app-db` is reachable via `(rf/get-frame-db frame-id)` and `(rf/snapshot-of path opts)`.
 - **Writes.** `dispatch` (with `:origin :pair` opt), `reg-*` re-registration, `restore-epoch`, container reset (rare).
-- **Runtime introspection API.** Every Tool-Pair surface listed in [Tool-Pair §How AI tools attach](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md#how-ai-tools-attach).
+- **Runtime introspection API.** Every Tool-Pair surface listed in [Tool-Pair §How AI tools attach](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#how-ai-tools-attach).
 - **Connection mechanism.** nREPL -> shadow-cljs -> browser runtime.
 - **Packaging.** `SKILL.md` + bash shim scripts + babashka ops dispatcher.
 - **Cardinal rule.** Two modes — REPL (ephemeral) vs source edit (permanent via hot-reload). See §3.

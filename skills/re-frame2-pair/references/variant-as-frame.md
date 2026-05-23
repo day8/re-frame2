@@ -44,7 +44,6 @@ mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/snapshot {:frame 
 mcp__re-frame2-pair__get-path  {path: "[:count]", frame: ":story.counter/loaded"}
 ```
 
-Legacy bash forms (if the MCP server isn't wired): `scripts/dispatch.sh '[:counter/inc]' --frame :story.counter/loaded` and `scripts/eval-cljs.sh '(re-frame2-pair.runtime/snapshot {:frame :story.counter/loaded})'`.
 
 Use Idiom 1 for long sessions inside one variant; Idiom 2 for cross-variant work (recipe 2 below).
 
@@ -80,7 +79,6 @@ Story-registered variants appear as `:story.*` keywords. Filter:
 mcp__re-frame2-pair__eval-cljs {form: "(filter #(= \"story\" (namespace %)) (rf/frame-ids))"}
 ```
 
-Legacy bash form: `scripts/eval-cljs.sh '(filter #(= "story" (namespace %)) (rf/frame-ids))'`.
 
 For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `repl/eval`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/references/tooling/stories.md`.
 
@@ -92,7 +90,7 @@ To discover the *active* variant in the user's canvas (the one currently visible
 - **`destroy-frame!` happens on variant-unmount.** If the user navigates away from the variant in the canvas, the frame is gone. Subsequent ops against `:story.foo/bar` return `:rf.error/no-such-handler` (kind `:frame`). The fix is to navigate back, or to call `(re-frame.story/run-variant :story.foo/bar)` to re-mount the variant programmatically.
 - **`reset-frame!` on re-registration.** Hot-reloading a variant (or `register-variant` over MCP with the same id) calls `reset-frame!` on its frame — `app-db` reverts to `{}`, then loaders + events re-run. Any REPL-only state you'd injected (`app-db/reset`, hot-swapped handlers' side effects on app-db) is gone. Permanent state lives in the variant body's `:loaders` / `:events` slots.
 - **Loaders run before re-frame2-pair can see them.** Phase 1 loaders dispatch-sync into the variant's frame at mount time — `:rf.event/dispatched` traces fire, but if you attach re-frame2-pair *after* the variant mounted, those traces are already in the retain-N ring (visible) but not in the recent dispatch window. Use `trace/buffer` (not `trace/recent`) to see loader events that fired before you attached.
-- **`:play-script` steps look like user interactions.** The play-runner uses `dispatch` / `dispatch-sync` per phase 4; epoch records carry the dispatched event in `:trigger-event`. There's no `:origin :play-script` distinguisher (the dispatch-origin tagging closed-enum — Spec 002 §Dispatch origin tagging — is `:user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal`; play-runner dispatches land under `:test-harness` or `:tool` depending on caller). If you need to tell agent-driven from play-driven dispatches inside a variant, filter on something else (e.g. timing, or assert from outside the variant).
+- **`:play-script` steps look like user interactions.** The play-runner uses `dispatch` / `dispatch-sync` per phase 4; epoch records carry the dispatched event in `:trigger-event`. Dispatch tagging has two independent axes (Spec 002 §Dispatch origin tagging): `:origin` — the *actor*, an **open vocabulary** defaulting to `:app` (pair tools stamp `:origin :pair`; common values are `:pair`, `:claude`, `:story`, `:test`) — and `:source` — the *trigger kind*, the closed enum `:ui / :timer / :http / :machine / :repl / :ssr-hydration / :test / :other`. The play-runner currently dispatches with only `:frame` set (`(dispatch-sync event {:frame frame-id})`), so its events fall under the default `:origin :app` — there is no `:origin :play-script` distinguisher. Your own re-frame2-pair dispatches *do* carry `:origin :pair`, so to tell pair-driven from play-driven dispatches inside a variant, filter `pred {:origin :pair}` for your own, or scope reads to the variant's frame (via `frames/select`) and lean on timing / phase rather than expecting a play-specific origin tag.
 - **Workspaces nest frame-providers.** A `reg-workspace` containing variants A, B, C renders each variant inside its own `frame-provider`. Workspace frames may or may not exist as registered frames themselves (per spec/007 §Relationship-with-frames: *"may be ordinary frames containing nested `frame-provider`s"*). When the user points at "the workspace", clarify whether they mean the layout-level frame (if any) or one of its variant frames.
 
 ## Cross-references

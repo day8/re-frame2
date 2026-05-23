@@ -1,6 +1,6 @@
 # Operations catalogue
 
-The op vocabulary the skill operates through. Each op is reachable via the **MCP transport** (preferred — ~14× faster, single persistent nREPL connection) or the **bash-shim transport** (legacy fallback). The MCP form is shown in the Invocation column; the bash-shim equivalents are catalogued in the [Bash-shim back-compat appendix](#bash-shim-back-compat-appendix) at the end of this file.
+The op vocabulary the skill operates through. Every op runs over the **MCP transport** (the only transport this skill exposes) — see [`mcp-transport.md`](mcp-transport.md). The MCP form is shown in the Invocation column. The bash shims under `scripts/` are retired from the skill's tool surface; their shell counterparts are catalogued in the [Bash-shim appendix](#bash-shim-appendix-not-reachable-from-this-skill) for the project's own e2e harness only.
 
 Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `eval-cljs {form: "<runtime call>"}`. Dedicated MCP tools (`dispatch`, `snapshot`, `get-path`, `trace-window`, `watch-epochs`, `tail-build`, `subscribe`, `unsubscribe`) cover the broader concerns. Prefer the **structured ops** over `repl/eval` whenever a structured op fits. See [`mcp-transport.md`](mcp-transport.md) for transport details.
 
@@ -14,7 +14,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 - [Live watch (push-mode)](#live-watch-push-mode)
 - [Hot-reload coordination](#hot-reload-coordination)
 - [Time-travel (epoch restore)](#time-travel-epoch-restore)
-- [Bash-shim back-compat appendix](#bash-shim-back-compat-appendix)
+- [Bash-shim appendix (not reachable from this skill)](#bash-shim-appendix-not-reachable-from-this-skill)
 - [Dropped from v1 (re-frame-pair) — surfaces with no v2 equivalent](#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent)
 
 ## Read
@@ -98,7 +98,7 @@ Read-only from the trace stream + epoch history.
 
 ## Live watch (push-mode)
 
-Two transports, same underlying assembled-epoch / trace stream.
+Two modes — `subscribe` (push) and `watch-epochs` (poll) — over the same underlying assembled-epoch / trace stream.
 
 **MCP streaming subscriptions (preferred for push-mode).** True server-pushed events delivered via `notifications/progress`, correlated by the call's `progressToken`. See [streaming-subscriptions.md](streaming-subscriptions.md) for topics, filters, termination, and the recipes that prefer this path.
 
@@ -107,29 +107,28 @@ Two transports, same underlying assembled-epoch / trace stream.
 | `trace/subscribe` | `mcp__re-frame2-pair__subscribe` | Open a streaming subscription on the `:trace`, `:epoch`, `:fx`, or `:error` bus. Returns a `sub-id`; each batch arrives as a `notifications/progress` tick until termination. |
 | `trace/unsubscribe` | `mcp__re-frame2-pair__unsubscribe` | Close a subscription by `sub-id`. Idempotent — unknown ids return `:existed? false`. |
 
-**Pull-mode poll (legacy / fallback).** The `watch-epochs` MCP tool is the pull-mode wrapper: call repeatedly with `since-id` to drain new matches. Use this when the agent host doesn't surface `notifications/progress` to the model, or when you want a finite window summary rather than a live stream.
+**Pull-mode poll (fallback).** The `watch-epochs` MCP tool is poll-only: each call returns the matching epochs that landed *after* `since-id`. To live-watch, call it repeatedly, passing the previous response's `:head-id` as the next `since-id`. Use this when the agent host doesn't surface `notifications/progress` to the model, or when you want a finite, controlled drain rather than a push stream.
+
+The tool's accepted args (`:additionalProperties false` — anything else is rejected): `since-id`, `pred`, `frame`, `limit`, `cursor`, `epochs-mode`, `dedup`, `include-sensitive`, `build`. There is **no** `window-ms`/`count`/`stream`/`stop` arg — those are bash-shim flags only (see the bash-shim appendix).
 
 | Op | Invocation | Behaviour |
 |---|---|---|
-| `watch/window` | `mcp__re-frame2-pair__watch-epochs {window-ms: 30000, pred: {"event-id-prefix": ":checkout/"}}` | Runs for N ms, reports every matching epoch, summarises at end |
-| `watch/count` | `mcp__re-frame2-pair__watch-epochs {count: 5}` | Runs until N epochs match |
-| `watch/stream` | `mcp__re-frame2-pair__watch-epochs {stream: true, pred: {"event-id-prefix": ":cart/"}}` | Streams until disconnect, idle-timeout, or `watch/stop` |
-| `watch/stop` | `mcp__re-frame2-pair__watch-epochs {stop: true}` | Terminates any active watch for this session |
+| `watch/first-poll` | `mcp__re-frame2-pair__watch-epochs {pred: {"event-id-prefix": ":checkout/"}}` | Drains matching epochs already in the ring; response carries `:matches`, `:count`, and `:head-id` |
+| `watch/resume` | `mcp__re-frame2-pair__watch-epochs {since-id: "<last-head-id>", pred: {...}}` | Returns only matches that landed after `since-id`; repeat to live-watch |
+| `watch/paginate` | `mcp__re-frame2-pair__watch-epochs {pred: {...}, limit: 20, cursor: "<next-cursor>"}` | When a poll's matches exceed `:limit` (default 50), `:next-cursor`/`:has-more?` let you page the rest |
 
-Predicate keys (any combination, inside `pred`): `event-id`, `event-id-prefix`, `effects`, `timing-ms` (e.g. `">100"`), `touches-path`, `sub-ran`, `render`, `origin` (`:pair|:app|:ui|:timer|:http`), `frame`.
+"Run for N matches" and "stream until disconnect" are *loops the agent runs*, not tool args: call `watch-epochs` repeatedly, advancing `since-id`, until you've seen enough matches or the user stops you.
 
-Mode rules:
+Predicate keys (any combination, inside `pred`): `event-id`, `event-id-prefix`, `effects`, `timing-ms` (e.g. `">100"`), `touches-path`, `sub-ran`, `render`, `origin` (`:app|:pair|:story|:test`), `frame`.
 
-- `window-ms` and `count` are independent. `window-ms` alone runs for N ms with no count limit; `count` alone runs until N matches with no window timeout. If both are set, the first condition to fire wins. With neither (and no `stream: true`), the default is a 30 s window.
-
-The watch transport polls the assembled-epoch stream by tracking the last seen `:epoch-id` in the operating frame's history and asking for everything since. See `docs/initial-spec.md` §4.4.
+Each call tracks the last seen `:epoch-id` in the operating frame's history via `since-id` and returns everything matching since. See `docs/initial-spec.md` §4.4.
 
 ## Hot-reload coordination
 
 Editing source is legitimate and often correct. The protocol is strict — after any source edit, before the next `dispatch` / `trace/*`:
 
 1. Make the edit with `Edit` / `Write`.
-2. Call `mcp__re-frame2-pair__tail-build` with a `probe` that verifies the browser has the new code (legacy fallback: `scripts/tail-build.sh --probe '...'`).
+2. Call `mcp__re-frame2-pair__tail-build` with a `probe` that verifies the browser has the new code.
 3. Only after the probe succeeds do you proceed to `dispatch`, `trace/*`, etc.
 4. If the probe times out, treat that as a compile error in the user's code — read the tail output, report it to the user, do *not* retry dispatching.
 
@@ -173,13 +172,13 @@ When `restore-epoch` returns `false`, read the matching trace event from `(re-fr
 
 **Caveat (always tell the user before restoring):** restore rewinds `app-db` only. Side effects that already fired (HTTP requests sent, navigation pushed, localStorage written, `:dispatch-later` already landed) are *not* undone.
 
-## Bash-shim back-compat appendix
+## Bash-shim appendix (not reachable from this skill)
 
-The bash shims under `scripts/` are the legacy transport — each spawns bash → babashka → a fresh nREPL connect per call (~700ms per op). The MCP server (above) is the canonical path; keep the shims for ad-hoc shell scripting, CI scripts, or when the MCP server isn't configured in the agent host. Op semantics are identical between transports.
+The bash shims under `scripts/` are **retired from this skill's tool surface** — the `allowed-tools:` frontmatter carries no shell tool, so you cannot run them. They remain on disk only for the project's own e2e test harness and ad-hoc shell use outside the skill. Every op above is an MCP tool. This appendix documents the legacy mapping for the harness only; do not reach for it as a "fallback transport".
 
-Map MCP tools to bash shims:
+For the harness, each MCP tool has a behavioural shell counterpart. Note the watch shim carries flags (`--window-ms`, `--count`, `--stream`, `--stop`) that have **no MCP equivalent** — the MCP `watch-epochs` tool is poll-only (`since-id`/`cursor`); those flags exist on the shim alone.
 
-| MCP tool | Bash-shim equivalent |
+| MCP tool | Shell counterpart (harness only) |
 |---|---|
 | `eval-cljs {form: "..."}` | `scripts/eval-cljs.sh '<form>'` |
 | `dispatch {event: "[:foo]"}` | `scripts/dispatch.sh '[:foo]'` |
@@ -188,15 +187,12 @@ Map MCP tools to bash shims:
 | `dispatch {event: "...", trace: true}` | `scripts/dispatch.sh '...' --trace` |
 | `dispatch {event: "...", fx-overrides: {...}}` | `scripts/dispatch.sh '...' --fx-override :http=:stub-http` |
 | `trace-window {ms: N}` | `scripts/trace-window.sh N` |
-| `watch-epochs {window-ms: ..., pred: {...}}` | `scripts/watch-epochs.sh --window-ms ... --event-id-prefix ...` |
-| `watch-epochs {count: N}` | `scripts/watch-epochs.sh --count N` |
-| `watch-epochs {stream: true, ...}` | `scripts/watch-epochs.sh --stream ...` |
-| `watch-epochs {stop: true}` | `scripts/watch-epochs.sh --stop` |
+| `watch-epochs {pred: {...}, since-id: "..."}` (poll loop) | `scripts/watch-epochs.sh --window-ms ... --event-id-prefix ...` (shim-only `--window-ms`/`--count`/`--stream`/`--stop` modes) |
 | `tail-build {wait-ms: ..., probe: "..."}` | `scripts/tail-build.sh --wait-ms ... --probe '...'` |
 | `discover-app {}` | `scripts/discover-app.sh` |
-| `snapshot {...}` | _MCP-only_ (no bash-shim equivalent; chain individual `eval-cljs` calls for `snapshot`-style mega-reads via the legacy transport) |
-| `get-path {path: "..."}` | _MCP-only_ (use `eval-cljs '(re-frame2-pair.runtime/app-db-at [...])'` for a coarse equivalent) |
-| `subscribe` / `unsubscribe` | _MCP-only_ (push-mode requires `notifications/progress`; under the bash shim use `scripts/watch-epochs.sh --stream` for the pull-mode approximation) |
+| `snapshot {...}` | _MCP-only_ (no shell counterpart; chain individual `eval-cljs.sh` calls for `snapshot`-style mega-reads) |
+| `get-path {path: "..."}` | _MCP-only_ (use `eval-cljs.sh '(re-frame2-pair.runtime/app-db-at [...])'` for a coarse equivalent) |
+| `subscribe` / `unsubscribe` | _MCP-only_ (push-mode requires `notifications/progress`; the shim approximates pull-mode with `scripts/watch-epochs.sh --stream`) |
 
 For full transport mechanics and the `:app-db` slice modes that only the MCP `snapshot` tool exposes, see [`mcp-transport.md`](mcp-transport.md).
 

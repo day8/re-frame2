@@ -1,17 +1,13 @@
-# MCP transport — preferred path
+# MCP transport — the skill's only transport
 
-The re-frame2-pair ops are reachable two ways:
-
-1. **MCP server** (preferred) — a persistent stdio JSON-RPC server
-   that holds one nREPL socket open for the whole session. Per-op
-   latency ~5–50ms.
-2. **Bash shims** (legacy, deprecated) — `scripts/*.sh` under this
-   skill, each spawning bash → babashka → fresh nREPL connect per
-   call. Per-op latency ~700ms. Kept for back-compat.
-
-Pick the MCP server whenever it's available. If the agent host
-doesn't have it configured, fall back to the bash shims; the
-op semantics are identical.
+The re-frame2-pair ops run over the **MCP server** — a persistent
+stdio JSON-RPC server that holds one nREPL socket open for the whole
+session (per-op latency ~5–50ms). This is the only transport the
+skill exposes; the bash shims under `scripts/` are retired from the
+skill's tool surface (no shell tool is in `allowed-tools:`) and
+remain on disk only for the project's own e2e test harness. The
+shell-counterpart mapping lives in [`ops.md` §Bash-shim appendix](ops.md#bash-shim-appendix-not-reachable-from-this-skill)
+for that harness; do not reach for it as a fallback transport.
 
 ## Install / configure (one-time)
 
@@ -40,26 +36,26 @@ The server auto-discovers the nREPL port from (in order):
 3. `.shadow-cljs/nrepl.port`
 4. `.nrepl-port`
 
-## Bash-shim → MCP tool mapping
+## MCP tool reference (args)
 
-| Bash shim                         | MCP tool       | Same args? |
-|-----------------------------------|----------------|------------|
-| `scripts/discover-app.sh`         | `discover-app` | yes (optional `build`) |
-| `scripts/eval-cljs.sh '<form>'`   | `eval-cljs`    | pass form as `{form: "..."}` |
-| `scripts/dispatch.sh '<event>' --sync --frame :foo` | `dispatch` | `{event: "...", sync: true, frame: ":foo"}` |
-| `scripts/trace-window.sh 1000`    | `trace-window` | `{ms: 1000}` |
-| `scripts/watch-epochs.sh --event-id-prefix :cart` | `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}}` (pull-mode — call repeatedly with `since-id`) |
-| `scripts/tail-build.sh --probe '<form>'` | `tail-build` | `{probe: "..."}` |
-| _(none — MCP-only)_                | `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"], path: "[:cart :items]"}` — default `:app-db` mode is **`:summary`** (tree-summary marker, not the full value); pass `path` to slice. Root `path: "[]"` opts back into the full slice. See [`ops.md` §Read](ops.md#read). |
-| _(none — MCP-only)_                | `get-path`     | `{path: "[:cart :items 0 :sku]", frame: ":rf/default"}` — targeted-read primitive. Returns `{ok? true :exists? true :value <subtree>}` or `{ok? false :reason :path-not-found :deepest-valid-prefix [...]}`. `:exists?` distinguishes a path that legitimately points at `nil` from a missing path. |
-| _(none — MCP-only, push-mode)_     | `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error", filter: {...}, max-events: 0, max-ms: 0}` — emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
-| _(none — MCP-only)_                | `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
-| _(none — MCP-only)_                | `list-subscriptions` | `{}` (or `{topic: "epoch"}` / `{sub-id: "<uuid>"}`) — list active streaming subscriptions with `:queue-depth`, `:dropped-events`, `:overflow-reason` without draining queues. Diagnostic for "is my probe still alive?". |
-| _(none — MCP-only)_                | `list-handlers` | `{kind: "event"}` — discovery: every id registered under one kind. `{:ok? true :kind :event :ids [...] :count n}`, ids sorted. Kinds: `event` / `sub` / `fx` / `cofx` / `view` / `frame` / `route` / `flow` / `head` / `error-projector` / `machine`. Prefer over a `registrar-list` eval. See [`ops.md` §Read](ops.md#read). |
-| _(none — MCP-only)_                | `handler-meta` | `{kind: "event", id: ":user/login"}` — drill: registration metadata for one id (source-coord + `:doc` + `:tags` + an `:rf.source/uri` clickable jump-to-editor link). `{:ok? false :reason :not-registered ...}` on a miss. Composite sub ids pass as the vector-string form. Prefer over a `registrar-describe` eval. See [`ops.md` §Read](ops.md#read). |
-| _(none — MCP-only)_                | `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming semantics, wire pipeline). No nREPL round-trip. Optionally call at session start to orient before the first real op. |
+| MCP tool       | Args |
+|----------------|------|
+| `discover-app` | `{}` (optional `build`) |
+| `eval-cljs`    | `{form: "..."}` |
+| `dispatch`     | `{event: "...", sync: true, frame: ":foo"}` |
+| `trace-window` | `{ms: 1000}` |
+| `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}}` (pull-mode — call repeatedly with `since-id`) |
+| `tail-build`   | `{probe: "..."}` |
+| `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"], path: "[:cart :items]"}` — default `:app-db` mode is **`:summary`** (tree-summary marker, not the full value); pass `path` to slice. Root `path: "[]"` opts back into the full slice. See [`ops.md` §Read](ops.md#read). |
+| `get-path`     | `{path: "[:cart :items 0 :sku]", frame: ":rf/default"}` — targeted-read primitive. Returns `{ok? true :exists? true :value <subtree>}` or `{ok? false :reason :path-not-found :deepest-valid-prefix [...]}`. `:exists?` distinguishes a path that legitimately points at `nil` from a missing path. |
+| `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error", filter: {...}, max-events: 0, max-ms: 0}` — push-mode; emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
+| `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
+| `list-subscriptions` | `{}` (or `{topic: "epoch"}` / `{sub-id: "<uuid>"}`) — list active streaming subscriptions with `:queue-depth`, `:dropped-events`, `:overflow-reason` without draining queues. Diagnostic for "is my probe still alive?". |
+| `list-handlers` | `{kind: "event"}` — discovery: every id registered under one kind. `{:ok? true :kind :event :ids [...] :count n}`, ids sorted. Kinds: `event` / `sub` / `fx` / `cofx` / `view` / `frame` / `route` / `flow` / `head` / `error-projector` / `machine`. Prefer over a `registrar-list` eval. See [`ops.md` §Read](ops.md#read). |
+| `handler-meta` | `{kind: "event", id: ":user/login"}` — drill: registration metadata for one id (source-coord + `:doc` + `:tags` + an `:rf.source/uri` clickable jump-to-editor link). `{:ok? false :reason :not-registered ...}` on a miss. Composite sub ids pass as the vector-string form. Prefer over a `registrar-describe` eval. See [`ops.md` §Read](ops.md#read). |
+| `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming semantics, wire pipeline). No nREPL round-trip. Optionally call at session start to orient before the first real op. |
 
-The `subscribe` / `unsubscribe` pair is the **push-mode** replacement for `watch-epochs`. Each batch of matching events arrives as a `notifications/progress` notification correlated by the call's `progressToken`; the tool's final result is a summary. Use `subscribe` whenever you want a live narration; fall back to `watch-epochs` (pull-mode) when the agent host doesn't surface progress notifications to the model.
+The `subscribe` / `unsubscribe` pair is the **push-mode** counterpart to `watch-epochs`. Each batch of matching events arrives as a `notifications/progress` notification correlated by the call's `progressToken`; the tool's final result is a summary. Use `subscribe` whenever you want a live narration; use `watch-epochs` (pull-mode, polled in a loop) when the agent host doesn't surface progress notifications to the model.
 
 (`inject-runtime` is gone — the runtime ships into the app via
 shadow-cljs `:devtools :preloads`. See `SKILL.md` §Setup.)
@@ -106,8 +102,7 @@ Use `get-path` (next section) when you already know the addressed subtree — it
 
 ## Preload probe (no inject step)
 
-Both transports handle preload verification the same way: every op
-that needs the in-browser runtime first probes
+Every op that needs the in-browser runtime first probes
 `js/globalThis.__re_frame2_pair_runtime` — the load-time marker the
 preload installs. If the marker is missing the op refuses with
 `{:ok? false :reason :runtime-not-preloaded :hint "..."}`. A full
@@ -126,10 +121,11 @@ answers `tools/list` but every `tools/call` returns
 Start shadow-cljs and retry — the server picks up the port on the
 next call.
 
-## Why two transports
+## The bash shims (out of scope for this skill)
 
-The MCP server is the structural shift. The bash shims stay for
-back-compat — older skill installations that haven't migrated, agent
-hosts without MCP support, ad-hoc shell scripting. Both consume the
-same `re-frame2-pair.runtime` namespace; the runtime contract is
-transport-agnostic.
+The shims under `scripts/` predate the MCP server and remain on disk
+only for the project's own e2e test harness and ad-hoc shell use
+outside the skill. They consume the same `re-frame2-pair.runtime`
+namespace — the runtime contract is transport-agnostic — but they are
+**not** reachable from this skill (no shell tool in `allowed-tools:`).
+Treat the MCP tools above as the complete operating surface.
