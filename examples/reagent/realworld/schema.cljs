@@ -199,6 +199,10 @@
    [:errors :map]
    [:touched [:set :keyword]]
    [:submit-attempted? {:optional true} :boolean]
+   ;; Materialised output of the :editor/can-submit? flow (Spec 013).
+   ;; Optional because the flow's first post-drain walk lands one event
+   ;; after :editor/initialise (Spec 013 §Sequencing).
+   [:can-submit? {:optional true} :boolean]
    [:submit-error [:maybe :string]]])
 
 ;; ============================================================================

@@ -20,6 +20,7 @@ reagent/
   managed_http_counter/        <-- compact Spec 014 demo
   state_machine_walkthrough/   <-- runnable companion to docs/guide/11-machines
   nine_states/                 <-- the nine canonical UI states
+  flows/                       <-- Spec 013 Flows exemplar (cart with materialised totals)
   boot/                        <-- Pattern-Boot worked example
   long_running_work/           <-- Pattern-LongRunningWork worked example
   websocket/                   <-- Pattern-WebSocket worked example

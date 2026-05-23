@@ -28,9 +28,15 @@
     ;; at :idle.
     (assert (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/create] (rf/get-frame-db f))))
     (assert (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/idle] (rf/get-frame-db f))))
+    ;; The :editor/can-submit? FLOW (Spec 013) starts false — the draft is
+    ;; blank (invalid) and unchanged.
+    (assert (false? (rf/compute-sub [:editor/can-submit?] (rf/get-frame-db f))))
     (rf/dispatch-sync [:editor/edit-field :title "Hello"] {:frame f})
     (rf/dispatch-sync [:editor/edit-field :description "Short"] {:frame f})
     (rf/dispatch-sync [:editor/edit-field :body "Body"] {:frame f})
+    ;; Now valid AND dirty → the flow materialised true into app-db at
+    ;; [:editor :can-submit?] on the edit drains' post-walk.
+    (assert (true? (rf/compute-sub [:editor/can-submit?] (rf/get-frame-db f))))
     (rf/dispatch-sync [:editor/submit] {:frame f})
     ;; A successful submit advances :mode → :edit and :lifecycle → :saved.
     (assert (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/saved] (rf/get-frame-db f))))

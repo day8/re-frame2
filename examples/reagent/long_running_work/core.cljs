@@ -48,6 +48,14 @@
                                   includes long-running-work-cljs-test
                                   under implementation/adapters/reagent/test/
                                   re_frame/long_running_work_cljs_test.cljs)"
+  ;; Substrate note: STOCK Reagent (`reagent.dom.client` +
+  ;; `re-frame.adapter.reagent`), not reagent-slim. This example's
+  ;; load-bearing teaching point is the `r/with-let` finally-cleanup in
+  ;; views.cljs that fires the `:cancel` cascade on view unmount; it stays
+  ;; on stock Reagent's `reagent.core/with-let` — the substrate that path
+  ;; was validated against — so the cancellation demo isn't entangled with
+  ;; a substrate swap. (Most of the catalogue defaults to slim; counter /
+  ;; counter_slim_and_fast is the dedicated stock-vs-slim contrast pair.)
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]

@@ -23,6 +23,13 @@
    Markdown rendering is intentionally a tiny pure-CLJS parser (headings,
    bold, italic, links, paragraphs, lists) — keeps the bundle small and
    the example free of an extra npm dependency."
+  ;; Substrate note: STOCK Reagent (`reagent.dom.client` +
+  ;; `re-frame.adapter.reagent`), not reagent-slim. notebook is the Reagent
+  ;; member of the three-substrate design-led trio (alongside
+  ;; `dashboard-uix` and `process-monitor-helix`), so it sits on the
+  ;; reference Reagent substrate to keep the trio comparable. (Most of the
+  ;; catalogue defaults to slim; counter / counter_slim_and_fast is the
+  ;; dedicated stock-vs-slim contrast pair.)
   (:require [reagent.dom.client :as rdc]
             [clojure.string     :as str]
             [re-frame.core      :as rf]

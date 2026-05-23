@@ -41,7 +41,7 @@
 
 (set! *warn-on-reflection* true)
 
-;; ---- canned-articles fx (mirrors ssr.core/ssr-tests) ----------------------
+;; ---- canned-articles fx (mirrors ssr.core-test/ssr-tests) -----------------
 
 (defn- register-canned-articles-fx! []
   ;; The example's `:rf.http/managed` call in `:rf/server-init` would

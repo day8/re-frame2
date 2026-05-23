@@ -31,6 +31,15 @@
      machines.cljs | events_test.cljs
 
    Kept as a single file here for brevity."
+  ;; Substrate note: this example stays on STOCK Reagent
+  ;; (`reagent.dom.client` + the `re-frame.adapter.reagent` adapter) rather
+  ;; than reagent-slim. login is the canonical cross-substrate base — it is
+  ;; mirrored 1:1 as `login-uix` and `login-helix` (Spec 006 §Adapter
+  ;; shipping convention Decision 7), so keeping it on the reference
+  ;; substrate makes the three substrate variants a clean apples-to-apples
+  ;; comparison. (`counter` / `counter_slim_and_fast` are the dedicated
+  ;; stock-vs-slim contrast pair; the rest of the catalogue defaults to
+  ;; slim.)
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
@@ -67,14 +76,8 @@
 ;; ============================================================================
 ;;
 ;; Open by default. The snapshot schema describes the shape of
-;; [:rf/machines :auth.login/flow] in app-db; event schemas describe the shape
-;; of dispatched event vectors. None carry :closed true — this isn't a system
-;; boundary.
-
-(def Credentials
-  [:map
-   [:email    [:re #".+@.+"]]
-   [:password [:string {:min 8}]]])
+;; [:rf/machines :auth.login/flow] in app-db. It does not carry :closed
+;; true — this isn't a system boundary.
 
 ;; The login flow's runtime state lives in the machine snapshot at
 ;; [:rf/machines :auth.login/flow] (per [005 §Where snapshots live]).
@@ -85,9 +88,6 @@
    [:data  [:map
             [:attempts {:default 0} :int]
             [:error    [:maybe :string]]]]])
-
-(def SubmitEvent
-  [:tuple [:= :auth.login/submit] Credentials])
 
 (rf/reg-app-schema [:rf/machines :auth.login/flow] AuthLoginSnapshot)
 

@@ -12,7 +12,7 @@
 | 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`circle_drawer/circle_drawer.cljs`](circle_drawer/circle_drawer.cljs) |
 | 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`cells/cells.cljs`](cells/cells.cljs) |
 
-Each example lives in its own self-contained sub-folder under `7Guis/<name>/` with its CLJS source, a thin HTML host page, and a Playwright smoke spec (e.g. `cells/cells.cljs` + `cells/cells.html` + `cells/cells.spec.cjs`). The shadow-cljs build targets in `implementation/shadow-cljs.edn` and the orchestrator under [`../../scripts/`](../../scripts/) wire them up so they run in a real browser; locally invoke `npm run test:examples` from `implementation/`.
+Each example lives in its own self-contained sub-folder under `7Guis/<name>/` with its CLJS source and a thin HTML host page (e.g. `cells/cells.cljs` + `cells/cells.html`). Per the test-free examples policy (rf2-8cevm) there is **no per-example `.spec.cjs`** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates (`test:causa-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`), not under `examples/`. The shadow-cljs build targets in `implementation/shadow-cljs.edn` wire each task up to its own bundle; to view one in a browser, watch its build (`shadow-cljs watch examples/cells`) and serve the staged `index.html`.
 
 CLJS namespace identifiers can't start with a digit, so the on-disk parent directory `7Guis` and the namespace tree diverge: each example is its own top-level namespace pair (`temperature.temperature`, `cells.cells`, etc.) under the dedicated `examples/reagent/7Guis` shadow-cljs source root. The directory name matches the original [7GUIs.com](https://eugenkiss.github.io/7guis/) capitalisation.
 
@@ -23,6 +23,7 @@ The reference implementations on the [7GUIs site](https://eugenkiss.github.io/7g
 - Carry `:doc` metadata on registrations.
 - Attach Malli schemas where the data shape benefits.
 - Use registered views (Var-reference style, the canonical form).
-- Demonstrate headless tests where the task's logic is non-trivial.
+- Keep every artefact (event / sub / view) named and individually
+  queryable rather than inlined into an imperative update loop.
 
 The verbosity tax is real but small. The win is that every artefact is named, queryable, schema-able, and AI-amenable — at the same scale as the imperative reference.
