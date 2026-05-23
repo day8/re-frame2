@@ -248,6 +248,57 @@
       :else
       (walk [] (:states machine)))))
 
+;; Per Spec 005 §Substitutes for skipped features (005:3141) and §Error
+;; category for unclaimed grammar (005:3119-3133): history states remain
+;; post-v1. The v1 CLJS reference claims every OTHER capability, so the
+;; one grammar key it must reject is `:history` — `(rf/reg-machine ...)`
+;; with a `:type :history` node (root or region) or a `:history`
+;; state-node key. Per Spec 009 §Error event catalogue (009:1347,
+;; Ownership.md:48) the canonical recovery is `:no-recovery` —
+;; **registration is rejected** (not the partial-port `:replaced-with-
+;; default` trace-and-ignore path, which only applies to ports that
+;; decline a capability the reference claims). Tags: `:feature`
+;; (the offending key) + `:substitute` (the documented forward pattern).
+(def ^:private history-substitute
+  "snapshot-as-value capture — see Spec 005 §History states → snapshot-as-value capture (CP-5-MachineGuide).")
+
+(defn- history-grammar-error
+  [extras]
+  (validation-error
+    :rf.error/machine-grammar-not-in-v1
+    (str "history states are post-v1 and not in this implementation's "
+         "claimed capability list — use the snapshot-as-value capture "
+         "substitute. See Spec 005 §Substitutes for skipped features.")
+    (merge {:feature :history :substitute history-substitute} extras)))
+
+(defn- validate-no-history!
+  "Reject any `:history` grammar — a `:type :history` node or a `:history`
+  state-node key — at registration. Per Spec 005:3141 the runtime emits
+  `:rf.error/machine-grammar-not-in-v1` against `:history`; per Spec
+  009:1347 registration is rejected (`:no-recovery`). Covers the root,
+  every state node (flat / compound), and every region body of a
+  parallel-region machine."
+  [machine]
+  ;; Root-level `:type :history` (a `:history` machine) or a `:history`
+  ;; key declared at the machine root (alongside `:states`).
+  (when (or (= :history (:type machine))
+            (contains? machine :history))
+    (throw (history-grammar-error {:where-key :root})))
+  ;; Region bodies of a parallel machine: a region declaring `:type
+  ;; :history` (distinct from the `:type :parallel` nested check, which
+  ;; only rejects nested parallel) or a `:history` key.
+  (when (parallel/parallel? machine)
+    (doseq [[region-name region-body] (:regions machine)]
+      (when (or (= :history (:type region-body))
+                (contains? region-body :history))
+        (throw (history-grammar-error {:region region-name})))))
+  ;; Every state node (flat / compound, including inside regions): a
+  ;; `:type :history` node or a `:history` state-node key.
+  (doseq [[s n] (walk-state-nodes machine)]
+    (when (or (= :history (:type n))
+              (contains? n :history))
+      (throw (history-grammar-error {:state s})))))
+
 (defn- validate-final-state!
   "Per Spec 005 §Final states (rf2-gn80) §`:final?` constraints:
 
@@ -286,8 +337,9 @@
              {:state      state-key
               :output-key (:output-key state-node)}))))
 
-(defn- compound? [state-node]
+(defn- compound?
   "A state node is compound iff it declares a non-empty `:states` map."
+  [state-node]
   (and (map? (:states state-node))
        (seq (:states state-node))))
 
@@ -423,6 +475,7 @@
   that targets its own declaring state is rejected. Throws
   `:rf.error/machine-always-self-loop`."
   [machine]
+  (validate-no-history! machine)
   (validate-parallel! machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-invoke-all! s n)
@@ -451,12 +504,28 @@
                           (throw (validation-error
                                    :rf.error/machine-unresolved-action
                                    (str "action ref " a " does not resolve against the machine's :actions map")
-                                   {:action a :state s}))))]
+                                   {:action a :state s}))))
+        ;; A transition slot's value (an `:on` entry, an `:after` entry)
+        ;; may be a keyword target, a vector of state-ids (absolute
+        ;; target), a vector of guarded transition maps, or a single
+        ;; transition map. Normalise to a seq of maps and check each
+        ;; one's `:guard` / `:action` ref. Non-map normalised elements
+        ;; (a keyword in a `[:cart :paying]` absolute target) yield nil
+        ;; from `(:guard t)` / `(:action t)`, so they're harmless.
+        check-transition! (fn [t s]
+                            (doseq [tt (if (vector? t) t [t])]
+                              (check-guard!  (:guard tt)  s)
+                              (check-action! (:action tt) s)))]
     (doseq [[s state-node] (walk-state-nodes machine)]
-      (doseq [[_ t] (:on state-node)
-              t     (if (vector? t) t [t])]
-        (check-guard!  (:guard t)  s)
-        (check-action! (:action t) s))
+      (doseq [[_ t] (:on state-node)]
+        (check-transition! t s))
+      ;; Per Spec 005 §Delayed `:after` (005:1334 "exactly as for `:on`"):
+      ;; `:after` entries may carry `:guard` / `:action` refs (e.g.
+      ;; `{1000 {:target :timeout :guard :no-progress?}}`). A dangling
+      ;; `:after` ref previously slipped past registration and only threw
+      ;; at runtime when the timer fired — fail fast here instead.
+      (doseq [[_ t] (:after state-node)]
+        (check-transition! t s))
       ;; `:always` admits a single entry map OR a vector of entry maps;
       ;; normalise via `always-entries` so a single-map `:always`'s
       ;; guard/action refs are validated (iterating the raw map yields
@@ -466,4 +535,24 @@
         (check-guard!  (:guard t)  s)
         (check-action! (:action t) s))
       (check-action! (:entry state-node) s)
-      (check-action! (:exit  state-node) s))))
+      (check-action! (:exit  state-node) s))
+    ;; Per Spec 005 §Transition resolution: the machine root's own `:on`
+    ;; fallback (now consulted at runtime per the root-`:on` fix) carries
+    ;; `:guard` / `:action` refs that must resolve at registration too —
+    ;; previously `walk-state-nodes` only descended `:states`, so a
+    ;; dangling root-`:on` / root-`:after` ref escaped validation
+    ;; entirely. `walk-state-nodes` yields the nodes INSIDE each region's
+    ;; `:states` but not the region body itself, so a parallel machine's
+    ;; per-region root `:on` / `:after` (which IS consulted at runtime via
+    ;; the region's own `machine-transition-single` root fallback) is
+    ;; validated here too. The parent parallel root carries no `:on`
+    ;; (it routes via region broadcast).
+    (let [roots (if (parallel/parallel? machine)
+                  (vals (:regions machine))
+                  [machine])]
+      (doseq [root roots
+              [_ t] (:on root)]
+        (check-transition! t :rf/root))
+      (doseq [root roots
+              [_ t] (:after root)]
+        (check-transition! t :rf/root)))))

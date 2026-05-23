@@ -334,12 +334,18 @@
       ;; tag the headline machine-transition trace never reaches the
       ;; cascade's `:trace-events` slot, leaving the Causa Machine
       ;; Inspector chart blank for cascades that DID drive a transition.
+      ;; Per Spec 005 §Trace events: the outer macrostep trace carries
+      ;; `:microsteps <count>` — the total number of `:always` microsteps
+      ;; the macrostep ran (0 when the event drove no `:always` cascade).
+      ;; The per-microstep `:rf.machine.microstep/transition` stream is
+      ;; emitted inside the engine; this is the macrostep-level rollup.
       (trace/emit! :rf.machine :rf.machine/transition
                    {:frame      frame-id
                     :machine-id machine-id
                     :event      inner-event
                     :before     snapshot
-                    :after      next-snapshot})
+                    :after      next-snapshot
+                    :microsteps (result/microsteps step-result)})
       (when (not= snapshot next-snapshot)
         (trace/emit! :rf.machine :rf.machine/snapshot-updated
                      {:machine-id machine-id

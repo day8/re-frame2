@@ -33,7 +33,8 @@
   (:require [clojure.set :as set]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
-            [re-frame.machines.transition :as transition]))
+            [re-frame.machines.transition :as transition]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -97,9 +98,12 @@
   `:initial` cascade through any compound chain. Returns the region's
   state value (keyword for flat regions, vector path for compound regions)."
   [region-body]
-  (let [rm        (assoc region-body :states (:states region-body))
-        decl      (:initial region-body)
-        full-path (transition/initial-cascade rm (transition/state-path decl))]
+  (let [decl      (:initial region-body)
+        ;; `region-body` already carries `:states` — `initial-cascade`
+        ;; reads it through `node-at`, so pass it directly (the prior
+        ;; `(assoc region-body :states (:states region-body))` re-assoc'd
+        ;; `:states` with the value it already held — a no-op layer).
+        full-path (transition/initial-cascade region-body (transition/state-path decl))]
     (transition/denormalise-state full-path decl)))
 
 (defn- compute-tags-parallel
@@ -121,9 +125,9 @@
   (let [tags (if (parallel? machine)
                (compute-tags-parallel machine (:state snapshot))
                (transition/compute-tags machine (:state snapshot)))]
-    (if (empty? tags)
-      (dissoc snapshot :tags)
-      (assoc snapshot :tags tags))))
+    ;; Per rf2 clarity dedup: the empty→dissoc / else→assoc elision lives
+    ;; once in `transition/stamp-tags`; both tag-commit fns delegate to it.
+    (transition/stamp-tags snapshot tags)))
 
 (defn build-initial-snapshot
   "Build the freshly-derived initial snapshot for `machine` (rf2-fgqs4).
@@ -260,18 +264,27 @@
         ordered     (filterv #(contains? state-map %)
                              (or (vec (keys (:regions parent-machine)))
                                  (vec (keys state-map))))]
-    (loop [pending     ordered
-           cur-data    (:data snapshot)
-           cur-counter (:rf/spawn-counter snapshot)
-           new-states  state-map
-           acc-fx      []]
+    (loop [pending      ordered
+           cur-data     (:data snapshot)
+           cur-counter  (:rf/spawn-counter snapshot)
+           new-states   state-map
+           acc-fx       []
+           any-handled? false
+           micro-total  0]
       (if (empty? pending)
         (let [merged (cond-> (-> snapshot
                                  (assoc :state new-states)
                                  (assoc :data  cur-data))
                        (some? cur-counter)
                        (assoc :rf/spawn-counter cur-counter))]
-          (result/ok (commit-tags-parallel parent-machine merged) acc-fx))
+          ;; Per Spec 005 §Parallel regions (005:1168-1171): carry the
+          ;; aggregate handled flag (true iff at least one region resolved
+          ;; the event) so `parallel-machine-transition` warns exactly once
+          ;; only when EVERY region declined. Per §Trace events the
+          ;; macrostep `:microsteps` count is the sum across regions.
+          (-> (result/ok (commit-tags-parallel parent-machine merged) acc-fx)
+              (result/with-handled any-handled?)
+              (result/with-microsteps micro-total)))
         (let [rn          (first pending)
               region-spec (region-machine parent-machine rn)
               region-snap (cond-> {:state (get state-map rn)
@@ -281,22 +294,26 @@
               step-result (step-fn region-spec region-snap)]
           (if (result/fail? step-result)
             step-result
-            (result/with-ok [reg-snap reg-fx] step-result
-              ;; Per rf2-3h1pf: accumulate fx via `into` so the region
-              ;; loop doesn't rebuild the accumulator as a fresh vector
-              ;; on every region step (the old shape was
-              ;; `(vec (concat acc-fx prefixed-fx))` — O(N²·M) copying
-              ;; for N regions × M fx; `into` uses a transient
-              ;; internally — O(N·M) amortised). The prefix-fn is
-              ;; folded into the transducer position so we don't
-              ;; materialise the intermediate `prefixed-fx` vector.
-              (recur (rest pending)
-                     (:data reg-snap)
-                     (:rf/spawn-counter reg-snap)
-                     (assoc new-states rn (:state reg-snap))
-                     (into acc-fx
-                           (map (partial prefix-region-invoke-id rn))
-                           reg-fx)))))))))
+            (let [region-handled? (result/handled? step-result)
+                  region-micro    (result/microsteps step-result)]
+              (result/with-ok [reg-snap reg-fx] step-result
+                ;; Per rf2-3h1pf: accumulate fx via `into` so the region
+                ;; loop doesn't rebuild the accumulator as a fresh vector
+                ;; on every region step (the old shape was
+                ;; `(vec (concat acc-fx prefixed-fx))` — O(N²·M) copying
+                ;; for N regions × M fx; `into` uses a transient
+                ;; internally — O(N·M) amortised). The prefix-fn is
+                ;; folded into the transducer position so we don't
+                ;; materialise the intermediate `prefixed-fx` vector.
+                (recur (rest pending)
+                       (:data reg-snap)
+                       (:rf/spawn-counter reg-snap)
+                       (assoc new-states rn (:state reg-snap))
+                       (into acc-fx
+                             (map (partial prefix-region-invoke-id rn))
+                             reg-fx)
+                       (or any-handled? region-handled?)
+                       (long (+ micro-total region-micro)))))))))))
 
 (defn apply-initial-entry-cascade
   "Synthesise the bootstrap entry cascade for `machine` against the
@@ -336,9 +353,30 @@
   only, identified by the region-name prefix on the in-flight timer's
   invoke-id."
   [machine snapshot event]
-  (reduce-regions machine snapshot
-                  (fn [region-spec region-snap]
-                    (machine-transition region-spec region-snap event))))
+  (let [result (reduce-regions machine snapshot
+                               (fn [region-spec region-snap]
+                                 (machine-transition region-spec region-snap event)))]
+    ;; Per Spec 005 §Parallel regions (005:1168-1171): when EVERY region
+    ;; declines the event the machine as a whole emits a single
+    ;; `:rf.error/machine-unhandled-event` (canonical id / op-type / tags
+    ;; per Spec 009 §Error event catalogue, Ownership.md:48). Exclude the
+    ;; synthetic events that legitimately resolve to no-ops: the spawned
+    ;; kick-off (005:1780), the bootstrap cascade vector (005:993, never
+    ;; an `:on` lookup), and a fully-stale `:after` timer (005:1180 —
+    ;; sibling regions always decline the broadcast timer event).
+    (when (and (result/ok? result)
+               (not (result/handled? result))
+               (not (contains? #{:rf.machine/spawned
+                                 :rf.machine/bootstrap
+                                 :rf.machine.timer/after-elapsed}
+                               (first event))))
+      (trace/emit-error! :rf.error/machine-unhandled-event
+                         {:machine-id (or (:rf/parent-id machine) (:id machine))
+                          :event      event
+                          :state      (:state snapshot)
+                          :frame      (:rf/frame machine)
+                          :recovery   :ignored}))
+    result))
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,

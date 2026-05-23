@@ -6,7 +6,9 @@
   (`re-frame.machines.transition`) emits one `:rf.machine/after-schedule`
   fx per `:after` entry. The fx handler here resolves the delay (pos-int?
   literal / subscription vector / fn-form), schedules a real timer via
-  `interop/set-timeout!`, and (for sub-vec delays) installs a watcher
+  `interop/schedule-after!` (the Spec 005 §Clock abstraction primitive —
+  `set-timeout!`'s spec-named machines surface), and (for sub-vec delays)
+  installs a watcher
   that triggers cancel-and-reschedule on sub-value change. On expiry the
   timer dispatches the synthetic
 
@@ -162,7 +164,7 @@
   slots are nil for literal- and fn-form delays)."
   [frame-id entry delay-key]
   (when-let [h (:handle entry)]
-    (try (interop/clear-timeout! h)
+    (try (interop/cancel-scheduled! h)
          (catch #?(:clj Throwable :cljs :default) _ nil)))
   (when (and (:reaction entry) (:sub-watcher-key entry))
     (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
@@ -299,7 +301,7 @@
                                    (= :sub delay-source)
                                    (assoc :sub-id (first delay-key)))))
                 handle
-                (interop/set-timeout!
+                (interop/schedule-after!
                   (fn []
                     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
                       ;; Per rf2-t1lxr: machine :after timer firing tags
@@ -351,7 +353,8 @@
   `:after` transitions and rf2-3y3y, on entry to an :after-bearing state
   node the runtime emits one of these per :after entry. The handler
   resolves the delay (literal pos-int? / subscription vector / fn),
-  schedules a real wall-clock timer via `interop/set-timeout!`, and (for
+  schedules a real wall-clock timer via `interop/schedule-after!` (Spec
+  005 §Clock abstraction), and (for
   subscription delays) installs an add-watch that triggers
   cancel-and-reschedule on sub-value change.
 

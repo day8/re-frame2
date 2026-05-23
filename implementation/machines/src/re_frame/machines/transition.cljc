@@ -211,9 +211,9 @@
   :state. If `original` was a keyword and the path is length-1, return
   the keyword; otherwise return the vector."
   [path original]
-  (cond
-    (and (keyword? original) (= 1 (count path))) (first path)
-    :else (vec path)))
+  (if (and (keyword? original) (= 1 (count path)))
+    (first path)
+    (vec path)))
 
 (defn node-at
   "Walk machine.:states down `path` returning the leaf state-node (or nil
@@ -287,16 +287,23 @@
         nodes (nodes-along-path machine path)]
     (transduce (keep (fn [[_ n]] (node-tags n))) set/union #{} nodes)))
 
+(defn stamp-tags
+  "Elide-or-assoc the `:tags` slot on `snapshot`. Per Spec 005 §State
+  tags §Snapshot shape change: the slot is OPTIONAL — an empty union
+  dissociates the key entirely (keeping snapshots small for the common
+  no-tags case); a non-empty union assocs it. The single home for the
+  elision rule, shared by `commit-tags` (single / compound) and
+  `commit-tags-parallel` (parallel-region) so the two can never drift."
+  [snapshot tags]
+  (if (empty? tags)
+    (dissoc snapshot :tags)
+    (assoc snapshot :tags tags)))
+
 (defn- commit-tags
   "Stamp the active-configuration tag union onto `snapshot` at `:tags`.
-  Per Spec 005 §State tags §Snapshot shape change: the slot is OPTIONAL
-  — when the union is empty, the runtime elides the key entirely to
-  keep snapshots small for the common (no-tags) case."
+  Per Spec 005 §State tags §Snapshot shape change."
   [machine snapshot]
-  (let [tags (compute-tags machine (:state snapshot))]
-    (if (empty? tags)
-      (dissoc snapshot :tags)
-      (assoc snapshot :tags tags))))
+  (stamp-tags snapshot (compute-tags machine (:state snapshot))))
 
 (defn- normalise-on-clause
   "The value at [:on event-id] may be:
@@ -483,11 +490,36 @@
                   :scheduled-epoch carried-epoch
                   :current-epoch   nil})))))
 
+(defn- match-on-clause
+  "Given a node-or-machine map carrying an `:on` table, return the first
+  candidate transition for `event-id` (explicit then `:*` wildcard) whose
+  guard passes, or nil. Per Spec 005 §Transition resolution — the
+  per-level matching rule applied identically at every state-node and at
+  the machine root."
+  [machine node event-id event snapshot]
+  (let [cands (normalise-on-clause
+                (or (get-in node [:on event-id])
+                    (get-in node [:on :*])))]
+    (some (fn [t]
+            (when (evaluate-guard machine (:guard t) snapshot event)
+              t))
+          cands)))
+
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
   with parent fallthrough (the rule named in `path-walk/walk-path-leaf-
   to-root`).
+
+  The walk terminates at the **machine root's own `:on`** (Spec 005
+  §Transition resolution steps 6-7: top-level (root) `:on` explicit
+  match, then `:*` wildcard). The root `:on` is the documented place to
+  factor common transitions every state inherits (`:logout` from every
+  authenticated descendant). A root-`:on` hit is stamped with an empty
+  `:decl-path` so `target-path` resolves a keyword target root-relative
+  (`(drop-last [])` → `[]`, so `:idle` lands at `[:idle]`) and a vector
+  target stays absolute — matching the declaring-state rule where the
+  root is the keyword target's parent level.
 
   Special-cases the synthetic :rf.machine.timer/after-elapsed event by
   delegating to pick-after-transition."
@@ -495,18 +527,30 @@
   (let [event-id (first event)]
     (if (= :rf.machine.timer/after-elapsed event-id)
       (pick-after-transition machine path event snapshot)
-      (path-walk/walk-path-leaf-to-root
-        machine path
-        (fn [prefix n]
-          (let [cands (normalise-on-clause
-                        (or (get-in n [:on event-id])
-                            (get-in n [:on :*])))
-                hit   (some (fn [t]
-                              (when (evaluate-guard machine (:guard t) snapshot event)
-                                t))
-                            cands)]
-            (when hit
-              {:transition hit :decl-path prefix})))))))
+      (or
+        ;; Steps 1-5: leaf→root over the active state-path nodes.
+        (path-walk/walk-path-leaf-to-root
+          machine path
+          (fn [prefix n]
+            (when-let [hit (match-on-clause machine n event-id event snapshot)]
+              {:transition hit :decl-path prefix})))
+        ;; Steps 6-7: the machine root's own `:on` fallback. Consulted
+        ;; only when no state-path node handled the event.
+        (when-let [hit (match-on-clause machine machine event-id event snapshot)]
+          {:transition hit :decl-path []})))))
+
+(defn- unhandled-event-warnable?
+  "True iff a nil `pick-transition` result for `event` should surface the
+  `:rf.error/machine-unhandled-event` advisory. Per Spec 005 §Transition
+  resolution (005:1028) the runtime emits it when no level matched — with
+  the one carve-out at 005:1780: the synthetic `[:rf.machine/spawned]`
+  kick-off resolving to no transition is a benign no-op, NOT an unhandled
+  event. The bootstrap `[:rf.machine/bootstrap]` and timer
+  `[:rf.machine.timer/after-elapsed ...]` synthetic events never reach
+  this path (bootstrap is `:entry`-only; the timer event is special-cased
+  in `pick-transition`), so the spawned carve-out is the only exclusion."
+  [event]
+  (not= :rf.machine/spawned (first event)))
 
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:
@@ -518,7 +562,7 @@
   Per rf2-adwxh the explicit `(nil? target) nil` arm is dropped — when
   target is neither vector nor keyword, the `cond` falls through to
   nil, which is the documented internal-transition contract."
-  [decl-path _source-path target]
+  [decl-path target]
   (cond
     (vector? target)     target
     (keyword? target)
@@ -591,11 +635,34 @@
           (let [r (run-action machine snap aref event)]
             (if (result/fail? r)
               (reduced r)
-              (let [new-data (cond-> (:data snap)
-                               (contains? r :data) (merge (:data r)))
-                    new-snap (assoc snap :data new-data)
-                    new-fx   (vec (concat fx (or (:fx r) [])))]
-                (result/ok new-snap new-fx)))))
+              (do
+                ;; Per Spec 005 §Hard-disallow `:db` (005:463): a machine
+                ;; action's effect map MUST NOT carry `:db`. When present,
+                ;; emit the structured error and DROP the `:db` key — the
+                ;; remaining `:data` / `:fx` effects flow through. Canonical
+                ;; id / op-type / tags / recovery per Spec 009 §Error event
+                ;; catalogue (Ownership.md:48): `:rf.error/machine-action-
+                ;; wrote-db`, op-type `:error`, tags `{:machine-id :action-id
+                ;; :state-path :offending-value}`, recovery
+                ;; `:logged-and-skipped`. The pre-existing read of only
+                ;; `:data` / `:fx` already dropped `:db` silently; this adds
+                ;; the missing diagnostic the spec requires.
+                (when (and (map? r) (contains? r :db))
+                  (trace/emit-error! :rf.error/machine-action-wrote-db
+                                     {:machine-id      (or (:rf/parent-id machine)
+                                                           (:id machine))
+                                      :action-id       aref
+                                      :state-path      (:state snap)
+                                      :offending-value (:db r)
+                                      ;; Per rf2-ko8jb: epoch-capture
+                                      ;; admission requires `:frame`.
+                                      :frame           (:rf/frame machine)
+                                      :recovery        :logged-and-skipped}))
+                (let [new-data (cond-> (:data snap)
+                                 (contains? r :data) (merge (:data r)))
+                      new-snap (assoc snap :data new-data)
+                      new-fx   (vec (concat fx (or (:fx r) [])))]
+                  (result/ok new-snap new-fx))))))
         acc))
     (result/ok snap [])
     action-refs))
@@ -767,8 +834,10 @@
   (any return value is ignored). Per rf2-t07u (Option A revised) the
   runtime tracks the spawn-id at `[:rf/spawned parent-id invoke-id]`;
   `:on-spawn` is purely observational — callers needing snapshot-level
-  side effects emit `[:rf.machine/update-snapshot ...]` from a regular
-  `:action` instead."
+  side effects emit `[:rf.machine/update-snapshot {:rf/machine-id <id>
+  :rf/patch {...}}]` from a regular `:action`'s `:fx` vector instead (the
+  fx is registered in `re-frame.machines` and handled by
+  `re-frame.machines.lifecycle-fx.update-snapshot`)."
   [machine snap inv-spec spawned-id]
   (when-let [f (let [aref (:on-spawn inv-spec)]
                  (when aref
@@ -1033,7 +1102,7 @@
   (let [src-path      (state-path (:state snapshot))
         decl-path     (:decl-path transition (vec (take 1 src-path)))
         raw-target    (:target transition)
-        target-leaf   (some->> (target-path decl-path src-path raw-target)
+        target-leaf   (some->> (target-path decl-path raw-target)
                                (initial-cascade machine))
         internal?     (nil? raw-target)
         lca-len       (if internal?
@@ -1412,6 +1481,13 @@
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
         path             (state-path (:state snapshot))
         match            (pick-transition machine path event snapshot)
+        ;; Per Spec 005 §Parallel regions (005:1168-1171): a region reports
+        ;; whether the inbound event resolved to a real transition so the
+        ;; parent can warn exactly once when EVERY region declines. A stale
+        ;; / guard-suppressed timer is not a handled user event.
+        handled?         (boolean (and match
+                                       (not (:stale? match))
+                                       (not (:guard-suppressed? match))))
         ;; Trace timer firing / staleness / guard-suppression BEFORE
         ;; running the transition, so listeners see events in the order
         ;; they occurred.
@@ -1430,8 +1506,35 @@
             (assoc (:transition match) :decl-path (:decl-path match)))
 
           :else
-          (result/ok snapshot []))]
-    (if (result/fail? result-after-event)
+          (do
+            ;; No transition matched at any level (including the root `:on`
+            ;; fallback). Per Spec 005 §Transition resolution (005:1028) the
+            ;; runtime emits the unhandled-event advisory and leaves the
+            ;; snapshot unchanged. The canonical id / op-type / tags are
+            ;; owned by Spec 009 §Error event catalogue (Ownership.md:48):
+            ;; `:rf.error/machine-unhandled-event`, op-type `:error`, tags
+            ;; `{:machine-id :event :state}`, recovery `:ignored`. (005's
+            ;; `:rf.warning/` spelling is the superseded older draft —
+            ;; 009:1348 states the `:rf.error/` form is canonical.)
+            ;;
+            ;; A region of a parallel-region machine carries `:rf/region`;
+            ;; per 005:1168-1171 a single declining region MUST NOT warn —
+            ;; only when EVERY region declines does the machine warn once.
+            ;; That aggregate emission lives in `parallel-machine-transition`,
+            ;; so suppress the per-region emission here.
+            (when (and (nil? (:rf/region machine))
+                       (unhandled-event-warnable? event))
+              (trace/emit-error! :rf.error/machine-unhandled-event
+                                 {:machine-id (or (:rf/parent-id machine) (:id machine))
+                                  :event      event
+                                  :state      (:state snapshot)
+                                  ;; Per rf2-ko8jb: epoch-capture admission
+                                  ;; requires `:frame`.
+                                  :frame      (:rf/frame machine)
+                                  :recovery   :ignored}))
+            (result/ok snapshot [])))]
+    (result/with-handled
+     (if (result/fail? result-after-event)
       result-after-event
       (result/with-ok [snap-after-event fx-after-event] result-after-event
         (let [raised (drain-raises machine snap-after-event fx-after-event raise-limit raise-depth)]
@@ -1470,13 +1573,33 @@
                       ;; active-configuration tag union on the committed snapshot
                       ;; AFTER the new state is settled but BEFORE traces fire
                       ;; (so the outer handler's `:rf.machine/transition` trace
-                      ;; carries the new tag set).
-                      (result/ok (commit-tags machine snap) fx)
+                      ;; carries the new tag set). `depth` is the count of
+                      ;; `:always` microsteps taken — stamped onto the Result
+                      ;; via `::microsteps` (per Spec 005 §Trace events) so
+                      ;; `commit-or-finalize` can carry `:microsteps` on the
+                      ;; outer `:rf.machine/transition` trace.
+                      (result/with-microsteps
+                        (result/ok (commit-tags machine snap) fx)
+                        depth)
                       (let [step-result (apply-transition-once machine snap nil
                                                                 (:transition always-m))]
                         (if (result/fail? step-result)
                           step-result
                           (result/with-ok [snap2 fx2] step-result
+                            ;; Per Spec 005 §Trace events: one
+                            ;; `:rf.machine.microstep/transition` per microstep,
+                            ;; carrying the from/to states and the 0-based
+                            ;; microstep index, so visualisers/debuggers see the
+                            ;; inner `:always` cascade the outer trace hides.
+                            (trace/emit! :rf.machine :rf.machine.microstep/transition
+                                         {:machine-id     (or (:rf/parent-id machine)
+                                                              (:id machine))
+                                          :from           (:state snap)
+                                          :to             (:state snap2)
+                                          :microstep-index depth
+                                          ;; Per rf2-ko8jb: epoch-capture
+                                          ;; admission requires `:frame`.
+                                          :frame          (:rf/frame machine)})
                             ;; Seed the per-`:always`-step drain with the
                             ;; macrostep's inbound transitive `raise-depth`
                             ;; (rf2-b88nm) so raises emitted by an `:always`
@@ -1489,4 +1612,5 @@
                                   (recur snap3
                                          (vec (concat fx fx3))
                                          (inc depth)
-                                         (conj visited (:state snap3)))))))))))))))))))))
+                                         (conj visited (:state snap3))))))))))))))))))
+     handled?))))
