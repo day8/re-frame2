@@ -185,11 +185,19 @@
 
   Each row:
 
-    {:view-id   <kw/id>
-     :render-key <[view-id token]>
-     :action    :mount | :rerender | :unmount
-     :reason    {:kind :reactive :subs [...]} | {:kind :structural}
-                | {:kind :none}                 ; unmount}
+    {:view-id      <kw/id>
+     :render-key   <[view-id token]>
+     :action       :mount | :rerender | :unmount
+     :reason       {:kind :reactive :subs [...]} | {:kind :structural}
+                   | {:kind :none}                 ; unmount
+     :triggered-by <sub-id>?    ; rf2-8wrzz.1 — the SINGLE cause sub
+     :elapsed-ms   <number>?}   ; rf2-8wrzz.1 — render wall-clock
+
+  `:triggered-by` (the per-view re-render cause) + `:elapsed-ms` (render
+  timing) ride the `:rf.view/rendered` op from rf2-8wrzz.1; the flow
+  graph (spec/021 §3.2) uses them to label each sub→view edge's cause +
+  the view node's timing. Both are absent on a structural re-render /
+  outside a cascade — the slot is simply omitted.
 
   `changed-set` is the set of changed sub-ids this cascade (from
   `changed-sub-id-set`). nil-safe: missing tags / absent fields degrade
@@ -205,12 +213,16 @@
                     (nil? view-id) nil
 
                     (= :rf.view/rendered op)
-                    (let [mount?     (true? (:rf.view/mount? tags))
-                          deref-subs (:rf.view/deref-subs tags)]
-                      {:view-id    view-id
-                       :render-key (:rf.view/render-key tags)
-                       :action     (if mount? :mount :rerender)
-                       :reason     (compute-view-reason deref-subs changed-set)})
+                    (let [mount?       (true? (:rf.view/mount? tags))
+                          deref-subs   (:rf.view/deref-subs tags)
+                          triggered-by (:rf.view/triggered-by tags)
+                          elapsed-ms   (:rf.view/elapsed-ms tags)]
+                      (cond-> {:view-id    view-id
+                               :render-key (:rf.view/render-key tags)
+                               :action     (if mount? :mount :rerender)
+                               :reason     (compute-view-reason deref-subs changed-set)}
+                        (some? triggered-by) (assoc :triggered-by triggered-by)
+                        (some? elapsed-ms)   (assoc :elapsed-ms elapsed-ms)))
 
                     (= :rf.view/unmounted op)
                     {:view-id    view-id
@@ -220,6 +232,49 @@
 
                     :else nil))))
         (or trace-events [])))
+
+;; ---- reactive teardown sections (spec/021 §3.2 · Figma design) ------------
+
+(defn unmounted-views
+  "Project the epoch's UNMOUNTED VIEWS section rows (spec/021 §3.2 ·
+  Figma `ViewsPanel.tsx`). One row per `:rf.view/unmounted` op this
+  cascade — views whose component instance tore down this epoch.
+
+  Reads the same `:rf.view/unmounted` teardown op `view-rows` reads for
+  its `:unmount` action; surfaced here as a dedicated section per the
+  Figma design (the graph shows the live cascade; teardown lists below
+  it). Each row `{:view-id <kw/id>}`. First-seen order, de-duplicated by
+  view-id so two instances of one view tearing down list once. nil-safe;
+  ops without a `:view-id` are skipped."
+  [trace-events]
+  (->> (or trace-events [])
+       (keep (fn [ev]
+               (when (= :rf.view/unmounted (op-kw ev))
+                 (let [tags (:tags ev)]
+                   (or (:rf.view/id tags) (:rf.view/id ev))))))
+       (distinct)
+       (mapv (fn [view-id] {:view-id view-id}))))
+
+(defn destroyed-subscriptions
+  "Project the epoch's DESTROYED SUBSCRIPTIONS section rows (spec/021
+  §3.2) — subs cleaned up when their last reader unmounted.
+
+  Reads the `:rf.sub/disposed` teardown op (the sub-dispose op spec/021
+  §3.5 pairs with view-unmount). Data-availability honesty: the live
+  build does not yet emit a sub-dispose trace op (the sub-cache disposes
+  reactions silently on last-reader teardown — see subs/cache.cljc), so
+  this projection is empty until that op lands. When it does, each
+  `:rf.sub/disposed` op anchors a row `{:sub-id <kw/id>}`. First-seen
+  order, de-duplicated. nil-safe; ops without a `:sub-id` are skipped."
+  [trace-events]
+  (->> (or trace-events [])
+       (keep (fn [ev]
+               (when (= :rf.sub/disposed (op-kw ev))
+                 (let [tags (:tags ev)]
+                   (or (:rf.sub/id tags) (:sub-id tags)
+                       (:rf.sub/id ev) (:sub-id ev))))))
+       (distinct)
+       (mapv (fn [sub-id] {:sub-id sub-id}))))
 
 ;; ---- shared-subscription edges (rf2-y23uw) --------------------------------
 
@@ -373,7 +428,9 @@
          changed-set   (changed-sub-id-set ran)
          readers       (sub-readers trace-events)
          {:keys [level-1 level-2]} (partition-subs-by-level ran topology readers)
-         v-rows        (view-rows trace-events changed-set)]
+         v-rows        (view-rows trace-events changed-set)
+         unmounted     (unmounted-views trace-events)
+         destroyed     (destroyed-subscriptions trace-events)]
      {:subs-ran        ran
       :subs-skipped    skipped
       :views-rendered  renders
@@ -381,10 +438,14 @@
       :level-2-subs    level-2
       :sub-readers     readers
       :view-rows       v-rows
+      :unmounted-views unmounted
+      :destroyed-subs  destroyed
       :counts          {:subs-ran         (count ran)
                         :subs-skipped     (count skipped)
                         :views-rendered   (count renders)
                         :view-rows        (count v-rows)
+                        :unmounted-views  (count unmounted)
+                        :destroyed-subs   (count destroyed)
                         :flows-recomputed flows-comp
                         :flows-skipped    flows-skipped}})))
 

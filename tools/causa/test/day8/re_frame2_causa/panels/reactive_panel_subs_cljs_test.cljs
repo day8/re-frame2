@@ -232,6 +232,54 @@
       (is (= 1 (count rows)))
       (is (= :v/ok (-> rows first :view-id))))))
 
+(deftest view-rows-carries-cause-and-timing
+  (testing "rf2-ad7zx.6 / rf2-8wrzz.1 — a :rf.view/rendered op carrying
+            :rf.view/triggered-by + :rf.view/elapsed-ms threads those
+            through onto the view row for the flow graph's cause + timing."
+    (let [ev   {:operation :rf.view/rendered
+                :tags {:rf.view/id :v/a :rf.view/render-key [:v/a 0]
+                       :rf.view/mount? false
+                       :rf.view/deref-subs [[:s1]]
+                       :rf.view/triggered-by :s1
+                       :rf.view/elapsed-ms 2.4}}
+          row  (first (subs/view-rows [ev] #{:s1}))]
+      (is (= :s1 (:triggered-by row)) "the cause sub rides the row")
+      (is (= 2.4 (:elapsed-ms row)) "the render timing rides the row"))))
+
+(deftest view-rows-omits-cause-and-timing-when-absent
+  (testing "rf2-ad7zx.6 — a structural render with no cause / timing slots
+            simply omits :triggered-by + :elapsed-ms (no nil keys)."
+    (let [row (first (subs/view-rows [(rendered-ev :v/s false [[:unchanged]])] #{}))]
+      (is (not (contains? row :triggered-by)))
+      (is (not (contains? row :elapsed-ms))))))
+
+;; ---- teardown sections (rf2-ad7zx.6) ----------------------------------
+
+(deftest unmounted-views-lists-unmount-ops
+  (testing "rf2-ad7zx.6 — UNMOUNTED VIEWS reads :rf.view/unmounted ops,
+            de-duplicated, first-seen order."
+    (let [events [(unmounted-ev :v/modal)
+                  (unmounted-ev :v/tooltip)
+                  (unmounted-ev :v/modal)]] ; dup → once
+      (is (= [{:view-id :v/modal} {:view-id :v/tooltip}]
+             (subs/unmounted-views events))))))
+
+(deftest unmounted-views-nil-safe-and-skips-non-unmount-ops
+  (is (= [] (subs/unmounted-views nil)))
+  (is (= [] (subs/unmounted-views [(rendered-ev :v/a true nil)]))))
+
+(deftest destroyed-subscriptions-reads-dispose-op-when-present
+  (testing "rf2-ad7zx.6 — DESTROYED SUBSCRIPTIONS reads :rf.sub/disposed
+            ops; absent in the live build so empty by default (data-
+            availability honesty), populated when the op lands."
+    (is (= [] (subs/destroyed-subscriptions [(rendered-ev :v/a true nil)]))
+        "no dispose op → empty (live-build reality)")
+    (let [events [{:operation :rf.sub/disposed :tags {:rf.sub/id :s/modal}}
+                  {:operation :rf.sub/disposed :tags {:sub-id :s/tip}}]]
+      (is (= [{:sub-id :s/modal} {:sub-id :s/tip}]
+             (subs/destroyed-subscriptions events))
+          "forward-compatible: reads the dispose op when present"))))
+
 ;; ---- Level 1 / Level 2+ partition -------------------------------------
 
 (def ^:private topology
@@ -357,7 +405,14 @@
       (is (= {:cart/total [:cart/Summary]} (:sub-readers p))
           ":sub-readers maps :cart/total → the views that read it")
       (is (= [:cart/Summary] (-> p :level-2-subs first :readers))
-          ":cart/total's L2 row carries its :readers"))))
+          ":cart/total's L2 row carries its :readers")
+      ;; rf2-ad7zx.6 — teardown sections compose through project-record.
+      (is (= [{:view-id :cart/Gone}] (:unmounted-views p))
+          ":unmounted-views projects the unmount op")
+      (is (= [] (:destroyed-subs p))
+          ":destroyed-subs empty (no dispose op in the live build)")
+      (is (= 1 (-> p :counts :unmounted-views)))
+      (is (= 0 (-> p :counts :destroyed-subs))))))
 
 (deftest project-record-degrades-without-topology
   (testing "rf2-8ve8z — nil topology: every sub falls to Level 1; the
