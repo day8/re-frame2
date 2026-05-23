@@ -19,6 +19,7 @@
   stays effect-free so it can be loaded and exercised on the JVM by
   the conformance fixtures (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
+            [clojure.string :as str]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
@@ -539,18 +540,33 @@
         (when-let [hit (match-on-clause machine machine event-id event snapshot)]
           {:transition hit :decl-path []})))))
 
-(defn- unhandled-event-warnable?
+(defn unhandled-event-warnable?
   "True iff a nil `pick-transition` result for `event` should surface the
   `:rf.error/machine-unhandled-event` advisory. Per Spec 005 §Transition
-  resolution (005:1028) the runtime emits it when no level matched — with
-  the one carve-out at 005:1780: the synthetic `[:rf.machine/spawned]`
-  kick-off resolving to no transition is a benign no-op, NOT an unhandled
-  event. The bootstrap `[:rf.machine/bootstrap]` and timer
-  `[:rf.machine.timer/after-elapsed ...]` synthetic events never reach
-  this path (bootstrap is `:entry`-only; the timer event is special-cased
-  in `pick-transition`), so the spawned carve-out is the only exclusion."
+  resolution (005:1028) the runtime emits it when no level matched.
+
+  Carve-out: the advisory exists to catch a **user / domain** event a
+  machine author forgot to handle — NOT framework lifecycle traffic. Per
+  [Conventions.md §The single-root reserved set] the framework reserves
+  the `:rf/*` root namespace for every framework-owned id, *machine
+  lifecycle events included*; the stories library's lifecycle / assertion
+  events ride the same reserved root (`:rf.story.lifecycle/*`,
+  `:rf.assert/*`). An event in the reserved `:rf*` namespace that resolves
+  to a no-op is benign framework traffic, exactly as Spec 005:1780 carves
+  out the synthetic `[:rf.machine/spawned]` kick-off. (`:rf.machine/bootstrap`
+  is `:entry`-only and `:rf.machine.timer/after-elapsed` is special-cased
+  in `pick-transition`, so neither reaches this path — but they are
+  reserved-namespace too, so the rule subsumes them.) Domain machines that
+  optimistically broadcast reserved-namespace lifecycle pings (the way the
+  stories runtime fires `:rf.story.lifecycle/events-complete` at a machine
+  already resting in `:ready`) therefore do not trip the advisory.
+
+  Public so the parallel-region aggregate path (`parallel/
+  parallel-machine-transition`) shares the single source of truth."
   [event]
-  (not= :rf.machine/spawned (first event)))
+  (let [event-id (first event)
+        ns       (when (keyword? event-id) (namespace event-id))]
+    (not (and ns (or (= ns "rf") (str/starts-with? ns "rf."))))))
 
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:

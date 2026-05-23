@@ -359,17 +359,17 @@
     ;; Per Spec 005 §Parallel regions (005:1168-1171): when EVERY region
     ;; declines the event the machine as a whole emits a single
     ;; `:rf.error/machine-unhandled-event` (canonical id / op-type / tags
-    ;; per Spec 009 §Error event catalogue, Ownership.md:48). Exclude the
-    ;; synthetic events that legitimately resolve to no-ops: the spawned
-    ;; kick-off (005:1780), the bootstrap cascade vector (005:993, never
-    ;; an `:on` lookup), and a fully-stale `:after` timer (005:1180 —
-    ;; sibling regions always decline the broadcast timer event).
+    ;; per Spec 009 §Error event catalogue, Ownership.md:48). The
+    ;; warnable carve-out — reserved `:rf*`-namespace framework lifecycle
+    ;; traffic (the spawned kick-off 005:1780, the bootstrap cascade
+    ;; 005:993, the stale `:after` timer broadcast 005:1180, and the
+    ;; stories-library lifecycle pings) resolving to a no-op is benign,
+    ;; NOT an unhandled user event — is the single source of truth in
+    ;; `transition/unhandled-event-warnable?`; share it so the single-
+    ;; and parallel-machine paths can never drift apart.
     (when (and (result/ok? result)
                (not (result/handled? result))
-               (not (contains? #{:rf.machine/spawned
-                                 :rf.machine/bootstrap
-                                 :rf.machine.timer/after-elapsed}
-                               (first event))))
+               (transition/unhandled-event-warnable? event))
       (trace/emit-error! :rf.error/machine-unhandled-event
                          {:machine-id (or (:rf/parent-id machine) (:id machine))
                           :event      event
