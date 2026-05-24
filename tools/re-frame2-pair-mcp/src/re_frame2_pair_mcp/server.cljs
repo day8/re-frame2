@@ -5,12 +5,14 @@
 
   ## Lifecycle
 
-  1. boot: read nREPL port from the `--port-file <path>` flag, the
-     `SHADOW_CLJS_NREPL_PORT` env var, or the standard cwd-relative
-     port-files (in that precedence — see `nrepl/read-port-from-fs`).
-     Open the persistent socket lazily on first tool call (so the
-     server starts cleanly even before shadow-cljs is running — the
-     first tool that needs the socket gets a structured error).
+  1. boot: discover the nREPL port via the four-step cascade — the
+     `--port-file <path>` flag, the `SHADOW_CLJS_NREPL_PORT` env var,
+     a probe of shadow's HTTP API at port 9630 (which yields the
+     consumer project root → port-file lookup; rf2-umoz2), and finally
+     a cwd-relative port-file scan. See `nrepl/discover-port`. Open
+     the persistent socket lazily on first tool call (so the server
+     starts cleanly even before shadow-cljs is running — the first
+     tool that needs the socket gets a structured error).
   2. `initialize`: standard MCP handshake.
   3. `tools/list`: returns the full tool catalogue — see
      `tools.registry/tools` for the authoritative list (the single
@@ -53,28 +55,36 @@
 ;; Shared connection state.
 ;; ---------------------------------------------------------------------------
 
+(def ^:private port-not-found-hint
+  "Boot-failure prose for the operator. Threaded into the boot-error
+  payload and the degraded-mode hint so the same surface appears
+  whether discovery returned nil or the cascade threw."
+  (str "nREPL port not found. Start your shadow-cljs dev build "
+       "(`shadow-cljs watch <build>`), or set "
+       "SHADOW_CLJS_NREPL_PORT explicitly, or pass "
+       "`--port-file <absolute-path-to-nrepl.port>` "
+       "(the cwd-independent escape hatch)."))
+
 (defn- resolve-port
-  "Look up the nREPL port. Returns an integer or throws with a hint.
+  "Run the async port-discovery cascade — see `nrepl/discover-port` for
+  the four-step precedence (rf2-umoz2 added the shadow HTTP probe as
+  step 3). Returns a Promise resolving to an integer port or rejecting
+  with a structured `:rf.error/pair-mcp-nrepl-port-not-found` ex-info."
+  [explicit-port-file http-port]
+  (-> (nrepl/discover-port explicit-port-file http-port)
+      (.then (fn [port]
+               (if port
+                 port
+                 (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
+                                 {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
+                                  :where    'pair-mcp/resolve-port
+                                  :recovery :no-recovery
+                                  :reason   port-not-found-hint
+                                  :hint     port-not-found-hint})))))))
 
-  `explicit-port-file` (from the `--port-file <path>` launch flag) takes
-  precedence over the env var and the cwd-relative file scan — see
-  `nrepl/read-port-from-fs` and the tool README (rf2-3dbwh)."
-  [explicit-port-file]
-  (or (nrepl/read-port-from-fs explicit-port-file)
-      (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
-                      {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
-                       :where    'pair-mcp/resolve-port
-                       :recovery :no-recovery
-                       :reason   (str "nREPL port not found. Start your shadow-cljs dev build "
-                                      "(`shadow-cljs watch <build>`), or set "
-                                      "SHADOW_CLJS_NREPL_PORT explicitly, or pass "
-                                      "`--port-file <absolute-path-to-nrepl.port>` "
-                                      "(the cwd-independent escape hatch).")}))))
-
-(defn- new-conn [explicit-port-file]
-  (let [port (resolve-port explicit-port-file)]
-    (log! "nREPL port =" port)
-    (nrepl/make-conn port "127.0.0.1")))
+(defn- new-conn-for-port [port]
+  (log! "nREPL port =" port)
+  (nrepl/make-conn port "127.0.0.1"))
 
 ;; ---------------------------------------------------------------------------
 ;; MCP request handlers.
@@ -152,6 +162,34 @@
                                          :text (pr-str payload)}]
              :structuredContent (clj->js payload)}))))
 
+(defn- parse-string-value-flag
+  "Generic launch-flag pluck: returns the trailing value of `--name <v>`
+  or the inline value of `--name=<v>` for the named flag in `argv`.
+  Last occurrence wins (consistent with argv override semantics).
+  Returns nil when the flag is absent or given without a value.
+
+  Used by both `--port-file` (rf2-3dbwh) and `--http-port` (rf2-umoz2);
+  one parser, one shape — so a future string-valued flag lands here
+  without growing a per-flag micro-parser."
+  [flag-name argv]
+  (let [equals-prefix (str flag-name "=")]
+    (loop [items argv
+           found nil]
+      (if-let [item (first items)]
+        (cond
+          (str/starts-with? item equals-prefix)
+          (recur (rest items) (subs item (count equals-prefix)))
+
+          (= item flag-name)
+          (let [v (second items)]
+            (if (and v (not (str/starts-with? v "--")))
+              (recur (drop 2 items) v)
+              (recur (rest items) found)))
+
+          :else
+          (recur (rest items) found))
+        found))))
+
 (defn- parse-port-file-flag
   "Pluck the value of the `--port-file` launch flag out of `argv`.
   Accepts both the space form `--port-file <path>` and the equals form
@@ -160,24 +198,20 @@
   override semantics). Public-ish (private) — exercised via
   `parse-launch-flags` in tests."
   [argv]
-  (loop [items argv
-         found nil]
-    (if-let [item (first items)]
-      (cond
-        ;; --port-file=<path>
-        (str/starts-with? item "--port-file=")
-        (recur (rest items) (subs item (count "--port-file=")))
+  (parse-string-value-flag "--port-file" argv))
 
-        ;; --port-file <path>  (value is the next argv element)
-        (= item "--port-file")
-        (let [v (second items)]
-          (if (and v (not (str/starts-with? v "--")))
-            (recur (drop 2 items) v)
-            (recur (rest items) found)))
+(defn- parse-http-port-flag
+  "Pluck the value of the `--http-port` launch flag (rf2-umoz2) and
+  coerce to an int. Returns nil when absent / malformed.
 
-        :else
-        (recur (rest items) found))
-      found)))
+  Shadow's web server is fixed by its own `:http :port` config; the
+  default (9630) covers ~all consumers. Operators who pinned shadow's
+  HTTP port to something else surface that here without forcing a
+  re-implementation of the shadow-cljs.edn parser."
+  [argv]
+  (when-let [raw (parse-string-value-flag "--http-port" argv)]
+    (let [n (js/parseInt raw 10)]
+      (when-not (js/isNaN n) n))))
 
 (defn parse-launch-flags
   "Pluck the named launch flags out of the raw process argv. Flags today:
@@ -201,11 +235,18 @@
     --port-file <path>       — explicit, cwd-independent nREPL port-file
                                path (rf2-3dbwh). Highest precedence in the
                                port-discovery chain — see
-                               `nrepl/read-port-from-fs`. Accepts both
+                               `nrepl/discover-port`. Accepts both
                                `--port-file <path>` and `--port-file=<path>`.
+    --http-port <n>          — override shadow-cljs's HTTP server port
+                               for the auto-discovery probe (rf2-umoz2).
+                               Defaults to 9630 (shadow's standard).
+                               Only used when steps 1-2 of the cascade
+                               miss; setting it has no effect when
+                               --port-file or SHADOW_CLJS_NREPL_PORT is
+                               present.
 
   Returns `{:allow-eval? bool :allow-raw-state? bool :allow-writes? bool
-  :port-file str-or-nil}`.
+  :port-file str-or-nil :http-port int-or-nil}`.
   The internal keyword `:allow-raw-state?` is the pair-mcp
   implementation-side identifier for the gate's state; the CLI flag is the
   operator-facing name. Unknown flags are ignored — node's shadow-cljs
@@ -215,7 +256,8 @@
   {:allow-eval?      (boolean (some #{"--allow-eval"} argv))
    :allow-raw-state? (boolean (some #{"--allow-sensitive-reads"} argv))
    :allow-writes?    (boolean (some #{"--allow-writes"} argv))
-   :port-file        (parse-port-file-flag argv)})
+   :port-file        (parse-port-file-flag argv)
+   :http-port        (parse-http-port-flag argv)})
 
 (defn- apply-launch-flags!
   "Wire launch-flag state into the relevant tool gates. Called once
@@ -258,17 +300,28 @@
     (apply-resource-controls! argv)
     (when-let [pf (:port-file launch-flags)]
       (log! "nREPL port-file (--port-file):" pf))
-    (try
-      (let [conn   (new-conn (:port-file launch-flags))
-            server (boot! conn)]
-        (log! "starting stdio transport")
-        (connect-transport! server "ready — awaiting MCP frames on stdin"))
-      (catch :default e
-        (log! "boot failed:" (.-message e))
-        ;; Even on boot failure (e.g. nREPL port missing) we keep the
-        ;; process alive so the MCP client can talk to us, list tools,
-        ;; and surface a structured error from the first tool call. The
-        ;; bash-shim chain had the same semantics — the error came back
-        ;; as `{:ok? false :reason :nrepl-port-not-found}`.
-        (let [server (build-server (degraded-handler e))]
-          (connect-transport! server "ready (degraded — no nREPL port)"))))))
+    (when-let [hp (:http-port launch-flags)]
+      (log! "shadow HTTP port (--http-port):" hp))
+    ;; Port discovery is async (the shadow HTTP probe in step 3 of
+    ;; `nrepl/discover-port` is a real network call; rf2-umoz2). The
+    ;; rest of boot — stdio transport, dispatcher wiring — sequences off
+    ;; the resolved port via .then. Degraded boot fires from the .catch
+    ;; branch so a missing nREPL still yields a tools/list-discoverable
+    ;; server that surfaces a structured error on first call. Same
+    ;; observable shape as the pre-rf2-umoz2 sync boot — the await is an
+    ;; implementation detail.
+    (-> (resolve-port (:port-file launch-flags) (:http-port launch-flags))
+        (.then (fn [port]
+                 (let [conn   (new-conn-for-port port)
+                       server (boot! conn)]
+                   (log! "starting stdio transport")
+                   (connect-transport! server "ready — awaiting MCP frames on stdin"))))
+        (.catch (fn [e]
+                  (log! "boot failed:" (.-message e))
+                  ;; Even on boot failure (e.g. nREPL port missing) we keep the
+                  ;; process alive so the MCP client can talk to us, list tools,
+                  ;; and surface a structured error from the first tool call. The
+                  ;; bash-shim chain had the same semantics — the error came back
+                  ;; as `{:ok? false :reason :nrepl-port-not-found}`.
+                  (let [server (build-server (degraded-handler e))]
+                    (connect-transport! server "ready (degraded — no nREPL port)")))))))

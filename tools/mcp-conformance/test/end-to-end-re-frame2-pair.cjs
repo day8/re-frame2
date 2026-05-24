@@ -48,8 +48,13 @@ const EXPECTED_TOOLS = JSON.parse(
 ).names;
 
 // Force degraded mode: empty out $SHADOW_CLJS_NREPL_PORT and boot from
-// a tmpdir so the port-file probe misses. Same setup as the re-frame2-pair-mcp
-// upstream stdio-roundtrip.
+// a tmpdir so the port-file probe misses. Pre-rf2-umoz2 that was
+// sufficient; the cwd-relative file scan was the last discovery step.
+// rf2-umoz2 added a shadow HTTP probe (default port 9630) that would
+// otherwise resolve a port whenever shadow happens to be running on the
+// CI agent's loopback — so we pin --http-port to a port we know is
+// closed (port 1, IANA-reserved + never bound) which makes the probe's
+// ECONNREFUSED short-circuit deterministic on every host.
 const env = { ...process.env };
 delete env.SHADOW_CLJS_NREPL_PORT;
 
@@ -59,7 +64,7 @@ runWithWatchdog(
     clientName: 'mcp-conformance-re-frame2-pair',
     transportSpec: {
       command: process.execPath,
-      args: [SERVER],
+      args: [SERVER, '--http-port', '1'],
       cwd: os.tmpdir(),
       env,
     },

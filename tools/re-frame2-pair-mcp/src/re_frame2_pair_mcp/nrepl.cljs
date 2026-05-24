@@ -38,15 +38,20 @@
   (:require [applied-science.js-interop :as j]
             [clojure.string :as str]
             [cljs.reader :as edn]
+            [re-frame2-pair-mcp.shadow-discovery :as shadow-discovery]
             ["bencode" :as bencode]
             ["net" :as net]
+            ["path" :as node-path]
             ["fs" :as fs]))
 
 ;; ---------------------------------------------------------------------------
-;; Port discovery — matches the bash-shim's read-port logic.
+;; Port discovery — five-step cascade with the shadow HTTP probe in the middle.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private port-file-candidates
+  "Standard locations shadow-cljs / generic-nREPL write the port file to,
+  relative to the project root. The cascade resolves these against three
+  different bases in three different steps — see `discover-port`."
   ["target/shadow-cljs/nrepl.port"
    ".shadow-cljs/nrepl.port"
    ".nrepl-port"])
@@ -61,9 +66,34 @@
       (when-not (js/isNaN n) n))
     (catch :default _ nil)))
 
+(defn- read-env-port
+  "Read `$SHADOW_CLJS_NREPL_PORT` and parse as int. Returns nil when
+  unset or non-numeric. Pulled out so the precedence cascade reads
+  linearly."
+  []
+  (when-let [env (j/get-in js/process [:env :SHADOW_CLJS_NREPL_PORT])]
+    (let [n (js/parseInt env 10)]
+      (when-not (js/isNaN n) n))))
+
+(defn- read-port-at-base
+  "Resolve `port-file-candidates` against an absolute base directory and
+  return the first hit's parsed port — or nil. Uses `node-path/join` so
+  the candidates are platform-correct on Windows + POSIX without each
+  call site building paths by string-concat."
+  [base]
+  (when (and base (seq base))
+    (some (fn [rel] (read-port-file (node-path/join base rel)))
+          port-file-candidates)))
+
 (defn read-port-from-fs
-  "Read the nREPL port from the standard shadow-cljs / nrepl locations.
-  Returns an integer or nil.
+  "Synchronous slice of the port-discovery cascade — the explicit
+  override path + env var + cwd-relative file scan. Returns an integer
+  or nil.
+
+  Lives on as a pure-sync helper so unit tests can pin the file-system
+  precedence without driving the async HTTP probe. Production boot
+  prefers `discover-port` (async) which composes this with the shadow
+  HTTP step.
 
   ## Precedence (highest first)
 
@@ -72,22 +102,83 @@
     2. `$SHADOW_CLJS_NREPL_PORT` env var.
     3. `target/shadow-cljs/nrepl.port`  ┐
     4. `.shadow-cljs/nrepl.port`        ├ cwd-relative scan (steps 3-5).
-    5. `.nrepl-port`                    ┘
-
-  The file-scan candidates (steps 3-5) are bare relative paths resolved
-  against `process.cwd()`. An MCP server launched as a subprocess of the
-  agent host (Claude Code / Cursor / Copilot) frequently has a cwd that
-  is NOT the consumer project root — in that case the scan misses
-  silently and only the env var or `--port-file` work. `--port-file`
-  (step 1) is the cwd-independent escape hatch; see the tool README."
+    5. `.nrepl-port`                    ┘"
   ([] (read-port-from-fs nil))
   ([explicit-port-file]
    (or (when (and explicit-port-file (seq explicit-port-file))
          (read-port-file explicit-port-file))
-       (when-let [env (j/get-in js/process [:env :SHADOW_CLJS_NREPL_PORT])]
-         (let [n (js/parseInt env 10)]
-           (when-not (js/isNaN n) n)))
+       (read-env-port)
        (some read-port-file port-file-candidates))))
+
+(defn discover-port*
+  "Full nREPL port-discovery cascade with the shadow HTTP probe injected
+  as `shadow-probe-fn` — a `(host port) → Promise<project-home-or-nil>`
+  function. Production callers thread `shadow-discovery/discover-project-home`
+  (see [[discover-port]]); tests pass stubs to exercise each cascade
+  branch without standing up a real HTTP server.
+
+  Returns a Promise resolving to an integer port or to nil.
+
+  ## Precedence (highest first; rf2-umoz2)
+
+    1. `--port-file <path>`   explicit, cwd-independent override
+                              (rf2-3dbwh). Wins outright.
+    2. `$SHADOW_CLJS_NREPL_PORT` env var.
+    3. **Shadow HTTP probe** — `shadow-probe-fn` returns the consumer
+       project's absolute `:project-home`; we then read
+       `port-file-candidates` resolved against that root. This is the
+       cwd-robust zero-config win for the agent-host launch pattern
+       where `process.cwd()` is the host, not the project (rf2-umoz2).
+    4. CWD-relative scan of `port-file-candidates` — legacy fallback
+       for environments without the shadow HTTP API (older shadow, or
+       a manual nREPL boot bypassing shadow entirely).
+
+  ## Why steps 3 and 4 use the same candidate list
+
+  shadow-cljs writes its nREPL port to one of three known relative paths
+  inside the project root. Step 3 obtains the root from shadow itself;
+  step 4 hopes the cwd already IS the root. Sharing the candidate list
+  keeps the contract `(root, candidates) → port` symmetrical across the
+  two steps.
+
+  ## Why the HTTP probe is bounded
+
+  See `shadow-discovery/probe-timeout-ms`. The probe never blocks boot
+  for more than half a second — if shadow's web server is unreachable
+  the cascade moves on. The `--port-file` and env-var escape hatches
+  (steps 1 and 2) remain the deterministic overrides for exotic setups.
+
+  ## Why injection rather than direct call
+
+  The CLJS compiler resolves `shadow-discovery/discover-project-home` at
+  callsite-emit time; CLJS's `with-redefs` swaps the *var binding* but
+  the emitted JS for a direct multi-arity call dispatches through
+  fn-object arity slots, not through the var. Injecting the probe makes
+  the seam explicit and gives tests a clean stub-point — and the
+  production wrapper below pays nothing for the indirection (single
+  call, no allocation)."
+  [explicit-port-file http-port shadow-probe-fn]
+  (let [override (or (when (and explicit-port-file (seq explicit-port-file))
+                       (read-port-file explicit-port-file))
+                     (read-env-port))]
+    (if override
+      (js/Promise.resolve override)
+      (-> (shadow-probe-fn
+            shadow-discovery/default-host
+            (or http-port shadow-discovery/default-http-port))
+          (.then (fn [project-home]
+                   (or (read-port-at-base project-home)
+                       ;; Final fallback: cwd-relative scan.
+                       (some read-port-file port-file-candidates))))))))
+
+(defn discover-port
+  "Production entry-point for the port-discovery cascade — see
+  [[discover-port*]] for the precedence details and the design rationale.
+  Returns a Promise resolving to an integer port or to nil."
+  ([] (discover-port nil nil))
+  ([explicit-port-file http-port]
+   (discover-port* explicit-port-file http-port
+                   shadow-discovery/discover-project-home)))
 
 ;; ---------------------------------------------------------------------------
 ;; bencode framing — handle concatenated frames in one TCP packet.
