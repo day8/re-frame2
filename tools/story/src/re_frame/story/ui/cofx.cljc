@@ -66,13 +66,13 @@
   []
   (rf/reg-cofx
     :story/active-modes
-    (fn [coeffects _]
-      (assoc coeffects :story/active-modes (active-modes-snapshot))))
+    (fn [ctx _]
+      (rf/assoc-coeffect ctx :story/active-modes (active-modes-snapshot))))
 
   (rf/reg-cofx
     :story/active-args
-    (fn [coeffects _]
-      (assoc coeffects :story/active-args (active-args-snapshot))))
+    (fn [ctx _]
+      (rf/assoc-coeffect ctx :story/active-args (active-args-snapshot))))
 
   ;; Subscriptions backed by the shell-state-atom. The atom is a
   ;; Reagent ratom on CLJS, plain atom on JVM — deref participates in
