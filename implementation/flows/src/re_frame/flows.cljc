@@ -138,7 +138,9 @@
   later in topo order do NOT run on this drain; they re-attempt naturally
   on the next drain.
 
-  Hot path — runs after every event drain for every registered flow.
+  Hot path — runs as part of the flow-transform `:after` at the outermost
+  position of every event's interceptor chain, before the deferred `:db`
+  install. Invoked once per registered flow per event.
   Trace payload construction sits inside an `interop/debug-enabled?`
   outer gate so the elision walker (`elide-wire-value`) is not invoked
   in CLJS production builds (per Spec 009 §Production builds, rf2-drr4z
