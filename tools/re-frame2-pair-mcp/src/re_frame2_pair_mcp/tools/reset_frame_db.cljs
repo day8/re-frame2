@@ -63,7 +63,7 @@
   (if-not (writes/writes-allowed?)
     (js/Promise.resolve (writes/disabled-result "reset-frame-db"))
     (let [db-str   (wire/arg raw-args :db)
-          build-id (wire/arg-build raw-args)
+          build-id (wire/arg-build conn raw-args)
           frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
           [tag payload] (parse-db-edn db-str)]
       (case tag

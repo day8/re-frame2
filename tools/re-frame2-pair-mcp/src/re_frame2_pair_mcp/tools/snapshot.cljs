@@ -20,7 +20,7 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
 (defn snapshot-tool [conn raw-args]
-  (let [build-id    (wire/arg-build raw-args)
+  (let [build-id    (wire/arg-build conn raw-args)
         frames      (args/parse-frames-arg (wire/arg raw-args :frames))
         include     (args/parse-include-arg (wire/arg raw-args :include))
         ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces both

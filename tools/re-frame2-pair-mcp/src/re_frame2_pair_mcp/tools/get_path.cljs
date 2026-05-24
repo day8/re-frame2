@@ -26,7 +26,7 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
 (defn get-path-tool [conn raw-args]
-  (let [build-id  (wire/arg-build raw-args)
+  (let [build-id  (wire/arg-build conn raw-args)
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         path      (args/parse-path-arg (wire/arg raw-args :path))
         ;; rf2-c2dtu — when the `--allow-sensitive-reads` boot gate is OFF,

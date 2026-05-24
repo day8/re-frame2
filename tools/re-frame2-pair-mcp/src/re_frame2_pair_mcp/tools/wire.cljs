@@ -105,18 +105,68 @@
   [args k]
   (some-> (arg args k) keyword))
 
-(defn arg-build [args]
-  (or (arg-keyword args :build)
-      (default-build-id)))
+(defn mark-resolved-build-id!
+  "Record the build-id that `discover-app` just resolved on the conn-atom
+  (rf2-l9ixp). Subsequent tool calls without an explicit `:build` arg
+  default to this id instead of the `SHADOW_CLJS_BUILD_ID` / `:app`
+  env-var fallback. Defensive against a non-atom `conn` (test stubs)."
+  [conn build-id]
+  (when (and (some? conn) (satisfies? IDeref conn))
+    (swap! conn assoc :resolved-build-id build-id)))
+
+(defn- conn-resolved-build-id
+  "Read the session-scoped resolved-build-id cache from `conn` (rf2-l9ixp).
+  Defensive against `nil` / non-atom conn — conformance tests pass a stub
+  conn that doesn't carry the cache. Returns the cached keyword or nil."
+  [conn]
+  (when (and (some? conn) (satisfies? IDeref conn))
+    (:resolved-build-id @conn)))
+
+(defn arg-build
+  "Resolve the build-id for this tool call. Precedence (highest first):
+
+    1. Explicit `:build` MCP arg — operator override always wins
+       (no surprise from the cache).
+    2. Session-scoped resolved-build-id cache on the conn-atom — populated
+       by `discover-app` after a successful preload probe (rf2-l9ixp).
+       Removes the friction of repeating `build: foo` on every tool call
+       after a successful discover-app. Cache resets on nREPL reconnect
+       (same lifecycle as `:probed-builds`).
+    3. `SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
+
+  1-arity (`(arg-build args)`) is the legacy entry — used by call sites
+  that have no `conn` in scope (notably `args.cljs`'s frame/build
+  parsing). It SKIPS the conn cache and falls straight through to the
+  env-var default. Production tool dispatch threads `conn` and uses the
+  2-arity."
+  ([args] (arg-build nil args))
+  ([conn args]
+   (or (arg-keyword args :build)
+       (conn-resolved-build-id conn)
+       (default-build-id))))
 
 (defn arg-build-explicit?
-  "True iff the caller passed an explicit `:build` arg (vs. relying on
-  the `SHADOW_CLJS_BUILD_ID` / `:app` default). The eval-path build
-  resolver (rf2-ivlb3) auto-detects the running build ONLY when the
-  build is the bare default — an operator who typed `--build=foo` gets
-  `foo` honoured verbatim."
-  [args]
-  (some? (arg-keyword args :build)))
+  "True iff a deliberate build-id is available without falling back to
+  the bare `SHADOW_CLJS_BUILD_ID` / `:app` env default. The eval-path
+  build resolver (rf2-ivlb3) auto-detects the running build ONLY when
+  the build is the bare default — a deliberate choice gets honoured
+  verbatim (footgun-and-all; preflight catches typos).
+
+  Two sources count as deliberate:
+
+    - An explicit `:build` MCP arg on this call.
+    - A session-scoped resolved-build-id cached on `conn` (rf2-l9ixp) —
+      populated by a prior successful `discover-app`. Treating the cache
+      as deliberate means a subsequent eval-cljs without `:build` routes
+      to the resolved build instead of being auto-detect-rejected on a
+      multi-build workspace.
+
+  1-arity (`(arg-build-explicit? args)`) is the legacy form for callers
+  with no `conn` in scope; it sees only the per-call arg."
+  ([args] (arg-build-explicit? nil args))
+  ([conn args]
+   (or (some? (arg-keyword args :build))
+       (some? (conn-resolved-build-id conn)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi; lifted to
