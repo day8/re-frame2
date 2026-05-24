@@ -7,10 +7,13 @@
 # (Settings → Pages → Build and deployment → Source). If it is still set to
 # "Deploy from a branch" the deploy-pages step below will fail.
 #
-# This workflow only triggers on docs-affecting pushes to `main`, matching
-# pull-request path filters, or via manual dispatch. The first publish is a
-# deliberate manual step (run via the Actions tab once Pages is configured) —
-# see PR description for rf2-h09k.
+# On `main`, this workflow triggers on docs-affecting pushes (the deploy job
+# publishes the site). On pull requests the trigger is UNFILTERED so the
+# `Docs required` aggregator posts a status context on EVERY PR (see
+# REQUIRED-CHECK SHAPE below); the heavy MkDocs build is re-gated job-side
+# to the docs surface. The first publish is a deliberate manual step (run
+# via the Actions tab once Pages is configured) — see PR description for
+# rf2-h09k.
 
 name: docs
 
@@ -35,19 +38,10 @@ on:
       - 'scripts/check_doc_slugs.py'
       - 'scripts/_test_fixtures/check_doc_slugs/**'
       - '.github/workflows/docs.yml'
+  # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
+  # below). The docs surface is re-applied job-side via the `detect` job.
   pull_request:
     branches: [main]
-    paths:
-      - 'docs/**'
-      - 'spec/**'
-      - 'migration/**'
-      - 'mkdocs.yml'
-      - 'mkdocs_hooks.py'
-      - 'TESTING.md'
-      - 'requirements.txt'
-      - 'scripts/check_doc_slugs.py'
-      - 'scripts/_test_fixtures/check_doc_slugs/**'
-      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 # Allow only one concurrent Pages deployment, but do not cancel an
@@ -57,8 +51,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Lightweight changed-surface gate (rf2-aemyt). On a pull_request this
+  # diffs HEAD against the merge base and lights `docs_surface` only when a
+  # path that feeds the staged site changed; on push / dispatch it always
+  # lights so the build runs unconditionally (push is already path-filtered
+  # above, and a manual dispatch always wants a build). The heavy MkDocs
+  # build keys its `if:` on this output, while the always-present aggregator
+  # does not — so a docs-irrelevant PR runs only this ~5-second job plus the
+  # rollup, and the build skips.
+  detect:
+    name: Detect docs surface
+    runs-on: ubuntu-latest
+    outputs:
+      docs_surface: ${{ steps.detect.outputs.docs_surface }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      # On a PR, classify the changed-file list against the docs surface.
+      # On any non-PR event (push/dispatch) light the gate so the build
+      # always runs. Mirrors the git-diff classifier shape used by
+      # .github/scripts/report-changed-surfaces.sh in test.yml. The path
+      # set is kept in lockstep with the `push.paths` filter above.
+      - name: Classify changed files against the docs surface
+        id: detect
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            echo "docs_surface=true" >> "$GITHUB_OUTPUT"
+            echo "Non-PR event (${GITHUB_EVENT_NAME}): running MkDocs build unconditionally."
+            exit 0
+          fi
+          git fetch --no-tags --depth=100 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
+          files="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
+          docs_surface=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|.github/workflows/docs.yml)
+                docs_surface=true ;;
+            esac
+          done <<< "$files"
+          echo "docs_surface=${docs_surface}" >> "$GITHUB_OUTPUT"
+          echo "docs_surface=${docs_surface}"
+
   build:
     name: MkDocs build
+    needs: detect
+    if: needs.detect.outputs.docs_surface == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -150,3 +190,40 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0
+
+  # ---------------------------------------------------------------------------
+  # Required-checks aggregator (rf2-aemyt).
+  #
+  # ONE stable status context — `Docs required` — that is ALWAYS present on
+  # every PR (the workflow's pull_request trigger is unfiltered) and that
+  # passes iff the MkDocs build job either passed or was surface-skipped.
+  # This is the single docs context the branch ruleset should require: a
+  # docs-irrelevant PR skips the build (no signal, OK), but the moment the
+  # build reports `failure`/`cancelled` the aggregator goes red and blocks
+  # the merge — so a broken link or a strict-mode MkDocs warning can no
+  # longer slip in on a PR that happens to touch docs paths.
+  #
+  # `if: always()` is mandatory — without it the aggregator would itself be
+  # skipped whenever the build skips, and a skipped required check never
+  # satisfies the ruleset. The pass/fail decision reads `needs.*.result`:
+  # `success` and `skipped` are acceptable; `failure` and `cancelled` are
+  # not. The `deploy` job is deliberately NOT in `needs:` — it runs only on
+  # push, never on a PR, so it carries no PR-time signal.
+  # ---------------------------------------------------------------------------
+  docs-required:
+    name: Docs required
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs:
+      - detect
+      - build
+    steps:
+      - name: Fail if the docs build failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "::error::A required docs.yml job reported failure or cancelled — blocking merge."
+          echo "needs results: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+
+      - name: Docs build passed or was skipped
+        run: echo "The MkDocs build that ran passed (a surface-skipped build is OK)."
