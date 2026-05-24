@@ -9,7 +9,7 @@ event**:
 
 | Tab | Bug-class it answers |
 |---|---|
-| **Event** (`e`) | "What does this event do?" — the handling pipeline (DISPATCH → COEFFECTS → EVENT HANDLER → DB CHANGES → AFTER INTERCEPTORS → FLOWS → FX; optional sections omitted when absent) + wire-boundary diff per managed fx. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
+| **Event** (`e`) | "What does this event do?" — the handling pipeline (DISPATCH → COEFFECTS → EVENT HANDLER → FLOWS → DB CHANGES → AFTER INTERCEPTORS → FX; optional sections omitted when absent) + wire-boundary diff per managed fx. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
 | **app-db** (`a`) | "What changed because of this event?" — the complete app-db, sectioned by reserved `:rf/*` area, with inline diff annotations. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §4.) |
 | **Views** (`v`) | "Why did these views re-render?" — the left → right reactive-flow graph (app-db → subs → views) + hover-to-highlight on rendered DOM. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §3. Rendered tab label follows the Figma export `Views` (rf2-ad7zx); the spec's rf2-e33ad display label was `View`; key stays `:views`.) |
 | **Trace** (`t`) | "What raw events fired in this cascade?" — readable-line timeline, op-family colour bands, relative timing. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §5.) |

@@ -520,9 +520,12 @@ The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets 
 Shipped layout per rf2-zh2qc + rf2-jhhqt + rf2-lo37i (rf2-jhhqt swaps
 DISPATCH SITE before EVENT per Mike's Q1 verbatim and adds the COEFFECTS
 section; rf2-lo37i adds the FLOWS section as a peer surface to make the
-cascade's flow step first-class). Top-of-panel: a single-line cascade-
-outcome summary; below: eight stacked sections that read top-to-bottom
-as the developer scans.
+cascade's flow step first-class). FLOWS sits RIGHT AFTER the HANDLER —
+flows fire at the outermost `:after` interceptor, reshaping the pending
+`:db` before it commits, so the lens reads in true pipeline order
+(handler → flows → committed effects → fx-handlers). Top-of-panel: a
+single-line cascade-outcome summary; below: eight stacked sections that
+read top-to-bottom as the developer scans.
 
 ```
 ┌─ Event lens · :cart/add-item                              ✓ ok · 11ms · #347 · SSR✓ ┐
@@ -544,6 +547,16 @@ as the developer scans.
 │ ▼ HANDLER                                                                            │
 │   reg-event-fx · src/cart/events.cljs:88                       [code]              │
 │                                                                                      │
+│ ▼ FLOWS  (3)                                                                         │
+│   ▸ :cart-total                wrote [:cart :total]   52.50                         │
+│                                  read  [:cart :items]                                │
+│     ↳ :tax-due       via :cart-total                                                 │
+│                                wrote [:tax :due]      5.25                          │
+│                                  read  [:cart :total]                                │
+│     ↳ :grand-total-display     via :cart-total, :tax-due                            │
+│                                wrote [:checkout :grand-total]  57.75                │
+│                                  read  [:cart :total] [:tax :due]                    │
+│                                                                                      │
 │ ▼ EFFECTS RETURNED                                                                   │
 │   :db    <… changed; see App-db tab …>                                               │
 │   :fx    [[:http/post {…}] [:dispatch [:notify "added"]]]                            │
@@ -555,16 +568,6 @@ as the developer scans.
 │   │ ▼ REQUEST  ▼ WIRE TIMING  ▼ RESPONSE  ▼ HANDLER  ▼ APP-DB SLICE      │           │
 │   └────────────────────────────────────────────────────────────────────────┘         │
 │   :dispatch    ⏱ <1ms  ✓ handled  → queued [:notify "added"]                        │
-│                                                                                      │
-│ ▼ FLOWS  (3)                                                                         │
-│   ▸ :cart-total                wrote [:cart :total]   52.50                         │
-│                                  read  [:cart :items]                                │
-│     ↳ :tax-due       via :cart-total                                                 │
-│                                wrote [:tax :due]      5.25                          │
-│                                  read  [:cart :total]                                │
-│     ↳ :grand-total-display     via :cart-total, :tax-due                            │
-│                                wrote [:checkout :grand-total]  57.75                │
-│                                  read  [:cart :total] [:tax :due]                    │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -609,26 +612,15 @@ as the developer scans.
 5. **HANDLER** — `reg-event-<kind> · src/file.cljs:N [code]`. Per
    Q2: does NOT duplicate the event-id (already shown in §2). Reads
    `(rf/handler-meta :event id)`.
-6. **EFFECTS RETURNED** — silent-by-default when neither `:db` nor `:fx`
-   was returned. Reads `:fx` + `:db-present?` off the `:event/do-fx`
-   trace's `:tags` (rf2-twt7m Change 2). `:db` is shown as
-   `<… changed; see App-db tab …>` — the diff itself lives in the
-   App-db tab. When the focused event is `:rf.ssr/hydrated`, an
-   additional `:rf.ssr/hydration-outcome` row renders with the
-   `{:duration-ms :subs-ran :mismatches}` payload + (when mismatches
-   > 0) a `→ jump to Issues bisector` affordance.
-7. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
-   row per `:rf.fx/handled` (or override / skipped / exception) trace:
-   fx-id chip + perf-tier dot + status caption. For `:dispatch` the
-   queued child event renders inline as `→ queued [:foo …]`. For
-   managed-fx surfaces (`:rf.http/*`, `:rf.ws/*`, `:rf.machine/*`,
-   `:rf.server/*`, `:rf.flow/*`) the wire-boundary `record-panel`
-   mounts INLINE beneath the row per §8.3 of the findings doc — NOT
-   in a trailing block.
-8. **FLOWS** — silent-by-default when no flows fired (rf2-lo37i —
-   peer section between the handler-driven effects and any conceptual
-   `RETURNED VALUE` slot). Reads `:rf.flow/computed` traces (op-type
-   `:flow`) from the cascade's `:other` bucket per
+6. **FLOWS** — silent-by-default when no flows fired (rf2-lo37i —
+   peer section sitting RIGHT AFTER the handler, before the
+   handler-driven effects). Flows fire automatically at the OUTERMOST
+   `:after` interceptor, immediately after the event handler returns:
+   they transform the pending `:db` effect BEFORE the single deferred
+   app-db install (the atomic commit boundary), so they precede both
+   the committed DB changes and any fx (Mike CONFIRMED 2026-05-24, `bd
+   remember --key event-pipeline-atomicity`). Reads `:rf.flow/computed`
+   traces (op-type `:flow`) from the cascade's `:other` bucket per
    [spec/013-Flows.md §Flow tracing](../../../spec/013-Flows.md#flow-tracing)
    and [spec/009-Instrumentation.md §Flow trace events](../../../spec/009-Instrumentation.md#flow-trace-events).
    One row per firing in cascade order (the framework's topo-sorted
@@ -649,6 +641,23 @@ as the developer scans.
    [spec/013-Flows.md §Dirty-check semantics](../../../spec/013-Flows.md#dirty-check-semantics))
    are NOT rendered as rows — a flow that didn't recompute did not
    touch app-db, so it stays out of the cascade-detail by default.
+7. **EFFECTS RETURNED** — silent-by-default when neither `:db` nor `:fx`
+   was returned. Reads `:fx` + `:db-present?` off the `:event/do-fx`
+   trace's `:tags` (rf2-twt7m Change 2). `:db` is shown as
+   `<… changed; see App-db tab …>` — the diff itself lives in the
+   App-db tab (and already reflects any FLOWS recomputes folded in,
+   since flows ran before the db committed). When the focused event is
+   `:rf.ssr/hydrated`, an additional `:rf.ssr/hydration-outcome` row
+   renders with the `{:duration-ms :subs-ran :mismatches}` payload +
+   (when mismatches > 0) a `→ jump to Issues bisector` affordance.
+8. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
+   row per `:rf.fx/handled` (or override / skipped / exception) trace:
+   fx-id chip + perf-tier dot + status caption. For `:dispatch` the
+   queued child event renders inline as `→ queued [:foo …]`. For
+   managed-fx surfaces (`:rf.http/*`, `:rf.ws/*`, `:rf.machine/*`,
+   `:rf.server/*`, `:rf.flow/*`) the wire-boundary `record-panel`
+   mounts INLINE beneath the row per §8.3 of the findings doc — NOT
+   in a trailing block.
 
 #### Edge cases
 
@@ -664,8 +673,9 @@ as the developer scans.
   (the firing happened); the read-paths line renders the absent
   placeholder since `(rf/handler-meta :flow id)` returns nil.
 - **Handler threw** — §6 + §7 + §8 are all absent (handler never
-  returned / fx walk never started / flow walk never reached); a
-  small footer caption renders: `Handler threw — see Issues tab ⚠
+  returned, so the flow transform never ran, the db never committed,
+  and the fx walk never started — every post-handler stage is omitted);
+  a small footer caption renders: `Handler threw — see Issues tab ⚠
   for the exception detail.` This is the ONE inline cross-reference
   to another tab.
 

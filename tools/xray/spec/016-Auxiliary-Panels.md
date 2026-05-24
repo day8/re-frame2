@@ -180,10 +180,13 @@ tab.
 
 ## Flows content — Event tab FLOWS section (rf2-lo37i)
 
-The pre-rewrite Flows panel is GONE. Flows surface as the **8th
-section of the Event tab** — the canonical home for per-cascade flow
-firings is [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 FLOWS
-section. For each flow that fired during the focused cascade the
+The pre-rewrite Flows panel is GONE. Flows surface as a dedicated
+**section of the Event tab placed RIGHT AFTER the HANDLER** — flows
+fire at the outermost `:after` interceptor, reshaping the pending
+`:db` before it commits, so the FLOWS section precedes EFFECTS
+RETURNED / EFFECTS HANDLERS RAN. The canonical home for per-cascade
+flow firings is [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1
+FLOWS section. For each flow that fired during the focused cascade the
 FLOWS section lists, in cascade order:
 
 - `wrote <path>` — the flow's `:output` write target with the
@@ -191,9 +194,11 @@ FLOWS section lists, in cascade order:
 - `read <input-path-1> <input-path-2> …` — the flow's `:inputs`,
   shown so the reader can see which paths caused the recompute.
 
-The FLOWS section sits as a peer of EFFECTS / HANDLERS RAN / the
-returned-value slot under the per-event cascade view (see 018 §5.1
-lines 442-451 wireframe, 507-531 row contract).
+The FLOWS section sits between the HANDLER and the EFFECTS RETURNED /
+EFFECTS HANDLERS RAN sections under the per-event cascade view —
+mirroring the runtime order where flows transform the pending db
+before it commits and before any fx run (see 018 §5.1 wireframe + row
+contract).
 
 A **secondary** appearance is in the **Views tab** "Re-rendered"
 group (cross-cutting): when a flow's downstream sub appears in a

@@ -233,9 +233,10 @@
                 "(No flow's :output covers this section.)")
     :flow  (str "Flow " (pr-str (:flow-id tag))
                 " wrote here via its :output. "
-                "Per Spec 013, flows fire automatically after the handler's "
-                "effects, writing their computed value to the registered "
-                ":path.")
+                "Per Spec 013, flows fire automatically right after the "
+                "event handler — at the outermost :after interceptor — "
+                "transforming the pending :db before it commits; each "
+                "writes its computed value to the registered :path.")
     :mixed (str "Coalesced section — multiple writers contributed: "
                 (origin-tag-label tag) ". Each flow listed wrote via "
                 "its :output; the [fx :db] tag (when present) indicates "

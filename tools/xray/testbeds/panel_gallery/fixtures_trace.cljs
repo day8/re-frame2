@@ -319,24 +319,29 @@
             :event-vec [:cart/add :apple]})
        (ev {:id 2 :time 1001 :op-type :rf.event :operation :rf.event/run-end
             :source :ui :origin :app :frame :rf/default
-            :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100})
-       (ev {:id 3 :time 1002 :op-type :rf.fx :operation :rf.fx/handled
-            :source :ui :origin :app :frame :rf/default
-            :event-id :cart/add :dispatch-id 100 :fx-id :db})]
-      ;; Three flow-recomputed events — flow propagates downstream of
-      ;; the db write. Operation surface per Spec 009 §Flow trace.
-      [(ev {:id 4 :time 1003 :op-type :rf.flow/computed
+            :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100})]
+      ;; Three flow-recomputed events — flows fire at the outermost
+      ;; :after, right after the handler, transforming the pending :db
+      ;; BEFORE the single deferred install. So computed emits precede
+      ;; the :db commit (real emit order: computed → db-changed).
+      ;; Operation surface per Spec 009 §Flow trace.
+      [(ev {:id 3 :time 1002 :op-type :rf.flow/computed
             :operation :rf.flow/computed
             :source :flow :origin :app :frame :rf/default
             :dispatch-id 100 :sub-id :cart/total})
-       (ev {:id 5 :time 1004 :op-type :rf.flow/computed
+       (ev {:id 4 :time 1003 :op-type :rf.flow/computed
             :operation :rf.flow/computed
             :source :flow :origin :app :frame :rf/default
             :dispatch-id 100 :sub-id :cart/item-count})
-       (ev {:id 6 :time 1005 :op-type :rf.flow/computed
+       (ev {:id 5 :time 1004 :op-type :rf.flow/computed
             :operation :rf.flow/computed
             :source :flow :origin :app :frame :rf/default
-            :dispatch-id 100 :sub-id :cart/badge})
+            :dispatch-id 100 :sub-id :cart/badge})]
+      ;; The :db commit — the single deferred install fires AFTER the
+      ;; flows have reshaped the pending db.
+      [(ev {:id 6 :time 1005 :op-type :rf.fx :operation :rf.fx/handled
+            :source :ui :origin :app :frame :rf/default
+            :event-id :cart/add :dispatch-id 100 :fx-id :db})
        ;; Downstream render driven by the flow.
        (ev {:id 7 :time 1006 :op-type :rf.view :operation :rf.view/render
             :source :ui :origin :app :frame :rf/default :dispatch-id 100
