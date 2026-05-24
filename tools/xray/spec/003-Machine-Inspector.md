@@ -168,6 +168,11 @@ panel chrome get the chart transitively via Xray.
 - [`008-Embedding-Contract.md`](008-Embedding-Contract.md) — the
   full-shell embed contract. Hosts that want only the chart skip
   Xray entirely and depend on `tools/machines-viz/` directly.
+- [`tools/machines-viz/spec/001-Topology-Parity.md`](../../machines-viz/spec/001-Topology-Parity.md)
+  — the machine-topology parity plan against xstate / Stately Studio
+  (parity bar · gap analysis · Figma-ready visual design · roadmap).
+  Owns the renderer-side parity bar; the fired-edge live-highlight
+  wiring (G3) is the host half this panel implements.
 
 ## Tab placement
 
