@@ -776,7 +776,7 @@
             ["Ctrl+click" "Copy cascade-id"]]}
    {:group "Tab bar (L3)"
     :rows  [["1-6"             "Switch tab by index"]
-            ["e"               "Event tab"]
+            ["h"               "Handler tab"]
             ["a"               "App-db tab"]
             ["v"               "Views tab"]
             ["t"               "Trace tab"]

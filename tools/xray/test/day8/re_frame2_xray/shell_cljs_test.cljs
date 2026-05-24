@@ -279,13 +279,13 @@
             "`Events` label leads the chrome ribbon")
         (is (nil? (find-by-testid ribbon "rf-xray-ribbon-logo"))
             "the `❖ Xray` wordmark is GONE (A4)")
-        ;; A2/A5 — the nav cluster + add(+) now live in the chrome ribbon.
+        ;; A2/A5 — the nav cluster + add affordance now live in the chrome
+        ;; ribbon. rf2-xawwb — the prior `Filters:` label + plus-icon is
+        ;; replaced by the single `+ filter` text button (same testid).
         (is (some? (find-by-testid ribbon "rf-xray-ribbon-nav"))
             "nav cluster IS in the chrome ribbon (A5)")
-        (is (some? (find-by-testid ribbon "rf-xray-ribbon-filters-label"))
-            "`Filters:` label in the chrome ribbon (A5)")
         (is (some? (find-by-testid ribbon "rf-xray-filter-add"))
-            "the add(+) affordance is in the chrome ribbon (A5)")
+            "the `+ filter` add affordance is in the chrome ribbon (rf2-xawwb)")
         ;; right cluster — scope selectors + icons.
         (is (or (find-by-testid ribbon "rf-xray-ribbon-frame")
                 (find-by-testid ribbon "rf-xray-ribbon-frame-picker"))
@@ -300,19 +300,20 @@
             "committed filter pills are NOT in the chrome ribbon")))))
 
 (deftest chrome-ribbon-leads-with-events-label-not-logo
-  (testing "rf2-3f2di A4 — the chrome ribbon's LEFT cluster opens with an
-            `Events` label per the authority reference chrome-ribbon; the
-            `❖ Xray` wordmark was DROPPED. The label renders inside the
-            left cluster, ahead of the nav cluster."
+  (testing "rf2-xawwb — the chrome ribbon's LEFT cluster opens with an
+            `Event History` label (Figma-Make surface renamed `Events` →
+            `Event History`); the `❖ Xray` wordmark was DROPPED. The
+            label renders inside the left cluster, ahead of the nav
+            cluster."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [ribbon    (shell/ribbon nil)
             selectors (find-by-testid ribbon "rf-xray-ribbon-selectors")
             label     (find-by-testid ribbon "rf-xray-ribbon-events-label")]
-        (is (some? label) "the `Events` label renders in the chrome ribbon")
+        (is (some? label) "the `Event History` label renders in the chrome ribbon")
         (is (some? selectors) "the left cluster is present")
-        (is (re-find #"Events" (text-nodes label))
-            "the label text reads `Events`")
+        (is (re-find #"Event History" (text-nodes label))
+            "the label text reads `Event History` (rf2-xawwb)")
         (is (nil? (find-by-testid ribbon "rf-xray-ribbon-logo"))
             "the `❖ Xray` wordmark is gone (A4)")
         (is (not (re-find #"❖" (text-nodes ribbon)))
@@ -538,18 +539,21 @@
                 (str "after select-tab :machines, tab " tab-id
                      " aria-selected reflects the new active tab"))))))))
 
-(deftest tab-bar-is-underline-not-pill-or-radios
-  (testing "rf2-3f2di A1 — the L3 tab strip renders as UNDERLINE tabs per
-            the authority reference (`main-app` tab-strip), NOT a filled-
-            accent pill and NOT radio-circle glyphs. Each tab is a
-            borderless transparent button; the ACTIVE tab carries a 2px
-            `:accent` bottom border + NORMAL text ink; inactive tabs are
-            transparent with a 2px TRANSPARENT bottom border + neutral
-            muted ink."
+(deftest tab-bar-is-rounded-top-dark-tabs
+  (testing "rf2-xawwb — the L3 tab strip renders as ROUNDED-TOP folder
+            tabs on the DARK tabs ribbon (Figma-Make surface), NOT
+            underline tabs and NOT radio-circle glyphs. Each tab is a
+            borderless `<button>` with `border-radius 4px 4px 0 0`; the
+            ACTIVE tab carries the light `:chrome-ribbon-tab-active` fill +
+            dark `:chrome-ribbon-tab-active-text` ink; inactive tabs carry
+            a faint translucent-white fill + muted-white ink."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
-            accent-underline (str "2px solid " (:accent tokens))]
+      (let [tree            (shell/shell-view)
+            active-fill     (:chrome-ribbon-tab-active tokens)
+            active-ink      (:chrome-ribbon-tab-active-text tokens)
+            inactive-ink    (:chrome-ribbon-text-muted tokens)
+            rounded-top     "4px 4px 0 0"]
         ;; (a) NO radio-circle glyphs anywhere in the tab strip.
         (doseq [tab-id expected-tab-ids]
           (let [btn  (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
@@ -557,51 +561,45 @@
             (is (some? btn) (str "tab button for " tab-id " present"))
             (is (not (re-find #"[◉○●]" txt))
                 (str "tab " tab-id " carries no radio-circle glyph"))))
-        ;; (b) Every tab is a borderless transparent button — NOT a
-        ;; filled pill. No border-radius (the underline, not a rounded
-        ;; fill, is the shape).
+        ;; (b) Every tab is a `<button>` with rounded-TOP corners (folder
+        ;; tab), not the prior square underline tab.
         (doseq [tab-id expected-tab-ids]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
                 style (:style (second btn))]
             (is (= :button (first btn))
                 (str "tab " tab-id " is a <button>"))
-            (is (= "transparent" (:background style))
-                (str "tab " tab-id " background is transparent (no filled pill)"))
-            (is (nil? (:border-radius style))
-                (str "tab " tab-id " carries no border-radius (underline, not pill)"))))
-        ;; (c) The ACTIVE tab (default :event) carries the 2px accent
-        ;; underline + normal text ink — NOT a filled accent bg / white text.
+            (is (= rounded-top (:border-radius style))
+                (str "tab " tab-id " has rounded-top corners (4px 4px 0 0)"))))
+        ;; (c) The ACTIVE tab (default :event) carries the light fill + dark
+        ;; ink (the folder tab lifting onto the panel below).
         (let [active (find-by-testid tree "rf-xray-tab-event")
               style  (:style (second active))]
-          (is (= accent-underline (:border-bottom style))
-              "active tab has a 2px :accent bottom border (the underline)")
-          (is (= (:text-primary tokens) (:color style))
-              "active tab text is the normal :text-primary ink")
-          (is (not= (:accent tokens) (:background style))
-              "active tab background is NOT a filled :accent pill"))
-        ;; (d) INACTIVE tabs are transparent with a TRANSPARENT 2px bottom
-        ;; border + NEUTRAL muted ink.
+          (is (= active-fill (:background style))
+              "active tab background is the light :chrome-ribbon-tab-active fill")
+          (is (= active-ink (:color style))
+              "active tab ink is the dark :chrome-ribbon-tab-active-text"))
+        ;; (d) INACTIVE tabs carry a translucent-white fill + muted-white ink.
         (doseq [tab-id (remove #{:event} expected-tab-ids)]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
                 style (:style (second btn))]
-            (is (= "2px solid transparent" (:border-bottom style))
-                (str "inactive tab " tab-id " bottom border is transparent"))
-            (is (= (:text-tertiary tokens) (:color style))
-                (str "inactive tab " tab-id " text is neutral muted ink"))))))
-    ;; (e) After switching the active tab, the underline follows the new
-    ;; selection (and the old tab reverts to a transparent underline).
+            (is (= "rgba(255,255,255,0.12)" (:background style))
+                (str "inactive tab " tab-id " has the translucent-white fill"))
+            (is (= inactive-ink (:color style))
+                (str "inactive tab " tab-id " text is muted-white ink"))))))
+    ;; (e) After switching the active tab, the light fill follows the new
+    ;; selection (and the old tab reverts to the translucent fill).
     (select-tab! :machines)
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
-            accent-underline (str "2px solid " (:accent tokens))
-            mach   (:style (second (find-by-testid tree "rf-xray-tab-machines")))
-            event  (:style (second (find-by-testid tree "rf-xray-tab-event")))]
-        (is (= accent-underline (:border-bottom mach))
-            "newly-active :machines tab gains the accent underline")
-        (is (= (:text-primary tokens) (:color mach))
-            "newly-active :machines tab text is the normal ink")
-        (is (= "2px solid transparent" (:border-bottom event))
-            "previously-active :event tab reverts to a transparent underline")))))
+      (let [tree        (shell/shell-view)
+            active-fill (:chrome-ribbon-tab-active tokens)
+            mach        (:style (second (find-by-testid tree "rf-xray-tab-machines")))
+            event       (:style (second (find-by-testid tree "rf-xray-tab-event")))]
+        (is (= active-fill (:background mach))
+            "newly-active :machines tab gains the light fill")
+        (is (= (:chrome-ribbon-tab-active-text tokens) (:color mach))
+            "newly-active :machines tab ink is the dark active-text")
+        (is (= "rgba(255,255,255,0.12)" (:background event))
+            "previously-active :event tab reverts to the translucent fill")))))
 
 (deftest tab-click-dispatches-select-tab
   (testing "spec/018 §5 — clicking a tab fires :rf.xray/select-tab"
@@ -2300,25 +2298,26 @@
 ;;   (3) event-list event-id column → explicitly LEFT-aligned (header +
 ;;       row); the selected/active row → subtle :hover fill, NOT a 1px
 ;;       blue ring; the `timestamp` column → absolute HH:MM:SS.mmm (A8).
-;;   (4) tabs → UNDERLINE (2px accent bottom-border + normal ink for the
-;;       active tab), NOT a filled pill (A1; covered by
-;;       `tab-bar-is-underline-not-pill-or-radios` above).
+;;   (4) tabs → ROUNDED-TOP folder tabs on the dark tabs ribbon (light
+;;       fill + dark ink for the active tab), NOT a filled pill nor an
+;;       underline (rf2-xawwb; covered by
+;;       `tab-bar-is-rounded-top-dark-tabs` above).
 ;; -------------------------------------------------------------------------
 
 (deftest chrome-events-label-uses-neutral-ink-not-accent
-  (testing "rf2-3f2di A4 — the `Events` label (which replaced the dropped
-            `❖ Xray` wordmark) renders in the NEUTRAL chrome text colour
-            (:text-primary = reference --devtools-text), NOT the :accent
-            blue. The single accent is reserved for active/selected
-            affordances."
+  (testing "rf2-xawwb — the `Event History` label (which replaced the
+            dropped `❖ Xray` wordmark) renders in the white
+            chrome-ribbon text colour (:chrome-ribbon-text), legible on
+            the dark chrome band, NOT the :accent blue. The single accent
+            is reserved for active/selected affordances."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [ribbon (shell/ribbon nil)
             label  (find-by-testid ribbon "rf-xray-ribbon-events-label")
             style  (:style (second label))]
-        (is (some? label) "the `Events` label renders")
-        (is (= (:text-primary tokens) (:color style))
-            "the label ink is the neutral :text-primary token")
+        (is (some? label) "the `Event History` label renders")
+        (is (= (:chrome-ribbon-text tokens) (:color style))
+            "the label ink is the white :chrome-ribbon-text token")
         (is (not= (:accent tokens) (:color style))
             "the label ink is NOT the :accent blue")))))
 
