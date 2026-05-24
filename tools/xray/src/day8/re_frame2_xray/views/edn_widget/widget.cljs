@@ -346,12 +346,17 @@
 ;;
 ;;   2. **In-bundle Clojure-mode tokenizer** — `tokenize-clojure` is a
 ;;      lightweight ~140-LoC source-text lexer that emits per-token
-;;      colour classifications mapped onto the theme tokens (keywords
-;;      violet, strings green, numbers cyan, builtins violet). The
-;;      bracketed phrase in the rf2-6snc8 acceptance ("highlight.js …
-;;      or an embeddable Clojure-mode subset") explicitly authorises
-;;      this subset — and keeping the highlighter in-bundle avoids the
-;;      cost of a JS-side highlight.js dep on the dev classpath.
+;;      colour classifications mapped onto the theme tokens. Per the
+;;      rf2-93jp0 palette split, keywords paint on `:syntax-keyword`
+;;      (red family), strings on `:syntax-string` (blue family),
+;;      numbers on `:syntax-number` (cool-blue), and builtins on
+;;      `:accent` (chrome blue, macro-call emphasis) — each visually
+;;      distinct, both light and dark, mirroring the Figma authority's
+;;      `.syntax-*` CSS classes. The bracketed phrase in the rf2-6snc8
+;;      acceptance ("highlight.js … or an embeddable Clojure-mode
+;;      subset") explicitly authorises this subset — and keeping the
+;;      highlighter in-bundle avoids the cost of a JS-side highlight.js
+;;      dep on the dev classpath.
 
 (defn format-source
   "Pre-format a Clojure source string via zprint so the rendered
@@ -376,16 +381,30 @@
   "Per-token colour resolution for the in-bundle Clojure syntax
   highlighter (source-text rendering only; CLJS-value rendering goes
   through `cljs-devtools-render`). Pure data → token-keyword for the
-  token-type classification. Public for unit tests."
+  token-type classification. Public for unit tests.
+
+  ## Palette (rf2-93jp0)
+
+  Each token type maps to a dedicated `:syntax-*` token from
+  `theme/tokens.cljc` so the rendered hues match the Figma authority's
+  `.syntax-*` CSS block exactly (keyword red / string blue / number
+  cool-blue) in BOTH the light and dark theme. Keywords and builtins
+  resolve to DIFFERENT hues — keyword on `:syntax-keyword` (red family,
+  per Figma), builtin on `:accent` (the chrome blue, reading as
+  macro-call emphasis) — so a `:foo` keyword and a `reg-event-db`
+  builtin no longer paint identically against a real editor.
+
+  The fallthrough is `:text-primary`, matching a real editor where
+  plain symbols carry no special colour."
   [tok-type]
   (case tok-type
-    :keyword  :accent
-    :string   :green
-    :number   :info                   ; fixed cool-blue syntax hue, distinct from the keyword accent
+    :keyword  :syntax-keyword          ; Figma .syntax-keyword (red family)
+    :string   :syntax-string           ; Figma .syntax-string  (blue family)
+    :number   :syntax-number           ; Figma .syntax-number  (cool-blue)
     :comment  :text-tertiary
     :symbol   :text-primary
     :paren    :text-tertiary
-    :builtin  :accent
+    :builtin  :accent                  ; macro-call emphasis (chrome accent)
     :text-primary))
 
 (def clojure-builtins

@@ -127,6 +127,26 @@
    :magenta        "#E879F9"
    :info           "#79c0ff"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
+   ;; ── syntax-highlighter palette (rf2-93jp0 · Figma `.syntax-*` block) ──
+   ;; Dedicated tokens for the in-bundle Clojure source-text highlighter
+   ;; (`views/edn_widget/widget.cljs`), mirrored 1:1 from the Figma
+   ;; authority's `.syntax-keyword` / `.syntax-string` / `.syntax-number`
+   ;; CSS classes. Catalogued as their own token family (rather than
+   ;; reusing semantic `:red`/`:green`/`:info`) so syntax hues can evolve
+   ;; independently of the semantic palette — a future "function-name"
+   ;; or "macro" hue lands here without rippling through error/success
+   ;; surfaces.
+   ;;
+   ;; The pre-rf2-93jp0 mapping reused `:accent` for BOTH `:keyword` and
+   ;; `:builtin`, so `:foo` and `reg-event-db` painted identically — a
+   ;; monochromatic look against a real editor. Splitting `:syntax-
+   ;; keyword` off (red family, per Figma) gives keywords vs builtins a
+   ;; first-class visual distinction; the builtin highlight stays on
+   ;; `:accent` (the chrome blue) and now reads as macro-call emphasis.
+   :syntax-keyword "#ff7b72"   ; Figma .dark .syntax-keyword (salmon-red)
+   :syntax-string  "#a5d6ff"   ; Figma .dark .syntax-string  (sky-blue)
+   :syntax-number  "#79c0ff"   ; Figma .dark .syntax-number  (cool-blue, = :info)
+
    ;; ── deep variants (rf2-5kfxe.4) ──
    ;; Darker variant of `:red` used as a danger-button background. The
    ;; default `:red` is the standard text-on-bg accent (high lightness
@@ -205,6 +225,22 @@
    :red            "#C84444"
    :magenta        "#B146C2"
    :info           "#0550ae"   ; cool categorical blue ≠ accent (Figma syntax-number)
+
+   ;; ── syntax-highlighter palette (rf2-93jp0 · Figma `.syntax-*` block) ──
+   ;; Light-theme mirror of the dark-palette `:syntax-*` family. Each
+   ;; hex is taken 1:1 from the Figma authority's CSS string:
+   ;;
+   ;;     .syntax-keyword { color: #cf222e; }
+   ;;     .syntax-string  { color: #0a3069; }
+   ;;     .syntax-number  { color: #0550ae; }
+   ;;
+   ;; (See `dark-palette` `:syntax-*` for the rationale — the rf2-93jp0
+   ;; split exists so keywords and builtins paint distinct hues; this
+   ;; block holds the LIGHT-theme half of that contract so the class
+   ;; toggle on the shell root resolves either palette at paint time.)
+   :syntax-keyword "#cf222e"   ; Figma .syntax-keyword (deep red)
+   :syntax-string  "#0a3069"   ; Figma .syntax-string  (deep navy)
+   :syntax-number  "#0550ae"   ; Figma .syntax-number  (Github blue, = :info)
 
    ;; ── deep variants ──
    ;; On the light canvas the danger button stays close to the
