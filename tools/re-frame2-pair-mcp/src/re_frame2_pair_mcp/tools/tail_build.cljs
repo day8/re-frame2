@@ -25,7 +25,7 @@
   300)
 
 (defn tail-build-tool [conn args]
-  (let [build-id (wire/arg-build args)
+  (let [build-id (wire/arg-build conn args)
         wait-ms  (or (wire/arg args :wait-ms) default-wait-ms)
         probe    (wire/arg args :probe)
         poll-ms  probe-poll-ms]

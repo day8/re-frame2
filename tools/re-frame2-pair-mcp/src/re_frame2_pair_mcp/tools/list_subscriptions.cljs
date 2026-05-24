@@ -46,7 +46,7 @@
       (str "(filterv #(and " (str/join " " preds) ") subs)"))))
 
 (defn list-subscriptions-tool [conn args]
-  (let [build-id (wire/arg-build args)
+  (let [build-id (wire/arg-build conn args)
         topic    (wire/arg-keyword args :topic)
         sub-id   (wire/arg args :sub-id)
         form     (ef/emit

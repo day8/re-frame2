@@ -107,6 +107,22 @@ The server auto-discovers the nREPL port from (highest precedence first):
 > `--port-file <absolute-path>` or set `SHADOW_CLJS_NREPL_PORT` if
 > discovery still fails.
 
+### Per-call build-id resolution
+
+Each tool call routes to a shadow-cljs build. The build-id is resolved
+from (highest precedence first):
+
+1. An explicit `:build` MCP arg on this call — always wins.
+2. **Session-scoped cache (rf2-l9ixp)** — populated by `discover-app`
+   on success. Run `discover-app` once at the start of a session against
+   the build you want to debug; subsequent tool calls default to that
+   build without re-passing `:build`. Removes the friction of a multi-
+   build workspace silently routing follow-up calls to `:app` (the
+   env-var fallback) and returning `:runtime-not-preloaded`. The cache
+   resets on nREPL reconnect (e.g. shadow restart, full page reload
+   destroying the runtime sentinel).
+3. `$SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
+
 ### Path-drift probe
 
 After repo-side renames of this tool (e.g. PR #1504 `tools/pair2-mcp/`

@@ -7,7 +7,7 @@
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
 (defn unsubscribe-tool [conn args]
-  (let [build-id (wire/arg-build args)
+  (let [build-id (wire/arg-build conn args)
         sub-id   (wire/arg args :sub-id)]
     (cond
       (or (nil? sub-id) (str/blank? sub-id))

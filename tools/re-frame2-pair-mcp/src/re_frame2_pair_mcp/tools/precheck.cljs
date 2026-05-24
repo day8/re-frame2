@@ -113,7 +113,7 @@
   saving."
   [conn raw-args target]
   (if-let [form (precheck-form target)]
-    (let [build-id (wire/arg-build raw-args)]
+    (let [build-id (wire/arg-build conn raw-args)]
       (-> (nrepl/cljs-eval-value conn build-id form)
           (.then (fn [v]
                    (cond

@@ -73,7 +73,7 @@
 
 (defn dispatch-tool [conn args]
   (let [event-str    (wire/arg args :event)
-        build-id     (wire/arg-build args)
+        build-id     (wire/arg-build conn args)
         sync?        (boolean (wire/arg args :sync))
         trace?       (boolean (wire/arg args :trace))
         frame        (wire/arg-keyword args :frame)

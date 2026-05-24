@@ -440,7 +440,7 @@
                   (probe/err->result :subscribe-failed err))))))
 
 (defn subscribe-tool [conn raw-args extra]
-  (let [build-id           (wire/arg-build raw-args)
+  (let [build-id           (wire/arg-build conn raw-args)
         topic              (wire/arg-keyword raw-args :topic)
         filter-map         (args/parse-filter-arg (wire/arg raw-args :filter))
         max-buf-events     (wire/arg raw-args :max-buffered-events)

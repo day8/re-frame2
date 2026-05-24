@@ -38,8 +38,8 @@
 
 (defn eval-cljs-tool [conn args]
   (let [form      (wire/arg args :form)
-        build-id  (wire/arg-build args)
-        explicit? (wire/arg-build-explicit? args)]
+        build-id  (wire/arg-build conn args)
+        explicit? (wire/arg-build-explicit? conn args)]
     (cond
       (not @allow-eval?)
       (js/Promise.resolve

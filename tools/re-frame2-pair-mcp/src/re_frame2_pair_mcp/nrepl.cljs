@@ -306,16 +306,23 @@
   preload has been confirmed live on this socket generation (rf2-sjpx0).
   Cleared on connect / reconnect — a full page reload destroys the CLJS
   heap (and thus the `__re_frame2_pair_runtime` marker); we re-probe
-  on the first tool call after that boundary."
+  on the first tool call after that boundary.
+
+  `:resolved-build-id` is the build-id `discover-app` last resolved
+  (rf2-l9ixp). Subsequent tool calls without an explicit `:build` arg
+  default to it instead of the `SHADOW_CLJS_BUILD_ID` env-var fallback —
+  removing the pair-debug friction of re-passing the build on every call.
+  Same reconnect-invalidation lifecycle as `:probed-builds`."
   [port host]
-  (atom {:port          port
-         :host          (or host "127.0.0.1")
-         :socket        nil
-         :buf           nil
-         :pending       {}
-         :closed?       true
-         :session       nil
-         :probed-builds #{}}))
+  (atom {:port              port
+         :host              (or host "127.0.0.1")
+         :socket            nil
+         :buf               nil
+         :pending           {}
+         :closed?           true
+         :session           nil
+         :probed-builds     #{}
+         :resolved-build-id nil}))
 
 (defn attach-handlers!
   "Wire up `data` / `error` / `close` on the freshly-connected socket.
@@ -383,8 +390,12 @@
                 ;; Reset `:probed-builds` on (re)connect — a page reload
                 ;; destroys the CLJS heap and the
                 ;; `__re_frame2_pair_runtime` marker with it (rf2-sjpx0).
+                ;; Drop `:resolved-build-id` too (rf2-l9ixp) — operator may
+                ;; restart shadow against a different build between
+                ;; reconnects; a stale cache would silently mis-route.
                 (swap! conn-atom assoc :socket sock :closed? false
-                       :buf (js/Buffer.alloc 0) :probed-builds #{})
+                       :buf (js/Buffer.alloc 0)
+                       :probed-builds #{} :resolved-build-id nil)
                 (attach-handlers! conn-atom sock)
                 (resolve conn-atom)))
             (j/call sock :once "error"
@@ -394,11 +405,15 @@
 
 (defn close!
   "Close the persistent socket. Idempotent. Drops the per-socket probe
-  cache (`:probed-builds`) so a fresh connect re-probes the preload."
+  cache (`:probed-builds`) so a fresh connect re-probes the preload.
+  Also drops `:resolved-build-id` (rf2-l9ixp) — the cached default for
+  tool calls without an explicit `:build` arg — so a reconnect doesn't
+  carry a stale build-id from the previous session."
   [conn-atom]
   (when-let [^js sock (:socket @conn-atom)]
     (try (.end sock) (catch :default _ nil)))
-  (swap! conn-atom assoc :socket nil :closed? true :pending {} :probed-builds #{}))
+  (swap! conn-atom assoc :socket nil :closed? true :pending {}
+         :probed-builds #{} :resolved-build-id nil))
 
 ;; ---------------------------------------------------------------------------
 ;; Op send / receive — multiplex by request id.

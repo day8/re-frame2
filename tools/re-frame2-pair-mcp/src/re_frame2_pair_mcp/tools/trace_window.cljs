@@ -23,7 +23,7 @@
 
 (defn trace-window-tool [conn raw-args]
   (let [ms        (or (wire/arg raw-args :ms) 1000)
-        build-id  (wire/arg-build raw-args)
+        build-id  (wire/arg-build conn raw-args)
         frame     (wire/arg-keyword raw-args :frame)
         ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
         ;; `:include-sensitive false` when OFF (the default). rf2-p1qli:

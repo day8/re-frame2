@@ -27,7 +27,7 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
 (defn watch-epochs-tool [conn raw-args]
-  (let [build-id  (wire/arg-build raw-args)
+  (let [build-id  (wire/arg-build conn raw-args)
         frame     (wire/arg-keyword raw-args :frame)
         since-id  (wire/arg raw-args :since-id)
         ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces

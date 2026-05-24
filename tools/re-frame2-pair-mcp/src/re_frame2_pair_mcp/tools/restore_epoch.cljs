@@ -58,7 +58,7 @@
   (if-not (writes/writes-allowed?)
     (js/Promise.resolve (writes/disabled-result "restore-epoch"))
     (let [epoch-id-str (wire/arg raw-args :epoch-id)
-          build-id     (wire/arg-build raw-args)
+          build-id     (wire/arg-build conn raw-args)
           frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
           [tag payload] (parse-epoch-id epoch-id-str)]
       (case tag

@@ -161,7 +161,7 @@
          "  {:ok? false :reason :not-registered :kind :machine :id " id-edn "})")))
 
 (defn handler-meta-tool [conn args]
-  (let [build-id (wire/arg-build args)
+  (let [build-id (wire/arg-build conn args)
         kind-str (wire/arg args :kind)
         id-str   (wire/arg args :id)
         kind     (parse-kind kind-str)
@@ -228,7 +228,7 @@
     (ef/emit (ef/rt-call 'registrar-list kind))))
 
 (defn list-handlers-tool [conn args]
-  (let [build-id (wire/arg-build args)
+  (let [build-id (wire/arg-build conn args)
         kind-str (wire/arg args :kind)
         kind     (parse-kind kind-str)]
     (cond
