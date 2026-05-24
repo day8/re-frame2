@@ -51,8 +51,14 @@
 
 ;; ---- one pill ------------------------------------------------------------
 
-(defn- pill-glyph [mode]
-  (case mode :in "+" :out "×"))
+;; rf2-t2xba — the per-mode `+` / `×` LEADING glyph used to prefix the
+;; pill body has been retired. The Figma authority shows pills as
+;; `[text label] [trailing × delete button]` only — the include/exclude
+;; signal is carried by the BORDER COLOUR (green = include, red = exclude,
+;; resolved by `pill-tone` below), not by a leading glyph. The trailing
+;; remove button is also rendered as `×` (distinct role: it's the
+;; click-target that removes the pill, scoped to the remove `<button>`
+;; with its own aria-label).
 
 (defn- pill-tone [mode]
   ;; rf2-3f2di A6 — green-bordered include (`:in`) pills, red-bordered
@@ -121,7 +127,6 @@
                remove-filter event payload)"
   [{:keys [mode pill idx]}]
   (let [tone        (pill-tone mode)
-        mode-glyph  (pill-glyph mode)
         kind        (pill-kind pill)
         editable?   (= kind :event-id-pattern)
         testid      (str "rf-xray-filter-pill-" (name mode) "-" idx)
@@ -158,7 +163,10 @@
                          :font-family mono-stack
                          :font-size   (:caption type-scale)
                          :white-space "nowrap"}}
-        (str mode-glyph " " body-text " ")
+        ;; rf2-t2xba — body is label + trailing pencil only. The leading
+        ;; `+` / `×` mode glyph was retired (the border colour already
+        ;; carries the include/exclude signal).
+        (str body-text " ")
         ;; Pencil glyph per spec/018 §7 'Pill visual contract' —
         ;; visual cue that the pill body is the click-to-edit target.
         [:span {:style {:opacity 0.7}} "✎"]]
@@ -172,7 +180,9 @@
                        :font-family mono-stack
                        :font-size   (:caption type-scale)
                        :white-space "nowrap"}}
-        (str mode-glyph " " body-text)])
+        ;; rf2-t2xba — body is label only; the leading mode glyph was
+        ;; retired (border colour carries the include/exclude signal).
+        body-text])
      ;; rf2-xawwb — a VERTICAL DIVIDER sits before the `✕` (Figma-Make
      ;; surface): a 1px tone-coloured rule separating the pill body from
      ;; the remove affordance. The remove button keeps its own border-left

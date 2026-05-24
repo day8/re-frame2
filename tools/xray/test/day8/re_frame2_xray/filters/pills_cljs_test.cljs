@@ -117,6 +117,32 @@
     (is (re-find #":auth/\*" (text-nodes pill))
         "pill renders the pattern")))
 
+(deftest pill-body-has-no-leading-mode-glyph
+  (testing "rf2-t2xba — the Figma authority pill is `[label] [trailing ×]`;
+            the prior `+` (include) / `×` (exclude) LEADING glyph prefix on
+            the pill BODY was a drift, retired here. The border colour
+            carries the include/exclude signal. The body must NOT start
+            with `+` or `×`; the trailing remove-button is its own element
+            (`-remove` testid) and is unaffected."
+    (xray-setup!)
+    (let [tree    (pills/pills-view
+                    {:filters {:in  [{:pattern ":auth/*"}]
+                               :out [{:pattern ":mouse-move"}]}})
+          in-body (find-by-testid tree "rf-xray-filter-pill-in-0-body")
+          out-body (find-by-testid tree "rf-xray-filter-pill-out-0-body")
+          in-text  (text-nodes in-body)
+          out-text (text-nodes out-body)]
+      (is (some? in-body))
+      (is (some? out-body))
+      (is (not (re-find #"^\s*\+" in-text))
+          "include pill body does NOT start with `+`")
+      (is (not (re-find #"^\s*×" out-text))
+          "exclude pill body does NOT start with `×`")
+      (is (re-find #":auth/\*" in-text)
+          "include pill still shows the pattern label")
+      (is (re-find #":mouse-move" out-text)
+          "exclude pill still shows the pattern label"))))
+
 (deftest pills-use-green-include-red-exclude-borders
   (testing "rf2-3f2di A6 — include (`:in`) pills are GREEN-bordered
             (`:success` = reference --devtools-success) and exclude
