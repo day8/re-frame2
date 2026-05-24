@@ -14,10 +14,11 @@
     portals) inherits the value.
 
   - **theme** — toggled as a CSS class on the Causa shell root.
-    `rf-causa-theme-light` vs `rf-causa-theme-dark`. Default panels
-    sit on the dark tokens; the light-theme variant is a follow-on
-    styling pass — the class lands so a future stylesheet can
-    target it.
+    `rf-causa-theme-light` vs `rf-causa-theme-dark`. Default is
+    `:light` (rf2-3f2di — the authoritative reference renders light by
+    default); both palettes resolve via the `var(--rf-causa-*)` block
+    `theme/global-styles/themes-css` emits, so the class toggle flips
+    the whole shell in one assignment.
 
   - **panel-position** — routes to existing mount-layer fns:
     `:right-rail` is the default inline mount; `:popout` opens the
@@ -231,7 +232,7 @@
   `<html>` element with `rf-causa-theme-<name>`. No-op when neither
   element is present."
   [theme]
-  (let [klass (str theme-class-prefix (name (or theme :dark)))]
+  (let [klass (str theme-class-prefix (name (or theme :light)))]
     (doseq [el [(shell-root-element) (html-root-element)]
             :when el]
       (let [cl (.-classList el)]

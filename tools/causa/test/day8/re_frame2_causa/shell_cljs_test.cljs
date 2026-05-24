@@ -215,24 +215,23 @@
 ;; -------------------------------------------------------------------------
 
 (deftest ribbon-mounts-all-clusters-across-two-strata
-  (testing "rf2-4vp5j — the top of the shell is TWO strata. The chrome
-            ribbon carries the Frame + Dynamic/Static selectors (left)
-            and the right-icons cluster; the events ribbon carries the
-            nav cluster + filter pills (moved down from the old single
-            ribbon). All clusters still mount somewhere in the shell
-            tree."
+  (testing "rf2-3f2di A5 — the top of the shell is TWO strata. The chrome
+            ribbon (bar-1) carries the nav cluster + Frame + Dynamic/Static
+            selectors + right-icons; the events ribbon (bar-2) carries the
+            committed filter pills. All clusters mount somewhere in the
+            shell tree."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
         (is (some? (find-by-testid tree "rf-causa-ribbon-nav"))
-            "nav cluster present (now in the events ribbon)")
+            "nav cluster present (now in the chrome ribbon, bar-1)")
         (is (or (find-by-testid tree "rf-causa-ribbon-frame")
                 (find-by-testid tree "rf-causa-ribbon-frame-picker"))
             "frame selector present (label or dropdown) in the chrome ribbon")
         (is (some? (find-by-testid tree "rf-causa-mode-pill"))
             "Dynamic/Static mode dropdown present in the chrome ribbon")
         (is (some? (find-by-testid tree "rf-causa-ribbon-filters"))
-            "filter cluster present (now in the events ribbon)")
+            "committed filter cluster present (now in the events ribbon, bar-2)")
         (is (some? (find-by-testid tree "rf-causa-ribbon-icons"))
             "right-icons cluster present in the chrome ribbon")))))
 
@@ -261,16 +260,33 @@
 ;; (2b) Two-ribbon redesign — chrome ribbon + events ribbon (rf2-4vp5j)
 ;; -------------------------------------------------------------------------
 
-(deftest chrome-ribbon-carries-only-selectors-and-icons
-  (testing "rf2-4vp5j Workstream A — the chrome ribbon (rf-causa-ribbon)
-            carries the Frame + Dynamic/Static selectors on the left and
-            the right-icons cluster; the nav cluster + focus-chip +
-            filter pills moved OUT to the events ribbon."
+(deftest chrome-ribbon-carries-events-nav-filters-and-selectors
+  (testing "rf2-3f2di A4/A5 — reconciled to the authority reference
+            chrome-ribbon. The chrome ribbon (rf-causa-ribbon) now leads
+            with the `Events` label, then the nav cluster + focus
+            controls + `Filters:` + the add(+) on the left, and carries
+            the Frame + Dynamic/Static selectors + the right-icons
+            cluster on the right. The committed filter pills moved DOWN to
+            the events ribbon (bar-2)."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [ribbon (shell/ribbon nil)]
         (is (some? (find-by-testid ribbon "rf-causa-ribbon-selectors"))
-            "left selector cluster present")
+            "left cluster present")
+        ;; A4 — the `Events` label leads the left cluster (the `❖ Causa`
+        ;; wordmark was dropped).
+        (is (some? (find-by-testid ribbon "rf-causa-ribbon-events-label"))
+            "`Events` label leads the chrome ribbon")
+        (is (nil? (find-by-testid ribbon "rf-causa-ribbon-logo"))
+            "the `❖ Causa` wordmark is GONE (A4)")
+        ;; A2/A5 — the nav cluster + add(+) now live in the chrome ribbon.
+        (is (some? (find-by-testid ribbon "rf-causa-ribbon-nav"))
+            "nav cluster IS in the chrome ribbon (A5)")
+        (is (some? (find-by-testid ribbon "rf-causa-ribbon-filters-label"))
+            "`Filters:` label in the chrome ribbon (A5)")
+        (is (some? (find-by-testid ribbon "rf-causa-filter-add"))
+            "the add(+) affordance is in the chrome ribbon (A5)")
+        ;; right cluster — scope selectors + icons.
         (is (or (find-by-testid ribbon "rf-causa-ribbon-frame")
                 (find-by-testid ribbon "rf-causa-ribbon-frame-picker"))
             "Frame selector in the chrome ribbon")
@@ -278,50 +294,60 @@
             "Dynamic/Static mode dropdown in the chrome ribbon")
         (is (some? (find-by-testid ribbon "rf-causa-ribbon-icons"))
             "right-icons cluster in the chrome ribbon")
-        ;; spine/filter chrome moved DOWN to the events ribbon
-        (is (nil? (find-by-testid ribbon "rf-causa-ribbon-nav"))
-            "nav cluster is NOT in the chrome ribbon")
+        ;; the COMMITTED pills are NOT in the chrome ribbon (they live on
+        ;; bar-2); only the add(+) is up here.
         (is (nil? (find-by-testid ribbon "rf-causa-ribbon-filters"))
-            "filter pills are NOT in the chrome ribbon")
-        (is (nil? (find-by-testid ribbon "rf-causa-focus-chip"))
-            "focus-chip is NOT in the chrome ribbon")))))
+            "committed filter pills are NOT in the chrome ribbon")))))
 
-(deftest chrome-ribbon-carries-causa-logo-top-left
-  (testing "rf2-ad7zx.12 — the chrome ribbon's LEFT cluster opens with
-            the `❖ Causa` wordmark per the Figma design-reference
-            (the chrome-ribbon component in causa_devtools_reference.cljs).
-            It was MISSING pre-Figma (the ribbon
-            jumped straight to the Frame selector). The wordmark renders
-            inside the selector cluster, before the Frame dropdown."
+(deftest chrome-ribbon-leads-with-events-label-not-logo
+  (testing "rf2-3f2di A4 — the chrome ribbon's LEFT cluster opens with an
+            `Events` label per the authority reference chrome-ribbon; the
+            `❖ Causa` wordmark was DROPPED. The label renders inside the
+            left cluster, ahead of the nav cluster."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [ribbon    (shell/ribbon nil)
             selectors (find-by-testid ribbon "rf-causa-ribbon-selectors")
-            logo      (find-by-testid ribbon "rf-causa-ribbon-logo")]
-        (is (some? logo) "the `❖ Causa` wordmark renders in the chrome ribbon")
-        (is (some? selectors) "the selector cluster is present")
-        (is (re-find #"❖" (text-nodes logo))
-            "the diamond `❖` glyph is present")
-        (is (re-find #"Causa" (text-nodes logo))
-            "the `Causa` wordmark text is present")))))
+            label     (find-by-testid ribbon "rf-causa-ribbon-events-label")]
+        (is (some? label) "the `Events` label renders in the chrome ribbon")
+        (is (some? selectors) "the left cluster is present")
+        (is (re-find #"Events" (text-nodes label))
+            "the label text reads `Events`")
+        (is (nil? (find-by-testid ribbon "rf-causa-ribbon-logo"))
+            "the `❖ Causa` wordmark is gone (A4)")
+        (is (not (re-find #"❖" (text-nodes ribbon)))
+            "no diamond `❖` glyph anywhere in the chrome ribbon")))))
 
-(deftest events-ribbon-carries-label-nav-and-pills
-  (testing "rf2-4vp5j Workstream B — the events ribbon
-            (rf-causa-events-ribbon) carries the `Events:` label, the
-            nav cluster, and the filter pills on the left."
+(deftest events-ribbon-carries-warning-and-committed-pills
+  (testing "rf2-3f2di A5/A6 — reconciled to the authority reference
+            events-ribbon (bar-2). It carries the `N events filtered out`
+            warning + the committed green/red filter pills. The nav
+            cluster + add(+) moved UP to the chrome ribbon (bar-1)."
     (causa-setup!)
+    ;; one filtered-out event so the warning + a pill render. Raw
+    ;; collect-trace! maps (matching the neighbouring filter tests) so the
+    ;; test doesn't forward-reference the later `dispatch-trace-ev` helper.
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
+    (trace-bus/collect-trace! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:noise/tick] :frame :rf/default :rf.trace/dispatch-id 2}})
     (rf/with-frame :rf/causa
-      (let [tree (shell/shell-view)
+      (rf/dispatch-sync [:rf.causa/add-filter :out {:pattern :noise/tick}]))
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
             ribbon (find-by-testid tree "rf-causa-events-ribbon")]
         (is (some? ribbon) "events ribbon mounts as its own stratum")
-        (is (some? (find-by-testid tree "rf-causa-events-ribbon-label"))
-            "`Events:` label present")
-        (is (re-find #"Events:" (text-nodes ribbon))
-            "the label text reads `Events:`")
-        (is (some? (find-by-testid tree "rf-causa-ribbon-nav"))
-            "nav cluster present in the events ribbon")
-        (is (some? (find-by-testid tree "rf-causa-ribbon-filters"))
-            "filter pills present in the events ribbon")))))
+        ;; A6 — the committed pills cluster lives here.
+        (is (some? (find-by-testid ribbon "rf-causa-ribbon-filters"))
+            "committed filter pills present in the events ribbon")
+        ;; A5 — the nav cluster + add(+) are NOT here (moved to bar-1).
+        (is (nil? (find-by-testid ribbon "rf-causa-ribbon-nav"))
+            "nav cluster is NOT in the events ribbon (moved to bar-1)")
+        (is (nil? (find-by-testid ribbon "rf-causa-filter-add"))
+            "the add(+) is NOT in the events ribbon (moved to bar-1)")
+        ;; the bar-2 warning reads `N events filtered out`.
+        (is (re-find #"filtered out" (text-nodes ribbon))
+            "the `N events filtered out` warning renders on bar-2")))))
 
 (deftest events-ribbon-actions-absent-when-no-filters
   (testing "rf2-4vp5j Decision 3 — with no pills + no mutes, the events
@@ -512,67 +538,70 @@
                 (str "after select-tab :machines, tab " tab-id
                      " aria-selected reflects the new active tab"))))))))
 
-(deftest tab-bar-is-figma-button-bar-not-radios
-  (testing "rf2-ad7zx.16 — the L3 tab strip renders as the Figma
-            button-bar (design-reference/causa_devtools_reference.cljs —
-            the tabs component + the main layout's
-            TabsList), NOT radio-circle glyphs. Each tab is a rounded
-            button; the ACTIVE tab carries a filled `:accent` background
-            with white text; inactive tabs are transparent with
-            secondary ink. The decorative `●/◉/○` radio glyph that the
-            previous tab-button rendered is GONE."
+(deftest tab-bar-is-underline-not-pill-or-radios
+  (testing "rf2-3f2di A1 — the L3 tab strip renders as UNDERLINE tabs per
+            the authority reference (`main-app` tab-strip), NOT a filled-
+            accent pill and NOT radio-circle glyphs. Each tab is a
+            borderless transparent button; the ACTIVE tab carries a 2px
+            `:accent` bottom border + NORMAL text ink; inactive tabs are
+            transparent with a 2px TRANSPARENT bottom border + neutral
+            muted ink."
     (causa-setup!)
     (rf/with-frame :rf/causa
-      (let [tree (shell/shell-view)]
-        ;; (a) NO radio-circle glyphs anywhere in the tab strip. The
-        ;; old tab-button stamped a `◉` (active) / `○` (inactive) span;
-        ;; the L2 gutter glyph `◉/◌` lives in event rows, NOT in the
-        ;; tab buttons — so we assert per-button.
+      (let [tree (shell/shell-view)
+            accent-underline (str "2px solid " (:accent tokens))]
+        ;; (a) NO radio-circle glyphs anywhere in the tab strip.
         (doseq [tab-id expected-tab-ids]
           (let [btn  (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
                 txt  (text-nodes btn)]
             (is (some? btn) (str "tab button for " tab-id " present"))
             (is (not (re-find #"[◉○●]" txt))
                 (str "tab " tab-id " carries no radio-circle glyph"))))
-        ;; (b) Every tab is a rounded button (`rounded` → border-radius).
+        ;; (b) Every tab is a borderless transparent button — NOT a
+        ;; filled pill. No border-radius (the underline, not a rounded
+        ;; fill, is the shape).
         (doseq [tab-id expected-tab-ids]
           (let [btn   (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
                 style (:style (second btn))]
             (is (= :button (first btn))
                 (str "tab " tab-id " is a <button>"))
-            (is (some? (:border-radius style))
-                (str "tab " tab-id " is rounded (border-radius set)"))))
-        ;; (c) The ACTIVE tab (default :event) is a filled-accent button
-        ;; with white text — the Figma `data-[state=active]:bg-…/text-white`.
+            (is (= "transparent" (:background style))
+                (str "tab " tab-id " background is transparent (no filled pill)"))
+            (is (nil? (:border-radius style))
+                (str "tab " tab-id " carries no border-radius (underline, not pill)"))))
+        ;; (c) The ACTIVE tab (default :event) carries the 2px accent
+        ;; underline + normal text ink — NOT a filled accent bg / white text.
         (let [active (find-by-testid tree "rf-causa-tab-event")
               style  (:style (second active))]
-          (is (= (:accent tokens) (:background style))
-              "active tab background is the filled :accent token")
-          (is (= (:white tokens) (:color style))
-              "active tab text is white"))
-        ;; (d) INACTIVE tabs are transparent with NEUTRAL muted ink
-        ;; (rf2-cplj8 — `:text-tertiary`, Figma `text-muted-foreground`,
-        ;; NOT the brighter blue-ish `:text-secondary`).
+          (is (= accent-underline (:border-bottom style))
+              "active tab has a 2px :accent bottom border (the underline)")
+          (is (= (:text-primary tokens) (:color style))
+              "active tab text is the normal :text-primary ink")
+          (is (not= (:accent tokens) (:background style))
+              "active tab background is NOT a filled :accent pill"))
+        ;; (d) INACTIVE tabs are transparent with a TRANSPARENT 2px bottom
+        ;; border + NEUTRAL muted ink.
         (doseq [tab-id (remove #{:event} expected-tab-ids)]
           (let [btn   (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
                 style (:style (second btn))]
-            (is (= "transparent" (:background style))
-                (str "inactive tab " tab-id " background is transparent"))
+            (is (= "2px solid transparent" (:border-bottom style))
+                (str "inactive tab " tab-id " bottom border is transparent"))
             (is (= (:text-tertiary tokens) (:color style))
                 (str "inactive tab " tab-id " text is neutral muted ink"))))))
-    ;; (e) After switching the active tab, the filled-accent treatment
-    ;; follows the new selection (and the old tab reverts to transparent).
+    ;; (e) After switching the active tab, the underline follows the new
+    ;; selection (and the old tab reverts to a transparent underline).
     (select-tab! :machines)
     (rf/with-frame :rf/causa
       (let [tree   (shell/shell-view)
+            accent-underline (str "2px solid " (:accent tokens))
             mach   (:style (second (find-by-testid tree "rf-causa-tab-machines")))
             event  (:style (second (find-by-testid tree "rf-causa-tab-event")))]
-        (is (= (:accent tokens) (:background mach))
-            "newly-active :machines tab fills with :accent")
-        (is (= (:white tokens) (:color mach))
-            "newly-active :machines tab text is white")
-        (is (= "transparent" (:background event))
-            "previously-active :event tab reverts to transparent")))))
+        (is (= accent-underline (:border-bottom mach))
+            "newly-active :machines tab gains the accent underline")
+        (is (= (:text-primary tokens) (:color mach))
+            "newly-active :machines tab text is the normal ink")
+        (is (= "2px solid transparent" (:border-bottom event))
+            "previously-active :event tab reverts to a transparent underline")))))
 
 (deftest tab-click-dispatches-select-tab
   (testing "spec/018 §5 — clicking a tab fires :rf.causa/select-tab"
@@ -1371,14 +1400,13 @@
             "⏭ ENABLED — paused-at-head, pressing it resumes LIVE")))))
 
 (deftest ribbon-nav-disabled-button-has-inert-styling
-  (testing "rf2-x5tro + rf2-cplj8 — a disabled nav button READS as inert,
-            not just cursor: not-allowed. Post rf2-cplj8 the nav buttons
-            are BORDERLESS lucide-style chevrons (Figma EventsRibbon) so
-            there is no border/background to dim — the inert signal is
-            the muted :text-tertiary ink + reduced opacity + not-allowed
-            cursor. The active button has a transparent borderless base
-            (`border: none`), so a disabled button must stay borderless
-            too. Asserted on ⏭ at head + live."
+  (testing "rf2-x5tro + rf2-3f2di A2 — a disabled nav button READS as
+            inert, not just cursor: not-allowed. With the blue-filled
+            treatment (reference chrome-ribbon) the inert signal is a
+            strong opacity drop (the filled blue fades) + not-allowed
+            cursor. The button keeps its filled :accent base + white icon
+            + borderless box; only the opacity recedes. Asserted on ⏭ at
+            head + live."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/causa
@@ -1389,15 +1417,15 @@
         (is (some? active) "nav cluster renders")
         (is (true? (:disabled (second head)))
             "⏭ disabled at head + live (single event, fresh focus)")
-        ;; The proper inert appearance — borderless, muted, recessed.
-        (is (= "transparent" (:background style))
-            "disabled nav button stays transparent (borderless treatment)")
+        ;; The proper inert appearance — filled but faded.
+        (is (= (:accent tokens) (:background style))
+            "disabled nav button keeps the filled :accent base")
         (is (= "none" (:border style))
-            "disabled nav button has NO border box — borderless lucide style")
-        (is (= (:text-tertiary tokens) (:color style))
-            "disabled ink drops to text-tertiary")
+            "disabled nav button has NO border box — borderless filled style")
+        (is (= (:white tokens) (:color style))
+            "disabled icon stays white (the opacity drop carries the fade)")
         (is (= 0.4 (:opacity style))
-            "disabled opacity reduced so the button recedes")
+            "disabled opacity reduced so the filled blue recedes")
         (is (= "not-allowed" (:cursor style))
             "cursor: not-allowed telegraphs the no-op")))))
 
@@ -2103,6 +2131,27 @@
     (is (= "" (shell/format-relative-time 1000 nil)))
     (is (= "" (shell/format-relative-time nil  nil)))))
 
+(deftest format-clock-time-renders-hhmmssmmm
+  (testing "rf2-3f2di A8 — `format-clock-time` renders the absolute
+            wall-clock `HH:MM:SS.mmm` string the L2 `timestamp` column
+            shows (authority reference). The exact hour/minute depends on
+            the runner's timezone, so we pin the SHAPE + the
+            zero-padding (seconds + millis fields), and the round-trip
+            against a known local Date."
+    (let [d        (js/Date. 2026 4 23 9 5 3 7)  ; local 09:05:03.007
+          then-ms  (.getTime d)
+          label    (shell/format-clock-time then-ms)]
+      (is (re-find #"^\d\d:\d\d:\d\d\.\d\d\d$" label)
+          "label matches the HH:MM:SS.mmm shape with zero-padding")
+      ;; The seconds + millis fields are timezone-independent, so pin them.
+      (is (re-find #":03\.007$" label)
+          "seconds + 3-digit millis are zero-padded from a known Date"))))
+
+(deftest format-clock-time-nil-safe
+  (testing "rf2-3f2di A8 — nil short-circuits to the empty string so the
+            chip caller can decide whether to render anything."
+    (is (= "" (shell/format-clock-time nil)))))
+
 (deftest cascade-dispatched-time-ms-reads-dispatched-slot
   (testing "rf2-vbbq0 — the chip's source-of-truth for the cascade's
             walltime is `:dispatched :time`. Each trace event carries
@@ -2125,32 +2174,27 @@
   [id event-vec time-ms]
   (assoc (dispatch-trace-ev id event-vec) :time time-ms))
 
-(deftest event-row-renders-relative-time-chip
-  (testing "rf2-vbbq0 / rf2-0s2at — every L2 row carries a right-aligned
-            relative-time chip. The chip's text reflects the bucket
-            against the anchor (the dispatched-time of the MOST RECENT
-            cascade); the chip's `:title` carries the absolute walltime
+(deftest event-row-renders-absolute-time-chip
+  (testing "rf2-3f2di A8 — every L2 row's `timestamp` column renders the
+            ABSOLUTE wall-clock time (`HH:MM:SS.mmm`) per the authority
+            reference event-list, NOT a relative `1s`/`now` chip. The
+            chip's `:title` still carries the full ISO walltime + epoch-ms
             for the power-user reveal."
     (causa-setup!)
-    (let [now-ms  1000000
-          then-ms (- now-ms 5000)]  ;; 5 seconds ago
-      ;; Old cascade — what the chip-under-test is reporting against.
+    (let [then-ms 1000000]
       (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
-      ;; Fresh cascade — establishes the anchor at `now-ms`. (rf2-0s2at
-      ;; — anchor is derived from `:rf.causa/cascades` directly, not
-      ;; from a wall-clock tick.)
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.causa.test/anchor] now-ms))
       (rf/with-frame :rf/causa
         (let [tree   (shell/shell-view)
-              chips  (find-all-by-testid tree "rf-causa-row-time-chip")
-              ;; The first cascade's chip — by `:data-then-ms`.
-              chip   (first (filter #(= (str then-ms)
-                                        (:data-then-ms (second %)))
-                                    chips))
+              chip   (find-by-testid tree "rf-causa-row-time-chip")
               attrs  (second chip)
               label  (text-nodes chip)]
           (is (some? chip) "chip renders per row")
-          (is (= "5s" label) "chip text reflects the seconds-bucket against the anchor")
+          ;; Absolute clock — matches the pure formatter for the same
+          ;; then-ms (local-time-aware so the test is timezone-stable).
+          (is (= (shell/format-clock-time then-ms) label)
+              "chip text is the absolute HH:MM:SS.mmm wall-clock time")
+          (is (re-find #"^\d\d:\d\d:\d\d\.\d\d\d$" label)
+              "chip text matches the HH:MM:SS.mmm shape")
           (is (string? (:title attrs))
               "chip carries a :title tooltip for the power-user reveal")
           (is (re-find #"epoch-ms" (:title attrs))
@@ -2158,53 +2202,27 @@
           (is (= (str then-ms) (:data-then-ms attrs))
               "chip stamps the source then-ms so tests can pin the value"))))))
 
-(deftest event-row-chip-now-bucket
-  (testing "rf2-vbbq0 / rf2-0s2at — a row that IS the most recent cascade
-            (so its dispatched-time equals the anchor) renders the 'now'
-            bucket."
+(deftest event-row-chip-is-absolute-regardless-of-recency
+  (testing "rf2-3f2di A8 — the absolute clock chip does NOT change with
+            how recently the cascade was dispatched (no relative buckets).
+            An OLD cascade and a FRESH cascade each render their own
+            absolute timestamp; neither reads `now`/`Ns`/`Nm`/`Nh`."
     (causa-setup!)
-    (let [now-ms 1000000]
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] now-ms))
+    (let [old-ms   1000000
+          fresh-ms (+ old-ms 90000)]
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] old-ms))
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.causa.test/anchor] fresh-ms))
       (rf/with-frame :rf/causa
-        (let [tree (shell/shell-view)
-              chip (find-by-testid tree "rf-causa-row-time-chip")]
-          (is (= "now" (text-nodes chip))
-              "diff = 0 → 'now' bucket"))))))
-
-(deftest event-row-chip-minute-bucket
-  (testing "rf2-vbbq0 / rf2-0s2at — at t+90s the chip rolls into the
-            minute bucket and reads '1m' (not '90s'). Anchor pinned by a
-            fresher cascade."
-    (causa-setup!)
-    (let [now-ms  1000000
-          then-ms (- now-ms 90000)]
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.causa.test/anchor] now-ms))
-      (rf/with-frame :rf/causa
-        (let [tree  (shell/shell-view)
-              chips (find-all-by-testid tree "rf-causa-row-time-chip")
-              chip  (first (filter #(= (str then-ms)
-                                       (:data-then-ms (second %)))
-                                   chips))]
-          (is (= "1m" (text-nodes chip))
-              "90s ago → '1m' (minute bucket; jitter dampened)"))))))
-
-(deftest event-row-chip-hour-bucket
-  (testing "rf2-vbbq0 / rf2-0s2at — at t+3700s the chip rolls into the
-            hour bucket and reads '1h'."
-    (causa-setup!)
-    (let [now-ms  10000000
-          then-ms (- now-ms 3700000)] ;; 3700s ≈ 1h2m
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.causa.test/anchor] now-ms))
-      (rf/with-frame :rf/causa
-        (let [tree  (shell/shell-view)
-              chips (find-all-by-testid tree "rf-causa-row-time-chip")
-              chip  (first (filter #(= (str then-ms)
-                                       (:data-then-ms (second %)))
-                                   chips))]
-          (is (= "1h" (text-nodes chip))
-              "3700s ago → '1h'"))))))
+        (let [tree     (shell/shell-view)
+              chips    (find-all-by-testid tree "rf-causa-row-time-chip")
+              old-chip (first (filter #(= (str old-ms) (:data-then-ms (second %))) chips))
+              fr-chip  (first (filter #(= (str fresh-ms) (:data-then-ms (second %))) chips))]
+          (is (= (shell/format-clock-time old-ms) (text-nodes old-chip))
+              "old row shows its own absolute timestamp")
+          (is (= (shell/format-clock-time fresh-ms) (text-nodes fr-chip))
+              "fresh row shows its own absolute timestamp")
+          (is (not (re-find #"\b(now|\d+[smhd])\b" (text-nodes old-chip)))
+              "no relative-bucket text (now/Ns/Nm/Nh/Nd) on the old row"))))))
 
 (deftest event-row-chip-absent-when-no-dispatched-time
   (testing "rf2-vbbq0 — defence-in-depth: a synthesised cascade carrying
@@ -2267,51 +2285,55 @@
           "no `:dispatched :time` anywhere → nil anchor"))))
 
 ;; -------------------------------------------------------------------------
-;; rf2-cplj8 — chrome + ribbon + event-list + tab Figma fidelity
+;; rf2-3f2di — chrome + ribbon + event-list + tab AUTHORITY fidelity
 ;;
-;; Reconciles shell.cljs to the Figma design-reference components
-;; (ChromeRibbon / EventsRibbon / EventList / Tabs). The structural /
-;; token contracts asserted here:
-;;   (1) chrome ribbon logo → NEUTRAL :text-primary ink (not :accent);
-;;       chrome ribbon height → 32px (Figma `h-8`);
-;;       settings/close → borderless square icon-buttons.
-;;   (2) events ribbon nav cluster → BORDERLESS chevron buttons (no
-;;       border box); the always-present blue `focus` button is restored.
+;; Reconciles shell.cljs to the authoritative reference components
+;; (`tools/causa/design-reference/causa_devtools_reference.cljs`:
+;; chrome-ribbon / events-ribbon / event-list / main-app tab-strip). The
+;; structural / token contracts asserted here:
+;;   (1) chrome ribbon `Events` label → NEUTRAL :text-primary ink (A4);
+;;       chrome ribbon height → 34px (A3); settings/close → borderless
+;;       square icon-buttons.
+;;   (2) chrome ribbon nav cluster → BLUE-FILLED chevron buttons (A2);
+;;       the always-present blue `focus` button lives in the chrome
+;;       ribbon (A5).
 ;;   (3) event-list event-id column → explicitly LEFT-aligned (header +
 ;;       row); the selected/active row → subtle :hover fill, NOT a 1px
-;;       blue ring.
-;;   (4) inactive tabs → NEUTRAL muted :text-tertiary ink (covered by
-;;       `tab-bar-is-figma-button-bar-not-radios` above).
+;;       blue ring; the `timestamp` column → absolute HH:MM:SS.mmm (A8).
+;;   (4) tabs → UNDERLINE (2px accent bottom-border + normal ink for the
+;;       active tab), NOT a filled pill (A1; covered by
+;;       `tab-bar-is-underline-not-pill-or-radios` above).
 ;; -------------------------------------------------------------------------
 
-(deftest chrome-logo-uses-neutral-ink-not-accent
-  (testing "rf2-cplj8 — the `❖ Causa` wordmark renders in the NEUTRAL
-            chrome text colour (:text-primary = Figma --devtools-text),
-            NOT the :accent blue. The single accent is reserved for
-            active/selected affordances."
+(deftest chrome-events-label-uses-neutral-ink-not-accent
+  (testing "rf2-3f2di A4 — the `Events` label (which replaced the dropped
+            `❖ Causa` wordmark) renders in the NEUTRAL chrome text colour
+            (:text-primary = reference --devtools-text), NOT the :accent
+            blue. The single accent is reserved for active/selected
+            affordances."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [ribbon (shell/ribbon nil)
-            logo   (find-by-testid ribbon "rf-causa-ribbon-logo")
-            style  (:style (second logo))]
-        (is (some? logo) "the wordmark renders")
+            label  (find-by-testid ribbon "rf-causa-ribbon-events-label")
+            style  (:style (second label))]
+        (is (some? label) "the `Events` label renders")
         (is (= (:text-primary tokens) (:color style))
-            "the logo ink is the neutral :text-primary token")
+            "the label ink is the neutral :text-primary token")
         (is (not= (:accent tokens) (:color style))
-            "the logo ink is NOT the :accent blue")))))
+            "the label ink is NOT the :accent blue")))))
 
-(deftest chrome-ribbon-height-is-figma-h8
-  (testing "rf2-cplj8 — the chrome ribbon is 32px tall (Figma ChromeRibbon
-            `h-8`), down from the previous 40px, reclaiming vertical
-            canvas. Driven by the single `:top-strip-height` layout token."
-    (is (= "32px" (:top-strip-height layout))
-        "the :top-strip-height layout token is 32px (Figma h-8)")
+(deftest chrome-ribbon-height-is-reference-34px
+  (testing "rf2-3f2di A3 — the chrome ribbon is 34px tall per the authority
+            reference chrome-ribbon (`:height \"34px\"`), up from the prior
+            32px. Driven by the single `:top-strip-height` layout token."
+    (is (= "34px" (:top-strip-height layout))
+        "the :top-strip-height layout token is 34px (reference)")
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [ribbon (shell/ribbon nil)
             style  (:style (second ribbon))]
-        (is (= "32px" (:height style))
-            "the chrome ribbon paints the 32px height")))))
+        (is (= "34px" (:height style))
+            "the chrome ribbon paints the 34px height")))))
 
 (deftest chrome-icon-buttons-are-borderless
   (testing "rf2-cplj8 — the settings + close icons are BORDERLESS square
@@ -2332,11 +2354,12 @@
             (is (= (:text-tertiary tokens) (:color style))
                 (str label " icon-button uses muted :text-tertiary ink"))))))))
 
-(deftest events-ribbon-nav-buttons-are-borderless
-  (testing "rf2-cplj8 — the events-ribbon nav cluster renders BORDERLESS
-            chevron buttons (Figma EventsRibbon `p-1 rounded`), NOT
-            bordered unicode-triangle pills. The active (enabled) button
-            carries `border: none` + transparent background."
+(deftest chrome-ribbon-nav-buttons-are-blue-filled
+  (testing "rf2-3f2di A2 — the chrome-ribbon nav cluster renders FILLED
+            `:accent` buttons (reference chrome-ribbon: blue bg, white
+            icon), NOT borderless icon-buttons and NOT bordered triangles.
+            The active (enabled) button carries `background: :accent` +
+            white icon + `border: none`."
     (causa-setup!)
     ;; Two events + focus the middle so prev/next are ENABLED (active style).
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
@@ -2352,15 +2375,21 @@
             (is (some? btn) (str tid " present"))
             (is (= "none" (:border style))
                 (str tid " is borderless (no 1px border box)"))
-            (is (= "transparent" (:background style))
-                (str tid " is transparent (hover fill via scoped CSS)"))))))))
+            (is (= (:accent tokens) (:background style))
+                (str tid " background is the filled :accent (blue)"))
+            (is (= (:white tokens) (:color style))
+                (str tid " icon is white"))))
+        ;; the nav cluster lives in the chrome ribbon (bar-1) now.
+        (is (some? (find-by-testid (find-by-testid tree "rf-causa-ribbon")
+                                   "rf-causa-ribbon-nav"))
+            "the nav cluster is mounted inside the chrome ribbon (A5)")))))
 
-(deftest events-ribbon-restores-blue-focus-button
-  (testing "rf2-cplj8 — the always-present blue `focus` button (Figma
-            EventsRibbon) is restored: a filled :accent button with white
-            text + the `focus` label, sitting in the events-ribbon left
-            cluster. Distinct from the focus-CHIP (which only appears when
-            a focus-set is active)."
+(deftest chrome-ribbon-carries-blue-focus-button
+  (testing "rf2-3f2di A5 — the always-present blue `focus` button is a
+            filled :accent button with white text + the `focus` label,
+            now sitting in the CHROME ribbon left cluster (it moved up
+            with the nav cluster). Distinct from the focus-CHIP (which
+            only appears when a focus-set is active)."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/causa
@@ -2374,10 +2403,10 @@
             "focus button text is white")
         (is (re-find #"focus" (text-nodes btn))
             "the button carries the `focus` label")
-        ;; It lives in the events ribbon, not the chrome ribbon.
-        (is (some? (find-by-testid (find-by-testid tree "rf-causa-events-ribbon")
+        ;; It lives in the chrome ribbon (bar-1) now, not the events ribbon.
+        (is (some? (find-by-testid (find-by-testid tree "rf-causa-ribbon")
                                    "rf-causa-focus-button"))
-            "the focus button is mounted inside the events ribbon")))))
+            "the focus button is mounted inside the chrome ribbon")))))
 
 (deftest focus-button-dispatches-set-focus-for-current-event
   (testing "rf2-cplj8 — clicking the blue `focus` button focuses on the

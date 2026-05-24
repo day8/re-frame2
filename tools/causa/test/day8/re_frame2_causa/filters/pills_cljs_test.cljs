@@ -11,6 +11,7 @@
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.filters.pills :as pills]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.theme.tokens :refer [tokens]]
             [day8.re-frame2-causa.test-support :as causa-test-support]))
 
 (defn- causa-init! []
@@ -68,18 +69,29 @@
        (apply str)))
 
 ;; -------------------------------------------------------------------------
-;; (1) Empty filters — no pills, just the add-pill
+;; (1) Empty filters — no committed pills in the cluster
+;;
+;; rf2-3f2di A5 — the add(+) affordance moved OUT of `pills-view` (which
+;; now renders ONLY committed pills, on bar-2) up to the chrome ribbon
+;; (bar-1). `pills-view` on empty buckets renders an empty cluster; the
+;; add-pill is exercised standalone via `pills/add-pill`.
 ;; -------------------------------------------------------------------------
 
-(deftest empty-filters-render-only-add-pill
+(deftest empty-filters-render-empty-cluster
   (causa-setup!)
   (let [tree (pills/pills-view {:filters {:in [] :out []}})]
     (is (some? (find-by-testid tree "rf-causa-ribbon-filters"))
-        "cluster always present")
-    (is (some? (find-by-testid tree "rf-causa-filter-add"))
-        "add-pill always present")
+        "cluster element always present")
+    (is (nil? (find-by-testid tree "rf-causa-filter-add"))
+        "add-pill is NOT part of the committed-pills cluster (moved to bar-1)")
     (is (empty? (find-all-by-testid-prefix tree "rf-causa-filter-pill-"))
         "no pill rows when both buckets are empty")))
+
+(deftest add-pill-renders-standalone
+  (causa-setup!)
+  (let [tree (pills/add-pill)]
+    (is (some? (find-by-testid tree "rf-causa-filter-add"))
+        "add-pill renders the `[ + ]` affordance standalone (bar-1 mount)")))
 
 ;; -------------------------------------------------------------------------
 ;; (2) IN + OUT pills render with correct testids
@@ -104,6 +116,40 @@
     (is (some? pill))
     (is (re-find #":auth/\*" (text-nodes pill))
         "pill renders the pattern")))
+
+(deftest pills-use-green-include-red-exclude-borders
+  (testing "rf2-3f2di A6 — include (`:in`) pills are GREEN-bordered
+            (`:success` = reference --devtools-success) and exclude
+            (`:out`) pills are RED-bordered (`:error` =
+            --devtools-error), each with a transparent background and a
+            tone-coloured border + a remove `×`, per the authority
+            reference events-ribbon."
+    (causa-setup!)
+    (let [tree   (pills/pills-view {:filters {:in  [{:pattern ":auth/*"}]
+                                              :out [{:pattern ":mouse-move"}]}})
+          in     (find-by-testid tree "rf-causa-filter-pill-in-0")
+          out    (find-by-testid tree "rf-causa-filter-pill-out-0")
+          in-st  (:style (second in))
+          out-st (:style (second out))]
+      ;; include = green border + green ink + transparent bg.
+      (is (= (str "1px solid " (:success tokens)) (:border in-st))
+          "include pill is green-bordered (:success)")
+      (is (= (:success tokens) (:color in-st))
+          "include pill ink is green")
+      (is (= "transparent" (:background in-st))
+          "include pill background is transparent")
+      ;; exclude = red border + red ink + transparent bg.
+      (is (= (str "1px solid " (:error tokens)) (:border out-st))
+          "exclude pill is red-bordered (:error)")
+      (is (= (:error tokens) (:color out-st))
+          "exclude pill ink is red")
+      (is (= "transparent" (:background out-st))
+          "exclude pill background is transparent")
+      ;; each carries a remove `×` button.
+      (is (some? (find-by-testid tree "rf-causa-filter-pill-in-0-remove"))
+          "include pill has a remove `×`")
+      (is (some? (find-by-testid tree "rf-causa-filter-pill-out-0-remove"))
+          "exclude pill has a remove `×`"))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Click pill body → dispatches :rf.causa/open-edit-popup
@@ -160,7 +206,8 @@
     (with-redefs [rf/dispatch* (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
-      (let [tree (pills/pills-view {:filters {:in [] :out []}})
+      ;; rf2-3f2di A5 — the add-pill is now a standalone bar-1 affordance.
+      (let [tree (pills/add-pill)
             add  (find-by-testid tree "rf-causa-filter-add")
             handler (:on-click (second add))]
         (is (some? add))

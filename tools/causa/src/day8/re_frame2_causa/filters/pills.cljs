@@ -1,12 +1,20 @@
 (ns day8.re-frame2-causa.filters.pills
   "Top-ribbon IN/OUT filter pills for Causa (rf2-ak4ms).
 
-  Per `tools/causa/spec/018-Event-Spine.md` §3 + §7 the L1 ribbon
-  carries a filter cluster — IN pills (green `+`) + OUT pills (magenta
-  `×`) + trailing `[ + ]` add-pill. Clicking any pill opens the rich
-  edit popup (see `filters/edit_popup.cljs`); clicking `×` on a pill
-  removes it without round-tripping through the popup. The trailing
-  add-pill opens the popup empty + defaulted to IN.
+  Per `tools/causa/spec/018-Event-Spine.md` §3 + §7 the ribbon carries
+  a filter cluster — IN pills (green-bordered `+`) + OUT pills (red-
+  bordered `×`) per the authoritative reference events-ribbon
+  (rf2-3f2di A6). Clicking any pill opens the rich edit popup (see
+  `filters/edit_popup.cljs`); clicking `×` on a pill removes it without
+  round-tripping through the popup. The `[ + ]` add-pill opens the popup
+  empty + defaulted to IN.
+
+  ## rf2-3f2di A5 — two-bar split
+
+  The committed pills (`pills-view`) live on bar-2 (the events ribbon);
+  the add(+) affordance (`add-pill`) is mounted separately on bar-1 (the
+  chrome ribbon) beside the `Filters:` label, matching the reference
+  chrome-ribbon / events-ribbon split.
 
   ## Replaces #1397's window.prompt stub
 
@@ -47,7 +55,12 @@
   (case mode :in "+" :out "×"))
 
 (defn- pill-tone [mode]
-  (case mode :in (:green tokens) :out (:magenta tokens)))
+  ;; rf2-3f2di A6 — green-bordered include (`:in`) pills, red-bordered
+  ;; exclude (`:out`) pills, per the authoritative reference events-ribbon
+  ;; (`border: 1px solid var(--devtools-success)` for include,
+  ;; `--devtools-error` for exclude). Supersedes the prior magenta OUT
+  ;; tone; `:success`/`:error` are the reference's green/red tokens.
+  (case mode :in (:success tokens) :out (:error tokens)))
 
 (defn- format-pattern
   "Render the pill's pattern text. Keywords render with their leading
@@ -115,13 +128,18 @@
         body-text   (pill-display pill)]
     [:span {:data-testid testid
             :data-pill-kind (name kind)
+            ;; rf2-3f2di A6 — reference events-ribbon pill shape:
+            ;; `border-radius 4px`, `border 1px solid <tone>` (green for
+            ;; include, red for exclude), transparent bg, tone-coloured
+            ;; text + an `x` to remove.
             :style {:display        "inline-flex"
                     :align-items    "center"
                     :gap            "4px"
                     :border         (str "1px solid " tone)
+                    :background     "transparent"
                     :color          tone
                     :padding        "1px 4px 1px 8px"
-                    :border-radius  "10px"
+                    :border-radius  "4px"
                     :font-family    mono-stack
                     :font-size      (:caption type-scale)
                     :white-space    "nowrap"}}
@@ -176,9 +194,15 @@
 
 ;; ---- add-pill affordance -------------------------------------------------
 
-(defn- add-pill
-  "Trailing `[ + ]` affordance — opens the edit popup empty +
-  defaulted to IN per spec/018 §7 'Trailing +'."
+(defn add-pill
+  "The `[ + ]` add-filter affordance — opens the edit popup empty +
+  defaulted to IN per spec/018 §7 'Trailing +'.
+
+  rf2-3f2di A5 — promoted to the bar-1 chrome ribbon (beside the
+  `Filters:` label) per the authoritative reference chrome-ribbon, which
+  carries the add(+) on bar-1 while the committed pills live on bar-2
+  (the events ribbon). Public so the shell mounts it directly in the
+  chrome ribbon's left cluster."
   []
   [:button {:data-testid "rf-causa-filter-add"
             :on-click    #(rf/dispatch
@@ -199,7 +223,7 @@
                           :color         (:text-tertiary tokens)
                           :cursor        "pointer"
                           :padding       "2px 8px"
-                          :border-radius "10px"
+                          :border-radius "4px"
                           :font-family   sans-stack
                           :font-size     (:caption type-scale)
                           :white-space   "nowrap"}}
@@ -219,22 +243,27 @@
          " / OUT: " out-n " " (word out-n))))
 
 (defn pills-view
-  "The full ribbon filter cluster — IN pills, then OUT pills, then the
-  add-pill. Reads `:rf.causa/active-filters` via the caller; the
-  caller is expected to be inside a `reg-view` so subscribes resolve
-  to `:rf/causa`."
+  "The committed filter pills cluster — green-bordered IN pills, then
+  red-bordered OUT pills (rf2-3f2di A6). Reads `:rf.causa/active-filters`
+  via the caller; the caller is expected to be inside a `reg-view` so
+  subscribes resolve to `:rf/causa`.
+
+  rf2-3f2di A5 — the add(+) affordance is NO LONGER part of this
+  cluster: per the authoritative reference the committed pills live on
+  bar-2 (the events ribbon) while the add(+) sits on bar-1 (the chrome
+  ribbon, beside the `Filters:` label). The shell mounts `add-pill`
+  directly in the chrome ribbon's left cluster and `pills-view` in the
+  events ribbon."
   [{:keys [filters]}]
   [:div {:data-testid "rf-causa-ribbon-filters"
          :title (counts-tooltip filters)
          :style {:display     "flex"
                  :align-items "center"
                  :gap         "6px"
-                 :flex        "1 1 auto"
                  :flex-wrap   "wrap"}}
    (for [[idx p] (map-indexed vector (:in filters))]
      ^{:key (str "in-" idx)}
      [pill {:mode :in :pill p :idx idx}])
    (for [[idx p] (map-indexed vector (:out filters))]
      ^{:key (str "out-" idx)}
-     [pill {:mode :out :pill p :idx idx}])
-   [add-pill]])
+     [pill {:mode :out :pill p :idx idx}])])
