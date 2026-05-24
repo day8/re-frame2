@@ -268,6 +268,104 @@
       (is (false? (:sim (:data (node-by-id no-sim hi)))))
       (is (false? (:sim (:data (node-by-id inactive (layout/node-id [:idle])))))))))
 
+;; ---- xyflow-graph multi-active highlight (rf2-g2svr, G1) ----------------
+;;
+;; A PARALLEL machine's snapshot `:state` is a region-map — N
+;; simultaneously-active leaves (one per region). `:highlight-ids` (a
+;; SET) marks EVERY active leaf `:active` so the chart lights up all
+;; regions at once (the §1.2 parity bar). The scalar `:highlight-id`
+;; stays as a single-active convenience that folds into the set.
+
+(deftest xyflow-graph-highlight-ids-marks-every-active-leaf
+  (testing "rf2-g2svr (THE PARITY CAPABILITY) — passing a SET of two
+            region-leaf ids marks BOTH region states `:active`
+            simultaneously (parallel multi-active highlight)"
+    (let [parsed     (layout/parse-definition parallel-machine)
+          playing-id (layout/node-id [:playing])
+          shown-id   (layout/node-id [:shown])
+          muted-id   (layout/node-id [:muted])
+          hidden-id  (layout/node-id [:hidden])
+          graph      (projection/xyflow-graph
+                       parsed {} {:highlight-ids #{playing-id shown-id}})]
+      (is (true? (:active (:data (node-by-id graph playing-id))))
+          ":audio region's active leaf lights up")
+      (is (true? (:active (:data (node-by-id graph shown-id))))
+          ":video region's active leaf lights up — SIMULTANEOUSLY")
+      (is (false? (:active (:data (node-by-id graph muted-id))))
+          "the inactive :audio leaf stays dark")
+      (is (false? (:active (:data (node-by-id graph hidden-id))))
+          "the inactive :video leaf stays dark"))))
+
+(deftest xyflow-graph-highlight-ids-from-snapshot-resolver
+  (testing "rf2-g2svr — end-to-end: `highlight-ids` resolves a parallel
+            region-map to the set, the projection lights every active
+            leaf. This is the live-chart path (chart.cljs calls
+            highlight-ids on :current-state)."
+    (let [parsed   (layout/parse-definition parallel-machine)
+          ;; both regions advanced past initial
+          state    {:audio :playing :video :shown}
+          ids      (layout/highlight-ids state)
+          graph    (projection/xyflow-graph parsed {} {:highlight-ids ids})
+          actives  (set (map :id (filter #(:active (:data %)) (:nodes graph))))]
+      (is (= #{(layout/node-id [:playing]) (layout/node-id [:shown])} actives)
+          "exactly the two active region leaves are marked active"))))
+
+(deftest xyflow-graph-scalar-highlight-id-still-works
+  (testing "rf2-g2svr — the scalar `:highlight-id` is back-compat: it
+            folds into the active set as a singleton, so flat/compound
+            callers (and existing tests) need no set"
+    (let [parsed  (layout/parse-definition idle-loading)
+          hi      (layout/node-id [:loading])
+          graph   (projection/xyflow-graph parsed {} {:highlight-id hi})
+          loading (node-by-id graph hi)
+          idle    (node-by-id graph (layout/node-id [:idle]))]
+      (is (true?  (:active (:data loading))))
+      (is (false? (:active (:data idle)))))))
+
+(deftest xyflow-graph-highlight-id-and-ids-union
+  (testing "rf2-g2svr — when BOTH `:highlight-id` and `:highlight-ids`
+            are supplied the active set is their union"
+    (let [parsed (layout/parse-definition parallel-machine)
+          a      (layout/node-id [:playing])
+          b      (layout/node-id [:shown])
+          graph  (projection/xyflow-graph
+                   parsed {} {:highlight-id a :highlight-ids #{b}})]
+      (is (true? (:active (:data (node-by-id graph a)))))
+      (is (true? (:active (:data (node-by-id graph b))))))))
+
+(deftest xyflow-graph-no-highlight-leaves-all-inactive
+  (testing "rf2-g2svr — neither `:highlight-id` nor `:highlight-ids` →
+            no state/region node is active (empty set, never
+            nil-comparison surprises). Initial-marker nodes carry no
+            `:active` key at all (they are not states), so the check
+            scopes to nodes that carry the flag."
+    (let [parsed (layout/parse-definition parallel-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          flagged (filter #(contains? (:data %) :active) (:nodes graph))]
+      (is (seq flagged) "fixture has state/region nodes carrying :active")
+      (is (every? #(false? (:active (:data %))) flagged)))))
+
+(deftest xyflow-graph-multi-active-edges-active-in-each-region
+  (testing "rf2-g2svr — with N active leaves, an edge touching ANY active
+            leaf is `:active`. Each region's self/incident edge lights up
+            independently (orthogonality preserved)."
+    (let [parsed   (layout/parse-definition parallel-machine)
+          ids      #{(layout/node-id [:playing]) (layout/node-id [:shown])}
+          graph    (projection/xyflow-graph parsed {} {:highlight-ids ids})
+          active-e (filter #(:active (:data %)) (:edges graph))
+          ;; edges incident to :playing (audio) and :shown (video)
+          regions  (set (map (fn [e]
+                               (cond
+                                 (or (= (:source e) (layout/node-id [:playing]))
+                                     (= (:target e) (layout/node-id [:playing]))) :audio
+                                 (or (= (:source e) (layout/node-id [:shown]))
+                                     (= (:target e) (layout/node-id [:shown]))) :video
+                                 :else :other))
+                             active-e))]
+      (is (seq active-e) "at least one edge is active")
+      (is (contains? regions :audio) "an :audio-region edge is active")
+      (is (contains? regions :video) "a :video-region edge is active"))))
+
 (deftest xyflow-graph-edge-active-when-endpoint-highlighted
   (testing "an edge is `:active` when EITHER endpoint is the
             highlighted node"

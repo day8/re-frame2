@@ -198,6 +198,102 @@
 (deftest highlight-id-nil-for-nil-state
   (is (nil? (layout/highlight-id nil))))
 
+(deftest highlight-id-nil-for-region-map
+  (testing "rf2-g2svr — the single-active resolver returns nil for a
+            region-map (a map is not a single-active state); the
+            multi-active `highlight-ids` is the resolver for that arm"
+    (is (nil? (layout/highlight-id {:data :loading :form :neutral})))))
+
+;; ---- highlight-ids — multi-active (rf2-yoe6e / rf2-g2svr, G1) -----------
+;;
+;; Spec 005 §Snapshot shape: `:state` has three arms — flat keyword,
+;; hierarchical path, OR a region-map (PARALLEL — N simultaneously-active
+;; leaves). `highlight-ids` resolves ALL THREE to a SET of active-leaf
+;; node-ids so the chart lights up EVERY active region at once (the §1.2
+;; parity bar in 001-Topology-Parity.md). These pins are the new
+;; capability: flat→1, compound→1 leaf, region-map→N, nested→deepest leaf.
+
+(deftest highlight-ids-flat-keyword-is-singleton
+  (testing "rf2-g2svr — a flat-keyword `:state` resolves to a one-element
+            set (the single-active case, set-wrapped)"
+    (is (= #{(layout/node-id [:authing])}
+           (layout/highlight-ids :authing)))))
+
+(deftest highlight-ids-compound-path-is-singleton-leaf
+  (testing "rf2-g2svr — a hierarchical path resolves to a one-element set
+            holding the DEEPEST leaf's id (node-id of the full path)"
+    (is (= #{(layout/node-id [:authenticated :browsing])}
+           (layout/highlight-ids [:authenticated :browsing])))))
+
+(deftest highlight-ids-region-map-is-the-set-of-active-leaves
+  (testing "rf2-g2svr (THE NEW CAPABILITY) — a PARALLEL snapshot's
+            region-map resolves to the SET of N active leaves, one per
+            region. Each region value resolves the same way the parse
+            mints the region's state ids — via node-id of the in-region
+            path (parse-parallel keeps the in-region node-id; it does NOT
+            region-prefix it)."
+    (let [state {:data :loading :form :neutral :mode :active}
+          ids   (layout/highlight-ids state)]
+      (is (= 3 (count ids)) "three regions → three active leaf ids")
+      (is (= #{(layout/node-id [:loading])
+               (layout/node-id [:neutral])
+               (layout/node-id [:active])}
+             ids)))))
+
+(deftest highlight-ids-region-map-matches-parsed-region-state-ids
+  (testing "rf2-g2svr — the resolved set is exactly the set of node-ids
+            the parse minted for the active region states, so the
+            projection will mark those real nodes :active (no phantom
+            ids). Pins the resolver against the parser's actual output."
+    (let [parallel {:type :parallel
+                    :regions {:audio {:initial :muted
+                                      :states {:muted   {:on {:unmute :playing}}
+                                               :playing {:on {:mute :muted}}}}
+                              :video {:initial :hidden
+                                      :states {:hidden {:on {:show :shown}}
+                                               :shown  {:on {:hide :hidden}}}}}}
+          {:keys [nodes]} (layout/parse-definition parallel)
+          node-ids (set (map :id (remove :region? nodes)))
+          ;; both regions advanced past their initial states
+          state    {:audio :playing :video :shown}
+          ids      (layout/highlight-ids state)]
+      (is (= 2 (count ids)))
+      (is (every? #(contains? node-ids %) ids)
+          "every active id is a REAL parsed region-state node")
+      (is (= #{(layout/node-id [:playing]) (layout/node-id [:shown])} ids)))))
+
+(deftest highlight-ids-nested-region-value-resolves-to-deepest-leaf
+  (testing "rf2-g2svr — a region whose value is itself a vector path (a
+            compound region) resolves to the DEEPEST leaf, exactly as the
+            single-compound case does. Spec 005: a compound region's
+            value is a vector path INSIDE that region."
+    (let [state {:auth [:authenticated :dashboard] :lifecycle :idle}
+          ids   (layout/highlight-ids state)]
+      (is (= #{(layout/node-id [:authenticated :dashboard])
+               (layout/node-id [:idle])}
+             ids))
+      (is (= 2 (count ids))
+          "the compound region contributes ONE id (its deepest leaf), not
+           one-per-path-segment"))))
+
+(deftest highlight-ids-empty-for-nil
+  (testing "rf2-g2svr — nil `:state` (no highlight) → the empty set (a
+            SET, never nil — callers can always `contains?` it)"
+    (is (= #{} (layout/highlight-ids nil)))))
+
+(deftest highlight-ids-empty-for-empty-region-map
+  (testing "rf2-g2svr — an empty region-map resolves to the empty set"
+    (is (= #{} (layout/highlight-ids {})))))
+
+(deftest highlight-ids-subsumes-highlight-id-for-single-active
+  (testing "rf2-g2svr — for a single-active state, `highlight-ids` is
+            exactly `#{(highlight-id state)}` — the multi-active resolver
+            is a strict superset of the single-active one"
+    (doseq [state [:authing [:authenticated :browsing] [:a]]]
+      (is (= #{(layout/highlight-id state)}
+             (layout/highlight-ids state))
+          (str "single-active " state " agrees with the set resolver")))))
+
 ;; ---- node-id ----------------------------------------------------------
 
 (deftest node-id-is-public-fn

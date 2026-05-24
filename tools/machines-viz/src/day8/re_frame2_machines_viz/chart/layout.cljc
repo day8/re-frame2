@@ -549,12 +549,61 @@
     (parse-flat definition)))
 
 (defn highlight-id
-  "Resolve a snapshot `:state` value to the node-id used in the
-  positioned graph. Snapshot `:state` is either a flat keyword
-  (`:authing`) or a hierarchical path (`[:auth :authing]`)."
+  "Resolve a single-active snapshot `:state` value to the node-id used
+  in the positioned graph. Snapshot `:state` is either a flat keyword
+  (`:authing`) or a hierarchical path (`[:auth :authing]`).
+
+  This is the SINGLE-active resolver — flat + compound machines, whose
+  snapshot has exactly one active leaf. A PARALLEL machine's snapshot
+  `:state` is a region-map (N simultaneously-active leaves); use
+  `highlight-ids` for that (it subsumes this fn — the scalar value
+  resolves to a singleton set). Returns nil for a region-map (a map is
+  not a single-active state)."
   [state]
   (cond
     (nil? state)     nil
     (keyword? state) (node-id [state])
     (vector? state)  (node-id state)
     :else            nil))
+
+(defn highlight-ids
+  "Resolve a WHOLE snapshot `:state` value to the SET of active-leaf
+  node-ids — the multi-active highlight contract (rf2-yoe6e / rf2-g2svr;
+  closes parity gap G1 in `001-Topology-Parity.md`).
+
+  Spec 005 §Snapshot shape gives `:state` three arms; this fn handles
+  all three, always returning a set so a parallel machine's N
+  simultaneously-active leaves all light up at once:
+
+  - **flat keyword** (`:authing`) — single-active; `#{(node-id [:authing])}`.
+  - **hierarchical path** (`[:auth :authing]`) — single-active compound
+    leaf; `#{(node-id [:auth :authing])}` (the deepest leaf, since
+    `node-id` of the full path IS that leaf's id).
+  - **region-map** (`{:data :loading :form :neutral}`) — PARALLEL: N
+    simultaneously-active leaves. Each region's value is itself a
+    keyword-or-path **relative to that region's own state-tree**, so it
+    resolves the SAME way the parse mints region-state ids — via
+    `node-id` of the in-region path (parse-parallel does NOT region-
+    prefix a state's node-id; it tags `:region` + `:parent-id` but keeps
+    the in-region `node-id`). A nested region value (a region whose
+    value is itself a vector path) resolves to its DEEPEST leaf, exactly
+    as the single-compound case does. Returns the set of N leaf ids.
+
+  - **nil / anything else** — the empty set (no highlight).
+
+  Pure fn — JVM-runnable; the projection threads the result through
+  `xyflow-graph`'s `:highlight-ids` so EVERY active leaf is marked
+  `:active`, not just one."
+  [state]
+  (cond
+    (nil? state)     #{}
+    (keyword? state) #{(node-id [state])}
+    (vector? state)  #{(node-id state)}
+    (map? state)     (into #{}
+                           (keep (fn [[_region region-state]]
+                                   (cond
+                                     (keyword? region-state) (node-id [region-state])
+                                     (vector? region-state)  (node-id region-state)
+                                     :else                   nil)))
+                           state)
+    :else            #{}))

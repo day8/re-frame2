@@ -39,8 +39,10 @@
   green on both targets."
   (:require ["react"            :as React]
             ["react-dom/client" :as react-dom-client]
+            [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-machines-viz.adapters.react-chart :as react-chart]
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- sample machines ----------------------------------------------------
@@ -349,3 +351,49 @@
               "all four region states render")
           (is (= "4" (.getAttribute root "data-node-count"))
               "data-node-count excludes the region containers"))))))
+
+;; ---- parallel multi-active highlight (rf2-g2svr, G1) --------------------
+;;
+;; The parity capability: a PARALLEL machine's `:current-state` is a
+;; region-map, so N region leaves are active at once. The chart resolves
+;; it via `highlight-ids` and surfaces the FULL active set on the root's
+;; layout-independent `data-highlight-ids` attr (mounts on first commit).
+;; This is the browser visual-pin mirroring the JVM projection pins.
+
+(deftest chart-parallel-current-state-highlights-every-active-region
+  (testing "rf2-g2svr — a region-map :current-state lights up EVERY
+            active region leaf at once: data-highlight-ids carries BOTH
+            the :audio and :display active-leaf node-ids"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id    :test/parallel
+         :definition    parallel-machine
+         ;; both regions advanced past their initial states
+         :current-state {:audio :paused :display :off}}
+        (fn [root _node]
+          (let [ids (set (str/split (.getAttribute root "data-highlight-ids") #"\s+"))]
+            (is (contains? ids (layout/node-id [:paused]))
+                ":audio region's active leaf is in the active set")
+            (is (contains? ids (layout/node-id [:off]))
+                ":display region's active leaf is in the active set — SIMULTANEOUSLY")
+            (is (= 2 (count ids))
+                "exactly the two active region leaves, no more")
+            ;; single-active convenience attr is "" for a multi-active set
+            (is (= "" (.getAttribute root "data-highlight-id"))
+                "data-highlight-id is empty for a multi-active (parallel) set")))))))
+
+(deftest chart-flat-current-state-single-active-back-compat
+  (testing "rf2-g2svr — a flat (single-active) :current-state still
+            surfaces ONE id on both data-highlight-ids + the single-
+            active data-highlight-id convenience attr (no regression)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done
+         :current-state :loading}
+        (fn [root _node]
+          (let [loading-id (layout/node-id [:loading])]
+            (is (= loading-id (.getAttribute root "data-highlight-ids")))
+            (is (= loading-id (.getAttribute root "data-highlight-id"))
+                "single-active convenience attr carries the lone id")))))))
