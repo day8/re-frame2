@@ -1655,7 +1655,12 @@
   lifecycle status dot + event-id + `epoch #N` + SSR badge) is removed;
   the film-strip header is a future MVP item, not the current chrome.
 
-  The stripe (mode `:accent`) sits on the outer container per §17.1.3."
+  ## No accent stripe (rf2-cjdw3)
+
+  The 3px `:accent` border-left that previously hugged the cascade's
+  outer container has been removed — it was a stale visual affordance
+  from before the focus-feature retirement (#2091) / Figma re-skin
+  (#2089), not in the current Figma authority."
   [{:keys [dispatch-id frame event] :as cascade}]
   (let [event-id    (when (vector? event) (first event))
         meta        (when event-id (rf/handler-meta :event event-id))
@@ -1686,11 +1691,7 @@
         present    (filterv (fn [[_ _ body]] (some? body)) candidates)]
     [:div {:data-testid "rf-xray-event-detail-cascade"
            :data-dispatch-id (str dispatch-id)
-           :data-frame (str frame)
-           ;; §17.1.3 / spec/022 — Event panel header stripe is the
-           ;; single :accent (GitHub blue). No top ribbon (rf2-ad7zx.17):
-           ;; the panel leads with the numbered pipeline.
-           :style {:border-left (str "3px solid " (:accent tokens))}}
+           :data-frame (str frame)}
 
      ;; Numbered vertical-flow pipeline body. A thin vertical RAIL runs
      ;; through the CENTRE of the numbered step circles (rf2-ad7zx.17,
