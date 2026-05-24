@@ -823,6 +823,21 @@
     "li[data-testid^=\"rf-causa-trace-row-\"]:hover,\n"
     "li[data-testid^=\"rf-causa-trace-group-\"]:hover {\n"
     "  background-color: " (:hover tokens/tokens) ";\n"
+    "}\n"
+    ;; rf2-cplj8 — borderless chrome icon-buttons hover. The Figma
+    ;; ChromeRibbon + EventsRibbon render the settings/close icons and
+    ;; the nav chevrons as `p-1 rounded hover:bg-[var(--devtools-hover)]`
+    ;; borderless buttons. Inline styles can't carry `:hover`, so the
+    ;; fill lift is a scoped CSS rule keyed off each button's testid. The
+    ;; `:not([disabled])` predicate keeps a disabled (inert) nav chevron
+    ;; from lighting up on hover.
+    "[data-testid=\"rf-causa-icon-settings\"]:hover,\n"
+    "[data-testid=\"rf-causa-icon-close\"]:hover,\n"
+    "[data-testid=\"rf-causa-nav-prev\"]:not([disabled]):hover,\n"
+    "[data-testid=\"rf-causa-nav-next\"]:not([disabled]):hover,\n"
+    "[data-testid=\"rf-causa-nav-head\"]:not([disabled]):hover {\n"
+    "  background-color: " (:hover tokens/tokens) ";\n"
+    "  color: " (:text-primary tokens/tokens) ";\n"
     "}\n"))
 
 (defn- inject-motion-style!

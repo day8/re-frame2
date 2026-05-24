@@ -570,31 +570,43 @@
 ;; ---- L1 ribbon -----------------------------------------------------------
 
 (defn- ribbon-nav-cluster
-  "Nav cluster — `◀ ▶ ⏭` per spec/018 §3. Buttons dispatch
-  `:rf.causa/focus-cascade-prev` / `-next` / `:rf.causa/follow-head`.
+  "Nav cluster — thin chevrons `‹ › »` per spec/018 §3 + the Figma
+  EventsRibbon (`design-reference/components/EventsRibbon.tsx`). Buttons
+  dispatch `:rf.causa/focus-cascade-prev` / `-next` /
+  `:rf.causa/follow-head`.
 
   `at-head?` (focus = most recent event), `at-tail?` (focus = first
   event in buffer) and `live?` (spine is `:live` + unpaused, already
   auto-tracking head) come from the spine sub so the buttons can
   disable themselves at the boundary:
 
-  - `◀` (back / prev) — disabled when `at-tail?` (no older event to
-    step to).
-  - `▶` (forward / next) — disabled when `at-head?` (already at the
-    most recent event).
-  - `⏭` (live / fast-forward) — disabled when `at-head? AND live?`
-    (rf2-x5tro): already tracking head live, so the snap is a true
-    no-op. When at head but PAUSED (frozen inspection) `⏭` stays
-    enabled — pressing it resumes LIVE, which is not a no-op.
+  - `‹` (back / prev, lucide `ChevronLeft`) — disabled when `at-tail?`
+    (no older event to step to).
+  - `›` (forward / next, lucide `ChevronRight`) — disabled when
+    `at-head?` (already at the most recent event).
+  - `»` (live / fast-forward, lucide `ChevronsRight`) — disabled when
+    `at-head? AND live?` (rf2-x5tro): already tracking head live, so the
+    snap is a true no-op. When at head but PAUSED (frozen inspection)
+    `»` stays enabled — pressing it resumes LIVE, which is not a no-op.
 
-  ## Disabled appearance (rf2-x5tro)
+  ## rf2-cplj8 — borderless lucide chevron buttons
 
-  A disabled button must READ as inert, not merely block clicks. The
-  earlier wiring set only `cursor: not-allowed` + a faint text colour,
-  leaving the border + background unchanged so the button still read
-  as clickable. `disabled-style` now dims the background and border,
-  drops the ink to `:text-tertiary`, and reduces opacity — an
-  unmistakable inert state. The native `:disabled` attribute (plus the
+  Per the Figma EventsRibbon the nav cluster is three BORDERLESS
+  icon-buttons (`p-1 rounded hover:bg`) carrying thin
+  ChevronLeft/Right/ChevronsRight icons — NOT bordered unicode
+  triangles. Inline SVG is not idiomatic in this pure-hiccup view, so
+  the buttons keep glyphs but swap the chunky filled triangles
+  (`◀ ▶ ⏭`) for the angle-quotation chevrons (`‹ › »`, U+2039 / U+203A
+  / U+00BB) which read as lucide's thin strokes. The bordered pill
+  becomes a square rounded hit-area with a testid-keyed `hover:bg`
+  (the `:hover` lift lives in `theme/global-styles/motion-css`).
+
+  ## Disabled appearance (rf2-x5tro / rf2-cplj8)
+
+  A disabled button must READ as inert, not merely block clicks. With
+  the borderless treatment there is no border/background to dim, so the
+  inert signal is the muted `:text-tertiary` ink + reduced opacity +
+  `cursor: not-allowed`. The native `:disabled` attribute (plus the
   dropped `:on-click` per rf2-fzbrw) blocks interaction; the inline
   style + `aria-disabled` carry the visual + a11y signal.
 
@@ -602,30 +614,30 @@
   so the disabled glyph dimmed the wrong button.)"
   [{:keys [at-head? at-tail? live?]}]
   (let [head-disabled? (boolean (and at-head? live?))
-        btn-style {:background     "transparent"
-                   :border         (str "1px solid " (:border-default tokens))
-                   :color          (:text-primary tokens)
-                   :cursor         "pointer"
-                   :opacity        1
-                   :padding        "2px 8px"
-                   :border-radius  "4px"
-                   :font-family    sans-stack
-                   :font-size      (:body type-scale)}
-        ;; rf2-x5tro — proper inert appearance, not just a cursor
-        ;; change: dim recessed background (`:bg-1`, one step below the
-        ;; events ribbon's `:bg-2`), a dim `:border-subtle` edge, the
-        ;; muted `:text-tertiary` ink, and reduced opacity so the
-        ;; button visibly recedes. `cursor: not-allowed` telegraphs the
-        ;; no-op on hover; the native `:disabled` attribute already
-        ;; blocks clicks at the DOM layer (rf2-fzbrw) and there is no
-        ;; inline hover affordance to suppress.
-        disabled-style {:background (:bg-1 tokens)
-                        :border     (str "1px solid " (:border-subtle tokens))
-                        :color      (:text-tertiary tokens)
-                        :opacity    0.5
-                        :cursor     "not-allowed"}]
+        btn-style {:background      "transparent"
+                   :border          "none"
+                   :color           (:text-primary tokens)
+                   :cursor          "pointer"
+                   :opacity         1
+                   :padding         "0"
+                   :width           "22px"
+                   :height          "22px"
+                   :display         "inline-flex"
+                   :align-items     "center"
+                   :justify-content "center"
+                   :border-radius   "4px"
+                   :font-family     sans-stack
+                   :font-size       "15px"
+                   :line-height     "1"}
+        ;; rf2-cplj8 — borderless inert state: no border/bg to dim, so
+        ;; the muted ink + reduced opacity + `not-allowed` cursor carry
+        ;; the signal. The native `:disabled` attribute already blocks
+        ;; clicks at the DOM layer (rf2-fzbrw).
+        disabled-style {:color   (:text-tertiary tokens)
+                        :opacity 0.4
+                        :cursor  "not-allowed"}]
     [:div {:data-testid "rf-causa-ribbon-nav"
-           :style {:display "flex" :align-items "center" :gap "4px"}}
+           :style {:display "flex" :align-items "center" :gap "2px"}}
      [:button {:data-testid   "rf-causa-nav-prev"
                :on-click      (when-not at-tail?
                                 #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa}))
@@ -633,7 +645,7 @@
                :aria-disabled (boolean at-tail?)
                :title         "Step to previous event (j)"
                :style         (merge btn-style (when at-tail? disabled-style))}
-      "◀"]
+      [:span {:aria-hidden "true"} "‹"]]
      [:button {:data-testid   "rf-causa-nav-next"
                :on-click      (when-not at-head?
                                 #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa}))
@@ -641,7 +653,7 @@
                :aria-disabled (boolean at-head?)
                :title         "Step to next event (k)"
                :style         (merge btn-style (when at-head? disabled-style))}
-      "▶"]
+      [:span {:aria-hidden "true"} "›"]]
      [:button {:data-testid   "rf-causa-nav-head"
                :on-click      (when-not head-disabled?
                                 #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa}))
@@ -649,7 +661,7 @@
                :aria-disabled head-disabled?
                :title         "Fast-forward to latest (G)"
                :style         (merge btn-style (when head-disabled? disabled-style))}
-      "⏭"]]))
+      [:span {:aria-hidden "true"} "»"]]]))
 
 ;; The L1 frame-switcher slot lives in `frame_switcher.cljs` per rf2-iwwou
 ;; — the ribbon mounts `[frame-switcher/frame-switcher-view]` and reaches
@@ -702,6 +714,66 @@
 ;; sibling `scroll-focused-row-into-view!`), but the L1 focus chip below
 ;; reaches it for the rf2-w738i "reveal pivot row" gesture.
 (declare scroll-row-into-view-by-id!)
+
+(defn- ribbon-focus-button
+  "Always-present blue `focus` button (rf2-cplj8) — restores the Figma
+  EventsRibbon's primary `focus` affordance (`design-reference/
+  components/EventsRibbon.tsx`): a filled `:accent` button with white
+  text + a leading target glyph, sitting beside the nav cluster.
+
+  ## What it does
+
+  Establishes a focus-set on the CURRENTLY-focused cascade's inferred
+  dimension — the ribbon-level counterpart of the per-row gutter focus
+  gesture (`focus-gesture-handler`). The button is ALWAYS present (per
+  the Figma mock) so the operator always has a one-click path to
+  'focus on what I'm looking at', complementing the focus-chip which
+  only appears AFTER a focus-set is active.
+
+  Dispatches `:rf.causa/set-focus <dimension> <value> <pivot-id>` for
+  the focused cascade. When no dimension can be inferred (`:ungrouped`
+  / unrouted focus, or no focused cascade) the button is disabled —
+  there is nothing to focus on.
+
+  Distinct from the focus-chip (rf2-a1z3b): the chip is a STATE display
+  (the active focus-set, with reveal-pivot + clear) that renders only
+  when a focus-set exists; this button is an ACTION the operator can
+  always reach."
+  [{:keys [focused-cascade]}]
+  (let [dim       (when focused-cascade (fh/infer-dimension focused-cascade))
+        disabled? (nil? dim)
+        on-click  (when dim
+                    (fn [_e]
+                      (rf/dispatch [:rf.causa/set-focus
+                                    (:dimension dim)
+                                    (:value dim)
+                                    (:dispatch-id focused-cascade)]
+                                   {:frame :rf/causa})))]
+    [:button {:data-testid   "rf-causa-focus-button"
+              :on-click      on-click
+              :disabled      disabled?
+              :aria-disabled disabled?
+              :title         (if dim
+                               (str "Focus on " (fh/dimension-label dim))
+                               "Select an event to focus on its dimension")
+              :aria-label    "Focus on the selected event"
+              :style {:display         "inline-flex"
+                      :align-items     "center"
+                      :gap             "4px"
+                      :background      (:accent tokens)
+                      :border          "none"
+                      :border-radius   "4px"
+                      :color           (:white tokens)
+                      :cursor          (if disabled? "not-allowed" "pointer")
+                      :opacity         (if disabled? 0.5 1)
+                      :padding         "2px 8px"
+                      :font-family     sans-stack
+                      :font-size       (:caption type-scale)
+                      :font-weight     500
+                      :line-height     "1"
+                      :white-space     "nowrap"}}
+     [:span {:aria-hidden "true"} "◎"]
+     "focus"]))
 
 (defn- ribbon-focus-chip
   "Focus chip (rf2-a1z3b) — surfaces the active focus-set as
@@ -797,14 +869,36 @@
 
   Settings opens the Settings popup modal (rf2-9poxq) via
   `:rf.causa/settings-open`; close dispatches `:rf.causa/close-shell`
-  (handled by mount.cljs in production)."
+  (handled by mount.cljs in production).
+
+  ## rf2-cplj8 — lucide-style icon buttons
+
+  Per the Figma ChromeRibbon (`design-reference/components/
+  ChromeRibbon.tsx`) the settings + close affordances are clean
+  lucide `Settings` / `X` icons (`w-3.5 h-3.5`, `text-muted`) inside
+  `p-1 rounded hover:bg` square hit-areas — NOT bare unicode glyphs in
+  bordered/padded text-buttons. Inline SVG is not idiomatic in this
+  pure-hiccup view, so the buttons keep the unicode glyphs but
+  size/weight-match the lucide icons: muted `:text-tertiary` ink, a
+  square `p-1` rounded hit-area, and a testid-keyed `hover:bg` fill
+  (the `:hover` lift lives in `theme/global-styles/motion-css` since
+  inline styles can't carry a pseudo-class). The `✕` uses the U+2715
+  multiplication X glyph (thinner than the dialog-cross) to read like
+  lucide's `X`."
   []
-  (let [icon-style {:background     "transparent"
-                    :border         "none"
-                    :color          (:text-secondary tokens)
-                    :cursor         "pointer"
-                    :font-size      (:body type-scale)
-                    :padding        "2px 6px"}]
+  (let [icon-style {:background      "transparent"
+                    :border          "none"
+                    :border-radius   "4px"
+                    :color           (:text-tertiary tokens)
+                    :cursor          "pointer"
+                    :font-size       "14px"
+                    :line-height     "1"
+                    :display         "inline-flex"
+                    :align-items     "center"
+                    :justify-content "center"
+                    :width           "22px"
+                    :height          "22px"
+                    :padding         "0"}]
     [:div {:data-testid "rf-causa-ribbon-icons"
            :style {:display "flex" :align-items "center" :gap "4px"}}
      [:button {:data-testid "rf-causa-icon-settings"
@@ -812,13 +906,13 @@
                :aria-label  "Open Causa settings"
                :on-click    #(rf/dispatch [:rf.causa/settings-open] {:frame :rf/causa})
                :style       icon-style}
-      "⚙"]
+      [:span {:aria-hidden "true"} "⚙"]]
      [:button {:data-testid "rf-causa-icon-close"
                :title       "Close (Ctrl+Shift+C)"
                :aria-label  "Close Causa"
                :on-click    #(rf/dispatch [:rf.causa/close-shell] {:frame :rf/causa})
                :style       icon-style}
-      "✕"]]))
+      [:span {:aria-hidden "true"} "✕"]]]))
 
 (rf/reg-view ribbon
   "L1 **chrome ribbon** — the top stratum per rf2-4vp5j's two-ribbon
@@ -879,17 +973,21 @@
      ;; selectors read as one stratum.
      [:div {:data-testid "rf-causa-ribbon-selectors"
             :style {:display "flex" :align-items "center" :gap "8px"}}
-      ;; rf2-ad7zx.12 — the `❖ Causa` wordmark, top-left of the chrome
-      ;; ribbon per the Figma design-reference (`design-reference/
-      ;; components/ChromeRibbon.tsx`). Semibold, `:body-tight`, the
-      ;; single `:accent` token (GitHub blue — the Figma export carries
-      ;; one accent; rf2-ad7zx.13). `aria-hidden` on the decorative
-      ;; `❖` glyph keeps the wordmark from announcing its unicode name.
+      ;; rf2-ad7zx.12 + rf2-cplj8 — the `❖ Causa` wordmark, top-left of the
+      ;; chrome ribbon per the Figma design-reference (`design-reference/
+      ;; components/ChromeRibbon.tsx`). Semibold, `:body-tight`, NEUTRAL
+      ;; `:text-primary` ink (`text-[var(--devtools-text)]`) — the Figma
+      ;; ChromeRibbon renders the wordmark + glyph in the chrome text
+      ;; colour, NOT the `:accent` blue. The single accent is reserved for
+      ;; ACTIVE/selected affordances (tab fill, focus button); spending it
+      ;; on the static wordmark dilutes that signal. `aria-hidden` on the
+      ;; decorative `❖` glyph keeps the wordmark from announcing its
+      ;; unicode name.
       [:div {:data-testid "rf-causa-ribbon-logo"
              :style {:display      "flex"
                      :align-items  "center"
                      :gap          "5px"
-                     :color        (:accent tokens)
+                     :color        (:text-primary tokens)
                      :font-family  sans-stack
                      :font-size    (:body-tight type-scale)
                      :font-weight  600
@@ -1171,8 +1269,14 @@
                       (= "x" glyph)                           (:red tokens)
                       (= "▥" glyph)                           (:magenta tokens)
                       :else                                   (:text-tertiary tokens))
+        ;; rf2-cplj8 — the selected/active row is a SUBTLE `:hover` fill
+        ;; (Figma EventList's `isActive` → `bg-[var(--devtools-hover)]`),
+        ;; NOT the full 1px blue ring it carried before. The ring competed
+        ;; with the gutter's leading-edge causal thread + the trailing
+        ;; status accent and read as heavier than the mock; a quiet
+        ;; background fill marks the row without boxing it.
         bg          (cond
-                      focused?   (:bg-active tokens)
+                      focused?   (:hover tokens)
                       ;; Muted background for the :ungrouped bucket so it
                       ;; reads as visually distinct from the real-event
                       ;; rows (rf2-r9lyy). Falls back to the same bg-2
@@ -1181,8 +1285,12 @@
                       ;; is bg-1 so this still reads as a recessed row.
                       ungrouped? (:bg-2 tokens)
                       :else      "transparent")
+        ;; rf2-cplj8 — the focused row no longer paints a blue ring; the
+        ;; `:hover` background fill carries the selected signal. It keeps
+        ;; the `1px solid transparent` base (border-box alignment with the
+        ;; header) so the columns never drift. The `:ungrouped` bucket
+        ;; keeps its dashed hairline since it has no `bg`-fill selection.
         border      (cond
-                      focused?   (str "1px solid " (:accent tokens))
                       ungrouped? (str "1px dashed " (:border-subtle tokens))
                       :else      "1px solid transparent")
         ;; rf2-b76v4 — the lifecycle-status accent rides as a 2px inset
@@ -1463,9 +1571,13 @@
      ;; Event tab detail (the panel that owns the room for it).
      ;; Earlier rf2-htik0 Bug 3 inline-rendered the truncated full
      ;; vector here — superseded by the Round-3 minimal-row contract.
+     ;; rf2-cplj8 — the event-id column is explicitly LEFT-aligned (Figma
+     ;; EventList `text-left`) so the keyword sits flush at the column's
+     ;; left edge under the header's `event id` label.
      [:span {:data-testid "rf-causa-row-event-id"
              :style {:flex "1 1 auto" :overflow "hidden"
                      :text-overflow "ellipsis"
+                     :text-align "left"
                      :min-width "0"}}
       (if ungrouped?
         ;; rf2-r9lyy — the :ungrouped pseudo-cascade has no event
@@ -1608,6 +1720,15 @@
         show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
         focused-id      (:dispatch-id focus)
         event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
+        ;; rf2-cplj8 — the currently-focused cascade drives the always-
+        ;; present blue `focus` button: it focuses on THIS cascade's
+        ;; inferred dimension (the ribbon-level counterpart of the per-row
+        ;; gutter gesture). Falls back to the most-recent event-cascade so
+        ;; the button is actionable in the default LIVE-at-head state where
+        ;; `focused-id` is nil (the spine auto-tracks head without pinning).
+        focused-cascade (or (some #(when (= focused-id (:dispatch-id %)) %)
+                                  event-cascades)
+                            (last event-cascades))
         ;; rf2-a1z3b — when a focus-set is active the nav buttons walk
         ;; ONLY the in-focus subset; boundary predicates honour that.
         ids             (if focus-set
@@ -1638,7 +1759,7 @@
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; LEFT cluster — label · nav · focus-chip · filter pills.
+     ;; LEFT cluster — label · nav · focus button · focus-chip · pills.
      [:div {:data-testid "rf-causa-events-ribbon-left"
             :style {:display "flex" :align-items "center"
                     :flex-wrap "wrap" :gap "8px"}}
@@ -1648,6 +1769,11 @@
                       :white-space "nowrap"}}
        "Events:"]
       [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
+      ;; rf2-cplj8 — the always-present blue `focus` button (Figma
+      ;; EventsRibbon) sits right after the nav cluster, before the
+      ;; state-display focus-chip. It focuses on the current selection's
+      ;; dimension; the chip then surfaces the resulting focus-set.
+      [ribbon-focus-button {:focused-cascade focused-cascade}]
       [ribbon-focus-chip {:focus-set focus-set}]
       [ribbon-filter-pills {:filters filters}]]
      ;; RIGHT cluster — hidden-count message + Clear Filters. Both
@@ -1714,8 +1840,13 @@
      [:span {:data-testid "rf-causa-event-list-col-source"
              :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
       "source"]
+     ;; rf2-cplj8 — the `event id` column is explicitly LEFT-aligned (Figma
+     ;; EventList renders every body cell `text-left`). The label sits flush
+     ;; at the column's left edge directly above the row's left-aligned
+     ;; event-id keyword, rather than drifting toward centre.
      [:span {:data-testid "rf-causa-event-list-col-event-id"
-             :style (merge cell {:flex "1 1 auto" :min-width "0"})}
+             :style (merge cell {:flex "1 1 auto" :min-width "0"
+                                 :text-align "left"})}
       "event id"]
      [:span {:data-testid "rf-causa-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
@@ -1865,7 +1996,9 @@
   "One tab in the L3 tab bar — a Figma button-bar tab, NOT a radio
   glyph (rf2-ad7zx.16). Each tab is a rounded button; the ACTIVE tab
   is a filled `:accent` background with white text; inactive tabs are
-  transparent with secondary-ink text and a subtle `:hover` background
+  transparent with NEUTRAL muted ink (`:text-tertiary` = Figma
+  `--devtools-text-muted`, the `text-muted-foreground` of Tabs.tsx;
+  rf2-cplj8) and a subtle `:hover` background
   fill (the hover rule lives in `theme/global-styles/motion-css`,
   keyed off the `rf-causa-tab-*` testid, since inline styles can't
   carry a `:hover` pseudo-class). Mirrors
@@ -1905,15 +2038,22 @@
               :aria-label    (str "Causa " label " tab")
               :style {;; Active tab → filled accent background + white
                       ;; text (Figma `data-[state=active]:bg-…/text-white`);
-                      ;; inactive → transparent with secondary ink. The
-                      ;; `:hover` fill for inactive tabs is applied via the
-                      ;; scoped CSS rule in motion-css.
+                      ;; inactive → transparent with neutral muted ink
+                      ;; (`:text-tertiary`, rf2-cplj8). The `:hover` fill for
+                      ;; inactive tabs is applied via the scoped CSS rule in
+                      ;; motion-css.
                       :background    (if active? (:accent tokens) "transparent")
                       :border        "none"
                       :border-radius "6px"          ; Tailwind `rounded`
+                      ;; rf2-cplj8 — inactive tabs use NEUTRAL muted ink
+                      ;; (`:text-tertiary` = Figma `--devtools-text-muted`,
+                      ;; the `text-muted-foreground` the Tabs.tsx TabsList
+                      ;; carries) rather than the brighter blue-ish
+                      ;; `:text-secondary`. The muted ink lets the active
+                      ;; tab's filled-accent fill be the only bright signal.
                       :color         (if active?
                                        (:white tokens)
-                                       (:text-secondary tokens))
+                                       (:text-tertiary tokens))
                       :cursor        "pointer"
                       :padding       "6px 12px"     ; Tailwind `px-3 py-1.5`
                       :font-family   sans-stack
