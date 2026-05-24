@@ -14,16 +14,20 @@
       1. DISPATCH             event vector + `FROM: <source>` (click-to-source)
       2. COEFFECTS  (opt)     user-injected coeffects + the value each added
       3. EVENT HANDLER        reg-event-* flavour + syntax-highlighted source
-      4. FLOWS      (opt)     flows that recomputed + the db path written
-      5. DB CHANGES           the app-db diff (+ SSR hydration addendum)
+      4. APP-DB CHANGES       the app-db diff (+ SSR hydration addendum)
+      5. FLOWS      (opt)     flows that recomputed + the db path written
       6. AFTER INTERCEPTORS (opt) non-standard after-interceptors
       7. FX                   the fx handlers that ran
+
+  rf2-xawwb — the Figma-Make surface numbers APP-DB CHANGES as step 4 and
+  FLOWS as step 5 (supersedes rf2-9eca7 / #2070, which placed FLOWS
+  before DB CHANGES).
 
   Steps are numbered DYNAMICALLY 1..N — an absent OPTIONAL section
   (COEFFECTS / AFTER INTERCEPTORS / FLOWS) consumes no number; absence is
   conveyed by OMISSION, not an empty-state line. There is **no outcome
   badge** and **no `db committed` footer** (the prior superseded shape):
-  a throwing handler simply omits DB CHANGES and the later steps —
+  a throwing handler simply omits APP-DB CHANGES and the later steps —
   absence conveys the throw.
 
   Per `EventPanel` there is **no top header/ribbon** (rf2-ad7zx.17):
@@ -755,17 +759,22 @@
                      :font-size "11px"}}
        "(none)"])))
 
-;; ---- step FLOWS (spec/021 §2.2 step 4) ---------------------------------
+;; ---- step FLOWS (Figma-Make surface step 5 · rf2-xawwb) ----------------
 ;; rf2-lo37i — Flows fire automatically right after the event handler, at
 ;; the OUTERMOST `:after` interceptor — they transform the pending `:db`
 ;; effect BEFORE the single deferred app-db install (the atomic commit
-;; boundary), so they precede DB CHANGES and run long before FX. Each
-;; flow's `:output` fn reads from `:inputs` paths and writes to a `:path`.
-;; Without first-class visibility here a developer cannot attribute an
-;; app-db change to the flow that caused it. Surfaced as a peer section
-;; sitting between EVENT HANDLER and DB CHANGES — the cascade-order
-;; placement: flows are the framework's automatic step that reshapes the
-;; pending db before it commits.
+;; boundary), and run long before FX. Each flow's `:output` fn reads from
+;; `:inputs` paths and writes to a `:path`. Without first-class
+;; visibility here a developer cannot attribute an app-db change to the
+;; flow that caused it.
+;;
+;; rf2-xawwb — the Figma-Make surface PRESENTS FLOWS as step 5, AFTER the
+;; APP-DB CHANGES diff (step 4): the diff leads, and the FLOWS section
+;; then attributes the flow-driven slots within it. (This supersedes the
+;; rf2-9eca7 / #2070 presentation order that placed FLOWS before DB
+;; CHANGES. The underlying framework TIMING is unchanged — flows still
+;; reshape the pending db before commit; only the panel's visual ordering
+;; changes to match the authoritative surface.)
 ;;
 ;; Per spec/013-Flows.md + spec/009-Instrumentation.md:
 ;;   `:rf.flow/computed` (op-type `:flow`) carries `:flow-id`,
@@ -1275,7 +1284,8 @@
   number. There is NO outcome badge and NO `db committed` footer; absence
   of a step is conveyed by omission.
 
-  Step order (numbered; optional steps shown only when present):
+  Step order (numbered; optional steps shown only when present) — the
+  Figma-Make surface order (rf2-xawwb):
 
     1. DISPATCH            — the event vector + `FROM: <source>`
                              (click-to-source).
@@ -1283,20 +1293,27 @@
                              added.
     3. EVENT HANDLER       — flavour (`reg-event-*`, click-to-source) +
                              syntax-highlighted handler source.
-    4. FLOWS      (opt)    — flows that recomputed + the db path each
-                             wrote. Fire at the outermost `:after`, right
-                             after the handler — they reshape the pending
-                             `:db` BEFORE it commits, so they precede DB
-                             CHANGES.
-    5. DB CHANGES          — the app-db diff (+ SSR hydration-outcome
+    4. APP-DB CHANGES      — the app-db diff (+ SSR hydration-outcome
                              addendum when the focused event hydrated).
+    5. FLOWS      (opt)    — flows that recomputed + the db path each
+                             wrote. (Framework-timing note: flows fire at
+                             the outermost `:after` and reshape the
+                             pending `:db` BEFORE it commits; the
+                             Figma-Make surface PRESENTS them after the
+                             APP-DB CHANGES diff so the diff leads and the
+                             flow attribution reads as the explanation of
+                             the flow-driven slots within it.)
     6. AFTER INTERCEPTORS (opt) — non-standard after-interceptors.
     7. FX                  — the fx handlers that ran.
+
+  rf2-xawwb — supersedes the rf2-9eca7 (#2070) placement of FLOWS BEFORE
+  DB CHANGES; the Figma-Make surface numbers APP-DB CHANGES as step 4 and
+  FLOWS as step 5.
 
   ## Handler-threw branch
 
   When the cascade carries a handler exception the handler never
-  returned, so the post-handler steps (FLOWS, DB CHANGES, AFTER
+  returned, so the post-handler steps (APP-DB CHANGES, FLOWS, AFTER
   INTERCEPTORS, FX) are simply omitted — absence conveys the throw
   (spec/021 §2.2: no footer). Only DISPATCH / COEFFECTS? / EVENT HANDLER
   render.
@@ -1328,8 +1345,8 @@
         candidates [["dispatch"          "DISPATCH"           (dispatch-body cascade event)]
                     ["coeffects"         "COEFFECTS"          (coeffects-body cascade)]
                     ["handler"           "EVENT HANDLER"      (handler-body event-id meta)]
+                    ["db-changes"        "APP-DB CHANGES"     db-changes]
                     ["flows"             "FLOWS"              (when-not threw? (flows-body cascade))]
-                    ["db-changes"        "DB CHANGES"         db-changes]
                     ["after-interceptors" "AFTER INTERCEPTORS" (when-not threw?
                                                                  (after-interceptors-body user-icpts))]
                     ["fx"                "FX"                 (when-not threw? (fx-body cascade))]]
