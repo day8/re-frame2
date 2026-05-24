@@ -10,7 +10,9 @@
   bind surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.registrar :as registrar]
             [re-frame.router :as router]
             [re-frame.subs :as subs]))
 
@@ -66,18 +68,97 @@
 ;; their own `:where` symbol on the missing-artefact ex-info so the trace
 ;; matches what the user wrote at the call site.
 
+(defn- coord-for
+  "Look up the per-element coord at `path` from a stamped machine spec.
+  Returns nil when the spec carries no `:rf.machine/source-coords` (a
+  programmatic / non-literal `reg-machine*` call) or no entry at
+  `path` (the fn-form was a let-bound symbol the walker skipped)."
+  [machine path]
+  (get-in machine [:rf.machine/source-coords path]))
+
+(defn- register-machine-handler-metas!
+  "Per rf2-ypu5i: write per-(machine-id, id) handler-meta entries into
+  the registrar under `:machine-guard` / `:machine-action` for every
+  literal fn-form found by the `reg-machine` macro's compile-time
+  walker. Reads `:rf.machine/handler-source` (a
+  `{:guards {id pr-str ...} :actions {id pr-str ...}}` map stamped
+  by `core-reg-macros/expand-reg-machine`) plus per-element coords
+  from `:rf.machine/source-coords`. No-op under `interop/debug-enabled?
+  false` so production CLJS bundles DCE the call (both stamps elide
+  upstream — the `cond->` returns the spec without them, leaving
+  nothing for this fn to register).
+
+  Source carries `:rf.handler/source` for parity with the reg-event-*
+  `:rf.handler/source` surface (Spec 009). The marker `:rf/guard-id`
+  / `:rf/action-id` carries the id so tools enumerating
+  `(rf/registrations :machine-guard)` can pivot on the marker without
+  re-parsing the 2-vector id. `:rf/machine-id` mirrors the same scope."
+  [machine-id machine]
+  (when interop/debug-enabled?
+    (let [src      (:rf.machine/handler-source machine)
+          guards   (:guards src)
+          actions  (:actions src)
+          write!   (fn [kind marker-key id source-str]
+                     (let [coord (coord-for machine
+                                            (if (= kind :machine-guard)
+                                              [:guards id]
+                                              [:actions id]))
+                           meta  (cond-> {marker-key       id
+                                          :rf/machine-id   machine-id
+                                          :rf.handler/source source-str
+                                          :handler-fn      (get-in machine
+                                                                   [(case kind
+                                                                      :machine-guard  :guards
+                                                                      :machine-action :actions)
+                                                                    id])}
+                                   coord (merge coord))]
+                       (registrar/register! kind [machine-id id] meta)))]
+      (doseq [[id s] guards]  (write! :machine-guard  :rf/guard-id  id s))
+      (doseq [[id s] actions] (write! :machine-action :rf/action-id id s)))))
+
+(defn- clear-machine-handler-metas!
+  "Drop every `:machine-guard` / `:machine-action` registrar entry
+  scoped to `machine-id`. Called before re-registering a machine so a
+  hot-reload that renames or removes a guard/action does not leave
+  stale entries behind. No-op under `interop/debug-enabled? false`."
+  [machine-id]
+  (when interop/debug-enabled?
+    (doseq [kind [:machine-guard :machine-action]]
+      (doseq [id (keys (registrar/registrations kind))]
+        (when (and (vector? id) (= machine-id (first id)))
+          (registrar/unregister! kind id))))))
+
 (defn ^:private reg-machine-impl
   "Shared impl behind both `reg-machine*` (plain-fn surface) and the
   `re-frame.core/reg-machine` macro's emitted form. The `where-sym`
   arg lets each user-facing surface stamp its own symbol on the
   missing-artefact error trace so `:where` matches what the user
-  wrote at the call site."
+  wrote at the call site.
+
+  Per rf2-ypu5i: writes per-(machine-id, guard-id) and per-(machine-id,
+  action-id) handler-meta entries into the registrar under
+  `:machine-guard` / `:machine-action` kinds so the xray
+  focused-transition lens can render fn-source via `(rf/handler-meta
+  :machine-guard [machine-id guard-id])`. Stale entries from a prior
+  registration of the same `machine-id` are cleared first so a
+  hot-reload that renames a guard does not leave the old id around.
+  Production-elided via `interop/debug-enabled?`."
   [where-sym machine-id machine]
-  ((late-bind/require-fn! :machines/reg-machine
-                          where-sym
-                          machines-artefact
-                          {:machine-id machine-id})
-   machine-id machine))
+  ;; Run the handler-meta side-table churn around the canonical
+  ;; registration. Clear-first preserves the slot-invariant under
+  ;; hot reload (rename / remove a guard id and the stale slot
+  ;; disappears). Both clear and register no-op under production
+  ;; elision (the macro path elides the `:rf.machine/handler-source`
+  ;; stamp, so there's nothing to register, and the unregister loop
+  ;; touches an empty map).
+  (clear-machine-handler-metas! machine-id)
+  (let [result ((late-bind/require-fn! :machines/reg-machine
+                                       where-sym
+                                       machines-artefact
+                                       {:machine-id machine-id})
+                machine-id machine)]
+    (register-machine-handler-metas! machine-id machine)
+    result))
 
 (defn reg-machine*
   "Plain-fn surface for machine registration. Per Spec 005 §reg-machine

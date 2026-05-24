@@ -436,4 +436,64 @@
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
       (persistent! acc))))
 
+;; ---- machine guard / action form-source capture (rf2-ypu5i) --------------
+;;
+;; Mirrors `*pending-form-source*` for the reg-event-* path (rf2-xgfuy) but
+;; per-id under the `:guards` / `:actions` slots of a literal machine spec.
+;; The `reg-machine` macro walks the spec at expansion time, `pr-str`s each
+;; fn-form, and emits the per-id source-string map literal into the
+;; expansion under the spec's `:rf.machine/handler-source` key. The
+;; `core-machines/reg-machine-impl` runtime then reads this key and writes
+;; the per-(machine-id, id) `:rf.handler/source` slots into the registrar
+;; under the `:machine-guard` / `:machine-action` kinds, so tooling can
+;; read `(rf/handler-meta :machine-guard [<machine-id> <guard-id>])` and
+;; receive `{:rf/guard-id <guard-id> :rf.handler/source <pr-str-of-fn> ...}`.
+;;
+;; The :guards / :actions values may be plain fn-forms `(fn [ctx] …)`
+;; OR keyword references (a guard-id keyword shared between transitions
+;; that re-uses the same predicate). Only the fn-literal entries have
+;; source to capture; keyword references are skipped here — the
+;; reference-site coords already live in `walk-machine-spec`.
+
+(defn walk-machine-handler-source
+  "Compile-time helper. Walk a literal machine-spec form and return a
+  map of the form
+
+      {:guards  {<guard-id>  <pr-str-of-fn-form>, ...}
+       :actions {<action-id> <pr-str-of-fn-form>, ...}}
+
+  Only `(fn ...)` / `(fn* ...)` literal entries under `:guards` and
+  `:actions` contribute — keyword-reference entries are skipped (their
+  definition lives under the referenced id). Returns `{}` when the spec
+  form is not a map literal (a symbol, a let-bound expr).
+
+  JVM-only — runs on the Clojure side of the `reg-machine` macro.
+  Returns a plain map literal the macro splices into its expansion;
+  under `goog.DEBUG=false` the closure compiler DCEs the entire literal
+  (every value is a `pr-str` of source text — a literal string
+  reachable only from the splice site)."
+  [spec-form]
+  (if-not (map? spec-form)
+    {}
+    (let [walk-slot
+          (fn [slot-key]
+            (when-let [m (get spec-form slot-key)]
+              (when (map? m)
+                (reduce-kv
+                  (fn [acc id fn-form]
+                    ;; Skip keyword references — only literal fn-forms
+                    ;; carry source. Symbols / let-bound exprs that
+                    ;; aren't literal `(fn ...)` forms also contribute
+                    ;; the surface `pr-str` here (best-effort; tools
+                    ;; rendering source as code can still show "(fn-ref)").
+                    (if (keyword? fn-form)
+                      acc
+                      (assoc acc id (pr-str fn-form))))
+                  {} m))))
+          guards  (walk-slot :guards)
+          actions (walk-slot :actions)]
+      (cond-> {}
+        (seq guards)  (assoc :guards  guards)
+        (seq actions) (assoc :actions actions)))))
+
    )) ;; end #?(:clj (do ...))

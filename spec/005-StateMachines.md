@@ -383,6 +383,36 @@ Every user-declared guard evaluation and every user-declared action invocation e
 
 Both traces flow through the standard trace bus, so `*handler-scope*` auto-stamps `:dispatch-id` into `:tags`. Downstream cascade-correlation (Xray's `:rf.xray/machine-transitions-for-focused-event` sub, devtools epoch buffers, conformance fixtures) groups guard/action traces with the originating event without any explicit threading. The payload schemas are pinned in [Spec-Schemas §`MachineGuardEvaluatedTags` and §`MachineActionRanTags`](Spec-Schemas.md). The `:sensitive?` inheritance contract per [§Privacy — `:sensitive?` inheritance on machine trace events](#privacy--sensitive-inheritance-on-machine-trace-events) applies to both — handler-scope metadata stamps the whole cascade, so `:input :data` and `:input :event` are scrubbed at the boundary alongside the surrounding `:rf.machine/transition` payload.
 
+### `:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ypu5i)
+
+The `reg-machine` macro walks the literal spec form at expansion time and writes per-(machine-id, id) entries into the registrar under the **`:machine-guard`** and **`:machine-action`** registry kinds — sibling to the closed `:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:frame` / `:route` / `:app-schema` / `:head` / `:error-projector` / `:flow` kinds, per [001 §Registry model](001-Registration.md). Each entry carries:
+
+```clojure
+(rf/handler-meta :machine-guard  [<machine-id> <guard-id>])
+;; => {:rf/guard-id   <guard-id>
+;;     :rf/machine-id <machine-id>
+;;     :rf.handler/source  "(fn [{data :data}] ...)"
+;;     :handler-fn    <the captured fn>
+;;     :ns :line :file [:column]}        ;; per-element coord per Spec 001
+
+(rf/handler-meta :machine-action [<machine-id> <action-id>])
+;; => {:rf/action-id  <action-id>
+;;     :rf/machine-id <machine-id>
+;;     :rf.handler/source  "(fn [{data :data}] {:fx ...})"
+;;     :handler-fn    <the captured fn>
+;;     :ns :line :file [:column]}
+```
+
+The ids are 2-vectors `[<machine-id> <id>]` so a guard's id is naturally scoped to its declaring machine. `:rf/guard-id` and `:rf/action-id` are reserved markers (parallel to `:rf/cofx-id` per #2097) that let tools enumerating `(rf/registrations :machine-guard)` pivot on the marker rather than re-parsing the 2-vector id. `:rf.handler/source` carries the macro-time `pr-str` of the literal fn-form (parallel to the `reg-event-*` form-source capture per [Spec 009 §`:rf.handler/source`](009-Instrumentation.md)). The per-element source coordinates merge in from the existing `:rf.machine/source-coords` walker, so jump-to-source on a guard/action chip leads straight to the fn literal in the user's source file.
+
+Production-elision per [Spec 009 §Production builds](009-Instrumentation.md): the macro emission gates the `:rf.machine/handler-source` stamp on `re-frame.interop/debug-enabled?` and the runtime registrar writes no-op when the gate is false, so under `:advanced` + `goog.DEBUG=false` neither the `pr-str` fn-body bytes nor the `:rf.handler/source` keyword reach the production bundle (verified by the elision-probe `rf.machine/handler-source` sentinel — see [009 §Production builds](009-Instrumentation.md)).
+
+The `reg-machine*` plain-fn surface (per [§reg-machine vs reg-machine*](#reg-machine-vs-reg-machine)) bypasses the macro walker — programmatic registrations carry no fn-source under these kinds. Tools fall back to the call-site coords on the top-level `(rf/handler-meta :event <machine-id>)`, identical to the existing source-coord stamping fallback.
+
+The runtime semantics — guard resolution + action invocation — are unchanged. The `:guards` / `:actions` maps inside the machine spec remain the source of truth the runtime resolves through; the registrar kinds carry observability metadata only.
+
+Consumers: Xray's [Machine Inspector §Focused-transition lens](../tools/xray/spec/003-Machine-Inspector.md) renders guard / action fn-source inline under their declared id; re-frame-pair MCP surfaces source-jump for the same ids; future agents that inspect machine bodies read the form-strings from these surfaces.
+
 ## Action effect map — `{:data :fx}`
 
 Actions return:

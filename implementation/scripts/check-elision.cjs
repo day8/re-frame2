@@ -285,6 +285,16 @@ const DEV_ONLY_SENTINELS = [
   // source-coords {...}) spec)` branch; under :advanced +
   // goog.DEBUG=false the closure compiler constant-folds the gate to
   // false and DCEs the entire literal coord index. The keyword's
+  // `rf.machine/handler-source` string fragment must NOT survive in
+  // `:advanced` + `goog.DEBUG=false` bundles. Per Spec 005 + rf2-ypu5i,
+  // the `reg-machine` macro walks the literal spec for guard/action
+  // fn-form `pr-str` source-strings and emits a stamp under
+  // `:rf.machine/handler-source` gated on `interop/debug-enabled?`. The
+  // sentinel is the keyword fragment itself — if it survives, the
+  // gated branch did not DCE and the per-(machine-id, id) source
+  // strings are still reachable from the prod bundle.
+  { source: 're-frame.core/reg-machine (rf.machine/handler-source stamping)',
+    sentinel: 'rf.machine/handler-source' },
   // `rf.machine/source-coords` string fragment must NOT survive in
   // production bundles.
   { source: 're-frame.core/reg-machine (rf.machine/source-coords stamping)',

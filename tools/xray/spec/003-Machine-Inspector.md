@@ -186,36 +186,56 @@ child epoch in the spine.
 | Target instance id (`:title/flow-instance-42`) | `:rf.machine/transition` `:tags {:machine-id …}` | available | the head trace's `:machine-id` tag |
 | `from → to` states | `:rf.machine/transition` `:tags` | available | from/to are first-class fields on the transition trace per [Spec 005 §Trace events](../../../spec/005-StateMachines.md#trace-events) |
 | Guard id (`:token?`) | `:rf.machine/guard-evaluated` `:tags {:guard-id …}` per [Spec 005 §Trace events — guard evaluations and action runs](../../../spec/005-StateMachines.md#trace-events--guard-evaluations-and-action-runs) | available | one trace per user-declared guard call site |
-| Guard **fn source** | handler-meta on the guard registration | ⚠ **CORE-side gap** — see §Core-side enabler below | needs handler-meta wiring for machine guards (parallel to the `:rf.handler/source` capture pattern for events / cofx per #2097); the impl bead awaits this. Until then the lens renders `(fn source unavailable — pending rf2-99rhe-impl)` in place of the source line and surfaces the guard id alone. |
+| Guard **fn source** | `(:rf.handler/source (rf/handler-meta :machine-guard [<machine-id> <guard-id>]))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ypu5i)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces-rf2-ypu5i) | available (rf2-ypu5i) | the `reg-machine` macro walks the literal spec at expansion time and captures `pr-str` of each guard fn-form into the registrar entry; DEBUG-elided in production |
 | Guard return (`true`) | `:rf.machine/guard-evaluated` `:tags {:outcome :pass \| :fail}` | available | binary outcome on the trace |
 | Action id (`:fetch!`) | `:rf.machine/action-ran` `:tags {:action-id …}` | available | one trace per user-declared action invocation |
-| Action **fn source** | handler-meta on the action registration | ⚠ **CORE-side gap** — see §Core-side enabler below | same gap as guard; same fallback rendering |
+| Action **fn source** | `(:rf.handler/source (rf/handler-meta :machine-action [<machine-id> <action-id>]))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ypu5i)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces-rf2-ypu5i) | available (rf2-ypu5i) | same shape as guard; the macro stamps each action fn-form's `pr-str` under the `:machine-action` kind |
 | Action `:fx` output | `:rf.machine/action-ran` `:tags {:outcome <return-value>}` | available | the action's return value rides the trace (`:ok` for nil; otherwise the literal `{:fx …}` map) |
 | Downstream `:dispatch [...]` | cascade child-epoch link via the spine | available | the `:dispatch` is a child epoch off the focused cascade; the lens reads the link from the spine's epoch graph |
 
-The two ⚠ entries are the **only** fields the lens cannot render
-today. Everything else flows from existing Spec 005 / Spec 009
-trace contracts without further framework work.
+Every field above flows from existing Spec 005 / Spec 009 trace
+contracts. The guard / action fn-source rows are served by the
+`:machine-guard` / `:machine-action` handler-meta surfaces landed
+under rf2-ypu5i (parallel to `:rf/cofx-id` per #2097) — see
+[§Core-side enabler — guard / action fn source capture](#core-side-enabler--guard--action-fn-source-capture)
+below for the data contract the lens reads.
 
 #### Core-side enabler — guard / action fn source capture
 
-The guard and action fn-source rows above require a **CORE-side
-enabler**: machine guards and actions are registered as anonymous
-fns in the machine's `:guards` / `:actions` map, and the framework
-does not currently capture their form-source the way it does for
-`reg-event-*` / `reg-cofx` handlers via the compile-time
-`pr-str` + dynamic-var thread + registrar merge pattern (per
-[Spec 009 §Handler-meta source capture](../../../spec/009-Instrumentation.md)).
+The lens reads guard and action fn source from the
+`:machine-guard` and `:machine-action` registrar kinds landed under
+rf2-ypu5i (parallel to the `:rf/cofx-id` marker work per #2097).
+The `reg-machine` macro walks the literal spec at expansion time,
+captures `pr-str` of every guard / action fn-form, and writes
+per-(machine-id, id) entries into the registrar under the new kinds:
 
-The enabler parallels the existing `:rf.handler/source` pattern
-plus the `:rf/cofx-id` work (#2097): introduce `:rf/guard-id` +
-`:rf/action-id` markers, and capture the form-source for each
-`reg-machine`-registered guard / action fn into handler-meta so
-the lens can read `(:rf.handler/source (rf/handler-meta :machine-guard [<machine-id> <guard-id>]))`
-(and the action equivalent) at render time. This is a cheap
-CORE-side change scoped to the `reg-machine` macro path and the
-registrar; bead filed separately so the lens impl bead can land
-once the data is available.
+```clojure
+(rf/handler-meta :machine-guard  [<machine-id> <guard-id>])
+;; => {:rf/guard-id   <guard-id>
+;;     :rf/machine-id <machine-id>
+;;     :rf.handler/source  "(fn [data] ...)"
+;;     :handler-fn    <fn>
+;;     :ns :line :file [:column]}
+
+(rf/handler-meta :machine-action [<machine-id> <action-id>])
+;; => {:rf/action-id  <action-id>
+;;     :rf/machine-id <machine-id>
+;;     :rf.handler/source  "(fn [data] {:fx ...})"
+;;     :handler-fn    <fn>
+;;     :ns :line :file [:column]}
+```
+
+The lens renders `:rf.handler/source` inline beneath the guard /
+action id. Production-elided per Spec 009 §Production builds — under
+`:advanced` + `goog.DEBUG=false` the macro emission drops the
+source-string stamp and the runtime registrar writes no-op,
+keeping fn-body bytes out of prod bundles (verified by the
+elision-probe `rf.machine/handler-source` sentinel). The
+`reg-machine*` plain-fn surface bypasses the macro walker, so
+programmatic registrations carry no fn-source — tools fall back to
+the call-site coords on the top-level `(rf/handler-meta :event
+<machine-id>)`, per the standard `reg-machine` / `reg-machine*`
+contract (Spec 005 §reg-machine vs reg-machine*).
 
 ### Operator decision — Dynamic resolved, other modes pending (rf2-99rhe + rf2-8og3k)
 

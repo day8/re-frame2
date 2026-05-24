@@ -6,11 +6,20 @@
 
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
     :event :sub :fx :cofx :view :frame :route :app-schema :head
-    :error-projector :flow
+    :error-projector :flow :machine-guard :machine-action
 
-  Per Spec 005, machine guards/actions are machine-scoped (declared in
-  the machine's :guards / :actions map) and NOT registered as standalone
-  kinds. The kinds set below is the closed v1 list.
+  Per Spec 005 the machine spec's `:guards` / `:actions` maps are the
+  primary source of truth for machine guards and actions — the runtime
+  resolves them through the machine spec, not the registrar.
+
+  The `:machine-guard` / `:machine-action` registrar kinds (rf2-ypu5i)
+  carry **only** per-(machine-id, id) handler-meta surfaces (fn form
+  source + source-coords) for tooling (Xray's focused-transition lens,
+  re-frame-pair source-jump). Ids are 2-vectors `[<machine-id> <id>]`
+  so a guard/action id is naturally scoped to its declaring machine.
+  Registration happens at `reg-machine` time (macro path captures
+  fn form-source via `pr-str`; `reg-machine*` plain-fn path captures
+  no form-source). Production-elided per Spec 009 §Production builds.
 
   The `:app-schema` kind is RESERVED but the registrar slot is
   intentionally **empty** — `reg-app-schema` writes only to the
@@ -36,9 +45,14 @@
 ;; ---- the kind set ---------------------------------------------------------
 
 (def kinds
-  "The closed set of registry kinds for v1. Adding a new kind is a Spec change."
+  "The closed set of registry kinds for v1. Adding a new kind is a Spec change.
+
+  `:machine-guard` / `:machine-action` (rf2-ypu5i) carry per-(machine-id,
+  id) handler-meta surfaces for tooling — the runtime still resolves
+  guards/actions through the machine spec's `:guards` / `:actions` maps,
+  not these registrar kinds."
   #{:event :sub :fx :cofx :view :frame :route :app-schema :head
-    :error-projector :flow})
+    :error-projector :flow :machine-guard :machine-action})
 
 (defn valid-kind? [k]
   (contains? kinds k))

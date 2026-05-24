@@ -198,7 +198,17 @@
      &form)`; `ns-sym` / `file` are `*ns*` / `*file*` at expansion time.
      The per-element coord-index literal is gated on
      `interop/debug-enabled?` so it DCEs under :advanced +
-     `goog.DEBUG=false`."
+     `goog.DEBUG=false`.
+
+     Per rf2-ypu5i: also walks the literal spec for guard / action
+     fn-form source-strings and emits a `:rf.machine/handler-source`
+     stamp `{:guards {id pr-str ...} :actions {id pr-str ...}}`. The
+     `core-machines/reg-machine-impl` runtime reads this stamp and
+     writes per-(machine-id, guard-id) / per-(machine-id, action-id)
+     entries into the registrar under `:machine-guard` / `:machine-
+     action` so tooling can read `(rf/handler-meta :machine-guard
+     [machine-id guard-id])`. Same DEBUG gate; the literal source
+     strings DCE alongside the coord index under `goog.DEBUG=false`."
      [form-meta ns-sym file machine-id machine]
      (let [per-el-coords  (source-coords/walk-machine-spec machine ns-sym file)
            ;; Symbols inside `:ns` need explicit quoting — otherwise the
@@ -212,21 +222,36 @@
                                           (:line coords)   (assoc :line (:line coords))
                                           (:column coords) (assoc :column (:column coords)))])
                                      per-el-coords))
-           machine-sym    (gensym "machine__")]
+           ;; rf2-ypu5i — per-id guard/action fn-form source strings.
+           handler-source (source-coords/walk-machine-handler-source machine)
+           machine-sym    (gensym "machine__")
+           has-coords?    (boolean (seq per-el-coords))
+           has-source?    (boolean (seq handler-source))]
        ;; Per rf2-3un2g §Production elision: the binding-value rides an
        ;; outer `interop/debug-enabled?` gate so Closure DCEs the dev
        ;; coords (with `:column`) under `:advanced + goog.DEBUG=false`.
        ;; See [[with-coords-form]] for the rationale.
+       ;;
+       ;; rf2-ypu5i — the `has-coords?` / `has-source?` flags are baked
+       ;; into the emission as literal booleans (NOT spliced seqs).
+       ;; Splicing the raw `(seq m)` would expand to a `cond->` clause
+       ;; whose test-position is the LITERAL seq of map entries (which
+       ;; `cond->` then evaluates by attempting to call the first
+       ;; entry-vector as a fn — wrong shape). The boolean cast keeps
+       ;; the `cond->` clauses well-formed at expansion time while
+       ;; folding away unreachable branches.
        `(binding [re-frame.source-coords/*pending-coords*
                   (if re-frame.interop/debug-enabled?
                     ~(source-coords/coords-form      form-meta file ns-sym)
                     ~(source-coords/prod-coords-form form-meta file ns-sym))]
-          ~(if (empty? per-el-coords)
+          ~(if-not (or has-coords? has-source?)
              `(re-frame.core-machines/reg-machine ~machine-id ~machine)
              `(let [~machine-sym ~machine
                     stamped# (if re-frame.interop/debug-enabled?
-                               (assoc ~machine-sym
-                                      :rf.machine/source-coords
-                                      ~per-el-form)
+                               (cond-> ~machine-sym
+                                 ~has-coords? (assoc :rf.machine/source-coords
+                                                     ~per-el-form)
+                                 ~has-source? (assoc :rf.machine/handler-source
+                                                     ~handler-source))
                                ~machine-sym)]
                 (re-frame.core-machines/reg-machine ~machine-id stamped#)))))))
