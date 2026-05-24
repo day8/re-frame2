@@ -29,6 +29,7 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
@@ -768,6 +769,46 @@
                                     "rf-xray-event-detail-flow-row-read-cart-total"))
             "'read' line renders")))))
 
+(deftest flow-row-renders-external-link-chip-when-flow-has-source-coord
+  (testing "rf2-xw7mj — when the registered flow carries a captured
+            source-coord on its handler-meta, the FLOWS row renders the
+            unified `external-link` click-to-source chip beside the
+            flow-id. When the registry lookup yields no :file (e.g. the
+            flow was cleared mid-session) the chip is omitted."
+    ;; Direct registrar writes — bypass the macro so the meta we install
+    ;; is exactly what the lookup path sees. `reg-flow` itself stores
+    ;; the flow under `:flow` registry kind; we mirror that shape here.
+    (registrar/register! :flow :rf2-xw7mj/registered-flow
+                         {:handler-fn (fn [_] 0)
+                          :inputs     [[:cart :items]]
+                          :path       [:cart :total]
+                          :file "src/flows.cljc" :line 23})
+    (registrar/register! :flow :rf2-xw7mj/anonymous-flow
+                         {:handler-fn (fn [_] 0)
+                          :inputs     [[:cart :items]]
+                          :path       [:cart :sum]})
+    (seed-buffer!
+      (concat (cascade-evs 100 [:cart/add-item] 0)
+              [(flow-computed-ev 100 50 :rf2-xw7mj/registered-flow
+                                  {:write-path   [:cart :total]
+                                   :input-values [[:apple]]
+                                   :result       1})
+               (flow-computed-ev 100 51 :rf2-xw7mj/anonymous-flow
+                                  {:write-path   [:cart :sum]
+                                   :input-values [[:apple]]
+                                   :result       1})]))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid
+                     tree
+                     "rf-xray-event-detail-flow-open-chip-rf2-xw7mj/registered-flow"))
+            "chip rendered for flow with captured source-coord")
+        (is (nil? (find-by-testid
+                    tree
+                    "rf-xray-event-detail-flow-open-chip-rf2-xw7mj/anonymous-flow"))
+            "no chip when the flow's handler-meta has no :file")))))
+
 (deftest flows-section-renders-input-paths-from-registry
   (testing "rf2-lo37i — `:rf.flow/computed` does not carry input PATHS
             (only :input-values). The render-time lookup via
@@ -1043,6 +1084,37 @@
             ":now row rendered")
         (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-row-local-storage"))
             ":local-storage row rendered")))))
+
+(deftest coeffect-row-renders-external-link-chip-when-cofx-has-source-coord
+  (testing "rf2-xw7mj — when the registered cofx carries a captured
+            source-coord on its handler-meta, the COEFFECTS row renders
+            the unified `external-link` click-to-source chip beside the
+            cofx id. When the registry lookup yields no :file the chip
+            is omitted (no chip for framework-default cofx, framework-
+            internal coords, etc.)."
+    ;; Direct registrar writes — bypass the macro so the meta we install
+    ;; is exactly what the lookup path sees (a `:file`/`:line` pair for
+    ;; the registered cofx; a coord-free entry for the anonymous one).
+    (registrar/register! :cofx :rf2-xw7mj/registered-cofx
+                         {:handler-fn (fn [ctx] ctx)
+                          :file "src/cofx.cljc" :line 17})
+    (registrar/register! :cofx :rf2-xw7mj/anonymous-cofx
+                         {:handler-fn (fn [ctx] ctx)})
+    (seed-buffer!
+      (cascade-evs 100 [:cart/restore] 0
+                   {:coeffects {:rf2-xw7mj/registered-cofx :present
+                                :rf2-xw7mj/anonymous-cofx  :no-coord}}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid
+                     tree
+                     "rf-xray-event-detail-coeffect-open-chip-rf2-xw7mj/registered-cofx"))
+            "chip rendered for cofx with captured source-coord")
+        (is (nil? (find-by-testid
+                    tree
+                    "rf-xray-event-detail-coeffect-open-chip-rf2-xw7mj/anonymous-cofx"))
+            "no chip when the cofx's handler-meta has no :file")))))
 
 (deftest coeffects-section-renders-qualified-keyword-ids
   (testing "qualified-keyword cofx ids (e.g. :auth/token, :env/build)
