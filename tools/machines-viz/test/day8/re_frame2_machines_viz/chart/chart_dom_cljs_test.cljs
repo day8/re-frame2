@@ -385,6 +385,76 @@
           (is (= "4" (.getAttribute root "data-node-count"))
               "data-node-count excludes the region containers"))))))
 
+;; ---- compound substate parent linkage (rf2-xh1lm visual-pin) -----------
+;;
+;; xyflow v12 reads `userNode.parentId` (NOT the pre-v12 `parentNode`) and
+;; populates its `parentLookup` from it. A node whose id is the parentId
+;; of any other node gets the CSS class `parent` on its
+;; `.react-flow__node` wrapper (`adoptUserNodes` → store
+;; `parentLookup.has(id)` → `isParent: true` → `parent` class). Without
+;; that class no child is adopted; children render at root + visually
+;; escape the container (the bug rf2-xh1lm fixed: substates rendered
+;; top-left of canvas while the empty `:active` container sat
+;; bottom-right). This DOM pin is layout-independent — the `.parent`
+;; class lands on first commit, before the async elkjs layout pass —
+;; so the synchronous browser-test runner can assert it without
+;; awaiting elk.
+
+(def ^:private compound-machine
+  "A compound machine: :authenticated contains 2 substates (rf2-xh1lm
+  regression fixture). Mirrors the `:ws/connection` shape that broke
+  pre-fix: a single compound parent + nested substates."
+  {:initial :unauth
+   :states  {:unauth        {:on {:login :authenticated}}
+             :authenticated {:initial :browsing
+                             :states  {:browsing {:on {:checkout :paying}}
+                                       :paying   {:on {:done :browsing}}}
+                             :on      {:logout :unauth}}}})
+
+(deftest chart-compound-container-gets-xyflow-parent-class
+  (testing "rf2-xh1lm — xyflow adopts compound substates via `parentId`,
+            which causes the parent node to receive the CSS class
+            `parent` (the on-DOM marker that `parentLookup.has(id)` is
+            true). Pre-fix the projector emitted `:parentNode` (silently
+            ignored by v12) so no child was ever adopted and the parent
+            never got the class — substates rendered at root and escaped
+            their container. Mounts the compound fixture and asserts the
+            `:authenticated` container wrapper carries `.parent`."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/compound :definition compound-machine}
+        (fn [_root node]
+          (let [authed-id (layout/node-id [:authenticated])
+                ;; xyflow's outer wrapper carries `data-id` + the
+                ;; `parent` class when any child claims it via parentId.
+                wrapper   (.querySelector node
+                            (str ".react-flow__node[data-id=\"" authed-id "\"]"))]
+            (is (some? wrapper)
+                ":authenticated xyflow wrapper mounts")
+            (is (.. wrapper -classList (contains "parent"))
+                "the compound wrapper carries .parent — xyflow's parentLookup adopted at least one child via :parentId (rf2-xh1lm)")))))))
+
+(deftest chart-region-container-gets-xyflow-parent-class
+  (testing "rf2-xh1lm + rf2-lkwev — the same `.parent` adoption applies
+            to parallel-region containers. Pre-fix BOTH compound AND
+            region substates were unadopted (the projector emitted
+            `:parentNode` for both); the bead screenshot only captured
+            the compound symptom but the region path was equally broken.
+            This pin guards the region adoption too."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/parallel :definition parallel-machine}
+        (fn [_root node]
+          (doseq [region-id (map layout/region-node-id [:audio :display])]
+            (let [wrapper (.querySelector node
+                            (str ".react-flow__node[data-id=\"" region-id "\"]"))]
+              (is (some? wrapper)
+                  (str "region " region-id " xyflow wrapper mounts"))
+              (is (.. wrapper -classList (contains "parent"))
+                  (str "region " region-id " carries .parent — its child states were adopted via :parentId")))))))))
+
 ;; ---- parallel-region ACTIVE chrome (rf2-80rm2, G4 visual-pin) -----------
 ;;
 ;; G1 lights the active region LEAF; G4 lights the region CONTAINER too, so

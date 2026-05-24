@@ -62,9 +62,10 @@
   the `chart.nodes/parallel-region-node` paints with a distinct
   dashed boundary (Stately parity). Every state inside a region
   carries `:region <region-id>` + `:parent-id <region-node-id>` so
-  the chart projector can hand xyflow a `parentNode`/sub-flow
-  grouping; edges stay region-local (a transition declared inside a
-  region never crosses into a sibling region — orthogonality).
+  the chart projector can hand xyflow a `parentId`/sub-flow grouping
+  (rf2-xh1lm — v12 reads `parentId`); edges stay region-local (a
+  transition declared inside a region never crosses into a sibling
+  region — orthogonality).
 
   Region node-ids are prefixed `region__<region-id>` so they never
   collide with a real state's `node-id`.
@@ -440,9 +441,11 @@
                                    ;; A node nested inside a compound parent
                                    ;; carries `:parent-id` (the parent's
                                    ;; node-id) so the projector wires xyflow's
-                                   ;; parentNode sub-flow — the SAME mechanic
-                                   ;; that nests parallel-region states. Top-
-                                   ;; level states (path length 1) carry none.
+                                   ;; `parentId` sub-flow (rf2-xh1lm — v12
+                                   ;; reads `parentId`, not `parentNode`) —
+                                   ;; the SAME mechanic that nests parallel-
+                                   ;; region states. Top-level states (path
+                                   ;; length 1) carry none.
                                    (> (count path) 1)
                                    (assoc :parent-id (node-id (pop path))))]
                         (assoc n' :id (node-id path))))
@@ -491,9 +494,10 @@
   all but the first). Each region becomes a synthetic `:region?`
   compound node whose `node-id` is `region-node-id`; each region's
   states carry `:region <region-id>` + `:parent-id <region-node-id>`
-  so the chart projector can hand xyflow a `parentNode`/sub-flow
-  grouping. Region order is preserved (regions are an ordered map in
-  practice; we keep insertion order via `:regions`)."
+  so the chart projector can hand xyflow a `parentId`/sub-flow
+  grouping (rf2-xh1lm — v12 reads `parentId`). Region order is
+  preserved (regions are an ordered map in practice; we keep
+  insertion order via `:regions`)."
   [definition]
   (let [regions (:regions definition)
         per-region
@@ -502,7 +506,8 @@
             (let [rid       (region-node-id region-id)
                   parsed    (parse-flat region-def)
                   ;; Tag every state node with its region + parent so
-                  ;; the projector emits xyflow parentNode grouping.
+                  ;; the projector emits xyflow `parentId` grouping
+                  ;; (rf2-xh1lm — v12 reads `parentId`).
                   tagged-nodes
                   (mapv (fn [n]
                           (assoc n
@@ -536,7 +541,8 @@
   parallel-region rendering; supersedes the Phase 1 first-region-only
   projection). Each region surfaces a synthetic `:region?` compound
   node and its states carry `:region` + `:parent-id` for xyflow
-  parentNode grouping; the result also carries `:parallel? true`."
+  `parentId` grouping (rf2-xh1lm — v12 reads `parentId`); the result
+  also carries `:parallel? true`."
   [definition]
   (cond
     (nil? definition)

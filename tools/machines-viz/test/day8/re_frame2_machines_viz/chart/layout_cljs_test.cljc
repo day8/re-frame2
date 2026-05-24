@@ -54,8 +54,9 @@
 
 (deftest parse-definition-wires-compound-parent-id
   (testing "rf2-54s5a — compound substates carry :parent-id (the
-            parent's node-id) for xyflow parentNode nesting; top-level
-            states carry none"
+            parent's node-id) for xyflow `:parentId` nesting (rf2-xh1lm
+            — v12 reads `parentId`, not the pre-v12 `parentNode`);
+            top-level states carry none"
     (let [{:keys [nodes]} (layout/parse-definition compound-machine)
           browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))
           unauth   (first (filter #(= [:unauth] (:path %)) nodes))]
@@ -146,8 +147,8 @@
 
 (deftest parse-definition-tags-region-states-with-parent
   (testing "rf2-lkwev — every state inside a region carries :region +
-            :parent-id so the chart projector emits xyflow parentNode
-            sub-flow grouping"
+            :parent-id so the chart projector emits xyflow `:parentId`
+            sub-flow grouping (rf2-xh1lm — v12 reads `parentId`)"
     (let [parallel {:type :parallel
                     :regions {:r1 {:initial :a :states {:a {} :b {}}}
                               :r2 {:initial :x :states {:x {} :y {}}}}}

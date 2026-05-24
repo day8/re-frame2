@@ -44,7 +44,7 @@
 
 (def parallel-machine
   "Two-region parallel machine — exercises the region container
-  node-type, the parentNode/extent sub-flow wiring, and the
+  node-type, the parentId/extent sub-flow wiring, and the
   parent-before-child sort."
   {:type    :parallel
    :regions {:audio {:initial :muted
@@ -182,44 +182,62 @@
           region (node-by-id graph (layout/region-node-id :audio))]
       (is (= "parallel-region" (:type region))))))
 
-;; ---- xyflow-graph parentNode / extent sub-flow wiring (G1) --------------
+;; ---- xyflow-graph parentId / extent sub-flow wiring (G1) ---------------
+;;
+;; rf2-xh1lm — xyflow v12 reads `parentId` (NOT `parentNode`, the pre-v12
+;; name). The projector must emit `:parentId` so xyflow's
+;; `adoptUserNodes` walks the parent lookup and treats `:position` as
+;; parent-relative; emitting `:parentNode` instead is silently ignored
+;; (the previous shape — substates rendered at root + visually escaped
+;; the parent container).
 
-(deftest xyflow-graph-region-children-wire-parent-node
-  (testing "rf2-lkwev — every state inside a region carries
-            `:parentNode` (the region container id) + `:extent
-            \"parent\"` so xyflow's sub-flow nests + clamps it; the
-            region container itself carries NEITHER"
+(deftest xyflow-graph-region-children-wire-parent-id
+  (testing "rf2-lkwev + rf2-xh1lm — every state inside a region carries
+            `:parentId` (the region container id) + `:extent \"parent\"`
+            so xyflow v12's sub-flow nests + clamps it; the region
+            container itself carries NEITHER"
     (let [parsed (layout/parse-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           region (node-by-id graph (layout/region-node-id :audio))
           muted  (node-by-id graph (layout/node-id [:muted]))]
-      (is (= (layout/region-node-id :audio) (:parentNode muted)))
+      (is (= (layout/region-node-id :audio) (:parentId muted)))
       (is (= "parent" (:extent muted)))
-      (is (nil? (:parentNode region)) "region container is not nested")
+      (is (nil? (:parentId region)) "region container is not nested")
       (is (nil? (:extent region))))))
 
-(deftest xyflow-graph-flat-state-has-no-parent-node
-  (testing "a state in a non-parallel machine carries no parentNode /
+(deftest xyflow-graph-region-children-do-not-emit-pre-v12-parent-node
+  (testing "rf2-xh1lm — the projector emits the v12 `:parentId` shape
+            ONLY; the pre-v12 `:parentNode` key MUST NOT appear (xyflow
+            v12 silently ignores it, hiding the bug behind a green test
+            suite — the regression mode this guards)"
+    (let [parsed (layout/parse-definition parallel-machine)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (doseq [n (:nodes graph)]
+        (is (not (contains? n :parentNode))
+            (str "node " (:id n) " must not carry the dead :parentNode key"))))))
+
+(deftest xyflow-graph-flat-state-has-no-parent-id
+  (testing "a state in a non-parallel machine carries no parentId /
             extent — those wire ONLY for region children"
     (let [parsed (layout/parse-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           idle   (node-by-id graph (layout/node-id [:idle]))]
-      (is (nil? (:parentNode idle)))
+      (is (nil? (:parentId idle)))
       (is (nil? (:extent idle))))))
 
 ;; ---- xyflow-graph parent-before-child sort (G1) ------------------------
 
 (deftest xyflow-graph-sorts-regions-before-children
-  (testing "rf2-lkwev — xyflow requires a parentNode to appear in the
-            nodes array BEFORE any node that references it. Every
-            region container must precede its first child in the
-            projected order."
+  (testing "rf2-lkwev — xyflow requires a parentId target to appear in
+            the nodes array BEFORE any node that references it (v12's
+            `adoptUserNodes` warns otherwise). Every region container
+            must precede its first child in the projected order."
     (let [parsed   (layout/parse-definition parallel-machine)
           graph    (projection/xyflow-graph parsed {} {})
           ids      (mapv :id (:nodes graph))
           index-of (fn [id] (.indexOf ids id))]
       (doseq [n (:nodes graph)
-              :let [parent (:parentNode n)]
+              :let [parent (:parentId n)]
               :when parent]
         (is (< (index-of parent) (index-of (:id n)))
             (str "parent " parent " must precede child " (:id n)))))))
@@ -234,7 +252,7 @@
           ids      (mapv :id (:nodes graph))
           index-of (fn [id] (.indexOf ids id))]
       (doseq [n (:nodes graph)
-              :let [parent (:parentNode n)]
+              :let [parent (:parentId n)]
               :when parent]
         (is (< (index-of parent) (index-of (:id n))))))))
 
@@ -588,12 +606,14 @@
       (is (= {:width 328 :height 156} (:style compound))))))
 
 (deftest xyflow-graph-compound-style-coexists-with-parent-relative-substates
-  (testing "rf2-a64bi — when a compound has substates, the compound's
-            `:style {:width :height}` matches elk's bounding box AND each
-            substate carries `:parentNode` + `:extent \"parent\"` with a
-            parent-relative `:position`. The two together are the
-            containment contract: xyflow allocates the measured box, then
-            clamps the parent-relative substates inside it."
+  (testing "rf2-a64bi + rf2-xh1lm — when a compound has substates, the
+            compound's `:style {:width :height}` matches elk's bounding
+            box AND each substate carries `:parentId` (xyflow v12's
+            sub-flow key, NOT the pre-v12 `:parentNode`) + `:extent
+            \"parent\"` with a parent-relative `:position`. The two
+            together are the containment contract: xyflow adopts the
+            child against the parent's measured box, then clamps the
+            parent-relative substates inside it."
     (let [parsed    (layout/parse-definition compound-machine)
           cid       (layout/node-id [:authenticated])
           browsing  (layout/node-id [:authenticated :browsing])
@@ -607,8 +627,11 @@
           p         (node-by-id graph paying)]
       (is (= {:width 328 :height 156} (:style compound))
           "compound gets elk's measured box as :style")
-      (is (= cid (:parentNode b)) ":browsing nests under :authenticated")
-      (is (= cid (:parentNode p)) ":paying nests under :authenticated")
+      (is (= cid (:parentId b)) ":browsing nests under :authenticated")
+      (is (= cid (:parentId p)) ":paying nests under :authenticated")
+      (is (not (contains? b :parentNode))
+          "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear")
+      (is (not (contains? p :parentNode)))
       (is (= "parent" (:extent b)))
       (is (= "parent" (:extent p)))
       (is (= {:x 14 :y 34} (:position b))
@@ -857,15 +880,17 @@
       (is (false? (:initial (:data loading)))))))
 
 (deftest xyflow-graph-emits-compound-substate-initial-marker
-  (testing "rf2-54s5a — a compound parent's :initial substate also
-            gets a marker (xstate per-level initial semantics) sharing
-            the compound's coordinate frame"
+  (testing "rf2-54s5a + rf2-xh1lm — a compound parent's :initial substate
+            also gets a marker (xstate per-level initial semantics) sharing
+            the compound's coordinate frame via xyflow v12's `:parentId`"
     (let [parsed      (layout/parse-definition compound-machine)
           graph       (projection/xyflow-graph parsed {} {})
           browsing-id (layout/node-id [:authenticated :browsing])
           marker      (node-by-id graph (str "initial__" browsing-id))]
       (is (some? marker) "the compound's initial substate gets a marker")
-      (is (= (layout/node-id [:authenticated]) (:parentNode marker))))))
+      (is (= (layout/node-id [:authenticated]) (:parentId marker)))
+      (is (not (contains? marker :parentNode))
+          "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear"))))
 
 (deftest xyflow-graph-flags-self-transition
   (testing "rf2-54s5a — a source==target edge carries :data {:selfLoop true}"
@@ -877,14 +902,18 @@
       (is (true?  (:selfLoop (:data self))))
       (is (false? (:selfLoop (:data non-self)))))))
 
-(deftest xyflow-graph-compound-children-wire-parent-node
-  (testing "rf2-54s5a — compound substates nest via xyflow parentNode
-            (same mechanic as parallel-region children)"
+(deftest xyflow-graph-compound-children-wire-parent-id
+  (testing "rf2-54s5a + rf2-xh1lm — compound substates nest via xyflow
+            v12's `:parentId` (same mechanic as parallel-region children;
+            the pre-v12 `:parentNode` key is silently ignored by v12 so
+            the projector MUST NOT emit it)"
     (let [parsed   (layout/parse-definition compound-machine)
           graph    (projection/xyflow-graph parsed {} {})
           browsing (node-by-id graph (layout/node-id [:authenticated :browsing]))]
-      (is (= (layout/node-id [:authenticated]) (:parentNode browsing)))
-      (is (= "parent" (:extent browsing))))))
+      (is (= (layout/node-id [:authenticated]) (:parentId browsing)))
+      (is (= "parent" (:extent browsing)))
+      (is (not (contains? browsing :parentNode))
+          "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear"))))
 
 (deftest elk-children-nests-compound-substates
   (testing "rf2-54s5a — a compound parent nests its substates as elk
