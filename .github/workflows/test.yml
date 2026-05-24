@@ -23,10 +23,21 @@ on:
     branches: [main]
 
 # Fast PR spine jobs stay always-on: lockstep drift, skill/MCP drift,
-# core JVM, CLJS node integration, and JS harness self-tests. Expensive
-# browser, bundle, examples, Story/Xray, tool, template, MCP-live, and
-# skill structural jobs are guarded by the conservative changed-surface
-# classifier below. Skipped diagnostic jobs are not required coverage; the
+# and JS harness self-tests. These are cheap (no JVM/Node build) and act
+# as the always-present minimum so the aggregator never resolves to an
+# all-skipped phantom. The heavier core JVM (jvm-core) and CLJS node
+# integration (cljs) jobs are job-level gated on the changed-surface
+# classifier (rf2-f79t8): they skip on a spec/docs-only PR but run on
+# every code surface (core / adapters / per-feature artefacts / fixtures
+# / build config, and — for cljs — the tools/{story,xray} CLJS test
+# trees the consolidated :node-test build compiles). Expensive browser,
+# bundle, examples, Story/Xray, tool, template, MCP-live, and skill
+# structural jobs are likewise guarded. The workflow's pull_request
+# trigger stays UNFILTERED so the `All required checks passed` aggregator
+# is always present (job-level gating, NOT a trigger path filter — a
+# path-filtered trigger would make the required aggregator absent on
+# filtered PRs = a phantom-pending trap, the exact bug rf2-dtvmb fixed).
+# Skipped surface-gated jobs are not required coverage; the
 # nightly/manual workflow carries the rigorous full sweep.
 
 jobs:
@@ -35,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       implementation_jvm: ${{ steps.detect.outputs.implementation_jvm }}
+      cljs_node_test: ${{ steps.detect.outputs.cljs_node_test }}
       adapter_diagnostic: ${{ steps.detect.outputs.adapter_diagnostic }}
       cljs_browser: ${{ steps.detect.outputs.cljs_browser }}
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
@@ -100,6 +112,17 @@ jobs:
 
   jvm-core:
     name: JVM core (clojure -M:test)
+    # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
+    # the pull_request trigger stays unfiltered so the
+    # `All required checks passed` aggregator is always present). The
+    # JVM core suite skips on a spec/docs-only PR, where
+    # `implementation_jvm` is false; it runs on every code surface that
+    # touches core, the adapters, the per-feature artefacts, the
+    # conformance fixtures, or the build config (see
+    # report-changed-surfaces.sh). The aggregator treats a surface-skip
+    # as OK and the nightly full matrix is the safety net.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -669,6 +692,18 @@ jobs:
 
   cljs:
     name: CLJS (shadow-cljs :node-test)
+    # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
+    # the pull_request trigger stays unfiltered so the
+    # `All required checks passed` aggregator is always present). The
+    # consolidated :node-test build compiles core + every adapter + every
+    # per-feature artefact PLUS the tools/{story,xray}/{src,test} CLJS
+    # test trees (shadow-cljs.edn :source-paths). `cljs_node_test` fires
+    # on any of those surfaces (and on the build config / fixtures); it is
+    # false only on a spec/docs-only PR, where this job skips. The
+    # aggregator treats a surface-skip as OK and the nightly full matrix
+    # is the safety net.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -724,6 +759,27 @@ jobs:
       - name: Run JS harness self-tests
         run: npm run test:script-policy && npm run test:script-helpers
 
+  # ---------------------------------------------------------------------------
+  # CLJS browser / prod Playwright jobs (rf2-f79t8 part c).
+  #
+  # The browser/prod cluster — cljs-browser (:browser-test, dev),
+  # cljs-browser-schemas-boundary-prod (:advanced + goog.DEBUG=false),
+  # cljs-browser-prod-elision (:advanced + goog.DEBUG=false) — each
+  # npm-installs, installs Playwright, and compiles a DISTINCT shadow-cljs
+  # build with a distinct ns-regexp + compiler options. A "merge into one
+  # job" dedup was rejected as NOT low-risk: (1) the three builds cannot
+  # share a compile artifact (one dev, two :advanced with different
+  # ns-regexps), so merging would still recompile three bundles; (2)
+  # merging serialises three currently-parallel gates onto one runner,
+  # lengthening wall-clock on a code PR; (3) it collapses three
+  # independently-reported required statuses into one, losing failure
+  # locality. The cheap, low-risk win applied instead is the shared
+  # Playwright browser-binary cache below: every PR-time Playwright job
+  # previously re-downloaded Chromium (~120 MB) on each run; the cache,
+  # keyed on the locked Playwright version, removes that redundant
+  # download across all browser jobs (and across runs) with zero change
+  # to which suites run.
+  # ---------------------------------------------------------------------------
   cljs-browser:
     name: CLJS (shadow-cljs :browser-test, headless Chromium)
     needs: detect_changed_surfaces
@@ -767,6 +823,21 @@ jobs:
 
       - name: npm install
         run: npm ci
+
+      # rf2-f79t8 — cache the Playwright browser binary across runs/jobs.
+      # Every PR-time Playwright job previously re-downloaded Chromium
+      # (~120 MB) on each run. The binary is keyed on the locked
+      # Playwright version (package-lock.json), so the cache is correct by
+      # construction: a Playwright bump busts it. On a hit, the install
+      # step below still runs `--with-deps` (the apt system libs are not
+      # cacheable) but Playwright skips the binary download.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
@@ -817,6 +888,15 @@ jobs:
 
       - name: npm install
         run: npm ci
+
+      # rf2-f79t8 — cache the Playwright browser binary (see cljs-browser).
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
@@ -874,6 +954,15 @@ jobs:
 
       - name: npm install
         run: npm ci
+
+      # rf2-f79t8 — cache the Playwright browser binary (see cljs-browser).
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
@@ -1051,6 +1140,15 @@ jobs:
       - name: npm install
         run: npm ci
 
+      # rf2-f79t8 — cache the Playwright browser binary (see cljs-browser).
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
@@ -1136,6 +1234,15 @@ jobs:
 
       - name: npm install
         run: npm ci
+
+      # rf2-f79t8 — cache the Playwright browser binary (see cljs-browser).
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
