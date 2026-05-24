@@ -737,6 +737,8 @@ tracing.
 
 ## §5 The Trace panel (per-epoch raw ops)
 
+> **See also**: [`023-Trace-Panel.md`](023-Trace-Panel.md) — the dedicated Trace-panel redesign spec (the Figma-handoff target: the 4 phase bands, the full op-handling matrix, colour delegated to Figma). This §5 documents the v1-shipped layout; 023 is the direction-setting destination.
+
 ### §5.1 Question
 
 > **"What raw trace events fired during this epoch?"**
