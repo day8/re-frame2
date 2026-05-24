@@ -3,6 +3,7 @@
   spec/021 §6 + §17.4). The projector is JS/React-free; tests run
   under :node-test with zero DOM harness."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panels.machines.topology :as topology]))
 
 (defn- toy-definition
@@ -489,3 +490,103 @@
                                     :event :submit}]}]]
       (is (= [:submitting]
              (topology/current-state-from-epoch-history history :cart))))))
+
+;; ---- rf2-m8kod: node-id scheme parity with machines-viz ----------------
+;;
+;; The Xray topology overlay and the live MachineChart MUST address nodes
+;; with the SAME string ids — otherwise any future "highlight fired edges
+;; on the live chart" wiring (rf2-qeemm/B8) silently mis-targets. The old
+;; Xray-local `node-id-for-path` used the non-injective `[^a-zA-Z0-9_] → _`
+;; collapse, which MERGED `:a/b`, `:a-b`, `:a_b` onto one id; it now
+;; delegates to the canonical injective hex-escape scheme
+;; `chart.layout/node-id`. These tests pin that the two schemes agree id-
+;; for-id (driven through the public `project` API, which uses the private
+;; `node-id-for-path` for every node `:id`) AND that the collision triples
+;; mint DISTINCT ids.
+
+(defn- machine-from-state-ids
+  "Build a flat single-level machine whose top-level state-ids are
+  `state-ids`, so projecting it exercises `node-id-for-path` over each
+  `[state-id]` path. The first state is the `:initial`."
+  [state-ids]
+  {:initial (first state-ids)
+   :states  (into {} (map (fn [id] [id {}]) state-ids))})
+
+(deftest node-id-parity-flat-paths
+  (testing "every projected node :id matches chart-layout/node-id for its path"
+    (let [state-ids [:empty :populated :logged-in :rate-limited
+                     :a/b :a-b :a_b :foo.bar/baz :x+y :state?]
+          out       (topology/project
+                      {:definition (machine-from-state-ids state-ids)})
+          ;; project carries the source path on :data :path — pair it
+          ;; with the minted :id so we can compare against the canonical fn.
+          id-by-path (into {} (map (juxt #(-> % :data :path) :id)
+                                   (:nodes out)))]
+      (doseq [id state-ids]
+        (let [path [id]]
+          (is (= (chart-layout/node-id path) (get id-by-path path))
+              (str "node-id parity for path " (pr-str path))))))))
+
+(deftest node-id-parity-nested-paths
+  (testing "compound (nested-vector) paths match chart-layout/node-id"
+    (let [def {:initial :unauth
+               :states  {:unauth {:on {:login :authed}}
+                         :authed {:initial :browsing
+                                  :states  {:browsing {:on {:checkout :rate-limited}}
+                                            :rate-limited {:on {:retry :browsing}}}}}}
+          out (topology/project {:definition def})
+          id-by-path (into {} (map (juxt #(-> % :data :path) :id)
+                                   (:nodes out)))]
+      (doseq [[path id] id-by-path]
+        (is (= (chart-layout/node-id path) id)
+            (str "nested node-id parity for path " (pr-str path)))))))
+
+(deftest node-id-collision-triples-mint-distinct-ids
+  (testing ":a/b vs :a-b vs :a_b project to THREE distinct node ids"
+    (let [state-ids [:a/b :a-b :a_b]
+          out       (topology/project
+                      {:definition (machine-from-state-ids state-ids)})
+          ids       (mapv :id (:nodes out))]
+      (is (= 3 (count (:nodes out)))
+          "all three states survive (no id-collision drop)")
+      (is (= 3 (count (set ids)))
+          "the three ids are pairwise distinct (injective scheme)")
+      ;; And the canonical scheme is itself injective for the triple.
+      (is (apply distinct?
+                 [(chart-layout/node-id [:a/b])
+                  (chart-layout/node-id [:a-b])
+                  (chart-layout/node-id [:a_b])])
+          "canonical scheme is itself injective for the triple"))))
+
+(deftest edge-ids-built-from-canonical-node-ids
+  (testing "topology edge :source / :target are the canonical node ids"
+    (let [def {:initial :a-b
+               :states  {:a-b {:on {:go :a/b}}
+                         :a/b {}}}
+          out (topology/project {:definition def})
+          e   (first (:edges out))]
+      (is (= (chart-layout/node-id [:a-b]) (:source e))
+          "edge :source uses the canonical from-node id")
+      (is (= (chart-layout/node-id [:a/b]) (:target e))
+          "edge :target uses the canonical to-node id")
+      ;; The collision triple no longer fuses source + target into one id.
+      (is (not= (:source e) (:target e))
+          ":a-b and :a/b stay distinct across an edge"))))
+
+(deftest extract-fired-edge-ids-uses-canonical-node-ids
+  (testing "fired-edge-id composite agrees with the projected edge :id"
+    (let [def    {:initial :rate-limited
+                  :states  {:rate-limited {:on {:retry :logged-in}}
+                            :logged-in    {}}}
+          graph  (topology/project {:definition def})
+          retry-id (some (fn [e] (when (= "retry" (:label e)) (:id e)))
+                         (:edges graph))
+          events [{:operation :rf.machine/transition
+                   :tags      {:machine-id :sess}
+                   :from      [:rate-limited] :to [:logged-in]
+                   :event     :retry}]
+          fired  (topology/extract-fired-edge-ids events :sess)]
+      (is (string? retry-id))
+      (is (= #{retry-id} fired)
+          "the fired-edge composite (built from node-id-for-path) matches
+           the projected edge id — so live-chart highlight wiring lands"))))
