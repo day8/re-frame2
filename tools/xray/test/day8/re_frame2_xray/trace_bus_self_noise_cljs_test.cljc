@@ -227,11 +227,11 @@
       (is (false? (trace-bus/xray-internal-event-id? 42))))
     (testing "namespace prefix collision guard"
       ;; A keyword whose namespace STARTS with `rf.xray` but is not
-      ;; exactly `rf.xray` (e.g. `:rf.causal/x`, `:rf.causal-link/y`)
+      ;; exactly `rf.xray` (e.g. `:rf.xray-test/x`, `:rf.xray-foo/y`)
       ;; must NOT match. The contract is namespace equality, not
       ;; prefix matching.
-      (is (false? (trace-bus/xray-internal-event-id? :rf.causal/x)))
-      (is (false? (trace-bus/xray-internal-event-id? :rf.causal-link/y))))))
+      (is (false? (trace-bus/xray-internal-event-id? :rf.xray-test/x)))
+      (is (false? (trace-bus/xray-internal-event-id? :rf.xray-foo/y))))))
 
 (deftest xray-internal-cascade?-event-vector-head
   (testing "true iff the cascade's :event vector's head is xray-internal"
