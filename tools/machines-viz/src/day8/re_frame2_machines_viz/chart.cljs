@@ -113,37 +113,65 @@
    "elk.edgeRouting"                            "ORTHOGONAL"
    "elk.json.edgeCoords"                        "ROOT"})
 
+(defn elk-direction-str
+  "Map the chart's `:lr` / `:tb` direction keyword to elk's
+  `elk.direction` string (`RIGHT` / `DOWN`; `DOWN` is the default)."
+  [direction]
+  (case direction
+    :lr "RIGHT"
+    :tb "DOWN"
+    "DOWN"))
+
+(defn elk-layout-options
+  "Pure root `layoutOptions` (a CLJS map) for the given parsed graph,
+  host overrides, and direction — the input `->elk-input` `clj->js`-es
+  onto the elk root. Extracted as a named, directly-assertable fn so the
+  cross-hierarchy switch below is regression-guarded (rf2-gpa9k).
+
+  Layering on `default-elk-options`:
+
+    1. host `layout-options` overrides are `merge`d on top;
+    2. `elk.direction` is forced from the `direction` arg (`:lr`/`:tb`);
+    3. `elk.hierarchyHandling` is set to `INCLUDE_CHILDREN` — and ONLY
+       set — when the graph nests: it is parallel (`:parallel?`) OR some
+       node has a `:parent-id` (parallel-region states rf2-lkwev OR
+       compound substates rf2-54s5a). This is the G5 cross-hierarchy
+       switch: `INCLUDE_CHILDREN` is what makes the Layered algorithm
+       route edges ACROSS nesting levels (its default,
+       `SEPARATE_CHILDREN`, lays each level out independently and never
+       routes cross-hierarchy edges). It pairs with G2's
+       `elk.edgeRouting ORTHOGONAL` + `elk.json.edgeCoords ROOT`
+       (rf2-cz8v6) so those cross-level routes come back as legible
+       absolute-coordinate bend-points. A FLAT, non-parallel graph keeps
+       the key absent so elk's per-level default stands."
+  [parsed layout-options direction]
+  (-> default-elk-options
+      (merge (or layout-options {}))
+      (assoc "elk.direction" (elk-direction-str direction))
+      (cond-> (or (:parallel? parsed)
+                  (some :parent-id (:nodes parsed)))
+        (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN"))))
+
 (defn- ->elk-input
   "Build an elk.js JS-side input graph for the given parsed nodes +
   edges + direction. Parallel machines (rf2-lkwev) get a hierarchical
   graph (region containers with nested state children) so elkjs sizes
   + positions each orthogonal zone and its states; flat machines get
-  the original single-level child list."
+  the original single-level child list. The root `layoutOptions` are
+  computed by the pure `elk-layout-options` (cross-hierarchy switch +
+  direction + host overrides) and `clj->js`-ed here."
   [{:keys [edges] :as parsed} direction layout-options]
-  (let [dir-str (case direction
-                  :lr "RIGHT"
-                  :tb "DOWN"
-                  "DOWN")
-        opts    (-> default-elk-options
-                    (merge (or layout-options {}))
-                    (assoc "elk.direction" dir-str)
-                    ;; Hierarchical layout must descend into nested
-                    ;; children — parallel-region states (rf2-lkwev) AND
-                    ;; compound substates (rf2-54s5a). Enable whenever any
-                    ;; node nests (has :parent-id) or the graph is parallel.
-                    (cond-> (or (:parallel? parsed)
-                                (some :parent-id (:nodes parsed)))
-                      (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN")))]
-    #js {:id "root"
-         :layoutOptions (clj->js opts)
-         :children (clj->js (projection/->elk-children parsed))
-         :edges (clj->js
-                  (mapv (fn [e]
-                          {:id (:id e)
-                           :sources [(:source e)]
-                           :targets [(:target e)]
-                           :labels [{:text (:event-label e)}]})
-                        edges))}))
+  #js {:id "root"
+       :layoutOptions (clj->js (elk-layout-options parsed layout-options
+                                                   direction))
+       :children (clj->js (projection/->elk-children parsed))
+       :edges (clj->js
+                (mapv (fn [e]
+                        {:id (:id e)
+                         :sources [(:source e)]
+                         :targets [(:target e)]
+                         :labels [{:text (:event-label e)}]})
+                      edges))})
 
 (defn elk-edge-points
   "rf2-cz8v6 (G2) — lift one elk edge's routed bend-points into a flat

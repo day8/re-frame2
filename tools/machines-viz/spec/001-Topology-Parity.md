@@ -178,7 +178,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 | **History** | ➖ **Intentionally absent** — Spec 005 v1 has no `:history`. Not a gap. | Spec 005 §History states (`:rf.error/machine-grammar-not-in-v1`). |
 | **Event labels** | ✅ `event [guard] / action` composed label; `after(<ms>)`, `always`, `* (any)` wildcard segments; backplate for legibility; label is clickable when a fireable event-id + host callback are present. | `layout.cljc` `edge-label`/`event-segment`; `edges.cljs` `transition-edge`. |
 | **Guards / actions** | ✅ Guard in `[...]`, action after `/`; entry/exit state actions render as `entry / <name>` / `exit / <name>` rows under the label; state-tag pills above. | `layout.cljc` `edge-label`, `name-of`; `nodes.cljs` `state-node` (entry/exit rows, tag pills). |
-| **Layout** | ✅ elk Layered, `DOWN`/`RIGHT` direction, `INCLUDE_CHILDREN` when nested, per-container padding for header strips; async + cached pass; xyflow `fitView`. | `chart.cljs` `compute-layout!`/`default-elk-options`; `projection.cljc` `->elk-children` (per-container `layoutOptions`). |
+| **Layout** | ✅ elk Layered, `DOWN`/`RIGHT` direction, `INCLUDE_CHILDREN` when nested (G5, rf2-gpa9k), per-container padding for header strips; async + cached pass; xyflow `fitView`. | `chart.cljs` `compute-layout!`/`default-elk-options`/`elk-layout-options` (root `layoutOptions` + cross-hierarchy switch); `projection.cljc` `->elk-children` (per-container `layoutOptions`). |
 | **Edge routing through nesting** | ✅ **Closed (rf2-cz8v6).** elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into an `{edge-id [{:x :y} …]}` map that the projector attaches to the edge `:data {:points}`. `transition-edge` then draws a smooth poly-path THROUGH the bends, so a deeply-nested transition routes **around** a container instead of cutting across it. Self-loops keep their dedicated loop path; an edge with no elk route falls back to the bezier. | `chart.cljs` `default-elk-options` (`ORTHOGONAL` + `edgeCoords ROOT`) / `elk-edge-points` / `elk-result->positions`; `projection.cljc` `xyflow-graph` (`:edge-points` → `:data {:points}`); `edges.cljs` `edge-path` (poly-path). |
 | **Fired-this-epoch edge highlight** | ✅ **Closed (rf2-8jzm1 + rf2-qeemm / G3).** The Xray inspector resolves the focused epoch's traversed edges via `extract-fired-edge-ids` (CANONICAL machines-viz edge-ids, B7) and threads them as `:fired-edge-ids` (set) into `MachineChart`; the projector marks each matching edge `:fired` and `transition-edge` paints the FIRED treatment (emphasised + animated stroke + `data-fired`) along the routed path — coexisting with G2's bend-points + G1's active styling. Matches the EDGE directly (not the from/to ENDPOINT lens), so every microstep / guard-fork arm lights up. **Colour delegated to Figma** (`:accent` baseline, distinct from the focused/active `:info`). | `projection.cljc` `xyflow-graph` (`:fired-edge-ids` → `:data {:fired}`); `chart.cljs` (`:fired-edge-ids` prop); `edges.cljs` `transition-edge` (FIRED stroke + `data-fired`); Xray `trace_state/extract-fired-edge-ids` + `machine_inspector` / `machine_canvas` wiring. |
 | **Simulation** | ✅ (host-side, trace-driven + hermetic sim) — live highlight off `[:rf/machines <id>]` + the Spec 009 bus; the Static-Machines Sim sub-mode is a hermetic what-if walker. Edge labels carry `:eventId` + `:onClick` so a host wires "click to send". | `projection.cljc` (`:on-edge-click`/`:eventId`); Xray `static/machines/sim.cljs` (per 003). |
@@ -191,11 +191,14 @@ multi-active highlight** gap (G1) is **closed** (rf2-yoe6e / rf2-g2svr),
 the bend-point edge-routing gap (G2) is **closed** (rf2-cz8v6), the
 region-ACTIVE chrome polish (G4) is **closed** (rf2-80rm2), and the
 **fired-this-epoch edge highlight** (G3) is now **closed** (rf2-8jzm1
-canonical-id helper + rf2-qeemm live-chart wiring) — **the
-machine-topology parity roadmap is COMPLETE (G1 / G2 / G3 / G4 all
-✅).** The sole remaining roadmap item is the low-severity ELK
-cross-hierarchy-routing assertion (G5, rf2 N2), an option-pin polish on
-top of G2.
+canonical-id helper + rf2-qeemm live-chart wiring), and the
+low-severity ELK cross-hierarchy-routing assertion (G5) is now
+**closed** (rf2-gpa9k) — the cross-hierarchy switch
+(`elk.hierarchyHandling INCLUDE_CHILDREN`, set on the root
+`layoutOptions` whenever the graph nests/parallels) rode in with G2 and
+is now regression-guarded by test. **The machine-topology parity
+roadmap is COMPLETE (G1 / G2 / G3 / G4 / G5 all
+✅).**
 
 ## §3 — Gap analysis + deliberate divergences
 
@@ -210,7 +213,7 @@ new), and the parity-bar row it serves.
 | **G2** | ✅ **CLOSED (rf2-cz8v6).** Was: edges were beziers between handles; elk's Layered bend-points were discarded (§1.7), so in deep nesting an edge could cut **across** a region/compound container instead of routing **around** it. Now: elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into the projection (`:edge-points` → `:data {:points}`), and `edges.cljs/edge-path` draws a smooth poly-path THROUGH them — routing around non-incident containers (the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor). Self-loops keep their loop path; no-route edges fall back to the bezier; G1's active-edge highlight survives the new path. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 ✅ |
 | **G3** | ✅ **CLOSED (rf2-8jzm1 + rf2-qeemm).** Was: to highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping had to mint the **same** `edge-id` `chart.layout` mints, and the ids weren't wired through to the canvas. Now: `extract-fired-edge-ids` (rf2-8jzm1) projects the definition through the public `parse-definition` and reads ids off the projected edges — they agree with the live chart **by construction**; rf2-qeemm threads them as `:fired-edge-ids` (set) into `MachineChart`, the projector marks each matching edge `:fired`, and `transition-edge` paints the FIRED treatment (emphasised + animated stroke + `data-fired`) on the live canvas. Matches the EDGE directly so every traversed arm (microsteps, guard-fork candidates) lights up. **Palette delegated to Figma.** | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 ✅ · **wire:** rf2-qeemm ✅ |
 | **G4** | ✅ **CLOSED (rf2-80rm2).** Was: once G1 lit N region LEAVES, the **region CONTAINER** still read structural-only — an active region was indistinguishable from an inactive one at the zone level. Now: `xyflow-graph` folds a container (region OR compound) into `:active` when any descendant leaf is active — walked UP the `:parent-id` chain every node already carries (reuses the G1 active set; no path-prefix reimplementation). `parallel-region-node` / `compound-node` paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so each active region reads as active at a glance and the N active regions read as a set. **Palette delegated to Figma.** | **Low–Medium** | §1.2 | **impl:** rf2-80rm2 ✅ |
-| **G5** | **Cross-hierarchy edge-routing option not asserted.** elk routes cross-hierarchy edges only when the option is activated on the top level (§1.7). The default elk options set `INCLUDE_CHILDREN` for nesting but do not pin the cross-hierarchy edge-routing option; an edge from a deeply-nested leaf to a top-level state may not route cleanly even after G2. | **Low** | §1.7 | **NEW — see §5 N2** (pairs with rf2-cz8v6/G2) |
+| **G5** | ✅ **CLOSED (rf2-gpa9k).** Was: elk routes cross-hierarchy edges only when the switch is activated on the top level (§1.7), and while `->elk-input` already set it, **nothing asserted it** — drop the line and no test would catch the regression. Now: the cross-hierarchy switch is `elk.hierarchyHandling INCLUDE_CHILDREN` on the root `layoutOptions`, set by the pure `chart.cljs/elk-layout-options` whenever the graph nests (`:parallel?` OR some node has a `:parent-id` — compound substate or parallel-region leaf); it is what lets the Layered algorithm route edges ACROSS nesting levels (its default `SEPARATE_CHILDREN` lays each level out independently and never routes cross-hierarchy edges). So an edge from a deeply-nested leaf to a top-level state routes cleanly, and G2's bend-points (rf2-cz8v6) come back as legible absolute coords. The capability rode in with G2; rf2-gpa9k extracted the option-computation into the assertable `elk-layout-options` and added the regression guard (nested/parallel ⇒ switch present, flat ⇒ absent, G2 routing keys pinned). | **Low** | §1.7 | **impl:** rf2-cz8v6 ✅ (capability) · **assert:** rf2-gpa9k ✅ |
 
 ### 3.2 Deliberate non-parity divergences (intentional, NOT gaps)
 
@@ -299,11 +302,18 @@ not **which colour**.
   renders a **rounded poly-path** through the bend points instead of a
   single bezier between handles. This is what stops an edge cutting
   across a nested container at machine sizes (§1.7).
-- **Assert cross-hierarchy edge routing (rf2 NEW N2/G5).** Add the elk
-  top-level cross-hierarchy edge-routing option to
-  `default-elk-options` so an edge from a nested leaf to a top-level
-  state routes cleanly. Pairs with G2 — bend-points are only useful if
-  elk is allowed to compute cross-hierarchy routes.
+- ✅ **Assert cross-hierarchy edge routing (rf2-gpa9k/G5 — DONE).** The
+  top-level cross-hierarchy switch is `elk.hierarchyHandling
+  INCLUDE_CHILDREN` on the root `layoutOptions`, set by
+  `chart.cljs/elk-layout-options` whenever the graph nests (`:parallel?`
+  OR a node has a `:parent-id`). It lets elk compute routes ACROSS
+  nesting levels (vs the default `SEPARATE_CHILDREN`), so an edge from a
+  nested leaf to a top-level state routes cleanly — and G2's bend-points
+  are only useful once elk is allowed to compute these cross-hierarchy
+  routes, which is exactly what this switch grants. rf2-gpa9k extracted
+  the pure `elk-layout-options` and added the regression guard
+  (`chart/edges-cljs-test`: nested/parallel ⇒ switch present, flat ⇒
+  absent, G2's `ORTHOGONAL` + `edgeCoords ROOT` pinned alongside).
 - **Visual dimension:** an edge MUST visibly route **around** a
   container it does not enter (no overlap of edge path and a
   non-incident region/compound box). Figma owns stroke style; the
@@ -359,7 +369,7 @@ project dispatch rules): `tools/xray/spec/003-Machine-Inspector.md`.
 | Step | Bead | New? | Hot-zone | Notes |
 |---|---|---|---|---|
 | B1 | **rf2-cz8v6** ✅ — elk bend-point edge routing | existing | isolated (`chart.cljs` position pass + `chart.edges` polyline + tests) | **Closed G2.** elk `ORTHOGONAL` + `edgeCoords ROOT`; `compute-layout!` lifts bend-point sections; `edge-path` renders a rounded poly-path through them. |
-| B2 | **N2 (NEW)** — `feat(machines-viz): assert ELK cross-hierarchy edge-routing in default-elk-options` | **NEW** | isolated (`chart.cljs` `default-elk-options` + projection test) | Closes **G5**. Small option add; pairs with B1 (bend-points need cross-hierarchy routing enabled to matter). Land with or just before B1. |
+| B2 | **rf2-gpa9k** ✅ — `test(machines-viz): assert ELK cross-hierarchy edge-routing (INCLUDE_CHILDREN)` | existing | isolated (`chart.cljs` `elk-layout-options` extract + `chart/edges-cljs-test`) | **Closed G5.** The capability rode in with B1/G2 (the switch `elk.hierarchyHandling INCLUDE_CHILDREN` was already set when nested) but was unasserted; rf2-gpa9k extracted the pure `elk-layout-options` and pinned it: nested/parallel ⇒ switch present, flat ⇒ absent, G2 routing keys present. |
 
 ### Phase C — fired-edge live highlight (host wiring)
 
@@ -383,11 +393,14 @@ project dispatch rules): `tools/xray/spec/003-Machine-Inspector.md`.
    `active-container-ids` parent-id walk + `nodes/parallel_region_node.cljs`
    + `nodes.cljs` `compound-node` + JVM tests). Depended on rf2-g2svr
    (A2). **Figma owns the region-active palette.**
-2. **N2 — `feat(machines-viz): assert ELK cross-hierarchy edge-routing`**
-   (closes **G5**). Add the top-level cross-hierarchy edge-routing
-   option to `default-elk-options`; projection test pins it. Isolated
-   (`chart.cljs` + test). Pairs with rf2-cz8v6 (B1). P3/P4 (small;
-   land with bend-points).
+2. **N2 — `test(machines-viz): assert ELK cross-hierarchy edge-routing`**
+   ✅ **filed + closed as rf2-gpa9k** (closes **G5**). The cross-hierarchy
+   switch (`elk.hierarchyHandling INCLUDE_CHILDREN`) was already set on
+   the root `layoutOptions` when the graph nests — the capability rode in
+   with G2 (rf2-cz8v6) — but nothing asserted it. rf2-gpa9k extracted the
+   pure `chart.cljs/elk-layout-options` and added the regression guard
+   (`chart/edges-cljs-test`: nested/parallel ⇒ switch present, flat ⇒
+   absent, G2 routing keys pinned). Isolated (`chart.cljs` + test).
 
 > **Parity verdict after Phases A–C + N1/N2:** `MachineChart` reaches
 > **full topology parity** with Stately Studio on all nine concerns
