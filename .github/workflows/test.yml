@@ -179,7 +179,7 @@ jobs:
         run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
 
   jvm-reagent-slim:
-    name: Diagnostic skip-ok JVM reagent-slim-adapter classpath probe
+    name: JVM reagent-slim (clojure -M:test)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
@@ -214,14 +214,15 @@ jobs:
             ${{ runner.os }}-clj-
 
       # The reagent-slim artefact (rf2-5djt Stage 4, rf2-6hyy) is the
-      # React-19 Reagent rewrite. Its :test alias carries CLJS unit
-      # tests only — the adapter ns is :cljs-only. The job exists so
-      # the artefact's deps + classpath wiring stay green. Skip-on-empty
-      # is acceptable; the cognitect test-runner returns 0 when there
-      # are no test namespaces matching its pattern. The CLJS unit
-      # tests run via shadow-cljs's :node-test build (see cljs job).
-      - name: Run JVM tests (reagent-slim artefact, classpath probe)
-        run: clojure -M:test || echo "no JVM-runnable tests in reagent-slim artefact (expected)"
+      # React-19 Reagent rewrite. It ships a JVM-runnable test namespace
+      # under test/ — reagent2.impl.component-test (12 deftests, the
+      # component-shape detection contract). The bulk of its suite is
+      # CLJS unit tests run via shadow-cljs's :node-test build (see cljs
+      # job), but the JVM surface is real, so the test-runner's non-zero
+      # exit MUST surface here — no `|| echo` fallback, or a regression
+      # in the component-shape contract would stay green.
+      - name: Run JVM tests (reagent-slim artefact)
+        run: clojure -M:test
 
   jvm-uix:
     name: Diagnostic skip-ok JVM uix-adapter classpath probe
@@ -1253,7 +1254,7 @@ jobs:
   # ---------------------------------------------------------------------------
 
   jvm-tools-xray:
-    name: Diagnostic skip-ok JVM tools/xray classpath probe
+    name: JVM tools/xray (clojure -M:test)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
@@ -1291,11 +1292,11 @@ jobs:
       # alongside its CLJS test trees. The CLJS surfaces are already
       # picked up by the consolidated `:node-test` build (shadow-cljs.edn
       # lists tools/xray/test as a source path); this job closes the
-      # JVM-side gap. `|| echo …` keeps the job green if the JVM-runnable
-      # set shrinks to zero in the future — same shape as `jvm-machines`
-      # / `jvm-reagent` above.
+      # JVM-side gap. The test-runner returns non-zero on any failure;
+      # the job MUST surface that so the gate is real — no `|| echo`
+      # fallback, mirroring `jvm-machines` / `jvm-schemas` above.
       - name: Run JVM tests (tools/xray artefact)
-        run: clojure -M:test || echo "no JVM-runnable tests in tools/xray artefact"
+        run: clojure -M:test
 
   jvm-tools-story:
     name: JVM tools/story (clojure -M:test)
@@ -2087,3 +2088,90 @@ jobs:
             exit 1
           fi
           echo "Committed SCI bundle OK (${bytes} bytes; smoke validated a fresh rebuild of the same source)."
+
+  # ---------------------------------------------------------------------------
+  # Required-checks aggregator (rf2-dtvmb).
+  #
+  # ONE stable status context that is ALWAYS present on every PR and that
+  # passes iff every gating job that actually ran also passed. This is the
+  # single context the branch ruleset should require — it lets the
+  # conservative changed-surface classifier above SKIP expensive jobs on
+  # unrelated PRs (a skipped job is OK; it contributed no signal) while
+  # still blocking a merge the moment any job that DID run reports
+  # `failure` or `cancelled`.
+  #
+  # Why this exists: the ruleset previously required phantom `jvm` + `cljs`
+  # contexts that NO job in this workflow emits, so every PR sat
+  # permanently pending and could only be merged via maintainer --admin —
+  # which also meant a genuinely RED real gate (jvm-core, cljs,
+  # bundle-isolation, …) could merge identically because none of the real
+  # gates were actually required. Pointing the ruleset at this aggregator
+  # instead makes the real matrix enforceable through one always-present
+  # context.
+  #
+  # `needs:` must list EVERY gating job in this workflow — GitHub `needs:`
+  # only spans the same workflow file, so this aggregator covers test.yml
+  # jobs only. `if: always()` is mandatory: without it the aggregator
+  # would itself be skipped whenever any upstream job skips, and a skipped
+  # required check never satisfies the ruleset. The pass/fail decision
+  # reads `needs.*.result`: `success` and `skipped` are acceptable;
+  # `failure` and `cancelled` are not.
+  # ---------------------------------------------------------------------------
+  all-required-passed:
+    name: All required checks passed
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs:
+      - detect_changed_surfaces
+      - verify-version-lockstep
+      - verify-skill-mcp-drift
+      - jvm-core
+      - jvm-reagent
+      - jvm-reagent-slim
+      - jvm-uix
+      - jvm-helix
+      - jvm-schemas
+      - jvm-machines
+      - jvm-routing
+      - jvm-flows
+      - jvm-http
+      - jvm-ssr
+      - jvm-ssr-ring
+      - jvm-epoch
+      - cljs
+      - js-harness-self-tests
+      - cljs-browser
+      - cljs-browser-schemas-boundary-prod
+      - cljs-browser-prod-elision
+      - cljs-elision
+      - cljs-bundle-isolation
+      - adapter-testbed-smokes
+      - story-xray-browser
+      - cljs-reagent-slim-bundle-isolation
+      - jvm-tools-xray
+      - jvm-tools-story
+      - jvm-tools-story-mcp
+      - jvm-tools-mcp-base
+      - jvm-tools-template
+      - node-test-tools-re-frame2-pair-mcp
+      - node-test-tools-story-mcp
+      - mcp-conformance-re-frame2-pair
+      - mcp-conformance-story
+      - mcp-conformance-wire-vocab
+      - skills-structural
+      - tools-playground
+    steps:
+      # `needs.*.result` is the spread of every dependency's final result.
+      # `contains(... , 'failure')` / `'cancelled')` catch any gating job
+      # that ran and did not pass. `skipped` (surface-gated job that did
+      # not run) and `success` are both acceptable, so they are NOT
+      # treated as failures.
+      - name: Fail if any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "::error::A required test.yml job reported failure or cancelled — blocking merge."
+          echo "needs results: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+
+      - name: All required jobs passed or were skipped
+        run: echo "All gating jobs that ran passed (skipped surface-gated jobs are OK)."
