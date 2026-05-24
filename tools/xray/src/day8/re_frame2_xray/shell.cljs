@@ -818,6 +818,12 @@
       `❖ Xray` wordmark was DROPPED per A4), the `[◀ ▶ ⏭]` blue-filled
       nav cluster (A2), then the `+ filter` add-pill (A5). (rf2-pjjwh
       retired the `focus` button + focus-chip with the focus feature.)
+      The chrome `+ filter` is mutually-exclusive with the events-ribbon
+      (rf2-8zd80): when ≥1 filter is committed the events-ribbon owns the
+      `[+]` add affordance and the chrome `+ filter` collapses to zero
+      width via the `.rf-xray-filters-collapse-h` horizontal-grid track
+      (250ms, same cadence + reduced-motion seam as the events-ribbon
+      vertical collapse).
     - **RIGHT** — the Frame dropdown (`frame-switcher/frame-switcher-
       view`) + the Dynamic/Static mode dropdown (`mode-pill/mode-pill`)
       + the mute (🔇 N) / REDACTED (● N) silent-by-default indicators +
@@ -848,6 +854,12 @@
         focus          @(rf/subscribe [:rf.xray/focus])
         cascades       @(rf/subscribe [:rf.xray/filtered-cascades])
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
+        ;; rf2-8zd80 — the chrome `+ filter` and the events-ribbon are
+        ;; mutually-exclusive add affordances. Hide the chrome button
+        ;; when ≥1 filter is committed (the events-ribbon's own `[+]`
+        ;; takes over). Open when zero filters, closed otherwise.
+        filters        @(rf/subscribe [:rf.xray/active-filters])
+        no-filters?    (zero? (+ (count (:in filters)) (count (:out filters))))
         {:keys [at-head? at-tail? live?]}
         (nav-boundary-state {:focus           focus
                              :cascades        cascades
@@ -905,7 +917,21 @@
       ;; canonical `:rf.xray/open-edit-popup` flow), so the add behaviour
       ;; is RETAINED — only the surface changes. Muted-outline on the dark
       ;; band so it reads as a secondary chrome affordance.
-      [filter-pills/chrome-add-filter-button]]
+      ;;
+      ;; rf2-8zd80 — wrapped in a horizontal collapse track so the
+      ;; button retracts to zero width (with the same 250ms / motion-
+      ;; scale cadence as the events-ribbon vertical collapse) once the
+      ;; events-ribbon owns the add affordance via its `[+]` icon.
+      ;; `data-open` flips on the active-filters count: open when zero,
+      ;; closed when one or more. Stays mounted so the transition runs
+      ;; in both directions. The button keeps its own `data-testid` so
+      ;; tests + Playwright lassos targeting it still resolve while it
+      ;; is visible.
+      [:div {:data-testid "rf-xray-filter-add-collapse"
+             :class       "rf-xray-filters-collapse-h"
+             :data-open   (if no-filters? "true" "false")
+             :aria-hidden (if no-filters? "false" "true")}
+       [:div [filter-pills/chrome-add-filter-button]]]]
      ;; RIGHT cluster — scope selectors (Frame + Dynamic/Static) then the
      ;; silent-by-default indicators + chrome actions. Per the authority
      ;; reference chrome-ribbon right side (rf2-3f2di A5).

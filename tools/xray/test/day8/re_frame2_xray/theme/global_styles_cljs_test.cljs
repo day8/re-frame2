@@ -454,6 +454,70 @@
         (is (re-find #"grid-template-rows:\s*1fr" open)
             "open state expands the grid row to 1fr")))))
 
+(deftest motion-css-pins-filters-collapse-duration-to-250ms
+  (testing "rf2-8zd80 — both transitions on `.rf-xray-filters-collapse`
+            run at exactly 250ms so OPEN and CLOSE share one duration.
+            The previous (200ms grid-template-rows + 160ms opacity) split
+            decoupled the height collapse from the cross-fade by a frame
+            or two; pinning both to 250ms keeps the bottom edge of the
+            bar and the column flex below it travelling in lock-step."
+    (let [css  @#'gs/motion-css
+          base (re-find #"\.rf-xray-filters-collapse\s*\{[\s\S]*?\}" css)]
+      (is (some? base))
+      (when base
+        (is (re-find #"grid-template-rows\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
+            "grid-template-rows transition is pinned to 250ms")
+        (is (re-find #"opacity\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
+            "opacity transition is pinned to 250ms")
+        (is (not (re-find #"200ms|160ms" base))
+            "no residual 200ms / 160ms timing from the pre-rf2-8zd80 split")))))
+
+(deftest motion-css-closed-collapse-track-frees-min-height
+  (testing "rf2-8zd80 — the inner toolbar of the events-ribbon carries
+            an inline `min-height: 34px` so the OPEN bar holds its
+            design height (and grows under flex-wrap when pills
+            overflow). That inline min-height beats the stylesheet
+            default; without an `!important` override scoped to the
+            closed state the inner stays 34px tall regardless of the
+            parent grid track, the closed track can't reclaim its
+            space, and the bar leaves a 34px gap where it was. This
+            rule is the layout-bug fix: scoped to `data-open=\"false\"`
+            and `!important` so it lets the closed collapse fully
+            without disturbing the open height."
+    (let [css     @#'gs/motion-css
+          closed  (re-find #"\.rf-xray-filters-collapse\[data-open=\"false\"\]\s*>\s*\*\s*\{[\s\S]*?\}" css)]
+      (is (some? closed)
+          "the [data-open=\"false\"] > * rule is present")
+      (when closed
+        (is (re-find #"min-height:\s*0\s*!important" closed)
+            "closed state forces inner min-height to 0 (overriding inline)")))))
+
+(deftest motion-css-declares-horizontal-collapse-track
+  (testing "rf2-8zd80 — the chrome `+ filter` button is mutually-
+            exclusive with the events-ribbon: when ≥1 filter is
+            committed the events-ribbon's `[+]` icon owns the add
+            affordance and the chrome `+ filter` collapses to zero
+            width. The `.rf-xray-filters-collapse-h` rule is the
+            horizontal sibling of the row-collapse track —
+            `grid-template-columns: 0fr ⇄ 1fr` with the same 250ms /
+            motion-scale cadence keeps the two tracks visually
+            synchronised."
+    (let [css  @#'gs/motion-css
+          base (re-find #"\.rf-xray-filters-collapse-h\s*\{[\s\S]*?\}" css)
+          open (re-find #"\.rf-xray-filters-collapse-h\[data-open=\"true\"\]\s*\{[\s\S]*?\}" css)]
+      (is (some? base) "horizontal collapse base rule is present")
+      (is (some? open) "horizontal collapse open rule is present")
+      (when base
+        (is (re-find #"grid-template-columns:\s*0fr" base)
+            "closed state collapses the grid column to 0fr")
+        (is (re-find #"grid-template-columns\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
+            "grid-template-columns transition is pinned to 250ms")
+        (is (re-find #"opacity\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
+            "opacity transition is pinned to 250ms"))
+      (when open
+        (is (re-find #"grid-template-columns:\s*1fr" open)
+            "open state expands the grid column to 1fr")))))
+
 (deftest themes-css-publishes-root-defaults
   (testing "rf2-3f2di B2 — the :root block publishes the LIGHT palette
             as the default (flipped from dark) so any descendant that

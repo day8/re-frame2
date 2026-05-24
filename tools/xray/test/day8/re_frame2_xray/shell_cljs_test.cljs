@@ -418,6 +418,75 @@
         (is (not (re-find #"Clear Filters" (text-nodes tree)))
             "no `Clear Filters` copy anywhere in the shell")))))
 
+;; ---- rf2-8zd80 — chrome `+ filter` ⇄ events-ribbon mutual exclusion ----
+
+(deftest chrome-add-filter-button-open-when-no-filters
+  (testing "rf2-8zd80 — with zero filters the events-ribbon is hidden,
+            so the chrome ribbon's `+ filter` button is the SOLE add
+            affordance and its horizontal collapse track is OPEN
+            (data-open=true). The button itself stays in the tree
+            (mounted) so Playwright / test lookups can resolve it."
+    (xray-setup!)
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
+    (rf/with-frame :rf/xray
+      (let [tree     (shell/shell-view)
+            collapse (find-by-testid tree "rf-xray-filter-add-collapse")
+            button   (find-by-testid tree "rf-xray-filter-add")]
+        (is (some? collapse) "the horizontal collapse track is mounted")
+        (is (= "true" (:data-open (second collapse)))
+            "open when there are no filters")
+        (is (= "false" (:aria-hidden (second collapse)))
+            "aria-hidden mirrors the open state (open = visible)")
+        (is (some? button)
+            "the chrome `+ filter` button stays mounted (only the track collapses)")))))
+
+(deftest chrome-add-filter-button-collapsed-when-events-ribbon-visible
+  (testing "rf2-8zd80 — once ≥1 filter is committed the events-ribbon's
+            own `[+]` icon takes over as the add affordance, so the
+            chrome `+ filter` is REDUNDANT and its horizontal collapse
+            track flips closed (data-open=false). The events-ribbon's
+            own add button stays available throughout."
+    (xray-setup!)
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}]))
+    (rf/with-frame :rf/xray
+      (let [tree         (shell/shell-view)
+            collapse     (find-by-testid tree "rf-xray-filter-add-collapse")
+            events-coll  (find-by-testid tree "rf-xray-events-ribbon-collapse")
+            events-add   (find-by-testid tree "rf-xray-filter-add-events")]
+        (is (= "false" (:data-open (second collapse)))
+            "chrome `+ filter` track is CLOSED when ≥1 filter")
+        (is (= "true" (:aria-hidden (second collapse)))
+            "aria-hidden flips to true when collapsed")
+        (is (= "true" (:data-open (second events-coll)))
+            "events-ribbon is OPEN (the two tracks are mutually exclusive)")
+        (is (some? events-add)
+            "the events-ribbon's own `[+]` add affordance remains available")))))
+
+(deftest chrome-add-filter-track-reopens-when-last-filter-removed
+  (testing "rf2-8zd80 — the mutual-exclusion is symmetric: removing the
+            last filter closes the events-ribbon and re-opens the chrome
+            `+ filter` track so the add affordance is never lost in either
+            transition."
+    (xray-setup!)
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
+    ;; add then immediately remove
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}])
+      (rf/dispatch-sync [:rf.xray/remove-filter :in 0]))
+    (rf/with-frame :rf/xray
+      (let [tree        (shell/shell-view)
+            collapse    (find-by-testid tree "rf-xray-filter-add-collapse")
+            events-coll (find-by-testid tree "rf-xray-events-ribbon-collapse")]
+        (is (= "true" (:data-open (second collapse)))
+            "chrome `+ filter` track re-opens after the last filter is removed")
+        (is (= "false" (:data-open (second events-coll)))
+            "events-ribbon re-closes after the last filter is removed")))))
+
 (deftest close-icon-dispatches-close-shell
   (testing "rf2-4vp5j Workstream A — the chrome ribbon `✕` dispatches the
             existing `:rf.xray/close-shell` event (landed by rf2-fq491);

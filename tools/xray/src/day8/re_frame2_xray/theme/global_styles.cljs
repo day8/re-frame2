@@ -830,31 +830,76 @@
     "  background-color: rgba(255,255,255,0.12);\n"
     "  color: " (:chrome-ribbon-text tokens/tokens) ";\n"
     "}\n"
-    ;; rf2-pjjwh — `filters:` (bar-2) conditional reveal animation. The
-    ;; events-ribbon is HIDDEN when there are zero filters and animates
-    ;; OPEN when the first filter is added / CLOSED when the last is
-    ;; removed. The collapse track is a CSS grid whose single row animates
-    ;; `0fr ⇄ 1fr` — the modern jank-free height collapse that doesn't need
-    ;; a fixed max-height (the bar grows to its natural height and back to
-    ;; zero with no layout jump). `min-height: 0` on the inner child lets
-    ;; the grid track collapse fully; `overflow: hidden` clips the content
-    ;; while it slides. Opacity cross-fades alongside so the bar doesn't
-    ;; pop. Runs through `--rf-xray-motion-scale` so the reduced-motion
-    ;; seam collapses it to an instant resolve.
+    ;; rf2-pjjwh + rf2-8zd80 — `filters:` (bar-2) conditional reveal
+    ;; animation. The events-ribbon is HIDDEN when there are zero filters
+    ;; and animates OPEN when the first filter is added / CLOSED when the
+    ;; last is removed. The collapse track is a CSS grid whose single row
+    ;; animates `0fr ⇄ 1fr` — the modern jank-free height collapse that
+    ;; doesn't need a fixed max-height (the bar grows to its natural
+    ;; height and back to zero with no layout jump). `min-height: 0` on
+    ;; the inner child lets the grid track collapse fully; `overflow:
+    ;; hidden` clips the content while it slides. Opacity cross-fades
+    ;; alongside so the bar doesn't pop. Runs through
+    ;; `--rf-xray-motion-scale` so the reduced-motion seam collapses it
+    ;; to an instant resolve.
+    ;;
+    ;; rf2-8zd80 — pinned both transitions to exactly 250ms (was 200ms +
+    ;; 160ms) so OPEN and CLOSE share one duration; the bar's bottom edge
+    ;; and the column flex below it now travel in lock-step.
+    ;;
+    ;; rf2-8zd80 — `min-height: 0 !important` on the inner child is
+    ;; load-bearing: the events-ribbon's inner toolbar carries an inline
+    ;; `:min-height "34px"` so the OPEN bar holds its design height (and
+    ;; grows under `flex-wrap` when pills overflow). Inline styles beat
+    ;; stylesheet rules unless `!important` wins. Without the override
+    ;; the inner stays 34px tall regardless of the parent grid track,
+    ;; the closed track can't reclaim its space, and the bar leaves a
+    ;; 34px gap where it was. The OPEN-state height comes from the
+    ;; inline `min-height` on the inner; the CLOSED-state collapse comes
+    ;; from this rule. Scoped to `[data-open=\"false\"]` so the open
+    ;; bar's 34px floor still applies.
     ".rf-xray-filters-collapse {\n"
     "  display: grid;\n"
     "  grid-template-rows: 0fr;\n"
     "  opacity: 0;\n"
-    "  transition: grid-template-rows calc(200ms * var(--rf-xray-motion-scale, 1)) ease-out,\n"
-    "              opacity calc(160ms * var(--rf-xray-motion-scale, 1)) ease-out;\n"
+    "  transition: grid-template-rows calc(250ms * var(--rf-xray-motion-scale, 1)) ease-out,\n"
+    "              opacity calc(250ms * var(--rf-xray-motion-scale, 1)) ease-out;\n"
     "}\n"
     ".rf-xray-filters-collapse[data-open=\"true\"] {\n"
     "  grid-template-rows: 1fr;\n"
     "  opacity: 1;\n"
     "}\n"
     ".rf-xray-filters-collapse > * {\n"
-    "  min-height: 0;\n"
     "  overflow: hidden;\n"
+    "}\n"
+    ".rf-xray-filters-collapse[data-open=\"false\"] > * {\n"
+    "  min-height: 0 !important;\n"
+    "}\n"
+    ;; rf2-8zd80 — horizontal sibling of the row-collapse track. Used by
+    ;; the chrome ribbon's `[+ filter]` button: when the events-ribbon
+    ;; is visible (≥1 filter), the chrome `[+ filter]` is redundant
+    ;; (the events-ribbon carries its own `[+]` icon button) and
+    ;; collapses to zero width. When the events-ribbon is hidden
+    ;; (0 filters), the chrome `[+ filter]` is the SOLE add affordance
+    ;; and expands. `grid-template-columns: 0fr ⇄ 1fr` mirrors the row
+    ;; collapse; same 250ms timing + opacity cross-fade keep the two
+    ;; tracks visually synchronised so as one bar appears the other
+    ;; affordance retracts in lock-step.
+    ".rf-xray-filters-collapse-h {\n"
+    "  display: grid;\n"
+    "  grid-template-columns: 0fr;\n"
+    "  opacity: 0;\n"
+    "  transition: grid-template-columns calc(250ms * var(--rf-xray-motion-scale, 1)) ease-out,\n"
+    "              opacity calc(250ms * var(--rf-xray-motion-scale, 1)) ease-out;\n"
+    "}\n"
+    ".rf-xray-filters-collapse-h[data-open=\"true\"] {\n"
+    "  grid-template-columns: 1fr;\n"
+    "  opacity: 1;\n"
+    "}\n"
+    ".rf-xray-filters-collapse-h > * {\n"
+    "  min-width: 0;\n"
+    "  overflow: hidden;\n"
+    "  white-space: nowrap;\n"
     "}\n"))
 
 (defn- inject-motion-style!
