@@ -498,7 +498,7 @@
         [:span {:style {:color "var(--devtools-text)"}} "→ [:title/flow [:rf/init]]"]]
        [:div {:style {:display "flex" :align-items "flex-start" :gap "8px"}}
         [:span {:style {:color "var(--devtools-text-muted)"}} ":http-xhrio"]
-        [:span {:style {:color "var(--devtools-text)"}} "→ {:method :get, :uri \"/api/data\"}"]]]]]]]])
+        [:span {:style {:color "var(--devtools-text)"}} "→ {:method :get, :uri \"/api/data\"}"]]]]]]])
 
 ;; ============================================================================
 ;; App-DB Panel Component (simplified)
