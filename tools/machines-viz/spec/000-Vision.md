@@ -363,6 +363,65 @@ same model.
 The locked rendering-stack decisions (rf2-04gvh closure, locked
 2026-05-19), expressed in the §Decision-trace template above.
 
+### XState / Stately ground-truth (cited)
+
+The rows below assert "same engine Stately Studio uses" for both
+the layout engine and the interactive renderer. This subsection
+records the cited prior-art that justifies those assertions and
+the xyflow + elkjs stack choice (sourced from the rf2-ox50v
+machine-representation research). The point is **construction, not
+mimicry**: we reproduce Stately's look by adopting the same
+primitives, not by copying its pixels.
+
+- **Renderer — Stately Studio renders with xyflow / React Flow.**
+  Stately ships [`@statelyai/graph`](https://stately.ai/docs/packages/graph/src-formats-xyflow)
+  with a first-party `toXYFlow` / `fromXYFlow` converter, i.e. the
+  Studio canvas is React Flow nodes + edges. The **legacy**
+  [`@xstate/viz`](https://github.com/statecharts/xstate-viz) was
+  **custom SVG** (elkjs + framer-motion, no React Flow). Therefore
+  our `@xyflow/react` + `elkjs` stack reproduces Stately's *current*
+  look **by construction** — same renderer primitive + same layout
+  engine — and we are **not** bound to the legacy custom-SVG
+  aesthetic. (This is the cited basis for the 2026-05-21 override in
+  §Interactive renderer below, which moved off the hand-rolled-SVG
+  lock.)
+- **IR — xstate exposes machine structure as serializable data.**
+  Two ground-truth surfaces: `machine.definition` (the serializable
+  `StateNode` tree) and
+  [`@xstate/graph`](https://stately.ai/docs/xstate-graph)'s
+  `toDirectedGraph`, which projects a machine to hierarchical
+  nodes / edges. re-frame2's analogue is the registered
+  `reg-machine` body (EDN) parsed by `chart/layout.cljc` into a
+  substrate-agnostic graph map — the same "definition → directed
+  graph" shape, in EDN rather than a TS object (see §Model format).
+- **Layout — ELK both sides.** Stately migrated **Dagre → ELK**
+  ([`elkjs`](https://github.com/kieler/elkjs)) for compound-state
+  nesting and parallel-region handling; re-frame2 adopts ELK on the
+  same evidence (see §Layout engine; this is *the* no-divergence
+  row).
+
+**Deliberate divergences (re-frame2 Xray vs Stately Studio).**
+Flagged here per the skill convention (anchor on the JS-ecosystem
+tool, then map, then name where we diverge):
+
+- **Read-only inspector — no code↔diagram sync.** Stately Studio is
+  a bidirectional editor (edit the diagram, regenerate the code).
+  `MachineChart` is a read-only projection of an already-registered
+  machine; there is no canvas-driven authoring (see §What it isn't
+  → "Not an editor").
+- **Trace-driven sim, not a sandbox interpreter.** Live highlight +
+  replay are driven by the Spec 009 `:rf.machine/*` trace bus
+  in-process, not by a standalone interpreter sandbox (see
+  §Active-state highlighting transport).
+- **No history pseudo-states.** Spec 005 omits `:history` in v1, so
+  the chart has no history-node glyph; XState / SCXML history nodes
+  have no re-frame2 analogue to render.
+- **re-frame2-native overlays.** `:after` countdown rings,
+  microstep replay, `:spawn-all` join visualisation, and the
+  cancellation cascade are projections of re-frame2 substrate
+  semantics with no Stately Studio counterpart (see §What re-frame2
+  unlocks for Machines-Viz).
+
 ### Layout engine
 
 **Decision:** Layout engine for the interactive `MachineChart`.
@@ -492,7 +551,12 @@ interactive surfaces carry the lossless cases.
 **Stately / XState's choice:** **TypeScript object literals**
 (XState v5: `createMachine({ ... })` over a TS-typed config
 object). Stately Studio's editor produces and ingests the same
-shape (plus JSON for the share / export pipeline).
+shape (plus JSON for the share / export pipeline). The renderable
+**IR** is then exposed as data: `machine.definition` (serializable
+`StateNode` tree) and
+[`@xstate/graph`](https://stately.ai/docs/xstate-graph)'s
+`toDirectedGraph` (hierarchical nodes / edges) — see §XState /
+Stately ground-truth (cited) above.
 
 **re-frame2's choice:** **EDN** — the `reg-machine` body, with
 keywords, sets, nested maps, and namespaced keys preserved
