@@ -611,6 +611,62 @@
         (is (not= "0px" (get-in child [:style :margin-left]))
             "child row is indented under its parent (cascade tree)")))))
 
+;; ---- (5c) Figma fidelity — rf2-tha26 -----------------------------------
+
+(deftest footer-legend-renders-below-the-feed
+  (testing "rf2-tha26 — the Figma footer legend renders below the feed
+            naming the row reading conventions (colour-banded by op-family
+            · click a row → expand raw :operation + tags)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree   (trace/Panel)
+            legend (find-by-testid tree "rf-causa-trace-footer-legend")]
+        (is (some? legend) "footer legend renders in the feed branch")
+        (is (= "colour-banded by op-family · click a row → expand raw :operation + tags"
+               (last legend))
+            "footer legend carries the reference copy")))))
+
+(deftest footer-legend-absent-in-empty-states
+  (testing "rf2-tha26 — the footer legend is scoped to the feed branch; it
+            does NOT render when the panel shows an empty-state"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Focused epoch with no trace events → :no-events empty-state.
+      (seed-history! [(mk-epoch 1 11 [])])
+      (focus! 11)
+      (let [tree (trace/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-trace-empty-no-events"))
+            "empty-state renders")
+        (is (nil? (find-by-testid tree "rf-causa-trace-footer-legend"))
+            "footer legend absent in the empty-state branch")))))
+
+(deftest op-rows-are-rounded-pills-not-flat-divided
+  (testing "rf2-tha26 — Figma rounded hover-pill rows: each op row carries
+            a border-radius (rounded) + inter-row rhythm and DROPS the
+            flat hairline `border-bottom` divider; the op-family 3px
+            left-border is preserved"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree* (trace/Panel)
+            attrs (node-attrs tree* "rf-causa-trace-row-1")
+            style (:style attrs)]
+        (is (= "4px" (:border-radius style)) "row is a rounded pill")
+        (is (nil? (:border-bottom style))
+            "the flat hairline divider is gone (pills, not divided rows)")
+        (let [bl (:border-left style)]
+          (is (and (string? bl) (re-find #"^3px solid " bl))
+              "the op-family 3px left-border band is preserved"))))))
+
 ;; ---- (6) frame isolation ------------------------------------------------
 
 (deftest trace-expand-state-does-not-leak-into-default-frame

@@ -357,6 +357,62 @@
         (is (= "right" (-> ts second :style :text-align))
             "timestamp is right-aligned")))))
 
+;; ---- (5b) Figma fidelity — rf2-tha26 -----------------------------------
+
+(deftest description-column-fills-available-width
+  (testing "rf2-tha26 — the description column is the SOLE flexible track
+            (`minmax(0, 1fr)` = Figma `flex-1`); the category column is a
+            FIXED width so a long category no longer starves the
+            description into a `:r…` ellipsis when the row has room"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 11 [(mk-issue {:id 1 :op-type :error
+                                    :operation :rf.error/handler-exception})])])
+      (focus! 11)
+      (let [tree (issues-ribbon/Panel)
+            cols (-> (find-by-testid tree "rf-causa-issues-row-1")
+                     second :style :grid-template-columns)]
+        (is (string? cols) "row uses a grid template")
+        (is (re-find #"minmax\(0, 1fr\)" cols)
+            "the description track is `minmax(0, 1fr)` (fills the row)")
+        ;; The category column is a fixed width — NOT a fractional track
+        ;; that competes with the description for flexible space.
+        (is (re-find #"144px" cols)
+            "the category column is a fixed width (Figma w-36)")
+        (is (not (re-find #"0\.6fr" cols))
+            "the prior fractional category track (`0.6fr`) is gone")))))
+
+(deftest footer-hint-renders-below-the-feed
+  (testing "rf2-tha26 — the Figma footer hint renders below the feed
+            naming the row affordances (click a row → Event panel · click
+            ↗ → source file:line)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history!
+        [(mk-epoch 1 11 [(mk-issue {:id 1 :op-type :error
+                                    :operation :rf.error/handler-exception})])])
+      (focus! 11)
+      (let [tree (issues-ribbon/Panel)
+            hint (find-by-testid tree "rf-causa-issues-footer-hint")]
+        (is (some? hint) "footer hint renders in the feed branch")
+        (is (= "click a row → Event panel (the cascade) · click ↗ → source file:line"
+               (last hint))
+            "footer hint carries the reference copy")))))
+
+(deftest footer-hint-absent-in-empty-states
+  (testing "rf2-tha26 — the footer hint is scoped to the feed branch; it
+            does NOT render when the panel shows an empty-state"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-history! [(mk-epoch 1 11 [])])
+      (focus! 11)
+      (let [tree (issues-ribbon/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-issues-empty-no-issues"))
+            "empty-state renders")
+        (is (nil? (find-by-testid tree "rf-causa-issues-footer-hint"))
+            "footer hint absent in the empty-state branch")))))
+
 ;; ---- (6) focused-epoch scope (spec/021 §1.2 + §8) ---------------------
 
 (deftest issues-panel-scopes-to-focused-epoch

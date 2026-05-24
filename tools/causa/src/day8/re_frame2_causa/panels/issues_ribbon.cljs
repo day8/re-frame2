@@ -102,8 +102,15 @@
                          ;; Flip the visible tab to Event so the row
                          ;; pivot lands in the event lens.
                          (rf/dispatch [:rf.causa/select-tab :event] {:frame :rf/causa}))
+          ;; rf2-tha26 — the category column is a FIXED width (≈ Figma
+          ;; `w-36`) so the description column is the SOLE flexible track
+          ;; (`1fr` = the reference's `flex-1`). The prior `0.6fr`
+          ;; category shared the flexible width with the description, so
+          ;; a long category starved the description into a `:r…`
+          ;; ellipsis even when the row had room — the description now
+          ;; fills all the space the fixed columns leave.
           :style       {:display       "grid"
-                        :grid-template-columns "78px minmax(110px, 0.6fr) 1fr auto 18px"
+                        :grid-template-columns "78px 144px minmax(0, 1fr) auto 18px"
                         :gap           "16px"
                         :align-items   "center"
                         :padding       "8px 12px"
@@ -173,6 +180,25 @@
                        :font-size "13px"
                        :text-align "center"}}
         "·"])]))
+
+;; ---- footer hint --------------------------------------------------------
+
+(defn- footer-hint
+  "Reference footer hint (rf2-tha26 ·
+  `design-reference/components/IssuesPanel.tsx`). Spells out the row's
+  two affordances — click the row pivots to the Event panel (the
+  cascade that produced the issue); click `↗` opens the responsible
+  handler at `file:line`. Rendered below the feed (feed branch only) so
+  it shares the focused-epoch lens with the rows it describes."
+  []
+  [:div {:data-testid "rf-causa-issues-footer-hint"
+         :style       {:margin-top  "16px"
+                       :padding-top "16px"
+                       :border-top  (str "1px solid " (:border-default tokens))
+                       :color       (:text-tertiary tokens)
+                       :font-family sans-stack
+                       :font-size   "11px"}}
+   "click a row → Event panel (the cascade) · click ↗ → source file:line"])
 
 ;; ---- empty states -------------------------------------------------------
 
@@ -264,14 +290,16 @@
         :no-focus      (empty-state-no-focus)
         :epoch-evicted (empty-state-epoch-evicted epoch-id)
         :no-issues     (empty-state-no-issues)
-        nil            (overflow/capped-list
-                         issues
-                         {:panel-id "issues"
-                          :ul-attrs {:data-testid "rf-causa-issues-feed"
-                                     :style       {:list-style "none"
-                                                   :margin     0
-                                                   :padding    0}}
-                          :row-fn   issue-row}))]]))
+        nil            [:<>
+                        (overflow/capped-list
+                          issues
+                          {:panel-id "issues"
+                           :ul-attrs {:data-testid "rf-causa-issues-feed"
+                                      :style       {:list-style "none"
+                                                    :margin     0
+                                                    :padding    0}}
+                           :row-fn   issue-row})
+                        (footer-hint)])]]))
 
 ;; ---- registration entry --------------------------------------------------
 

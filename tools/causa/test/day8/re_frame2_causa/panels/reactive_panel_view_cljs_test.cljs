@@ -112,6 +112,50 @@
       (is (= "Reactive Flow" (text-of tree "rf-causa-reactive-section-flow-label"))
           "graph section heading is `Reactive Flow`"))))
 
+(deftest reactive-flow-heading-is-title-case-not-all-caps
+  (testing "rf2-tha26 — the primary `Reactive Flow` heading renders in
+            TITLE case (no CSS uppercase transform), not the all-caps
+            `REACTIVE FLOW` the prior shared section-label forced; the
+            secondary teardown captions keep their uppercase register."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :unmounted-views [] :destroyed-subs []})
+    (let [tree (view/reactive-panel)
+          flow (th/find-by-testid tree "rf-causa-reactive-section-flow-label")
+          unmnt (th/find-by-testid tree
+                                   "rf-causa-reactive-section-unmounted-label")]
+      (is (not= "uppercase" (get-in flow [1 :style :text-transform]))
+          "the `Reactive Flow` heading is NOT CSS-uppercased (title case)")
+      ;; The literal title is already title case (rf2-ad7zx.6); with no
+      ;; uppercase transform it renders title case as authored.
+      (is (= "Reactive Flow" (text-of tree "rf-causa-reactive-section-flow-label"))
+          "the literal heading text reads in title case")
+      (is (= "uppercase" (get-in unmnt [1 :style :text-transform]))
+          "the secondary teardown caption keeps its uppercase register"))))
+
+(deftest reactive-graph-card-carries-visible-border
+  (testing "rf2-tha26 — the reactive-graph card paints a visible rounded
+            card border (the prior `:border-default` hairline was near-
+            invisible on the dark theme)."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {}
+       :level-1-subs [{:sub-id :cart/state :changed? true}]
+       :level-2-subs [] :view-rows []})
+    (let [tree (view/reactive-panel)
+          card (th/find-by-testid tree "rf-causa-reactive-graph-card")
+          border (get-in card [1 :style :border])]
+      (is (some? card) "the graph card renders")
+      (is (string? border) "the card carries a border")
+      (is (re-find #"^1px solid " border) "the border is a 1px solid edge")
+      (is (= "8px" (get-in card [1 :style :border-radius]))
+          "the card keeps its rounded-lg corner radius"))))
+
 (deftest changed-node-and-edge-encoding
   (testing "rf2-ad7zx.6 — a changed sub node carries data-node-changed
             true; its app-db→sub edge is a changed (propagating) edge."
