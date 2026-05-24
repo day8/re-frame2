@@ -111,74 +111,122 @@
        (some read-port-file port-file-candidates))))
 
 (defn discover-port*
-  "Full nREPL port-discovery cascade with the shadow HTTP probe injected
-  as `shadow-probe-fn` — a `(host port) → Promise<project-home-or-nil>`
-  function. Production callers thread `shadow-discovery/discover-project-home`
-  (see [[discover-port]]); tests pass stubs to exercise each cascade
-  branch without standing up a real HTTP server.
+  "Full nREPL port-discovery cascade with every async step injected so
+  tests can drive each branch without sockets or network. Production
+  callers use [[discover-port]] / [[discover-port-with-roots]] which
+  thread the real probes in.
 
-  Returns a Promise resolving to an integer port or to nil.
+  Returns a Promise resolving to a map
+  `{:port <int|nil> :project-home <abs|nil> :ambiguous <vec-of-candidates|nil>
+    :workspace-roots <vec> :checked-edns <vec>}`. The orchestrator
+  (`server.cljs`) consumes the richer shape to drive the elicitation
+  branch on ambiguity.
 
-  ## Precedence (highest first; rf2-umoz2)
+  ## Precedence (highest first; rf2-3grub adds step 3)
 
     1. `--port-file <path>`   explicit, cwd-independent override
-                              (rf2-3dbwh). Wins outright.
-    2. `$SHADOW_CLJS_NREPL_PORT` env var.
-    3. **Shadow HTTP probe** — `shadow-probe-fn` returns the consumer
-       project's absolute `:project-home`; we then read
-       `port-file-candidates` resolved against that root. This is the
-       cwd-robust zero-config win for the agent-host launch pattern
-       where `process.cwd()` is the host, not the project (rf2-umoz2).
-    4. CWD-relative scan of `port-file-candidates` — legacy fallback
-       for environments without the shadow HTTP API (older shadow, or
-       a manual nREPL boot bypassing shadow entirely).
+                              (rf2-3dbwh). Wins outright; `:project-home`
+                              is the dirname of the port file.
+    2. `$SHADOW_CLJS_NREPL_PORT` env var. `:project-home` left nil
+                              (env-overridden discovery doesn't surface a
+                              root); the per-tool-call port-file re-read
+                              is skipped on this path.
+    3. **MCP `roots/list` walk** (rf2-3grub) — when `roots-discovery-fn`
+                              is supplied (post-MCP-init, lazy on first
+                              tool call), ask the client for its
+                              workspace roots, walk each one for
+                              `shadow-cljs.edn`, and pair the result with
+                              the adjacent `.shadow-cljs/nrepl.port`. One
+                              candidate → silent attach. Multiple →
+                              `:ambiguous` (caller drives elicitation).
+                              `:workspace-discovery-unsupported` →
+                              proceed to step 4.
+    4. **Shadow HTTP probe** (rf2-umoz2) — `shadow-probe-fn` returns the
+                              consumer project's absolute `:project-home`;
+                              we then read `port-file-candidates` resolved
+                              against that root. Cwd-robust legacy
+                              fallback for clients without `roots/list`.
+    5. CWD-relative scan of `port-file-candidates` — legacy fallback for
+                              environments without the shadow HTTP API.
 
-  ## Why steps 3 and 4 use the same candidate list
+  ## Why steps 3, 4, and 5 share the same candidate list
 
   shadow-cljs writes its nREPL port to one of three known relative paths
-  inside the project root. Step 3 obtains the root from shadow itself;
-  step 4 hopes the cwd already IS the root. Sharing the candidate list
-  keeps the contract `(root, candidates) → port` symmetrical across the
-  two steps.
+  inside the project root. Step 3 obtains roots from the MCP client;
+  step 4 obtains the root from shadow itself; step 5 hopes cwd already
+  IS the root. Sharing the candidate list keeps the contract symmetric
+  across the three steps.
 
-  ## Why the HTTP probe is bounded
+  ## Why the probes are bounded
 
-  See `shadow-discovery/probe-timeout-ms`. The probe never blocks boot
-  for more than half a second — if shadow's web server is unreachable
-  the cascade moves on. The `--port-file` and env-var escape hatches
-  (steps 1 and 2) remain the deterministic overrides for exotic setups.
+  See `shadow-discovery/probe-timeout-ms`. Each probe never blocks for
+  more than half a second — if any source is unreachable the cascade
+  moves on. The `--port-file` and env-var escape hatches (steps 1 and 2)
+  remain the deterministic overrides for exotic setups.
 
   ## Why injection rather than direct call
 
   The CLJS compiler resolves `shadow-discovery/discover-project-home` at
   callsite-emit time; CLJS's `with-redefs` swaps the *var binding* but
   the emitted JS for a direct multi-arity call dispatches through
-  fn-object arity slots, not through the var. Injecting the probe makes
-  the seam explicit and gives tests a clean stub-point — and the
-  production wrapper below pays nothing for the indirection (single
-  call, no allocation)."
-  [explicit-port-file http-port shadow-probe-fn]
-  (let [override (or (when (and explicit-port-file (seq explicit-port-file))
-                       (read-port-file explicit-port-file))
-                     (read-env-port))]
-    (if override
-      (js/Promise.resolve override)
-      (-> (shadow-probe-fn
-            shadow-discovery/default-host
-            (or http-port shadow-discovery/default-http-port))
-          (.then (fn [project-home]
-                   (or (read-port-at-base project-home)
-                       ;; Final fallback: cwd-relative scan.
-                       (some read-port-file port-file-candidates))))))))
+  fn-object arity slots, not through the var. Injecting each probe makes
+  the seams explicit and gives tests clean stub-points."
+  [explicit-port-file http-port shadow-probe-fn roots-discovery-fn]
+  (cond
+    ;; Step 1 — explicit --port-file flag.
+    (and explicit-port-file (seq explicit-port-file))
+    (if-let [port (read-port-file explicit-port-file)]
+      (js/Promise.resolve {:port         port
+                           :project-home (node-path/dirname explicit-port-file)})
+      ;; Explicit but unreadable — record and fall through.
+      (js/Promise.resolve {:port nil}))
+
+    ;; Step 2 — $SHADOW_CLJS_NREPL_PORT.
+    (some? (read-env-port))
+    (js/Promise.resolve {:port (read-env-port)})
+
+    :else
+    ;; Steps 3 → 4 → 5 — chained async cascade.
+    (-> (if roots-discovery-fn
+          (roots-discovery-fn)
+          (js/Promise.resolve {:status :error
+                               :error  {:reason :workspace-discovery-unsupported}}))
+        (.then
+          (fn [r]
+            (case (:status r)
+              :one  (let [c (:candidate r)]
+                      {:port (:port c) :project-home (:project-home c)})
+              :many {:port nil :ambiguous (:candidates r)}
+              :error
+              ;; Roots unavailable or no shadow in roots — try step 4 (HTTP probe).
+              (-> (shadow-probe-fn
+                    shadow-discovery/default-host
+                    (or http-port shadow-discovery/default-http-port))
+                  (.then (fn [project-home]
+                           (if-let [port (read-port-at-base project-home)]
+                             {:port port :project-home project-home}
+                             ;; Step 5 — cwd-relative scan, last resort.
+                             {:port (some read-port-file port-file-candidates)}))))))))))
 
 (defn discover-port
   "Production entry-point for the port-discovery cascade — see
-  [[discover-port*]] for the precedence details and the design rationale.
-  Returns a Promise resolving to an integer port or to nil."
-  ([] (discover-port nil nil))
+  [[discover-port*]] for the precedence details and design rationale.
+
+  Returns a Promise resolving to a discovery-result map (see
+  `discover-port*`). The `roots-discovery-fn` is optional — boot-time
+  callers without an initialized MCP client omit it; post-init callers
+  thread it in so step 3 (roots-list) is reachable.
+
+  Legacy 0-/2-arity wrappers preserve the prior boot path (rf2-umoz2 +
+  rf2-3dbwh). Net-new callers should use the 3-arity that takes the
+  roots fn."
+  ([] (discover-port nil nil nil))
   ([explicit-port-file http-port]
+   (discover-port explicit-port-file http-port nil))
+  ([explicit-port-file http-port roots-discovery-fn]
    (discover-port* explicit-port-file http-port
-                   shadow-discovery/discover-project-home)))
+                   shadow-discovery/discover-project-home
+                   roots-discovery-fn)))
 
 ;; ---------------------------------------------------------------------------
 ;; bencode framing — handle concatenated frames in one TCP packet.

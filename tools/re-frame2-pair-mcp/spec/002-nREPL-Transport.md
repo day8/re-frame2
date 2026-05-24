@@ -49,39 +49,85 @@ adds the preload entry to their shadow-cljs build per
 
 ## Port discovery
 
-In precedence order (rf2-umoz2 introduced step 3):
+In precedence order (rf2-3grub introduced step 3 as the proper generic
+solution; rf2-umoz2 introduced what is now step 4 as the
+shadow-specific fallback):
 
 1. `--port-file <path>` launch flag — explicit, cwd-independent override
    (rf2-3dbwh).
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
-3. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info`
+3. **MCP `roots/list` walk** (rf2-3grub) — ask the MCP client for its
+   workspace roots, walk each one (bounded shallow, skipping
+   `node_modules` / `.git` / `target` / etc.) for `shadow-cljs.edn`,
+   and pair each find with the adjacent `.shadow-cljs/nrepl.port`. One
+   match → silent attach. Multiple → drive `elicitation/create` so the
+   user picks. Zero matches → step 4. The discovery runs lazily on
+   first tool call (so the client has finished `initialize` and its
+   `roots` capability is observable).
+4. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info`
    returns the consumer build's absolute `:project-home`; the server
    then reads `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`,
    `.nrepl-port` (in that order) resolved against that root. The
    shadow HTTP port is overridable via `--http-port <n>` (default
-   9630; rf2-umoz2).
-4. CWD-relative scan of the same three candidates — legacy fallback
+   9630; rf2-umoz2). Fallback for clients that don't expose `roots`.
+5. CWD-relative scan of the same three candidates — legacy fallback
    for environments without shadow's web server.
 
-If none resolve, the server boots in degraded mode (see
-`001-Wire-Protocol.md` § Degraded boot).
+If none resolve, the first tool call returns a structured error and
+subsequent calls retry discovery (see § Lazy discovery below).
 
-### Why the HTTP probe
+### Lazy discovery (rf2-3grub)
 
-shadow-cljs's nREPL port is ephemeral (a fresh OS-assigned port on each
-`shadow-cljs watch` start) and the port file lives at a relative path
-inside the consumer project. Pre-rf2-umoz2 the server relied on
-`process.cwd()` being the project root to find that file — but agent
-hosts (Claude Code / Cursor / Copilot) spawn MCP subprocesses with a cwd
-they choose, frequently `$HOME` or the host's install dir. Shadow's own
-HTTP server (default port 9630, fixed across restarts) exposes the
-absolute project root via `/api/project-info`; that closes the loop
-without forcing every operator to hardcode `--port-file` in their MCP
-config.
+Port discovery is **lazy on first tool call**, not boot. The reason:
+`roots/list` is a server→client request that can only be issued AFTER
+the client's `initialize` handshake completes — driving it from `main`
+would race the handshake. Instead, the boot path connects the stdio
+transport and registers handlers; the first `tools/call` triggers the
+five-step cascade.
+
+**Per-tool-call port-file re-read.** After the initial discovery, each
+subsequent tool call re-reads `<project-home>/.shadow-cljs/nrepl.port`
+before using the cached socket. If the port has changed (shadow was
+restarted; the dev server picks a fresh ephemeral port on each `watch`
+start), the cached socket is closed and a new one opened transparently.
+If the port file vanished, discovery re-runs from step 1.
+
+### Why `roots/list` is the primary path
+
+The MCP `roots` capability is the protocol's own answer to the
+"where is the workspace" problem: the client (Claude Code) surfaces
+the directories the user has opened. Generic across MCP servers — any
+future tool facing the same CWD-discovery problem uses the same
+primitive. Zero hardcoded paths, zero shadow-specific port probing,
+zero operator config under the normal path. Survives multi-project
+workspaces via `elicitation/create`. Survives shadow restarts via the
+per-tool-call port-file re-read.
+
+### Why the HTTP probe stays as step 4 (rf2-umoz2)
+
+`roots/list` requires a recent MCP-protocol revision; older clients
+fall through to step 4. Shadow's web server (default port 9630, fixed
+across restarts) exposes `:project-home` at `/api/project-info` — the
+same one-step cwd-resolution mechanism, shadow-specific but reliable
+for any agent host that spawned the MCP server with the cwd ≠ project
+root.
 
 The probe is bounded (`probe-timeout-ms` = 500ms) and never blocks boot
 indefinitely. Probe failure (shadow not running, non-default `:http :port`,
-parse error) silently falls through to step 4.
+parse error) silently falls through to step 5.
+
+### Why this is the right ceiling for cwd discovery
+
+- **Zero hardcoded paths anywhere** under the normal path — not in
+  `~/.claude.json`, not in launch args, not in source.
+- **Zero shadow-cljs-specific port guessing** in the primary cascade —
+  the workspace tells us where to look.
+- **Generic across MCP servers** — `roots` is the official MCP pattern.
+- **Survives shadow restarts** transparently via the per-tool re-read.
+- **Survives multi-project workspaces** via `elicitation/create`.
+- **Graceful degradation** — clients without `roots` fall through to
+  step 4 (shadow HTTP probe), then step 5 (cwd scan), with steps 1-2
+  as explicit operator overrides at any layer.
 
 ## cljs-eval wrapper
 

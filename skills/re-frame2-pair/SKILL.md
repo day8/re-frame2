@@ -123,7 +123,11 @@ This locates the shadow-cljs nREPL port, connects, switches the session to `:clj
 
 If any precondition fails, the script returns a structured edn error like `{:ok? false :reason :runtime-not-preloaded}`. Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
 
-**Port discovery (bash-shim transport).** The shim finds the nREPL port by scanning shadow-cljs's standard port-file locations (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port`) at both the shell CWD *and* under `implementation/`, then picks the **most-recently-modified** file — so a freshly (re)started dev build always wins over a stale leftover port file. If discovery still resolves the wrong port (`connection refused` / wrong build) — e.g. multiple builds running, or a port file living somewhere non-standard — set **`SHADOW_CLJS_NREPL_PORT`** to the live port; it is a CWD-independent override that bypasses file discovery entirely:
+**Port discovery (canonical MCP transport).** On the first tool call the MCP server discovers the live shadow-cljs nREPL via a five-step cascade — `--port-file <abs>` flag, then `$SHADOW_CLJS_NREPL_PORT` env var, then **MCP `roots/list`** asking the agent host for its open workspace roots and walking each for `shadow-cljs.edn` + `.shadow-cljs/nrepl.port` (rf2-3grub — the zero-config primary path), then shadow's HTTP probe at `:9630/api/project-info` (rf2-umoz2), then a CWD-relative scan. Multiple running shadow builds in the workspace trigger an `elicitation/create` prompt so the user picks the project to attach to. Shadow restarts are absorbed transparently — every subsequent tool call re-reads the cached port file and reconnects if it changed.
+
+If discovery still misses (no running shadow, non-default `:http :port`, exotic setup), pass `--port-file <abs>` in the MCP config or set `SHADOW_CLJS_NREPL_PORT` — both are explicit operator overrides that win the cascade.
+
+**Bash-shim transport (back-compat appendix).** The shim finds the nREPL port by scanning shadow-cljs's standard port-file locations (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port`) at both the shell CWD *and* under `implementation/`, then picks the **most-recently-modified** file — so a freshly (re)started dev build always wins over a stale leftover port file. Override with `SHADOW_CLJS_NREPL_PORT`:
 
 ```
 SHADOW_CLJS_NREPL_PORT=51708 scripts/discover-app.sh
