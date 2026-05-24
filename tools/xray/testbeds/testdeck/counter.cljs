@@ -53,8 +53,8 @@
 (rf/reg-cofx :testdeck/now
   {:doc "Inject the current wall-clock time (ms since epoch) into
          coeffects under `:testdeck/now`."}
-  (fn cofx-testdeck-now [coeffects]
-    (assoc coeffects :testdeck/now (.getTime (js/Date.)))))
+  (fn cofx-testdeck-now [ctx]
+    (rf/assoc-coeffect ctx :testdeck/now (.getTime (js/Date.)))))
 
 ;; ============================================================================
 ;; APP-DB SLICE
